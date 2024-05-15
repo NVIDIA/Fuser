@@ -1121,12 +1121,17 @@ MatmulProblemLayoutOpt getProblemLayout(
   // group_to_domain
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  using MatmulDomainOpt = DataWrapperOpt<MatmulDomain>;
+  // Note: using DataWrapperOpt<MatmulDomain> would be preferable here. However,
+  // using DataWrapperOpt<MatmulDomain>(std::move(dom)) leads to a clang-tidy
+  // warning because MatmulDomain is trivially movable. There is only a move
+  // constructor for DataWrapperOpt to prevent inadvertent copying. To avoid
+  // this complication I'm using a simple pair for the lambda's result type.
+  using InnerDomResult = std::pair<MatmulDomain, std::string>;
   const auto innerDomain = [&roles_map, &group_to_domain, &exact_graph](
-                               MatmulRole role) -> MatmulDomainOpt {
+                               MatmulRole role) -> InnerDomResult {
     const auto role_it = roles_map.find(role);
     if (role_it == roles_map.end()) {
-      return {"Could not find role in roles_map"};
+      return {MatmulDomain::M, "Could not find role in roles_map"};
     }
     std::optional<MatmulDomain> group_inner_dom = std::nullopt;
     for (TensorView* tv : role_it->second) {
@@ -1135,31 +1140,36 @@ MatmulProblemLayoutOpt getProblemLayout(
       const ValGroup& g = exact_graph.toGroup(inner_id);
       auto g_it = group_to_domain.find(g);
       if (g_it == group_to_domain.end()) {
-        return {"Inner domain of tensor was not mapped to a MatmulDomain"};
+        return {
+            MatmulDomain::M,
+            "Inner domain of tensor was not mapped to a MatmulDomain"};
       }
       if (!group_inner_dom.has_value()) {
         group_inner_dom = g_it->second;
       } else if (group_inner_dom.value() != g_it->second) {
-        return {"Group contains multiple inner dimension domains"};
+        return {
+            MatmulDomain::M, "Group contains multiple inner dimension domains"};
       }
     }
     if (!group_inner_dom.has_value()) {
-      return {"No tensor found in role"};
+      return {MatmulDomain::M, "No tensor found in role"};
     }
-    MatmulDomain dom = group_inner_dom.value();
-    return MatmulDomainOpt(std::move(dom));
+    return {group_inner_dom.value(), ""};
   };
-  MatmulDomainOpt a_inner_dom = innerDomain(MatmulRole::INPUT_A);
-  if (!a_inner_dom.isValid()) {
-    return a_inner_dom.getErrorMsg();
-  }
-  MatmulDomainOpt b_inner_dom = innerDomain(MatmulRole::INPUT_B);
-  if (!b_inner_dom.isValid()) {
-    return b_inner_dom.getErrorMsg();
-  }
 
-  bool kinner_a = a_inner_dom.getData() == MatmulDomain::K;
-  bool kinner_b = b_inner_dom.getData() == MatmulDomain::K;
+  const InnerDomResult a_dom_res = innerDomain(MatmulRole::INPUT_A);
+  if (!a_dom_res.second.empty()) {
+    std::string err = a_dom_res.second;
+    return err;
+  }
+  const bool kinner_a = a_dom_res.first == MatmulDomain::K;
+
+  const InnerDomResult b_dom_res = innerDomain(MatmulRole::INPUT_B);
+  if (!b_dom_res.second.empty()) {
+    std::string err = b_dom_res.second;
+    return err;
+  }
+  const bool kinner_b = b_dom_res.first == MatmulDomain::K;
 
   if (kinner_a && kinner_b) {
     return MmaLayout::TN;
