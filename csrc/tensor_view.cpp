@@ -1273,6 +1273,52 @@ void TensorView::clearReductionIterDomains() {
   }
 }
 
+
+void TensorView::clearBroadcastIterDomains(const std::vector<bool>& broadcast_dims_to_be_removed) {
+  NVF_ERROR(
+      getLeafDomain() == getRootDomain(),
+      "should not call clearBroadcastIterDomains on already transformed TensorDomains");
+
+  const std::vector<IterDomain*>& root = getRootDomain();
+  const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
+
+  NVF_ERROR(
+      std::is_permutation(root.begin(), root.end(), alloc.begin(), alloc.end()),
+      "should not call clearBroadcastIterDomains on transformed allocation domain");
+
+  std::vector<IterDomain*> new_root;
+  std::vector<IterDomain*> new_alloc;
+  std::vector<std::optional<bool>> new_contig;
+  for (const auto i : c10::irange(root.size())) {
+    auto root_i = root.at(i);
+    if (!root_i->isBroadcast() || !broadcast_dims_to_be_removed.at(i)){
+      new_root.push_back(root_i);
+    }
+    // contig flag is specified for on allocation domain
+    auto alloc_i = alloc.at(i);
+    if (!alloc_i->isBroadcast() || !broadcast_dims_to_be_removed.at(i)) {
+      new_alloc.push_back(alloc_i);
+      new_contig.push_back(domain()->contiguity().at(i));
+    }
+  }
+
+  if (new_alloc == new_root) {
+    // if new allocation domain is identical to new root domain, we don't need
+    // to specify allocation domain
+    setDomain(
+        IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+  } else {
+    setDomain(IrBuilder::create<TensorDomain>(
+        container(),
+        new_root,
+        std::vector<IterDomain*>(),
+        new_alloc,
+        new_root,
+        new_contig));
+  }
+}
+
+
 void TensorView::doubleBuffer() {
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not
