@@ -66,6 +66,9 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
 // Returns whether an Expr embeds multi-device resharding
 bool isResharding(Expr* expr);
 
+// Returns whether two tensors have different shardings. Expect a producer/consumer relationship between the arguments.
+bool haveDifferentShardings(TensorView* producer, TensorView* consumer);
+
 // Returns whether a resharding expr reshards an inner axis
 bool isInnerResharding(Expr* expr);
 
