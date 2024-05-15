@@ -429,29 +429,74 @@ void checkMatmulOpIdMapping(
     return gx.get() == gy.get();
   };
 
-  if (A->nDims() == 2 && B->nDims() == 2) {
-    // [iM, iK] @ [iK, iN] = [iM, iN, rK]
-    ASSERT_EQ(output->nDims(), 3);
-    EXPECT_TRUE(checkMapped(A->axis(0), output->axis(0))); // M
-    EXPECT_TRUE(checkMapped(B->axis(1), output->axis(1))); // N
-    EXPECT_TRUE(checkMapped(A->axis(1), B->axis(0))); // K
-    EXPECT_TRUE(checkMapped(A->axis(1), output->axis(2))); // K
-  } else if (A->nDims() == 2 && B->nDims() == 1) {
-    // [iM, iK] @ [iK] = [iM, rK]
-    ASSERT_EQ(output->nDims(), 2);
-    EXPECT_TRUE(checkMapped(A->axis(0), output->axis(0))); // M
-    EXPECT_TRUE(checkMapped(B->axis(0), output->axis(1))); // N
-    EXPECT_TRUE(checkMapped(A->axis(1), B->axis(0))); // K
-    EXPECT_TRUE(checkMapped(A->axis(1), output->axis(1))); // K
-  } else if (A->nDims() == 1 && B->nDims() == 1) {
+  // If K is Broadcast then we will not have a reduction dim
+  bool k_bcast = A->axis(-1)->isBroadcast();
+  int64_t red_dims = k_bcast ? 0 : 1;
+
+  if (A->nDims() == 1 && B->nDims() == 1) {
     // [K] @ [K] = []
-    // Note there is no IterType::Reduction dim in this case because we
+    // Note there is no IterType::Reduction dim ever in this case because we
     // translate to a mul+sum+cast
     EXPECT_EQ(output->nDims(), 0);
-    EXPECT_TRUE(checkMapped(A->axis(0), B->axis(0))); // K
+    // When K is Broadcast, we squeeze then multiply then cast instead
+    if (!k_bcast) {
+      EXPECT_TRUE(checkMapped(A->axis(0), B->axis(0))); // K
+    }
+  } else if (A->nDims() > 1 && B->nDims() == 1) {
+    // [..., iM, iK] @ [iK] = [..., iM, rK]
+    ASSERT_EQ(output->nDims(), A->nDims() + red_dims - 1);
+    EXPECT_TRUE(checkMapped(A->axis(-2), output->axis(-1 - red_dims))); // M
+    if (!k_bcast) {
+      EXPECT_TRUE(checkMapped(A->axis(-1), B->axis(0))); // K
+      EXPECT_TRUE(checkMapped(A->axis(-1), output->axis(-1))); // K
+    }
+    // Check that batch dims are mapped
+    for (int64_t i : c10::irange(output->nDims() - red_dims - 1)) {
+      if (!A->axis(i)->isBroadcast()) {
+        EXPECT_TRUE(checkMapped(A->axis(i), output->axis(i)));
+      }
+    }
+  } else if (A->nDims() == 1 && B->nDims() > 1) {
+    // [iK] @ [..., iK, iN] = [..., iN, rK]
+    ASSERT_EQ(output->nDims(), B->nDims() + red_dims - 1);
+    EXPECT_TRUE(checkMapped(B->axis(-1), output->axis(-1 - red_dims))); // N
+    if (!k_bcast) {
+      EXPECT_TRUE(checkMapped(A->axis(0), B->axis(-2))); // K
+      EXPECT_TRUE(checkMapped(A->axis(0), output->axis(-1))); // K
+    }
+    // Check that batch dims are mapped
+    for (int64_t i : c10::irange(output->nDims() - red_dims - 1)) {
+      if (!B->axis(i)->isBroadcast()) {
+        EXPECT_TRUE(checkMapped(B->axis(i), output->axis(i)));
+      }
+    }
+  } else if (A->nDims() > 1 && B->nDims() > 1) {
+    // [..., iM, iK] @ [..., iK, iN] = [..., iM, iN, rK]
+    ASSERT_EQ(output->nDims(), std::max(A->nDims(), B->nDims()) + red_dims);
+    EXPECT_TRUE(checkMapped(A->axis(-2), output->axis(-2 - red_dims))); // M
+    EXPECT_TRUE(checkMapped(B->axis(-1), output->axis(-1 - red_dims))); // N
+    if (!k_bcast) {
+      EXPECT_TRUE(checkMapped(A->axis(-1), B->axis(-2))); // K
+      EXPECT_TRUE(checkMapped(A->axis(-1), output->axis(-1))); // K
+    }
+    // Check that batch dims are mapped
+    // Note that A and B can have different dimensions, so here we count
+    // backwards from the innermost batch dimension. Then we check that the axis
+    // exists (is not negative) and is not Broadcast before checking mapping.
+    for (int64_t i : c10::irange(output->nDims() - red_dims - 2)) {
+      int64_t i_a = A->nDims() - 3 - i;
+      int64_t i_b = B->nDims() - 3 - i;
+      int64_t i_out = output->nDims() - red_dims - 3 - i;
+      if (i_a >= 0 && !A->axis(i_a)->isBroadcast()) {
+        EXPECT_TRUE(checkMapped(A->axis(i_a), output->axis(i_out)));
+      }
+      if (i_b >= 0 && !B->axis(i_b)->isBroadcast()) {
+        EXPECT_TRUE(checkMapped(B->axis(i_b), output->axis(i_out)));
+      }
+    }
   } else {
-    std::cout << "Unhandled set of input dimensions" << std::endl;
-    // EXPECT_TRUE(false);
+    std::cerr << "Unhandled set of input dimensions" << std::endl;
+    EXPECT_TRUE(false);
   }
 }
 
@@ -530,6 +575,17 @@ INSTANTIATE_TEST_SUITE_P(
 INSTANTIATE_TEST_SUITE_P(
     ReductionAxisIsOne,
     ATenNodesParametrizedTest,
-    testing::Values(std::make_tuple(Sizes({m, 1}), Sizes({1, n}))));
+    testing::Combine(
+        testing::Values(
+            Sizes({1}),
+            Sizes({m, 1}),
+            Sizes({1, 1}),
+            Sizes({b, m, 1}),
+            Sizes({b, 1, m, 1})),
+        testing::Values(
+            Sizes({1}),
+            Sizes({1, n}),
+            Sizes({1, 1}),
+            Sizes({b, 1, n}))));
 
 } // namespace nvfuser
