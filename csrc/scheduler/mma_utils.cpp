@@ -1147,7 +1147,7 @@ MatmulProblemLayoutOpt getProblemLayout(
       return {"No tensor found in role"};
     }
     MatmulDomain dom = group_inner_dom.value();
-    return MatmulDomainOpt(std::move(dom));
+    return MatmulDomainOpt(dom);
   };
   MatmulDomainOpt a_inner_dom = innerDomain(MatmulRole::INPUT_A);
   if (!a_inner_dom.isValid()) {
@@ -1334,10 +1334,14 @@ RolesMapOpt getTensorsRoles(
     bool has_m = false, has_n = false, has_k = false, has_unmapped = false;
     for (IterDomain* id :
          TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+      if (id->isBroadcast()) {
+        // Broadcast domains won't exact map to concrete domains so skip them
+        continue;
+      }
       const ValGroup& g = exact_graph.toGroup(id);
       auto it = group_to_domain.find(g);
       if (it == group_to_domain.end()) {
-        // tv has an unmapped dimension
+        // tv has an unmapped non-broadcast and non-reduction dimension
         has_unmapped = true;
         continue;
       }
