@@ -139,6 +139,10 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
 
 const Team& Communication::team() {
   if (team_.empty()) {
+    // I could instead compute `team_` in the constructor. But I chose to
+    // compute and cache it in team() so I can remove the customized cloning
+    // constructor (the one that takes IrCloner*) in favor of `Expr::Expr(const
+    // Expr*, IrCloner*)` in an upcoming PR.
     team_ = params_.mesh.vector();
     if (hasRoot(params_.type) && !isRootInMesh()) {
       team_.push_back(params_.root);

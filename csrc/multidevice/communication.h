@@ -153,6 +153,9 @@ class Communication : public Expr {
  private:
   // Stores the arguments used to construct the communication.
   CommParams params_;
+  // This can be computed from params_, but given how frequently this is used
+  // in the hot path, I'm currently storing it as a field that'll be computed by
+  // Communication::team().
   Team team_;
 };
 
