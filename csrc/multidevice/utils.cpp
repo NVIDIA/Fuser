@@ -156,9 +156,16 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
   const auto p2c_map =
       PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
   for (auto p_id :
-        TensorDomain::noReductions(producer->getMaybeRFactorDomain())) {
+       TensorDomain::noReductions(producer->getMaybeRFactorDomain())) {
     auto p2c_map_it = p2c_map.find(p_id);
-    NVF_ERROR( p2c_map_it != p2c_map.end(), "the producer ", producer, " has a dimension ", p_id, " that is not mapped to its consumer ", consumer);
+    NVF_ERROR(
+        p2c_map_it != p2c_map.end(),
+        "the producer ",
+        producer,
+        " has a dimension ",
+        p_id,
+        " that is not mapped to its consumer ",
+        consumer);
     auto c_id = p2c_map_it->second;
     if (p_id->getParallelType() != c_id->getParallelType() &&
         (p_id->isDeviceDim() || c_id->isDeviceDim())) {
@@ -246,7 +253,7 @@ void insertReshardingBefore(Fusion* fusion) {
 
     auto output = expr->outputs().at(0)->as<TensorView>();
     std::unordered_set<TensorView*> inputs;
-    for (auto input: ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output)) {
         inputs.insert(input);
       }
@@ -289,7 +296,7 @@ void insertReshardingsAfter(Fusion* fusion) {
 
     auto output = expr->outputs().at(0)->as<TensorView>();
     std::unordered_set<TensorView*> inputs;
-    for (auto input: ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output)) {
         inputs.insert(input);
       }
