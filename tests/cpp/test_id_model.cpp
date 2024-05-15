@@ -2011,7 +2011,7 @@ TEST_F(IdModelTest, LoopPromotionTwoStepFailureRepro) {
   fusion.print();
 
   std::ofstream ofs("transform.dot", std::ofstream::trunc);
-  ofs << TransformToDot::get(&fusion);
+  ofs << irTransformToDot(&fusion);
   ofs.close();
 
   FusionExecutor fe;
