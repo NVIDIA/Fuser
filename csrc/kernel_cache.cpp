@@ -1206,7 +1206,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     sprof.inputBytesAccessed(executor.inputBytesProcessed(args));
     sprof.startKernel(args.getDeviceIndex());
   }
-  auto outputs = executor.runFusion(args, launch_params, compile_params, preallocated_outputs);
+  auto outputs = executor.runFusion(
+      args, launch_params, compile_params, preallocated_outputs);
   if (isProfilerEnabled()) {
     auto& sprof = FusionProfiler::segment(group_id);
     sprof.stopKernel();
@@ -1403,7 +1404,8 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
 }
 
 std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
-    KernelArgumentHolder& args, const std::vector<at::Tensor>& outputs) {
+    KernelArgumentHolder& args,
+    const std::vector<at::Tensor>& outputs) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -1435,7 +1437,9 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 }
 
 std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
-    runSegmentsWithInputs(KernelArgumentHolder& args, const std::vector<at::Tensor>& outputs) {
+    runSegmentsWithInputs(
+        KernelArgumentHolder& args,
+        const std::vector<at::Tensor>& outputs) {
   NVF_ERROR(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",

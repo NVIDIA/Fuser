@@ -150,7 +150,9 @@ class FusionKernelRuntime {
   }
 
   //! Unified interface to run the managed kernels with given input
-  NVF_API std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args, const std::vector<at::Tensor>& outputs = {});
+  NVF_API std::vector<at::Tensor> runWithInputs(
+      KernelArgumentHolder& args,
+      const std::vector<at::Tensor>& outputs = {});
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
@@ -242,7 +244,8 @@ class FusionKernelRuntime {
   //! segments. Returns a map that links each NvFuser Val to its corresponding
   //! tensor.
   std::unordered_map<Val*, const PolymorphicValue*> runSegmentsWithInputs(
-      KernelArgumentHolder& args, const std::vector<at::Tensor>& outputs);
+      KernelArgumentHolder& args,
+      const std::vector<at::Tensor>& outputs);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
@@ -529,9 +532,9 @@ class FusionExecutorCache {
       const at::ArrayRef<c10::IValue>& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt) {
-        return runFusionWithInputs(inputs, {}, forced_index_type, selected_device);
-    }
-  
+    return runFusionWithInputs(inputs, {}, forced_index_type, selected_device);
+  }
+
   NVF_API std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<c10::IValue>& inputs,
       const std::vector<at::Tensor>& outputs,
