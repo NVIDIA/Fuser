@@ -83,17 +83,17 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(PostOnStream)
 std::string PostOnStream::toString(int indent_size) const {
   int indent_increment = 2;
   std::stringstream ss;
-  indent(ss, indent_size) << "PostOnStream the operation :{\n";
-  indent(ss, indent_size) << hostOpToPost()->toString();
-  indent(ss, indent_size) << "\n}, taking inputs: {";
+  indent(ss, indent_size) << "PostOnStream the operation :{" << std::endl;
+  indent(ss, indent_size) << hostOpToPost();
+  indent(ss, indent_size) << std::endl << "}, taking inputs: {";
   for (auto input : inputs()) {
     indent(ss, indent_size + indent_increment)
-        << input->toString(indent_size + indent_increment) << "\n";
+        << input->toString(indent_size + indent_increment) << std::endl;
   }
-  indent(ss, indent_size) << "} and outputs: {\n";
+  indent(ss, indent_size) << "} and outputs: {" << std::endl;
   for (auto output : outputs()) {
     indent(ss, indent_size + indent_increment)
-        << output->toString(indent_size + indent_increment) << "\n";
+        << output->toString(indent_size + indent_increment) << std::endl;
   }
   indent(ss, indent_size) << "}" << std::endl;
   return ss.str();
