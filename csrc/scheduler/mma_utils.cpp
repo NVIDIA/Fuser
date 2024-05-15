@@ -474,7 +474,8 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
       // Found an innermost id, add them to the
       //  axes to reorder.
       NVF_ERROR(
-          id_to_inner_leaf_pos.insert(std::make_pair(maybe_alloc_domain.value(), i))
+          id_to_inner_leaf_pos
+              .insert(std::make_pair(maybe_alloc_domain.value(), i))
               .second,
           "Multiple \"innermost\" id seen for id :",
           maybe_alloc_domain.value()->toString(),
