@@ -35,7 +35,6 @@ class CommunicationTest
   // TODO: test other reduction op types.
   static constexpr c10d::ReduceOp::RedOpType red_op =
       c10d::ReduceOp::RedOpType::SUM;
-  CommParams params;
   const DeviceMesh full_mesh;
   const Team all_ranks;
   c10::intrusive_ptr<c10d::Backend> backend;
@@ -63,11 +62,13 @@ void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
 }
 
 TEST_P(CommunicationTest, Gather) {
-  params.type = CommunicationType::Gather;
-  params.root = root;
-  params.mesh = full_mesh;
-  params.team = all_ranks;
-  auto communication = IrBuilder::create<Communication>(&container, params);
+  auto communication = IrBuilder::create<Communication>(
+      &container,
+      CommParams{
+          .type = CommunicationType::Gather,
+          .root = root,
+          .mesh = full_mesh,
+          .team = all_ranks});
 
   at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
   at::Tensor output_tensor =
@@ -94,10 +95,12 @@ TEST_P(CommunicationTest, Gather) {
 }
 
 TEST_P(CommunicationTest, Allgather) {
-  params.type = CommunicationType::Allgather;
-  params.mesh = full_mesh;
-  params.team = all_ranks;
-  auto communication = IrBuilder::create<Communication>(&container, params);
+  auto communication = IrBuilder::create<Communication>(
+      &container,
+      CommParams{
+          .type = CommunicationType::Allgather,
+          .mesh = full_mesh,
+          .team = all_ranks});
 
   at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
   at::Tensor output_tensor =
@@ -123,11 +126,13 @@ TEST_P(CommunicationTest, Allgather) {
 }
 
 TEST_P(CommunicationTest, Scatter) {
-  params.type = CommunicationType::Scatter;
-  params.root = root;
-  params.mesh = full_mesh;
-  params.team = all_ranks;
-  auto communication = IrBuilder::create<Communication>(&container, params);
+  auto communication = IrBuilder::create<Communication>(
+      &container,
+      CommParams{
+          .type = CommunicationType::Scatter,
+          .root = root,
+          .mesh = full_mesh,
+          .team = all_ranks});
 
   at::Tensor input_tensor;
   if (communicator->deviceId() == root) {
@@ -159,11 +164,13 @@ TEST_P(CommunicationTest, Scatter) {
 }
 
 TEST_P(CommunicationTest, Broadcast) {
-  params.type = CommunicationType::Broadcast;
-  params.root = root;
-  params.mesh = full_mesh;
-  params.team = all_ranks;
-  auto communication = IrBuilder::create<Communication>(&container, params);
+  auto communication = IrBuilder::create<Communication>(
+      &container,
+      CommParams{
+          .type = CommunicationType::Broadcast,
+          .root = root,
+          .mesh = full_mesh,
+          .team = all_ranks});
 
   at::Tensor input_tensor;
   if (communicator->deviceId() == root) {
@@ -205,11 +212,13 @@ TEST_P(CommunicationTest, SendRecv) {
     return;
   }
 
-  params.type = CommunicationType::SendRecv;
-  params.root = sender;
-  params.mesh = {receiver};
-  params.team = {sender, receiver};
-  auto communication = IrBuilder::create<Communication>(&container, params);
+  auto communication = IrBuilder::create<Communication>(
+      &container,
+      CommParams{
+          .type = CommunicationType::SendRecv,
+          .root = sender,
+          .mesh = {receiver},
+          .team = {sender, receiver}});
 
   at::Tensor input_tensor;
   at::Tensor output_tensor;
@@ -247,11 +256,13 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
     return;
   }
 
-  params.type = CommunicationType::SendRecv;
-  params.root = sender;
-  params.mesh = {sender};
-  params.team = {sender};
-  auto communication = IrBuilder::create<Communication>(&container, params);
+  auto communication = IrBuilder::create<Communication>(
+      &container,
+      CommParams{
+          .type = CommunicationType::SendRecv,
+          .root = sender,
+          .mesh = {sender},
+          .team = {sender}});
 
   at::Tensor input_tensor = at::empty({tensor_size}, tensor_options);
   at::Tensor output_tensor = at::empty_like(input_tensor);
@@ -272,12 +283,14 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
 }
 
 TEST_P(CommunicationTest, Reduce) {
-  params.type = CommunicationType::Reduce;
-  params.redOp = red_op;
-  params.root = root;
-  params.mesh = full_mesh;
-  params.team = all_ranks;
-  auto communication = IrBuilder::create<Communication>(&container, params);
+  auto communication = IrBuilder::create<Communication>(
+      &container,
+      CommParams{
+          .type = CommunicationType::Reduce,
+          .root = root,
+          .mesh = full_mesh,
+          .team = all_ranks,
+          .redOp = red_op});
 
   at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
   at::Tensor output_tensor = at::empty({tensor_size}, tensor_options);
@@ -305,11 +318,13 @@ TEST_P(CommunicationTest, Reduce) {
 }
 
 TEST_P(CommunicationTest, Allreduce) {
-  params.type = CommunicationType::Allreduce;
-  params.redOp = red_op;
-  params.mesh = full_mesh;
-  params.team = all_ranks;
-  auto communication = IrBuilder::create<Communication>(&container, params);
+  auto communication = IrBuilder::create<Communication>(
+      &container,
+      CommParams{
+          .type = CommunicationType::Allreduce,
+          .mesh = full_mesh,
+          .team = all_ranks,
+          .redOp = red_op});
 
   at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
   at::Tensor output_tensor = at::empty({tensor_size}, tensor_options);
@@ -334,12 +349,14 @@ TEST_P(CommunicationTest, Allreduce) {
 }
 
 TEST_P(CommunicationTest, ReduceScatter) {
-  params.type = CommunicationType::ReduceScatter;
-  params.redOp = red_op;
-  params.mesh = full_mesh;
-  params.team = all_ranks;
-  params.scattered_axis = 1;
-  auto communication = IrBuilder::create<Communication>(&container, params);
+  auto communication = IrBuilder::create<Communication>(
+      &container,
+      CommParams{
+          .type = CommunicationType::ReduceScatter,
+          .mesh = full_mesh,
+          .team = all_ranks,
+          .redOp = red_op,
+          .scattered_axis = 1});
 
   const int num_devices = communicator->size();
   const int device_id = communicator->deviceId();
