@@ -734,19 +734,14 @@ void scheduleSplitKSum(
   splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
-// A LoadMatrixTranspose is needed is there's a rfactor which doesn't
-// match the alloc/root domain. If there's no rfactor, then we
-// need a transpose if the alloc domain and root don't match. When we say
-// match, we refer to the innermost iter domain.
-bool needsTranposedLoad(TensorView* out_tv) {
-  if (out_tv->hasRFactor()) {
-    auto use_root_or_alloc = out_tv->hasAllocation()
-        ? out_tv->getAllocationDomain()
-        : out_tv->getRootDomain();
-    return use_root_or_alloc.back() != out_tv->getRFactorDomain().back();
-  }
-  return out_tv->getRootDomain().back() !=
-      out_tv->getMaybeAllocationDomain().back();
+bool needsTranposedLoad(TensorView* producer, TensorView* consumer) {
+  const auto map =
+      PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
+  auto maybeProducerAlloc = producer->getMaybeAllocationDomain();
+  auto maybeConsumerRFactor = consumer->getMaybeRFactorDomain();
+  auto prodToconsumerAllocDomInner =
+      map.find(maybeProducerAlloc.back())->second;
+  return maybeConsumerRFactor.back() != prodToconsumerAllocDomInner;
 }
 
 } // namespace
@@ -907,15 +902,18 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   for (auto [tv_smem, tv_r] :
        {std::make_pair(acw_smem, &acr), std::make_pair(bcw_smem, &bcr)}) {
+    auto producer = tv_smem;
+    auto consumer = tv_smem->uses().at(0)->output(0)->as<TensorView>();
+    auto toTranspose = needsTranposedLoad(producer, consumer);
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
       *tv_r = ldst->out()->as<TensorView>();
       ldst->setOpType(
-          needsTranposedLoad(*tv_r) ? LoadStoreOpType::LdMatrixTranspose
-                                    : LoadStoreOpType::LdMatrix);
+          toTranspose ? LoadStoreOpType::LdMatrixTranspose
+                      : LoadStoreOpType::LdMatrix);
     } else {
       *tv_r = tv_smem->cacheAfter(
-          needsTranposedLoad(tv_smem) ? LoadStoreOpType::LdMatrixTranspose
-                                      : LoadStoreOpType::LdMatrix);
+          toTranspose ? LoadStoreOpType::LdMatrixTranspose
+                      : LoadStoreOpType::LdMatrix);
     }
   }
 

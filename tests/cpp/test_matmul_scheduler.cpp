@@ -2853,8 +2853,8 @@ class AllocationDomainTest
 // Please note that inpout in B is transposed prior to creating a Mma op.
 TEST_P(AllocationDomainTest, BasicMatmul) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  bool a_has_allocation = std::get<0>(GetParam());
-  bool b_has_allocation = std::get<0>(GetParam());
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<0>(GetParam());
 
   auto setupFusion = [](Fusion* fusion, TensorView* tv0, TensorView* tv1) {
     fusion->addInput(tv0);
@@ -2862,11 +2862,6 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
 
     // This has rfactor: {N, K}
     auto tv1t = transpose(tv1);
-
-    // Propagate the allocation domain of B accross the transpose.
-    if (tv1->hasAllocation()) {
-      tv1t->setAllocationDomain({tv1t->axis(0), tv1t->axis(1)}, true);
-    }
 
     // [M, N, K]
     auto tv0b = broadcast(tv0, {false, true, false});
@@ -2899,11 +2894,11 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
 
   auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
   auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
-  if (a_has_allocation) {
+  if (a_m_inner) {
     tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
   }
 
-  if (b_has_allocation) {
+  if (b_k_inner) {
     tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
   }
 
@@ -2912,12 +2907,10 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
 
   const auto options =
       at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
-  auto t0 = a_has_allocation
-      ? at::randn({M, K}, options).as_strided({M, K}, {1, M})
-      : at::randn({M, K}, options);
-  auto t1 = b_has_allocation
-      ? at::randn({K, N}, options).as_strided({K, N}, {1, K})
-      : at::randn({K, N}, options);
+  auto t0 = a_m_inner ? at::randn({M, K}, options).as_strided({M, K}, {1, M})
+                      : at::randn({M, K}, options);
+  auto t1 = b_k_inner ? at::randn({K, N}, options).as_strided({K, N}, {1, K})
+                      : at::randn({K, N}, options);
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
