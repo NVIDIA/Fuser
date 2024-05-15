@@ -335,10 +335,42 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
       " and ",
       tv_b->dtype());
 
+  // Check for K=1 i.e. reduction of broadcast. In these cases we don't need a
+  // matmul so we translate it to a multiplication+cast
+  auto b_k_axis = tv_b->nDims() == 1 ? -1 : -2;
+  NVF_CHECK(
+      tv_a->axis(-1)->isBroadcast() == tv_b->axis(b_k_axis)->isBroadcast(),
+      "K dimension must be broadcast in both operands or none");
+  if (tv_a->axis(-1)->isBroadcast()) {
+    TensorView* float_result = nullptr;
+    if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
+      // [1] @ [1] = []
+      float_result =
+          mul(squeeze(tv_a, std::vector<int64_t>{0}),
+              squeeze(tv_b, std::vector<int64_t>{0}));
+    } else if (tv_a->nDims() == 1) {
+      // [1] @ [..., 1, N] = [..., N]
+      float_result = mul(tv_a, squeeze(tv_b, std::vector<int64_t>{-2}));
+    } else if (tv_b->nDims() == 1) {
+      // [..., M, 1] @ [1] = [..., M]
+      float_result = mul(squeeze(tv_a, std::vector<int64_t>{-1}), tv_b);
+    } else {
+      float_result = mul(tv_a, tv_b);
+    }
+    return maybeCastOp(tv_a->dtype(), float_result);
+  }
+
   if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
     // Return the dot product instead of creating the MatmulOp.
     // Cast back the output if needed since torch.matmul maintains input dtype.
     return maybeCastOp(tv_a->dtype(), sum(mul(tv_a, tv_b), {0}));
+  }
+
+  if (tv_b->nDims() > 1 && tv_b->axis(-2)->isBroadcast()) {
+    NVF_ERROR(
+        tv_a->axis(-1)->isBroadcast(),
+        "Mismatched Broadcast in K dimension of operands");
+    // K dimension is broadcast so this is an outer product
   }
 
   // For all other cases, create a new MatmulOp
