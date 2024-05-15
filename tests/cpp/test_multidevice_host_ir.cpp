@@ -22,7 +22,6 @@ class MultiDeviceHostIrTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<MultiDeviceHostIrTestParams> {};
 
-
 // This file implements test that combine multidevice communications and host
 // irs. See test_host_irs.cpp for an introduction on host irs and a summary of
 // the different steps necessary to write a host program.
@@ -39,7 +38,6 @@ class MultiDeviceHostIrTest
 
 // Note that the Fusion may or may not be multi-device scheduled for achieving
 // the same result. We test both cases.
-
 
 TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto [use_fusion_executor_cache, with_sharding_annotations] = GetParam();

@@ -60,6 +60,14 @@ PostOnStream::PostOnStream(
     NVF_ERROR(
         this->outputs().size() ==
         host_op->as<HostUnit>()->fusion_to_execute()->outputs().size());
+    // TODO: harden the assert checks with smth like
+    // for (int i : c10::irange(inputs.size())) {
+    //     // NVF_ERROR(inputs.at(i)->sameAs(executable_fusion->inputs().at(i)));
+    // }
+    // for (int i : c10::irange(outputs.size())) {
+    //     //
+    //     NVF_ERROR(outputs.at(i)->sameAs(executable_fusion->outputs().at(i)));
+    // }
   } else if (host_op->isA<Communication>()) {
     NVF_ERROR(
         this->inputs().size() == 1,
@@ -68,14 +76,6 @@ PostOnStream::PostOnStream(
         this->outputs().size() == 1,
         "Communication must have exactly one output");
   }
-  // TODO: harden the assert checks with smth like
-  // for (int i : c10::irange(inputs.size())) {
-  //     // NVF_ERROR(inputs.at(i)->sameAs(executable_fusion->inputs().at(i)));
-  // }
-  // for (int i : c10::irange(outputs.size())) {
-  //     //
-  //     NVF_ERROR(outputs.at(i)->sameAs(executable_fusion->outputs().at(i)));
-  // }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(PostOnStream)
