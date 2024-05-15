@@ -1147,7 +1147,7 @@ MatmulProblemLayoutOpt getProblemLayout(
       return {"No tensor found in role"};
     }
     MatmulDomain dom = group_inner_dom.value();
-    return MatmulDomainOpt(dom);
+    return MatmulDomainOpt(std::move(dom));
   };
   MatmulDomainOpt a_inner_dom = innerDomain(MatmulRole::INPUT_A);
   if (!a_inner_dom.isValid()) {

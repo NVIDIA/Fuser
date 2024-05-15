@@ -440,14 +440,27 @@ std::string getMatmulRunTimeRejectReason(
 //  by the analysis.
 std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // The plan:
-  // 1. Check if there is exactly one MmaOp or suitable mul sum pair
+  // 1. Check supported device
+  // 2. Check if there is exactly one MmaOp or suitable mul sum pair
   // defined in the fusion.
-  // 2. Check if inputs to the mma op or mul sum pair match any of
+  // 3. Check if matmul scheduler is enabled
+  // 4. Check if inputs to the mma op or mul sum pair match any of
   // supported inputs layout
-  // 3. Check if fusion represents expressions that are recognized by matmul
+  // 5. Check if fusion represents expressions that are recognized by matmul
   // scheduler.
 
   // #1
+  // Use a dummy problem shape to determine whether this is a supported device.
+  {
+    const auto device_prop = at::cuda::getCurrentDeviceProperties();
+    const auto mma_op = getMmaOp(
+        device_prop->major * 10 + device_prop->minor, {128, 128, 128, 1});
+    if (!mma_op.has_value()) {
+      return "Unsupported device compute capability";
+    }
+  }
+
+  // #2
   // Initializing the machinery to check if there's a Mul-Sum pair
   // can be replaced by a Mma Op.
   std::vector<mma_utils::MatmulPattern> patterns =
@@ -457,6 +470,18 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   }
   if (patterns.size() > 1) {
     return "Only a single matmul pattern can currently be fused";
+  }
+
+  // #1
+  {
+    if (!isOptionEnabled(EnableOption::FuseMatmul)) {
+      // Check for MatmulOp or LinearOp. If found, then only fuse if option is
+      // specified
+      Expr* op = patterns.front().output->definition();
+      if (op->isA<MatmulOp>() /* || op->isA<LinearOp>()*/) {
+        return "Matmul fusion is disabled by default. Enable it using NVFUSER_ENABLE=fuse_matmul";
+      }
+    }
   }
 
   // Prepare an IdModel which will be reused to check remaining conditions
@@ -469,14 +494,14 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   }
   mma_utils::RolesMap roles_map = roles_map_opt.getData();
 
-  // #2
+  // #4
   const auto input_layout_opt =
       mma_utils::getProblemLayout(id_model, id_roles, roles_map);
   if (!input_layout_opt.isValid()) {
     return input_layout_opt.getErrorMsg();
   }
 
-  // #3
+  // #5
   {
     auto support_status = isMatmulFusionDefinitionSupported(
         fusion, patterns.front(), roles_map, id_roles);

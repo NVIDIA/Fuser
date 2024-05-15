@@ -323,15 +323,19 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
     testValidate(
         executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
   };
-  // Run the test with and without matmul_expr_eval
+  // Run the test with and without the matmul scheduler
   {
     DisableOptionsGuard dog;
     DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
     run(/*expect_aten_eval=*/true);
   }
   {
+    // Disable ExprEval scheduler, which takes precedence of Matmul scheduler
     DisableOptionsGuard dog;
     DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
+    // Allow Matmul Scheduler to accept MatmulOp and LinearOp
+    EnableOptionsGuard eog;
+    EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
     run(/*expect_aten_eval=*/false);
   }
 }
