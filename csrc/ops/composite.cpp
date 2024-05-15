@@ -276,13 +276,13 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto ndims_b = orig_domain_b.size();
 
   // Matmul output size is same as the higher dimensional input size if both A/B
-  // > 1D.
-  auto ndims_out = std::max(ndims_a, ndims_b);
+  // > 1D, but with 1 additional IterType::Reduction axis rK.
+  auto ndims_out = std::max(ndims_a, ndims_b) + 1;
   if (std::min(ndims_a, ndims_b) == 1) {
-    // If one of the inputs is 1D, the output size is 1 less than the higher
-    // dimensional input size, since either M/N axis will be missing in the
-    // output. For eg: [M, K] x [K] -> [M]
-    ndims_out = std::max(ndims_a, ndims_b) - 1;
+    // If one of the inputs is 1D, the output size is the same as the higher
+    // dimensional input size, since we will include a Reduction axis for K in
+    // the output. For example: [iM, iK] x [iK] -> [iM, rK]
+    ndims_out = std::max(ndims_a, ndims_b);
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
@@ -292,7 +292,7 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
       orig_domain_b, MatmulRole::INPUT_B, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out)) {
+  for (auto idx : c10::irange(ndims_out - 1)) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(2);
     if (mapping_a[idx] != nullptr) {
@@ -303,6 +303,10 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
     }
     out_domain[idx] = ops::newOutputIterDomain(input_ids);
   }
+
+  out_domain[ndims_out - 1] = IterDomainBuilder(mapping_a.back())
+                                  .iter_type(IterType::Reduction)
+                                  .build();
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));

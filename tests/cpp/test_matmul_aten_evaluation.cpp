@@ -430,15 +430,25 @@ void checkMatmulOpIdMapping(
   };
 
   if (A->nDims() == 2 && B->nDims() == 2) {
-    // [M, K] @ [K, N] = [M, N]
-    ASSERT_EQ(output->nDims(), 2);
+    // [iM, iK] @ [iK, iN] = [iM, iN, rK]
+    ASSERT_EQ(output->nDims(), 3);
     EXPECT_TRUE(checkMapped(A->axis(0), output->axis(0))); // M
     EXPECT_TRUE(checkMapped(B->axis(1), output->axis(1))); // N
-    // EXPECT_TRUE(checkMapped(A->axis(1), B->axis(0))); // K
+    EXPECT_TRUE(checkMapped(A->axis(1), B->axis(0))); // K
+    EXPECT_TRUE(checkMapped(A->axis(1), output->axis(2))); // K
+  } else if (A->nDims() == 2 && B->nDims() == 1) {
+    // [iM, iK] @ [iK] = [iM, rK]
+    ASSERT_EQ(output->nDims(), 2);
+    EXPECT_TRUE(checkMapped(A->axis(0), output->axis(0))); // M
+    EXPECT_TRUE(checkMapped(B->axis(0), output->axis(1))); // N
+    EXPECT_TRUE(checkMapped(A->axis(1), B->axis(0))); // K
+    EXPECT_TRUE(checkMapped(A->axis(1), output->axis(1))); // K
   } else if (A->nDims() == 1 && B->nDims() == 1) {
-    // [M, K] @ [K, N] = [M, N]
+    // [K] @ [K] = []
+    // Note there is no IterType::Reduction dim in this case because we
+    // translate to a mul+sum+cast
     EXPECT_EQ(output->nDims(), 0);
-    // EXPECT_TRUE(checkMapped(A->axis(0), B->axis(0))); // K
+    EXPECT_TRUE(checkMapped(A->axis(0), B->axis(0))); // K
   } else {
     std::cout << "Unhandled set of input dimensions" << std::endl;
     // EXPECT_TRUE(false);

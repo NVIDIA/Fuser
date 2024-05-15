@@ -190,29 +190,34 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = (int64_t)input_domain.size();
 
-  if (inp_size == 1) {
-    // Only reduction axis {K}
-    return mapping;
-  }
   // Input A to matmul: {*, M, K}
   // Input B to matmul: {*, K, N}
   auto kpos = input_role == MatmulRole::INPUT_A ? inp_size - 1 : inp_size - 2;
 
-  // If A/B is 1D, out_size < inp_size.
-  for (auto out_idx = (int64_t)out_size - 1, inp_idx = inp_size - 1;
+  if (inp_size == 1) {
+    // Only reduction axis {K}
+    mapping[out_size - 1] = input_domain[0];
+    return mapping;
+  }
+
+  // Last position is a reduction dimension mapping to K
+  mapping[out_size - 1] = input_domain.at(kpos);
+
+  for (auto out_idx = (int64_t)out_size - 2, inp_idx = inp_size - 1;
        inp_idx >= 0;
        inp_idx--) {
     if (inp_idx != kpos) {
       mapping[out_idx] = input_domain[inp_idx];
       out_idx--;
     }
-    // Consider [M, K] x [K]: [M]. Since out_size < inp_size,
+    // Consider [iM, iK] x [iK]: [iM, rK]. Since out_size < inp_size,
     // input A and output are not right-aligned. In this case, the output index
     // pointer should not be moved when the reduction axis is encountered.
-    else if (inp_size <= (int64_t)out_size) {
+    else if (inp_size <= (int64_t)out_size - 1) {
       out_idx--;
     }
   }
+
   return mapping;
 }
 
