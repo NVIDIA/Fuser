@@ -1670,6 +1670,9 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     // Update operands to keep the pattern minimal
     A = Abcast;
     B = Bbcast;
+    // TODO: skip downcasting if the only uses of `output` are casts back to
+    // higher precision in order avoid the round trip cast in defining an
+    // epilogue that starts with MatmulOp.
     if (output->dtype() != fms->dtype()) {
       // Redefine output as cast of MmaOp->out()
       IrBuilder::create<UnaryOp>(UnaryOpType::Cast, output, fms);
