@@ -26,7 +26,7 @@ namespace nvfuser {
 
 namespace hir {
 
-using HostIrTestParams = std::tuple<bool>;
+using HostIrTestParams = std::tuple<bool, bool>;
 using HostIrTest = NVFuserFixtureParamTest<HostIrTestParams>;
 
 /*
@@ -129,7 +129,7 @@ TEST_P(HostIrTest, SingleFusion) {
 
   // [Step 8)] Execute the Host program
   HostIrExecutorParams params;
-  auto [use_fusion_executor_cache] = GetParam();
+  auto [use_fusion_executor_cache, use_preallocated_outputs] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
   HostIrExecutor hie(std::move(hic), nullptr, params);
 
@@ -138,10 +138,22 @@ TEST_P(HostIrTest, SingleFusion) {
   c10::IValue input = at::randn(input_sizes, options);
   auto ref_output = at::sum(input.toTensor() * 2, {0});
 
-  auto outputs = hie.runWithInput({{post_on_stream->inputs().at(0), input}});
+  c10::IValue preallocated_output = at::empty_like(ref_output, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {post_on_stream->inputs().at(0), input}};
+  if (use_preallocated_outputs) {
+    concrete_input_buffers.insert(
+        {post_on_stream->outputs().at(0), preallocated_output});
+  }
+
+  auto outputs = hie.runWithInput(concrete_input_buffers);
 
   // validate the obtained results
   GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
+  if (use_preallocated_outputs) {
+    GTEST_EXPECT_TRUE(
+        torch::allclose(ref_output, preallocated_output.toTensor()));
+  }
 }
 
 /*
@@ -228,7 +240,7 @@ TEST_P(HostIrTest, TwoFusions) {
 
   // [Step 8)] Execute the Host program
   HostIrExecutorParams params;
-  auto [use_fusion_executor_cache] = GetParam();
+  auto [use_fusion_executor_cache, use_preallocated_outputs] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
   HostIrExecutor hie(std::move(hic), nullptr, std::move(params));
 
@@ -238,10 +250,22 @@ TEST_P(HostIrTest, TwoFusions) {
   auto ref_output =
       at::sum(at::relu(input.toTensor()), at::OptionalIntArrayRef({0, 1})) * 2;
 
-  auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), input}});
+  c10::IValue preallocated_output = at::empty_like(ref_output, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {post_on_stream_0->inputs().at(0), input}};
+  if (use_preallocated_outputs) {
+    concrete_input_buffers.insert(
+        {post_on_stream_1->outputs().at(0), preallocated_output});
+  }
+
+  auto outputs = hie.runWithInput(concrete_input_buffers);
 
   // validate the obtained results
   GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
+  if (use_preallocated_outputs) {
+    GTEST_EXPECT_TRUE(
+        torch::allclose(ref_output, preallocated_output.toTensor()));
+  }
 }
 
 /*
@@ -355,7 +379,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   HostIrExecutorParams params;
   // we test two different modes of the HostIrExecutor: using FusionExecutor or
   // FusionExecutorCache
-  auto [use_fusion_executor_cache] = GetParam();
+  auto [use_fusion_executor_cache, use_preallocated_outputs] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
   HostIrExecutor hie(std::move(hic), nullptr, std::move(params));
 
@@ -371,20 +395,34 @@ TEST_P(HostIrTest, ThreeFusions) {
   auto tv1_2_ref = tv2_1_ref;
   auto tv2_2_ref = tv0_2_ref + tv1_2_ref;
 
-  auto outputs =
-      hie.runWithInput({{post_on_stream_0->inputs().at(0), tv0_0_ref_ivalue}});
+  c10::IValue preallocated_output = at::empty_like(tv2_2_ref, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {post_on_stream_0->inputs().at(0), tv0_0_ref_ivalue}};
+  if (use_preallocated_outputs) {
+    concrete_input_buffers.insert(
+        {post_on_stream_2->outputs().at(0), preallocated_output});
+  }
+
+  auto outputs = hie.runWithInput(concrete_input_buffers);
 
   // validate the obtained results
   GTEST_EXPECT_TRUE(torch::allclose(tv2_2_ref, outputs.at(0)));
+  if (use_preallocated_outputs) {
+    GTEST_EXPECT_TRUE(
+        torch::allclose(tv2_2_ref, preallocated_output.toTensor()));
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
     Manual,
     HostIrTest,
-    testing::Combine(testing::Bool()),
-    [](const testing::TestParamInfo<std::tuple<bool>>& info) -> std::string {
-      return std::get<0>(info.param) ? "useFusionExecutorCache"
-                                     : "useFusionExecutor";
+    testing::Combine(testing::Bool(), testing::Bool()),
+    [](const testing::TestParamInfo<HostIrTestParams>& info) -> std::string {
+      std::string s;
+      s += std::get<0>(info.param) ? "useFusionExecutorCache"
+                                   : "useFusionExecutor";
+      s += std::get<1>(info.param) ? "_usePreallocatedOutputs" : "";
+      return s;
     });
 
 } // namespace hir
