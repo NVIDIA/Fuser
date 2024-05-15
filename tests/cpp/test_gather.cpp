@@ -1035,9 +1035,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
   auto tv4 = take_along_axis(tv2, tv3, 0);
   auto tv5 = transpose(tv4, 1, 2);
   fusion.addOutput(tv5);
-  // specify output allocation domain to avoid allocation order pass changing
-  // this to a pointwise kernel
-  tv5->setAllocationDomain(tv5->getMaybeRFactorDomain(), true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);

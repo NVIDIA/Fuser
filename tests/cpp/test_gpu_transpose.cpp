@@ -13,7 +13,6 @@
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
@@ -47,18 +46,11 @@ class TransposeTest : public NVFuserTest {
   // For convenience, disable MarkAliasesPreparePass. Many tests in this file
   // run a fusion that consists of `transpose` only. MarkAliasesPreparePass
   // would turn those fusions into a no-op, skipping the transpose scheduler.
-  //
-  // Disable AllocationDomainPass. Fusion with permutation would otherwise run
-  // through pointwise scheduler with allocation order pass trying to match
-  // output with the same layout as with its inputs.
-  TransposeTest()
-      : optimization_guard_(false), allocation_order_guard_(false) {}
+  TransposeTest() : optimization_guard_(false) {}
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard_;
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      allocation_order_guard_;
 };
 
 // x->sin->transpose->cos->y
