@@ -734,11 +734,15 @@ void scheduleSplitKSum(
   splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
-bool hasInnerTranspose(TensorView* out_tv) {
-  auto use_root_or_alloc = out_tv->hasAllocation()
-      ? out_tv->getAllocationDomain()
-      : out_tv->getRootDomain();
-  return use_root_or_alloc.back() != out_tv->getMaybeRFactorDomain().back();
+bool needsTranposedLoad(TensorView* out_tv) {
+  if (out_tv->hasRFactor()) {
+    auto use_root_or_alloc = out_tv->hasAllocation()
+        ? out_tv->getAllocationDomain()
+        : out_tv->getRootDomain();
+    return use_root_or_alloc.back() != out_tv->getRFactorDomain().back();
+  }
+  return out_tv->getRootDomain().back() !=
+      out_tv->getMaybeAllocationDomain().back();
 }
 
 } // namespace
@@ -895,24 +899,18 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   bcw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op_b);
   NVF_ERROR(acw_smem->uses().size() == 1);
   NVF_ERROR(bcw_smem->uses().size() == 1);
-  if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
-    acr = ldst->out()->as<TensorView>();
-    ldst->setOpType(LoadStoreOpType::LdMatrix);
-  } else {
-    if (hasInnerTranspose(acw_smem)) {
-      acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrixTranspose);
+
+  for (auto [tv_smem, tv_r] :
+       {std::make_pair(acw_smem, &acr), std::make_pair(bcw_smem, &bcr)}) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
+      *tv_r = ldst->out()->as<TensorView>();
+      ldst->setOpType(
+          needsTranposedLoad(*tv_r) ? LoadStoreOpType::LdMatrixTranspose
+                                   : LoadStoreOpType::LdMatrix);
     } else {
-      acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
-    }
-  }
-  if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0))) {
-    bcr = ldst->out()->as<TensorView>();
-    ldst->setOpType(LoadStoreOpType::LdMatrix);
-  } else {
-    if (hasInnerTranspose(bcw_smem)) {
-      bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrixTranspose);
-    } else {
-      bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
+      *tv_r = tv_smem->cacheAfter(
+          needsTranposedLoad(tv_smem) ? LoadStoreOpType::LdMatrixTranspose
+                                      : LoadStoreOpType::LdMatrix);
     }
   }
 
