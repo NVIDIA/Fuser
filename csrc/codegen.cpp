@@ -1165,7 +1165,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genBlockReduction(
-      const ReductionOp* rop,
       const kir::TensorIndex* output,
       const kir::TensorIndex* input,
       const Val* init,
@@ -1206,7 +1205,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       func_args.arg(genInline(write_pred));
     }
     func_args.arg(genCall(data_type, genInline(init)));
-    addProfileArguments(func_args, rop);
+
     indent() << genCall("blockReduce", template_args, func_args) << ";\n";
   }
 
@@ -1233,7 +1232,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       genWarpReduction(output, input, rop->init(), op_type, rop->predicate());
     } else {
       genBlockReduction(
-          rop,
           output,
           input,
           rop->init(),
@@ -1607,7 +1605,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           kernel_->profile().getIndicesInProfileBuffer(expr);
       auto buffer = kernel_->profile().getBuffer();
       NVF_ERROR(buffer != nullptr);
-      std::cout << "Adding profile arguments buffer_indices " << buffer_indices.size() << "\n";
       for (const auto& index : buffer_indices) {
         func_args.arg(genVariableName(buffer))
             .append("[")
@@ -2734,7 +2731,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genIterGroupedBlockReduction(
-      const GroupedReductionOp* grouped_rop,
       const int num_grouped_iterations,
       const kir::TensorIndex* output,
       const kir::TensorIndex* input,
@@ -2784,42 +2780,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     func_args.arg(genCall(data_type, genInline(init)));
 
-
-    const auto& par_dim_map = kernel_->summary().parallel_dimension_map;
-    std::cout << "par_dim_map: " << par_dim_map.toString() << std::endl;
-    int int_bdimx = -1;
-    if(par_dim_map.get(ParallelType::TIDx)->isConstInt() && par_dim_map.get(ParallelType::TIDy)->isConstInt()){
-      auto str_bdimx = genInline(par_dim_map.get(ParallelType::TIDx));
-      int_bdimx = std::stoi(str_bdimx);
-    }
-    if(isOptionEnabled(EnableOption::IterGroupedWarpReduction) && int_bdimx <= 32L && num_grouped_iterations >= 32 / int_bdimx) {
-      std::cout << "Using warp reduction" << std::endl;
-      ArgumentBuilder func_template_args;
-      func_template_args.arg(isAligned());
-      func_template_args.arg(num_grouped_iterations);
-      func_template_args.arg(data_type);
-      func_template_args.arg(genInline(par_dim_map.get(ParallelType::TIDx)));
-      func_template_args.arg(genInline(par_dim_map.get(ParallelType::TIDy)));
-
-      ArgumentBuilder func_args;
-      auto output_tv = output->view();
-      auto va = kernel_->summary().vectorized_accesses;
-      if (va.find(output_tv) != va.end()) {
-        func_args.arg(genVariableName(output) + ".array");
-      } else {
-        func_args.arg(genVariableName(output));
-      }
-      func_args.arg(genVariableName(input));
-      func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
-      addProfileArguments(func_args, grouped_rop);
-      indent() << genCall("blockIterGroupedWarpReduce", func_template_args, func_args)
-               << ";\n";
-    }else{
-      addProfileArguments(func_args, grouped_rop);
-      indent() << genCall("blockIterGroupedReduce", template_args, func_args)
-               << ";\n";
-    }
+    indent() << genCall("blockIterGroupedReduce", template_args, func_args)
+             << ";\n";
   }
+
   void handle(const GroupedReductionOp* grouped_rop) final {
     const auto num_grouped_iterations =
         getGroupedLoopIndexConcreteIntSets().size();
@@ -2841,7 +2805,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           has_block_reduce,
           "To use IterGroupedBlockReduction, must have block reduce!");
       return genIterGroupedBlockReduction(
-          grouped_rop,
           (int)num_grouped_iterations,
           output,
           input,
@@ -2879,14 +2842,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             op_type,
             grouped_rop->predicate());
       } else {
-        // genBlockReduction(
-        //     grouped_rop,
-        //     output,
-        //     input,
-        //     grouped_rop->initVal(i),
-        //     op_type,
-        //     grouped_rop->predicate(),
-        //     grouped_rop->writePredicate());
+        genBlockReduction(
+            output,
+            input,
+            grouped_rop->initVal(i),
+            op_type,
+            grouped_rop->predicate(),
+            grouped_rop->writePredicate());
       }
     }
   }
@@ -3091,17 +3053,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << "\"{\\n\"\n";
       int64_t boolean_counter = 0;
       int64_t counter = 0;
-      for (auto input : asm_->inputs()) {
-        if (input->dtype() == DataType::Bool) {
-          indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
-          indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %" << counter
-                   << ", 0;\\n\"\n";
-          boolean_counter++;
-        }
-        if (std::holds_alternative<ArrayType>(input->dtype().type)) {
-          counter += (int64_t)std::get<ArrayType>(input->dtype().type).size;
-        } else {
-          counter++;
+      std::array<const std::vector<Val*>*, 2> outputs_and_inputs = {
+          &asm_->outputs(), &asm_->inputs()};
+      for (const auto* io : outputs_and_inputs) {
+        for (auto val : *io) {
+          if (val->dtype() == DataType::Bool) {
+            indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
+            indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %"
+                     << counter << ", 0;\\n\"\n";
+            boolean_counter++;
+          }
+          if (std::holds_alternative<ArrayType>(val->dtype().type)) {
+            counter += (int64_t)std::get<ArrayType>(val->dtype().type).size;
+          } else {
+            counter++;
+          }
         }
       }
       indent() << "\"  " << asm_->code();

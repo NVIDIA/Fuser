@@ -179,16 +179,10 @@ TensorView* scheduleReductionTV(
     }
 
     if (rparams.cross_block_inner_reduction) {
-      if(rparams.static_bdimy){
-        inner_parallel_static(
-            inner_reduce_axis, rparams.block_dim_inner_reduction, rparams.lparams.bdimy()); 
-      }else{
-        inner_parallel(inner_reduce_axis, rparams.block_dim_inner_reduction);
-        if (rparams.pad_inner_reduction_to_warp) {
-          reduction_tv->axis(inner_reduce_axis + 1)->padToMultipleOfWarp();
-        }
+      inner_parallel(inner_reduce_axis, rparams.block_dim_inner_reduction);
+      if (rparams.pad_inner_reduction_to_warp) {
+        reduction_tv->axis(inner_reduce_axis + 1)->padToMultipleOfWarp();
       }
-
     }
 
     if (!rparams.vectorize_inner_reduction &&
@@ -257,13 +251,7 @@ TensorView* scheduleReductionTV(
         inner_parallel_static(
             iter_axis, rparams.block_dim_iter_dom, rparams.lparams.bdimx());
       } else {
-        // inner_parallel(iter_axis, rparams.block_dim_iter_dom);
-        if(rparams.static_bdimx){
-          inner_parallel_static(
-              iter_axis, rparams.block_dim_iter_dom, rparams.lparams.bdimx());
-        }else{
-          inner_parallel(iter_axis, rparams.block_dim_iter_dom);
-        }
+        inner_parallel(iter_axis, rparams.block_dim_iter_dom);
       }
     }
 

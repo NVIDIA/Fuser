@@ -98,7 +98,6 @@ enum class EnableOption {
   StaticFusionCount, //! Enable using single static count in kernel name
   ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
   WarnRegisterSpill, //! Enable warnings of register spill
-  IterGroupedWarpReduction, //! Enable iteration grouped warp reduction
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
                       //! why we disabled it by default.
   EndOfOption //! Placeholder for counting the number of elements

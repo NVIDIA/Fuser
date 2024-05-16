@@ -53,14 +53,6 @@ class Instrumentor : private kir::IrVisitor {
   void handle(kir::GridReduction* expr) final {
     profile_.registerExpr(expr);
   }
-  
-  void handle(GroupedReductionOp* expr) final {
-    profile_.registerExpr(expr);
-  }
-
-  void handle(ReductionOp* expr) final {
-    profile_.registerExpr(expr);
-  }  
 
   void handle(kir::GroupedGridReduction* expr) final {
     profile_.registerExpr(expr);
