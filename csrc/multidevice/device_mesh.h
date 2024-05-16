@@ -16,8 +16,8 @@
 
 namespace nvfuser {
 
-// DeviceMesh represents a set of (unique) devices arranged in a dense tensor
-// with a concrete shape.
+// DeviceMesh represents a set of (unique) devices arranged as a dense
+// n-dimensional tensor
 class DeviceMesh final {
  public:
   // https://google.github.io/styleguide/cppguide.html#Implicit_Conversions
@@ -76,7 +76,7 @@ class DeviceMesh final {
   }
 
   // Returns the global index of device in the mesh, or -1 if device is not
-  // present.
+  // present
   int64_t idxOf(const DeviceIdxType device) const {
     auto it = std::find(vector_.begin(), vector_.end(), device);
     if (it != vector_.end()) {
@@ -85,7 +85,8 @@ class DeviceMesh final {
     return -1;
   }
 
-  // Returns the indices of a multi-dimensional mesh
+  // Returns the indices of a multi-dimensional mesh, or an empty vector 
+  // if device is not present
   std::vector<int64_t> getLocalIndices(const DeviceIdxType device) const;
 
   // Returns the device at a particular global index in the mesh
@@ -105,7 +106,7 @@ class DeviceMesh final {
   //      [3 4 5]]
   // getTeam(4, 0) = {3, 4, 5}
   // getTeam(4, 1) = {1, 4}
-  // TODO: calculate this once and save it.
+  // TODO: calculate this once and save it
   std::vector<DeviceIdxType> getTeam(DeviceIdxType device, int64_t axis = 0)
       const;
 
