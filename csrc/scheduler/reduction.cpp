@@ -670,8 +670,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // go to grid reduction. Block reduction doesn't require expensive cross-block
   // communications and leads to better performance if SM usage is high.
   auto is_block_reduction = false;
-  bool prioritize_block_reduction = true;
-  if (prioritize_block_reduction) {
+  bool use_warp_reduction = isOptionEnabled(EnableOption::IterGroupedWarpReduction);
+  if (!use_warp_reduction) {
     // block reduction is done with 1 block per sm to ensure it is finished
     // within 1 wave. The number of threads per block is set to 1024 to achieve
     // an occupancy of 50% which is important for compute-bound kernels.
@@ -750,6 +750,43 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // only use block reduction when we need just 1 wave and SM usage is high
     is_block_reduction =
         gidim <= device_multiprocessor_count && gidim >= required_blocks;
+    is_block_reduction = true;
+  }else{
+    // warp reduction requires bdimx <= 32, prefer 8
+    bdimx = 8;
+    int64_t max_bdimx = 8L;
+    iter_unroll_factor = std::min(2L, opt_max_vect);
+    gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
+
+    // move from gidim to vectorization and bdimx to avoid using multiple waves
+    while (gidim > device_multiprocessor_count &&
+           (bdimx * 2 <= max_bdimx || iter_unroll_factor * 2 <= opt_max_vect)) {
+      if (iter_unroll_factor * 2 <= opt_max_vect) {
+        iter_unroll_factor *= 2;
+      } else if (bdimx * 2 <= max_bdimx) {
+        bdimx *= 2;
+      } else {
+        break;
+      }
+      gidim /= 2;
+    }
+
+    // For reduction dim, prioritize unroll, improves perf for cases with small
+    // reduction dim e.g. 16 x 32768. If we know the computation cost is low, we
+    // can further increase [min_serial_top_unroll] which may reduce bdimy = 1
+    // to avoid block reduction which requires smem data communication.
+    const int64_t min_threads_per_block = 32L * iter_unroll_factor;
+    inner_reduction_unroll_factor = std::min(
+        rDimAvail(), scheduler_utils::safeDiv(max_unroll, iter_unroll_factor));
+    bdimy = min_threads_per_block / bdimx;
+
+    // occupancy is 50%, so we can use 1024 threads per sm
+    const int64_t threads_per_sm = 1024;
+    int64_t n_wave = ceilDiv(gidim, device_multiprocessor_count);
+    while(n_wave * bdimx * bdimy * 2 <= threads_per_sm){
+      bdimy *= 2;
+    }
+    is_block_reduction = true;
   }
 
   // grid reduction

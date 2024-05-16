@@ -2327,22 +2327,18 @@ TEST_F(OuterReductionTest, IterGroupedWarpReduction) {
     EnableOptionsGuard opt_guard;
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IterGroupedWarpReduction);
-    const int gdimx = 1;
-    const int gdimy = 1;
-
     Fusion fusion;
     FusionGuard fg(&fusion);
-
     DataType dtype = DataType::Half;
-
     auto tv0 = makeContigTensor(2, dtype);
     fusion.addInput(tv0);
-
     auto tv1 = castOp(DataType::Float, tv0);
     auto tv2 = sum(tv1, {0});
     auto tv3 = castOp(dtype, tv2);
     fusion.addOutput(tv3);
 
+    const int gdimx = 1;
+    const int gdimy = 1;
     std::vector<int64_t> shape({gdimy * bdimy, bdimx * gdimx * vect_factor});
 
     auto options = at::TensorOptions()
@@ -2393,13 +2389,13 @@ TEST_F(OuterReductionTest, IterGroupedWarpReduction) {
         lparams);
   };
   // iteration grouped warp reduction requires:
-  // (1) bdimx <= 32 
-  // (2) vect >= 32 / bdimx
-  // (3) bdimx * bdimy / 32 >= vect
+  // (1) bdimx <= 32, so a warp maps to multiply rows, do butterfly reduce
+  // (2) vect >= 32 / bdimx, enough workload per TIDx to do butterfly reduce
+  // (3) bdimx * bdimy / 32 >= vect, each warp do one reduction
   for (int vect : {2, 4, 8}){
     for(int bdimx : {8, 16, 32}){
-      for(int bdimy : {8, 16, 32}){
-        if(vect * bdimx >= 32 && bdimx * bdimy >= 32 * vect){
+      for(int bdimy : {8, 16, 32, 64, 128}){
+        if(vect * bdimx >= 32 && bdimx * bdimy >= 32 * vect && bdimx * bdimy <= 1024){
           test(vect, bdimx, bdimy);
         }
       }
