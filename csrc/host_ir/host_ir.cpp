@@ -52,8 +52,12 @@ PostOnStream::PostOnStream(
     std::vector<Val*> inputs,
     std::vector<Val*> outputs)
     : Expr(passkey, std::move(inputs), std::move(outputs), {host_op}) {
-  NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
-  NVF_ERROR(host_op->isOneOf<HostUnit, Communication>());
+  NVF_ERROR(
+      passkey.ir_container_->isA<hir::HostIrContainer>(),
+      this,
+      "must be registered in a HostIrContainer"); // NOLINT
+  NVF_ERROR(
+      (host_op->isOneOf<HostUnit, Communication>()), "wrong host op type");
   if (host_op->isA<HostUnit>()) {
     NVF_ERROR(
         this->inputs().size() ==
