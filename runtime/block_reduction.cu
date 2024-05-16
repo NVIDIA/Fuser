@@ -68,9 +68,14 @@ __device__ void blockReduce(
   unsigned int smem_offset = threadIdx.x + threadIdx.y * blockDim.x +
       threadIdx.z * blockDim.x * blockDim.y;
 
-  // The peer stride is the distance between the current element and its
-  // reduction peer, it depends on the reduction dimension.
+  // The peer stride represents the distance between the current element and its
+  // nearest reduction peer. It depends on the reduction dimension. A reduction
+  // peer refers to elements that belong to the same reduction segment. For
+  // example, if the reduction is across TIDy, all the elements in the same
+  // column (with the same TIDx) are considered peers of each other. The
+  // distance between an element and its nearest peer is blockDim.x.
   constexpr int num_redu_dims = (int)X_REDUCE + (int)Y_REDUCE + (int)Z_REDUCE;
+  constexpr bool xz_reduce = (num_redu_dims == 2 && !Y_REDUCE);
   // reduction in 3 dimensions, XYZ, stride is 1
   unsigned int peer_stride = 1;
   if (num_redu_dims == 1) {
@@ -87,15 +92,15 @@ __device__ void blockReduce(
     // Reduction in 2 dimensions, only one dimension is not reduced, !X, !Y, !Z
     // If !Z_REDUCE, merge XY, reducing neighbor cols, peer_stride is 1
     // If !X_REDUCE, merge ZY, reducing neighbor rows, peer_stride is blockDim.x
-    // If !Y_REDUCE, if blockDim.y == 1, merge XZ, peer_stride is 1, otherwise
-    //               different strides for different reduction stages, change
-    //               smem layout based on reduction_idx and reduction_tid, may
-    //               have stride access and bank conflict, rare case, may happen
-    //               for batch norm doing multiple reductions per block.
+    // If !Y_REDUCE, if blockDim.y == 1, merge XZ, peer_stride is 1.
+    // otherwise, needs carefully calculate offset to the reduction peer:
+    // (1) redu_offset = reduction_tid + tree_fold_factor
+    // (2) idz = redu_offset / blockDim.x
+    // (3) idx = redu_offset % blockDim.x
+    // (4) smem_offset = idx + threadIdx.y * blockDim.x + idz * blockDim.x *
+    // blockDim.y
     if (!Y_REDUCE) {
-      smem_offset = blockDim.y > 1
-          ? reduction_idx * reduction_size + reduction_tid
-          : smem_offset;
+      peer_stride = 1;
     } else {
       peer_stride = !Z_REDUCE ? 1 : blockDim.x;
     }
@@ -107,23 +112,39 @@ __device__ void blockReduce(
   } else {
     shared_mem[smem_offset] = init_val;
   }
-
   block_sync::sync<Aligned>();
+
   // Reduce down to nearest power of 2 for the tree reduction:
   int np2 = 1 << (31 - __clz(reduction_size));
-
   if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
-    reduction_op(
-        shared_mem[smem_offset], shared_mem[smem_offset + np2 * peer_stride]);
+    int peer_offset = smem_offset + np2 * peer_stride;
+    if constexpr (xz_reduce) {
+      if (blockDim.y > 1) {
+        int redu_offset = reduction_tid + np2;
+        int idz = redu_offset / blockDim.x;
+        int idx = redu_offset % blockDim.x;
+        peer_offset =
+            idx + threadIdx.y * blockDim.x + idz * blockDim.x * blockDim.y;
+      }
+    }
+    reduction_op(shared_mem[smem_offset], shared_mem[peer_offset]);
   }
   block_sync::sync<Aligned>();
 
   // loop peel the final iteration to save one syncthread for the end
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
     if (reduction_tid < factor) {
-      reduction_op(
-          shared_mem[smem_offset],
-          shared_mem[smem_offset + factor * peer_stride]);
+      int peer_offset = smem_offset + factor * peer_stride;
+      if constexpr (xz_reduce) {
+        if (blockDim.y > 1) {
+          int redu_offset = reduction_tid + factor;
+          int idz = redu_offset / blockDim.x;
+          int idx = redu_offset % blockDim.x;
+          peer_offset =
+              idx + threadIdx.y * blockDim.x + idz * blockDim.x * blockDim.y;
+        }
+      }
+      reduction_op(shared_mem[smem_offset], shared_mem[peer_offset]);
     }
     block_sync::sync<Aligned>();
   }
