@@ -168,8 +168,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
-    MatmulRole input_role =
-        producer->sameAs(op->inA()->as<TensorView>()->domain())
+    MatmulRole input_role = producer_tv_->sameAs(op->inA())
         ? MatmulRole::INPUT_A
         : MatmulRole::INPUT_B;
     auto out_size = consumer_root.size();
@@ -184,6 +183,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // maps to the third output iterdomain.
     const std::vector<IterDomain*>& aligned_producer_ids =
         ops::mapMatmulOpIterDomains(producer_root, input_role, out_size);
+
+    NVF_ERROR(aligned_producer_ids.size() == consumer_root.size());
 
     for (auto inx : c10::irange(out_size)) {
       IterDomain* producer_id = aligned_producer_ids.at(inx);
