@@ -141,20 +141,53 @@ int64_t numDeviceDims(TensorView* tv) {
       [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
-bool isResharding(Expr* expr) {
-  std::unordered_set<TensorView*> tvs;
-  for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    tvs.insert(tv);
-  }
-  for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-    tvs.insert(tv);
-  }
-  if (tvs.empty()) {
+bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
+  // exit early in the unsharded case for performance
+  if (!producer->hasDeviceMesh() && !consumer->hasDeviceMesh()) {
     return false;
   }
-  auto tv_ref = *tvs.begin();
-  tvs.erase(tv_ref);
-  return !getTvsWithDifferentSharding(tv_ref, tvs).empty();
+  // If device mesh are different, the Expr is resharding
+  if (!(producer->getDeviceMesh() == consumer->getDeviceMesh())) {
+    return true;
+  }
+  // Create a map between producer's and consumer's IterDomains. We iterate
+  // over producer's iterdomain and compare sharding type with consumer's
+  // iterdomain
+  const auto p2c_map =
+      PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
+  for (auto p_id :
+       TensorDomain::noReductions(producer->getMaybeRFactorDomain())) {
+    auto p2c_map_it = p2c_map.find(p_id);
+    NVF_ERROR(
+        p2c_map_it != p2c_map.end(),
+        "the producer ",
+        producer,
+        " has a dimension ",
+        p_id,
+        " that is not mapped to its consumer ",
+        consumer);
+    auto c_id = p2c_map_it->second;
+    if (p_id->getParallelType() != c_id->getParallelType() &&
+        (p_id->isDeviceDim() || c_id->isDeviceDim())) {
+      // Mismatch found
+      return true;
+    }
+  }
+  return false;
+}
+
+bool isResharding(Expr* expr) {
+  // we don't use getTvsWithDifferentSharding because it creates a computeAtMap,
+  // which is too costly
+  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      // exit early in the unsharded case for performance
+      if (haveDifferentShardings(input, output)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 bool isInnerResharding(Expr* expr) {
@@ -219,8 +252,12 @@ void insertReshardingBefore(Fusion* fusion) {
         "multi-output expressions are not supported");
 
     auto output = expr->outputs().at(0)->as<TensorView>();
-    auto inputs = getTvsWithDifferentSharding(
-        output, ir_utils::filterByType<TensorView>(expr->inputs()));
+    std::unordered_set<TensorView*> inputs;
+    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      if (haveDifferentShardings(input, output)) {
+        inputs.insert(input);
+      }
+    }
 
     // Reshard each input of expr to match output if necessary
     std::vector<TensorView*> new_inputs;
@@ -258,8 +295,12 @@ void insertReshardingsAfter(Fusion* fusion) {
         "multi-output expressions are not supported");
 
     auto output = expr->outputs().at(0)->as<TensorView>();
-    auto inputs = getTvsWithDifferentSharding(
-        output, ir_utils::filterByType<TensorView>(expr->inputs()));
+    std::unordered_set<TensorView*> inputs;
+    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      if (haveDifferentShardings(input, output)) {
+        inputs.insert(input);
+      }
+    }
 
     // Insert resharding set after the expr and update
     // output of expr to match input's sharding.
