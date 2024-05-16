@@ -81,8 +81,14 @@ static TensorView* newForLinear(
   }
 
   std::vector<IterDomain*> out_domain = ops::newOutputDomain({mapping_a, mapping_b, mapping_bias});
+
+  for (auto idx : c10::irange(ndims_out - 1)){
+    out_domain[idx] = ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
+  }
   // Specify the iterdomain for K as reduction
-  out_domain[ndims_out - 1] = IterDomainBuilder(out_domain.back()).iter_type(IterType::Reduction).build(); 
+  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+      {mapping_a.back(), mapping_b.back()},
+      /*force_iter_type=*/IterType::Reduction);
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -323,16 +329,8 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
       orig_domain_b, MatmulRole::INPUT_B, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
-    std::vector<IterDomain*> input_ids;
-    input_ids.reserve(2);
-    if (mapping_a[idx] != nullptr) {
-      input_ids.emplace_back(mapping_a[idx]);
-    }
-    if (mapping_b[idx] != nullptr) {
-      input_ids.emplace_back(mapping_b[idx]);
-    }
-    out_domain[idx] = ops::newOutputIterDomain(input_ids);
+  for (auto idx : c10::irange(ndims_out - 1)){
+    out_domain[idx] = ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
   }
 
   out_domain[ndims_out - 1] = ops::newOutputIterDomain(
