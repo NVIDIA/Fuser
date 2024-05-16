@@ -412,8 +412,11 @@ FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
 }
 std::optional<size_t> FusionCache::queryUserScheduleId(
     const FusionSchedules* scheds,
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const at::ArrayRef<c10::IValue>& inputs,
+    const FeatureSet& features) {
   std::optional<size_t> result = std::nullopt;
+
+  // TODO(Jacob): plumb features through here
 
   auto& user_scheds = scheds->user_def_schedules;
   if (!user_scheds.empty()) {
@@ -492,10 +495,12 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
 UserSchedule* FusionCache::createUserSchedule(
     FusionSchedules* scheds,
     const at::ArrayRef<c10::IValue>& inputs,
+    const FeatureSet& features,
     int device) {
   FUSER_PERF_SCOPE("FusionCache::createUserSchedule");
   std::lock_guard<std::mutex> guard(scheds->scheds_lock);
   auto& user_scheds = scheds->user_def_schedules;
+  // TODO(Jacob): plumb in features here
   auto input_id = user_def_input_encodings_.lookupId(inputs);
   auto user_sched = user_scheds.find(input_id.id);
   if (user_sched == user_scheds.end()) {

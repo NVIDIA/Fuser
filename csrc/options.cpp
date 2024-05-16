@@ -20,7 +20,7 @@ auto parseEnvOptions(
     const std::unordered_map<std::string, OptionEnum>& available_options) {
   // Make sure available_options includes all of the enum values
   NVF_ERROR(
-      available_options.size() == static_cast<int>(OptionEnum::EndOfOption),
+      available_options.size() == static_cast<int>(OptionEnum::EndOfEnum),
       "Invalid available option map");
 
   std::unordered_map<OptionEnum, std::vector<std::string>> options;
@@ -299,6 +299,316 @@ bool isProfilerPrintingVerbose() {
 const std::vector<std::string>& getDisableOptionArguments(
     ProfilerOption option) {
   return ProfilerOptionsGuard::getCurOptions().getArgs(option);
+}
+
+namespace {
+
+// To define a new feature, create a new enum label in Features in options.h,
+// then create a corresponding row in this macro. This macro runs fn for each
+// feature; it should be a macro taking the following arguments:
+//   short name, enum label, default enabled?, cuda cache key?, description
+#define FOR_EACH_FEATURE(fn)                                                     \
+  fn("compile_to_sass",                                                          \
+     CompileToSass,                                                              \
+     true,                                                                       \
+     false,                                                                      \
+     "Compile directly to SASS, bypassing PTX");                                 \
+  fn("expr_simplify", ExprSimplify, true, true, "Simplify index expressions");   \
+  /*TODO: What is fallback ?? */                                                 \
+  fn("fallback", Fallback, true, true, "fallback???");                           \
+  fn("fma", Fma, true, true, "Enable fused-multiply-add");                       \
+  fn("grouped_grid_welford_outer_opt",                                           \
+     GroupedGridWelfordOuterOpt,                                                 \
+     true,                                                                       \
+     true,                                                                       \
+     "Use outer-optimized grouped grid Welford kernel");                         \
+  fn("id_model", IdModel, false, true, "Use IterDomain graphs");                 \
+  fn("index_hoist",                                                              \
+     IndexHoist,                                                                 \
+     true,                                                                       \
+     true,                                                                       \
+     "Hoist common subexpressions in loop nests");                               \
+  fn("io_to_lower_precision",                                                    \
+     IoToLowerPrecision,                                                         \
+     false,                                                                      \
+     true,                                                                       \
+     "Enable castInputOutputToLowerPrecision");                                  \
+  fn("kernel_db", KernelDb, false, false, "Use kernel database");                \
+  fn("kernel_profile",                                                           \
+     KernelProfile,                                                              \
+     false,                                                                      \
+     true,                                                                       \
+     "Use intra-kernel performance profiling");                                  \
+  fn("kernel_reuse",                                                             \
+     KernelReuse,                                                                \
+     true,                                                                       \
+     false,                                                                      \
+     "Re-use possibly suboptimal kernels when possible to avoid recompilation"); \
+  fn("magic_zero",                                                               \
+     MagicZero,                                                                  \
+     true,                                                                       \
+     true,                                                                       \
+     "Use magic zero to prevent predicate elision for some unrolled loops");     \
+  fn("matmul_expr_eval",                                                         \
+     MatmulExprEval,                                                             \
+     true,                                                                       \
+     true,                                                                       \
+     "Evaluate all matrix multiplications using cuBLAS");                        \
+  fn("memory_promotion",                                                         \
+     MemoryPromotion,                                                            \
+     false,                                                                      \
+     true,                                                                       \
+     "Enable promotion of memory types for non-pointwise ops");                  \
+  fn("nvtx", Nvtx, true, false, "Place NVTX ranges in compilation stages");      \
+  fn("parallel_compile",                                                         \
+     ParallelCompile,                                                            \
+     true,                                                                       \
+     false,                                                                      \
+     "Use threading to compile fusion segments in parallel");                    \
+  fn("parallel_serde",                                                           \
+     ParallelSerde,                                                              \
+     true,                                                                       \
+     false,                                                                      \
+     "Deserialize FusionExecutorCache in parallel");                             \
+  fn("predicate_elimination",                                                    \
+     PredicateElimination,                                                       \
+     true,                                                                       \
+     true,                                                                       \
+     "Use predicate elimination");                                               \
+  fn("reuse_mismatched_type_registers",                                          \
+     ReuseMismatchedTypeRegisters,                                               \
+     true,                                                                       \
+     true,                                                                       \
+     "Explicitly re-using registers in some cases when types don't match");      \
+  fn("reuse_zeroed_memory",                                                      \
+     ReuseZeroedMemory,                                                          \
+     false,                                                                      \
+     false,                                                                      \
+     "[UNSAFE] Re-use zeroed memory for all grid synchronization");              \
+  fn("static_fusion_count",                                                      \
+     StaticFusionCount,                                                          \
+     false,                                                                      \
+     true,                                                                       \
+     "Use single static count in kernel name");                                  \
+  fn("var_name_remapping",                                                       \
+     VarNameRemapping,                                                           \
+     true,                                                                       \
+     true,                                                                       \
+     "Rename variables in cuda kernel to smaller numeric IDs");                  \
+  fn("warn_register_spill",                                                      \
+     WarnRegisterSpill,                                                          \
+     true,                                                                       \
+     false,                                                                      \
+     "Warn at compilation if kernel spills registers to local memory");          \
+  fn("welford_vectorization",                                                    \
+     WelfordVectorization,                                                       \
+     true,                                                                       \
+     true,                                                                       \
+     "Vectorize Welford ops");
+
+const std::vector<std::string>& featureNames() {
+  static std::vector<std::string> feature_names;
+  static bool initialized = false;
+  if (!initialized) {
+    feature_names.resize(enumSize<Feature>(), "UNDEFINED_FEATURE_NAME");
+
+#define SET_FEATURE_NAME(name, label, enabled, cache_key, desc) \
+  feature_names.at(toUnderlying(Feature::label)) = name;
+    FOR_EACH_FEATURE(SET_FEATURE_NAME);
+#undef SET_FEATURE_NAME
+    initialized = true;
+  }
+  return feature_names;
+}
+
+std::string featureName(const Feature& feat) {
+  return featureNames().at(toUnderlying(feat));
+}
+
+void fillDefaultFeatures(FeatureSet* feats) {
+  static FeatureSet::Bitset bitset;
+  static FeatureSet::ArgsMap all_args;
+  static bool initialized = false;
+  if (!initialized) {
+#define ENABLE_DEFAULT_FEATURE(name, label, enabled, cache_key, desc) \
+  if (enabled) {                                                      \
+    bitset[toUnderlying(Feature::label)] = true;                      \
+  }
+    FOR_EACH_FEATURE(ENABLE_DEFAULT_FEATURE);
+#undef ENABLE_DEFAULT_FEATURE
+    const auto& named_features_map = nameToFeatureMap();
+    const auto enabled = parseEnvOptions("ENABLE", named_features_map);
+    const auto disabled = parseEnvOptions("DISABLE", named_features_map);
+    for (const auto& [feature, feature_args] : enabled) {
+      size_t idx = (size_t)toUnderlying(feature);
+      NVF_CHECK(
+          disabled.find(feature) == disabled.end(),
+          "Contradiction in environment variables. Found ",
+          featureNames()[idx],
+          " in both $NVFUSER_ENABLED and $NVFUSER_DISABLED.");
+      std::vector<std::string> args;
+      args.reserve(feature_args.size());
+      for (auto& arg : feature_args) {
+        args.push_back(arg);
+      }
+      all_args.emplace(feature, args);
+      bitset[idx] = true;
+    }
+    for (const auto& [feature, feature_args] : disabled) {
+      size_t idx = (size_t)toUnderlying(feature);
+      NVF_CHECK(
+          enabled.find(feature) == enabled.end(),
+          "Contradiction in environment variables. Found ",
+          featureNames()[idx],
+          " in both $NVFUSER_ENABLED and $NVFUSER_DISABLED.");
+      bitset[idx] = false;
+    }
+    initialized = true;
+  }
+  feats->bitset() = bitset;
+  feats->setArgs(all_args);
+}
+
+} // namespace
+
+const std::unordered_map<std::string, Feature>& nameToFeatureMap() {
+  static std::unordered_map<std::string, Feature> named_features_map;
+  static bool initialized = false;
+  if (!initialized) {
+#define INSERT_NAMED_FEATURE(name, label, enabled, cache_key, desc) \
+  named_features_map.emplace(name, Feature::label);
+    FOR_EACH_FEATURE(INSERT_NAMED_FEATURE);
+#undef INSERT_NAMED_FEATURE
+    initialized = true;
+  }
+  return named_features_map;
+}
+
+std::string FeatureSet::toString() const {
+  std::stringstream ss;
+  ss << "FeatureSet[";
+  bool first = true;
+#define MAYBE_PRINT_FEATURE(name, label, enabled, cache_key, desc) \
+  if (has(Feature::label) != enabled) {                            \
+    if (!first) {                                                  \
+      ss << ", ";                                                  \
+    }                                                              \
+    first = false;                                                 \
+    ss << (enabled ? '-' : '+');                                   \
+    ss << name;                                                    \
+  }
+  // TODO: print args
+  FOR_EACH_FEATURE(MAYBE_PRINT_FEATURE);
+#undef MAYBE_PRINT_FEATURE
+  ss << "]";
+  return ss.str();
+}
+
+FeatureSet resetNonCompilationFeatures(const FeatureSet& features) {
+  FeatureSet output = features;
+#define RESET_FEATURE(name, label, enabled, cache_key, desc) \
+  if (!cache_key) {                                          \
+    output.set(Feature::label, enabled);                     \
+  }
+  FOR_EACH_FEATURE(RESET_FEATURE);
+#undef RESET_FEATURE
+  return output;
+}
+
+#undef FOR_EACH_FEATURE
+
+std::optional<Feature> nameToFeature(std::string name) {
+  const auto& named_features_map = nameToFeatureMap();
+  auto it = named_features_map.find(name);
+  if (it != named_features_map.end()) {
+    return it->second;
+  }
+  return std::nullopt;
+}
+
+FeatureSet::FeatureSet() {
+  fillDefaultFeatures(this);
+}
+
+const std::vector<std::string>& FeatureSet::getArgs(Feature feat) const {
+  NVF_ERROR(args_ != nullptr);
+  auto it = args_->find(feat);
+  NVF_ERROR(
+      "Arguments requested for feature ",
+      featureNames()[(size_t)toUnderlying(feat)],
+      " but none exist. FeatureSet::hasArgs() should be used to guard this call");
+  return it->second;
+}
+
+FeatureSet parseFeatures(
+    const std::vector<std::string>& enable_features,
+    const std::vector<std::string>& disable_features) {
+  FeatureSet features;
+  // Track already manually enabled or disabled features
+  auto enabled_bitset = features.bitset();
+  auto disabled_bitset = features.bitset();
+  enabled_bitset.reset();
+  disabled_bitset.reset();
+  const auto& map = nameToFeatureMap();
+  const auto& processFeatures =
+      [&map](
+          const std::vector<std::string>& feature_names,
+          FeatureSet::Bitset& bitset,
+          auto enable_or_disable_fn) {
+        for (const std::string& name : feature_names) {
+          auto it = map.find(name);
+          if (it == map.end()) {
+            std::vector<std::string> names;
+            names.reserve(map.size());
+            for (const auto& [k, v] : map) {
+              names.push_back(k);
+            }
+            std::sort(names.begin(), names.end());
+            std::stringstream ss;
+            bool first = true;
+            for (const auto& n : names) {
+              if (!first) {
+                ss << ", ";
+              }
+              first = false;
+              ss << n;
+            }
+            NVF_CHECK(
+                false,
+                "Unknown feature '",
+                name,
+                "'. Available features: ",
+                ss.str());
+          }
+          Feature f = it->second;
+          enable_or_disable_fn(f);
+          bitset.set(toUnderlying(f), true);
+        }
+      };
+  processFeatures(enable_features, enabled_bitset, [&features](Feature f) {
+    features.insert(f);
+  });
+  processFeatures(disable_features, disabled_bitset, [&features](Feature f) {
+    features.erase(f);
+  });
+  // Check that we didn't manually both insert and erase a feature
+  for (const size_t i : c10::irange(enumSize<Feature>())) {
+    NVF_CHECK(
+        !enabled_bitset.test(i) || !disabled_bitset.test(i),
+        "Feature ambiguously both enabled and disabled");
+  }
+
+  return features;
+}
+
+std::ostream& operator<<(std::ostream& os, Feature f) {
+  os << featureNames().at(toUnderlying(f));
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, FeatureSet feats) {
+  os << feats.toString();
+  return os;
 }
 
 } // namespace nvfuser

@@ -118,7 +118,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = runtime.runWithInput(inputs, FeatureSet());
 
   testValidate(
       runtime.completeFusion(),
@@ -173,7 +173,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   auto expected_output = shardTensor(out, c, communicator->deviceId());
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = runtime.runWithInput(inputs, FeatureSet());
 
   testValidate(
       runtime.completeFusion(),
@@ -229,7 +229,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = runtime.runWithInput(inputs, FeatureSet());
 
   testValidate(
       runtime.completeFusion(), outputs, inputs, {out}, __LINE__, __FILE__);
@@ -289,7 +289,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
+  auto outputs = runtime.runWithInput(inputs, FeatureSet());
   testValidate(
       runtime.completeFusion(),
       outputs,

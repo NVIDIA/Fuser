@@ -8,9 +8,12 @@
 #pragma once
 
 #include <exceptions.h>
+#include <type.h>
 #include <visibility.h>
 
 #include <string>
+#include <type_traits>
+#include <typeinfo>
 #include <unordered_map>
 #include <vector>
 
@@ -83,8 +86,197 @@ enum class DebugDumpOption {
   Occupancy, // Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
-  EndOfOption //! Placeholder for counting the number of elements
+  EndOfEnum //! Placeholder for counting the number of elements
 };
+
+template <typename Enum>
+constexpr auto enumSize() {
+  return static_cast<std::underlying_type_t<Enum>>(Enum::EndOfEnum);
+}
+
+template <typename Enum>
+class EnumSet {
+ public:
+  using Bitset = std::bitset<enumSize<Enum>()>;
+
+  void set(Enum feat, bool value) {
+    bitset_.set(toUnderlying(feat), value);
+  }
+
+  void insert(Enum feat) {
+    set(feat, true);
+  }
+
+  void erase(Enum feat) {
+    set(feat, false);
+  }
+
+  bool has(Enum feat) const {
+    return bitset_.test(toUnderlying(feat));
+  }
+
+  Bitset& bitset() {
+    return bitset_;
+  }
+
+  const Bitset& bitset() const {
+    return bitset_;
+  }
+
+ protected:
+  Bitset bitset_;
+};
+
+//! These options control nvFuser behavior during scheduling and compilation.
+//! They include both default-disabled and default-enabled options.
+enum class Feature {
+  CompileToSass, //! Disable direct compilation to sass so the ptx can be
+                 //! examined
+  ExprSimplify, //! Disable expression simplifier
+  Fallback, //! Disable fallback
+  Fma, //! Disable FMA instructions
+  GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
+                              //! grouped grid welford kernel
+  IdModel, //! Enable IdModel
+  IndexHoist, //! Disable index hoisting
+  IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
+                      //! why we disabled it by default.
+  KernelProfile, //! Enable intra-kernel performance profiling
+  MagicZero, //! Disable nvfuser_zero
+  MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
+                  //! matmul
+  MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
+  PredicateElimination, //! Disable predicate elimination
+  ReuseMismatchedTypeRegisters, //! Disable explicitly re-using registers unless
+                                //! types match
+  ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
+  StaticFusionCount, //! Enable using single static count in kernel name
+  VarNameRemapping, //! Disable variable name remapping
+  WelfordVectorization, //! Disable vectorizaton of Welford ops
+  // These do not affect the generated CUDA kernel
+  KernelDb, //! Enable Kernel Database
+  KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
+               //! input shapes
+  Nvtx, //! Disable NVTX instrumentation
+  ParallelCompile, //! Disable compiling Fusion segments in parallel
+  ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
+  WarnRegisterSpill, //! Enable warnings of register spill
+  EndOfEnum //! Placeholder for counting the number of elements
+};
+
+std::ostream& operator<<(std::ostream& os, Feature);
+
+class FeatureSet : public EnumSet<Feature> {
+ public:
+  //! Inspect env vars and fall back to compile-time defaults for features.
+  FeatureSet();
+
+  std::string toString() const;
+
+  using ArgsMap = std::unordered_map<Feature, std::vector<std::string>>;
+
+  //! Each feature can have an ordered collection of strings as "arguments". For
+  //! example, NVFUSER_ENABLE=warn_register_spill(10) means we will warn only if
+  //! more than 10 registers are spilled. This method checks whether such
+  //! arguments were given.
+  bool hasArgs(Feature feat) const {
+    if (args_ == nullptr) {
+      return false;
+    }
+    return args_->find(feat) != args_->end();
+  }
+
+  //! Get args vector for given feature. This should only be called if
+  //! hasArgs(feat) returned true.
+  const std::vector<std::string>& getArgs(Feature feat) const;
+
+  //! Set args for a single feature
+  void setArgs(Feature feat, const std::vector<std::string>& args) {
+    if (args_ == nullptr) {
+      args_ = std::make_unique<ArgsMap>();
+    }
+    (*args_)[feat] = args;
+  }
+
+  //! Set args for all features at once by copying a whole unordered_map
+  void setArgs(const ArgsMap& all_args) {
+    args_ = std::make_unique<ArgsMap>(all_args);
+  }
+
+  size_t hash() const {
+    // Ignores args_
+    return std::hash<Bitset>{}(bitset());
+  }
+
+  bool operator==(const FeatureSet& other) const {
+    if (bitset() != other.bitset()) {
+      return false;
+    }
+    if (args_ == nullptr && other.args_ == nullptr) {
+      // Common case
+      return true;
+    }
+    if (args_ == nullptr && !other.args_->empty()) {
+      return false;
+    }
+    if (other.args_ == nullptr && !args_->empty()) {
+      return false;
+    }
+    return *args_ == *(other.args_);
+  }
+
+  bool operator!=(const FeatureSet& other) const {
+    return !(operator==(other));
+  }
+
+  FeatureSet(const FeatureSet& other) noexcept : EnumSet<Feature>(other) {
+    if (other.args_ != nullptr) {
+      args_ = std::make_unique<ArgsMap>(*other.args_);
+    }
+  }
+
+  FeatureSet& operator=(const FeatureSet& other) noexcept {
+    EnumSet<Feature>::operator=(other);
+    if (other.args_ != nullptr) {
+      args_ = std::make_unique<ArgsMap>(*other.args_);
+    }
+    return *this;
+  }
+
+  FeatureSet(FeatureSet&& other) noexcept
+      : EnumSet<Feature>(std::move(other)), args_(std::move(other.args_)) {}
+
+  FeatureSet& operator=(FeatureSet&& other) noexcept {
+    EnumSet<Feature>::operator=(other);
+    args_ = std::move(other.args_);
+    return *this;
+  }
+
+  ~FeatureSet() = default;
+
+ private:
+  // A unique_ptr is used here since this functionality is rarely needed and
+  // unique_ptr is much smaller than unordered_map
+  std::unique_ptr<ArgsMap> args_;
+};
+
+std::ostream& operator<<(std::ostream& os, FeatureSet);
+
+//! Get a mapping from all names to Features
+NVF_API const std::unordered_map<std::string, Feature>& nameToFeatureMap();
+
+//! Look up string name and return Feature, if it exists
+NVF_API std::optional<Feature> nameToFeature(std::string name);
+
+//! Given lists of feature names, parse into a FeatureSet object
+NVF_API FeatureSet parseFeatures(
+    const std::vector<std::string>& enable_features,
+    const std::vector<std::string>& disable_features);
+
+//! Given a FeatureSet, resets all features that do not affect the generated
+//! CUDA kernel to their default value. This converts an arbitrary FeatureSet
+//! into one that can be safely used as a cache key.
+NVF_API FeatureSet resetNonCompilationFeatures(const FeatureSet& features);
 
 //! Types of features to enable
 //!
@@ -100,7 +292,7 @@ enum class EnableOption {
   WarnRegisterSpill, //! Enable warnings of register spill
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
                       //! why we disabled it by default.
-  EndOfOption //! Placeholder for counting the number of elements
+  EndOfEnum //! Placeholder for counting the number of elements
 };
 
 //! Types of features to disable
@@ -129,7 +321,7 @@ enum class DisableOption {
   WelfordVectorization, //! Disable vectorizaton of Welford ops
   ReuseMismatchedTypeRegisters, //! Disable explicitly re-using registers unless
                                 //! types match
-  EndOfOption //! Placeholder for counting the number of elements
+  EndOfEnum //! Placeholder for counting the number of elements
 };
 
 //! Options to set for Fusion Profiling.  Whenever the profiler
@@ -150,7 +342,7 @@ enum class ProfilerOption {
   PrintVerbose, //! Enables the profiler and prints a complete set of columns
                 //! to the console.  WARNING: The output is will wrap on small
                 //! screens!
-  EndOfOption //! Placeholder for counting the number of elements
+  EndOfEnum //! Placeholder for counting the number of elements
 };
 
 //! The base template class for the options such as EnableOption

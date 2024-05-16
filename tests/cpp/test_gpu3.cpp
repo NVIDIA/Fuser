@@ -8131,6 +8131,7 @@ TEST_F(NVFuserTest, TemplateFunctionTypeMismatch) {
       fusion, args, persistent_params->lparams, persistent_params->cparams);
   auto cg_outputs = fe.runFusion(args, persistent_params->lparams);
 }
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
