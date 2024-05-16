@@ -448,6 +448,12 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   int64_t available_regs = scheduler_utils::register_file_size_inner_outer;
   buffer_params.smem_overhead = smem_overhead;
 
+
+  if(std::getenv("ENFORCE_SMEM") != nullptr) {
+    std::cout << "ENFORCE_SMEM will move 1 buffer to smem" << std::endl;
+    available_regs = total_buffer_size - 1;
+  }
+
   // Put all the persistent tensors in registers
   buffer_params.regs_buffer_size = total_buffer_size;
   buffer_params.smem_buffer_size = 0;
@@ -532,13 +538,22 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     buffer_params.smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
   }
 
-  // Double check
-  buffer_params.has_enough_regs_and_smem =
-      (buffer_params.smem_buffer_size <= available_smem) &&
-      (buffer_params.regs_buffer_size <= available_regs);
-  NVF_ERROR(
-      buffer_params.has_enough_regs_and_smem,
-      "Not enough registers and shared memory for persistence! Should return early.");
+
+  if(std::getenv("ENFORCE_SMEM") != nullptr) {
+    available_regs = total_buffer_size - 1;
+    buffer_params.regs_buffer_size = total_buffer_size;
+    buffer_params.smem_buffer_size = 1;    
+  }else{
+    // Double check
+    buffer_params.has_enough_regs_and_smem =
+        (buffer_params.smem_buffer_size <= available_smem) &&
+        (buffer_params.regs_buffer_size <= available_regs);
+    NVF_ERROR(
+        buffer_params.has_enough_regs_and_smem,
+        "Not enough registers and shared memory for persistence! Should return early.");
+  }
+
+
   return buffer_params;
 }
 
