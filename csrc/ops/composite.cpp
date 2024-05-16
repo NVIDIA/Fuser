@@ -92,30 +92,30 @@ static TensorView* newForLinear(
 
 } // namespace
 
-TensorView* linear(TensorView* tv_a, TensorView* tv_b, TensorView* bias) {
-  auto ndims_a = TensorDomain::noReductions(tv_a->getMaybeRFactorDomain()).size();
-  NVF_CHECK(ndims_a > 0, "Input A must be atleast 1D.");
+TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
+  auto input_ndims = TensorDomain::noReductions(input->getMaybeRFactorDomain()).size();
+  NVF_CHECK(input_ndims > 0, "Input A must be atleast 1D.");
   
-  auto ndims_b = TensorDomain::noReductions(tv_b->getMaybeRFactorDomain()).size();
-  NVF_CHECK(ndims_b == 1 || ndims_b == 2, "Input B must be a 1D / 2D tensor.");
+  auto weight_ndims = TensorDomain::noReductions(weight->getMaybeRFactorDomain()).size();
+  NVF_CHECK(weight_ndims == 1 || weight_ndims == 2, "Input B must be a 1D / 2D tensor.");
 
   // Note: This constraint is not documented but F.linear errors out if bias is given with 1D weights.
-  NVF_CHECK(ndims_b == 2 || bias == nullptr, "Expected B to be a 2D matrix if bias is given, got 1D.")
+  NVF_CHECK(weight_ndims == 2 || bias == nullptr, "Expected B to be a 2D matrix if bias is given, got 1D.")
 
   NVF_CHECK(
-      tv_a->dtype() == tv_b->dtype(),
-      "Expected A and B dtypes to have the same dtype, got: ",
-      tv_a->dtype(),
+      input->dtype() == weight->dtype(),
+      "Expected input and weight dtypes to have the same dtype, got: ",
+      input->dtype(),
       " and ",
-      tv_b->dtype());
+      weight->dtype());
   
   NVF_CHECK(
-    bias == nullptr || bias->dtype() == tv_a->dtype(),
-    "Expected bias to have the same dtype as A and B, got: ", bias->dtype(), " and ", tv_b->dtype()
+    bias == nullptr || bias->dtype() == input->dtype(),
+    "Expected bias to have the same dtype as A and B, got: ", bias->dtype(), " and ", input->dtype()
   );
   // For all other cases, create a new LinearOp
-  TensorView* out = newForLinear(tv_a, tv_b, bias);
-  IrBuilder::create<LinearOp>(out, tv_a, tv_b, bias);
+  TensorView* out = newForLinear(input, weight, bias);
+  IrBuilder::create<LinearOp>(out, input, weight, bias);
   return out;
 }
 

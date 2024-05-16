@@ -513,7 +513,7 @@ void checkMatmulOpIdMapping(
   }
 }
 
-TEST_P(ATenNodesParametrizedTest, MatmulNodeConcrete) {
+TEST_P(MatmulNodeParametrizedTest, MatmulNodeConcrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -682,7 +682,7 @@ INSTANTIATE_TEST_SUITE_P(
 // Test case where K=1
 INSTANTIATE_TEST_SUITE_P(
     ReductionAxisIsOne,
-    ATenNodesParametrizedTest,
+    MatmulNodeParametrizedTest,
     testing::Combine(
         testing::Values(
             Sizes({1}),

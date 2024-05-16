@@ -47,15 +47,15 @@ NVF_API LstmResult lstm(
     TensorView* cell_x,
     TensorView* out_x);
 
-// Linear functions which takes in two tensors of shapes A[* , in_features], B[out_features, in_features] / [in_features] and an optional bias of shape [out_features] or 0D scalar.
-// Bias can only be given if B is a 2-D tensor. 
-TensorView* linear(TensorView* a, TensorView* b, TensorView* bias);
+// Linear functions which takes in two tensors of shapes input[* , in_features], weight[out_features, in_features] / [in_features] and an optional bias of shape [out_features] or 0D scalar.
+// Bias can only be given if weight is a 2-D tensor. 
+TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias);
 // This is an implementation detail to reflect when linear is called
 // without a bias. This calls the above function. We use this function
 // since it simplifies creating a Python API which takes optional arguments.
 // Other options include using lambdas or creating a new RecordFunctor for
 // Linear.
-TensorView* linear(TensorView* a, TensorView* b);
+TensorView* linear(TensorView* input, TensorView* weight);
 
 NVF_API TensorView* sign(TensorView* x);
 NVF_API Val* sign(Val* x);

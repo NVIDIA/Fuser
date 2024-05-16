@@ -268,7 +268,7 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
 #pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #endif
 IterDomain* newOutputIterDomain(
-    const std::vector<IterDomain*>& ids,
+    const std::vector<IterDomain*>& input_ids,
     const std::optional<IterType> force_iter_type) {
   // For the start and stop offsets, take the maximum of input axes.
   // For now, the offsets of both start and stop are always integer
@@ -281,6 +281,16 @@ IterDomain* newOutputIterDomain(
   bool extent_is_from_symbolic = true;
   Val* expanded_extent_val = nullptr;
   std::optional<IterType> iter_type = std::nullopt;
+
+  std::vector<IterDomain*> ids;
+  ids.reserve(input_ids.size());
+
+  // Filter out any nullptrs
+  std::copy_if(
+    input_ids.begin(),
+    input_ids.end(),
+    std::back_inserter(ids),
+    [](IterDomain* id) { return id!=nullptr;});
 
   for (auto id : ids) {
     if (id->isBroadcast()) {
