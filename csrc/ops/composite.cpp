@@ -366,13 +366,6 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
     return maybeCastOp(tv_a->dtype(), sum(mul(tv_a, tv_b), {0}));
   }
 
-  if (tv_b->nDims() > 1 && tv_b->axis(-2)->isBroadcast()) {
-    NVF_ERROR(
-        tv_a->axis(-1)->isBroadcast(),
-        "Mismatched Broadcast in K dimension of operands");
-    // K dimension is broadcast so this is an outer product
-  }
-
   // For all other cases, create a new MatmulOp
   TensorView* out = newForMatmul(tv_a, tv_b);
   IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
