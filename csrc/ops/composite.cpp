@@ -304,9 +304,9 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
     out_domain[idx] = ops::newOutputIterDomain(input_ids);
   }
 
-  out_domain[ndims_out - 1] = IterDomainBuilder(mapping_a.back())
-                                  .iter_type(IterType::Reduction)
-                                  .build();
+  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+      {mapping_a.back(), mapping_b.back()},
+      /*force_iter_type=*/IterType::Reduction);
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));

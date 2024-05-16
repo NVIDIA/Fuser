@@ -227,7 +227,9 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #endif
-IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids) {
+IterDomain* newOutputIterDomain(
+    const std::vector<IterDomain*>& ids,
+    const std::optional<IterType> force_iter_type) {
   // For the start and stop offsets, take the maximum of input axes.
   // For now, the offsets of both start and stop are always integer
   // constant, so we can statically compute them. It is unclear
@@ -277,6 +279,11 @@ IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids) {
         std::max(start_offset, id_start_offset->evaluate().as<int64_t>());
     stop_offset =
         std::max(stop_offset, id_stop_offset->evaluate().as<int64_t>());
+  }
+
+  if (force_iter_type.has_value()) {
+    // Use forced iter_type instead of the one inferred from the input IDs
+    iter_type = force_iter_type.value();
   }
 
   IterDomain* out_domain = nullptr;
