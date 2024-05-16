@@ -148,6 +148,11 @@ class LoopPromotionMapBuilder {
   VectorOfUniqueEntries<IterDomain*> computeTerminalLoopIds(
       const StatefulInliningInfo& info) const;
 
+  std::unordered_map<ValGroup, IterDomain*> getLoopPromotionsToPropagateAgain(
+      const std::unordered_map<ValGroup, IterDomain*>&
+          initial_loop_promotion_map,
+      const ValGraph& loop_graph) const;
+
   // Basic consistency check of the given loop promotion map
   void sanityCheckLoopPromotionMap(
       const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map)
