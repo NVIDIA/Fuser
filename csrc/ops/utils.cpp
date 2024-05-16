@@ -238,19 +238,20 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
         for (auto inx : c10::irange(inp_size - 1)) {
           mapping[inx] = input_domain[inx];
         }
+        mapping[out_size - 1] = input_domain.back();
         break;
       }
       case MatmulRole::INPUT_B: {
-        if (inp_size > 1) {
-          // Weight is of shape {out_features, in_features}
-          mapping[out_size - 1] = input_domain[0];
+        for (auto inx: c10::irange(inp_size - 1)) {
+          // Map N, K to the last two positions of the output.
+          mapping[out_size - 1 - inx] = input_domain[inp_size - 1 - inx];
         }
         break;
       }
       case MatmulRole::INPUT_C: {
         if (inp_size > 0){
           // Bias is 1D tensor of shape {out_features}
-          mapping[out_size - 1] = input_domain[0];
+          mapping[out_size - 2] = input_domain[0];
         }
         break;
       }

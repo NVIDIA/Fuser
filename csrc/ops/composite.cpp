@@ -66,9 +66,9 @@ static TensorView* newForLinear(
       TensorDomain::noReductions(tv_b->getMaybeRFactorDomain());
 
   // Linear: a = {*, in_features}, b = {out_features, in_features} /
-  // {in_features} For the linear output, all but the last dimension are the
-  // same shape as the first input. The last dimension is out_features (if present).
-  auto ndims_out = (orig_domain_a.size() - 1) + (orig_domain_b.size() - 1);
+  // {in_features}.The linear output is {*, (out_features), rK}.
+  // The first out_size -2 dimensions are as the first input, followed by out_features (if present) and an additional reduction axis K.
+  auto ndims_out = (orig_domain_a.size() - 1) + orig_domain_b.size();
 
   const std::vector<IterDomain*>& mapping_a = ops::mapLinearOpIterDomains(
       orig_domain_a, MatmulRole::INPUT_A, ndims_out);
