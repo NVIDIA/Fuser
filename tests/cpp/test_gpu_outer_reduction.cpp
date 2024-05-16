@@ -2207,67 +2207,142 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
 }
 
 TEST_F(OuterReductionTest, IterGroupedGridReduction) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto test = [](DataType dtype,
+                 int vect,
+                 int bdimx,
+                 int gdimx,
+                 int unroll,
+                 int bdimy,
+                 int gdimy,
+                 int serial) {
+    int iter_dim = vect * bdimx * gdimx;
+    int redu_dim = unroll * bdimy * gdimy * serial;
 
-  DataType dtype = DataType::Half;
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, dtype);
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    if (dtype == DataType::Half) {
+      tv1 = castOp(DataType::Float, tv1);
+    }
+    auto tv2 = sum(tv1, {0});
+    if (dtype == DataType::Half) {
+      tv2 = castOp(DataType::Half, tv2);
+    }
+    fusion.addOutput(tv2);
 
-  auto tv0 = makeContigTensor(2, dtype);
-  fusion.addInput(tv0);
+    // manually set how to schedule the fusion
+    auto rparams = std::make_shared<ReductionParams>();
+    // vectorize
+    rparams->vectorize_iter_dom = true;
+    rparams->unroll_factor_iter_dom = vect;
+    // use bdimx
+    rparams->multiple_reds_per_blk = true;
+    rparams->block_dim_iter_dom = ParallelType::TIDx;
+    // use gdimx
+    rparams->grid_dim_iter_dom = ParallelType::BIDx;
+    // use unroll
+    rparams->unroll_factor_inner_reduction = unroll;
+    // use bdimy
+    rparams->cross_block_inner_reduction = true;
+    rparams->block_dim_inner_reduction = ParallelType::TIDy;
+    // use gdimy
+    rparams->cross_grid_inner_reduction = true;
+    rparams->split_grid_dim_inner_reduction = true;
+    rparams->grid_dim_inner_reduction = ParallelType::BIDy;
+    // set launch para
+    auto lparams = LaunchParams(
+        gdimx,
+        gdimy,
+        LaunchParams::UNINITIALIZED_VAL,
+        bdimx,
+        bdimy,
+        LaunchParams::UNINITIALIZED_VAL);
+    rparams->lparams = lparams;
+    scheduleReduction(&fusion, *rparams);
 
-  auto tv1 = castOp(DataType::Float, tv0);
-  auto tv2 = sum(tv1, {0});
-  auto tv3 = castOp(dtype, tv2);
-  fusion.addOutput(tv3);
+    // lowering & check iteration grouped reductions
+    GpuLower gpulw(&fusion);
+    gpulw.run();
+    NVF_CHECK(
+        gpulw.kernel()->summary().has_iter_grouped_reductions,
+        "There must be iter domain grouped reductions.");
+    NVF_CHECK(
+        gpulw.kernel()->summary().num_grouped_iterations == vect,
+        "Expected ",
+        vect,
+        " grouped iterations, found ",
+        gpulw.kernel()->summary().num_grouped_iterations);
 
-  std::vector<int64_t> shape({4096, 2048});
+    std::vector<int64_t> shape({redu_dim, iter_dim});
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    auto t0 = at::randn(shape, options);
+    std::vector<c10::IValue> aten_inputs({t0});
 
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(shape, options);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs, lparams);
+    auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
-  std::vector<c10::IValue> aten_inputs({t0});
+    testValidate(
+        &fusion,
+        cg_outputs,
+        aten_inputs,
+        {t0.to(at::kFloat).sum(0)},
+        __LINE__,
+        __FILE__,
+        "",
+        lparams);
+  };
+  // Shmoo over data types and 7 heuristic paras in iter grouped grid reduction.
+  // since grid reduction uses block recution, this test also covers iter
+  // grouped block reduction. To avoid too many tests, gdimx, unroll, and
+  // serial are tested with just 1 value since they are not directly related
+  // to block or grid reduction.
 
-  auto heuristics_params = getReductionHeuristics(&fusion, aten_inputs);
-  NVF_CHECK(heuristics_params, "Reduction schedule was not generated!");
-
-  // Enforce vectorization so we can group them
-  const int vect_factor = 8;
-  heuristics_params->vectorize_iter_dom = true;
-  heuristics_params->unroll_factor_iter_dom = vect_factor;
-  // Enforce grid reduction
-  heuristics_params->cross_grid_inner_reduction = true;
-  heuristics_params->split_grid_dim_inner_reduction = true;
-
-  scheduleReduction(&fusion, *heuristics_params);
-
-  // lowering & check iteration grouped reductions
-  GpuLower gpulw(&fusion);
-  gpulw.run();
-  NVF_CHECK(
-      gpulw.kernel()->summary().has_iter_grouped_reductions,
-      "There must be iter domain grouped reductions.");
-  NVF_CHECK(
-      gpulw.kernel()->summary().num_grouped_iterations == vect_factor,
-      "Expected ",
-      vect_factor,
-      " grouped iterations, found ",
-      gpulw.kernel()->summary().num_grouped_iterations);
-
-  FusionExecutor fe;
-  auto lparams = heuristics_params->lparams;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
-  testValidate(
-      &fusion,
-      cg_outputs,
-      aten_inputs,
-      {t0.to(at::kFloat).sum(0)},
-      __LINE__,
-      __FILE__,
-      "",
-      lparams);
+  // vect, max vectorization factor is 8
+  std::vector<int> vect_list({2, 4, 8});
+  // bdimx, pow of 2 and a prime number
+  std::vector<int> bdimx_list({8, 64, 127});
+  // gdimx, blocks in x-dim are processing different reductions, no inference
+  // with each other, just test a small set
+  std::vector<int> gdimx_list({8});
+  // unroll, current heuristic may use up to 16, but not directly related to
+  // grid reduction, just test a small set.
+  std::vector<int> unroll_list({2});
+  // bdimy
+  std::vector<int> bdimy_list({8, 64, 128, 127});
+  // gdimy, may use any value >= 2, power of 2 is more frequently used
+  std::vector<int> gdimy_list({2, 3, 8, 64, 128});
+  // serial iteration, may use any value, but not directly related to
+  // grid reduction, just test a small set.
+  std::vector<int> serial_list({4});
+  for (DataType dtype : {DataType::Half, DataType::Float}) {
+    for (int vect : vect_list) {
+      if (dtype == DataType::Float && vect == 8) {
+        continue;
+      }
+      for (int bdimx : bdimx_list) {
+        for (int gdimx : gdimx_list) {
+          for (int unroll : unroll_list) {
+            for (int bdimy : bdimy_list) {
+              for (int gdimy : gdimy_list) {
+                for (int serial : serial_list) {
+                  // skip invalid configures
+                  if (bdimx * bdimy > 1024 || vect * unroll > 16) {
+                    continue;
+                  }
+                  test(dtype, vect, bdimx, gdimx, unroll, bdimy, gdimy, serial);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 // validation tests of outer reduction scheduler after

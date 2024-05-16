@@ -13,6 +13,7 @@
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
@@ -70,10 +71,9 @@ TEST_F(ReshardingTest, Detection) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  DeviceMesh mesh0, mesh1, mesh2;
-  mesh0 = {0, 1};
-  mesh1 = {0, 2};
-  mesh2 = {0, 1, 2};
+  DeviceMesh mesh0 = {0, 1};
+  DeviceMesh mesh1 = {0, 2};
+  DeviceMesh mesh2 = {0, 1, 2};
 
   TensorView* tv0 = makeContigTensor(3);
   fusion->addInput(tv0);
@@ -320,6 +320,9 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
 }
 
 TEST_P(ReshardingTest, Insert) {
+  if (!distributedEnabled()) { // Test only works with distributed
+    GTEST_SKIP() << "Requires distributed API";
+  }
   auto
       [mesh0,
        mesh1,

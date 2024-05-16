@@ -9,6 +9,7 @@
 
 #include <exceptions.h>
 #include <ir/all_nodes.h>
+#include <scheduler/matmul_utils.h>
 #include <type.h>
 #include <visibility.h>
 
@@ -33,6 +34,34 @@ Val* newScalar(ValType vtype, DataType dtype);
 
 IterType promoteIterType(IterType type1, IterType type2);
 
+// For MatmulOp, the input iterdomains at a given index do not necessarily map
+// to the output iterdomain at that index This function aligns the input
+// iterdomain to the output and returns a vector where each element is the input
+// iterdomain corresponding to the output iterdomain at that index. If the
+// element is nullptr, there is no mapping between input-output at that index.
+// Based on the input dimensions following cases are possible:
+// 1. A/B is 1D: [M, K] x [K] -> [M] (Mapping A: {id_M}, Mapping B: {nullptr})
+// or [K] x [N, K] -> [N] (Mapping A: {nullptr}, Mapping B: {id_N})
+// 2. A and B are 2D: [M, K] x [K, N] -> [M, N] (Mapping A: {id_M, nullptr},
+// Mapping B: {nullptr, id_N})
+// 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M,
+// N] (Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N})
+std::vector<IterDomain*> mapMatmulOpIterDomains(
+    const std::vector<IterDomain*>& input_domain,
+    MatmulRole input_role,
+    size_t out_size);
+
+// Takes a vector of aligned input iterdomains to create the output iterdomain.
+// This is used if the input iterdomains are not trivially mapped to the output
+// iterdomains. For eg: MatmulOp. If given, the forced_iter_type argument will
+// be the output IterType regardless of the inputs; otherwise the output
+// IterType is inferred from ids.
+IterDomain* newOutputIterDomain(
+    const std::vector<IterDomain*>& ids,
+    const std::optional<IterType> force_iter_type = std::nullopt);
+
+// Takes a vector of tensorviews and assumes they are all aligned to create the
+// output tensorview. For eg: BinaryOp.
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals);
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype);

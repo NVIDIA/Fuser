@@ -1488,7 +1488,31 @@ def vector_at_error_generator(
         ), error_type, error_msg
 
 
-def matmul_or_linear_input_generator(
+def matmul_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor,
+        dtype=dtype,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    B = 64
+    M = 512
+    N = 256
+    K = 32
+
+    shapes_a = ((K,), (M, K), (1, K), (B, M, K), (B, 1, M, K))
+    shapes_b = ((K,), (K, N), (K, 1), (B, K, N))
+
+    for shape_a, shape_b in itertools.product(shapes_a, shapes_b):
+        yield SampleInput(make_arg(shape_a), make_arg(shape_b))
+
+
+def linear_input_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     make_arg = partial(
@@ -1507,17 +1531,11 @@ def matmul_or_linear_input_generator(
             map(pow, itertools.repeat(step, num_steps), range(1, num_steps + 1))
         )
 
-    is_linear = op.name == "linear"
-
     # Ranges of tensor sizes: 8, 64, 512, 4096, 32768, ...
     # Use a Cartesian product to create a wide range of matrix shapes
     # I'll stop at 512 as possible numerical difference may show up.
     M, N, K = itertools.repeat(multiply_range(512, 8), 3)
     for M, N, K in itertools.product(M, N, K):
         lhs_shape = (M, K)
-        rhs_shape = (N, K) if is_linear else (K, N)
-        yield (
-            SampleInput(make_arg(lhs_shape), make_arg(rhs_shape), make_arg((N,)))
-            if is_linear
-            else SampleInput(make_arg(lhs_shape), make_arg(rhs_shape))
-        )
+        rhs_shape = (N, K)
+        yield (SampleInput(make_arg(lhs_shape), make_arg(rhs_shape), make_arg((N,))))

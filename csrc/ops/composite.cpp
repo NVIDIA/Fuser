@@ -54,42 +54,6 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   return dx;
 }
 
-// This function will add a castOp to the output of the matrix multiplication
-// The implementation of linear can use this but will skip the cast (set cast
-// flag as false) and add the bias.
-TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input) {
-  NVF_CHECK(
-      a->nDims() == b->nDims(),
-      "The number of dimension of A and B do not match");
-  // TODO: We'll need to suppor nDims == 3 for bmm.
-  NVF_CHECK(
-      a->nDims() == 2,
-      "Only 2-D Tensors are supported, in the future we'll support 3-D as well!");
-
-  std::vector<bool> bcast_dims(a->nDims() + 1, false);
-  // A: [M, K, Bcast]
-  // B: [Bcast, K, N]
-  bcast_dims.at(bcast_dims.size() - 1) = true;
-  auto* tv0b = broadcast(a, bcast_dims);
-  bcast_dims.at(bcast_dims.size() - 1) = false;
-  bcast_dims.at(bcast_dims.size() - 3) = true;
-  auto* tv1b = broadcast(b, bcast_dims);
-
-  NVF_CHECK(
-      a->getDataType().value() == b->getDataType().value(),
-      "data types of inputs to matmul don't match");
-  auto* output = fusedMultiplySum(tv0b, tv1b, {-2});
-  if (cast_output_to_input) {
-    // For matmul, the output dtype should match input.
-    return maybeCastOp(a->getDataType().value(), output);
-  }
-  return output;
-}
-
-TensorView* matmul(TensorView* a, TensorView* b) {
-  return matmul(a, b, true /* cast output to input dtype */);
-}
-
 TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
   // TODO: Support 1+ dimensional A.
   NVF_CHECK(
@@ -298,6 +262,114 @@ TensorView* view_as_real(TensorView* x) {
       std::make_shared<DataType>(getTypeFromComplexType(input_type)), 2};
   auto tv_vector = bitCastOp(vec_type, x);
   return viewAsScalar(tv_vector);
+}
+namespace {
+
+//! Create new output for matmul
+static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+  auto orig_domain_a =
+      TensorDomain::noReductions(tv_a->getMaybeRFactorDomain());
+  auto orig_domain_b =
+      TensorDomain::noReductions(tv_b->getMaybeRFactorDomain());
+
+  auto ndims_a = orig_domain_a.size();
+  auto ndims_b = orig_domain_b.size();
+
+  // Matmul output size is same as the higher dimensional input size if both A/B
+  // > 1D, but with 1 additional IterType::Reduction axis rK.
+  auto ndims_out = std::max(ndims_a, ndims_b) + 1;
+  if (std::min(ndims_a, ndims_b) == 1) {
+    // If one of the inputs is 1D, the output size is the same as the higher
+    // dimensional input size, since we will include a Reduction axis for K in
+    // the output. For example: [iM, iK] x [iK] -> [iM, rK]
+    ndims_out = std::max(ndims_a, ndims_b);
+  }
+
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+
+  const std::vector<IterDomain*>& mapping_a = ops::mapMatmulOpIterDomains(
+      orig_domain_a, MatmulRole::INPUT_A, ndims_out);
+  const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
+      orig_domain_b, MatmulRole::INPUT_B, ndims_out);
+
+  for (auto idx : c10::irange(ndims_out - 1)) {
+    std::vector<IterDomain*> input_ids;
+    input_ids.reserve(2);
+    if (mapping_a[idx] != nullptr) {
+      input_ids.emplace_back(mapping_a[idx]);
+    }
+    if (mapping_b[idx] != nullptr) {
+      input_ids.emplace_back(mapping_b[idx]);
+    }
+    out_domain[idx] = ops::newOutputIterDomain(input_ids);
+  }
+
+  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+      {mapping_a.back(), mapping_b.back()},
+      /*force_iter_type=*/IterType::Reduction);
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+
+  return IrBuilder::create<TensorView>(td, tv_a->dtype());
+}
+
+} // namespace
+
+TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
+  NVF_CHECK(
+      tv_a->nDims() > 0 && tv_b->nDims() > 0,
+      "Expected inputs to be atleast 1D, got: ",
+      tv_a->nDims(),
+      " and ",
+      tv_b->nDims());
+
+  // Note: torch.matmul reference does not restrict the inputs to the same
+  // dtype, but it fails for different input dtypes.
+  //       This condition may potentially be modified. The following condition
+  //       should change accordingly.
+  NVF_CHECK(
+      tv_a->dtype() == tv_b->dtype(),
+      "Expected A and B dtypes to have the same dtype, got: ",
+      tv_a->dtype(),
+      " and ",
+      tv_b->dtype());
+
+  // Check for K=1 i.e. reduction of broadcast. In these cases we don't need a
+  // matmul so we translate it to a multiplication+cast
+  auto b_k_axis = tv_b->nDims() == 1 ? -1 : -2;
+  NVF_CHECK(
+      tv_a->axis(-1)->isBroadcast() == tv_b->axis(b_k_axis)->isBroadcast(),
+      "K dimension must be broadcast in both operands or none");
+  if (tv_a->axis(-1)->isBroadcast()) {
+    TensorView* float_result = nullptr;
+    if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
+      // [1] @ [1] = []
+      float_result =
+          mul(squeeze(tv_a, std::vector<int64_t>{0}),
+              squeeze(tv_b, std::vector<int64_t>{0}));
+    } else if (tv_a->nDims() == 1) {
+      // [1] @ [..., 1, N] = [..., N]
+      float_result = mul(tv_a, squeeze(tv_b, std::vector<int64_t>{-2}));
+    } else if (tv_b->nDims() == 1) {
+      // [..., M, 1] @ [1] = [..., M]
+      float_result = mul(squeeze(tv_a, std::vector<int64_t>{-1}), tv_b);
+    } else {
+      float_result = mul(tv_a, tv_b);
+    }
+    return maybeCastOp(tv_a->dtype(), float_result);
+  }
+
+  if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
+    // Return the dot product instead of creating the MatmulOp.
+    // Cast back the output if needed since torch.matmul maintains input dtype.
+    return maybeCastOp(tv_a->dtype(), sum(mul(tv_a, tv_b), {0}));
+  }
+
+  // For all other cases, create a new MatmulOp
+  TensorView* out = newForMatmul(tv_a, tv_b);
+  IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
+  return out;
 }
 
 } // namespace nvfuser

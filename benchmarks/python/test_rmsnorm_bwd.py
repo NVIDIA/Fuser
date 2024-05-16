@@ -82,6 +82,7 @@ def rmsnorm_bwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_outer_persistent
 def test_rmsnorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
