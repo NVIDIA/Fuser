@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <multidevice/device_mesh.h>
-#include <iostream>
 
 #include <numeric>
 #include <unordered_set>
