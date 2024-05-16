@@ -1558,13 +1558,15 @@ def linear_error_generator(op, dtype=torch.float32, requires_grad: bool = False,
         "Expected B to be a 2D matrix if bias is given, got 1D.",
     )
 
-    # mismatched_bias_extent = (
-    #     ((M, K), (1, K), (N)),
-    #     RuntimeError,
-    #     f"The expanded size of the tensor (1) must match the existing size ({N}) at non-singleton dimension 1.  Target sizes: [{M}, 1].  Tensor sizes: [{N}]",
-    # )
+    mismatched_bias_extent = (
+        ((M, K), (1, K), (N)),
+        RuntimeError,
+        f"The expanded size of the tensor (1) must match the existing size ({N}) at non-singleton dimension 1.  Target sizes: [{M}, 1].  Tensor sizes: [{N}]",
+    )
 
-    for input_shapes, ex_type, ex_str in [bias_with_1dweight]:
+    error_cases = [bias_with_1dweight, mismatched_bias_extent]
+
+    for input_shapes, ex_type, ex_str in error_cases:
         shape_input, shape_weight, shape_bias = input_shapes
         print (input_shapes)
         yield SampleInput(

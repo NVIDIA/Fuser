@@ -209,10 +209,12 @@ def errors_test_fn(
     fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
 
 
-# A pair of parentheses () represents a capture group in regex.
+# A pair of parentheses ()/[] represents a capture group in regex.
 # Escape parenthesis in regex string to match raw characters.
 def _regex_escape_parenthesis(a: str) -> str:
     b = a.replace(r"(", r"\(")
+    b = b.replace(r"[", r"\[")
+    b = b.replace(r"]", r"\]")
     return b.replace(r")", r"\)")
 
 
