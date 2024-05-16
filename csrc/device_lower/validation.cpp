@@ -11,6 +11,7 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
+#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -1321,6 +1322,113 @@ void validateReductions(Fusion* fusion) {
             "converted to squeeze before lowering.");
       }
     }
+  }
+}
+
+// Validates properties for every "fold group" in the Fusion
+//  A fold group is defined as a sub-DAG of expressions starting with a
+//  BeginFoldOp and ending with an EndFoldOp.
+//
+//  Each fold group corresponds to a collection of exact-mapped IterType::Fold
+//  IterDomains.
+//
+//  Fold groups may be nested, in which case some expressions might appear in
+//  multiple fold groups. For example:
+//    // tv0 [ iS{i0} iS{i1} iS{i2} ]
+//    tv1, tv2 = beginFold({tv0}, {fusion->zeroVal()}, {0}); // Start outer fold
+//    over axis 0
+//    // tv1, tv2 [ fS{i0} iS{i1} iS{i2} ]
+//    tv3, tv4 = beginFold({tv1}, {fusion->oneVal()}, {2}); // Start inner fold
+//    // tv3, tv4 [ fS{i0} iS{i1} fS{i2} ]
+//    tv5 = mul(tv3, tv4);
+//    tv6 = endFold({tv5}); // End the inner fold
+//    // tv6 [ fS{i0} iS{i1} rS{i2} ]
+//    tv7 = broadcast(tv6, {false, false, true}); // [ fS{i0} iS{i1} bS{1} ]
+//    tv8 = mul(tv2); // [ fS{i0} iS{i1} iS{i2} ]
+//    tv9 = add(tv1, tv2); // [ fS{i0} iS{i1} iS{i2} ]
+//    tv10 = endFold({tv9}); // [ rS{i0} iS{i1} iS{i2} ]
+//  In this example, we take the intermediate sum, compute an allreduce product
+//  of some of its grouped elements and multiply that by the next element to be
+//  summed before summing. This is a contrived example but it shows how we can
+//  have two nested fold groups. Ending a fold ends only the inner fold group,
+//  preventing illegal overlap where we complete an outer fold before an inner
+//  fold.
+//
+// For each fold group, we enforce the following rules:
+//
+// *Propagation of IterTypes*
+// IterType::Fold can be used in ordinary pointwise ops. For example when used
+// in a BinaryOp, the output IterType depends on the other type:
+//   - Combining IterType::Fold with IterType::Iteration is illegal. This is
+//   because there is no correspondence between IterType::Fold elements and the
+//   original folded axis (think about hierarchical reductions).
+//   - Combining IterType::Fold with IterType::Broadcast or IterType::Fold is
+//   allowed and results in IterType::Fold.
+//   - Combining IterType::Fold with IterType::Symbolic is allowed and results
+//   in IterType::Fold. However, if the symbolic axis gets concretized as
+//   IterType::Iteration, then validation will fail (see the first rule in this
+//   list).
+//
+// *Inlining*
+// All TensorViews in the fold group must be inlined to at least the inner-most
+// fold axis. 
+//
+// *Unique entry and exit points*
+// For a given set of exact mapped IterType::Fold axes, there must be a single
+// BeginFoldOp and a single EndFoldOp.
+//
+// *Matching shapes, dtypes, memory types*
+// The shapes and dtypes of corresponding prev, next, and combined tensors
+// should match. The memory types of prev and next must be MemoryType::Local,
+// but the combined tensors can have a different memory type.
+
+namespace {
+class FoldValidator : IterVisitor {
+ public:
+  FoldValidator(Fusion* fusion) : fusion_(fusion) {
+    traverse();
+  }
+ 
+ private:
+  using IterVisitor::dispatch;
+  using IterVisitor::handle;
+
+  void dispatch(Expr* expr) {
+    IterVisitor::dispatch(expr);
+  }
+
+  void handle(BeginFoldOp* bfop) {
+    size_t group_id = fold_group_exprs_.size();
+    fold_group_exprs_.emplace_back(0);
+    expr_to_group_.emplace(bfop, group_id);
+  }
+
+  // Propagate fold group axes from producer to consumer.
+  // If the consumer is Fold but the producer is not, verify that the
+  // definition is BeginFoldOp and use that ops group ID.
+  void handle(TensorView* tv) {
+  }
+
+ private:
+  Fusion* fusion_ = nullptr;
+
+  // Each fold group is a collection of Exprs, in topological order. The first
+  // and last entries should be BeginFoldOp and EndFoldOp.
+  std::vector<std::vector<Expr*>> fold_group_exprs_;
+
+  // Map IterDomains to group ids. 
+  std::unordered_map<IterDomain*, size_t> id_to_group_;
+
+  // Map BeginFoldOps and EndFoldOps to group ids. Other Exprs might belong to
+  // multiple fold groups
+  std::unordered_map<Expr*, size_t> expr_to_group_;
+}
+}
+
+void validateFolds(Fusion* fusion) {
+  std::vector<groups
+  for (BeginFoldOp* bfop : ir_utils::getOpsOfType<BeginFoldOp>(fusion)) {
+
   }
 }
 

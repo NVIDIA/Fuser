@@ -82,4 +82,7 @@ void validateResize(Fusion* fusion);
 //! Check that there are no reductions over unexpanded broadcasts
 void validateReductions(Fusion* fusion);
 
+//! Check that fold groups obey some rules
+void validateFolds(Fusion* fusion);
+
 } // namespace nvfuser
