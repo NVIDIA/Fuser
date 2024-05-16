@@ -5,8 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <fusion.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
+#include <fusion.h>
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
@@ -37,6 +39,34 @@ TEST_F(ShardingTest, IsSharded) {
   c->axis(0)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
   EXPECT_ANY_THROW(isSharded(c));
+}
+
+TEST_F(ShardingTest, DeviceMesh2D) {
+  DeviceMesh mesh({3, 4, 1, 0, 8, 2}, {2, 3});
+  // Sizes are not consistent with number of devices
+  EXPECT_ANY_THROW(DeviceMesh({1, 2}, {2, 3}));
+  // Duplicates in DeviceMesh
+  EXPECT_ANY_THROW(DeviceMesh({1, 2, 0, 2}, {2, 3}));
+
+  std::vector<int64_t> local_indices_8 = {1, 1};
+  std::vector<int64_t> local_indices_1 = {0, 2};
+  EXPECT_EQ(mesh.getLocalIndices(8), local_indices_8);
+  EXPECT_EQ(mesh.getLocalIndices(1), local_indices_1);
+
+  std::vector<DeviceIdxType> team_axis1_group0 = {3, 4, 1};
+  std::vector<DeviceIdxType> team_axis0_group2 = {1, 2};
+  std::vector<DeviceIdxType> team_2_0 = {1, 2};
+  EXPECT_EQ(mesh.getTeam(1, 1), team_axis1_group0);
+  EXPECT_EQ(mesh.getTeam(1, 0), team_axis0_group2);
+  EXPECT_EQ(mesh.getTeam(2, 0), team_axis0_group2);
+
+  DeviceMesh mesh3d = DeviceMesh::createForShape({2, 3, 4});
+  std::vector<DeviceIdxType> team_axis0_group1 = {6, 18};
+  std::vector<DeviceIdxType> team_axis1_group1 = {14, 18, 22};
+  std::vector<DeviceIdxType> team_axis2_group2 = {16, 17, 18, 19};
+  EXPECT_EQ(mesh3d.getTeam(18, 0), team_axis0_group1);
+  EXPECT_EQ(mesh3d.getTeam(18, 1), team_axis1_group1);
+  EXPECT_EQ(mesh3d.getTeam(18, 2), team_axis2_group2);
 }
 
 TEST_F(ShardingTest, PropagateSharding) {

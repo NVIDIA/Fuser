@@ -70,7 +70,7 @@ CommParams createParamsForGatherScatter(
   params.type =
       is_scatter ? CommunicationType::Scatter : CommunicationType::Gather;
   params.root = root;
-  params.team = mesh.vector();
+  params.team = mesh.getTeam(my_device_index, 0);
   if (!mesh.has(root)) {
     params.is_root_in_mesh = false;
     params.team.push_back(root);
@@ -108,7 +108,7 @@ void lowerToGather(
     std::vector<Communication*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
-  for (auto root : output_tv->getDeviceMesh().vector()) {
+  for (auto root : output_tv->getDeviceMesh().getTeam(my_device_index)) {
     if (!isDeviceInvolved(my_device_index, root, sender_mesh)) {
       continue;
     }
@@ -131,7 +131,7 @@ void lowerToAllgather(
 
   CommParams params;
   params.type = CommunicationType::Allgather;
-  params.team = mesh.vector();
+  params.team = mesh.getTeam(my_device_index, 0);
   comms.push_back(IrBuilder::create<Communication>(std::move(params)));
 }
 
@@ -143,7 +143,7 @@ CommParams createParamsForBroadcastOrP2P(
     const DeviceMesh& mesh) {
   CommParams params;
   params.root = root;
-  params.team = mesh.vector();
+  params.team = mesh.getTeam(my_device_index, 0);
   if (!mesh.has(root)) {
     params.is_root_in_mesh = false;
     params.team.push_back(root);
@@ -209,7 +209,7 @@ CommParams createParamsForReduce(
   params.type = CommunicationType::Reduce;
   params.root = root;
   params.redOp = getC10dReduceOpType(op_type);
-  params.team = mesh.vector();
+  params.team = mesh.getTeam(my_device_index, 0);
   if (!mesh.has(root)) {
     params.is_root_in_mesh = false;
     params.team.push_back(root);
@@ -227,7 +227,7 @@ void lowerToReduce(
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   // we create as many Reduces as there are devices in the receiver mesh
-  for (auto root : receiver_mesh.vector()) {
+  for (auto root : receiver_mesh.getTeam(my_device_index)) {
     if (!isDeviceInvolved(my_device_index, root, sender_mesh)) {
       continue;
     }
@@ -251,7 +251,7 @@ void lowerToAllreduce(
   CommParams params;
   params.type = CommunicationType::Allreduce;
   params.redOp = getC10dReduceOpType(op_type);
-  params.team = mesh.vector();
+  params.team = mesh.getTeam(my_device_index, 0);
   comms.push_back(IrBuilder::create<Communication>(params));
 }
 
@@ -269,7 +269,7 @@ void lowerToReduceScatter(
   CommParams params;
   params.type = CommunicationType::ReduceScatter;
   params.redOp = getC10dReduceOpType(op_type);
-  params.team = mesh.vector();
+  params.team = mesh.getTeam(my_device_index, 0);
   auto reduction_axis = output_tv->getReductionAxis().value();
   auto scattered_axis = getShardedAxis(output_tv);
   // The output tensor is sharded on scattered_axis and needs to be mapped
