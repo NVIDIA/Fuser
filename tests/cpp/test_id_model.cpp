@@ -1995,6 +1995,8 @@ TEST_F(IdModelTest, LoopPromotionTwoStepFailureReproSimple) {
   auto t4 = add(t3, t1);
   fusion.addOutput(t4);
 
+  t4->merge(-2, -1)->merge(-2, -1)->merge(-2, -1)->merge(-2, -1)->split(0, 4);
+
   TransformPropagatorWithCheck propagator(t4);
   MaxRootDomainInfoSpanningTree(t4).traverse(&propagator);
 
@@ -2013,8 +2015,6 @@ TEST_F(IdModelTest, LoopPromotionTwoStepFailureReproSimple) {
   auto id38_promotion = id38_promotion_it->second;
 
   auto reference_loop_promotion = t4->axis(1);
-
-  std::cerr << reference_loop_promotion->toString() << std::endl;
 
   ASSERT_TRUE(tester.id_model->idGraph(IdMappingMode::EXACT)
                   .disjointValSets()
