@@ -53,8 +53,12 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 
 // Takes a vector of aligned input iterdomains to create the output iterdomain.
 // This is used if the input iterdomains are not trivially mapped to the output
-// iterdomains. For eg: MatmulOp.
-IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids);
+// iterdomains. For eg: MatmulOp. If given, the forced_iter_type argument will
+// be the output IterType regardless of the inputs; otherwise the output
+// IterType is inferred from ids.
+IterDomain* newOutputIterDomain(
+    const std::vector<IterDomain*>& ids,
+    const std::optional<IterType> force_iter_type = std::nullopt);
 
 // Takes a vector of tensorviews and assumes they are all aligned to create the
 // output tensorview. For eg: BinaryOp.
