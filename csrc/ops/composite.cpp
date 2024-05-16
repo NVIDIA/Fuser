@@ -81,6 +81,8 @@ static TensorView* newForLinear(
   }
 
   std::vector<IterDomain*> out_domain = ops::newOutputDomain({mapping_a, mapping_b, mapping_bias});
+  // Specify the iterdomain for K as reduction
+  out_domain[ndims_out - 1] = IterDomainBuilder(out_domain.back()).iter_type(IterType::Reduction).build(); 
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -314,6 +316,8 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
     ndims_out = std::max(ndims_a, ndims_b);
   }
 
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+  
   const std::vector<IterDomain*>& mapping_a = ops::mapMatmulOpIterDomains(
       orig_domain_a, MatmulRole::INPUT_A, ndims_out);
   const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
