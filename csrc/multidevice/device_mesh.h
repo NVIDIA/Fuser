@@ -48,8 +48,7 @@ class DeviceMesh final {
   // Creates a device mesh with the specified shape made of devices from
   // [0 ... size], where size is the total number of devices specified by the
   // shape.
-  static DeviceMesh createForShape(std::vector<int64_t>& shape);
-  static DeviceMesh createForShape(std::initializer_list<int64_t> shape);
+  static DeviceMesh createForShape(std::vector<int64_t> shape);
 
   // Returns the total number of devices in the mesh
   int64_t size() const {

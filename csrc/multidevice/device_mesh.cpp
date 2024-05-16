@@ -119,7 +119,7 @@ void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
   return DeviceMesh(devices);
 }
 
-/*static*/ DeviceMesh DeviceMesh::createForShape(std::vector<int64_t>& shape) {
+/*static*/ DeviceMesh DeviceMesh::createForShape(std::vector<int64_t> shape) {
   int64_t num_devices = 1;
   for (auto i : c10::irange(shape.size())) {
     num_devices *= shape[i];
@@ -127,17 +127,6 @@ void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
   std::vector<DeviceIdxType> devices(num_devices);
   std::iota(devices.begin(), devices.end(), 0);
   return DeviceMesh(devices, shape);
-}
-
-/*static*/ DeviceMesh DeviceMesh::createForShape(
-    std::initializer_list<int64_t> shape) {
-  int64_t num_devices = 1;
-  for (auto i : c10::irange(shape.size())) {
-    num_devices *= shape[i];
-  }
-  std::vector<DeviceIdxType> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  return DeviceMesh(devices, std::vector<int64_t>(shape));
 }
 
 std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {

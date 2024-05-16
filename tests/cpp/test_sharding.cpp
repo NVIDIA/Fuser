@@ -41,7 +41,7 @@ TEST_F(ShardingTest, IsSharded) {
   EXPECT_ANY_THROW(isSharded(c));
 }
 
-TEST_F(ShardingTest, DeviceMesh2D) {
+TEST_F(ShardingTest, DeviceMesh) {
   DeviceMesh mesh({3, 4, 1, 0, 8, 2}, {2, 3});
   // Sizes are not consistent with number of devices
   EXPECT_ANY_THROW(DeviceMesh({1, 2}, {2, 3}));
