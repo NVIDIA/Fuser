@@ -195,17 +195,17 @@ class FusionKernelRuntime {
   }
 
   //! Returns if this runtime is segmented
-  bool isSegmented() {
+  bool isSegmented() const {
     return is_segmented_;
   }
 
   //! Returns the fusion segments if applicable
-  SegmentedFusion* fusionSegments() {
+  SegmentedFusion* fusionSegments() const {
     return segmented_fusion_.get();
   }
 
   //! Returns the list of heuristics in this runtime
-  FusionHeuristics* schedulerHeuristics() {
+  FusionHeuristics* schedulerHeuristics() const {
     return heuristics_.get();
   }
 
@@ -213,7 +213,7 @@ class FusionKernelRuntime {
   //!  most recent kernel launch.
   //! TODO: have a interface for grabbing all recent logs. Need to put a buffer
   //! space for recent logs
-  ExecutorLog getMostRecentExecutorLog() {
+  ExecutorLog getMostRecentExecutorLog() const {
     NVF_ERROR(profiling_, "Executor log is only produced in profiling mode");
     return most_recent_executor_log_;
   }

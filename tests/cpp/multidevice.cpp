@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <sys/types.h>
+#include <unistd.h>
+#include <mutex>
+
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>
@@ -21,14 +25,57 @@ MultiDeviceTest::MultiDeviceTest() {
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
-  do_barrier_at_test =
-      (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER") != nullptr &&
-       communicator->is_available());
   disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
+
+  char* rank_to_debug_str = getNvFuserEnv("MULTIDEVICE_WAIT_DEBUGGER_AT_RANK");
+  if (rank_to_debug_str != nullptr) {
+    const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);
+
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      // Catch exceptions so call_once always flips `once` and executes this
+      // functor only once.
+      try {
+        waitForDebuggerAtRank(rank_to_debug);
+      } catch (const std::exception& e) {
+        TORCH_WARN("Failed to wait for debugger: ", e.what());
+      }
+    });
+  }
 }
 
 MultiDeviceTest::~MultiDeviceTest() {
-  if (do_barrier_at_test && communicator->is_available()) {
+  // Force all processes to synchronize at a barrier between tests. It slightly
+  // slows the tests down, but makes it much easier to isolate a failing test.
+  // Without this, if a test fails such that a subset of processes fail, then
+  // some processes will move onto another tests and timeout later.
+  if (communicator->is_available()) {
+    communicator->barrier();
+  }
+}
+
+void MultiDeviceTest::waitForDebuggerAtRank(const DeviceIdxType rank) {
+  NVF_CHECK(
+      rank >= 0 && rank < communicator->size(),
+      "rank=",
+      rank,
+      " must be in the range of [0,",
+      communicator->size(),
+      ").");
+
+  if (communicator->deviceId() == rank) {
+    volatile bool waiting = true;
+    auto pid = getpid();
+    std::cerr << "Process " << pid
+              << " is waiting for the debugger. To continue debugging, "
+              << "start gdb, `attach " << pid
+              << "`, `set var waiting=false`, and `fini`." << std::endl;
+    while (waiting) { // Please change `waiting` in the debugger.
+    }
+    std::cerr << "Process " << getpid() << " finished waiting." << std::endl;
+  }
+
+  if (communicator->is_available()) {
     communicator->barrier();
   }
 }
@@ -50,12 +97,9 @@ void MultiDeviceTest::SetUp() {
     return tensor;
   }
   auto sharded_dim = getShardedAxis(tv);
-  int i = 0;
-  const auto& devices = tv->getDeviceMesh().vector();
-  auto it = std::find(devices.begin(), devices.end(), deviceId);
-  if (it != devices.end()) {
-    i = std::distance(devices.begin(), it);
-  }
+  auto i = tv->getDeviceMesh().idxOf(deviceId);
+  // TODO: returning slice 0 temporarily when device is not in the mesh.
+  i = (i < 0) ? 0 : i;
   return tensor.slice(sharded_dim, i, i + 1).contiguous();
 }
 

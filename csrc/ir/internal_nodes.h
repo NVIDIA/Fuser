@@ -2255,4 +2255,37 @@ class NVF_API CatOp : public Expr {
   Val* getPred(int input_idx) const;
 };
 
+//! Matmul Operator to be expression evaluated without decomposition.
+class MatmulOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  MatmulOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MatmulOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* inA() const {
+    return input(0);
+  }
+
+  Val* inB() const {
+    return input(1);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 } // namespace nvfuser
