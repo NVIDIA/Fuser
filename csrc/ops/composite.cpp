@@ -57,23 +57,23 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
 namespace {
 
 static TensorView* newForLinear(
-    TensorView* tv_a,
-    TensorView* tv_b,
+    TensorView* input,
+    TensorView* weight,
     TensorView* bias) {
-  auto orig_domain_a =
-      TensorDomain::noReductions(tv_a->getMaybeRFactorDomain());
-  auto orig_domain_b =
-      TensorDomain::noReductions(tv_b->getMaybeRFactorDomain());
+  auto input_domain =
+      TensorDomain::noReductions(input->getMaybeRFactorDomain());
+  auto weight_domain =
+      TensorDomain::noReductions(weight->getMaybeRFactorDomain());
 
   // Linear: a = {*, in_features}, b = {out_features, in_features} /
   // {in_features}.The linear output is {*, (out_features), rK}.
   // The first out_size -2 dimensions are as the first input, followed by out_features (if present) and an additional reduction axis K.
-  auto ndims_out = (orig_domain_a.size() - 1) + orig_domain_b.size();
+  auto ndims_out = input_domain.size() + weight_domain.size() - 1;
 
   const std::vector<IterDomain*>& mapping_a = ops::mapLinearOpIterDomains(
-      orig_domain_a, MatmulRole::INPUT_A, ndims_out);
+      input_domain, MatmulRole::INPUT_A, ndims_out);
   const std::vector<IterDomain*>& mapping_b = ops::mapLinearOpIterDomains(
-      orig_domain_b, MatmulRole::INPUT_B, ndims_out);
+      weight_domain, MatmulRole::INPUT_B, ndims_out);
   std::vector<IterDomain*> mapping_bias (ndims_out, nullptr);
   if (bias != nullptr){
     auto bias_domain = TensorDomain::noReductions(bias->getMaybeRFactorDomain());
@@ -93,7 +93,7 @@ static TensorView* newForLinear(
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, tv_a->dtype());
+  return IrBuilder::create<TensorView>(td, input->dtype());
 }
 
 } // namespace

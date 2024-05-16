@@ -242,7 +242,7 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
         break;
       }
       case MatmulRole::INPUT_B: {
-        for (auto inx: c10::irange(inp_size - 1)) {
+        for (auto inx: c10::irange(inp_size)) {
           // Map N, K to the last two positions of the output.
           mapping[out_size - 1 - inx] = input_domain[inp_size - 1 - inx];
         }

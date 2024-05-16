@@ -513,6 +513,55 @@ void checkMatmulOpIdMapping(
   }
 }
 
+// Check that ID exact mapping works as expected
+void checkLinearOpIdMapping(
+    Fusion* fusion,
+    TensorView* input,
+    TensorView* weight,
+    TensorView* bias,
+    TensorView* output) {
+  IdModel id_model(fusion);
+  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  vg.validateConsistency();
+
+  const auto checkMapped = [&vg](IterDomain* x, IterDomain* y) -> bool {
+    if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
+      return false;
+    }
+    const ValGroup& gx = vg.toGroup(x);
+    const ValGroup& gy = vg.toGroup(y);
+    return gx.get() == gy.get();
+  };
+
+   // input: [* , in_features]
+   // weight: [out_features, in_features] / [out_features]
+   // bias (optional): [out_features]/[]
+   // output = [*, (out_features), rK]
+
+  ASSERT_EQ(output->nDims(), input->nDims() + weight->nDims() - 1);
+ 
+  // Check that the first input_size - 1 dims are mapped for input
+  for (auto i: c10::irange(input->nDims() - 1)){
+    if (!input->axis(i)->isBroadcast()){
+      EXPECT_TRUE(checkMapped(input->axis(i), output->axis(i)));
+    }
+  }
+  // Check out_features dim is mapped in weight & bias if present.
+  if (weight->nDims() > 1){
+    if (!weight->axis(0)->isBroadcast()){
+      EXPECT_TRUE(checkMapped(weight->axis(0), output->axis(-2)));
+    }
+    if (bias != nullptr && bias->nDims() > 0 && !bias->axis(0)->isBroadcast()) {
+      EXPECT_TRUE(checkMapped(bias->axis(0), output->axis(-2)));
+    }
+  }
+  // Check mapping for reduction axis in input and weight
+  if (!input->axis(-1)->isBroadcast()){
+    EXPECT_TRUE(checkMapped(input->axis(-1), weight->axis(-1)));
+    EXPECT_TRUE(checkMapped(input->axis(-1), output->axis(-1)));
+  }
+}
+
 TEST_P(MatmulNodeParametrizedTest, MatmulNodeConcrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -586,11 +635,13 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   }
   fusion->addOutput(tv2);
 
+  checkLinearOpIdMapping(fusion.get(), tv0, tv1, bias, tv2);
+
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   std::optional<at::Tensor> bias_opt = std::nullopt;
   if (bias_shape.has_value()) {
-    bias_opt = bias_shape.value().empty() ? at::scalar_tensor(3.14).to(at::kHalf).cuda(): at::randn(*bias_shape, at::kHalf).cuda();
+    bias_opt = at::randn(*bias_shape, at::kHalf).cuda();
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
@@ -617,8 +668,8 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
 
   const auto& [a_shape, b_shape, bias_shape] = GetParam();
 
-  auto tv0 = makeSymbolicTensor(a_shape.size(), DataType::Half);
-  auto tv1 = makeSymbolicTensor(b_shape.size(), DataType::Half);
+  auto tv0 = makeSymbolicTensor(a_shape, DataType::Half);
+  auto tv1 = makeSymbolicTensor(b_shape, DataType::Half);
 
   TensorView* bias = nullptr;
   if (bias_shape.has_value()) {
@@ -634,11 +685,13 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   }
   fusion->addOutput(tv2);
 
+  checkLinearOpIdMapping(fusion.get(), tv0, tv1, bias, tv2);
+
   at::Tensor t0 = at::randn(a_shape, at::kHalf).cuda();
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   std::optional<at::Tensor> bias_opt = std::nullopt;
   if (bias_shape.has_value()) {
-    bias_opt = bias_shape.value().empty() ? at::scalar_tensor(3.14).to(at::kHalf).cuda() : at::randn(*bias_shape, at::kHalf).cuda();
+    bias_opt = at::randn(*bias_shape, at::kHalf).cuda();
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
