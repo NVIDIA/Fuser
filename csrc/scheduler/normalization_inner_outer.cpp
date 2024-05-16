@@ -281,142 +281,11 @@ int64_t partialOuterReductionBufferSize(
   return partial_reduction_buffer_size;
 }
 
-// Sorts projectable_buffer_inputs based on the latency from smallest to
-// largest. The latency is calculated based on the number of uses, the buffer
-// data type size, and the pre-defined schedule structures. Assume each
-// global memory load has latency 100, each shared memory load has latency 10,
-// latency is proportional to the data type size. There is no write from
-// register to shared memory, so this type of latency is not considered. The
-// magic number 100 and 10 are not critical for our current major use case, e.g.
-// layer norm backward, and rms norm backward. The outer broadcast tensor (the
-// weight tensor) is almost always moved to shared memory before other buffers
-// unless the outer dimension is very small, e.g. less than 1 sm count or other
-// buffers are used 10 times more than the outer broadcast tensor.
-std::vector<TensorView*> sortProjectableBufferInputs(
-    Fusion* fusion,
-    const std::vector<TensorView*>& persistent_buffers_original,
-    const std::vector<TensorView*>& projectable_buffer_inputs,
-    const std::vector<TensorView*>& outer_broadcast_tvs,
-    const std::vector<TensorView*>& reduction_tvs,
-    SchedulerRuntimeInfo& runtime_info) {
-  const int64_t n_buffer_inputs = (int64_t)projectable_buffer_inputs.size();
-
-  // Set the number of uses for each projected buffer inputs.
-  // Includes direct use and the use of its corresponding original persistent
-  // buffer. When project to inputs, we are replacing the use of the original
-  // persistent buffers except for the one goes to reduction.
-  std::vector<int> n_proj_buffer_uses(n_buffer_inputs, 0);
-  for (auto idx = 0; idx < n_buffer_inputs; idx++) {
-    auto input_tv = projectable_buffer_inputs[idx];
-    n_proj_buffer_uses[idx] = (int)input_tv->uses().size();
-    for (auto buffer : persistent_buffers_original) {
-      if (DependencyCheck::isDependencyOf(input_tv, buffer)) {
-        n_proj_buffer_uses[idx] += (int)buffer->uses().size() - 1;
-      }
-    }
-  }
-
-  // assume the fusion is scheduled with a two-step approach, the first step
-  // finishes the inner reduction and a partial outer reduction. The second
-  // step finishes the outer reduction. In the first step, the outer dimension
-  // is parallelized by BIDy, each thread loops over the outer dimension
-  // for n_outer_loop = ceilDiv(outer_dim_size, gdimy) times. gdimy is a
-  // heuristic para, here we assume gdimy = sm_count. For outer broadcast tv,
-  // e.g. weight tensor, it is reused in every outer loop, when calculate the
-  // latency of global memory load, 1 is used instead of n_outer_loop. For other
-  // tensors, each loop is loading a different row, so n_outer_loop is used.
-  std::vector<int> buffer_latency(n_buffer_inputs, 0);
-  int sm_count =
-      (int)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  int n_outer_loop = 1;
-  {
-    for (auto buffer : reduction_tvs) {
-      if (scheduler_utils::isFastestDimReduction(buffer)) {
-        continue;
-      }
-      // Use the first outer reduction tensor to infer the outer dim size.
-      // Compile time check ensures they have the same iter and reduction axes,
-      // connected with inner reduction tv. Similar to the first inner reduction
-      // tv is used to derive the reduction properties. Here the first outer
-      // reduction tv is used to derive the outer dim size.
-      int64_t outer_dim_size = 1;
-      for (auto id : buffer->getMaybeRFactorDomain()) {
-        if (id->isReduction()) {
-          auto id_size =
-              runtime_info.expressionEvaluator().evaluate(id->extent());
-          NVF_ERROR(id_size.hasValue(), "Could not infer outer dim size.");
-          outer_dim_size *= id_size.as<int64_t>();
-        }
-      }
-      int gdimy = sm_count;
-      n_outer_loop = (int)ceilDiv(outer_dim_size, gdimy);
-      break;
-    }
-  }
-
-  // set latency for each buffer.
-  // Assume load from smem to register has a latency of 1, from gmem to smem has
-  // a latency of 10. Total latency is proportional to data type size. Reused in
-  // each iteration if the buffer is an outer broadcast tensor.
-  constexpr int gmem_to_smem_latency = 10;
-  for (auto idx = 0; idx < n_buffer_inputs; idx++) {
-    int latency = 0;
-    auto input_buffer = projectable_buffer_inputs.at(idx);
-    bool is_reused = std::any_of(
-        outer_broadcast_tvs.begin(),
-        outer_broadcast_tvs.end(),
-        [&input_buffer](TensorView* tv) {
-          return DependencyCheck::isDependencyOf(input_buffer, tv);
-        });
-    // gmem to smem
-    latency += gmem_to_smem_latency * (is_reused ? 1 : n_outer_loop);
-    // smem to register
-    latency += n_outer_loop * n_proj_buffer_uses.at(idx);
-    int dtype_size = (int)dataTypeSize(input_buffer->getDataType().value());
-    buffer_latency[idx] = latency * dtype_size;
-  }
-
-  // reorder projectable_buffer_inputs based on the latency from smallest to
-  // largest
-  std::vector<int> idxs(n_buffer_inputs);
-  std::iota(idxs.begin(), idxs.end(), 0);
-  std::stable_sort(idxs.begin(), idxs.end(), [&buffer_latency](int i, int j) {
-    return buffer_latency[i] < buffer_latency[j];
-  });
-  std::vector<TensorView*> sorted_candidate_tvs;
-  sorted_candidate_tvs.reserve(n_buffer_inputs);
-  for (auto idx : idxs) {
-    sorted_candidate_tvs.emplace_back(projectable_buffer_inputs.at(idx));
-  }
-  return sorted_candidate_tvs;
-}
-
-// Sort persistent buffers based on the number of uses from smallest to largest.
-// Used when buffers are not projected to inputs.
-// TODO: Currently, this function is unused as all existing cases (LayerNorm bwd
-// and RMS norm bwd) involve projecting buffers to inputs. Consider this
-// function a placeholder for scenarios where buffers are not projected to
-// inputs. Refer to the test CombinedSchedulerInnerOuterNoOuterBroadcastTv for a
-// concrete example of such cases. Add NoOuterBroadcast cases to our benchmarks
-// and test the performance of this function.
-std::vector<TensorView*> sortPersistentBuffers(
-    std::vector<TensorView*> persistent_buffers) {
-  // Directly sort the persistent_buffers vector based on the number of uses.
-  std::stable_sort(
-      persistent_buffers.begin(),
-      persistent_buffers.end(),
-      [](TensorView* a, TensorView* b) {
-        return a->uses().size() < b->uses().size();
-      });
-  return persistent_buffers;
-}
-
 // Decide where to store persistent buffers.
 // By default, they reside in registers.
 // If register space runs low but there's ample shared memory,
-// move one or more buffers to shared memory. Since shared memory
-// is slower than registers, we should move the buffers that are
-// less frequently accessed to shared memory.
+// move one or more buffers to shared memory until the register space is
+// sufficient.
 struct PersistentBufferStorageParams {
   // representing buffers that are stored in shared memory, other buffers are
   // stored in registers.
@@ -511,32 +380,19 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   // (3) Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
-
-  // (3.1) Sort the candidate persistent buffers, based on its read/write usage.
-  // Put the buffer that is less frequently used in the front.
-  const auto sorted_candidate_tvs = buffer_params.project_to_input
-      ? sortProjectableBufferInputs(
-            fusion,
-            persistent_buffer_info.persistent_buffers,
-            persistent_buffer_info.projectable_buffer_inputs,
-            outer_broadcast_tvs,
-            reduction_tvs,
-            runtime_info)
-      : sortPersistentBuffers(persistent_buffer_info.persistent_buffers);
+  const auto buffers = buffer_params.project_to_input
+      ? persistent_buffer_info.projectable_buffer_inputs
+      : persistent_buffer_info.persistent_buffers;
 
   // (3.2) Before this loop, all buffers are in registers.
-  // Try to move buffer from register to shared memroy. The visiting order is
-  // from the first buffer to the last buffer in the sorted_candidate_tvs.
+  // Try to move buffer from register to shared memroy.
   // After one buffer is moved to shared memory, the buffer size in registers
   // and shared memory are updated accordingly. Break if required register and
   // shared memory are lower than limit or shared memory exceeds the limit.
   int64_t n_smem_buffer = -1;
-  const int n_buffers = (int)sorted_candidate_tvs.size();
+  const int n_buffers = (int)buffers.size();
   for (int i = 0; i < n_buffers; i++) {
-    // start from the first buffer, which has the smallest read/write latency
-    // move it to shared memory has a smaller impact on performance than moving
-    // other more frequently accessed buffers.
-    auto current_tv = sorted_candidate_tvs[i];
+    auto current_tv = buffers[i];
 
     // calculate the size of this buffer & reduce the register buffer size
     int64_t tv_buffer_size_regs =
@@ -580,8 +436,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     buffer_params.has_enough_regs_and_smem = true;
     buffer_params.smem_persistent_buffers.reserve(n_smem_buffer);
     for (int i = 0; i < n_smem_buffer; i++) {
-      buffer_params.smem_persistent_buffers.emplace_back(
-          sorted_candidate_tvs[i]);
+      buffer_params.smem_persistent_buffers.emplace_back(buffers[i]);
     }
   } else {
     buffer_params.has_enough_regs_and_smem = false;
