@@ -46,8 +46,7 @@ class DeviceMesh final {
   static DeviceMesh createForNumDevices(int64_t num_devices);
 
   // Creates a device mesh with the specified shape made of devices from
-  // [0 ... size], where size is the total number of devices specified by the
-  // shape.
+  // [0 ... size], where size is deduced from the shape.
   static DeviceMesh createForShape(std::vector<int64_t> shape);
 
   // Returns the total number of devices in the mesh
@@ -85,9 +84,9 @@ class DeviceMesh final {
     return -1;
   }
 
-  // Returns the indices of a multi-dimensional mesh, or an empty vector 
+  // Returns the indices of a multi-dimensional mesh, or an empty vector
   // if device is not present
-  std::vector<int64_t> getLocalIndices(const DeviceIdxType device) const;
+  std::vector<int64_t> getIndices(const DeviceIdxType device) const;
 
   // Returns the device at a particular global index in the mesh
   DeviceIdxType at(int64_t index) const {
@@ -101,14 +100,14 @@ class DeviceMesh final {
   // Returns the max device index in the DeviceMesh.
   DeviceIdxType maxDeviceIdx() const;
 
-  // Returns devices of this device's team given which axis of the DeviceMesh
-  // Ex: [[0 1 2]
+  // Returns a device's team for a particular device given an axis of the
+  // DeviceMesh. The team will be the group of devices involved in a
+  // communication (including device). Ex: [[0 1 2]
   //      [3 4 5]]
   // getTeam(4, 0) = {3, 4, 5}
   // getTeam(4, 1) = {1, 4}
   // TODO: calculate this once and save it
-  std::vector<DeviceIdxType> getTeam(DeviceIdxType device, int64_t axis = 0)
-      const;
+  Team getTeam(DeviceIdxType device, int64_t axis = 0) const;
 
  private:
   void setDevices(std::vector<DeviceIdxType> devices);

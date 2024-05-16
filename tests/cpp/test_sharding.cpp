@@ -50,8 +50,8 @@ TEST_F(ShardingTest, DeviceMesh) {
 
   std::vector<int64_t> local_indices_8 = {1, 1};
   std::vector<int64_t> local_indices_1 = {0, 2};
-  EXPECT_EQ(mesh.getLocalIndices(8), local_indices_8);
-  EXPECT_EQ(mesh.getLocalIndices(1), local_indices_1);
+  EXPECT_EQ(mesh.getIndices(8), local_indices_8);
+  EXPECT_EQ(mesh.getIndices(1), local_indices_1);
 
   std::vector<DeviceIdxType> team_axis1_group0 = {3, 4, 1};
   std::vector<DeviceIdxType> team_axis0_group2 = {1, 2};
