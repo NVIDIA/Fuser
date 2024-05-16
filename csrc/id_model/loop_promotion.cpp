@@ -120,7 +120,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // promotion map as we traverse down the IEL graph.
 
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_to_propagate;
-  {
+  if (!getenv("OLD")) {
     for (const auto& map_kv : initial_loop_promotion_map) {
       const auto& loop_group = map_kv.first;
       const auto& promotion = map_kv.second;
@@ -175,6 +175,8 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
 
       loop_promotion_map_to_propagate.emplace(loop_group, promotion);
     }
+  } else {
+    loop_promotion_map_to_propagate = initial_loop_promotion_map;
   }
 
   std::unordered_map<ValGroup, IterDomain*> final_iel_promotion_map;
@@ -573,6 +575,15 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
         iel_graph.inputGroups(iel_expr);
 
     VERBOSE() << "IEL expr: " << iel_expr->front()->toString();
+    std::stringstream ss;
+    for (auto expr : *iel_expr) {
+      ss << " {";
+      for (auto inp : expr->inputs()) {
+        ss << " " << inp->name();
+      }
+      ss << "}";
+    }
+    VERBOSE() << "All inputs: " << ss.str() << "\n";
 
     // Check if any inputs need promotion indicating this expr group needs to
     // be replayed with promoted inputs
@@ -649,6 +660,9 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
         if (inp_loop_promo_it != loop_graph_promotion_map.end()) {
           maybe_promoted_inputs.push_back(inp_loop_promo_it->second);
           an_input_was_promoted = true;
+          VERBOSE() << "Propagating loop promotion: "
+                    << nvfuser::toString(iel_inp_group) << " -> "
+                    << inp_loop_promo_it->second->toString() << std::endl;
           continue;
         }
       }
@@ -697,6 +711,8 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
       }
       iel_promotion_map[out_groups[i]] =
           promoted_expr->output(i)->as<IterDomain>();
+      VERBOSE() << "Propagated to: " << nvfuser::toString(out_groups[i])
+                << " -> " << promoted_expr->output(i)->toString() << std::endl;
       // Explicitly map loop map since expr propagation doesn't happen
       if (replayed) {
         idGraph(IdMappingMode::LOOP)

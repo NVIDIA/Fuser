@@ -1980,45 +1980,47 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   checkStep5Results(tester, s5_reference_map);
 }
 
-TEST_F(IdModelTest, LoopPromotionTwoStepFailureRepro) {
-  std::vector<int64_t> input_shape{2, 3, 2 * 2, 5};
-  std::vector<int64_t> output_shape{1, 2 * 3, 1, -1, 2, 5, 1};
-
-  auto inferred_shapes = inferViewShapes(input_shape, output_shape);
-  auto inferred_input = inferred_shapes.first;
-  auto inferred_output = inferred_shapes.second;
-
+// A repro for issue #2261
+TEST_F(IdModelTest, LoopPromotionTwoStepFailureReproSimple) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* x = makeSymbolicTensor(inferred_input.size());
-  TensorView* bias = makeSymbolicTensor(inferred_output.size());
-  fusion.addInput(x);
-  fusion.addInput(bias);
+  auto t0 = makeSymbolicTensor(3);
+  fusion.addInput(t0);
+  auto t1 = makeSymbolicTensor(5);
+  fusion.addInput(t1);
 
-  auto x_gelu = gelu(x);
-  auto x_reshape = reshape(x_gelu, inferred_input, inferred_output);
-  auto y = add(x_reshape, bias);
-  fusion.addOutput(y);
+  auto t2 = set(t0);
+  auto t3 = broadcast(t2, {true, false, false, false, true});
+  auto t4 = add(t3, t1);
+  fusion.addOutput(t4);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at_x = at::randn(inferred_input, options);
-  at::Tensor at_bias = at::randn(inferred_output, options);
-  std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
+  TransformPropagatorWithCheck propagator(t4);
+  MaxRootDomainInfoSpanningTree(t4).traverse(&propagator);
 
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    tv->inlineAt(1);
+  }
 
-  fusion.print();
+  IdModelTester tester(&fusion);
 
-  std::ofstream ofs("transform.dot", std::ofstream::trunc);
-  ofs << irTransformToDot(&fusion);
-  ofs.close();
+  auto id38 = t2->axis(1);
+  auto id38_promotion_it =
+      tester.s5_loop_promotion_map.find(tester.s5_loop_graph.toGroup(id38));
+  ASSERT_NE(id38_promotion_it, tester.s5_loop_promotion_map.end())
+      << "No loop promotion found";
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto outputs = fe.runFusion(aten_inputs, lparams);
+  auto id38_promotion = id38_promotion_it->second;
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  auto reference_loop_promotion = t4->axis(1);
+
+  std::cerr << reference_loop_promotion->toString() << std::endl;
+
+  ASSERT_TRUE(tester.id_model->idGraph(IdMappingMode::EXACT)
+                  .disjointValSets()
+                  .strictAreMapped(id38_promotion, reference_loop_promotion))
+      << "Invalid loop promotion: " << id38_promotion->toString()
+      << ", expected: " << reference_loop_promotion->toString();
 }
 
 // A repro that produces an invalid loop graph due to the compliment
