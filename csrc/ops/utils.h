@@ -76,9 +76,6 @@ IterDomain* newOutputIterDomain(
     const std::vector<IterDomain*>& ids,
     const std::optional<IterType> force_iter_type = std::nullopt);
 
-// Takes multiple vectors of input iterdomains and assumes they are aligned to create the output tensorview.
-std::vector<IterDomain*> newOutputDomain(const std::vector<std::vector<IterDomain*>>& input_ids);
-
 // Takes a vector of tensorviews and assumes they are all aligned to create the
 // output tensorview. For eg: BinaryOp.
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals);

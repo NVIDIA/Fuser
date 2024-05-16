@@ -361,26 +361,6 @@ IterDomain* newOutputIterDomain(
 #pragma GCC diagnostic pop
 #endif
 
-std::vector<IterDomain*> newOutputDomain(const std::vector<std::vector<IterDomain*>>& input_ids) {
-  NVF_CHECK(
-      !input_ids.empty(),
-      "Tried to create new output Tensorview but received empty list.");
-
-  std::vector<IterDomain*> out_domain(input_ids.front().size(), nullptr);
-
-  for (const auto dim_i : c10::irange(out_domain.size())) {
-    std::vector<IterDomain*> ids_i;
-    ids_i.reserve(input_ids.size());
-    for (auto ids : input_ids) {
-      if (ids[dim_i] != nullptr){
-        ids_i.emplace_back(ids[dim_i]);
-      }
-    }
-    out_domain[dim_i] = newOutputIterDomain(ids_i);
-  }
-  return out_domain;
-}
-
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<TensorView*> tvs;
   for (auto val : vals) {
