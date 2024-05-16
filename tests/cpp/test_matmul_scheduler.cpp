@@ -2816,7 +2816,10 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 }
 
 // Test that we can segment a fusion that has a MatmulOp with epilogue
-TEST_F(PrecisionParametrizedTest, SegmentMatmulOpPrologue) {
+// TODO: Once we can control the ExprEval and Matmul schedulers via options, run
+// this test with all three combinations (with and without each scheduler, but
+// at least one enabled).
+TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
