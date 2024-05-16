@@ -53,6 +53,7 @@ PostOnStream::PostOnStream(
     std::vector<Val*> outputs)
     : Expr(passkey, std::move(inputs), std::move(outputs), {host_op}) {
   NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
+  NVF_ERROR(host_op->isOneOf<HostUnit, Communication>());
   if (host_op->isA<HostUnit>()) {
     NVF_ERROR(
         this->inputs().size() ==
