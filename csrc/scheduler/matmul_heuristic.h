@@ -64,16 +64,27 @@ class MatmulParams : public HeuristicParams {
     }
   };
 
-  //! This is the maximum vectorization supported by the inputs.
+  //! This is the maximum vectorization supported by the inputs. This refers to
+  //! the number of data elements loaded simultaneously, not the number of
+  //! bytes.
   struct SupportedVectorization {
+    // Note that by default these values are set to 16, which is the maximum
+    // vectorization factor one might encounter. Failing to set these
+    // appropriately will lead to lowering errors, so each operand and epilogue
+    // input/output should be examined to compute its maximum vectorization and
+    // the respective minimums of these values should be set for each of the
+    // variables below. They are initialized to a high value to facilitate this
+    // minimum computation and to signal errors where we fail to
+    // analyze/validate the inputs before scheduling.
+
     // operands
-    int64_t a = 8;
-    int64_t b = 8;
+    int64_t a = 16;
+    int64_t b = 16;
     // This is the minimum vectorization factor between all epilogue tensor
     // inputs and output tensors. These are treated jointly since we inline the
     // epilogue with the output store and vectorize the inputs and outputs in
     // the same way.
-    int64_t epilogue = 4;
+    int64_t epilogue = 16;
 
     bool operator==(const SupportedVectorization& other) const {
       return other.a == a && other.b == b && other.epilogue == epilogue;

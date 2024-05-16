@@ -149,6 +149,7 @@ bool isTvOp(const Expr* expr) {
           WelfordOp,
           GroupedWelfordOp,
           LoadStoreOp,
+          MatmulOp,
           MmaOp,
           BroadcastOp,
           SqueezeOp,

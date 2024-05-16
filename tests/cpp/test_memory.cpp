@@ -424,9 +424,7 @@ void markAllDimsExceptFirstAsBulk(const TensorView* tv) {
 }
 
 void parallelizeAllDimsExceptFirstAsTIDx(TensorView* tv) {
-  while (tv->nDims() > 2) {
-    tv->merge(1);
-  }
+  tv->flatten(1);
   tv->axis(1)->parallelize(ParallelType::TIDx);
 }
 
@@ -453,12 +451,8 @@ void scheduleTile(
     tv->reorder(old2new);
     // [M/tile_sizes[0], N/tile_sizes[1], ..., tile_sizes[0], tile_sizes[1],
     // ...]
-    for (int64_t i = 0; i < dim - 1; i++) {
-      tv->merge(0);
-    }
-    for (int64_t i = 0; i < dim - 1; i++) {
-      tv->merge(1);
-    }
+    tv->flatten(0, dim - 1);
+    tv->flatten(1);
     // [M/tile_sizes[0] * N/tile_sizes[1] * ..., tile_sizes[0] * tile_sizes[1] *
     // ...]
     tv->axis(0)->parallelize(ParallelType::BIDx);
@@ -718,15 +712,8 @@ TEST_F(TMAIndexingTest, Advanced) {
     //  4, 2, 32/3, 1, 8]
 
     // Merge all non-tile axes together, and all tile axes together
-    tv->merge(0);
-    tv->merge(0);
-    tv->merge(0);
-    tv->merge(0);
-    tv->merge(0);
-    tv->merge(1);
-    tv->merge(1);
-    tv->merge(1);
-    tv->merge(1);
+    tv->flatten(0, 5);
+    tv->flatten(1);
     // [I1*I2*I3/16/4 * 16/2 * I4*I5*I6/32 * 3 * I7*I8/32/1 * 32/8,
     //  4 * 2 * 32/3 * 1 * 8]
 
@@ -778,10 +765,7 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing1) {
     //   I6,
     //   I7*I8/32, 32]
     // Where the first 3 dims are implicitly tiled 1x1x1
-    for (auto _ : c10::irange(6)) {
-      (void)_;
-      tv->merge(0);
-    }
+    tv->flatten(0, -2);
     // [I1*I2*I3*I4*I5*I6*(I7*I8/32), 32]
     tv->axis(0)->parallelize(ParallelType::BIDx);
   }
@@ -827,13 +811,8 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
     // [I1, I2, I3, I4*I5/3, 3, I6, I7, I8, I9]
     tv->reorder({{1, -5}, {3, -4}});
     // [I1, I3, 3, I6, I2, I4*I5/3, I7, I8, I9]
-    tv->merge(0);
-    tv->merge(0);
-    tv->merge(0);
-    tv->merge(1);
-    tv->merge(1);
-    tv->merge(1);
-    tv->merge(1);
+    tv->flatten(0, 3);
+    tv->flatten(1);
     // [I1*I3*3*I6, I2*(I4*I5/3)*I7*I8*I9]
     tv->axis(0)->parallelize(ParallelType::BIDx);
     // Will use 5D TMA:
