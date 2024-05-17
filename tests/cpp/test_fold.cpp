@@ -36,20 +36,17 @@ TEST_F(FoldTest, Sum) {
   ASSERT_EQ(fold_tensors.size(), 1);
   auto& [prev_fold, next_elem] = fold_tensors.front();
 
-  auto* begin_op = prev_fold.definition()->as<BeginFoldOp>();
-
   TensorView* combined = add(prev_fold, next_elem);
-  TensorView* out_sum = finalizeReductionFold(
-      begin_op, combined, /*associative=*/true, /*commutative=*/true);
+  TensorView* out_sum =
+      finalizeReductionFold(
+          {combined}, /*associative=*/true, /*commutative=*/true)
+          .at(0);
 
   fusion.addOutput(out_sum);
 
   fusion.printMath();
 
-  EXPECT_TRUE(out_sum->definition()->isA<FinalizeReductionOp>());
-  EXPECT_EQ(
-      out_sum->definition()->as<FinalizeReductionOp>()->beginFoldOp(),
-      begin_op);
+  EXPECT_TRUE(out_sum->definition()->isA<EndFoldOp>());
 
   inlineMost();
 

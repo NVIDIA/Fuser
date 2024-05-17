@@ -1467,9 +1467,8 @@ NVF_API std::vector<std::pair<TensorView*, TensorView*>> beginFold(
   NVF_CHECK(input_tvs.size() == init_vals.size());
 
   // create outputs, both with the same domain
-  std::vector<std::pair<TensorView*, TensorView*> prev_next_tensors;
-  prev_folds.reserve(input_tvs.size());
-  next_elements.reserve(input_tvs.size());
+  std::vector<std::pair<TensorView*, TensorView*>> prev_next_tensors;
+  prev_next_tensors.reserve(input_tvs.size());
   for (TensorView* tv : input_tvs) {
     auto orig_domain = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
     std::set<int64_t> axes_set(axes.begin(), axes.end());
@@ -1529,10 +1528,9 @@ NVF_API std::vector<std::pair<TensorView*, TensorView*>> beginFold(
     prev_next_tensors.emplace_back(prev, next);
   }
 
-  auto begin_op =
-      IrBuilder::create<BeginFoldOp>(prev_next_tensors, input_tvs, init_vals);
+  IrBuilder::create<BeginFoldOp>(prev_next_tensors, input_tvs, init_vals);
 
-  return FoldGroup(begin_op);
+  return prev_next_tensors;
 }
 
 std::vector<TensorView*> finalizeReductionFold(
@@ -1559,10 +1557,34 @@ std::vector<TensorView*> finalizeReductionFold(
         IrBuilder::create<TensorDomain>(out_root), tv->dtype()));
   }
 
-  IrBuilder::create<FinalizeReductionOp>(
-      /*scan_outputs=*/{}, out_tvs, combined_tvs, associative, commutative);
+  IrBuilder::create<EndFoldOp>(
+      /*scan_outputs=*/std::vector<TensorView*>{},
+      /*reduction_outputs=*/out_tvs,
+      combined_tvs,
+      associative,
+      commutative);
 
   return out_tvs;
+}
+
+std::vector<TensorView*> finalizeScanFold(
+    BeginFoldOp* fold_op,
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative,
+    bool commutative,
+    bool inclusive) {
+  NVF_ERROR(false, "Scan is not yet implemented");
+  return {};
+}
+
+std::vector<std::pair<TensorView*, TensorView*>> finalizeScanFoldWithReduction(
+    BeginFoldOp* fold_op,
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative,
+    bool commutative,
+    bool inclusive) {
+  NVF_ERROR(false, "Scan is not yet implemented");
+  return {};
 }
 
 TensorView* broadcast(

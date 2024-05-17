@@ -243,7 +243,7 @@ class UnmappableReductionDomains : private IterVisitor {
   void handle(ReductionOp* op) override;
   void handle(GroupedReductionOp* op) override;
   void handle(WelfordOp* op) override;
-  void handle(FinalizeReductionOp* op) override;
+  void handle(EndFoldOp* op) override;
   void handle(MmaOp* op) override;
 
   void handleReductionOutput(TensorView* out_tv);
@@ -484,7 +484,7 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(wop);
   }
 
-  void handle(FinalizeReductionOp* fop) override;
+  void handle(EndFoldOp* fop) override;
 
   void handle(LoadStoreOp* ldst) override {
     mapPointwiseLikeOp(ldst);

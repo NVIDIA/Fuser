@@ -472,7 +472,7 @@ void UnmappableReductionDomains::handle(WelfordOp* op) {
   handleReductionOutput(op->outN()->as<TensorView>());
 }
 
-void UnmappableReductionDomains::handle(FinalizeReductionOp* op) {
+void UnmappableReductionDomains::handle(EndFoldOp* op) {
   // Builds a map from reduction domains to consumer domains.
   for (Val* outp : op->outputs()) {
     handleReductionOutput(outp->as<TensorView>());
@@ -1125,7 +1125,7 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
   }
 }
 
-void ComputeAtRootDomainMapBuilder::handle(FinalizeReductionOp* op) {
+void ComputeAtRootDomainMapBuilder::handle(EndFoldOp* op) {
   for (size_t i : c10::irange(op->numTensors())) {
     const TensorDomain* in_td = op->input(i)->as<TensorView>()->domain();
     const TensorDomain* out_td = op->output(i)->as<TensorView>()->domain();

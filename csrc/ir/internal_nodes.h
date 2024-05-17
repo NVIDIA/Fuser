@@ -1407,8 +1407,9 @@ class NVF_API EndFoldOp : public Expr {
   using Expr::Expr;
 
   EndFoldOp(
-      IrBuilderPasskey,
-      const std::vector<TensorView*>& outputs,
+      IrBuilderPasskey passkey,
+      const std::vector<TensorView*>& scan_outputs,
+      const std::vector<TensorView*>& reduction_outputs,
       const std::vector<TensorView*>& combined_tensors,
       bool associative,
       bool commutative);
@@ -1435,13 +1436,10 @@ class NVF_API EndFoldOp : public Expr {
   }
 
   Val* reductionTensor(size_t n = 0) const {
-    NVF_CHECK(hasReduction(), "Reduction tensor requested from non-reduction fold");
+    NVF_CHECK(
+        hasReduction(), "Reduction tensor requested from non-reduction fold");
     return output(hasScan() ? numTensors() + n : n);
   }
-
-  //! This traverses backward to find the BeginFoldOp at the beginning of this
-  //! fold group. It is an error if other than one such op is found.
-  BeginFoldOp* beginFoldOp() const;
 
   bool hasScan() const {
     return attribute<bool>(0);

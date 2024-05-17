@@ -1371,8 +1371,8 @@ void validateReductions(Fusion* fusion) {
 //
 // *Inlining*
 // All TensorViews in the fold group must be inlined to at least the inner-most
-// fold axis. 
-//
+// fold axis.
+/
 // *Unique entry and exit points*
 // For a given set of exact mapped IterType::Fold axes, there must be a single
 // BeginFoldOp and a single EndFoldOp.
@@ -1385,11 +1385,13 @@ void validateReductions(Fusion* fusion) {
 namespace {
 class FoldValidator : IterVisitor {
  public:
-  FoldValidator(Fusion* fusion) : fusion_(fusion) {
-    traverse();
+  static void validate(Fusion* fusion) {
+    FoldValidator validator;
+    validator.traverse(fusion);
   }
- 
- private:
+
+
+ ivate:
   using IterVisitor::dispatch;
   using IterVisitor::handle;
 
@@ -1407,29 +1409,25 @@ class FoldValidator : IterVisitor {
   // If the consumer is Fold but the producer is not, verify that the
   // definition is BeginFoldOp and use that ops group ID.
   void handle(TensorView* tv) {
-  }
-
+ 
  private:
-  Fusion* fusion_ = nullptr;
-
   // Each fold group is a collection of Exprs, in topological order. The first
   // and last entries should be BeginFoldOp and EndFoldOp.
   std::vector<std::vector<Expr*>> fold_group_exprs_;
 
-  // Map IterDomains to group ids. 
-  std::unordered_map<IterDomain*, size_t> id_to_group_;
+  // Map IterDomains to group ids.
+ 
+  ::unordered_map<IterDomain*, size_t> id_to_group_;
 
   // Map BeginFoldOps and EndFoldOps to group ids. Other Exprs might belong to
   // multiple fold groups
   std::unordered_map<Expr*, size_t> expr_to_group_;
-}
-}
+};
+} // namespace
 
 void validateFolds(Fusion* fusion) {
-  std::vector<groups
-  for (BeginFoldOp* bfop : ir_utils::getOpsOfType<BeginFoldOp>(fusion)) {
-
-  }
+  FoldValidator::validate(fusion);
 }
 
 } // namespace nvfuser
+   

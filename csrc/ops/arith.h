@@ -629,21 +629,16 @@ NVF_API std::vector<TensorView*> finalizeScanFold(
     const std::vector<TensorView*>& combined_tvs,
     bool associative = false,
     bool commutative = false,
-    bool inclusive = false) {
-  NVF_ERROR(false, "Scan is not yet implemented");
-  return {};
-}
+    bool inclusive = false);
 
 //! Returns a vector of scan/reduction pairs
-NVF_API std::vector<std::pair<TensorView*, TensorView*>> finalizeScanFoldWithReduction(
+NVF_API std::vector<std::pair<TensorView*, TensorView*>>
+finalizeScanFoldWithReduction(
     BeginFoldOp* fold_op,
     const std::vector<TensorView*>& combined_tvs,
     bool associative = false,
     bool commutative = false,
-    bool inclusive = false) {
-  NVF_ERROR(false, "Scan is not yet implemented");
-  return {};
-}
+    bool inclusive = false);
 
 // COMPOUND OPERATIONS
 // add_alpha

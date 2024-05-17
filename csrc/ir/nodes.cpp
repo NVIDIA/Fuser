@@ -2059,7 +2059,7 @@ BeginFoldOp::BeginFoldOp(
 
   std::vector<bool> is_dim_folded(ndims, false);
   for (int64_t d : c10::irange(ndims)) {
-    is_dim_folded[d] = prev_next_tensors.front().first()->axis(d)->isFold();
+    is_dim_folded[d] = prev_next_tensors.front().first->axis(d)->isFold();
   }
 
   for (size_t i : c10::irange(num_tensors)) {
@@ -2188,43 +2188,6 @@ EndFoldOp::EndFoldOp(
   addDataAttribute(!reduction_outputs.empty());
   addDataAttribute(associative);
   addDataAttribute(commutative);
-}
-
-BeginFoldOp* EndFoldOp::beginFoldOp() const {
-  BeginFoldOp* begin_fold_op = nullptr;
-  std::stack<TensorView*> to_check;
-  for (size_t i : c10::irange(numTensors())) {
-    to_check.push(input(i)->as<TensorView>());
-  }
-  while (!to_check.empty()) {
-    TensorView* tv = to_check.top();
-    to_check.pop();
-    bool has_fold = false;
-    for (auto id : tv->getLeafDomain()) {
-      if (id->isFold()) {
-        has_fold = true;
-        break;
-      }
-    }
-    if (!has_fold) {
-      continue;
-    }
-    if (auto bfo = dynamic_cast<BeginFoldOp*>(tv->definition())) {
-      NVF_CHECK(begin_fold_op == nullptr || begin_fold_op == bfo);
-      begin_fold_op = bfo;
-    } else if (tv->definition() != nullptr) {
-      for (Val* inp : tv->definition()->inputs()) {
-        if (auto inp_tv = dynamic_cast<TensorView*>(inp)) {
-          to_check.push(inp_tv);
-        }
-      }
-    }
-  }
-  NVF_CHECK(
-      begin_fold_op != nullptr,
-      "Could not find beginning of fold group containing ",
-      toString());
-  return begin_fold_op;
 }
 
 std::string EndFoldOp::toString(int indent_size) const {
