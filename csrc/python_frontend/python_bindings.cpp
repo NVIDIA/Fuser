@@ -478,8 +478,11 @@ void initNvFuserPythonBindings(PyObject* module) {
   });
 
   py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
-  device_mesh_class.def(
-      "__repr__", [](DeviceMesh& self) { return self.toString(); });
+  device_mesh_class.def("__repr__", [](const DeviceMesh& self) {
+    std::stringstream ss;
+    ss << self;
+    return ss.str();
+  });
 
   py::class_<Vector> vector_class(nvfuser, "Vector");
   vector_class.def("__repr__", [](Vector& self) {

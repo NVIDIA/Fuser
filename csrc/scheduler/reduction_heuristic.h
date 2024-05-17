@@ -13,6 +13,8 @@
 
 namespace nvfuser {
 
+class TensorView;
+
 // Parameters of the reduction heuristic to describe the optimal schedule.
 // Warning: equal operator is intended for use in caching the kernel associated
 // with these reduction parameters. It does not check if the launch parameters
@@ -133,8 +135,15 @@ class ReductionParams : public HeuristicParams {
   // block_dim_inner_reduction_extra (usually TIDy)
   ParallelType block_dim_inner_reduction_extra = ParallelType::Serial;
 
-  // use shared memory for persistent buffer, if false, will use registers
-  bool shared_mem_persistent_buffer = false;
+  // vector stores buffer should be moved to shared memory.
+  // TODO: For innerOuterPersistentHeuristic, only the persistent tensors in the
+  // original fusion definition may be moved to shared memory, the intermediate
+  // persistent tensors which are creased by the scheduler to store the partial
+  // outer reduction results are always stored in registers because they are
+  // frequently accessed by both read and write. The code can be extended to
+  // allow the move of these intermediate persistent tensors to shared memory
+  // when the shared memory is much larger than the register file.
+  std::vector<TensorView*> smem_persistent_buffers;
 
  public:
   using HeuristicParams::HeuristicParams;
@@ -180,8 +189,7 @@ class ReductionParams : public HeuristicParams {
         other.pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
         other.vectorization_factor_outer == vectorization_factor_outer &&
         other.vectorization_factor_tmp_gmem_write ==
-            vectorization_factor_tmp_gmem_write &&
-        other.shared_mem_persistent_buffer == shared_mem_persistent_buffer;
+            vectorization_factor_tmp_gmem_write;
 
     if (other.static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other.lparams.bdimy() == lparams.bdimy();
@@ -310,7 +318,8 @@ class ReductionParams : public HeuristicParams {
   }
 
   std::shared_ptr<HeuristicParams> clone() const override {
-    return std::make_shared<ReductionParams>(*this);
+    auto ptr = std::make_shared<ReductionParams>(*this);
+    return std::static_pointer_cast<HeuristicParams>(ptr);
   }
 };
 

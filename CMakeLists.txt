@@ -15,6 +15,13 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
+include(CMakeDependentOption)
+cmake_dependent_option(NVFUSER_DISTRIBUTED "" ON "USE_DISTRIBUTED" OFF)
+if (NVFUSER_DISTRIBUTED)
+  add_compile_definitions(NVFUSER_DISTRIBUTED)
+endif()
+message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
+
 # We try to update which C++ standard we use together in lockstep across all
 # built libraries, and these variables control which that is. Generally we are
 # on C++20, but we still support a version of CUDA (11) that does not recognize
@@ -124,6 +131,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/global_allocator.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/container.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/executor.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
   ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
@@ -198,6 +208,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/expr_eval_sched.cpp
   ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
   ${NVFUSER_SRCS_DIR}/serde/utils.cpp
   ${NVFUSER_SRCS_DIR}/swizzle.cpp
@@ -570,6 +581,8 @@ if(BUILD_TEST)
   list(APPEND MULTIDEVICE_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
   )
@@ -599,6 +612,9 @@ if(BUILD_TEST)
 
   add_test(tutorial "${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp" "")
   list(APPEND TEST_BINARIES tutorial)
+
+  add_test(test_host_ir "${NVFUSER_ROOT}/tests/cpp/test_host_irs.cpp" "")
+  list(APPEND TEST_BINARIES test_host_ir)
 
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
@@ -763,6 +779,7 @@ message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
+message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
