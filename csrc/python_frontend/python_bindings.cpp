@@ -18,6 +18,7 @@
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
+#include <transform_replay.h>
 #include <complex>
 #include <iostream>
 #include <optional>
@@ -3001,6 +3002,94 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("tensor"),
       py::arg("memory_type"));
+  nvf_sched.def(
+      "transform_like",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const std::vector<Tensor>& subgraph_nodes) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* reference_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+
+        TransformPropagator propagator(reference_tv);
+        if (subgraph_nodes.empty()) {
+          // Propagate scheduler transformations on reference TensorView to the
+          // rest of the fusion.
+          MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+        } else {
+          // Propagate scheduler transformations on reference TensorView to the
+          // subset of the fusion.
+          std::unordered_set<TensorView*> subgraph_tv_set;
+          subgraph_tv_set.reserve(subgraph_nodes.size());
+          std::transform(
+              subgraph_nodes.begin(),
+              subgraph_nodes.end(),
+              std::inserter(subgraph_tv_set, subgraph_tv_set.end()),
+              [&fd](const Tensor& t) {
+                return fd->getFusionState(t.index)->template as<TensorView>();
+              });
+          SetSelector selector(
+              {subgraph_tv_set.begin(), subgraph_tv_set.end()});
+          MaxRootDomainInfoSpanningTree(reference_tv, &selector)
+              .traverse(&propagator);
+        }
+      },
+      py::arg("tensor"),
+      py::arg("subgraph_nodes") = std::vector<Tensor>());
+  nvf_sched.def(
+      "parallelize_like",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         int64_t pos,
+         std::vector<Tensor> selected_tensors,
+         const std::unordered_set<ParallelType>& selected_parallel_types,
+         bool propagate_padding) {
+        // Propagate the parallelization from the selected dimensions of the
+        // reference tensor to their corresponding dimensions in all selected
+        // tensors in the DAG.
+        //
+        // 1. Position `pos` means selecting all the dimensions
+        // [0, 1, ..., pos - 1]. pos = -1 means selecting all dimensions.
+        // 2. `selected_tvs` are selected tensors in the DAG. Empty
+        // `selected_tvs` means selecting all tensors in the fusion of
+        // `reference_tv`.
+        // 3. `selected_parallel_types` are the selected parallel types. Empty
+        // `selected_parallel_types` means selecting all parallel types.
+
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* reference_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+
+        std::vector<TensorView*> selected_tvs;
+        selected_tvs.reserve(selected_tensors.size());
+        std::transform(
+            selected_tensors.begin(),
+            selected_tensors.end(),
+            std::back_inserter(selected_tvs),
+            [&fd](const Tensor& t) {
+              return fd->getFusionState(t.index)->template as<TensorView>();
+            });
+
+        nvfuser::scheduler_utils::parallelizeAllLike(
+            reference_tv,
+            pos,
+            selected_tvs,
+            selected_parallel_types,
+            propagate_padding);
+      },
+      py::arg("tensor"),
+      py::arg("pos") = -1,
+      py::arg("selected_tensors") = std::vector<Tensor>(),
+      py::arg("selected_parallel_types") = std::unordered_set<ParallelType>(),
+      py::arg("propagate_padding") = true);
 }
 
 } // namespace nvfuser::python_frontend
