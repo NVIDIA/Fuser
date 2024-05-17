@@ -180,6 +180,21 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_to_propagate =
       getLoopPromotionsToPropagateAgain(initial_loop_promotion_map, loop_graph);
 
+  // If nothing to propagate again, initial_loop_promotion_map is the
+  // final result
+  if (loop_promotion_map_to_propagate.empty()) {
+    auto final_loop_promotion_map = updateValGroupIdMap(
+        initial_loop_promotion_map, idGraph(IdMappingMode::LOOP));
+    sanityCheckLoopPromotionMap(final_loop_promotion_map);
+    {
+      VERBOSE() << "Final results:\n";
+      for (const auto& [g, id] : final_loop_promotion_map) {
+        VERBOSE() << nvfuser::toString(g) << " -> " << id->name() << "\n";
+      }
+    }
+    return final_loop_promotion_map;
+  }
+
   std::unordered_map<ValGroup, IterDomain*> final_iel_promotion_map;
   propagatePromotionsInIELGraph(
       iel_graph,
