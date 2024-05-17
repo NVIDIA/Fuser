@@ -423,6 +423,16 @@ TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
+
+const bool checkMapped (const ValGraph& vg, IterDomain* x, IterDomain* y){
+  if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
+    return false;
+  }
+  const ValGroup& gx = vg.toGroup(x);
+  const ValGroup& gy = vg.toGroup(y);
+  return gx.get() == gy.get();
+};
+
 // Check that ID exact mapping works as expected
 void checkMatmulOpIdMapping(
     Fusion* fusion,
@@ -432,15 +442,6 @@ void checkMatmulOpIdMapping(
   IdModel id_model(fusion);
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   vg.validateConsistency();
-
-  const auto checkMapped = [&vg](IterDomain* x, IterDomain* y) -> bool {
-    if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
-      return false;
-    }
-    const ValGroup& gx = vg.toGroup(x);
-    const ValGroup& gy = vg.toGroup(y);
-    return gx.get() == gy.get();
-  };
 
   // If K is Broadcast then we will not have a reduction dim
   bool k_bcast = A->axis(-1)->isBroadcast();
@@ -453,44 +454,44 @@ void checkMatmulOpIdMapping(
     EXPECT_EQ(output->nDims(), 0);
     // When K is Broadcast, we squeeze then multiply then cast instead
     if (!k_bcast) {
-      EXPECT_TRUE(checkMapped(A->axis(0), B->axis(0))); // K
+      EXPECT_TRUE(checkMapped(vg, A->axis(0), B->axis(0))); // K
     }
   } else if (A->nDims() > 1 && B->nDims() == 1) {
     // [..., iM, iK] @ [iK] = [..., iM, rK]
     ASSERT_EQ(output->nDims(), A->nDims() + red_dims - 1);
-    EXPECT_TRUE(checkMapped(A->axis(-2), output->axis(-1 - red_dims))); // M
+    EXPECT_TRUE(checkMapped(vg, A->axis(-2), output->axis(-1 - red_dims))); // M
     if (!k_bcast) {
-      EXPECT_TRUE(checkMapped(A->axis(-1), B->axis(0))); // K
-      EXPECT_TRUE(checkMapped(A->axis(-1), output->axis(-1))); // K
+      EXPECT_TRUE(checkMapped(vg, A->axis(-1), B->axis(0))); // K
+      EXPECT_TRUE(checkMapped(vg, A->axis(-1), output->axis(-1))); // K
     }
     // Check that batch dims are mapped
     for (int64_t i : c10::irange(output->nDims() - red_dims - 1)) {
       if (!A->axis(i)->isBroadcast()) {
-        EXPECT_TRUE(checkMapped(A->axis(i), output->axis(i)));
+        EXPECT_TRUE(checkMapped(vg, A->axis(i), output->axis(i)));
       }
     }
   } else if (A->nDims() == 1 && B->nDims() > 1) {
     // [iK] @ [..., iK, iN] = [..., iN, rK]
     ASSERT_EQ(output->nDims(), B->nDims() + red_dims - 1);
-    EXPECT_TRUE(checkMapped(B->axis(-1), output->axis(-1 - red_dims))); // N
+    EXPECT_TRUE(checkMapped(vg, B->axis(-1), output->axis(-1 - red_dims))); // N
     if (!k_bcast) {
-      EXPECT_TRUE(checkMapped(A->axis(0), B->axis(-2))); // K
-      EXPECT_TRUE(checkMapped(A->axis(0), output->axis(-1))); // K
+      EXPECT_TRUE(checkMapped(vg, A->axis(0), B->axis(-2))); // K
+      EXPECT_TRUE(checkMapped(vg, A->axis(0), output->axis(-1))); // K
     }
     // Check that batch dims are mapped
     for (int64_t i : c10::irange(output->nDims() - red_dims - 1)) {
       if (!B->axis(i)->isBroadcast()) {
-        EXPECT_TRUE(checkMapped(B->axis(i), output->axis(i)));
+        EXPECT_TRUE(checkMapped(vg, B->axis(i), output->axis(i)));
       }
     }
   } else if (A->nDims() > 1 && B->nDims() > 1) {
     // [..., iM, iK] @ [..., iK, iN] = [..., iM, iN, rK]
     ASSERT_EQ(output->nDims(), std::max(A->nDims(), B->nDims()) + red_dims);
-    EXPECT_TRUE(checkMapped(A->axis(-2), output->axis(-2 - red_dims))); // M
-    EXPECT_TRUE(checkMapped(B->axis(-1), output->axis(-1 - red_dims))); // N
+    EXPECT_TRUE(checkMapped(vg, A->axis(-2), output->axis(-2 - red_dims))); // M
+    EXPECT_TRUE(checkMapped(vg, B->axis(-1), output->axis(-1 - red_dims))); // N
     if (!k_bcast) {
-      EXPECT_TRUE(checkMapped(A->axis(-1), B->axis(-2))); // K
-      EXPECT_TRUE(checkMapped(A->axis(-1), output->axis(-1))); // K
+      EXPECT_TRUE(checkMapped(vg, A->axis(-1), B->axis(-2))); // K
+      EXPECT_TRUE(checkMapped(vg, A->axis(-1), output->axis(-1))); // K
     }
     // Check that batch dims are mapped
     // Note that A and B can have different dimensions, so here we count
@@ -501,10 +502,10 @@ void checkMatmulOpIdMapping(
       int64_t i_b = B->nDims() - 3 - i;
       int64_t i_out = output->nDims() - red_dims - 3 - i;
       if (i_a >= 0 && !A->axis(i_a)->isBroadcast()) {
-        EXPECT_TRUE(checkMapped(A->axis(i_a), output->axis(i_out)));
+        EXPECT_TRUE(checkMapped(vg, A->axis(i_a), output->axis(i_out)));
       }
       if (i_b >= 0 && !B->axis(i_b)->isBroadcast()) {
-        EXPECT_TRUE(checkMapped(B->axis(i_b), output->axis(i_out)));
+        EXPECT_TRUE(checkMapped(vg, B->axis(i_b), output->axis(i_out)));
       }
     }
   } else {
@@ -524,15 +525,6 @@ void checkLinearOpIdMapping(
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   vg.validateConsistency();
 
-  const auto checkMapped = [&vg](IterDomain* x, IterDomain* y) -> bool {
-    if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
-      return false;
-    }
-    const ValGroup& gx = vg.toGroup(x);
-    const ValGroup& gy = vg.toGroup(y);
-    return gx.get() == gy.get();
-  };
-
    // input: [* , in_features]
    // weight: [out_features, in_features] / [out_features]
    // bias (optional): [out_features]/[]
@@ -543,22 +535,22 @@ void checkLinearOpIdMapping(
   // Check that the first input_size - 1 dims are mapped for input
   for (auto i: c10::irange(input->nDims() - 1)){
     if (!input->axis(i)->isBroadcast()){
-      EXPECT_TRUE(checkMapped(input->axis(i), output->axis(i)));
+      EXPECT_TRUE(checkMapped(vg, input->axis(i), output->axis(i)));
     }
   }
   // Check out_features dim is mapped in weight & bias if present.
   if (weight->nDims() > 1){
     if (!weight->axis(0)->isBroadcast()){
-      EXPECT_TRUE(checkMapped(weight->axis(0), output->axis(-2)));
+      EXPECT_TRUE(checkMapped(vg, weight->axis(0), output->axis(-2)));
     }
     if (bias != nullptr && bias->nDims() > 0 && !bias->axis(0)->isBroadcast()) {
-      EXPECT_TRUE(checkMapped(bias->axis(0), output->axis(-2)));
+      EXPECT_TRUE(checkMapped(vg, bias->axis(0), output->axis(-2)));
     }
   }
   // Check mapping for reduction axis in input and weight
   if (!input->axis(-1)->isBroadcast()){
-    EXPECT_TRUE(checkMapped(input->axis(-1), weight->axis(-1)));
-    EXPECT_TRUE(checkMapped(input->axis(-1), output->axis(-1)));
+    EXPECT_TRUE(checkMapped(vg, input->axis(-1), weight->axis(-1)));
+    EXPECT_TRUE(checkMapped(vg, input->axis(-1), output->axis(-1)));
   }
 }
 

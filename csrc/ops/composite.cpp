@@ -80,7 +80,7 @@ static TensorView* newForLinear(
     mapping_bias = ops::mapLinearOpIterDomains(bias_domain, MatmulRole::INPUT_C, ndims_out);
   }
 
-  std::vector<IterDomain*> out_domain = ops::newOutputDomain({mapping_a, mapping_b, mapping_bias});
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
   for (auto idx : c10::irange(ndims_out - 1)){
     out_domain[idx] = ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});

@@ -165,6 +165,18 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     }
   };
 
+  // Assumes producer and consumer IDs to be trivially aligned and adds them to domain map.
+  auto pairwiseMapAllIds = [&](std::vector<IterDomain*> producer_ids, std::vector<IterDomain*> consumer_ids){
+    for (auto idx : c10::irange(consumer_ids.size())) {
+      IterDomain* producer_id = producer_ids.at(idx);
+      IterDomain* consumer_id = consumer_ids.at(idx);
+      if (producer_id == nullptr) {
+        continue;
+      }
+      updatePairwiseRootDomainMap(producer_id, consumer_id);
+    }
+  };
+  
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
@@ -183,18 +195,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // maps to the third output iterdomain.
     const std::vector<IterDomain*>& aligned_producer_ids =
         ops::mapMatmulOpIterDomains(producer_root, input_role, out_size);
-
-    NVF_ERROR(aligned_producer_ids.size() == consumer_root.size());
-
-    for (auto inx : c10::irange(out_size)) {
-      IterDomain* producer_id = aligned_producer_ids.at(inx);
-      IterDomain* consumer_id = consumer_root.at(inx);
-      if (producer_id == nullptr) {
-        continue;
-      }
-      updatePairwiseRootDomainMap(producer_id, consumer_id);
-    }
-
+    pairwiseMapAllIds(aligned_producer_ids, consumer_root);
     return dom_map;
   }
 
@@ -221,16 +222,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     const std::vector<IterDomain*>& aligned_producer_ids =
         ops::mapLinearOpIterDomains(producer_root, input_role.value(), out_size);
-
-    for (auto inx : c10::irange(out_size)) {
-      IterDomain* producer_id = aligned_producer_ids.at(inx);
-      IterDomain* consumer_id = consumer_root.at(inx);
-      if (producer_id == nullptr) {
-        continue;
-      }
-      updatePairwiseRootDomainMap(producer_id, consumer_id);
-    }
-
+    pairwiseMapAllIds(aligned_producer_ids, consumer_root);
     return dom_map;
   }
 
