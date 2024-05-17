@@ -169,6 +169,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   // domain map.
   auto pairwiseMapAllIds = [&](std::vector<IterDomain*> producer_ids,
                                std::vector<IterDomain*> consumer_ids) {
+    NVF_ERROR(producer_ids.size() == consumer_ids.size());
     for (auto idx : c10::irange(consumer_ids.size())) {
       IterDomain* producer_id = producer_ids.at(idx);
       IterDomain* consumer_id = consumer_ids.at(idx);
