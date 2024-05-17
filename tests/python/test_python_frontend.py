@@ -2406,8 +2406,8 @@ class TestNvFuserFrontend(TestCase):
         m = 24
         n = 16
         k = 8
-        bias = torch.randn(n, device="cuda", dtype=torch.float16)
-        bias2d = torch.rand(m, n, device="cuda", dtype=torch.float16)
+        bias0d = torch.tensor(3.14, device="cuda", dtype=torch.float16)
+        bias1d = torch.randn(n, device="cuda", dtype=torch.float16)
 
         inputs_mk_nk = [
             torch.randn(m, k, device="cuda", dtype=torch.float16),
@@ -2445,7 +2445,7 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(t_out)
 
         in_tensors = [inputs_mk_nk, inputs_mk_kn, inputs_km_nk, inputs_km_kn]
-        use_bias = [None, bias, bias2d]
+        use_bias = [None, bias0d, bias1d]
         for [inp, wt], use_bias in list(itertools.product(in_tensors, use_bias)):
             with self.subTest(inp=inp, wt=wt, use_bias=use_bias):
                 input_tensors = (
@@ -3805,6 +3805,26 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T57)
             fd.add_output(T101)
 
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # A simple pointwise fusion, but passed misaligned input
+    def test_misaligned_add(self):
+        inputs = [
+            torch.ones(2**20 + 1, device="cuda")[1:],  # cannot vectorize
+            torch.ones(2**20, device="cuda"),
+        ]
+        print(inputs[0].data_ptr(), inputs[0].data_ptr() % 16)
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            c0 = fd.define_scalar(3.0)
+
+            t2 = fd.ops.add(t0, t1)
+
+            fd.add_output(t2)
+
+        # Fails because vectorization 4 is set but only 1 supported
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
 

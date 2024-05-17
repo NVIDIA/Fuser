@@ -64,7 +64,7 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
 void orderTiledConcreteIdAsRoot(TensorView* tv);
 
 //! Orders the root id ordering of the given tv as
-//! [Batch, Previous Reduction, M, N, K]
+//! [Device, Batch, Previous Reduction, M, N, K]
 //!  for easier processing of later scheduling steps.
 //!
 //! This matching works on root domain only, and
@@ -173,12 +173,7 @@ class WarpMmaSwizzler {
   //! after smem read.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
   static void scheduleOperandRead(TensorView* tv, MmaOperand operand);
-  // TODO: what is transpose2? Why do we need it?
-  static void scheduleOperandRead(
-      TensorView* tv,
-      MmaInputSmemSwizzle swizzle,
-      bool transpose,
-      bool transpose2);
+  static void scheduleOperandRead(TensorView* tv, MmaInputSmemSwizzle swizzle);
 
   //! Note [schedule of ldmatrix]
   //! If you look at the doc of ldmatrix and mma for Turing and Ampere:

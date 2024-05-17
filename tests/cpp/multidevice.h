@@ -16,7 +16,11 @@
 namespace nvfuser {
 
 class MultiDeviceTest : public NVFuserTest {
- public:
+ protected:
+  MultiDeviceTest();
+  ~MultiDeviceTest();
+  void SetUp() override;
+
   // Given an aten tensor, TensorView the tensor is bound to, and deviceId
   // returns a shard of the tensor according the sharding annotation in tv
   // for the deviceId. If tensor is not sharded returns the original tensor.
@@ -25,39 +29,23 @@ class MultiDeviceTest : public NVFuserTest {
   static at::Tensor shardTensor(
       at::Tensor tensor,
       TensorView* tv,
-      DeviceIdxType deviceId) {
-    if (!isSharded(tv)) {
-      return tensor;
-    }
-    auto sharded_dim = getShardedAxis(tv);
-    int i = 0;
-    const auto& devices = tv->getDeviceMesh().vector();
-    auto it = std::find(devices.begin(), devices.end(), deviceId);
-    if (it != devices.end()) {
-      i = std::distance(devices.begin(), it);
-    }
-    return tensor.slice(sharded_dim, i, i + 1).contiguous();
-  }
+      DeviceIdxType deviceId);
 
- protected:
-  void SetUp() override;
-  void TearDown() override;
+  static Communicator* getOrCreateCommunicator();
 
-  Communicator* getOrCreateCommunicator() {
-    static Communicator* communicator = new Communicator();
-    return communicator;
-  }
-
-  Communicator* communicator = nullptr;
+  Communicator* communicator;
   c10::TensorOptions tensor_options;
-  bool debug_print = false;
-  bool do_barrier_at_test = false;
-  bool disable_skip = false;
+  bool debug_print;
+  bool disable_skip;
+
+ private:
+  void waitForDebuggerAtRank(DeviceIdxType rank);
 };
 
 class PipelineTest : public MultiDeviceTest {
  protected:
-  void SetUp() override;
+  PipelineTest();
+
   // Utility function used for validation in the tests. It compares the
   // (sharded) outputs with ref_unsharded_outputs. if
   // validate_with_prescribed_values is true, ref_unsharded_outputs is assumed
@@ -65,6 +53,7 @@ class PipelineTest : public MultiDeviceTest {
   // computed by running a Fusion on a single device with the unsharded_inputs
   void validate(bool validate_with_prescribed_values = false);
   void executeAndValidate(bool validate_with_prescribed_values = false);
+
   std::unique_ptr<MultiDeviceExecutor> runtime;
   std::unique_ptr<Fusion> fusion;
   std::vector<c10::IValue> inputs;

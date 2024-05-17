@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <sys/types.h>
+#include <unistd.h>
+#include <mutex>
+
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>
@@ -16,32 +20,92 @@
 
 namespace nvfuser {
 
-void MultiDeviceTest::SetUp() {
-  NVFuserTest::SetUp();
-
+MultiDeviceTest::MultiDeviceTest() {
   communicator = getOrCreateCommunicator();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
-    debug_print = true;
+  debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
+  disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
+
+  char* rank_to_debug_str = getNvFuserEnv("MULTIDEVICE_WAIT_DEBUGGER_AT_RANK");
+  if (rank_to_debug_str != nullptr) {
+    const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);
+
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      // Catch exceptions so call_once always flips `once` and executes this
+      // functor only once.
+      try {
+        waitForDebuggerAtRank(rank_to_debug);
+      } catch (const std::exception& e) {
+        TORCH_WARN("Failed to wait for debugger: ", e.what());
+      }
+    });
   }
-  if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER") &&
-      communicator->is_available()) {
-    do_barrier_at_test = true;
+}
+
+MultiDeviceTest::~MultiDeviceTest() {
+  // Force all processes to synchronize at a barrier between tests. It slightly
+  // slows the tests down, but makes it much easier to isolate a failing test.
+  // Without this, if a test fails such that a subset of processes fail, then
+  // some processes will move onto another tests and timeout later.
+  if (communicator->is_available()) {
+    communicator->barrier();
   }
-  if (getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP")) {
-    disable_skip = true;
+}
+
+void MultiDeviceTest::waitForDebuggerAtRank(const DeviceIdxType rank) {
+  NVF_CHECK(
+      rank >= 0 && rank < communicator->size(),
+      "rank=",
+      rank,
+      " must be in the range of [0,",
+      communicator->size(),
+      ").");
+
+  if (communicator->deviceId() == rank) {
+    volatile bool waiting = true;
+    auto pid = getpid();
+    std::cerr << "Process " << pid
+              << " is waiting for the debugger. To continue debugging, "
+              << "start gdb, `attach " << pid
+              << "`, `set var waiting=false`, and `fini`." << std::endl;
+    while (waiting) { // Please change `waiting` in the debugger.
+    }
+    std::cerr << "Process " << getpid() << " finished waiting." << std::endl;
   }
+
+  if (communicator->is_available()) {
+    communicator->barrier();
+  }
+}
+
+void MultiDeviceTest::SetUp() {
+  // Set the same random seed for all processes.
+  NVFuserTest::SetUp();
+
   if (!disable_skip && !communicator->is_available()) {
     GTEST_SKIP() << "This test needs an available communicator.";
   }
 }
 
-void MultiDeviceTest::TearDown() {
-  if (do_barrier_at_test && communicator->is_available()) {
-    communicator->barrier();
+/*static*/ at::Tensor MultiDeviceTest::shardTensor(
+    at::Tensor tensor,
+    TensorView* tv,
+    DeviceIdxType deviceId) {
+  if (!isSharded(tv)) {
+    return tensor;
   }
-  NVFuserTest::TearDown();
+  auto sharded_dim = getShardedAxis(tv);
+  auto i = tv->getDeviceMesh().idxOf(deviceId);
+  // TODO: returning slice 0 temporarily when device is not in the mesh.
+  i = (i < 0) ? 0 : i;
+  return tensor.slice(sharded_dim, i, i + 1).contiguous();
+}
+
+/*static*/ Communicator* MultiDeviceTest::getOrCreateCommunicator() {
+  static Communicator* communicator = new Communicator();
+  return communicator;
 }
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -134,8 +198,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   validate(validate_with_prescribed_values);
 }
 
-void PipelineTest::SetUp() {
-  MultiDeviceTest::SetUp();
+PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
   communicator->setDefaultBackend(CommunicatorBackend::nccl);
 }

@@ -23,7 +23,6 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <mma_type.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -46,7 +45,7 @@ using namespace at::indexing;
 // the flag USE_DISTRIBUTED=1 and nccl support. With that, nvFuser is built by
 // default with NVFUSER_DISTRIBUTED defined. Then, on a node with at least 6
 // GPUs, run the test using mpirun: `mpirun -np 6 build/test_multidevice
-// --gtest_filter=PipelineTwoStages*`.
+// --gtest_filter=PipelineTestTwoStages*`.
 
 TEST_F(PipelineTest, Pipeline) {
   const std::vector<int64_t> input_shape1 = {6, 7};
@@ -164,13 +163,13 @@ TEST_P(PipelineTestTwoStages, Communication) {
 
   std::vector<int64_t> unsharded_input_sizes = {3, 2, 3, 5};
   if (is_stage0_sharded) {
-    unsharded_input_sizes[sharded_dim] = mesh0.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh0.size();
   }
   if (is_stage1_sharded) {
-    unsharded_input_sizes[sharded_dim] = mesh1.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh1.size();
     if (do_reduction) {
-      ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
-      unsharded_input_sizes[sharded_dim + 1] = mesh1.vector().size();
+      ASSERT_EQ(mesh0.size(), mesh1.size());
+      unsharded_input_sizes[sharded_dim + 1] = mesh1.size();
     }
   }
 
@@ -218,8 +217,9 @@ DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
 DeviceMesh mesh4({1, 0, 2});
-auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
-auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4);
+DeviceMesh mesh5({1, 0});
+auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4, mesh5);
+auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4, mesh5);
 
 } // namespace
 
@@ -493,9 +493,7 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
   fusion->addOutput(tv_out);
 
   // multi device scheduling:
-  std::vector<int64_t> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  DeviceMesh mesh(devices);
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
   for (auto tv : {tv0, tv1, tv_out}) {
     tv->setDeviceMesh(mesh);
   }

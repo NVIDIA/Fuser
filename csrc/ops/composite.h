@@ -47,27 +47,17 @@ NVF_API LstmResult lstm(
     TensorView* cell_x,
     TensorView* out_x);
 
-// Matmul function which takes in tensors with the shapes
-// A[M,K] B[K,N], but the tensors may have different layouts
-// via strides. All restrictions from the matmul APIs also
-// apply here.
-TensorView* matmul(TensorView* a, TensorView* b);
-// This second matmul function is not exposed via
-// the Python interface, but it does the guts of the work and
-// can be used to create mamtuls without a cast operation following it.
-TensorView* matmul(TensorView* a, TensorView* b, bool cast_output_to_input);
-
-// Linear functions which takes in two tensors of shapes A[M,K] and
-// B[N,K]. Takes in a options bias of shape [N] and performs
-// out = A * B_Transpose + bias. The output dtype matches the dtype
-// ofthe inputs which should match.
-TensorView* linear(TensorView* a, TensorView* b, TensorView* bias);
+// Linear functions which takes in two tensors of shapes input[* , in_features],
+// weight[out_features, in_features] / [in_features] and an optional bias of
+// shape [out_features] or 0D scalar. Bias can only be given if weight is a 2-D
+// tensor.
+TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias);
 // This is an implementation detail to reflect when linear is called
 // without a bias. This calls the above function. We use this function
 // since it simplifies creating a Python API which takes optional arguments.
 // Other options include using lambdas or creating a new RecordFunctor for
 // Linear.
-TensorView* linear(TensorView* a, TensorView* b);
+TensorView* linear(TensorView* input, TensorView* weight);
 
 NVF_API TensorView* sign(TensorView* x);
 NVF_API Val* sign(Val* x);
@@ -80,5 +70,10 @@ TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x);
 TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
 NVF_API TensorView* view_as_real(TensorView* x);
+
+// Matmul function which takes in tensors with the shapes
+// A[*, M, K] / A[K] and B[*, K, N] / B[K], but the tensors may have different
+// layouts via strides. This has the same functionality as torch.matmul
+TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
 
 } // namespace nvfuser

@@ -12,23 +12,14 @@
 
 namespace nvfuser::preseg_passes {
 
-// allocation order is the permutation to apply on a tensor view's rfactor
-// domain to its allocation domain.
-//
-// i.e. For a channels last 4d tensor, we mark it as (0, 2, 3, 1). This is
-// trying to present it more consistently with how we construct it with c++ API.
-//     std::vector<IterDomain*> tv0_nhwc = {
-//         tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
-//     tv0->setAllocationDomain(tv0_nhwc, true);
-using AllocationOrder = std::vector<int64_t>;
-
-// Propagate allocation order from input to the entire fusion. It does NOT
-// modify any fusion IR, but instead stores the propagated allocation order as
-// an unordered_map from TensorView to permutation.
+// Propagate allocation domain from srcs to dsts.
+// The pass update allocation domain on dsts tensor views.
 //
 // See details in Note [ Allocation Order Propagation ]
-std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
-    Fusion* fusion);
+void inferenceAllocationOrder(
+    Fusion* fusion,
+    const std::vector<TensorView*>& srcs,
+    const std::vector<TensorView*>& dsts);
 
 // Realize allocation order propagation on fusion inputs to optimize allocation
 // domain of output tensor. This optimization pass currently only applies to

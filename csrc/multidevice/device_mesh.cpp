@@ -8,20 +8,43 @@
 
 #include <multidevice/device_mesh.h>
 
+#include <numeric>
+#include <unordered_set>
+
+// for operator<<(std::ostream&, const std::vector<T>&)
+#include <c10/util/Logging.h>
+
 namespace nvfuser {
 
-std::string DeviceMesh::toString() const {
-  std::stringstream ss;
-  ss << "DeviceMesh{";
-  for (auto i : vector_) {
-    ss << i << ", ";
-  }
-  ss << "}";
-  return ss.str();
+DeviceMesh::DeviceMesh(std::vector<DeviceIdxType> devices) {
+  setDevices(std::move(devices));
+}
+
+DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices) {
+  setDevices(std::vector<DeviceIdxType>(devices));
+}
+
+void DeviceMesh::setDevices(std::vector<DeviceIdxType> devices) {
+  vector_ = std::move(devices);
+
+  std::unordered_set<DeviceIdxType> unique_devices(
+      vector_.begin(), vector_.end());
+  NVF_ERROR(
+      unique_devices.size() == vector_.size(),
+      "Device mesh has duplicates: ",
+      vector_);
+}
+
+/*static*/ DeviceMesh DeviceMesh::createForNumDevices(
+    const int64_t num_devices) {
+  std::vector<DeviceIdxType> devices(num_devices);
+  std::iota(devices.begin(), devices.end(), 0);
+  return DeviceMesh(devices);
 }
 
 std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
-  return out << mesh.toString();
+  out << "DeviceMesh{" << mesh.vector() << "}";
+  return out;
 }
 
 } // namespace nvfuser
