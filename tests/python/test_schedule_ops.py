@@ -10,7 +10,7 @@ import torch
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
-from nvfuser import FusionDefinition
+from nvfuser import FusionDefinition, ParallelType
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -247,6 +247,34 @@ class TestScheduleOps(TestCase):
 
         self.valid_use(lambda fd: fd.sched.split(fd.t1, 1, 2))
         self.valid_use(lambda fd: fd.sched.split(fd.t1, -1, 2))
+
+    def test_pointwise_basic_user_schedule(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses merge, split, parallelize schedule operations
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.add_output(self.t2)
+
+            def schedule(self):
+                fd.sched.merge(self.t2, dim=0)
+                fd.sched.split(self.t2, dim=0, factor=128)
+                fd.sched.parallelize(self.t2, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(self.t2, axis := 1, ParallelType.block_x)
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
 
 
 if __name__ == "__main__":
