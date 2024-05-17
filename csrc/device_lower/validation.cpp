@@ -1394,11 +1394,11 @@ class FoldValidator : IterVisitor {
   using IterVisitor::dispatch;
   using IterVisitor::handle;
 
-  void dispatch(Expr* expr) {
+  void dispatch(Expr* expr) override {
     IterVisitor::dispatch(expr);
   }
 
-  void handle(BeginFoldOp* bfop) {
+  void handle(BeginFoldOp* bfop) override {
     size_t group_id = fold_group_exprs_.size();
     fold_group_exprs_.emplace_back(0);
     expr_to_group_.emplace(bfop, group_id);
@@ -1407,7 +1407,7 @@ class FoldValidator : IterVisitor {
   // Propagate fold group axes from producer to consumer.
   // If the consumer is Fold but the producer is not, verify that the
   // definition is BeginFoldOp and use that ops group ID.
-  void handle(TensorView* tv) {}
+  void handle(TensorView* tv) override {}
 
  private:
   // Each fold group is a collection of Exprs, in topological order. The first
