@@ -975,7 +975,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   while (mma_result->nDims() > 6) {
     mma_result->merge(-7, bidx_dim);
   }
-  num_batch_dims = 0;
 
   // [iBMo, iNo, rKo, iMi, iNi, rKi]
   int num_splitk_dims = 0;
