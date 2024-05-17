@@ -265,6 +265,8 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
   }
 }
 
+// Test that a simple matmul fusion is picked up by the appropriate scheduler
+// and the translation to MmaOp is performed properly.
 TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
   const auto run = [&](bool expect_aten_eval) {
     int M = 504, N = 136, K = 248;
@@ -276,6 +278,7 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
 
     fusion->addInput(tv0);
     fusion->addInput(tv1);
+
     auto tv2 = matmul(tv0, tv1);
 
     fusion->addOutput(tv2);
@@ -290,34 +293,23 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
     FusionExecutorCache executor_cache(std::move(fusion));
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+    const FusionKernelRuntime* runtime =
+        executor_cache.getMostRecentKernelRuntime();
+    ASSERT_NE(runtime, nullptr);
 
+    EXPECT_FALSE(runtime->isSegmented());
+
+    ScheduleHeuristic heuristic =
+        runtime->schedulerHeuristics()->heuristicsList().front()->heuristic();
     if (expect_aten_eval) {
-      // Ensure that the matmul scheduler ran.
-      EXPECT_EQ(
-          executor_cache.getMostRecentKernelRuntime()
-              ->schedulerHeuristics()
-              ->heuristicsList()
-              .front()
-              ->heuristic(),
-          ScheduleHeuristic::ExprEval);
+      EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
     } else {
-      // Ensure that the matmul scheduler ran.
-      EXPECT_EQ(
-          executor_cache.getMostRecentKernelRuntime()
-              ->schedulerHeuristics()
-              ->heuristicsList()
-              .front()
-              ->heuristic(),
-          ScheduleHeuristic::Matmul);
-      // Ensure there's a mma op.
-      // If there's no mma op present, then stop the test.
-      ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(
-                       executor_cache.getMostRecentKernelRuntime()
-                           ->executors()
-                           .at(0)
-                           .kernel())
-                       .empty());
+      // Ensure that the Matmul scheduler ran.
+      EXPECT_EQ(heuristic, ScheduleHeuristic::Matmul);
+      // Ensure there's an MmaOp.
+      EXPECT_FALSE(
+          ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
+              .empty());
     }
 
     testValidate(
