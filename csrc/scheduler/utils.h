@@ -32,6 +32,7 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
@@ -657,6 +658,19 @@ int64_t getPersistentBufferSizeOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info);
+
+//! The required shared memory size for a block inclues two parts: (1) smem
+//! for persistent buffers and (2) overhead. The overhead includes space
+//! reserved by the CUDA driver and reduction workspace which depends on the
+//! number of threads per block specified by the parameter threads_per_block.
+//! By default, the function uses the maximum allowed number of threads per
+//! block (threads_per_block = -1) to calculate the overhead. The caller can
+//! specify a different value if they are sure about the max value used at
+//! runtime.
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    int64_t threads_per_block = -1);
 
 } // namespace scheduler_utils
 } // namespace nvfuser
