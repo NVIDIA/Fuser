@@ -279,6 +279,21 @@ std::string isMatmulFusionDefinitionSupported(
     }
   }
 
+  // Check that no non-trivial allocation domains are set on inputs or outputs.
+  // TODO: Lift this requirement once we have proper allocation domain support
+  for (Val* inp : fusion->inputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(inp);
+        tv && !ir_utils::hasTrivialAllocationDomain(tv)) {
+      return "detected input TV with non-trivial allocation domain";
+    }
+  }
+  for (Val* outp : fusion->outputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(outp);
+        tv && !ir_utils::hasTrivialAllocationDomain(tv)) {
+      return "detected output TV with non-trivial allocation domain";
+    }
+  }
+
   return "";
 }
 

@@ -268,7 +268,7 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
 // Test that a simple matmul fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
-  const auto run = [&](bool expect_aten_eval) {
+  const auto run = [&](bool transpose_a_alloc, bool expect_aten_eval) {
     int M = 504, N = 136, K = 248;
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
@@ -276,19 +276,31 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
     auto tv0 = makeContigTensor(2, DataType::Half);
     auto tv1 = makeContigTensor(2, DataType::Half);
 
+    if (transpose_a_alloc) {
+      tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+    }
+
     fusion->addInput(tv0);
     fusion->addInput(tv1);
 
     auto tv2 = matmul(tv0, tv1);
 
-    fusion->addOutput(tv2);
+    // add an epilogue
+    auto tv3 = sin(tv2);
+    auto tv4 = castOp(DataType::Half, tv3);
 
+    fusion->addOutput(tv4);
+
+    // Verify that we no longer set up MmaOp in matmul()
     ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
 
     auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
     auto t0 = at::randn({M, K}, options);
     auto t1 = at::randn({K, N}, options);
-    auto tref = at::matmul(t0, t1);
+    if (transpose_a_alloc) {
+      t0 = t0.as_strided({M, K}, {1, M});
+    }
+    auto tref = at::matmul(t0, t1).sin().to(at::kHalf);
 
     FusionExecutorCache executor_cache(std::move(fusion));
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -297,7 +309,11 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
         executor_cache.getMostRecentKernelRuntime();
     ASSERT_NE(runtime, nullptr);
 
-    EXPECT_FALSE(runtime->isSegmented());
+    if (expect_aten_eval) {
+      EXPECT_TRUE(runtime->isSegmented());
+    } else {
+      EXPECT_FALSE(runtime->isSegmented());
+    }
 
     ScheduleHeuristic heuristic =
         runtime->schedulerHeuristics()->heuristicsList().front()->heuristic();
@@ -305,7 +321,9 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
       EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
     } else {
       // Ensure that the Matmul scheduler ran.
-      EXPECT_EQ(heuristic, ScheduleHeuristic::Matmul);
+      // Assert here since we will inspect the kernel next, which we can't do if
+      // ExprEval accepts the segment.
+      ASSERT_EQ(heuristic, ScheduleHeuristic::Matmul);
       // Ensure there's an MmaOp.
       EXPECT_FALSE(
           ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
@@ -315,21 +333,21 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
     testValidate(
         executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
   };
-  // Run the test with and without the matmul scheduler
-  {
-    DisableOptionsGuard dog;
-    DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
-    run(/*expect_aten_eval=*/true);
-  }
-  {
-    // Disable ExprEval scheduler, which takes precedence of Matmul scheduler
-    DisableOptionsGuard dog;
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-    // Allow Matmul Scheduler to accept MatmulOp and LinearOp
-    EnableOptionsGuard eog;
-    EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
-    run(/*expect_aten_eval=*/false);
-  }
+  // CombineMulSumAsMmaTest disabled MatmulExprEval, but we need it enabled
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
+  EnableOptionsGuard eog;
+
+  // Run the test with and without matmul fusion enabled
+  EnableOptionsGuard::getCurOptions().unset(EnableOption::FuseMatmul);
+  run(/*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
+  run(/*transpose_a_alloc=*/true, /*expect_aten_eval=*/true);
+
+  // Allow Matmul Scheduler to fuse MatmulOp and LinearOp
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+  run(/*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  // We cannot yet handle allocation domain in matmul scheduler
+  run(/*transpose_a_alloc=*/true, /*expect_aten_eval=*/true);
 }
 
 } // namespace nvfuser
