@@ -108,6 +108,7 @@ class Val;
   f(Swizzle2D);                   \
   f(Resize);                      \
   f(MatmulOp);                    \
+  f(LinearOp);                    \
   f(Communication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
