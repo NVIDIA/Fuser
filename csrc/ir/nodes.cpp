@@ -3667,9 +3667,14 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
 
   IterDomain* merged_id = IterDomain::merge(first, second);
 
-  leaf_domain_.erase(leaf_domain_.begin() + axis_i);
-  leaf_domain_.erase(leaf_domain_.begin() + axis_o);
-  leaf_domain_.insert(leaf_domain_.begin() + axis_o, merged_id);
+  // axis_o is the outer input of this merge but does not
+  // automatically mean it's an outer domain in TensorDomain.
+  auto td_outer_pos = axis_o < axis_i ? axis_o : axis_i;
+  auto td_inner_pos = axis_o < axis_i ? axis_i : axis_o;
+
+  leaf_domain_.erase(leaf_domain_.begin() + td_inner_pos);
+  leaf_domain_.erase(leaf_domain_.begin() + td_outer_pos);
+  leaf_domain_.insert(leaf_domain_.begin() + td_outer_pos, merged_id);
   resetDomains();
 }
 

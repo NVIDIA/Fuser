@@ -118,19 +118,21 @@ class ValGraphStmtSort : public ValGraphVisitor {
   ValGroups sorted_vals_;
 };
 
-enum class ExprDirection { Forward, Backward, Undefined };
+enum class Direction { Forward, Backward, Undefined };
 
-std::ostream& operator<<(std::ostream&, const ExprDirection);
+std::ostream& operator<<(std::ostream&, const Direction);
 
-using ExprPath = std::vector<std::pair<ExprGroup, ExprDirection>>;
+using ExprPath = std::vector<std::pair<ExprGroup, Direction>>;
 
-inline ExprDirection reverse(ExprDirection direction) {
-  if (direction == ExprDirection::Forward) {
-    return ExprDirection::Backward;
-  } else if (direction == ExprDirection::Backward) {
-    return ExprDirection::Forward;
+std::ostream& operator<<(std::ostream& os, const ExprPath& path);
+
+inline Direction reverse(Direction direction) {
+  if (direction == Direction::Forward) {
+    return Direction::Backward;
+  } else if (direction == Direction::Backward) {
+    return Direction::Forward;
   } else {
-    return ExprDirection::Undefined;
+    return Direction::Undefined;
   }
 }
 
@@ -147,11 +149,17 @@ class ValGraphBFS {
  public:
   using GroupType = std::variant<ExprGroup, ValGroup>;
 
-  static ExprPath getExprsBetweenVals(
+  // Find the shortest path from the from_groups_ to to_groups_ on a
+  // given graph. Dependency between vals and exprs must be satisfied.
+  // It is an error if no valid path is found.
+  static ExprPath getExprsBetween(
       const ValGraph& graph,
       const ValGroups& from,
       const ValGroups& to);
 
+  virtual ~ValGraphBFS() = default;
+
+ protected:
   ValGraphBFS(
       const ValGraph& graph,
       std::vector<GroupType> from_groups,
@@ -160,38 +168,54 @@ class ValGraphBFS {
         from_groups_(std::move(from_groups)),
         to_groups_(std::move(to_groups)) {}
 
-  virtual ~ValGraphBFS() = default;
-
-  virtual void handle(const GroupType& group);
-
-  virtual void handle(const ValGroup& val_group);
-
-  virtual void handle(const ExprGroup& expr_group);
-
+  // Traverse from from_groups_ to to_groups_, recording each taken
+  // path to generate the shortest path after the travesal
   virtual void traverse();
 
-  virtual bool isReady(const GroupType& group) const;
+  // Find the shortest path from the from_groups_ to to_groups_. This
+  // must be only used once traversal is completed.
+  virtual ExprPath getShortestExprPath();
 
-  virtual bool isReady(const ExprGroup& expr_group) const;
+  // Check if a group is ready to visit
+  virtual std::optional<std::pair<Direction, std::vector<GroupType>>> isReady(
+      const GroupType& group) const;
 
-  virtual bool isDependencySatisfied(const GroupType& group) const;
+  // Check if an ExprGroup is ready to visit. Either all of its inputs
+  // or all of outputs must have their dependencies satisfied
+  virtual std::optional<std::pair<Direction, std::vector<GroupType>>> isReady(
+      const ExprGroup& expr_group) const;
 
-  virtual bool isReady(const ValGroup& val_group) const;
+  // Check if a ValGroup is ready to visit. Eithre its defining or use
+  // ExprGroup must have its dependency satisfied
+  virtual std::optional<std::pair<Direction, std::vector<GroupType>>> isReady(
+      const ValGroup& val_group) const;
 
+  // If another group depends on a given group, check if that
+  // dependency is considered satisfied. If the given group is already
+  // visited, that should mean the dependency is satisfied.
+  virtual bool isDependencySatisfied(const GroupType& dependency) const;
+
+  // Check if a given group is already visited
   virtual bool isVisited(const GroupType& group) const;
 
+  // Mark a group as visited
   virtual void setVisited(const GroupType& group);
 
+  // Add new neighbors of a given group to the to_visit list
   virtual void addNewNeighbors(const GroupType& group);
 
-  virtual void setPrevGroup(const GroupType& group);
+  // Check if all to_groups_ are visited
+  virtual bool allToGroupsVisited() const;
+
+  // Set the previous group of a given group that is visited in a
+  // given direction
+  virtual void setPrevGroups(
+      const GroupType& group,
+      const std::pair<Direction, std::vector<GroupType>>& prev_groups);
 
   virtual bool excludeFromTraversal(const GroupType& group) const {
     return false;
   }
-
-  // Extend this to support Val paths as well
-  virtual ExprPath getShortestExprPath();
 
  protected:
   const ValGraph& graph_;
@@ -199,7 +223,8 @@ class ValGraphBFS {
   const std::vector<GroupType> to_groups_;
   std::deque<GroupType> to_visit_;
   std::unordered_set<GroupType> visited_;
-  std::unordered_map<GroupType, std::vector<GroupType>> prev_groups_;
+  std::unordered_map<GroupType, std::pair<Direction, std::vector<GroupType>>>
+      prev_groups_;
 };
 
 } // namespace nvfuser

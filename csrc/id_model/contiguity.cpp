@@ -50,7 +50,7 @@ isConsistentlyOrdered(IterDomain* id) const {
 
 void OrderedIdGroupInformation::traverse(const ExprPath& path) {
   for (const auto& [eg, direction] : path) {
-    if (direction != ExprDirection::Forward) {
+    if (direction != Direction::Forward) {
       // Not supported
       continue;
     }
@@ -141,7 +141,7 @@ class ContigIDGroups {
     }
   }
 
-  void dispatch(const ExprGroup& eg, ExprDirection direction) {
+  void dispatch(const ExprGroup& eg, Direction direction) {
     NVF_ERROR(!eg->empty());
     Expr* expr = eg->front();
     
@@ -159,10 +159,10 @@ class ContigIDGroups {
     }
   }
 
-  void handle(Merge* merge, ExprDirection direction);
+  void handle(Merge* merge, Direction direction);
   
-  bool isInputFinal(Expr* expr, ExprDirection direction) const {
-    const auto& inputs = direction == ExprDirection::Forward ? expr->inputs() : expr->outputs();
+  bool isInputFinal(Expr* expr, Direction direction) const {
+    const auto& inputs = direction == Direction::Forward ? expr->inputs() : expr->outputs();
     return std::any_of(inputs.begin(), inputs.end(), [this](Val* inp) -> bool {
       return final_id_groups_.find(graph_.toGroup(inp)) !=
           final_id_groups_.end();
@@ -194,9 +194,9 @@ class ContigIDGroups {
   std::unordered_set<ValGroup> resize_deps_;
 };
 
-void ContigIDGroups::handle(Merge* merge, ExprDirection direction) {
+void ContigIDGroups::handle(Merge* merge, Direction direction) {
   // Only forward direction is supported for now
-  if (direction != ExprDirection::Forward) {
+  if (direction != Direction::Forward) {
     VERBOSE() << "Backward merge not supported: " << merge->toString();
     return;
   }

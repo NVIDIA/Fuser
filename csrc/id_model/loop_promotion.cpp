@@ -148,7 +148,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // the dependent input domains of the loop group
   const std::unordered_map<ValGroup, IterDomain*> initial_loop_promotion_map =
       projectIELPromotionToLoopGraph(
-          iel_graph, iel_promotion_map, false, loop_graph, inlining_info_);
+          iel_graph, iel_promotion_map, loop_graph, inlining_info_);
 
   {
     VERBOSE() << "Step 3 results:\n";
@@ -216,7 +216,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Step 5: Find the final promotion of each loop group based on the
   // final IEL promotion map
   auto final_loop_promotion_map = projectIELPromotionToLoopGraph(
-      iel_graph, final_iel_promotion_map, true, loop_graph, inlining_info_);
+      iel_graph, final_iel_promotion_map, loop_graph, inlining_info_);
 
   {
     VERBOSE() << "Step 5 results:\n";
@@ -565,12 +565,7 @@ bool hasUniqueInputLoopGroups(
 
   // Check if input groups that are not included in the output group set
   // return !inp_loop_groups.computeSubtract(out_loop_groups).empty();
-  auto b = !inp_loop_groups.computeSubtract(out_loop_groups).empty();
-  if (b) {
-    auto x = inp_loop_groups.computeSubtract(out_loop_groups);
-    VERBOSE() << "Unique inputs: " << nvfuser::toString(x) << std::endl;
-  }
-  return b;
+  return !inp_loop_groups.computeSubtract(out_loop_groups).empty();
 }
 
 } // namespace
@@ -611,52 +606,9 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     const bool loop_promote_inputs = !loop_graph_promotion_map.empty() &&
         hasUniqueInputLoopGroups(iel_expr, iel_graph, loop_graph);
 
-    // FusionReshapePersistentShmoo with
-    // std::vector<int64_t> x{3, 17, 2 * 4 * 10, 1};
-    // std::vector<int64_t> y{3 * 17, 1, 2, 4, -1};
-    // Incorrect loop promotion at the second segment. Need to use the
-    // step 3 result when propagating through IEL expr of merge 104
-    // and 197.
-    bool war = getenv("WAR") && iel_expr->front()->isA<Split>() &&
-        iel_expr->front()->input(0)->definition() &&
-        iel_expr->front()->input(0)->definition()->isA<Merge>();
-
-    if (war) {
-      VERBOSE() << "Activating the propagatation WAR\n";
-    }
-
     for (const ValGroup& iel_inp_group : iel_inp_groups) {
       // Assumed all inputs are IterDomains
       NVF_ERROR(iel_inp_group->front()->isA<IterDomain>());
-
-      if (war) {
-        // This is a copy of the loop_promote_inputs block below. When
-        // war is true, this block should be prioritized.
-
-        // Promote loops based on the loop promotion map. If the loop promotion
-        // map should be used and has an entry we should use that promotion.
-        if (loop_promote_inputs) {
-          const ValGroup& loop_copy_group =
-              loop_graph.toGroup(iel_inp_group->front());
-          auto inp_loop_promo_it =
-              loop_graph_promotion_map.find(loop_copy_group);
-          if (inp_loop_promo_it != loop_graph_promotion_map.end()) {
-            // Check if the IEL map has an entry
-            if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
-                inp_promo_it != iel_promotion_map.end()) {
-              maybe_promoted_inputs.push_back(inp_loop_promo_it->second);
-              an_input_was_promoted = true;
-              auto iel_promo_id = inp_promo_it->second;
-              VERBOSE() << "!WAR! Promoted input by loop promotion: "
-                        << nvfuser::toString(iel_inp_group) << " -> "
-                        << inp_loop_promo_it->second->name()
-                        << ", IEL promo: " << iel_promo_id->name()
-                        << ", iel expr: " << iel_expr->front()->toString();
-              continue;
-            }
-          }
-        }
-      }
 
       // Propagate IEL promotions when available.
       if (auto inp_promo_it = iel_promotion_map.find(iel_inp_group);
@@ -795,6 +747,7 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
       if (covered_ids.find(output_group) == covered_ids.end()) {
         covered_ids[output_group] = covered;
       } else {
+        // TODO:
         if (!getenv("DISABLE_COMBINE")) {
           VERBOSE() << "Combining coverage of "
                     << nvfuser::toString(output_group) << ". "
@@ -822,7 +775,6 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     projectIELPromotionToLoopGraph(
         const ValGraph& iel_graph,
         const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-        bool iel_promotion_only,
         const ValGraph& loop_graph,
         const StatefulInliningInfo& inlining_info) const {
   const std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
@@ -841,7 +793,6 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
         loop_group,
         iel_graph,
         iel_promotion_map,
-        iel_promotion_only,
         exact_covered_ids,
         terminal_loop_ids);
     if (promotion_id) {
@@ -856,7 +807,6 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     const ValGroup& loop_group,
     const ValGraph& iel_graph,
     const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-    bool iel_promotion_only,
     const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
     const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) const {
   const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
@@ -892,19 +842,16 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
 
     // Does it still need iel_promotion_map? The loop group already has
     // the replayed domains, so we should be able to find it.
-    if (auto iel_promo_it = iel_promotion_map.find(iel_group);
-        iel_promo_it != iel_promotion_map.end()) {
+    auto iel_promo_it = iel_promotion_map.find(iel_group);
+    if (iel_promo_it == iel_promotion_map.end()) {
+      // If this terminal ID doesn't have a promotion associated with it, save
+      // the terminal ID.
+      exact_promoted_terminal_ids.emplace_back(
+          exact_graph.toGroup(loop_id), loop_id->as<IterDomain>());
+    } else {
       // If this terminal ID has a promotion, grab the promoted ID.
       exact_promoted_terminal_ids.emplace_back(
           exact_graph.toGroup(iel_promo_it->second), iel_promo_it->second);
-    }
-
-    // TODO: comment
-    // If this terminal ID doesn't have a promotion associated with it, save
-    // the terminal ID.
-    if (!iel_promotion_only) {
-      exact_promoted_terminal_ids.emplace_back(
-          exact_graph.toGroup(loop_id), loop_id->as<IterDomain>());
     }
   }
 

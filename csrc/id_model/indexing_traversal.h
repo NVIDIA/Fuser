@@ -5,78 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/analysis/index_compute.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
-#include <expr_simplifier.h>
-#include <id_model/contiguity.h>
-#include <id_model/indexing.h>
-#include <id_model/to_string.h>
-#include <id_model/utils.h>
-#include <index_compute.h>
-#include <ir/builder.h>
-#include <ir/graphviz.h>
-#include <ir/utils.h>
 #include <val_graph_visitor.h>
+
+#include <id_model/utils.h>
 
 #include <algorithm>
 #include <fstream>
 
 namespace nvfuser {
-
-namespace {
-
-std::vector<kir::ForLoop*> getMaxPathLoops(
-    const std::vector<kir::ForLoop*>& for_loops) {
-  std::vector<kir::ForLoop*> unswitched_domains;
-
-  bool within_unswitch = false;
-
-  for (const auto fl : for_loops) {
-    auto parallel_type = fl->iter_domain()->getParallelType();
-
-    if (parallel_type == ParallelType::Unswitch ||
-        parallel_type == ParallelType::Unroll) {
-      within_unswitch = true;
-    }
-
-    // Don't unswitch threaded loops even when unswitched
-    if (fl->iter_domain()->isThread() ||
-        (fl->iter_domain()->getParallelType() != ParallelType::Vectorize &&
-         !within_unswitch && !predicateAtEnd(fl))) {
-      continue;
-    } else {
-      unswitched_domains.push_back(fl);
-    }
-  }
-
-  return unswitched_domains;
-}
-
-// TODO: Use this from getPredicateIndexReplacementMap
-std::unordered_set<ValGroup> getMaxPathLoopDomains(
-    TensorView* tv,
-    const std::vector<kir::ForLoop*>& for_loops,
-    const ValGraph& loop_graph,
-    const ValGraph& traversal_graph) {
-  auto unswitched_loops = getMaxPathLoops(for_loops);
-  std::unordered_set<ValGroup> max_path_loop_domains;
-
-  for (auto loop_domain : tv->getLeafDomain()) {
-    const auto& loop_group = loop_graph.toGroup(loop_domain);
-    auto it = std::find_if(
-        unswitched_loops.begin(),
-        unswitched_loops.end(),
-        [&loop_group](kir::ForLoop* fl) -> bool {
-          return loop_group->has(fl->iter_domain());
-        });
-    if (it != unswitched_loops.end()) {
-      max_path_loop_domains.emplace(traversal_graph.toGroup(loop_domain));
-    }
-  }
-
-  return max_path_loop_domains;
-}
 
 class IndexingTraversal : public ValGraphBFS {
  public:
@@ -89,23 +25,6 @@ class IndexingTraversal : public ValGraphBFS {
         resize_paths_(resize_paths) {}
 
   virtual ~IndexingTraversal() = default;
-
-  static ExprPath getExprsBetween(
-      const std::vector<IterDomain*>& from_domains,
-      const std::vector<IterDomain*>& to_domains,
-      const ValGraph& graph,
-      const std::unordered_set<Resize*>& resize_paths) {
-    const ValGroups from_groups = graph.toGroups(from_domains);
-    const ValGroups to_groups = graph.toGroups(to_domains);
-
-    IndexingTraversal traversal(
-        graph,
-        {from_groups.vector().begin(), from_groups.vector().end()},
-        {to_groups.vector().begin(), to_groups.vector().end()},
-        resize_paths);
-    traversal.traverse();
-    return traversal.getShortestExprPath();
-  }
 
   using ValGraphBFS::isVisited;
 
@@ -572,6 +491,29 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
   return {actual_index_domains, actual_strides, actual_contiguity};
 }
 
+ExprPath getExprsBetween(
+    const std::vector<IterDomain*>& loop_domains,
+    const std::vector<IterDomain*>& index_domains,
+    const ValGraph& exact_graph,
+    const std::unordered_set<Resize*>& resize_paths) {
+  const ValGroups loop_domain_groups = exact_graph.toGroups(loop_domains);
+  const ValGroups index_domain_groups = exact_graph.toGroups(index_domains);
+
+  VERBOSE() << "getExprsBetween: loop: " << nvfuser::toString(loop_domains)
+            << ", index: " << nvfuser::toString(index_domains) << std::endl;
+
+  IndexingTraversal traversal(
+      exact_graph,
+      {loop_domain_groups.vector().begin(), loop_domain_groups.vector().end()},
+      {index_domain_groups.vector().begin(),
+       index_domain_groups.vector().end()},
+      resize_paths);
+
+  traversal.traverse();
+
+  return traversal.getShortestExprPath();
+}
+
 ExprPath getIndexingTraversalPath(
     const Expr* expr,
     const std::vector<IterDomain*>& from_domains,
@@ -592,11 +534,8 @@ ExprPath getIndexingTraversalPath(
     }
   }
 
-  VERBOSE() << "getIndexingTraversalPath: " << toDelimitedString(from_domains)
-            << " -> " << toDelimitedString(to_domains) << std::endl;
-
-  auto indexing_path = IndexingTraversal::getExprsBetween(
-      from_domains, to_domains, traversal_graph, resize_paths);
+  auto indexing_path =
+      getExprsBetween(from_domains, to_domains, traversal_graph, resize_paths);
 
   VERBOSE() << "Indexing path:\n";
   for (const auto& [expr_group, direction] : indexing_path) {
@@ -617,6 +556,7 @@ class IdGraphIndexCompute : public OptOutDispatch {
       : traversal_graph_(exact_graph),
         index_map_(initial_index_map),
         max_path_domains_(max_path_domains) {}
+
 
   using OptOutDispatch::handle;
 
@@ -928,15 +868,6 @@ TensorIndexer::TensorIndexer(const IdModel& id_model)
     : id_model_(id_model), concrete_info_(id_model_.fusion()) {
   buildLoopIndexMap();
 
-  if (getenv("DOT")) {
-    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-    auto dot_string = ValGraphDotPrinter::getString(
-        id_model_.idGraph(IdMappingMode::ALMOSTEXACT));
-    std::cerr << dot_string << std::endl;
-    ofs << dot_string;
-    ofs.close();
-  }
-
   const auto& non_divisible_split_info =
       GpuLower::current()->nonDivisibleSplitInfo();
   for (const auto& [tv, splits] :
@@ -954,6 +885,15 @@ void TensorIndexer::buildLoopIndexMap() {
           .disjointSets()
           .empty()) {
     return;
+  }
+
+  if (getenv("DOT")) {
+    std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
+    auto dot_string =
+        ValGraphDotPrinter::getString(id_model_.idGraph(IdMappingMode::EXACT));
+    std::cerr << dot_string << std::endl;
+    ofs << dot_string;
+    ofs.close();
   }
 
   Fusion* fusion = id_model_.idGraph(IdMappingMode::EXACT)
@@ -1457,13 +1397,12 @@ IndexingInfo TensorIndexer::getIndex(
   const auto initial_index_map = getInitialIndexMap(
       tv, expr, for_loops, loop_domains, traversal_graph, is_predicate);
 
-  const std::unordered_set<ValGroup> max_path_loop_domains = is_unswitch
-      ? getMaxPathLoopDomains(
-            tv,
-            for_loops.value(),
-            id_model_.idGraph(IdMappingMode::LOOP),
-            traversal_graph)
-      : std::unordered_set<ValGroup>{};
+  const std::unordered_set<ValGroup> max_path_loop_domains =
+      is_unswitch ? getMaxPathLoopDomains(
+                        tv,
+                        for_loops.value(),
+                        id_model_.idGraph(IdMappingMode::LOOP),
+                        traversal_graph) : std::unordered_set<ValGroup>{};
 
   IdGraphIndexCompute index_compute(
       traversal_graph, initial_index_map, max_path_loop_domains);
@@ -1841,8 +1780,7 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
                (loadstore->opType() == LoadStoreOpType::LdMatrix ||
                 loadstore->opType() == LoadStoreOpType::LdMatrixTranspose ||
                 loadstore->opType() == LoadStoreOpType::CpAsync ||
-                loadstore->opType() ==
-                    LoadStoreOpType::CpAsyncBulkTensorTile)) {
+                loadstore->opType() == LoadStoreOpType::CpAsyncBulkTensorTile)) {
       reason << "LoadStoreOp not supported: " << loadstore->toString();
     } else {
       for (const auto& id : ir_utils::allIDsOf(tv)) {

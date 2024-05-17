@@ -111,16 +111,9 @@ class LoopPromotionMapBuilder {
   // group. The promotion must represent all the domains in each loop
   // group. If a valid representative promotion is not found for a
   // loop group, no mapping is added for the group.
-  //
-  // The iel_promotion_only flag is for the Step 5 projection, where
-  // we only want to consider IEL promotion domains when selecting
-  // representative domains even when there exists a valid existing
-  // non-promoted domain. When it's true, only domains in the
-  // iel_promotion_map are considered.
   std::unordered_map<ValGroup, IterDomain*> projectIELPromotionToLoopGraph(
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-      bool iel_promotion_only,
       const ValGraph& loop_graph,
       const StatefulInliningInfo& inlining_info) const;
 
@@ -136,7 +129,6 @@ class LoopPromotionMapBuilder {
       const ValGroup& loop_group,
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-      bool iel_promotion_only,
       const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
       const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) const;
 
