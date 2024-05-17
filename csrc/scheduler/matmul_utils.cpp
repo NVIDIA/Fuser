@@ -462,8 +462,8 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     const auto device_prop = at::cuda::getCurrentDeviceProperties();
     // Use a dummy problem shape to determine whether this is a supported
     // device.
-    const auto mma_op = getMmaOp(
-        device_prop->major * 10 + device_prop->minor, {128, 128, 128, 1});
+    const auto mma_op =
+        getMmaOp(device_prop->major * 10 + device_prop->minor, {128, 128, 128});
     if (!mma_op.has_value()) {
       return "Unsupported device compute capability";
     }
