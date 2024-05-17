@@ -7229,11 +7229,11 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
     if (hidden_size * dataTypeSize(dtype) >
         scheduler_utils::register_file_size) {
       NVF_CHECK(
-          persistent_params->shared_mem_persistent_buffer,
+          !persistent_params->smem_persistent_buffers.empty(),
           "Should use shared memory buffer!");
     } else {
       NVF_CHECK(
-          !persistent_params->shared_mem_persistent_buffer,
+          persistent_params->smem_persistent_buffers.empty(),
           "Shouldn't use shared memory buffer!");
     }
 
@@ -8131,6 +8131,49 @@ TEST_F(NVFuserTest, TemplateFunctionTypeMismatch) {
       fusion, args, persistent_params->lparams, persistent_params->cparams);
   auto cg_outputs = fe.runFusion(args, persistent_params->lparams);
 }
+
+// Test block reduction across TIDx and TIDz
+TEST_F(NVFuserTest, BlockReduction3D) {
+  auto test = [](const int tidx, const int tidy, const int tidz) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    std::vector<int64_t> shape({tidz, tidy, tidx});
+
+    auto tv0 = makeConcreteTensor(shape);
+    fusion.addInput(tv0);
+    auto tv1 = sum(tv0, {0, 2});
+    fusion.addOutput(tv1);
+
+    tv1->axis(0)->parallelize(ParallelType::TIDz);
+    tv1->axis(1)->parallelize(ParallelType::TIDy);
+    tv1->axis(2)->parallelize(ParallelType::TIDx);
+
+    scheduler_utils::parallelizeAllLike(tv1);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn(shape, options);
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {t0});
+    auto cg_outputs = fe.runFusion({t0});
+    auto ref = t0.sum(0).sum(-1);
+    testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  };
+  // tested locally with i,j,k +=2, change to i,j,k *=2 to reduce CI time.
+  auto properties = at::cuda::getDeviceProperties(
+      c10::Device(c10::DeviceType::CUDA, 0).index());
+  int max_threads_per_blk = (int)properties->maxThreadsPerBlock;
+  for (int i = 2; i <= 32; i *= 2) {
+    for (int j = 2; j <= 32; j *= 2) {
+      for (int k = 2; k <= 32; k *= 2) {
+        if (i * j * k <= max_threads_per_blk) {
+          test(i, j, k);
+        }
+      }
+    }
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -10,9 +10,11 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <ir/utils.h>
 #include <type.h>
 
 #include <fstream>
+#include <sstream>
 
 namespace nvfuser {
 
@@ -388,6 +390,147 @@ void IrGraphGenerator::handle(const TensorView* tv) {
              << "\", shape=Mrecord, color=brown, " << style << "];\n";
 
   tensor_views_.push_back(tv);
+}
+
+namespace {
+
+class TransformToDot {
+ public:
+  void handle(Fusion*);
+  void handle(TensorView*);
+  void handle(Expr*);
+  void handle(IterDomain*);
+  void markRfactor(TensorView* tv);
+
+  // Make sure the root domains are ordered correctly
+  // TODO: ordering of allocation domain
+  void enforceRootOrder(TensorView* tv);
+
+  std::stringstream& indent();
+
+  std::string get() const {
+    return buf_.str();
+  }
+
+ private:
+  std::stringstream buf_;
+  int indent_ = 0;
+  std::unordered_set<Val*> printed_vals_;
+};
+
+void TransformToDot::handle(Fusion* fusion) {
+  indent() << "digraph {\n";
+  ++indent_;
+  indent() << "node [shape=plaintext fontsize=\"20\"];\n";
+
+  // Make sure the leaf domains are ordered correctly
+  indent() << "graph [ordering=\"out\"];\n";
+
+  for (const auto tv : ir_utils::allTvs(fusion)) {
+    handle(tv);
+  }
+
+  --indent_;
+  indent() << "}\n";
+}
+
+void TransformToDot::handle(TensorView* tv) {
+  // Print each tensor as a subgraph cluster to print a bounding box
+  indent() << "subgraph cluster_t" << tv->name() << " {\n";
+  ++indent_;
+  indent() << "label = \"t" << tv->name() << " ca_pos("
+           << tv->getComputeAtPosition() << ")\"\n";
+  indent() << "fontsize = \"20\";\n";
+  indent() << "graph [style=dotted];\n";
+
+  // TODO: Mark allocation domains too?
+  markRfactor(tv);
+
+  // Note this won't print allocation domains if not in the path
+  // between the root and leaf domains
+  const auto all_exp = DependencyCheck::getAllExprsBetween(
+      {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+      {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+
+  for (auto exp : all_exp) {
+    handle(exp);
+  }
+
+  // The ordering of leaf domains should be taken care by the
+  // "ordering" attribute.
+  enforceRootOrder(tv);
+
+  --indent_;
+  indent() << "}\n";
+}
+
+void TransformToDot::markRfactor(TensorView* tv) {
+  for (auto id : tv->getMaybeRFactorDomain()) {
+    indent() << id->name() << " [shape=circle];\n";
+  }
+}
+
+void TransformToDot::enforceRootOrder(TensorView* tv) {
+  indent() << "{\n";
+  ++indent_;
+  indent() << "rank=same;\n";
+  indent() << "edge [style=invis];\n";
+  bool first = true;
+  std::stringstream ss;
+  for (auto id : tv->getRootDomain()) {
+    if (!first) {
+      ss << " -> ";
+    }
+    ss << id->name();
+    first = false;
+  }
+  indent() << ss.str() << ";\n";
+  indent() << "rankdir = LR;\n";
+  --indent_;
+  indent() << "}\n";
+}
+
+void TransformToDot::handle(Expr* expr) {
+  for (auto inp : expr->inputs()) {
+    handle(inp->as<IterDomain>());
+  }
+  for (auto out : expr->outputs()) {
+    handle(out->as<IterDomain>());
+  }
+
+  for (auto inp : expr->inputs()) {
+    for (auto out : expr->outputs()) {
+      indent() << inp->name() << " -> " << out->name() << "\n";
+    }
+  }
+}
+
+void TransformToDot::handle(IterDomain* id) {
+  if (printed_vals_.find(id) != printed_vals_.end()) {
+    return;
+  }
+
+  // Use blue for broadcast domains
+  indent() << id->name()
+           << " [fontcolor=" << (id->isBroadcast() ? "blue" : "black")
+           << "];\n";
+
+  printed_vals_.insert(id);
+}
+
+std::stringstream& TransformToDot::indent() {
+  for (int i = 0; i < indent_; ++i) {
+    buf_ << "  ";
+  }
+  return buf_;
+}
+
+} // namespace
+
+std::string irTransformToDot(Fusion* fusion) {
+  TransformToDot dot;
+  dot.handle(fusion);
+  return dot.get();
 }
 
 } // namespace nvfuser
