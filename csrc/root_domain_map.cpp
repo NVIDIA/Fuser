@@ -165,8 +165,10 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     }
   };
 
-  // Assumes producer and consumer IDs to be trivially aligned and adds them to domain map.
-  auto pairwiseMapAllIds = [&](std::vector<IterDomain*> producer_ids, std::vector<IterDomain*> consumer_ids){
+  // Assumes producer and consumer IDs to be trivially aligned and adds them to
+  // domain map.
+  auto pairwiseMapAllIds = [&](std::vector<IterDomain*> producer_ids,
+                               std::vector<IterDomain*> consumer_ids) {
     for (auto idx : c10::irange(consumer_ids.size())) {
       IterDomain* producer_id = producer_ids.at(idx);
       IterDomain* consumer_id = consumer_ids.at(idx);
@@ -176,7 +178,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       updatePairwiseRootDomainMap(producer_id, consumer_id);
     }
   };
-  
+
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
@@ -208,7 +210,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       input_role = MatmulRole::INPUT_A;
     } else if (producer->sameAs(op->inB()->as<TensorView>()->domain())) {
       input_role = MatmulRole::INPUT_B;
-    } else if (producer->sameAs(op->bias()->as<TensorView>()->domain())){
+    } else if (producer->sameAs(op->bias()->as<TensorView>()->domain())) {
       input_role = MatmulRole::INPUT_C;
     } else {
       NVF_ERROR(false, "Producer did not match any LinearOp input.")
@@ -221,7 +223,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // output = {*, out_features} / {*}
 
     const std::vector<IterDomain*>& aligned_producer_ids =
-        ops::mapLinearOpIterDomains(producer_root, input_role.value(), out_size);
+        ops::mapLinearOpIterDomains(
+            producer_root, input_role.value(), out_size);
     pairwiseMapAllIds(aligned_producer_ids, consumer_root);
     return dom_map;
   }

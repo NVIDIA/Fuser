@@ -2288,7 +2288,8 @@ class MatmulOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
-// Linear node with same functionality as F.linear (https://pytorch.org/docs/stable/generated/torch.nn.functional.linear.html#torch.nn.functional.linear)
+// Linear node with same functionality as F.linear
+// (https://pytorch.org/docs/stable/generated/torch.nn.functional.linear.html#torch.nn.functional.linear)
 class LinearOp : public Expr {
  public:
   using Expr::Expr;

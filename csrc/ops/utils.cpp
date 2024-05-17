@@ -225,7 +225,6 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     MatmulRole input_role,
     size_t out_size) {
-
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = input_domain.size();
 
@@ -233,30 +232,30 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
   // Input B: {*, N, K} / {K}
   // Bias: {N} / {}
   switch (input_role) {
-      case MatmulRole::INPUT_A: {
-        // Linear output is same as input for all but the last dimension
-        for (auto inx : c10::irange(inp_size - 1)) {
-          mapping[inx] = input_domain[inx];
-        }
-        mapping[out_size - 1] = input_domain.back();
-        break;
+    case MatmulRole::INPUT_A: {
+      // Linear output is same as input for all but the last dimension
+      for (auto inx : c10::irange(inp_size - 1)) {
+        mapping[inx] = input_domain[inx];
       }
-      case MatmulRole::INPUT_B: {
-        for (auto inx: c10::irange(inp_size)) {
-          // Map N, K to the last two positions of the output.
-          mapping[out_size - 1 - inx] = input_domain[inp_size - 1 - inx];
-        }
-        break;
+      mapping[out_size - 1] = input_domain.back();
+      break;
+    }
+    case MatmulRole::INPUT_B: {
+      for (auto inx : c10::irange(inp_size)) {
+        // Map N, K to the last two positions of the output.
+        mapping[out_size - 1 - inx] = input_domain[inp_size - 1 - inx];
       }
-      case MatmulRole::INPUT_C: {
-        if (inp_size > 0){
-          // Bias is 1D tensor of shape {out_features}
-          mapping[out_size - 2] = input_domain[0];
-        }
-        break;
+      break;
+    }
+    case MatmulRole::INPUT_C: {
+      if (inp_size > 0) {
+        // Bias is 1D tensor of shape {out_features}
+        mapping[out_size - 2] = input_domain[0];
       }
-      default:
-        NVF_ERROR("Unexpected input type.");
+      break;
+    }
+    default:
+      NVF_ERROR("Unexpected input type.");
   }
   return mapping;
 }
@@ -287,10 +286,10 @@ IterDomain* newOutputIterDomain(
 
   // Filter out any nullptrs
   std::copy_if(
-    input_ids.begin(),
-    input_ids.end(),
-    std::back_inserter(ids),
-    [](IterDomain* id) { return id!=nullptr;});
+      input_ids.begin(),
+      input_ids.end(),
+      std::back_inserter(ids),
+      [](IterDomain* id) { return id != nullptr; });
 
   for (auto id : ids) {
     if (id->isBroadcast()) {

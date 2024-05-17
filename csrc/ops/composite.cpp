@@ -67,23 +67,27 @@ static TensorView* newForLinear(
 
   // Linear: a = {*, in_features}, b = {out_features, in_features} /
   // {in_features}.The linear output is {*, (out_features), rK}.
-  // The first out_size -2 dimensions are as the first input, followed by out_features (if present) and an additional reduction axis K.
+  // The first out_size -2 dimensions are as the first input, followed by
+  // out_features (if present) and an additional reduction axis K.
   auto ndims_out = input_domain.size() + weight_domain.size() - 1;
 
-  const std::vector<IterDomain*>& mapping_a = ops::mapLinearOpIterDomains(
-      input_domain, MatmulRole::INPUT_A, ndims_out);
+  const std::vector<IterDomain*>& mapping_a =
+      ops::mapLinearOpIterDomains(input_domain, MatmulRole::INPUT_A, ndims_out);
   const std::vector<IterDomain*>& mapping_b = ops::mapLinearOpIterDomains(
       weight_domain, MatmulRole::INPUT_B, ndims_out);
-  std::vector<IterDomain*> mapping_bias (ndims_out, nullptr);
-  if (bias != nullptr){
-    auto bias_domain = TensorDomain::noReductions(bias->getMaybeRFactorDomain());
-    mapping_bias = ops::mapLinearOpIterDomains(bias_domain, MatmulRole::INPUT_C, ndims_out);
+  std::vector<IterDomain*> mapping_bias(ndims_out, nullptr);
+  if (bias != nullptr) {
+    auto bias_domain =
+        TensorDomain::noReductions(bias->getMaybeRFactorDomain());
+    mapping_bias = ops::mapLinearOpIterDomains(
+        bias_domain, MatmulRole::INPUT_C, ndims_out);
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - 1)){
-    out_domain[idx] = ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
+  for (auto idx : c10::irange(ndims_out - 1)) {
+    out_domain[idx] = ops::newOutputIterDomain(
+        {mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
   }
   // Specify the iterdomain for K as reduction
   out_domain[ndims_out - 1] = ops::newOutputIterDomain(
@@ -99,14 +103,21 @@ static TensorView* newForLinear(
 } // namespace
 
 TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
-  auto input_ndims = TensorDomain::noReductions(input->getMaybeRFactorDomain()).size();
+  auto input_ndims =
+      TensorDomain::noReductions(input->getMaybeRFactorDomain()).size();
   NVF_CHECK(input_ndims > 0, "Input A must be atleast 1D.");
-  
-  auto weight_ndims = TensorDomain::noReductions(weight->getMaybeRFactorDomain()).size();
-  NVF_CHECK(weight_ndims == 1 || weight_ndims == 2, "Input B must be a 1D / 2D tensor.");
 
-  // Note: This constraint is not documented but F.linear errors out if bias is given with 1D weights.
-  NVF_CHECK(weight_ndims == 2 || bias == nullptr, "Expected B to be a 2D matrix if bias is given, got 1D.")
+  auto weight_ndims =
+      TensorDomain::noReductions(weight->getMaybeRFactorDomain()).size();
+  NVF_CHECK(
+      weight_ndims == 1 || weight_ndims == 2,
+      "Input B must be a 1D / 2D tensor.");
+
+  // Note: This constraint is not documented but F.linear errors out if bias is
+  // given with 1D weights.
+  NVF_CHECK(
+      weight_ndims == 2 || bias == nullptr,
+      "Expected B to be a 2D matrix if bias is given, got 1D.")
 
   NVF_CHECK(
       input->dtype() == weight->dtype(),
@@ -114,11 +125,13 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
       input->dtype(),
       " and ",
       weight->dtype());
-  
+
   NVF_CHECK(
-    bias == nullptr || bias->dtype() == input->dtype(),
-    "Expected bias to have the same dtype as A and B, got: ", bias->dtype(), " and ", input->dtype()
-  );
+      bias == nullptr || bias->dtype() == input->dtype(),
+      "Expected bias to have the same dtype as A and B, got: ",
+      bias->dtype(),
+      " and ",
+      input->dtype());
   // For all other cases, create a new LinearOp
   TensorView* out = newForLinear(input, weight, bias);
   IrBuilder::create<LinearOp>(out, input, weight, bias);
@@ -323,14 +336,15 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
-  
+
   const std::vector<IterDomain*>& mapping_a = ops::mapMatmulOpIterDomains(
       orig_domain_a, MatmulRole::INPUT_A, ndims_out);
   const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
       orig_domain_b, MatmulRole::INPUT_B, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out - 1)){
-    out_domain[idx] = ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
+  for (auto idx : c10::irange(ndims_out - 1)) {
+    out_domain[idx] =
+        ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
   }
 
   out_domain[ndims_out - 1] = ops::newOutputIterDomain(

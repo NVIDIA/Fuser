@@ -423,8 +423,7 @@ TEST_F(MatmulATenEvaluationTest, LinearWithBias) {
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-
-const bool checkMapped (const ValGraph& vg, IterDomain* x, IterDomain* y){
+const bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y) {
   if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
     return false;
   }
@@ -525,22 +524,22 @@ void checkLinearOpIdMapping(
   const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
   vg.validateConsistency();
 
-   // input: [* , in_features]
-   // weight: [out_features, in_features] / [out_features]
-   // bias (optional): [out_features]/[]
-   // output = [*, (out_features), rK]
+  // input: [* , in_features]
+  // weight: [out_features, in_features] / [out_features]
+  // bias (optional): [out_features]/[]
+  // output = [*, (out_features), rK]
 
   ASSERT_EQ(output->nDims(), input->nDims() + weight->nDims() - 1);
- 
+
   // Check that the first input_size - 1 dims are mapped for input
-  for (auto i: c10::irange(input->nDims() - 1)){
-    if (!input->axis(i)->isBroadcast()){
+  for (auto i : c10::irange(input->nDims() - 1)) {
+    if (!input->axis(i)->isBroadcast()) {
       EXPECT_TRUE(checkMapped(vg, input->axis(i), output->axis(i)));
     }
   }
   // Check out_features dim is mapped in weight & bias if present.
-  if (weight->nDims() > 1){
-    if (!weight->axis(0)->isBroadcast()){
+  if (weight->nDims() > 1) {
+    if (!weight->axis(0)->isBroadcast()) {
       EXPECT_TRUE(checkMapped(vg, weight->axis(0), output->axis(-2)));
     }
     if (bias != nullptr && bias->nDims() > 0 && !bias->axis(0)->isBroadcast()) {
@@ -548,7 +547,7 @@ void checkLinearOpIdMapping(
     }
   }
   // Check mapping for reduction axis in input and weight
-  if (!input->axis(-1)->isBroadcast()){
+  if (!input->axis(-1)->isBroadcast()) {
     EXPECT_TRUE(checkMapped(vg, input->axis(-1), weight->axis(-1)));
     EXPECT_TRUE(checkMapped(vg, input->axis(-1), output->axis(-1)));
   }
@@ -745,7 +744,12 @@ INSTANTIATE_TEST_SUITE_P(
     LinearWithoutBias,
     LinearNodeParametrizedTest,
     testing::Combine(
-        testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k}), Sizes({1, k}), Sizes({b, 1, k})),
+        testing::Values(
+            Sizes({k}),
+            Sizes({m, k}),
+            Sizes({b, m, k}),
+            Sizes({1, k}),
+            Sizes({b, 1, k})),
         testing::Values(Sizes({k}), Sizes({n, k}), Sizes({1, k})),
         testing::Values(std::nullopt)));
 
@@ -753,7 +757,12 @@ INSTANTIATE_TEST_SUITE_P(
     LinearWithBias,
     LinearNodeParametrizedTest,
     testing::Combine(
-        testing::Values(Sizes({k}), Sizes({m, k}), Sizes({b, m, k}), Sizes({1, k}), Sizes({b, 1, k})),
+        testing::Values(
+            Sizes({k}),
+            Sizes({m, k}),
+            Sizes({b, m, k}),
+            Sizes({1, k}),
+            Sizes({b, 1, k})),
         testing::Values(Sizes({n, k})),
         testing::Values(Sizes({}), Sizes({n}))));
 
@@ -761,7 +770,12 @@ INSTANTIATE_TEST_SUITE_P(
     LinearReductionAxisIsOne,
     LinearNodeParametrizedTest,
     testing::Combine(
-        testing::Values(Sizes({1}), Sizes({m, 1}), Sizes({b, m, 1}), Sizes({1, 1}), Sizes({b, 1, 1})),
+        testing::Values(
+            Sizes({1}),
+            Sizes({m, 1}),
+            Sizes({b, m, 1}),
+            Sizes({1, 1}),
+            Sizes({b, 1, 1})),
         testing::Values(Sizes({n, 1})),
         testing::Values(Sizes({}), Sizes({n}))));
 

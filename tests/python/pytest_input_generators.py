@@ -1543,7 +1543,10 @@ def linear_input_generator(
             make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias)
         )
 
-def linear_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **kwargs):
+
+def linear_error_generator(
+    op, dtype=torch.float32, requires_grad: bool = False, **kwargs
+):
     make_arg = partial(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
@@ -1568,7 +1571,6 @@ def linear_error_generator(op, dtype=torch.float32, requires_grad: bool = False,
 
     for input_shapes, ex_type, ex_str in error_cases:
         shape_input, shape_weight, shape_bias = input_shapes
-        print (input_shapes)
         yield SampleInput(
             make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias)
         ), ex_type, ex_str
