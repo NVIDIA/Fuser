@@ -1372,7 +1372,7 @@ void validateReductions(Fusion* fusion) {
 // *Inlining*
 // All TensorViews in the fold group must be inlined to at least the inner-most
 // fold axis.
-/
+//
 // *Unique entry and exit points*
 // For a given set of exact mapped IterType::Fold axes, there must be a single
 // BeginFoldOp and a single EndFoldOp.
@@ -1390,8 +1390,7 @@ class FoldValidator : IterVisitor {
     validator.traverse(fusion);
   }
 
-
- ivate:
+ private:
   using IterVisitor::dispatch;
   using IterVisitor::handle;
 
@@ -1408,16 +1407,15 @@ class FoldValidator : IterVisitor {
   // Propagate fold group axes from producer to consumer.
   // If the consumer is Fold but the producer is not, verify that the
   // definition is BeginFoldOp and use that ops group ID.
-  void handle(TensorView* tv) {
- 
+  void handle(TensorView* tv) {}
+
  private:
   // Each fold group is a collection of Exprs, in topological order. The first
   // and last entries should be BeginFoldOp and EndFoldOp.
   std::vector<std::vector<Expr*>> fold_group_exprs_;
 
   // Map IterDomains to group ids.
- 
-  ::unordered_map<IterDomain*, size_t> id_to_group_;
+  std::unordered_map<IterDomain*, size_t> id_to_group_;
 
   // Map BeginFoldOps and EndFoldOps to group ids. Other Exprs might belong to
   // multiple fold groups
@@ -1430,4 +1428,3 @@ void validateFolds(Fusion* fusion) {
 }
 
 } // namespace nvfuser
-   

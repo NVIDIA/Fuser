@@ -2093,41 +2093,41 @@ std::string BeginFoldOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "{prev={ ";
   bool first = true;
-  for (int64_t i : c10::irange(numTensors())) {
+  for (size_t i : c10::irange(numTensors())) {
     if (!first) {
       ss << ", ";
     }
     first = false;
-    ss << prevFoldTensor(i)->toString();
+    ss << prevFoldTensor((int64_t)i)->toString();
   }
   ss << " },\n";
   indent(ss, indent_size) << " next={ ";
   first = true;
-  for (int64_t i : c10::irange(numTensors())) {
+  for (size_t i : c10::irange(numTensors())) {
     if (!first) {
       ss << ", ";
     }
     first = false;
-    ss << nextElementTensor(i)->toString();
+    ss << nextElementTensor((int64_t)i)->toString();
   }
   ss << " } }\n";
   indent(ss, indent_size) << "   = beginFold( { ";
   first = true;
-  for (int64_t i : c10::irange(numTensors())) {
+  for (size_t i : c10::irange(numTensors())) {
     if (!first) {
       ss << ", ";
     }
     first = false;
-    ss << inputTensor(i)->toString();
+    ss << inputTensor((int64_t)i)->toString();
   }
   ss << " }, initial values = { ";
   first = true;
-  for (int64_t i : c10::irange(numTensors())) {
+  for (size_t i : c10::irange(numTensors())) {
     if (!first) {
       ss << ", ";
     }
     first = false;
-    ss << initVal(i)->toString();
+    ss << initVal((int64_t)i)->toString();
   }
   ss << " } );\n";
   return ss.str();
@@ -2194,22 +2194,22 @@ std::string EndFoldOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "{ ";
   bool first = true;
-  for (int64_t i : c10::irange(outputs().size())) {
+  for (size_t i : c10::irange(outputs().size())) {
     if (!first) {
       ss << ", ";
     }
     first = false;
-    ss << output(i)->toString();
+    ss << output((int64_t)i)->toString();
   }
   ss << " }\n";
   indent(ss, indent_size) << "   = endFold( { ";
   first = true;
-  for (int64_t i : c10::irange(inputs().size())) {
+  for (size_t i : c10::irange(inputs().size())) {
     if (!first) {
       ss << ", ";
     }
     first = false;
-    ss << input(i)->toString();
+    ss << input((int64_t)i)->toString();
   }
   ss << " } );\n";
   return ss.str();
