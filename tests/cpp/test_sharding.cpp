@@ -42,7 +42,7 @@ TEST_F(ShardingTest, IsSharded) {
   EXPECT_ANY_THROW(isSharded(c));
 }
 
-TEST_F(ShardingTest, TestPropagateShardingsAndSetAllocationDomain) {
+TEST_F(ShardingTest, PropagateShardingsAndSetAllocationDomain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
