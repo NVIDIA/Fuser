@@ -2736,9 +2736,7 @@ std::unique_ptr<matmul_heuristic_plugin::KernelConfig> testConfigFactory() {
 class MatmulSchedulerPluginTest : public NVFuserTest {
  protected:
   MatmulSchedulerPluginTest()
-      : optimization_guard_(false), factory_guard_(testConfigFactory) {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
+      : optimization_guard_(false), factory_guard_(testConfigFactory) {}
 
  private:
   // Allocation order set by the pass breaks matmul tests
@@ -2815,8 +2813,6 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 //   build/test_matmul --gtest_also_run_disabled_tests
 //
 TEST_F(MatmulSchedulerTest, DISABLED_RequireExternalPlugin) {
-  DisableOptionsGuard dog;
-  DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
 
   EXPECT_TRUE(matmul_heuristic_plugin::hasPlugin());
 
