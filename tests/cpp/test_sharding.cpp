@@ -9,7 +9,6 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <ir/utils.h>
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
