@@ -16,11 +16,11 @@ __device__ __inline__ __half __float2half(const float);
 struct __align__(2) __half {
   __half() = default;
 
-  S(const volatile __half& other) {
+  __half(const volatile __half& other) {
     __x = other.__x;
   }
 
-  S(const volatile __half&& other) {
+  __half(const volatile __half&& other) {
     __x = other.__x;
   }
 
