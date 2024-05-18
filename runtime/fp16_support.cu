@@ -32,7 +32,6 @@ struct __align__(2) __half {
     __x = other.__x;
   }
 
-
   __device__ __half(const float f) {
     __x = __float2half(f).__x;
   }
