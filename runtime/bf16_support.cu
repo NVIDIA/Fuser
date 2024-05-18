@@ -16,6 +16,14 @@ __device__ __inline__ __bfloat __float2bfloat(const float);
 struct __align__(2) __bfloat {
   __bfloat() = default;
 
+  __device__ void operator=(const volatile __bfloat& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __bfloat&& other) volatile {
+    __x = other.__x;
+  }
+
   __device__ __bfloat(const float f) {
     __x = __float2bfloat(f).__x;
   }
