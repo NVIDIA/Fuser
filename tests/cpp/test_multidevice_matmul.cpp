@@ -37,7 +37,7 @@ namespace nvfuser {
 class DistributedMatmulTest : public MultiDeviceTest {
  protected:
   DistributedMatmulTest()
-      : num_devices_(communicator->size()), optimization_guard_(false) {
+      : num_devices_(communicator->size()){
     DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
   }
 
@@ -69,11 +69,6 @@ class DistributedMatmulTest : public MultiDeviceTest {
         atMatmul(a.to(at::kDouble), b.to(at::kDouble), layout).to(at::kFloat);
     return std::make_tuple(a, b, c);
   }
-
- private:
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      optimization_guard_;
-  DisableOptionsGuard option_guard_;
 };
 
 TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {

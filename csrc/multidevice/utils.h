@@ -90,7 +90,9 @@ void unshard(TensorView*);
 // This assumes that all global inputs are sharded.
 // This cannot be done when the Op is inserted into the fusion, because
 // the multidevice shcheduling hasn't been applied.
-void propagateShardings(Fusion* fusion);
+// After this step all TensorViews have a DeviceMesh, so the allocation
+// domain is set for all TensorViews as well if not explicitly set.
+void propagateShardingsAndSetAllocationDomain(Fusion* fusion);
 
 // Runs through the fusion and inserts a resharding Set Op after
 // any resharding Expr that is not directly lowerable to a series of

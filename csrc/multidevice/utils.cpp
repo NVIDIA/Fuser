@@ -317,23 +317,41 @@ void insertReshardingsAfter(Fusion* fusion) {
   }
 }
 
+void setShardedAllocationDomain(TensorView* tv) {
+  if (!tv->hasAllocation()) {
+    tv->setAllocationDomain(tv->getLeafDomain(), tv->getContiguity());
+  }
+}
+
 } // namespace
 
-void propagateShardings(Fusion* fusion) {
+void propagateShardingsAndSetAllocationDomain(Fusion* fusion) {
+  // Set global input's allocation domain.
+  // Currently we only propagate shardings from consumer to producer,
+  // so a DeviceMesh is required.
+  for (auto global_input_tv :
+       ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    NVF_ERROR(
+        global_input_tv->hasDeviceMesh(),
+        "Currently global inputs must be sharded sharded ",
+        global_input_tv);
+    setShardedAllocationDomain(global_input_tv);
+  }
+
   for (auto expr : fusion->exprs()) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
     TensorView* input_with_mesh = nullptr;
     for (auto tv : inputs) {
-      if (tv->hasDeviceMesh()) {
+      NVF_ERROR(
+          tv->hasDeviceMesh(),
+          "Currently require inputs are sharded ",
+          expr->toString());
+      if (input_with_mesh == nullptr) {
         input_with_mesh = tv;
-        break;
       }
     }
-    NVF_ERROR(
-        input_with_mesh != nullptr,
-        "At least one input requires a DeviceMesh ",
-        expr->toString());
+
     std::vector<TensorView*> outputs_without_mesh;
     for (auto tv : outputs) {
       if (!tv->hasDeviceMesh()) {
@@ -341,6 +359,10 @@ void propagateShardings(Fusion* fusion) {
       }
     }
     shardAllLike(input_with_mesh, outputs_without_mesh);
+    // All outputs have a sharding, so set the allocation domain.
+    for (auto tv : outputs) {
+      setShardedAllocationDomain(tv);
+    }
   }
 }
 

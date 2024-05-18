@@ -50,7 +50,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     Communicator& comm,
     MultiDeviceExecutorParams params)
     : comm_(comm), params_(params) {
-  propagateShardings(fusion.get());
+  propagateShardingsAndSetAllocationDomain(fusion.get());
   insertReshardings(fusion.get());
   insertShardedAxisReordering(fusion.get());
   SegmentCandidateFinderOptions options{

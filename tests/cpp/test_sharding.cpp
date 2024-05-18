@@ -5,8 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <fusion.h>
+
 #include <gtest/gtest.h>
+
+#include <fusion.h>
+#include <ir/utils.h>
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
@@ -39,7 +42,7 @@ TEST_F(ShardingTest, IsSharded) {
   EXPECT_ANY_THROW(isSharded(c));
 }
 
-TEST_F(ShardingTest, PropagateSharding) {
+TEST_F(ShardingTest, TestPropagateShardingsAndSetAllocationDomain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -57,9 +60,13 @@ TEST_F(ShardingTest, PropagateSharding) {
   fusion.addOutput(c);
 
   // Expected behavior: a's shardings propagate to c.
-  propagateShardings(&fusion);
+  propagateShardingsAndSetAllocationDomain(&fusion);
   std::vector<TensorView*> tvs = {c};
   EXPECT_TRUE(getTvsWithDifferentSharding(a, tvs).empty());
+
+  for (auto tv : {a, b, c}) {
+    EXPECT_TRUE(tv->hasAllocation());
+  }
 }
 
 TEST_P(ShardingTest, ComputeIndex) {
