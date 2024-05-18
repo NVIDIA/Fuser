@@ -45,6 +45,21 @@ struct Tensor {
     return index;
   }
 
+  bool operator==(const Tensor& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (dims != other.dims) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
+  }
+
   //! A unique index to identifiy each recorded state item.
   size_t index;
   size_t dims;
@@ -63,6 +78,17 @@ struct Scalar {
     return index;
   }
 
+  bool operator==(const Scalar& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
+  }
+
   //! A unique index to identifiy each recorded state item.
   size_t index;
 
@@ -78,6 +104,21 @@ struct Vector {
 
   size_t operator()() const {
     return index;
+  }
+
+  bool operator==(const Vector& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (size != other.size) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
   }
 
   //! A unique index to identifiy each recorded state item.
@@ -184,6 +225,8 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API void defineRecord(RecordFunctor* record);
   //! Gets a Record State object
   NVF_API State recordingState(size_t index) const;
+  //! Get all Tensors in FusionState.
+  NVF_API const std::vector<Tensor>& getAllTensors() const;
 
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
@@ -209,6 +252,9 @@ class NVF_API FusionDefinition : public FusionState {
   Fusion* prev_fusion_;
   //! Data member for holding the current user schedule object
   UserSchedule* user_sched_;
+  //! A vector of all Tensors in FusionState. It is a subset of
+  //! recording_state_.
+  std::vector<Tensor> all_tensors_;
 
  public:
   //! The Operators are not directly defined in this header.  They are defined
