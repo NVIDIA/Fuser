@@ -322,7 +322,7 @@ ValGraphBFS::isReady(const ExprGroup& expr_group) const {
 
 std::optional<std::pair<Direction, std::vector<ValGraphBFS::GroupType>>>
 ValGraphBFS::isReady(const ValGroup& val_group) const {
-  // In the case of Val, requires one def or use expr.
+  // In the case of Val, requires just one def or use expr.
   // Check if any use is visited
   if (!graph_.getUses(val_group).empty()) {
     auto it = std::find_if(
@@ -335,7 +335,7 @@ ValGraphBFS::isReady(const ValGroup& val_group) const {
       return std::make_pair(Direction::Backward, std::vector<GroupType>{*it});
     }
   }
-  // Check if all defs are visited
+  // Check if any def is visited
   if (!graph_.getDefinitions(val_group).empty()) {
     auto it = std::find_if(
         graph_.getDefinitions(val_group).begin(),
