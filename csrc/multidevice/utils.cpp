@@ -333,8 +333,8 @@ void propagateShardingsAndSetAllocationDomain(Fusion* fusion) {
        ir_utils::filterByType<TensorView>(fusion->inputs())) {
     NVF_ERROR(
         global_input_tv->hasDeviceMesh(),
-        "Currently global inputs must be sharded sharded ",
-        global_input_tv);
+        "Global inputs must be assigned a DeviceMesh ",
+        global_input_tv->toString());
     setShardedAllocationDomain(global_input_tv);
   }
 
@@ -345,7 +345,7 @@ void propagateShardingsAndSetAllocationDomain(Fusion* fusion) {
     for (auto tv : inputs) {
       NVF_ERROR(
           tv->hasDeviceMesh(),
-          "Currently require inputs are sharded ",
+          "Expression inputs should be assigned a DeviceMesh ",
           expr->toString());
       if (input_with_mesh == nullptr) {
         input_with_mesh = tv;
