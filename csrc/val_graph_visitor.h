@@ -176,17 +176,26 @@ class ValGraphBFS {
   // must be only used once traversal is completed.
   virtual ExprPath getShortestExprPath();
 
-  // Check if a group is ready to visit
+  // Check if a group is ready to visit. If yes, return the direction
+  // and the prev nodes that should be visited before the given group
+  // is visited.
   virtual std::optional<std::pair<Direction, std::vector<GroupType>>> isReady(
       const GroupType& group) const;
 
   // Check if an ExprGroup is ready to visit. Either all of its inputs
-  // or all of outputs must have their dependencies satisfied
+  // or all of outputs must have their dependencies satisfied. If
+  // ready because the inputs are already visited, return
+  // Direction::Forward and all the input groups. If ready because the
+  // outputs are ready, return Direction::Backward and all the output groups.
   virtual std::optional<std::pair<Direction, std::vector<GroupType>>> isReady(
       const ExprGroup& expr_group) const;
 
-  // Check if a ValGroup is ready to visit. Eithre its defining or use
-  // ExprGroup must have its dependency satisfied
+  // Check if a ValGroup is ready to visit. Either its defining or use
+  // ExprGroup must have its dependency satisfied. If ready because
+  // there's a visited defining expr, return Direction::Forward and
+  // the group of the defining expr. If ready because there's a
+  // visited use expr, return Direction::Backward and the group of the
+  // use expr.
   virtual std::optional<std::pair<Direction, std::vector<GroupType>>> isReady(
       const ValGroup& val_group) const;
 
