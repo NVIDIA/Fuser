@@ -8,12 +8,14 @@
 #pragma once
 #include <exceptions.h>
 #include <ir/interface_nodes.h>
+#include <python_frontend/fusion_definition.h>
 #include <serde/fusion_cache_generated.h>
 #include <visibility.h>
 
 namespace nvfuser::python_frontend {
 
 struct RecordFunctor;
+struct Tensor;
 
 struct State {
   State(size_t _index, serde::StateType _stype)
@@ -56,6 +58,8 @@ class FusionState {
   NVF_API Val* getFusionState(size_t index) const;
   //! Gets a Fusion IR Vector of Scalars
   NVF_API const std::vector<Val*>& getFusionStateVector(size_t index) const;
+  //! Get all Tensors in FusionState.
+  NVF_API const std::vector<Tensor>& getAllTensors() const;
   //! Number of fusion states
   NVF_API size_t numFusionStates() const;
   //! Sets a Fusion IR Tensor/Scalar object
@@ -91,6 +95,9 @@ class FusionState {
   std::vector<std::unique_ptr<RecordFunctor>> recording_;
   //! A vector of state that represents Tensors/Vectors/Scalars
   std::vector<State> recording_state_;
+  //! A vector of all Tensors in FusionState. It is a subset of
+  //! recording_state_.
+  std::vector<Tensor> all_tensors_;
 
  private:
   //! A ptr to the container used when building the Fusion IR from a definition

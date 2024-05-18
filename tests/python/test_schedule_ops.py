@@ -10,7 +10,7 @@ import torch
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
-from nvfuser import FusionDefinition, ParallelType, MemoryType
+from nvfuser import FusionDefinition, DataType, ParallelType, MemoryType
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -440,6 +440,80 @@ class TestScheduleOps(TestCase):
         fd = Pointwise()
         nvf_out = fd.execute(inputs)
         eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_var_mean_user_schedule(self):
+        """
+        Implement a simple normalization kernel with a user defined schedule
+         * Uses the following schedule operations:
+         * merge, split, parallelize, cache_after, cache_before, set_memory_type
+         * transform_like, parallelize_like
+         * inline_like
+         * predicates: is_reduction, equality operator
+        """
+        tensor_size = 4
+        inputs = [torch.randn(tensor_size, tensor_size, device="cuda")]
+
+        class VarMean(FusionDefinition):
+            def definition(self):
+                self.t0 = fd.from_pytorch(inputs[0])
+                self.s0 = fd.define_scalar(1e-6, dtype=DataType.Double)
+                self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
+
+                self.sum0 = fd.ops.sum(self.t0, dims=[-1])
+                # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
+                self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
+                self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
+
+                self.diff = fd.ops.sub(self.t0, self.mean)
+                self.diff_sq = fd.ops.mul(self.diff, self.diff)
+                self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
+                # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
+                self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
+                self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
+
+                self.t0_diff = fd.ops.sub(self.t0, self.mean)
+                self.var_eps = fd.ops.sqrt(fd.ops.add(self.var, self.s0))
+                self.t0_norm = fd.ops.div(self.t0_diff, self.var_eps)
+                self.add_output(self.t0_norm)
+
+            def schedule(self):
+                cache_after_t0 = fd.sched.cache_after(self.t0)
+                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
+
+                cache_before_t0_norm = fd.sched.cache_before(self.t0_norm)
+                cache_tvs = [cache_after_t0, cache_before_t0_norm]
+
+                reference_tv = self.mean
+
+                # Schedule Reference
+                fd.sched.split(reference_tv, dim=-1, factor=256 * 4)
+                fd.sched.split(reference_tv, dim=-1, factor=4)
+                fd.sched.transform_like(reference_tv)
+
+                # Add rfactor
+                reduction_tvs = list(
+                    filter(fd.sched.is_reduction, fd.sched.get_all_tensors())
+                )
+                assert len(reduction_tvs) == 2
+                rfactor_tvs = [fd.sched.rfactor(tv, dims=[-1]) for tv in reduction_tvs]
+
+                # Add common parallelization
+                fd.sched.parallelize(reference_tv, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(reference_tv, axis := -2, ParallelType.block_x)
+                fd.sched.parallelize_like(reference_tv)
+
+                # Vectorize input load and output store
+                fd.sched.parallelize(cache_after_t0, axis := -1, ParallelType.vectorize)
+                fd.sched.parallelize(self.t0_norm, axis := -1, ParallelType.vectorize)
+
+                # Add computeAt
+                fd.sched.inline_most()
+
+        fd = VarMean()
+        nvf_out = fd.execute(inputs)
+        var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
+        eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
         self.assertEqual(eager_out, nvf_out[0])
 
 

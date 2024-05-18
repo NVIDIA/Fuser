@@ -13,6 +13,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -26,6 +27,7 @@
 #include <tuple>
 
 #include <pybind11/complex.h>
+#include <pybind11/operators.h>
 #include <pybind11/stl.h>
 
 namespace nvfuser::python_frontend {
@@ -503,6 +505,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   tensor_class.def("_get_fusion_definition", [](Tensor& self) {
     return self.fusion_definition;
   });
+  tensor_class.def(pybind11::self == pybind11::self);
 
   py::class_<Scalar> scalar_class(nvfuser, "Scalar");
   scalar_class.def("__repr__", [](Scalar& self) {
@@ -510,6 +513,7 @@ void initNvFuserPythonBindings(PyObject* module) {
     ss << "Scalar(index=" << self.index << ")";
     return ss.str();
   });
+  scalar_class.def(pybind11::self == pybind11::self);
 
   py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
   device_mesh_class.def("__repr__", [](const DeviceMesh& self) {
@@ -526,6 +530,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   });
   vector_class.def_property_readonly(
       "size", [](Vector& self) { return self.size; });
+  vector_class.def(pybind11::self == pybind11::self);
 
   //! The FusionDefinition is a context manager in Python where the user will
   //! define the set the operations and connections between operations for
@@ -3160,6 +3165,31 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("pos") = -1,
       py::arg("best_effort") = false,
       py::arg("selected_tensors") = std::vector<Tensor>());
+  nvf_sched.def("get_all_tensors", [](FusionDefinition::SchedOperators& self) {
+    NVF_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    // Return all Tensors in FusionDefinition
+    return self.fusion_definition->getAllTensors();
+  });
+  nvf_sched.def(
+      "is_reduction",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        // Determine if tensor is a result from a reduction operation.
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        return (
+            !tv->isFusionInput() &&
+            std::any_of(
+                tv->getLeafDomain().begin(),
+                tv->getLeafDomain().end(),
+                [](IterDomain* id) { return id->isReduction(); }) &&
+            !isResharding(tv->definition()));
+      },
+      py::arg("tensor"));
 }
-
 } // namespace nvfuser::python_frontend

@@ -123,6 +123,10 @@ const std::vector<Val*>& FusionState::getFusionStateVector(size_t index) const {
   return fusion_state_.at(index);
 }
 
+const std::vector<Tensor>& FusionState::getAllTensors() const {
+  return all_tensors_;
+}
+
 size_t FusionState::numFusionStates() const {
   return fusion_state_.size();
 }

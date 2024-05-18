@@ -45,6 +45,21 @@ struct Tensor {
     return index;
   }
 
+  bool operator==(const Tensor& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (dims != other.dims) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
+  }
+
   //! A unique index to identifiy each recorded state item.
   size_t index;
   size_t dims;
@@ -63,6 +78,17 @@ struct Scalar {
     return index;
   }
 
+  bool operator==(const Scalar& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
+  }
+
   //! A unique index to identifiy each recorded state item.
   size_t index;
 
@@ -78,6 +104,21 @@ struct Vector {
 
   size_t operator()() const {
     return index;
+  }
+
+  bool operator==(const Vector& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (size != other.size) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
   }
 
   //! A unique index to identifiy each recorded state item.
