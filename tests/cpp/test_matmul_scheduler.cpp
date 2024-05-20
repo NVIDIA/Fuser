@@ -2839,7 +2839,7 @@ TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
   fusion->addOutput(tv2);
 
   NVF_CHECK(
-      1 == ir_utils::getOpsOfType<MatmulOp>(fusion.get()).size(),
+      ir_utils::getOpsOfType<MatmulOp>(fusion.get()).size() == 1,
       "matmul fusion must have at least one MmaOp");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -2857,7 +2857,7 @@ TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
   // TODO: check vectorization if fusion is enabled
   // checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
-  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // This test can be used to check that an external plugin has been loaded. It
