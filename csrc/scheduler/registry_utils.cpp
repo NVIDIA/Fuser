@@ -580,9 +580,9 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
   for(auto tv : pre_reduction_tvs){
     std::cout << "pre_reduction_tvs: " << tv->toString() << std::endl;
   }
-  for(auto tv : post_reduction_tvs){
-    std::cout << "post_reduction_tvs: " << tv->toString() << std::endl;
-  }
+  // for(auto tv : post_reduction_tvs){
+  //   std::cout << "post_reduction_tvs: " << tv->toString() << std::endl;
+  // }
   // Track which tensor views we've validated so we don't do it again.
   std::unordered_set<TensorView*> validated_resolved_tvs;
 
@@ -646,7 +646,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
             // mmake sure the expanded extent is the same as the reduction dim
             // otherwise, we can't efficiently schedule this fusion since the
             // feature dimension is different.
-            if(p_id->hasExpandedExtent()){
+            if(false && p_id->hasExpandedExtent()){
 
               auto p_extend = p_id->expandedExtent();
               auto c_extend = c_id->extent();
@@ -678,9 +678,44 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
           }
         }
 
-        if (ids_to_resolve.empty()) {
+        if (ids_to_resolve.empty()){
           continue;
         }
+
+        auto output_vals = fusion->outputs();
+        auto  output_tvs = ir_utils::filterByType<TensorView>(output_vals);
+        bool is_output = std::find(output_tvs.begin(), output_tvs.end(),forward_running_consumer) != output_tvs.end();
+        while(!is_output && !forward_tv_dep_chain.empty()){
+          // move forward to output
+          forward_running_producer = forward_running_consumer;
+          forward_running_consumer = forward_tv_dep_chain.front();
+          forward_tv_dep_chain.pop_front();
+          std::cout << "move forward to output: " << forward_running_producer->toString() << std::endl;
+
+          auto forward_pairwise_root_map = PairwiseRootDomainMap(
+              forward_running_producer, forward_running_consumer);
+
+          auto forward_p2c_root_map =
+              forward_pairwise_root_map.mapProducerToConsumer();
+          std::cout << "forward_pairwise_root_map: " << forward_pairwise_root_map.toString() << std::endl;
+
+          for (size_t entry_i = ids_to_resolve.size(); entry_i > 0;
+                entry_i--) {
+            auto orig_id = ids_to_resolve[entry_i - 1].first;
+            auto running_id = ids_to_resolve[entry_i - 1].second;
+            if (forward_p2c_root_map.find(running_id) !=
+                forward_p2c_root_map.end()) {
+                std::cout << "move forward add ids_to_resolve orig_id: " << orig_id->toString() << " -> "
+                          << forward_p2c_root_map.at(running_id)->toString() << std::endl << std::endl;
+                ids_to_resolve[entry_i - 1] = std::make_pair(
+                    forward_p2c_root_map.at(running_id), forward_p2c_root_map.at(running_id));
+            }
+          }          
+        }
+
+        for(auto item : ids_to_resolve){
+          std::cout << "====================ids_to_resolve from output: " << item.first->toString() << " -> " << item.second->toString() << std::endl;
+        } 
 
         // Only because of api limitations in getAllDependencyChains
         auto inputs_of_forward_running_consumer =
@@ -688,6 +723,24 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         auto tv_inputs_of_forward_running_consumer =
             ir_utils::filterByType<TensorView>(
                 inputs_of_forward_running_consumer);
+
+        // // get output from forward_running_consumer
+        // std::vector<Val*> tv_outputs_of_forward_running_consumer;
+
+        // for(auto out_tv : output_tvs){
+        //   if(DependencyCheck::isDependencyOf(forward_running_consumer, out_tv)){
+        //     tv_outputs_of_forward_running_consumer.push_back(out_tv);
+        //     std::cout << "tv_outputs_of_forward_running_consumer: " << out_tv->toString() << std::endl;
+        //   }
+        // }
+
+        // auto inputs_of_forward_running_consumer =
+        //     IterVisitor::getInputsTo(tv_outputs_of_forward_running_consumer);
+        // auto tv_inputs_of_forward_running_consumer =
+        //     ir_utils::filterByType<TensorView>(
+        //         inputs_of_forward_running_consumer);
+
+        // std::vector<std::pair<IterDomain*, IterDomain*>> ids_to_resolve_org = ids_to_resolve;
 
         for (auto input_of_forward_running_consumer :
              tv_inputs_of_forward_running_consumer) {
@@ -767,6 +820,9 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
                   std::cout << "running_id not exist : " << running_id->toString() << std::endl;
                 }
               }
+              for(auto item : ids_to_resolve){
+                std::cout << "ids_to_resolve not empty: " << item.first->toString() << " -> " << item.second->toString() << std::endl;
+              }     
               if (!at_leat_one_id_mapped) {
                 // If no id's map any more, go to the next chain
                 std::cout << "no id's map any more, break" << std::endl << std::endl;
@@ -788,10 +844,13 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         // if all ids were not resolved, then we've found an instance of a
         // bad broadcast resolution after reduction
         if (!ids_to_resolve.empty()) {
-          std::cout << "==================bad broadcast resolution after reduction ==================" << std::endl;
+          std::cout << "================== backward check failed ==================" << std::endl;
           for(auto item : ids_to_resolve){
             std::cout << "ids_to_resolve not empty: " << item.first->toString() << " -> " << item.second->toString() << std::endl;
-          } 
+          }
+
+
+
           return true;
         }
 
