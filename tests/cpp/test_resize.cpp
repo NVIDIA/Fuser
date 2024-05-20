@@ -3377,4 +3377,50 @@ TEST_F(ResizeTest, AvoidVectorization) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+// MemoryPromotion generates code with volatile T. This test ensures that our reduced precision types in runtime file have volatile methods defined
+TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
+  std::vector<DataType> dtype_variants({DataType::Half});
+
+  if (deviceMajorMinorCheck(8)) {
+    dtype_variants.push_back(DataType::BFloat16);
+  }
+  if (deviceMajorMinorCheck(9)) {
+    dtype_variants.push_back(DataType::Float8_e4m3fn);
+    dtype_variants.push_back(DataType::Float8_e5m2);
+  }
+
+  for (auto dtype : dtype_variants) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    FusionGuard fg(fusion_ptr.get());
+
+    TensorView* tv0 = makeSymbolicTensor(2, dtype);
+    fusion_ptr->addInput(tv0);
+    TensorView* tv1 = makeSymbolicTensor(2, dtype);
+    fusion_ptr->addInput(tv1);
+
+    TensorView* tv2 = castOp(DataType::Float, tv0);
+    TensorView* tv3 = neg(tv2);
+    TensorView* tv4 = castOp(dtype, tv3);
+
+    TensorView* tv5 = cat({tv4, tv1}, -1);
+    fusion_ptr->addOutput(tv5);
+
+    auto options =
+        at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+
+    at::Tensor t0 = at::randn({4, 8}, options);
+    at::Tensor t1 = at::randn({4, 12}, options);
+
+    std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+    testValidate(executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__, "");
+  }
+}
+
 } // namespace nvfuser
