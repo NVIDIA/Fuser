@@ -41,7 +41,7 @@ TEST_F(ShardingTest, IsSharded) {
   EXPECT_ANY_THROW(isSharded(c));
 }
 
-TEST_F(ShardingTest, PropagateShardingsAndSetAllocationDomain) {
+TEST_F(ShardingTest, PropagateShardings) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -59,12 +59,43 @@ TEST_F(ShardingTest, PropagateShardingsAndSetAllocationDomain) {
   fusion.addOutput(c);
 
   // Expected behavior: a's shardings propagate to c.
-  propagateShardingsAndSetAllocationDomain(&fusion);
+  propagateShardings(&fusion);
   std::vector<TensorView*> tvs = {c};
   EXPECT_TRUE(getTvsWithDifferentSharding(a, tvs).empty());
+}
 
-  for (auto tv : {a, b, c}) {
-    EXPECT_TRUE(tv->hasAllocation());
+TEST_F(ShardingTest, ShardedAllocationDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeContigTensor(3);
+  TensorView* b = makeContigTensor(3);
+  TensorView* c = add(a, b);
+  TensorView* d = sum(c, {1});
+
+  DeviceMesh mesh = DeviceMesh::createForNumDevices(3);
+  for (auto tv : {a, b, c, d}) {
+    tv->setDeviceMesh(mesh);
+  }
+  a->axis(1)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+  fusion.addInput(a);
+  fusion.addInput(b);
+  fusion.addOutput(d);
+
+  propagateShardings(&fusion);
+  insertReshardings(&fusion);
+  insertShardedAxisReordering(&fusion);
+  setShardedAllocationDomain(&fusion);
+  for (auto expr : fusion.exprs()) {
+    if (isResharding(expr)) {
+      for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+        EXPECT_TRUE(tv->hasAllocation());
+      }
+      for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        EXPECT_TRUE(tv->hasAllocation());
+      }
+    }
   }
 }
 

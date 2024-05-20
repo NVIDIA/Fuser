@@ -90,9 +90,7 @@ void unshard(TensorView*);
 // This assumes that all global inputs are sharded.
 // This cannot be done when the Op is inserted into the fusion, because
 // the multidevice shcheduling hasn't been applied.
-// After this step all TensorViews have a DeviceMesh, so the allocation
-// domain is set for all TensorViews as well if not explicitly set.
-void propagateShardingsAndSetAllocationDomain(Fusion* fusion);
+void propagateShardings(Fusion* fusion);
 
 // Runs through the fusion and inserts a resharding Set Op after
 // any resharding Expr that is not directly lowerable to a series of
@@ -106,6 +104,13 @@ void insertReshardings(Fusion* fusion);
 // inserts permutations necessary to push the device parallel axis
 // to the front so that communication operations are contiguous.
 void insertShardedAxisReordering(Fusion* fusion);
+
+// Resharding expressions are mapped to collective libraries which expect
+// contiguous tensors and output contiguous buffers. This pass checks that
+// inputs are contiguous and sets the allocation domain of inputs and outputs of
+// all resharding expressions. This pass should run after all passes that add or
+// update resharding expressions.
+void setShardedAllocationDomain(Fusion* fusion);
 
 // Returns the index of the a sharded axis if none return -1.
 // TODO: Assumes no merges/splits on sharded axis.

@@ -33,8 +33,9 @@ TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
   input_size[sharded_dim] = num_devices;
   input_size[sharded_output_dim] = num_devices;
 
-  TensorView* tv0 = creates_concrete_tensor ? makeConcreteTensor(input_size)
-                                            : makeSymbolicTensor(4);
+  TensorView* tv0 = creates_concrete_tensor
+      ? makeContigConcreteTensor(input_size)
+      : makeContigTensor(4);
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
   TensorView* tv3 = sum(tv2, {sharded_dim});
@@ -83,7 +84,7 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
 
   TensorView* tv0 = creates_concrete_tensor
       ? makeConcreteTensor(unsharded_input_size)
-      : makeSymbolicTensor(unsharded_input_size.size());
+      : makeContigTensor(unsharded_input_size.size());
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
   fusion->addInput(tv0);

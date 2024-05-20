@@ -50,9 +50,12 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     Communicator& comm,
     MultiDeviceExecutorParams params)
     : comm_(comm), params_(params) {
-  propagateShardingsAndSetAllocationDomain(fusion.get());
+  // Sharding PreSegmenter passes.
+  // Note: passes run before PreSegmenter optimization passes.
+  propagateShardings(fusion.get());
   insertReshardings(fusion.get());
   insertShardedAxisReordering(fusion.get());
+  setShardedAllocationDomain(fusion.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
       .run_combine_reductions = false,

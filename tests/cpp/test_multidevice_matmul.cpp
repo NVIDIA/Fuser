@@ -23,8 +23,6 @@
 #include <kernel_ir.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/optimization_pass.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
@@ -36,8 +34,7 @@ namespace nvfuser {
 
 class DistributedMatmulTest : public MultiDeviceTest {
  protected:
-  DistributedMatmulTest()
-      : num_devices_(communicator->size()){
+  DistributedMatmulTest() : num_devices_(communicator->size()) {
     DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
   }
 
@@ -103,6 +100,11 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
     tv->setDeviceMesh(mesh);
   }
   b->setDeviceMesh(mesh);
+
+  // TODO: If c's allocation domain isn't set, it will fail validation at
+  // csrc/device_lower/validation.cpp:419, Vectorized dim for consumer has to be
+  // from a contiguous inner most position.
+  c->setAllocationDomain(c->getLeafDomain(), true);
 
   auto [in0, in1, out] = getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
   in0 = in0.view({Mo, Mi, K});

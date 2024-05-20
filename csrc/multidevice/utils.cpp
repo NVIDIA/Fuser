@@ -319,31 +319,19 @@ void insertReshardingsAfter(Fusion* fusion) {
 
 void setShardedAllocationDomain(TensorView* tv) {
   if (!tv->hasAllocation()) {
-    tv->setAllocationDomain(tv->getLeafDomain(), tv->getContiguity());
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
   }
 }
 
 } // namespace
 
-void propagateShardingsAndSetAllocationDomain(Fusion* fusion) {
-  // Set global input's allocation domain.
-  // Currently we only propagate shardings from consumer to producer,
-  // so a DeviceMesh is required.
-  for (auto global_input_tv :
-       ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    NVF_ERROR(
-        global_input_tv->hasDeviceMesh(),
-        "Global inputs must be assigned a DeviceMesh ",
-        global_input_tv->toString());
-    setShardedAllocationDomain(global_input_tv);
-  }
-
+void propagateShardings(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
     TensorView* input_with_mesh = nullptr;
     for (auto tv : inputs) {
-      NVF_ERROR(
+      NVF_CHECK(
           tv->hasDeviceMesh(),
           "Expression inputs should be assigned a DeviceMesh ",
           expr->toString());
@@ -359,10 +347,6 @@ void propagateShardingsAndSetAllocationDomain(Fusion* fusion) {
       }
     }
     shardAllLike(input_with_mesh, outputs_without_mesh);
-    // All outputs have a sharding, so set the allocation domain.
-    for (auto tv : outputs) {
-      setShardedAllocationDomain(tv);
-    }
   }
 }
 
@@ -397,7 +381,8 @@ void insertShardedAxisReordering(Fusion* fusion) {
     auto [shard_additions, shard_deletions] = getShardingChanges(expr);
     NVF_ERROR(
         shard_additions.size() + shard_deletions.size() <= 1,
-        "Resharding expr can only support one axis")
+        "Resharding expr can only support one axis ",
+        expr->toString())
 
     // For gather operations i.e. ID goes from sharded to unsharded
     // this will rematerialize a sharded axis.
@@ -482,6 +467,27 @@ void insertShardedAxisReordering(Fusion* fusion) {
           ->parallelize(shard_added_id->getParallelType());
       output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
+    }
+  }
+}
+
+void setShardedAllocationDomain(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (isResharding(expr)) {
+      for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+        for (auto c : tv->getContiguity()) {
+          if (c.has_value()) {
+            NVF_CHECK(
+                c.value(),
+                "Resharding expression input must be contiguous ",
+                expr);
+          }
+        }
+        setShardedAllocationDomain(tv);
+      }
+      for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        setShardedAllocationDomain(tv);
+      }
     }
   }
 }
