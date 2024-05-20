@@ -2146,4 +2146,220 @@ TEST_F(IdModelTest, PermutedDifferently) {
   EXPECT_TRUE(iterDomainsAreMapped(id_model, s1->axis(2), t1->axis(2)));
 }
 
+// BFS traversal test with a simple exact graph
+TEST_F(IdModelTest, ValGraphBFS1) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion->addOutput(tv2);
+
+  // tv0: [i0, i1]
+  // tv1: [i0, i1]
+  // tv2: [i0, i1]
+
+  // Schedule tv0 and tv1 in the same way
+  tv0->merge(0, 1)->split(0, 4);
+  tv1->merge(0, 1)->split(0, 4);
+  // Schedule tv1 similarly but with a reordered merge
+  tv2->merge(1, 0)->split(0, 4);
+
+  // tv0: [i0*i1/4, 4]
+  // tv1: [i0*i1/4, 4]
+  // tv2: [i1*i0/4, 4]
+
+  const IdModel id_model(fusion.get());
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  ValGroups tv0_leaf_groups = graph.toGroups(tv0->getLeafDomain());
+  ValGroups tv1_leaf_groups = graph.toGroups(tv1->getLeafDomain());
+  ValGroups tv2_leaf_groups = graph.toGroups(tv2->getLeafDomain());
+
+  // Since the leaf domains of tv0 and tv1 are grouped together, the
+  // path between them is empty
+  ExprPath tv1_to_tv0 =
+      ValGraphBFS::getExprsBetween(graph, tv1_leaf_groups, tv0_leaf_groups);
+  EXPECT_TRUE(tv1_to_tv0.empty());
+
+  // Traversal should fail if not all dependencies are met
+  ValGroups incomplete_tv1_leaf_groups;
+  incomplete_tv1_leaf_groups.pushBack(
+      graph.toGroup(tv1->getLeafDomain().at(0)));
+  EXPECT_THAT(
+      [&]() {
+        ValGraphBFS::getExprsBetween(
+            graph, incomplete_tv1_leaf_groups, tv0_leaf_groups);
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("BFS traversal could not visit some nodes")));
+
+  // On the other hand, the leaf domains of tv2 are produced through
+  // the reverse merge, so they aren't mapped with the tv1 leaf
+  // domains. The path between them should look like traversing from
+  // tv2 leaves backward to its root and then forward from tv1 root to
+  // tv1 leaves.
+  ExprPath tv2_to_tv1 =
+      ValGraphBFS::getExprsBetween(graph, tv2_leaf_groups, tv1_leaf_groups);
+
+  ExprPath tv2_to_tv1_ref;
+  tv2_to_tv1_ref.emplace_back(
+      graph.toGroup(tv2->axis(0)->definition()), Direction::Backward);
+  tv2_to_tv1_ref.emplace_back(
+      graph.toGroup(tv2->axis(0)->definition()->input(0)->definition()),
+      Direction::Backward);
+  tv2_to_tv1_ref.emplace_back(
+      graph.toGroup(tv1->axis(0)->definition()->input(0)->definition()),
+      Direction::Forward);
+  tv2_to_tv1_ref.emplace_back(
+      graph.toGroup(tv1->axis(0)->definition()), Direction::Forward);
+
+  EXPECT_EQ(tv2_to_tv1, tv2_to_tv1_ref);
+}
+
+// Traversal to partial reachable nodes. See also the comment in
+// ValGraphBFS::getShortestExprPath.
+TEST_F(IdModelTest, ValGraphBFS2) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  // tv1: [i0, i1, i2]
+  // tv1: [i0, i1, i2]
+
+  tv1->merge(1, 2)->merge(0, 1);
+
+  // tv0: [i0, i1, i2]
+  // tv1: [i0*(i1*i2)]
+
+  const IdModel id_model(fusion.get());
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  ValGroups tv0_leaf_groups = graph.toGroups(tv0->getLeafDomain());
+  ValGroups tv1_leaf_groups = graph.toGroups(tv1->getLeafDomain());
+
+  // Since the leaf domains of tv0 and tv1 are grouped together, the
+  // path between them is empty
+  ExprPath tv1_to_tv0 =
+      ValGraphBFS::getExprsBetween(graph, tv1_leaf_groups, tv0_leaf_groups);
+
+  ExprPath tv1_to_tv0_ref;
+  tv1_to_tv0_ref.emplace_back(
+      graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
+  tv1_to_tv0_ref.emplace_back(
+      graph.toGroup(tv1->axis(0)->definition()->input(1)->definition()),
+      Direction::Backward);
+
+  EXPECT_EQ(tv1_to_tv0, tv1_to_tv0_ref);
+
+  // Grab the path from tv1 to only the i1 and i2 domains of tv0
+  // without i0. The path should still be the same.
+  ValGroups tv0_partial_groups;
+  tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(1)));
+  tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(2)));
+  ExprPath tv1_to_tv0_partial =
+      ValGraphBFS::getExprsBetween(graph, tv1_leaf_groups, tv0_partial_groups);
+
+  EXPECT_EQ(tv1_to_tv0_partial, tv1_to_tv0_ref);
+}
+
+// Check if a shorter path is taken
+TEST_F(IdModelTest, ValGraphBFS3) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeConcreteTensor({16});
+  fusion->addInput(tv0);
+
+  // shorter path
+  auto tv1 = reshape(tv0, {16}, {4, 4});
+
+  // longer path
+  auto tv2 = reshape(tv0, {16}, {8, 2});
+  auto tv3 = reshape(tv2, {8, 2}, {4, 4});
+
+  auto tv4 = add(tv1, tv3);
+
+  fusion->addOutput(tv4);
+
+  // tv0: [i0]
+  // tv1: [i0/4, 4]
+  // tv2: [i0/8, 2]
+  // tv3: [i0/8*2/4, 4]
+  // tv4: [i0/4, 4]
+
+  // Traversal from tv4 to tv0 can be {tv4 -> tv1 -> tv0} or {tv4 ->
+  // tv3 -> tv2 -> tv0}. The former should be seletected as it's shorter
+
+  const IdModel id_model(fusion.get());
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  ValGroups tv4_groups = graph.toGroups(tv4->getLeafDomain());
+  ValGroups tv0_groups = graph.toGroups(tv0->getLeafDomain());
+
+  ExprPath tv4_to_tv0 =
+      ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups);
+  ExprPath tv4_to_tv0_ref;
+  tv4_to_tv0_ref.emplace_back(
+      graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
+
+  ASSERT_EQ(tv4_to_tv0, tv4_to_tv0_ref);
+}
+
+// BFS traversal of a graph with a cycle
+TEST_F(IdModelTest, ValGraphBFS4) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeConcreteTensor({2, 8});
+  fusion->addInput(tv0);
+
+  auto tv1 = reshape(tv0, {2, 8}, {16});
+  auto tv2 = reshape(tv1, {16}, {4, 4});
+  auto tv3 = reshape(tv2, {4, 4}, {16});
+  auto tv4 = add(tv1, tv3);
+
+  fusion->addOutput(tv4);
+
+  // tv0: [i0, i1]
+  // tv1: [i2] // i2 = merge(i0, i1)
+  // tv2: [i3, i4] // i3, i4 = split(i2)
+  // tv3: [i5] // merge(i3, i4)
+  // tv4: [i6] // i6 = i5
+
+  // The tv4 addition makes the sole domain of tv4 mapped with those of
+  // tv3 and tv1, i.e., these domains are grouped together:
+  //
+  // i2, i5, i6
+  //
+  // Since there's a path from i2 to i5 (a merge and a split), this
+  // means the graph is no longer a DAG.
+
+  // Make sure the BFS traversal should still work even with a cycle.
+
+  const IdModel id_model(fusion.get());
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  ValGroups tv4_groups = graph.toGroups(tv4->getLeafDomain());
+  ValGroups tv0_groups = graph.toGroups(tv0->getLeafDomain());
+
+  // Traversal from tv4 to tv0 can go through the reshape ops of tv2
+  // and tv3, but the shortest path should be just one merge for tv1
+
+  ExprPath tv4_to_tv0 =
+      ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups);
+
+  ExprPath tv4_to_tv0_ref;
+  tv4_to_tv0_ref.emplace_back(
+      graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
+
+  ASSERT_EQ(tv4_to_tv0, tv4_to_tv0_ref);
+}
+
 } // namespace nvfuser
