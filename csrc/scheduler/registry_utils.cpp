@@ -681,11 +681,11 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         if (ids_to_resolve.empty()){
           continue;
         }
-
+        bool use_main = std::getenv("USE_MAIN") != nullptr;
         auto output_vals = fusion->outputs();
         auto  output_tvs = ir_utils::filterByType<TensorView>(output_vals);
         bool is_output = std::find(output_tvs.begin(), output_tvs.end(),forward_running_consumer) != output_tvs.end();
-        while(!is_output && !forward_tv_dep_chain.empty()){
+        while(!use_main && !is_output && !forward_tv_dep_chain.empty()){
           // move forward to output
           forward_running_producer = forward_running_consumer;
           forward_running_consumer = forward_tv_dep_chain.front();

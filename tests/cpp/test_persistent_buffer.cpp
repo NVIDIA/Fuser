@@ -1292,4 +1292,50 @@ TEST_F(PersistentBufferTest, TMP2) {
       __LINE__,
       __FILE__);
 }
+
+TEST_F(PersistentBufferTest, TMP3) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int dim0 = 128;
+  const int dim1 = 256;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, input_dtype);
+  auto tvx = makeContigConcreteTensor({dim0, dim1}, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tvx);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv0);
+  auto tv3 = sum(tv1, {1});
+  auto tv4 = sum(tv2, {1});
+  auto tv5 = broadcast(tv3, {false, true});
+  auto tv6 = broadcast(tv4, {false, true});
+  auto tv7 = add(tv6, tvx);
+  auto tv8 = add(tv7, tv5);
+  auto tv9 = add(tv8, tv1);
+  fusion->addOutput(tv9);
+
+  // segment when factor != 1
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+  auto t2 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1}) + t0;
+  auto t3 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1}) + t1;
+  auto t4 = t2 + t3;
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+
+    testValidate(
+      fusion,
+      cg_outputs,
+      {t0, t1},
+      {t4},
+      __LINE__,
+      __FILE__);
+}
 } // namespace nvfuser
