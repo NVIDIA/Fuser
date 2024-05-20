@@ -67,6 +67,24 @@ class CombineMulSumAsMmaTest : public NVFuserTest {
   DisableOptionsGuard opt_guard_;
 };
 
+void performSubstitution(Fusion* fusion, bool should_not_find = false) {
+  EXPECT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
+
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion);
+  if (should_not_find) {
+    EXPECT_TRUE(patterns.empty());
+    return;
+  }
+
+  ASSERT_FALSE(patterns.empty());
+  EXPECT_EQ(patterns.size(), 1);
+
+  patterns.front().translateToMmaOp();
+
+  ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
+}
+
 // Test checks to see that the combiner can correctly replace
 // the mul-sum pair with a mma op.
 TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Pass) {
@@ -86,17 +104,13 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Pass) {
 
     fusion.addOutput(tv3);
 
-    ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
-
-    nvfuser::mma_utils::CombineMulSum combiner(&fusion);
-    combiner.replaceWithMmaOp();
-
-    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
+    performSubstitution(&fusion);
   }
 }
 
-// This test checks that the combiner does not incorrectly
-// replace this mul-sum pair, and the mul is not fed by broadcasts ops.
+// This test checks that the pattern matcher does not incorrectly identify
+// this mul-sum pair, as the mul is not fed by broadcasts ops; i.e. it is
+// not a matmul.
 TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Fail1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -110,15 +124,13 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Fail1) {
   auto tv3 = sum(tv2, {-1});
   fusion.addOutput(tv3);
 
-  nvfuser::mma_utils::CombineMulSum combiner(&fusion);
-  combiner.replaceWithMmaOp();
-
-  ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
+  performSubstitution(&fusion, /*should_not_find=*/true);
 }
 
-// This test checks to see that the mul-sum combiner does not
-// combine a mul-sum which does not have appropriate broadcasts.
-TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Fail2) {
+// This fusion has more than one broadcasted dimension for each operand, so it
+// is currently rejected isMatmulFusionDefinitionSupported. Still, it is a valid
+// MatmulPattern so we check that it is found.
+TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
   // Assumes layout is kAllSupportedMmaLayout::NT;
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -145,12 +157,7 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Fail2) {
   auto tv3 = sum(tv2, {-1});
   fusion.addOutput(tv3);
 
-  ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
-
-  nvfuser::mma_utils::CombineMulSum combiner(&fusion);
-  combiner.replaceWithMmaOp();
-
-  ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
+  performSubstitution(&fusion, /*should_not_find=*/false);
 }
 
 // As a sanity check we test that after replacing a mul-sum
@@ -174,11 +181,8 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Schedule) {
     auto tv2 = sum(mul(tv0, tv1), {-1});
 
     fusion.addOutput(tv2);
-    ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
 
-    nvfuser::mma_utils::CombineMulSum combiner(&fusion);
-    combiner.replaceWithMmaOp();
-    ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
+    performSubstitution(&fusion);
 
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(128, 128, 32);

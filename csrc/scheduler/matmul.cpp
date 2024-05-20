@@ -749,37 +749,32 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
-  mma_utils::CombineMulSum combiner(fusion);
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
-  if (combiner.isValid() && mma_ops.empty()) {
-    combiner.replaceWithMmaOp();
-    mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
-  }
-
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion);
+  NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
   NVF_ERROR(
-      mma_ops.size() == 1,
-      "scheduleMatmul supports fusion with single mma op in definition, got ",
-      mma_ops.size());
-
-  // Skip scheduling if Matmul will be expression evaluated.
-  if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    NVF_CHECK(fusion->outputs().size() == 1)
-    fusion->aliasOutputToInput(
-        fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-    scheduler_debug_utils::log(
-        __FILE__,
-        ":",
-        __LINE__,
-        ", Matmul output to be computed through expression evaluator. Skipping codegen.");
-    return;
+      patterns.size() == 1,
+      "Only a single matmul pattern can currently be fused");
+  std::vector<MmaOp*> mma_ops;
+  mma_ops.reserve(patterns.size());
+  for (mma_utils::MatmulPattern& pattern : patterns) {
+    mma_ops.push_back(pattern.translateToMmaOp());
   }
 
-  const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
+  IdModel id_model(fusion);
+  std::unordered_map<ValGroup, MatmulDomain> id_roles =
+      patterns.front().getDimRoles(id_model);
+  const auto& roles_map_opt =
+      mma_utils::getTensorsRoles(fusion, id_model, id_roles);
 
   // NOTE: the contents of roles_map have been already validated during
   //  compute-time checks
   NVF_ERROR(roles_map_opt.isValid(), roles_map_opt.getErrorMsg());
   const auto roles_map = roles_map_opt.getData();
+
+  const mma_utils::MatmulProblemLayoutOpt fusion_layout =
+      mma_utils::getProblemLayout(id_model, id_roles, roles_map);
+  NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
   // Core roles: there can be only one... TV with assigned core role
   TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
@@ -791,8 +786,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(
       mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
   const auto mma_layout = mma_layout_opt.value();
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion);
-  NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();

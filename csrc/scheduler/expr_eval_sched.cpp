@@ -16,13 +16,19 @@ namespace nvfuser {
 // Check if the fusion has a single MatmulOp/LinearOp node
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto exprs = fusion->exprs();
-  if (exprs.size() == 1 &&
-      (exprs.front()->isA<MatmulOp>() || exprs.front()->isA<LinearOp>())) {
-    return true;
+  if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
+    if (exprs.size() == 1 &&
+        (exprs.front()->isA<MatmulOp>() || exprs.front()->isA<LinearOp>())) {
+      return true;
+    }
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(),
+        "Fusion must contain a single expression of type MatmulOp or LinearOp");
+  } else {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(),
+        "Matmul ATen evaluation was disabled by NVFUSER_DISABLE=matmul_expr_eval");
   }
-  scheduler_debug_utils::canScheduleRejectReason(
-      heuristicType(),
-      "Fusion must contain a single expression of type MatmulOp or LinearOp");
   return false;
 }
 

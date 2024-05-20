@@ -9,8 +9,10 @@
 
 #include <exceptions.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <mma_type.h>
 #include <scheduler/matmul_heuristic.h>
+#include <val_graph.h>
 #include <visibility.h>
 #include <array>
 #include <variant>
@@ -242,33 +244,38 @@ class DataWrapperOpt {
   }
 };
 
-// This struct hold properties of a Mul and Sum pair
-// which can possibly be replaced a Mma op. This struct
-// can be be created (partially) from a Mma op.
-struct MulSumProperties {
-  // The Mul amd Sum op which can be replaced by a Mma op.
-  struct MulAndSumOps {
-    BinaryOp* mop = nullptr;
-    ReductionOp* redop = nullptr;
-  };
+//! This represents a single matmul operation, without a prologue or epilogue.
+//! Each matmul has two inputs which might not be fusion inputs: A and B. It
+//! also has one output, which can be Float or reduced precision. For MatmulOp
+//! and LinearOp, the output is the same dtype as the inputs; so output does not
+//! necessarily correspond to the output of a translated MmaOp and it might not
+//! be a fusion output.
+struct MatmulPattern {
+  TensorView* A;
+  TensorView* B;
+  // This is not necessarily a Fusion output, but rather is the immediate output
+  // representing a matmul in the current Fusion. The definition of this tensor
+  // determines what kind of translation is needed, if any. Possible definition
+  // Expr types are: MmaOp, ReductionOp (for mul-sum patterns), MatmulOp, and
+  // LinearOp.
+  TensorView* output;
 
-  // The inputs/ouputs to the possible Mma Op or the actual Mma op.
-  struct InputsOutputs {
-    TensorView* a = nullptr;
-    TensorView* b = nullptr;
-    TensorView* out = nullptr;
-  };
+  //! If the pattern is not already represented by an MmaOp, for example if
+  //! there is a MatmulOp instead, this function modifies the fusion to insert
+  //! an MmaOp. TensorViews A and B are unchanged, but this->output might be
+  //! updated to reflect the replacement tensor.
+  MmaOp* translateToMmaOp();
 
-  // The broadcasts which feed the Mma op/Mul-Sum pair.
-  struct Broadcasts {
-    BroadcastOp* bcast_a = nullptr;
-    BroadcastOp* bcast_b = nullptr;
-  };
-
-  MulAndSumOps mulsumops;
-  InputsOutputs insouts;
-  Broadcasts bcasts;
+  //! Given an IdModel, map groups of IterDomains to dimension roles
+  //! (MatmulDomain). Note that ValGroup is a shared_ptr to a
+  //! VectorOfUniqueEntries<Val*>. We copy these as keys so that the returned
+  //! object can safely outlive id_model.
+  std::unordered_map<ValGroup, MatmulDomain> getDimRoles(
+      IdModel& id_model) const;
 };
+
+//! Traverse the fusion to find supported matmul patterns
+std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion);
 
 using MatmulProblemLayoutOpt = DataWrapperOpt<MmaLayout>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
@@ -290,13 +297,19 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-NVF_API MatmulProblemLayoutOpt getMmaLayout(
-    Fusion* fusion,
-    const mma_utils::MulSumProperties::InputsOutputs& props);
+NVF_API MatmulProblemLayoutOpt
+getProblemLayout(Fusion* fusion, const MatmulPattern& pattern);
 
 //! This overloaded version is just a wrapper on the above function, where
-//! the mma_utils::MulSumProperties::InputsOutputs is extracted from the fusion.
-NVF_API MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
+//! the MatmulPattern is extracted from the fusion.
+NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
+
+//! Determine the problem layout based on allocation domain of inputs. This is
+//! called by the above overloads.
+NVF_API MatmulProblemLayoutOpt getProblemLayout(
+    const IdModel& id_model,
+    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain,
+    const RolesMap& roles_map);
 
 //! Returns wrapped collection of IterDomains that can be used to get
 //!  problem shape with runtime info.
@@ -306,16 +319,15 @@ NVF_API MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
 //!  be gathered.
 //!  TODO: 4th domain must be added for batch gemm support.
 ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
-ProblemIterDomainsOpt getProblemIterDomains(
-    const mma_utils::MulSumProperties::InputsOutputs& props);
+ProblemIterDomainsOpt getProblemIterDomains(const MatmulPattern& pattern);
 
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
 RolesMapOpt getTensorsRoles(
     Fusion* fusion,
-    const mma_utils::MulSumProperties::InputsOutputs& props);
-RolesMapOpt getTensorsRoles(Fusion* fusion);
+    const IdModel& id_model,
+    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain);
 
 //! Return pair of whether use shared memory epilogue or not and whether to
 //!  reuse shared memory for the prologue at the expense of an additional block
@@ -345,50 +357,6 @@ NVF_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     bool smem_a_reuse_guaranteed = false,
     bool smem_b_reuse_guaranteed = false,
     bool ignore_occupancy_drop = false);
-
-//! Go through the fusion IR to find combinations of mul-sum
-//! which can be replaced with a mma op. This class operates
-//! in two phases. It can go through the graph and find the mul-sum
-//! pairs which can be replaced by a mma op. This phase returns a vector
-//! of properties of the mma op (MulSumAsMmaProps) which would replace the
-//! the mul-sum pair. It then exposes a function to replace with mma ops.
-class CombineMulSum : public IterVisitor {
- public:
-  CombineMulSum(Fusion* fusion) : IterVisitor(), fusion_(fusion) {
-    generateMulSumCanidates();
-  };
-
-  const std::vector<MulSumProperties>& getMulSumCanidates(
-      const bool refresh_data = false);
-
-  //! Goes through the fusion to find mul-sum pairs.
-  //! If user sets the caching flags and properties have been previously
-  //! computed, then just return cached results.
-  void generateMulSumCanidates();
-
-  //! Replaces the candidate mul-sum pairs with mma ops.
-  //! Please not this will run generateMulSumCandidates again.
-  void replaceWithMmaOp();
-
-  //! Check if the fusion has a mma-op or a mul-sum pair
-  //! that can be replaced by a mma op.
-  bool isValid() {
-    return is_valid_;
-  }
-
- protected:
-  void handle(ReductionOp* stmt) override;
-
- private:
-  Fusion* fusion_;
-  //! This is the list of mul-sum pairs and the properties
-  //! of the mma op which can replace it. This is only populated
-  //! if the mul-sum pair is a valid replacement candidate.
-  std::vector<MulSumProperties> mul_sum_props_ = {};
-  //! This variable tracks if the fusion has a mul-sum pair
-  //! than can be replaced by a mma op, or has a single mma op.
-  bool is_valid_ = false;
-};
 
 //! Compute the amount of shared memory we expect to need. The actual amount
 //! allocated will be determined by aliasing (see alias_memory.cpp). This

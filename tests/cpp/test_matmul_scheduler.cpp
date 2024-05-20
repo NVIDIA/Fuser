@@ -188,7 +188,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -289,7 +289,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -396,7 +396,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -499,7 +499,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -614,7 +614,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -717,7 +717,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -813,7 +813,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -922,7 +922,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1039,7 +1039,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1163,7 +1163,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must be always TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1226,7 +1226,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
                 .value(),
         "the MmaOp layout of Ampere MMA must be always TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -1285,7 +1285,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must be always TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1342,7 +1342,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1405,7 +1405,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1470,7 +1470,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1544,7 +1544,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1626,7 +1626,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1714,7 +1714,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1806,7 +1806,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1889,7 +1889,7 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
                 .value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -1975,7 +1975,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
                 .value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -2074,7 +2074,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
                 .value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -2161,7 +2161,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
                 .value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -2241,7 +2241,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
                 .value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -2310,7 +2310,7 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
 
         fusion->addOutput(tv2);
 
-        const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+        const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
         NVF_CHECK(
             fusion_layout.isValid(),
             "failed to get decide matmul layout through fusion definition");
@@ -2501,7 +2501,7 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
 
           fusion->addOutput(tv2);
 
-          const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+          const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
           NVF_CHECK(
               fusion_layout.isValid(),
               "failed to get decide matmul layout through fusion definition");
