@@ -3377,7 +3377,8 @@ TEST_F(ResizeTest, AvoidVectorization) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-// MemoryPromotion generates code with volatile T. This test ensures that our reduced precision types in runtime file have volatile methods defined
+// MemoryPromotion generates code with volatile T. This test ensures that our
+// reduced precision types in runtime file have volatile methods defined
 TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
@@ -3408,8 +3409,9 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
     TensorView* tv5 = cat({tv4, tv1}, -1);
     fusion_ptr->addOutput(tv5);
 
-    auto options =
-        at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
 
     at::Tensor t0 = at::randn({4, 8}, options);
     at::Tensor t1 = at::randn({4, 12}, options);
@@ -3419,7 +3421,13 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-    testValidate(executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__, "");
+    testValidate(
+        executor_cache.fusion(),
+        cg_outputs,
+        aten_inputs,
+        __LINE__,
+        __FILE__,
+        "");
   }
 }
 
