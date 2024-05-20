@@ -518,16 +518,16 @@ ExprPath ValGraphBFS::getShortestExprPath() {
   // that the last visit is always guaranteed to satisfy its
   // dependencies.
   //
-  // Here, instead of finding the last appearance of each node, the
-  // path is first reversed and then only the first appearance is
-  // taken since the path needs to be reversed anyway.
+  // Recall that the final path needs to be reversed, so instead of
+  // finding the last appearance of each node, the final path can be
+  // obtained by first reversing the current path and then only taking
+  // the first appearance of each ExprGroup. Or, more simply, we can
+  // just use VectorOfUniqueEntries with the reverse iterator.
   //
   // See the ValGraphBFS2 test for a concrete example.
 
-  std::reverse(path.begin(), path.end());
-
   VectorOfUniqueEntries<std::pair<ExprGroup, Direction>> unique_path(
-      path.begin(), path.end());
+      path.rbegin(), path.rend());
 
   return unique_path.vector();
 }

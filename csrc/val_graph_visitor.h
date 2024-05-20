@@ -233,7 +233,7 @@ class ValGraphBFS {
   // Check if all to_groups_ are visited
   virtual bool allToGroupsVisited() const;
 
-  // Set the previous group of a given group that is visited in a
+  // Set the previous groups of a given group that is visited in a
   // given direction
   virtual void setPrevGroups(
       const GroupType& group,

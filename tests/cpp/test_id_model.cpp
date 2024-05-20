@@ -2174,8 +2174,6 @@ TEST_F(IdModelTest, ValGraphBFS1) {
   const IdModel id_model(fusion.get());
   const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  std::cerr << idGroupsString(graph) << std::endl;
-
   ValGroups tv0_leaf_groups = graph.toGroups(tv0->getLeafDomain());
   ValGroups tv1_leaf_groups = graph.toGroups(tv1->getLeafDomain());
   ValGroups tv2_leaf_groups = graph.toGroups(tv2->getLeafDomain());
