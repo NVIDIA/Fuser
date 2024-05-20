@@ -322,8 +322,7 @@ class NVF_API UnaryOp : public Expr {
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs)
-      const override;
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;

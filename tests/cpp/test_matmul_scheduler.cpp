@@ -2813,7 +2813,6 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 //   build/test_matmul --gtest_also_run_disabled_tests
 //
 TEST_F(MatmulSchedulerTest, DISABLED_RequireExternalPlugin) {
-
   EXPECT_TRUE(matmul_heuristic_plugin::hasPlugin());
 
   MatmulParams params;

@@ -39,7 +39,6 @@
 namespace nvfuser {
 
 class CombineMulSumAsMmaTest : public NVFuserTest {
-
   void SetUp() override {
     // These test are enable for Turing and newer. Temporarily
     // we are skipping Hopper since the matmul for it is under development.
@@ -56,7 +55,6 @@ class CombineMulSumAsMmaTest : public NVFuserTest {
     }
     NVFuserTest::SetUp();
   }
-
 };
 
 // Test checks to see that the combiner can correctly replace
