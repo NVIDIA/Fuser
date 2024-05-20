@@ -450,7 +450,7 @@ ExprPath ValGraphBFS::getShortestExprPath() {
   }
 
   // At this point, we have the reverse path, but it may have multiple exprs
-  // that need to be filtered out. Let's say theare are domains 0, 1 and 2, and
+  // that need to be filtered out. Let's say there are domains 0, 1 and 2, and
   // domains 1 and 2 are merged to produce domain 3, and then domains
   // 0 and 3 are merged to produce domain 4.
   //
