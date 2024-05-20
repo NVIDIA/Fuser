@@ -457,8 +457,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // The plan:
   // 0. Check if the current CUDA device is supported
   // 1. Check if there is exactly one matmul pattern defined in the fusion.
-  // 2. Check if inputs to the mma op or mul sum pair match any of
-  // supported inputs layout
+  // 2. Check if the input layout for the matmul pattern can be determined
   // 3. Check if fusion represents expressions that are recognized by matmul
   // scheduler.
 
@@ -467,8 +466,8 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     const auto device_prop = at::cuda::getCurrentDeviceProperties();
     // Use a dummy problem shape to determine whether this is a supported
     // device.
-    const auto mma_op =
-        getMmaOp(device_prop->major * 10 + device_prop->minor, {128, 128, 128, 1});
+    const auto mma_op = getMmaOp(
+        device_prop->major * 10 + device_prop->minor, {128, 128, 128, 1});
     if (!mma_op.has_value()) {
       return "Unsupported device compute capability";
     }

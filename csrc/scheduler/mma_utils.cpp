@@ -1441,13 +1441,6 @@ class MatmulPatternMatcher : IterVisitor {
  private:
   using IterVisitor::handle;
 
-  void handle(MatmulOp* mop) override {
-    MatmulPattern& pattern = patterns_.emplace_back();
-    pattern.A = mop->inA()->as<TensorView>();
-    pattern.B = mop->inB()->as<TensorView>();
-    pattern.output = mop->out()->as<TensorView>();
-  }
-
   // Handle the case when no translation is needed.
   void handle(MmaOp* mop) override {
     MatmulPattern& pattern = patterns_.emplace_back();
@@ -1524,35 +1517,6 @@ std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion) {
 MmaOp* MatmulPattern::translateToMmaOp() {
   if (auto mma_op = dynamic_cast<MmaOp*>(output->definition())) {
     // No translation needed
-    return mma_op;
-  } else if (auto mop = dynamic_cast<MatmulOp*>(output->definition())) {
-    // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so we
-    // must transpose B then broadcast both operands before creating the final
-    // op.
-    //
-    // Also note that the output of MatmulOp is a tensor of shape [..., M, N]
-    // whose matches that of the inputs. We will most commonly then also need to
-    // cast the output of the MmaOp to produce the output TensorView.
-    TensorView* Btrans = transpose(B);
-    TensorView* Abcast = unsqueeze(A, -2);
-    TensorView* Bbcast = unsqueeze(Btrans, -3);
-    TensorView* fms = fusedMultiplySum(Abcast, Bbcast, {-1});
-    auto mma_op = fms->definition()->as<MmaOp>();
-    // Update operands to keep the pattern minimal
-    A = Abcast;
-    B = Bbcast;
-    // TODO: skip downcasting if the only uses of `output` are casts back to
-    // higher precision in order avoid the round trip cast in defining an
-    // epilogue that starts with MatmulOp.
-    if (output->dtype() != fms->dtype()) {
-      // Redefine output as cast of MmaOp->out()
-      IrBuilder::create<UnaryOp>(UnaryOpType::Cast, output, fms);
-      // Update output so that cast is part of the epilogue
-      output = fms;
-    } else {
-      // No cast needed, for example the inputs might be Float
-      ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
-    }
     return mma_op;
   } else if (auto rop = dynamic_cast<ReductionOp*>(output->definition())) {
     Val* init = IrBuilder::create<Val>(0.0, output->dtype());
