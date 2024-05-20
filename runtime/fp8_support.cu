@@ -24,6 +24,10 @@ struct __align__(1) __e4m3 {
     __x = other.__x;
   }
 
+  // Note: not returning reference for `__e4m3::operator=`
+  // Doing so would requires us to return `volatile __e4m3&` for the volatile
+  // variants, which would trigger a gcc warning `implicit dereference will not
+  // access object of type ‘volatile S’ in statement`
   __device__ void operator=(const __e4m3& other) {
     __x = other.__x;
   }
@@ -197,6 +201,10 @@ struct __align__(1) __e5m2 {
     __x = other.__x;
   }
 
+  // Note: not returning reference for `__e5m2::operator=`
+  // Doing so would requires us to return `volatile __e5m2&` for the volatile
+  // variants, which would trigger a gcc warning `implicit dereference will not
+  // access object of type ‘volatile S’ in statement`
   __device__ void operator=(const __e5m2& other) {
     __x = other.__x;
   }

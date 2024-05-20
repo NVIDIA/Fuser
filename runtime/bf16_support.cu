@@ -28,6 +28,10 @@ struct __align__(2) __bfloat {
     __x = other.__x;
   }
 
+  // Note: not returning reference for `__bfloat::operator=`
+  // Doing so would requires us to return `volatile __bfloat&` for the volatile
+  // variants, which would trigger a gcc warning `implicit dereference will not
+  // access object of type ‘volatile S’ in statement`
   __device__ void operator=(const __bfloat& other) {
     __x = other.__x;
   }
