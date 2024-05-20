@@ -1159,4 +1159,55 @@ TEST_F(NVFuserTest, AvoidProjectingToInputsIfRecomputeHasDropout) {
       "Shouldn't project persistent buffers to inputs!");
 }
 
+// Reproduce of issue-2146
+// hasNonNormalizePostReductionBCast() checks the post reduction
+// broadcast ID is mapped to a reduction input ID. In this fuion,
+// T9[I,I] = T8[I,I] + T6[I,B]
+// before this fix, the check backwards from T9 and can't find the
+// corresponding reduction input ID. This fix moves forward from T9
+// to the output tensor through T9 --> T10, where
+// T10[I,I] = T9[I,I] + T2[I0,I1]
+// From T10, the backward search can find the corresponding reduction
+// input ID, which is {I1} in T2.
+TEST_F(PersistentBufferTest, PostReductionBroadcastCheck) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int dim0 = 128;
+  const int dim1 = 256;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, input_dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv0);
+  auto tv4 = sum(tv2, {1});
+  auto tv5 = sum(tv3, {1});
+  auto tv6 = broadcast(tv4, {false, true});
+  auto tv7 = broadcast(tv5, {false, true});
+  auto tv8 = add(tv7, tv1);
+  auto tv9 = add(tv8, tv6);
+  auto tv10 = add(tv9, tv2);
+  fusion->addOutput(tv10);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+  auto t2 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1}) + t0;
+  auto t3 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1}) + t1;
+  auto t4 = t2 + t3;
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+  NVF_CHECK(
+      !fec.getMostRecentKernelRuntime()->isSegmented(),
+      "unexpected segmentation!");
+
+  testValidate(fusion, cg_outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

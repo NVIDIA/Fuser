@@ -627,6 +627,28 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
           continue;
         }
 
+        // Move forward to output to avoid unnecessary segmentation when the
+        // reduction input iteration domain is used after this tensor. See
+        // PostReductionBroadcastCheck test and issue-2146.
+        while (!forward_tv_dep_chain.empty()) {
+          forward_running_producer = forward_running_consumer;
+          forward_running_consumer = forward_tv_dep_chain.front();
+          forward_tv_dep_chain.pop_front();
+          auto forward_pairwise_root_map = PairwiseRootDomainMap(
+              forward_running_producer, forward_running_consumer);
+          auto forward_p2c_root_map =
+              forward_pairwise_root_map.mapProducerToConsumer();
+          for (size_t entry_i = ids_to_resolve.size(); entry_i > 0; entry_i--) {
+            auto running_id = ids_to_resolve[entry_i - 1].second;
+            if (forward_p2c_root_map.find(running_id) !=
+                forward_p2c_root_map.end()) {
+              ids_to_resolve[entry_i - 1] = std::make_pair(
+                  forward_p2c_root_map.at(running_id),
+                  forward_p2c_root_map.at(running_id));
+            }
+          }
+        }
+
         // Only because of api limitations in getAllDependencyChains
         auto inputs_of_forward_running_consumer =
             IterVisitor::getInputsTo({forward_running_consumer});
