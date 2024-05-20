@@ -161,9 +161,13 @@ class NVF_API FusionDefinition : public FusionState {
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
   NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
-  //! Finalized use scheduling of a fusion
-  //! resets FusionGuard, lowers IR to a kernel, compiles kernel
-  NVF_API void finalizeSchedule(const at::ArrayRef<c10::IValue>& inputs);
+  //! Finalize user scheduling of a fusion
+  //! It resets the FusionGuard, lowers IR to a kernel, and compiles the kernel.
+  //! When the schedule uses TMA operations, the CompileParams are updated to
+  //! use 32-bit Int indexing and to disable magic zero support.
+  NVF_API void finalizeSchedule(
+      const at::ArrayRef<c10::IValue>& inputs,
+      bool uses_tma_ops);
   //! Prints a python function representing the definition
   NVF_API void print(std::ostream& os) const;
   //! Executes a fusion if a valid definition or cache lookup occurred prior

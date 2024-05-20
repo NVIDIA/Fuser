@@ -62,6 +62,10 @@ class FusionDefinition(_C._FusionDefinition):
     def schedule(self):
         raise NotImplementedError("schedule() should be implemented by child class!")
 
+    def is_tma_supported(self):
+        prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+        return prop.major >= 9
+
     def execute(
         self,
         inputs,
@@ -69,6 +73,7 @@ class FusionDefinition(_C._FusionDefinition):
         device=None,
         override_user_schedule=False,
         capture_debug_output=False,
+        enable_tma_support=False,
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -132,7 +137,9 @@ class FusionDefinition(_C._FusionDefinition):
         if func_based_def and (super(type(self), self).schedule != self.schedule):
             self._setup_schedule(inputs)
             self.schedule()
-            self._finalize_schedule(inputs)
+            self._finalize_schedule(
+                inputs, enable_tma_support and self.is_tma_supported()
+            )
 
         result = None
         try:
@@ -245,7 +252,7 @@ class FusionDefinition(_C._FusionDefinition):
 
     def fusion_ir(self):
         """
-        Returns the uscheduled Fusion IR for the given definition that corresponds to all scheduled inputs.
+        Returns the unscheduled Fusion IR for the given definition that corresponds to all scheduled inputs.
 
         Returns:
             String
