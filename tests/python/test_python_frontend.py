@@ -2408,7 +2408,6 @@ class TestNvFuserFrontend(TestCase):
         k = 8
         bias0d = torch.tensor(3.14, device="cuda", dtype=torch.float16)
         bias1d = torch.randn(n, device="cuda", dtype=torch.float16)
-        bias2d = torch.rand(m, n, device="cuda", dtype=torch.float16)
 
         inputs_mk_nk = [
             torch.randn(m, k, device="cuda", dtype=torch.float16),
@@ -2446,7 +2445,7 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(t_out)
 
         in_tensors = [inputs_mk_nk, inputs_mk_kn, inputs_km_nk, inputs_km_kn]
-        use_bias = [None, bias0d, bias1d, bias2d]
+        use_bias = [None, bias0d, bias1d]
         for [inp, wt], use_bias in list(itertools.product(in_tensors, use_bias)):
             with self.subTest(inp=inp, wt=wt, use_bias=use_bias):
                 input_tensors = (

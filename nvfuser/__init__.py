@@ -17,14 +17,7 @@ if pytorch_lib_dir not in sys.path:
 
 # we need to import _C here to avoid confusing error message generated from failure in this python script ended up with
 # complaining on `_C` not defined for `_C._FusionDefinition`
-try:
-    from . import _C
-except ImportError as err:
-    logging.getLogger("nvfuser").error(
-        """==== importing nvfuser failed ====
-             try run `patch-nvfuser` if https://github.com/NVIDIA/Fuser is installed via pip package"""
-    )
-    raise err
+from . import _C
 from ._C import *  # noqa: F401,F403
 
 from . import contrib  # noqa: F401
