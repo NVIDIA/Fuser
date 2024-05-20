@@ -3663,9 +3663,14 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
 
   IterDomain* merged_id = IterDomain::merge(first, second);
 
-  leaf_domain_.erase(leaf_domain_.begin() + axis_i);
-  leaf_domain_.erase(leaf_domain_.begin() + axis_o);
-  leaf_domain_.insert(leaf_domain_.begin() + axis_o, merged_id);
+  // axis_o is the outer input of this merge but does not
+  // automatically mean it's an outer domain in TensorDomain.
+  auto td_outer_pos = axis_o < axis_i ? axis_o : axis_i;
+  auto td_inner_pos = axis_o < axis_i ? axis_i : axis_o;
+
+  leaf_domain_.erase(leaf_domain_.begin() + td_inner_pos);
+  leaf_domain_.erase(leaf_domain_.begin() + td_outer_pos);
+  leaf_domain_.insert(leaf_domain_.begin() + td_outer_pos, merged_id);
   resetDomains();
 }
 
@@ -4499,6 +4504,53 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
   return {at::matmul(a, b)};
+}
+
+LinearOp::LinearOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* in_a,
+    Val* in_b,
+    Val* bias)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in_a);
+  addInput(in_b);
+
+  if (bias != nullptr) {
+    addInput(bias);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(LinearOp)
+
+std::string LinearOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = linear(" << inA()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << inB()->toString();
+  if (has_bias()) {
+    indent(ss, indent_size + 1) << ",\n          " << bias()->toString();
+  }
+  indent(ss, indent_size + 1) << ")\n";
+  return ss.str();
+}
+
+std::string LinearOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> LinearOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto a = inputs.at(0).as<at::Tensor>();
+  const auto b = inputs.at(1).as<at::Tensor>();
+
+  if (has_bias()) {
+    const auto bias = inputs.at(2).as<at::Tensor>();
+    return {at::linear(a, b, bias)};
+  }
+  return {at::linear(a, b)};
 }
 
 } // namespace nvfuser

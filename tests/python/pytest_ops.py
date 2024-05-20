@@ -26,12 +26,16 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
 
-    if opinfo.symbolic_parameter_list is None:
-        opinfo.symbolic_parameter_list = [ArgumentType.Symbolic] * len(args)
-    assert len(opinfo.symbolic_parameter_list) == len(args)
+    symbolic_parameter_list = (
+        opinfo.symbolic_parameter_list
+        if opinfo.symbolic_parameter_list is not None
+        else [ArgumentType.Symbolic] * len(args)
+    )
+
+    assert len(symbolic_parameter_list) == len(args)
 
     result = []
-    for arg_type, a in zip(opinfo.symbolic_parameter_list, args):
+    for arg_type, a in zip(symbolic_parameter_list, args):
         if arg_type == ArgumentType.Symbolic:
             if isinstance(a, list) and all(map(is_tensor, a)):
                 result.extend(a)
@@ -205,11 +209,11 @@ def errors_test_fn(
     fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
 
 
-# A pair of parentheses () represents a capture group in regex.
+# A pair of parentheses ()/[] represents a capture group in regex.
 # Escape parenthesis in regex string to match raw characters.
 def _regex_escape_parenthesis(a: str) -> str:
-    b = a.replace(r"(", r"\(")
-    return b.replace(r")", r"\)")
+    b = a.replace(r"[", r"\[").replace(r"]", r"\]")
+    return b.replace(r"(", r"\(").replace(r")", r"\)")
 
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))

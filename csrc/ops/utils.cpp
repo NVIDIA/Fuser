@@ -221,6 +221,45 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   return mapping;
 }
 
+std::vector<IterDomain*> mapLinearOpIterDomains(
+    const std::vector<IterDomain*>& input_domain,
+    MatmulRole input_role,
+    size_t out_size) {
+  std::vector<IterDomain*> mapping(out_size, nullptr);
+  auto inp_size = input_domain.size();
+
+  // Input A: {*, M, K}
+  // Input B: {*, N, K} / {K}
+  // Bias: {N} / {}
+  switch (input_role) {
+    case MatmulRole::INPUT_A: {
+      // Linear output is same as input for all but the last dimension
+      for (auto inx : c10::irange(inp_size - 1)) {
+        mapping[inx] = input_domain[inx];
+      }
+      mapping[out_size - 1] = input_domain.back();
+      break;
+    }
+    case MatmulRole::INPUT_B: {
+      for (auto inx : c10::irange(inp_size)) {
+        // Map N, K to the last two positions of the output.
+        mapping[out_size - 1 - inx] = input_domain[inp_size - 1 - inx];
+      }
+      break;
+    }
+    case MatmulRole::INPUT_C: {
+      if (inp_size > 0) {
+        // Bias is 1D tensor of shape {out_features}
+        mapping[out_size - 2] = input_domain[0];
+      }
+      break;
+    }
+    default:
+      NVF_ERROR("Unexpected input type.");
+  }
+  return mapping;
+}
+
 // Adding these pragmas since gcc-12.2.1
 // incorrectly reports a warning with the use of evaluate
 #if defined(__GNUC__) && !defined(__clang__)
@@ -228,7 +267,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 #pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #endif
 IterDomain* newOutputIterDomain(
-    const std::vector<IterDomain*>& ids,
+    const std::vector<IterDomain*>& input_ids,
     const std::optional<IterType> force_iter_type) {
   // For the start and stop offsets, take the maximum of input axes.
   // For now, the offsets of both start and stop are always integer
@@ -241,6 +280,16 @@ IterDomain* newOutputIterDomain(
   bool extent_is_from_symbolic = true;
   Val* expanded_extent_val = nullptr;
   std::optional<IterType> iter_type = std::nullopt;
+
+  std::vector<IterDomain*> ids;
+  ids.reserve(input_ids.size());
+
+  // Filter out any nullptrs
+  std::copy_if(
+      input_ids.begin(),
+      input_ids.end(),
+      std::back_inserter(ids),
+      [](IterDomain* id) { return id != nullptr; });
 
   for (auto id : ids) {
     if (id->isBroadcast()) {
