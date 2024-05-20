@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -15,442 +16,292 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-// performs permutation by `alloc_order` on `tv`'s rfactor_domain.
-std::vector<IterDomain*> constructAllocationDomain(
-    TensorView* tv,
-    const AllocationOrder& alloc_order) {
-  auto rfactor_dom = tv->getMaybeRFactorDomain();
-  auto rank = rfactor_dom.size();
-
-  std::vector<IterDomain*> allocation_domain(rank, nullptr);
-  // specify allocation domain with dimension per allocation order.
-  for (auto i : c10::irange(rank)) {
-    allocation_domain[i] = rfactor_dom.at(alloc_order.at(i));
-  }
-
-  return allocation_domain;
+// counting the number of non-broadcast & non-reduction iter domains in tv's
+// allocation domain.
+int64_t countNonTrivialIterDomains(const TensorView* tv) {
+  return std::count_if(
+      tv->getMaybeAllocationDomain().begin(),
+      tv->getMaybeAllocationDomain().end(),
+      [&](auto* ptr_id) {
+        return !ptr_id->isBroadcast() && !ptr_id->isReduction();
+      });
 }
 
-// NOTE: [Allocation Order Inference]
+// Note [ Allocation Order Mapping ]
 //
-// AllocationOrderInferencer ctor takes a map of allocation order for inputs as
-// `unordered_map<const TensorView*, AllocationOrder>`. It propagates
-// AllocationOrder on a fusion and updates the the map with allocation order for
-// other TensorView in the fusion.
+// Map allocation domain from ref to target's rfactor domain to construct a new
+// allocation domain for target. The objective is to have target in a similar
+// memory format as with ref.
 //
-// e.g.
-//   std::unordered_map<const TensorView*, AllocationOrder> alloc_order_map;
-//   // ... update alloc_order_map with AllocationOrder for tensors
-//   //     (i.e. usually inputs)
+// The propagation rule explained in an example, given inputs:
+//   ref's allocation domain
+//     {iS0[i0], ir1[i1], iS2[i2]}
+//   target's rfactor domain
+//     {iS3[i3], iS4[i4], ir5[i1], iS6[i5], iS7[i2], ir8[1]}
 //
-//   // create AllocationOrderInferencer
-//   AllocationOrderInferencer infer(alloc_order_map);
-//   // propagates AllocationOrder from entries already in alloc_order_map
-//   infer.traverse(fusion);
-//   // all tensor that's propagated successfully will have their allocation
-//   // order in alloc_order_map
+// 1. we project iter domains from targets' rfactor domain which has an exact
+// map to ref's allocation domain. (sharp-edge 0: we exclude mapping from
+// iteration id on ref to reduction id on target to avoid unnecessary
+// re-ordering which exposes #2202).
+//   mapped_ids {ir5[i1], iS7[i2]}
+// 2. remove all projected ids and reduction iter domains from target's rfactor
+// domain:
+//   unmapped_ids {iS3[i3], iS4[i4], iS6[i5]}
+// 3. iterating through unmodified target's rfactor domain to construct target
+// allocation domain:
+//   (sharp-edge 1: if target_rfactor_domain[i] is a reduction and is not
+//   mapped, we keep the reduction iter domain in the original position.) Push
+//   the front of unmapped_id_vec to the end of target allocation domain, if
+//   unmapped_id_vec isn't empty yet; Otherwise, push the frnot of mapped_ids at
+//   the end of target allocation domain.
 //
-// The protocol for AllocationOrder in alloc_order_map_ has three states. For
-// each `tv`, its corresponding allocation order `alloc_order_map_[tv]`:
-// 1. The allocation order has the same size as the `tv`'s rfactor domain;
-//    This means it has a preferred allocation order and the entry should
-//    participate in propagation.
-// 2. The allocation order is an empty array;
-//    This means it's a wild card and shouldn't dictate output allocation
-//    order. But it marks that propagation is successful for `tv`.
-//    i.e. This currently happens for TensorViews that's created by factory
-//    methods and its consumers.
-// 3. alloc_order_map_ does not have an entry for `tv`.
-//    This is the case where propagation has not reach the `tv`, likely due to
-//    lack of allocation order on inputs or certain operation not yet supported
-//    by propagation rule.
-//
-// Identify the difference between case 2. and 3. above allows us to better
-// handle `resolveAllocationOrder` among multiple candidates.
-// i. We do not want to ignore candidates where propagation has failed and
-// aggressively propagates allocatoin order through unresolved candidates. So we
-// would want to identify case 3. ii. Tensors created by factory methods should
-// carry a wild-card and should not actively participate propagation. Because
-// those tensors are not going to affect vectorization. Hence we need to
-// identify case 2.
-class AllocationOrderInferencer : public IterVisitor {
- public:
-  // Note: alloc_order_map_ is a reference to the ground truth of
-  // alloc_order_map. The pass here tries to propagate the allocation order from
-  // the ground truth.
-  AllocationOrderInferencer(
-      std::unordered_map<const TensorView*, AllocationOrder>& alloc_order_map)
-      : alloc_order_map_(alloc_order_map) {}
+// Note: we could be using a simplified logic below,
+// See issue https://github.com/NVIDIA/Fuser/issues/2202
+// 1. we project iter domains from targets' rfactor domain which has an exact
+// map to ref's allocation domain.
+//   mapped_ids {ir5[i1], iS7[i2]}
+// 2. remove all projected iter domains from target's rfactor
+// domain:
+//   unmapped_ids {iS3[i3], iS4[i4], iS6[i5], ir8[1]}
+// 3. append mapped_ids at the end of unmapped_id_vec.
+//   target_alloc_domain
+//   {iS3[i3], iS4[i4], iS6[i5], ir8[1], ir5[i1], iS7[i2]}
+void mapAllocationDomain(
+    const IdModel& id_model,
+    const TensorView* ref,
+    TensorView* target) {
+  const ValGraph& val_graph = id_model.idGraph(IdMappingMode::EXACT);
 
- protected:
-  using IterVisitor::handle;
+  std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
+  const std::vector<IterDomain*>& target_rfactor_domain =
+      target->getMaybeRFactorDomain();
 
-  void handle(FullOp*) override;
-  void handle(UnaryOp*) override;
-  void handle(BroadcastOp*) override;
-  void handle(BinaryOp*) override;
-  void handle(TernaryOp*) override;
-  void handle(PadOp*) override;
-  void handle(ReductionOp*) override;
-  // TODO: Add more propagation rules
-  // void handle(LoadStoreOp*) override;
-  // void handle(SqueezeOp*) override;
-  // void handle(ExpandOp*) override;
+  // map target rfactor domain into ref's allocation domain
+  nvfuser::VectorOfUniqueEntries<IterDomain*> mapped_ids;
 
- private:
-  // mapping allocation domain from producer to consumer without reduction
-  //
-  // e.g.
-  //   producer rfactor dom [r0', i0', i1', i2'] @ allocation order {0, 1, 3, 2}
-  //    |       alloc dom [r0', i0', i2', i1']
-  //    |
-  //    Operation
-  //    |
-  //    v
-  //   consumer rfactor dom [..., i0, ..., i1, ..., i2, ...]
-  //
-  // we construct allocation domain on producer, filtering out reduction, apply
-  // root domain map from producer to consumer.
-  //   [r0', i0', i2', i1'] -> [i0', i2', i1'] -> [i0, i2, i1]
-  // so the function would return [i0, i2, i1]
-  std::vector<IterDomain*> propagateAllocationDomain(
-      TensorView* producer,
-      TensorView* consumer) {
-    // constructing alloc_domain for producer from its root domain, while
-    // filtering out reduction because they won't appear in consumer's domain.
-    std::vector<IterDomain*> alloc_domain = TensorDomain::noReductions(
-        constructAllocationDomain(producer, alloc_order_map_.at(producer)));
-    // creating producer to consumer root domain map
-    std::unordered_map<IterDomain*, IterDomain*> p2c_map =
-        PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
-    // map alloc_domain to consumer
-    std::transform(
-        alloc_domain.cbegin(),
-        alloc_domain.cend(),
-        alloc_domain.begin(),
-        [&p2c_map](IterDomain* id) { return p2c_map.at(id); });
-    return alloc_domain;
-  }
-
-  // Propagate allocation order from producer to consumer via:
-  // 1. Constructs producer allocation_domain with its allocation order;
-  // 2. Mapping it to consumer's root domain to create alloc_domain;
-  // 3. Compute allocation order of consumer as the permutation between
-  //    alloc_domain and `permutation_ref`.
-  //
-  // Returns true when producer has a recorded allocation order, false
-  // otherwise. This function assumes that all root domain in consumer can be
-  // mapped to producer.
-  bool propagateAllocationOrder(
-      TensorView* producer,
-      TensorView* consumer,
-      const std::vector<IterDomain*>& permutation_ref) {
-    auto iter = alloc_order_map_.find(producer);
-    // early return is producer doesn't have an entry in alloc_order_map_
-    if (iter == alloc_order_map_.end()) {
-      return false;
+  std::unordered_map<ValGroup, IterDomain*> vg_id_map;
+  for (auto* id : target_rfactor_domain) {
+    if (val_graph.hasGroup(id)) {
+      vg_id_map[val_graph.toGroup(id)] = id;
     }
-
-    // early termination to propagate empty allocation order
-    if (iter->second.empty()) {
-      alloc_order_map_[consumer] = {};
-      return true;
-    }
-
-    std::vector<IterDomain*> alloc_domain =
-        propagateAllocationDomain(producer, consumer);
-    // compute allocation order
-    std::optional<AllocationOrder> permutation =
-        ir_utils::computePermutation(permutation_ref, alloc_domain);
-
-    NVF_ERROR(
-        permutation.has_value(),
-        "allocation order propagation from ",
-        producer->toString(0),
-        " to ",
-        consumer->toString(0),
-        " failed!");
-    alloc_order_map_[consumer] = permutation.value();
-    return true;
   }
 
-  // Propagate allocation order from producer to consumer's rfactor_domain
-  bool propagateAllocationOrder(TensorView* producer, TensorView* consumer) {
-    return propagateAllocationOrder(
-        producer, consumer, consumer->getMaybeRFactorDomain());
-  }
-
-  // Returns the candidate operand that dominates the allocation order.
-  //
-  // It scans through each candidate to find the first one that:
-  //   1. is a TensorView
-  //   2. has the most non_broadcast IterDomains
-  //
-  // The function returns a nullptr when it encounters a TensorView that does
-  // not have an entry in alloc_order_map_, since this means we failed to
-  // propagate memory format for an entry, we do NOT want to aggressively insert
-  // output memory format.
-  //
-  // The function is used to resolve allocation order propagation for operator
-  // with multiple operands. The operand with the most number of
-  // non-broadcast IterDomain will be dominating the output allocation order.
-  // The motivation behind it to avoid breaking allocation order propagation
-  // from operands produced by broadcast. e.g. When a binary operator could take
-  // in a channels_last 4d tensor and an unsqueezed bias vector. We'll want to
-  // propagate the channels_last allocation order to output.
-  //
-  // Pre-condition: `candidates` must be the input operands of the same Expr.
-  TensorView* resolveAllocationOrder(const std::vector<Val*>& candidates);
-
-  // alloc_order_map_ records the allocation order of each TensorView.
-  // Since it only handles permutation from a rfactor domain to allocation
-  // domain, it can be interpreted as:
-  //
-  // e.g. TV0 rfactor domain [i0, i1, i2]
-  //            alloc domain [i0, i2, i1]
-  //        allocation order   0,  2,  1
-  std::unordered_map<const TensorView*, AllocationOrder>& alloc_order_map_;
-};
-
-TensorView* AllocationOrderInferencer::resolveAllocationOrder(
-    const std::vector<Val*>& candidates) {
-  TensorView* src = nullptr;
-  size_t non_bc_high_water_mark = 0;
-
-  // helper utils to count the number of non broadcast / non reduction
-  // iterdomain
-  auto countLoopIterDomains = [](const TensorView* tv) -> size_t {
-    return std::count_if(
-        tv->getMaybeRFactorDomain().begin(),
-        tv->getMaybeRFactorDomain().end(),
-        [&](auto ptr_id) {
-          return !ptr_id->isBroadcast() && !ptr_id->isReduction();
-        });
-  };
-
-  for (auto* val : candidates) {
-    auto* tv = dynamic_cast<TensorView*>(val);
-    // skip non TensorView entry
-    if (tv == nullptr) {
+  // logic to preserve reduction iter domain in target to WAR #2202
+#if true
+  // mapping id between ref's allocation domain to target's rfactor domain
+  for (auto* ref_id : ref_alloc_domain) {
+    // skip when no ValGroup for ref_id to map.
+    if (!val_graph.hasGroup(ref_id)) {
       continue;
     }
-
-    auto iter = alloc_order_map_.find(tv);
-    // stopping propagation when we encounter an entry that does not have an
-    // allocation order. See NOTE: [Allocation Order Inference]
-    if (iter == alloc_order_map_.end()) {
-      return nullptr;
-    }
-
-    // skip entry that has an empty allocation order
-    if (iter->second.empty()) {
-      // We still want to ensure that we propagate empty allocation order if
-      // there's no candidate with a non-empty allocation order
-      if (src == nullptr) {
-        src = tv;
-      }
-
-      // skip if unspecified
+    const ValGroup& vg = val_graph.toGroup(ref_id);
+    // skip when no mapping ValGroup found in target_rfactor_domain.
+    if (vg_id_map.count(vg) == 0) {
       continue;
     }
+    IterDomain* id = vg_id_map[vg];
+    // sharp-edges 0
+    // avoid mapping a reduced dimension.
+    if (!ref_id->isReduction() && id->isReduction()) {
+      continue;
+    }
+    mapped_ids.pushBack(id);
+  }
 
-    // check if current entry sets new record for num of non broadcast / non
-    // reduction iterdomain
-    if (size_t non_bc_count = countLoopIterDomains(tv);
-        non_bc_count > non_bc_high_water_mark) {
-      non_bc_high_water_mark = non_bc_count;
-      src = tv;
+  // removing mapped ids and reduction ids to create unmapped_ids.
+  // This means for the rest of ids in target_rfactor_domain that's not in
+  // mapped_ids, they are either 1. a reduction domain, or; 2. in
+  // [unmapped_ids.begin(), unmapped_ids_vec_end) This ensures that sharp-edges
+  // 1's loop would reconstruct a permutation of the target_rfactor_domain,
+  // hence a valid allocation domain for target.
+  std::vector<IterDomain*> unmapped_ids = target_rfactor_domain;
+  auto unmapped_ids_vec_end = std::remove_if(
+      unmapped_ids.begin(), unmapped_ids.end(), [&mapped_ids](IterDomain* it) {
+        return mapped_ids.has(it) || it->isReduction();
+      });
+
+  auto mapped_id_iter = mapped_ids.begin();
+  auto unmapped_id_iter = unmapped_ids.begin();
+  // initialize new target allocation domain with nullptr
+  std::vector<IterDomain*> target_alloc_domain(
+      target_rfactor_domain.size(), nullptr);
+  for (auto i : c10::irange(target_rfactor_domain.size())) {
+    // sharp-edges 1
+    // preserves non-mapped reduction id in its original position
+    if (target_rfactor_domain[i]->isReduction() &&
+        !mapped_ids.has(target_rfactor_domain[i])) {
+      target_alloc_domain[i] = target_rfactor_domain[i];
+      continue;
+    }
+    // push unmapped ids to outer dimension until it's fully consumed
+    if (unmapped_id_iter != unmapped_ids_vec_end) {
+      target_alloc_domain[i] = *unmapped_id_iter++;
+    } else {
+      // push mapped ids to inner dimension
+      target_alloc_domain[i] = *mapped_id_iter++;
     }
   }
-
-  return src;
-}
-
-// FullOp set empty allocation order to output
-void AllocationOrderInferencer::handle(FullOp* op) {
-  auto* out = static_cast<TensorView*>(op->output(0));
-  alloc_order_map_[out] = {};
-}
-
-// UnaryOp propagation forward allocation order from input to output
-void AllocationOrderInferencer::handle(UnaryOp* op) {
-  auto* out = dynamic_cast<TensorView*>(op->out());
-  if (out == nullptr) {
-    return;
-  }
-  auto* in = op->in()->as<TensorView>();
-  propagateAllocationOrder(in, out);
-}
-
-// BroadcastOp propagation:
-//   1. preserves all allocation order of input iterdomain;
-//   2. stacks all added broadcast iter domain on outputs as outer dimensions in
-//   their natural position
-//
-// e.g.
-//   TV0 rfactor dom [i0', i1', i2'] @ allocation order {0, 2, 1}
-//    |    alloc dom [i0', i2', i1']
-//    |
-//    |
-//    BroadcastOp
-//    |
-//    v
-//   TV1 rfactor dom [i0, b3, i1, i2, b4]
-//
-//   step 0:
-//       scan through all iterdomain in output TV1's rfactor domain
-//       insert all broadcast domain to alloc_domain[b3, b4];
-//
-//   step 1:
-//       computing iterdomain mapping from input to output;
-//       [i0', i2', i1'] -> [i0, i2, i1]
-//
-//   step 2:
-//       follow allocation order on input, insert the mapped iter domain on
-//       output to alloc_domain[b3, b4, i0, i2, i1];
-//
-//   step 3:
-//       compute permutation from alloc_domain to TV1's rfactor domain;
-//       so output TV1 will have allocation order {1, 4, 0, 3, 2}
-void AllocationOrderInferencer::handle(BroadcastOp* op) {
-  auto* out = dynamic_cast<TensorView*>(op->out());
-  if (out == nullptr) {
-    return;
-  }
-  auto* in = op->in()->as<TensorView>();
-
-  auto iter = alloc_order_map_.find(in);
-  // early return when there's no recorded allocation order for `in`
-  if (iter == alloc_order_map_.end()) {
-    return;
-  }
-
-  // propagate empty allocation order;
-  if (iter->second.empty()) {
-    alloc_order_map_[out] = {};
-    return;
-  }
-
-  size_t out_rank = out->nDims();
-  std::vector<IterDomain*> alloc_domain;
-  alloc_domain.reserve(out_rank);
-
-  // step 0: insert all broadcast iterdomain in output
-  for (auto i : c10::irange(out_rank)) {
-    if (op->isBroadcastDim(i)) {
-      alloc_domain.push_back(out->getMaybeRFactorDomain()[i]);
+#else
+  // mapping id between ref's allocation domain to target's rfactor domain
+  for (auto* ref_id : ref_alloc_domain) {
+    // skip when no ValGroup for ref_id to map.
+    if (!val_graph.hasGroup(ref_id)) {
+      continue;
     }
+    const ValGroup& vg = val_graph.toGroup(ref_id);
+    // skip when no mapping ValGroup found in target_rfactor_domain.
+    if (vg_id_map.count(vg) == 0) {
+      continue;
+    }
+    IterDomain* id = vg_id_map[vg];
+    mapped_ids.pushBack(id);
   }
+  std::vector<IterDomain*> target_alloc_domain = target_rfactor_domain;
+  // removing mapped ids.
+  auto unmapped_ids_vec_end = std::remove_if(
+      target_alloc_domain.begin(),
+      target_alloc_domain.end(),
+      [&mapped_ids](IterDomain* it) { return mapped_ids.has(it); });
+  // appending mapped ids at the end of target_alloc_domain.
+  std::copy(mapped_ids.begin(), mapped_ids.end(), unmapped_ids_vec_end);
+#endif
 
-  // step 1: computing iterdomain mapping from input to output
-  std::vector<IterDomain*> mapped_alloc_dom =
-      propagateAllocationDomain(in, out);
-
-  // step 2: push each mapped iterdomain
-  std::copy(
-      mapped_alloc_dom.begin(),
-      mapped_alloc_dom.end(),
-      std::back_inserter(alloc_domain));
-
-  // step 3: compute permutation
-  std::optional<AllocationOrder> permutation =
-      ir_utils::computePermutation(out->getMaybeRFactorDomain(), alloc_domain);
-
-  NVF_ERROR(
-      permutation.has_value(),
-      "allocation order propagation on broadcast op failed to compute valid permutation");
-  alloc_order_map_[out] = permutation.value();
-}
-
-void AllocationOrderInferencer::handle(BinaryOp* op) {
-  auto* out = dynamic_cast<TensorView*>(op->out());
-  if (out == nullptr) {
-    return;
+  // skip trivial allocation domain
+  if (target_alloc_domain != target_rfactor_domain) {
+    target->setAllocationDomain(target_alloc_domain, true);
   }
-  propagateAllocationOrder(resolveAllocationOrder(op->inputs()), out);
-}
-
-void AllocationOrderInferencer::handle(TernaryOp* op) {
-  auto* out = dynamic_cast<TensorView*>(op->out());
-  if (out == nullptr) {
-    return;
-  }
-  propagateAllocationOrder(resolveAllocationOrder(op->inputs()), out);
-}
-
-void AllocationOrderInferencer::handle(PadOp* op) {
-  auto* out = dynamic_cast<TensorView*>(op->out());
-  auto* in = dynamic_cast<TensorView*>(op->in());
-  // Note: `out` from pad has rfactor domain that cannot be mapped back to
-  // `in`'s root domain. Hence we use `out`'s root domain to match permutation.
-  propagateAllocationOrder(in, out, out->getRootDomain());
-}
-
-void AllocationOrderInferencer::handle(ReductionOp* op) {
-  auto* out = dynamic_cast<TensorView*>(op->out());
-  auto* in = dynamic_cast<TensorView*>(op->in());
-  propagateAllocationOrder(in, out);
 }
 
 } // namespace
 
 // Note [ Allocation Order Propagation ]
 //
-// The propagation tries to propagate allocation order from inputs to the entire
-// fusion:
-//   1. Iterates through all inputs, looking for TensorView with allocation
-//   domain that's a permutation of its corresponding rfactor domain and record
-//   it as the allocation order of the tensor;
-//   2. Traverse the fusion IR, propagate allocation order and record results in
-//   alloc_order_map.
-std::unordered_map<const TensorView*, AllocationOrder> inferenceAllocationOrder(
-    Fusion* fusion) {
-  std::unordered_map<const TensorView*, AllocationOrder> alloc_order_map;
+// The propagation tries to populate allocation domain from srcs to dsts.
+//
+// For each TensorView in dsts, it iterate through all TensorView in srcs
+// looking for a reference TensorView to propagate its allocation domain.
+//   1. It only propagate to TensorView in dsts when it's safe to manipulate its
+//   allocation domain:
+//     1.1 It doesn't have an allocation domain set;
+//     1.2 It is not an aliase to another TensorView;
+//     1.3 It does not have self mapping;
+//   2. Among all entries in srcs, we pick reference that:
+//     2.1 It has a dependency towards dst;
+//     2.2 It has the highest no. of non-trivial (non-broadcast/non-reduction)
+//     iter domains in allocation domain.
+//         Note0: The reason to count behind this is that, we could have binary
+//         operation on a full-sized tensor with a broadcast vector tensor. In
+//         which case, we would want to propagate the layout of the full-sized
+//         tensor to the output, even though both candidates have the same rank.
+//         Note1: when we have multiple candidates with the same count of
+//         non-trivial iter domains, we require there's no ambiguity by
+//         checking both candidates having the same iter domain mapping.
+//         Otherwise we'll stop the propagation by leaving ref as nullptr.
+//     2.3 It does not have self mapping;
+//   3. Propagate memory format from selected reference in `srcs` to its
+//   corresponding target in `dsts`.
+//
+// propagation rule:
+//   Given a reference TensorView `ref` and a target TensorView `target`, we try
+//   to map iter domain in `ref->getMaybeAllocationDomain()` to
+//   `target->getMaybeRFactorDomain()`, which would gives `target` to a similar
+//   memory layout as `ref`. For details on the propagation rule see Note [
+//   Allocation Order Mapping ]
+void inferenceAllocationOrder(
+    Fusion* fusion,
+    const std::vector<TensorView*>& srcs,
+    const std::vector<TensorView*>& dsts) {
+  // build IdModel, setting allow_self_mapping to avoid assert
+  // even though we do NOT populate allocation order where self_mapping is
+  // present
+  auto id_model =
+      IdModel(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true);
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
 
-  // Note: we only consider simple permutation of allocation domain to rfactor
-  // domain.
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    std::optional<AllocationOrder> permutation = ir_utils::computePermutation(
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain()),
-        TensorDomain::noReductions(tv->getMaybeAllocationDomain()));
-    if (permutation.has_value()) {
-      alloc_order_map[tv] = permutation.value();
+  // populate the number of non-trivial iter domains on srcs
+  std::unordered_map<TensorView*, int64_t> non_trivial_iter_count;
+  for (auto* tv : srcs) {
+    // skip entry with self mapping.
+    if (!hasSelfMapping(tv, exact_graph).has_value()) {
+      non_trivial_iter_count[tv] = countNonTrivialIterDomains(tv);
     }
   }
 
-  // Initialize AllocationOrderInferencer with allocation order of input tensor
-  // views
-  AllocationOrderInferencer infer(alloc_order_map);
-  infer.traverse(fusion);
+  // propagate new allocation domain on dsts
+  for (TensorView* dst : dsts) {
+    // safe check when allocation domain on the entry cannot be safely mutated.
+    if (dst == nullptr || dst->hasAllocation() ||
+        fusion->getOutputAlias(dst).type != AllocationType::New) {
+      continue;
+    }
 
-  // return the propagated map
-  return alloc_order_map;
+    // skip entry with self mapping.
+    if (hasSelfMapping(dst, exact_graph).has_value()) {
+      continue;
+    }
+
+    // find a ref among srcs to be propagated to given dst
+    TensorView* ref = nullptr;
+
+    // high water mark for candidate of ref.
+    int64_t non_bc_high_water_mark = 0;
+    for (auto* tv : srcs) {
+      // skip when non-trivial iter domain count is missing.
+      if (non_trivial_iter_count.count(tv) == 0) {
+        continue;
+      }
+      // discard srcs for propagation which dst has no dependency on.
+      if (!DependencyCheck::isDependencyOf(tv, dst)) {
+        continue;
+      }
+      // discard srcs with lower iterdomain count than ref.
+      if (non_trivial_iter_count[tv] < non_bc_high_water_mark) {
+        continue;
+      }
+      // new candidate found, update ref and high water mark.
+      if (non_trivial_iter_count[tv] > non_bc_high_water_mark) {
+        ref = tv;
+        non_bc_high_water_mark = non_trivial_iter_count[tv];
+        continue;
+      }
+      // found multiple candidate with the same iterdomain count
+      if (non_trivial_iter_count[tv] == non_bc_high_water_mark &&
+          ref != nullptr) {
+        // ensure that there's no ambiguity on permutation mapping from multiple
+        // references. we need both ref candidates to have the same mapping on
+        // allocation domain
+        for (auto i : c10::irange(ref->nDims())) {
+          if (!val_sets.permissiveAreMapped(
+                  ref->getMaybeAllocationDomain()[i],
+                  tv->getMaybeAllocationDomain()[i])) {
+            // reset ref to nullptr, while keeping the iterdomain count high
+            // water mark. No propagation will occur unless we found another ref
+            // candidate with a higher iterdomain count.
+            ref = nullptr;
+            break;
+          }
+        }
+        continue;
+      }
+    }
+
+    // propagate allocation domain if we still have a candidate.
+    if (ref) {
+      mapAllocationDomain(id_model, ref, dst);
+    }
+  }
 }
 
 void AllocationDomainPass::runPass(Fusion* fusion) {
-  std::unordered_map<const TensorView*, AllocationOrder> stride_mapping =
-      inferenceAllocationOrder(fusion);
-
-  for (Val* out_val : fusion->outputs()) {
-    auto* out_tv = dynamic_cast<TensorView*>(out_val);
-    // skip:
-    //   1. non-tensor output;
-    //   2. tensor output with allocation specified, assuming everything is
-    //   semantical
-    //   3. tensor output that's aliasing (Does aliased src matter?)
-    if (out_tv == nullptr || out_tv->hasAllocation() ||
-        fusion->getOutputAlias(out_val).type != AllocationType::New) {
-      continue;
-    }
-
-    auto mapped_entry = stride_mapping.find(out_tv);
-    if (mapped_entry == stride_mapping.end() || mapped_entry->second.empty()) {
-      continue;
-    }
-
-    out_tv->setAllocationDomain(
-        constructAllocationDomain(out_tv, mapped_entry->second), true);
-  }
+  // mark input TensorViews as propagation sources
+  auto input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+  std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
+  // mark output TensorViews as propagation destinations
+  auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
+  std::vector<TensorView*> dsts(output_tvs.begin(), output_tvs.end());
+  // propagate allocation domain from sources to destinations
+  inferenceAllocationOrder(fusion, srcs, dsts);
 }
 
 } // namespace nvfuser::preseg_passes
