@@ -272,6 +272,8 @@ struct MatmulPattern {
   //! object can safely outlive id_model.
   std::unordered_map<ValGroup, MatmulDomain> getDimRoles(
       IdModel& id_model) const;
+
+  std::string toString() const;
 };
 
 //! Traverse the fusion to find supported matmul patterns

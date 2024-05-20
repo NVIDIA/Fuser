@@ -1290,7 +1290,7 @@ MmaOpDetails getMmaOpDetails(
   const auto validateOutputDetails = [](const TensorViewDetails& details,
                                         const std::string& desc) {
     // TODO: revise rules when add support for batch gemms
-    NVF_ERROR(details.bcasts.empty(), desc, ": has broadcast domains.");
+    // NVF_ERROR(details.bcasts.empty(), desc, ": has broadcast domains.");
     NVF_ERROR(!details.rdomains.empty(), desc, ": has no reduction domains.");
     NVF_ERROR(
         (details.cdomains.size() >= expected_gemm_cdomains),

@@ -127,18 +127,17 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Fail1) {
   performSubstitution(&fusion, /*should_not_find=*/true);
 }
 
-// This fusion has more than one broadcasted dimension for each operand, so it
-// is currently rejected isMatmulFusionDefinitionSupported. Still, it is a valid
-// MatmulPattern so we check that it is found.
+// This fusion has Broadcast batch axes in each operand.
 TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
   // Assumes layout is kAllSupportedMmaLayout::NT;
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
 
   auto tv0t = transpose(tv0, 0, 1);
   auto tv1t = transpose(tv1, 0, 1);
@@ -155,9 +154,24 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
   auto tv1b = broadcast(tv1t, bcast_dims);
   auto tv2 = mul(tv0b, tv1b);
   auto tv3 = sum(tv2, {-1});
-  fusion.addOutput(tv3);
+  fusion->addOutput(tv3);
 
-  performSubstitution(&fusion, /*should_not_find=*/false);
+  performSubstitution(fusion, /*should_not_find=*/false);
+
+  // We test running this fusion also to verify that the broadcast batch
+  // dimension does not cause unforeseen issues
+
+  int64_t M = 256, N = 128, K = 64;
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({K, M}, options);
+  auto t1 = at::randn({K, N}, options);
+  auto tref = at::linear(t0.t(), t1.t()).unsqueeze(1);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
 // As a sanity check we test that after replacing a mul-sum

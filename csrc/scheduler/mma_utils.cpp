@@ -1259,10 +1259,14 @@ RolesMapOpt getTensorsRoles(
     bool has_m = false, has_n = false, has_k = false, has_unmapped = false;
     for (IterDomain* id :
          TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+      if (id->isBroadcast()) {
+        // Ignore broadcasts in output
+        continue;
+      }
       const ValGroup& g = exact_graph.toGroup(id);
       auto it = group_to_domain.find(g);
       if (it == group_to_domain.end()) {
-        // tv has an unmapped dimension
+        // output tv has an unmapped non-broadcast dimension
         has_unmapped = true;
         continue;
       }
@@ -1459,6 +1463,19 @@ class MatmulPatternMatcher : IterVisitor {
       if (bop->getBinaryOpType() != BinaryOpType::Mul) {
         return;
       }
+      // TODO: Allow multiple K dimensions
+      // Check that there's a single K dimension
+      bool has_k = false;
+      for (IterDomain* id :
+           rop->out()->as<TensorView>()->getMaybeRFactorDomain()) {
+        if (id->isReduction()) {
+          if (has_k) {
+            return;
+          }
+          has_k = true;
+        }
+      }
+
       // Remember that we are just gathering the immediate inputs to the
       // matmul, so there should be no prologue between a, b and the mul/sum.
 
@@ -1481,8 +1498,16 @@ class MatmulPatternMatcher : IterVisitor {
       bool has_m = false, has_n = false;
       for (size_t i : c10::irange(lrf.size())) {
         if (lrf[i]->isBroadcast() && !rrf[i]->isBroadcast()) {
+          if (has_m) {
+            // TODO: Handle multiple M dimensions
+            return;
+          }
           has_m = true;
         } else if (!lrf[i]->isBroadcast() && rrf[i]->isBroadcast()) {
+          if (has_n) {
+            // TODO: Handle multiple N dimensions
+            return;
+          }
           has_n = true;
         }
         if (red_root[i]->isReduction()) {
@@ -1493,7 +1518,7 @@ class MatmulPatternMatcher : IterVisitor {
         }
       }
       if (!has_m || !has_n) {
-        // This is an ordinary reduction, not a matmul
+        // This is an ordinary reduction or mat-vec, not a matmul
         return;
       }
 
@@ -1512,6 +1537,15 @@ class MatmulPatternMatcher : IterVisitor {
 
 std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion) {
   return MatmulPatternMatcher::run(fusion);
+}
+
+std::string MatmulPattern::toString() const {
+  std::stringstream ss;
+  ss << "MatmulPattern{";
+  ss << "\n  A=" << A->toString();
+  ss << "\n  B=" << B->toString();
+  ss << "\n  output=" << output->toString() << "\n}";
+  return ss.str();
 }
 
 MmaOp* MatmulPattern::translateToMmaOp() {
