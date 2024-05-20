@@ -25,6 +25,19 @@ std::deque<std::deque<TensorView*>> tvChains(
   return tv_chains;
 }
 
+// replaces input to the bcast op that produes cast_output, return the new
+// cast_output
+Val* replaceInputInBroadcast(Val* cast_output, Val* new_input) {
+  auto tmp_expr = cast_output->definition();
+  // short-cut for cases when no substitution is needed;
+  if (cast_output == new_input || new_input == tmp_expr->input(0)) {
+    return cast_output;
+  }
+  auto new_expr = nvfuser::ir_utils::replaceValInExprInputs(
+      tmp_expr, tmp_expr->input(0), new_input);
+  return new_expr->output(0);
+}
+
 void removeBcastSqueeze(Fusion* fusion) {
   // std::unordered_map<Val*, Val*> replacement_map;
   // Find broadcast + squeeze pattern
@@ -32,11 +45,13 @@ void removeBcastSqueeze(Fusion* fusion) {
   SqueezeOp* squeeze_op = nullptr;
   const auto& exprs = fusion->exprs();
   for (auto expr : exprs) {
-    std::cout << "Expr: " << expr << std::endl;
+    std::cout << "Check Expr: " << expr->toString() << std::endl;
     if (auto sop = dynamic_cast<SqueezeOp*>(expr)) {
       squeeze_op = sop;
+      std::cout << "SqueezeOp found" << std::endl;
     } else if (auto bcast = dynamic_cast<BroadcastOp*>(expr)) {
       bcast_op = bcast;
+      std::cout << "BroadcastOp found" << std::endl;
     }
     if (!squeeze_op || !bcast_op) {
       std::cout << "continue" << std::endl;
@@ -44,6 +59,7 @@ void removeBcastSqueeze(Fusion* fusion) {
     }
     NVF_ERROR(squeeze_op != nullptr && bcast_op != nullptr,
               "Found a broadcast and squeeze op, but one of them is null");
+    std::cout << "Found broadcast and squeeze op" << std::endl;
     // we have both broadcast and squeeze
     bool is_squeeze_bcast =
         DependencyCheck::isDependencyOf(squeeze_op->out(), bcast_op->in());
@@ -109,28 +125,6 @@ void removeBcastSqueeze(Fusion* fusion) {
       }
       std::cout << "Can be removed: " << can_be_removed << std::endl;
       if (can_be_removed) {
-        // T2_l[ iS4{i0}, iS5{i2}, bS6{1} ] = broadcast( T1_l[ iS2{i0}, iS3{i2}
-        // ] ) T3_l[ iS7{i0}, iS8{i2}, bS9{1} ] = expf(T2_l[ iS4{i0}, iS5{i2},
-        // bS6{1} ]);
-        for (auto expr : bcast_op->out()->uses()) {
-          std::cout << "Replace " << bcast_op->out()->toString() << " with "
-                    << bcast_op->in()->toString() << std::endl;
-          std::cout << "Expr: " << expr->toString() << std::endl;
-          ir_utils::replaceValInExprInputs(
-              expr, bcast_op->out(), bcast_op->in());
-          for (auto out : expr->outputs()) {
-            if (auto tv = dynamic_cast<TensorView*>(out)) {
-              tv->clearBroadcastIterDomains(squeeze_op->getSqueezeDimFlags());
-            }
-          }
-        }
-        for (auto expr : squeeze_op->out()->uses()) {
-          std::cout << "Replace " << squeeze_op->out()->toString() << " with "
-                    << squeeze_op->in()->toString() << std::endl;
-          std::cout << "Expr: " << expr->toString() << std::endl;
-          ir_utils::replaceValInExprInputs(
-              expr, squeeze_op->out(), squeeze_op->in());
-        }
         for (auto consumer : all_bcast_consumers) {
           std::cout << "loop over all_bcast_consumers: " << consumer->toString() << std::endl;
           if (!consumer->hasBroadcast()) {
@@ -159,16 +153,19 @@ void removeBcastSqueeze(Fusion* fusion) {
                       squeeze(pp, squeeze_op->getSqueezeDimFlags());
                   ir_utils::replaceValInExprInputs(
                       producer->definition(), pp, pp_squeeze);
-
-                    fusion->printMath();
                 }
               }
             }else{
-              std::cout << "skip this producer" << std::endl;
+              std::cout << "skip this producer,producer->hasBroadcast(): " << producer->hasBroadcast() << ", in all_bcast_consumers: " << all_bcast_consumers.count(producer) << std::endl;
             }
           }
         }
         std::cout << "loop over all_bcast_consumers is done"  << std::endl;
+
+        // convert bcast & squeeze to set
+        IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, bcast_op->out(), bcast_op->in());
+        IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, squeeze_op->out(), squeeze_op->in());
+
         bcast_op = nullptr;
         squeeze_op = nullptr;
       }
@@ -184,7 +181,7 @@ void RemoveBcastSqueeze::runPass(Fusion* fusion) {
   debug() << "\n========Fusion before RemoveBcastSqueeze:" << std::endl;
   fusion->printMath();
 
-  removeBcastSqueeze(fusion);
+  // removeBcastSqueeze(fusion);
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
   }

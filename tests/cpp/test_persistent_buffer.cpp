@@ -1159,4 +1159,137 @@ TEST_F(NVFuserTest, AvoidProjectingToInputsIfRecomputeHasDropout) {
       "Shouldn't project persistent buffers to inputs!");
 }
 
+TEST_F(PersistentBufferTest, TMP1) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int dim0 = 128;
+  const int dim1 = 256;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  auto tv1 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+
+  // tv3 is resolved to size of tv0
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion->addOutput(tv4);
+
+  // tv5 is resolved to size of tv1, which
+  // is different from tv0 in this case.
+  int factor = 10;
+  auto tv5 = broadcast(tv2, {false, true});
+  auto tv6 = expand(tv5, {IrBuilder::create<Val>(dim0), IrBuilder::create<Val>(dim1 * factor)});
+  auto tv7 = add(tv1, tv6);
+  fusion->addOutput(tv7);
+
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1*factor}, options);
+  auto t2 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1}) + t0;
+  auto t3 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1*factor}) + t1;
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+
+    testValidate(
+      fusion,
+      cg_outputs,
+      {t0, t1},
+      {t2, t3},
+      __LINE__,
+      __FILE__);
+}
+
+
+
+// inner dim of T5_l is not parallelized
+// Inputs:
+//   T0_g[ iS0{128}, iS52{1}, iS54{1}, iS55{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}, iS51{4} ], float
+//   T1_g[ iS2{128}, iS3{256} ], float
+// Outputs:
+//   T4_g[ iblockIdx.x24{128}, iS70{1}, iUS72{1}, ithreadIdx.x73{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}_p, iV69{4} ] ca_pos( 4 ) produce_pos( 4 ), float
+//   T7_g[ iblockIdx.x26{128}, iS27{256} ] ca_pos( 2 ) produce_pos( 2 ), float
+
+// %kernel_math {
+// T8_l[ iblockIdx.x20{128}, iS46{1}, iUS48{1}, ithreadIdx.x49{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}_p, iV45{4} ] ca_pos( 1 )
+//    = Set( T0_g[ iS0{128}, iS52{1}, iS54{1}, iS55{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}, iS51{4} ], cache_op=Streaming )
+// T12_l[ iblockIdx.x34{128}, rS38{1}rf, rUS40{1}rf, ithreadIdx.x41{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}rf_p, rS37{4}rf ] ca_pos( 1 ) produce_pos( 1 )
+//    = reduction( T8_l[ iblockIdx.x20{128}, iS46{1}, iUS48{1}, ithreadIdx.x49{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}_p, iV45{4} ] ca_pos( 1 ), op = add, initial value = float(0), allreduce = false )
+// T2_l[ iblockIdx.x42{128}, rthreadIdx.x43{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}_p ] ca_pos( 1 ) produce_pos( 1 )
+//    = reduction( T12_l[ iblockIdx.x34{128}, rS38{1}rf, rUS40{1}rf, ithreadIdx.x41{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}rf_p, rS37{4}rf ] ca_pos( 1 ) produce_pos( 1 ), op = add, initial value = float(0), allreduce = false )
+// T3_l[ iblockIdx.x6{128}, bS64{1}, bUS66{1}, bthreadIdx.x67{( ceilDiv(( ceilDiv(( ceilDiv(1, 4) ), 1) ), 1) )}_p, bS63{4} ] ca_pos( 1 ) produce_pos( 1 )
+//    = broadcast( T2_l[ iblockIdx.x42{128}, rthreadIdx.x43{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}_p ] ca_pos( 1 ) produce_pos( 1 ) )
+// T10_l[ iblockIdx.x8{128}, iS58{1}, iUS60{1}, ithreadIdx.x61{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}_p, iS57{4} ] ca_pos( 4 ) produce_pos( 1 )
+//    = T8_l[ iblockIdx.x20{128}, iS46{1}, iUS48{1}, ithreadIdx.x49{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}_p, iV45{4} ] ca_pos( 1 )
+//    + T3_l[ iblockIdx.x6{128}, bS64{1}, bUS66{1}, bthreadIdx.x67{( ceilDiv(( ceilDiv(( ceilDiv(1, 4) ), 1) ), 1) )}_p, bS63{4} ] ca_pos( 1 ) produce_pos( 1 );
+// T4_g[ iblockIdx.x24{128}, iS70{1}, iUS72{1}, ithreadIdx.x73{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}_p, iV69{4} ] ca_pos( 4 ) produce_pos( 4 )
+//    = Set( T10_l[ iblockIdx.x8{128}, iS58{1}, iUS60{1}, ithreadIdx.x61{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}_p, iS57{4} ] ca_pos( 4 ) produce_pos( 1 ), cache_op=Streaming )
+// T9_l[ iblockIdx.x22{128}, iS23{256} ] ca_pos( 2 )
+//    = Set( T1_g[ iS2{128}, iS3{256} ], cache_op=Streaming )
+// T5_l[ iblockIdx.x10{128}, bS11{1} ] ca_pos( 1 ) produce_pos( 1 )
+//    = broadcast( T2_l[ iblockIdx.x42{128}, rthreadIdx.x43{( ceilDiv(( ceilDiv(( ceilDiv(256, 4) ), 1) ), 1) )}_p ] ca_pos( 1 ) produce_pos( 1 ) )
+// T6_l[ iblockIdx.x12{128}, bS13{1 ex 256} ] ca_pos( 1 ) produce_pos( 1 ) = expand( T5_l[ iblockIdx.x10{128}, bS11{1} ] ca_pos( 1 ) produce_pos( 1 ), {128, 256} )
+// T11_l[ iblockIdx.x14{128}, iS15{256} ] ca_pos( 2 ) produce_pos( 2 )
+//    = T9_l[ iblockIdx.x22{128}, iS23{256} ] ca_pos( 2 )
+//    + T6_l[ iblockIdx.x12{128}, bS13{1 ex 256} ] ca_pos( 1 ) produce_pos( 1 );
+// T7_g[ iblockIdx.x26{128}, iS27{256} ] ca_pos( 2 ) produce_pos( 2 )
+//    = Set( T11_l[ iblockIdx.x14{128}, iS15{256} ] ca_pos( 2 ) produce_pos( 2 ), cache_op=Streaming )
+// }
+TEST_F(PersistentBufferTest, TMP2) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  int factor = 1;
+  const int dim0 = 128;
+  const int dim1 = 256;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, input_dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1 * factor}, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+
+  // tv3 is resolved to size of tv0
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  fusion->addOutput(tv4);
+
+  // tv5 is resolved to size of tv1, which
+  // is different from tv0 in this case.
+  auto tv5 = broadcast(tv2, {false, true});
+  auto tv6 = expand(tv5, {IrBuilder::create<Val>(dim0), IrBuilder::create<Val>(dim1 * factor)});
+  auto tv7 = add(tv1, tv6);
+  fusion->addOutput(tv7);
+
+  // segment when factor != 1
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1*factor}, options);
+  auto t2 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1}) + t0;
+  auto t3 = at::sum(t0, {1}).unsqueeze(1).expand({dim0, dim1*factor}) + t1;
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+
+    testValidate(
+      fusion,
+      cg_outputs,
+      {t0, t1},
+      {t2, t3},
+      __LINE__,
+      __FILE__);
+}
 } // namespace nvfuser

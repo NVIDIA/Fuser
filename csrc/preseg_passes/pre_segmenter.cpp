@@ -24,6 +24,7 @@ namespace nvfuser::preseg_passes {
 
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
+  OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
@@ -31,7 +32,6 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
-  OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

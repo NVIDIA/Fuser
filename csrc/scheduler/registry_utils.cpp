@@ -564,6 +564,25 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         pre_reduction_tv_vector.begin(), pre_reduction_tv_vector.end());
   }
 
+  // All tensor views that are consumers of the reduction tvs.
+  std::unordered_set<TensorView*> post_reduction_tvs;
+
+  {
+    auto post_reduction_vals = DependencyCheck::getAllValsBetween(
+        {reduction_tvs.begin(), reduction_tvs.end()},
+        {fusion->outputs().begin(), fusion->outputs().end()});
+    auto post_reduction_tv_vector =
+        ir_utils::filterByType<TensorView>(post_reduction_vals);
+    post_reduction_tvs = std::unordered_set<TensorView*>(
+        post_reduction_tv_vector.begin(), post_reduction_tv_vector.end());
+  }
+
+  for(auto tv : pre_reduction_tvs){
+    std::cout << "pre_reduction_tvs: " << tv->toString() << std::endl;
+  }
+  for(auto tv : post_reduction_tvs){
+    std::cout << "post_reduction_tvs: " << tv->toString() << std::endl;
+  }
   // Track which tensor views we've validated so we don't do it again.
   std::unordered_set<TensorView*> validated_resolved_tvs;
 
@@ -627,20 +646,35 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
             // mmake sure the expanded extent is the same as the reduction dim
             // otherwise, we can't efficiently schedule this fusion since the
             // feature dimension is different.
-            // if(p_id->hasExpandedExtent()){
-            //   std::cout << "\nadd hasExpandedExtent: " << p_id->toString() << " -> "
-            //             << c_id->toString() << std::endl;
-            //   bool map_with_reduction_input = p_id->extent()->sameAs(c_id->extent());
-            //   if(map_with_reduction_input){
-            //     continue;
-            //   }else{
-            //     return true;
-            //   }
-            // }else{
+            if(p_id->hasExpandedExtent()){
+
+              auto p_extend = p_id->expandedExtent();
+              auto c_extend = c_id->extent();
+              auto extent_match = p_extend->sameAs(c_extend) ||
+                  (p_extend->isConstInt() && c_extend->isConstInt() &&
+                  p_extend->evaluate() == c_extend->evaluate());
+
+              std::cout << "p_extend->sameAs(c_extend): " << p_extend->sameAs(c_extend) << std::endl;
+              std::cout << "p_extend->isConstInt(): " << p_extend->isConstInt() << std::endl;
+              if(p_extend->isConstInt()){
+                std::cout << "p_extend->evaluate(): " << p_extend->evaluate() << std::endl;
+              }
+              std::cout << "c_extend->isConstInt(): " << c_extend->isConstInt() << std::endl;
+              if(c_extend->isConstInt()){
+                std::cout << "c_extend->evaluate(): " << c_extend->evaluate() << std::endl;
+              }              
+
+              if(extent_match){
+                std::cout << "\nmap_with_reduction_input: " << p_id->toString() << " -> "
+                        << c_id->toString() << std::endl;
+                continue;
+              }
+            }
+            {
               std::cout << "\nadd ids_to_resolve: " << forward_running_producer->toString() << " -> "
                         << forward_running_consumer->toString() << std::endl;
               ids_to_resolve.emplace_back(c_id, c_id);
-            // }
+            }
           }
         }
 
@@ -683,6 +717,10 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
             TensorView* backward_running_consumer = nullptr;
             backward_tv_chain.pop_back();
             std::cout << "\n====================backward_tv_chain from : " << backward_running_producer->toString() << std::endl;
+            std::cout << "\n====================ids_to_resolve : " << ids_to_resolve.size() << std::endl;
+            for(auto item : ids_to_resolve){
+              std::cout << "====================ids_to_resolve : " << item.first->toString() << " -> " << item.second->toString() << std::endl;
+            }             
             NVF_ERROR(backward_running_producer == forward_running_consumer);
 
             while (!backward_tv_chain.empty()) {
@@ -715,11 +753,12 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
                       !backward_c2p_root_map.at(running_id)->isBroadcast()) {
                     // If mapped, and producer is a producer of a reduction,
                     // we can resolve this id
-                    std::cout << "resolve id: " << orig_id->toString() << std::endl << std::endl;
+                    std::cout << "before resolve id: " << orig_id->toString() << ", running_id= " << running_id->toString() << std::endl << std::endl;
                     ids_to_resolve.erase(
                         ids_to_resolve.begin() + (int64_t)entry_i - 1);
+                    std::cout << "after resolve id: " << orig_id->toString() << ", left= " << ids_to_resolve.size() << std::endl << std::endl;
                   } else {
-                    std::cout << "add ids_to_resolve running_id: " << running_id->toString() << " -> "
+                    std::cout << "add ids_to_resolve orig_id: " << orig_id->toString() << " -> "
                               << backward_c2p_root_map.at(running_id)->toString() << std::endl << std::endl;
                     ids_to_resolve[entry_i - 1] = std::make_pair(
                         orig_id, backward_c2p_root_map.at(running_id));
@@ -731,9 +770,9 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
               if (!at_leat_one_id_mapped) {
                 // If no id's map any more, go to the next chain
                 std::cout << "no id's map any more, break" << std::endl << std::endl;
-                for(auto item : ids_to_resolve){
-                  std::cout << "ids_to_resolve not empty: " << item.first->toString() << " -> " << item.second->toString() << std::endl;
-                }                
+                // for(auto item : ids_to_resolve){
+                //   std::cout << "ids_to_resolve not empty: " << item.first->toString() << " -> " << item.second->toString() << std::endl;
+                // }                
                 break;
               }
 
@@ -749,6 +788,10 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         // if all ids were not resolved, then we've found an instance of a
         // bad broadcast resolution after reduction
         if (!ids_to_resolve.empty()) {
+          std::cout << "==================bad broadcast resolution after reduction ==================" << std::endl;
+          for(auto item : ids_to_resolve){
+            std::cout << "ids_to_resolve not empty: " << item.first->toString() << " -> " << item.second->toString() << std::endl;
+          } 
           return true;
         }
 
