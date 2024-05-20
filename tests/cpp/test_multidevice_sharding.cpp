@@ -83,7 +83,7 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
   unsharded_input_size[sharded_dim] = num_devices;
 
   TensorView* tv0 = creates_concrete_tensor
-      ? makeConcreteTensor(unsharded_input_size)
+      ? makeContigConcreteTensor(unsharded_input_size)
       : makeContigTensor(unsharded_input_size.size());
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = add(tv1, tv1);
