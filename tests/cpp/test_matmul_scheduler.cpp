@@ -2850,7 +2850,47 @@ TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({K, N}, options);
-  auto tref = at::matmul(t0, sin(t1));
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  // TODO: check vectorization if fusion is enabled
+  // checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
+
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// This is just like the above test but with LinearOp instead of MatmulOp
+TEST_F(NVFuserTest, SegmentLinearOpPrologue) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // A - tv0, B - tv1, C - tv2
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Prologue prevents ExprEval scheduler from accepting. If Matmul scheduler
+  // rejects, then Pointwise must not accept this unsegmented fusion.
+  tv1 = castOp(DataType::Half, sin(tv1));
+
+  auto tv2 = linear(tv0, tv1);
+
+  fusion->addOutput(tv2);
+
+  NVF_CHECK(
+      ir_utils::getOpsOfType<LinearOp>(fusion.get()).size() == 1,
+      "matmul fusion must have at least one MmaOp");
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
