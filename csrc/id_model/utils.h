@@ -11,16 +11,12 @@
 
 #include <functional>
 #include <iostream>
+#include <sstream>
 
 #define VERBOSE() verbose(__LINE__)
 #define WARN() warn(__LINE__)
 
 namespace nvfuser {
-
-class Fusion;
-class TensorView;
-class Expr;
-class IterDomain;
 
 // Temporary logging utility
 class DebugStream {

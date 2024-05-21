@@ -1148,7 +1148,7 @@ std::string GetMetaData::toString(int indent_size) const {
 
 std::string GetMetaData::toInlineString(int indent_size) const {
   std::stringstream ss;
-  ss << ir_utils::varName(in());
+  ss << "getMetaData(" << ir_utils::varName(in()) << ")";
   return ss.str();
 }
 
@@ -3126,10 +3126,6 @@ IterDomain* IterDomain::resize(
 void IterDomain::parallelize(ParallelType t) {
   if (parallel_type_ == t) {
     // No op, don't do any more checks, it was already set to this value.
-    return;
-  }
-
-  if (getenv("DISABLE_UNSWITCH") && t == ParallelType::Unswitch) {
     return;
   }
 
