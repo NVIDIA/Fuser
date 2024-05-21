@@ -39,11 +39,6 @@
 namespace nvfuser {
 
 class CombineMulSumAsMmaTest : public NVFuserTest {
- protected:
-  CombineMulSumAsMmaTest() {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
-
   void SetUp() override {
     // These test are enable for Turing and newer. Temporarily
     // we are skipping Hopper since the matmul for it is under development.
@@ -60,11 +55,6 @@ class CombineMulSumAsMmaTest : public NVFuserTest {
     }
     NVFuserTest::SetUp();
   }
-
- private:
-  // RAII style options guard. This is used to disable
-  // (via set) options in the constructor.
-  DisableOptionsGuard opt_guard_;
 };
 
 void performSubstitution(Fusion* fusion, bool should_not_find = false) {
