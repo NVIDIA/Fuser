@@ -15,6 +15,7 @@
 
 #include <fusion.h>
 #include <id_model/id_model.h>
+#include <id_model/loop_promotion.h>
 #include <id_model/to_string.h>
 #include <inlining.h>
 #include <ops/all_ops.h>
@@ -118,74 +119,57 @@ IterDomain* getChildIdByName(IterDomain* id, StmtNameType name) {
 };
 
 // Helper class to test IdModel
-class IdModelTester : public IdModel {
+class IdModelTester : public LoopPromotionMapBuilderCallback {
  public:
   // Do not automatically build the graphs
-  IdModelTester(Fusion* fusion) : IdModel(fusion, /*build_graphs=*/false) {
-    // Make sure the depedent graphs are already built
-    maybeBuildGraph(IdMappingMode::EXACT);
-    maybeBuildGraph(IdMappingMode::PERMISSIVE);
+  IdModelTester(Fusion* fusion) {
+    id_model = std::make_unique<IdModel>(
+        fusion,
+        /*build_graphs=*/false,
+        /*allow_self_mapping=*/false,
+        /*validate=*/true,
+        /*loop_promotion_map_builder_callback=*/this);
 
-    // Gather broadcast resolution and inlining information
-    const StatefulInliningInfo inlining_info = buildStatefulInliningInfo(
-        tv_exprs_,
-        idGraph(IdMappingMode::EXACT),
-        idGraph(IdMappingMode::PERMISSIVE));
+    // Only build the loop graph
+    id_model->buildLoopGraph();
+  }
 
-    initializeLoopGraph(inlining_info);
-
-    validateLoopGraphHasNoSelfMappedLeafDomains();
-
-    iel_graph = buildIntersection(
-        idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
-
+  void postStep1(
+      const std::unordered_map<ValGroup, IterDomain*>& iel_root_resolution_map,
+      const ValGraph& iel_graph) override {
+    this->iel_graph = iel_graph;
+    // this->iel_graph is a copy of the original IEL graph. The given
+    // map is for the original graph and needs to be updated.
     s1_root_resolution_map =
-        buildInlineRootResolutionMap(iel_graph, inlining_info);
+        updateValGroupIdMap(iel_root_resolution_map, this->iel_graph);
+  }
 
-    s2_iel_promotion_map = s1_root_resolution_map;
+  void postStep2(
+      const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& iel_graph) override {
+    s2_iel_promotion_map =
+        updateValGroupIdMap(iel_promotion_map, this->iel_graph);
+  }
 
-    propagatePromotionsInIELGraph(iel_graph, s2_iel_promotion_map);
-
-    const auto s3_original_loop_promotion_map = projectIELPromotionToLoopGraph(
-        iel_graph,
-        s2_iel_promotion_map,
-        idGraph(IdMappingMode::LOOP),
-        inlining_info);
-
-    // Make a copy for validation as idGraph(IdMappingMode::LOOP) will
-    // be updated in the later steps
-    s3_loop_graph = idGraph(IdMappingMode::LOOP);
+  void postStep3(const std::unordered_map<ValGroup, IterDomain*>&
+                     loop_promotion_map) override {
+    s3_loop_graph = id_model->idGraph(IdMappingMode::LOOP);
     s3_loop_promotion_map =
-        updateValGroupIdMap(s3_original_loop_promotion_map, s3_loop_graph);
+        updateValGroupIdMap(loop_promotion_map, s3_loop_graph);
+  }
 
-    // Note that s4_iel_promotion_map is an empty map at this
-    // point. It'll be populated with the Step-3 map
-    propagatePromotionsInIELGraph(
-        iel_graph,
-        s4_iel_promotion_map,
-        idGraph(IdMappingMode::LOOP),
-        s3_original_loop_promotion_map);
+  void postStep4(
+      const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& iel_graph) override {
+    s4_iel_promotion_map =
+        updateValGroupIdMap(iel_promotion_map, this->iel_graph);
+  }
 
-    // Step 5: Find the final promotion of each loop group based on the
-    // final IEL promotion map
-    s5_loop_promotion_map = projectIELPromotionToLoopGraph(
-        iel_graph,
-        s4_iel_promotion_map,
-        idGraph(IdMappingMode::LOOP),
-        inlining_info);
-
-    auto updated_s3_loop_promotion_map = updateValGroupIdMap(
-        s3_loop_promotion_map, idGraph(IdMappingMode::LOOP));
-    s5_loop_promotion_map.insert(
-        updated_s3_loop_promotion_map.begin(),
-        updated_s3_loop_promotion_map.end());
-
-    sanityCheckLoopPromotionMap(s5_loop_promotion_map);
-    validateLoopGraphHasNoSelfMappedLeafDomains();
-
-    s5_loop_graph = idGraph(IdMappingMode::LOOP);
+  void postStep5(const std::unordered_map<ValGroup, IterDomain*>&
+                     loop_promotion_map) override {
+    s5_loop_graph = id_model->idGraph(IdMappingMode::LOOP);
     s5_loop_promotion_map =
-        updateValGroupIdMap(s5_loop_promotion_map, s5_loop_graph);
+        updateValGroupIdMap(loop_promotion_map, s5_loop_graph);
   }
 
   void print(std::ostream& os) const {
@@ -211,6 +195,7 @@ class IdModelTester : public IdModel {
     }
   }
 
+  std::unique_ptr<IdModel> id_model;
   ValGraph iel_graph;
   std::unordered_map<ValGroup, IterDomain*> s1_root_resolution_map;
   std::unordered_map<ValGroup, IterDomain*> s2_iel_promotion_map;
@@ -230,8 +215,8 @@ void validateIELResolution(
     const IdModelTester& tester,
     const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map) {
   const auto& iel_graph = tester.iel_graph;
-  const auto& exact_graph = tester.idGraph(IdMappingMode::EXACT);
-  const auto& loop_graph = tester.idGraph(IdMappingMode::LOOP);
+  const auto& exact_graph = tester.id_model->idGraph(IdMappingMode::EXACT);
+  const auto& loop_graph = tester.id_model->idGraph(IdMappingMode::LOOP);
 
   const auto& iel_group = iel_graph.toGroup(id);
   auto iel_promotion_map_it = iel_promotion_map.find(iel_group);
