@@ -1054,54 +1054,6 @@ inline void resolveTvToMatmulDomainsMapping(
 
 } // anonymous namespace
 
-ProblemIterDomainsOpt getProblemIterDomains(const MatmulPattern& pattern) {
-  // NOTE: the iter domains of MMA output should be [...,M,K,N]
-  IterDomain* m = nullptr;
-  IterDomain* n = nullptr;
-  IterDomain* k = nullptr;
-
-  const auto& leaf_domains = pattern.output->getLeafDomain();
-  const auto concrete = TensorDomain::noDevices(
-      TensorDomain::noReductions(TensorDomain::noBroadcasts(leaf_domains)));
-  if (concrete.size() < MIN_MATMUL_INPUTS_NUMBER) {
-    std::stringstream ss;
-    ss << "Failed to find the minimum number of MMA input candidates, expected "
-       << MIN_MATMUL_INPUTS_NUMBER << ", got " << concrete.size();
-    return ss.str();
-  }
-
-  // M,N are inner most concrete iter domains
-  m = concrete.rbegin()[1];
-  n = concrete.rbegin()[0];
-
-  // K is a reduction domain, search for the inner most reduction domain
-  for (auto iter_domain = leaf_domains.rbegin();
-       iter_domain != leaf_domains.rend();
-       ++iter_domain) {
-    if ((*iter_domain)->isReduction()) {
-      k = *iter_domain;
-      break;
-    }
-  }
-  NVF_ERROR(k != nullptr, "Failed to find K domain in MMA output");
-
-  return ProblemIterDomains{m, n, k};
-}
-
-ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
-  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
-  if (mma_exprs.size() != 1) {
-    std::stringstream ss;
-    ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
-       << mma_exprs.size();
-    return ss.str();
-  }
-  return getProblemIterDomains(
-      {static_cast<TensorView*>(mma_exprs.front()->inA()),
-       static_cast<TensorView*>(mma_exprs.front()->inB()),
-       static_cast<TensorView*>(mma_exprs.front()->out())});
-}
-
 MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion) {
   const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
   if (patterns.size() != 1) {

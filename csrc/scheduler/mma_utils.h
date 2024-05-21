@@ -313,16 +313,6 @@ NVF_API MatmulProblemLayoutOpt getProblemLayout(
     const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain,
     const RolesMap& roles_map);
 
-//! Returns wrapped collection of IterDomains that can be used to get
-//!  problem shape with runtime info.
-//!  Data is stored in the order in which lables are defined in MatmulDomain
-//!  enum class, that is in the following order: m, n, k.
-//!  An error message is stored in retruned object if valid data cannot
-//!  be gathered.
-//!  TODO: 4th domain must be added for batch gemm support.
-ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
-ProblemIterDomainsOpt getProblemIterDomains(const MatmulPattern& pattern);
-
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
