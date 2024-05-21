@@ -204,7 +204,8 @@ constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro)
 //! NN : K,M X N,K -> M,N
 enum class MmaLayout { NT = 0, TT, TN, NN };
 
-//! Indicates which dimension is innermost in the allocation domain of an operand
+//! Indicates which dimension is innermost in the allocation domain of an
+//! operand
 enum class UnitDim { K, M_or_N };
 
 //! Utility to annotate which input of mma this option struct describes
@@ -281,4 +282,5 @@ NVF_API size_t hash(MmaMacro macro);
 size_t hash(MmaLayout input_layout);
 size_t hash(const GemmTile& tile);
 NVF_API size_t hash(const MatMulTileOptions& opts);
+
 } // namespace nvfuser
