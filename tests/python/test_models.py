@@ -211,14 +211,26 @@ class CausalSelfAttention(nn.Module):
         # output projection
         return self.proj(y)
 
-    def scaled_dot_product_attention(
-        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor
-    ) -> torch.Tensor:
+    # def scaled_dot_product_attention(
+    #     self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor
+    # ) -> torch.Tensor:
+    #     scale = 1.0 / math.sqrt(self.config.head_size)
+    #     y = torch.nn.functional.scaled_dot_product_attention(
+    #         q, k, v, dropout_p=0.0, scale=scale, is_causal=True
+    #     )
+    #     return y.transpose(1, 2)
+    def scaled_dot_product_attention(self, query, key, value, dropout_p=0.0) -> torch.Tensor:
         scale = 1.0 / math.sqrt(self.config.head_size)
-        y = torch.nn.functional.scaled_dot_product_attention(
-            q, k, v, dropout_p=0.0, scale=scale, is_causal=True
-        )
-        return y.transpose(1, 2)
+        # L, S = query.size(-2), key.size(-2)
+        # attn_bias = torch.zeros(L, S, dtype=query.dtype)
+        # temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0)
+        # attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
+        # attn_bias.to(query.dtype)
+        attn_weight = query @ key.transpose(-2, -1) * scale
+        # attn_weight += attn_bias
+        attn_weight = torch.softmax(attn_weight, dim=-1)
+        # attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
+        return (attn_weight @ value).transpose(1, 2)
 
 
 class LLaMAMLP(nn.Module):
@@ -268,141 +280,6 @@ x = torch.randint(
     0, config.padded_vocab_size, input_shape, dtype=torch.int64, device="cuda"
 )
 
-# jit_model = thunder.jit(model, nv_enable_linear=True, nv_enable_matmul=True)
+jit_model = thunder.jit(model, nv_enable_linear=True, nv_enable_matmul=True, nv_enable_bookend=False)
 
-# out = jit_model(x)
-
-import torch
-from nvfuser import FusionDefinition, DataType
-
-def nvfuser_fusion_id14(fd : FusionDefinition) -> None :
-    T0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[None, None, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
-    T1 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
-    T2 = fd.define_tensor(shape=[-1, -1, -1, -1], contiguity=[None, None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 2, 1, 0])
-    T3 = fd.define_tensor(shape=[-1, -1, -1, -1], contiguity=[None, None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 2, 1, 0])
-    T4 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
-    T5 = fd.ops.cast(T1, dtype=DataType.Float)
-    T6 = fd.ops.mul(T5, T5)
-    T7 = fd.ops.sum(T6, dims=[2], keepdim=False, dtype=DataType.Null)
-    S8 = fd.define_scalar(2, dtype=DataType.Int)
-    S9 = fd.define_scalar(4096, dtype=DataType.Int)
-    S10 = fd.define_scalar(1, dtype=DataType.Int)
-    V11 = fd.define_vector([S8, S9, S10], dtype=DataType.Int)
-    T12 = fd.ops.broadcast_in_dim(T7, shape=V11, broadcast_dims=[0, 1])
-    S13 = fd.define_scalar(4096.00, dtype=DataType.Double)
-    S14 = fd.ops.reciprocal(S13)
-    T15 = fd.ops.mul(T12, S14)
-    S16 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
-    T17 = fd.ops.add(T15, S16)
-    T18 = fd.ops.rsqrt(T17)
-    S19 = fd.define_scalar(2, dtype=DataType.Int)
-    S20 = fd.define_scalar(4096, dtype=DataType.Int)
-    S21 = fd.define_scalar(4096, dtype=DataType.Int)
-    V22 = fd.define_vector([S19, S20, S21], dtype=DataType.Int)
-    T23 = fd.ops.broadcast_in_dim(T18, shape=V22, broadcast_dims=[0, 1, 2])
-    T24 = fd.ops.mul(T5, T23)
-    T25 = fd.ops.cast(T0, dtype=DataType.Float)
-    T26 = fd.ops.mul(T24, T25)
-    T27 = fd.ops.cast(T26, dtype=DataType.BFloat16)
-    T28 = fd.ops.linear(T27, T4)
-    S29 = fd.define_scalar(2, dtype=DataType.Int)
-    S30 = fd.define_scalar(4096, dtype=DataType.Int)
-    S31 = fd.define_scalar(8, dtype=DataType.Int)
-    S32 = fd.define_scalar(6, dtype=DataType.Int)
-    S33 = fd.define_scalar(128, dtype=DataType.Int)
-    V34 = fd.define_vector([S29, S30, S31, S32, S33], dtype=DataType.Int)
-    T35 = fd.ops.reshape(T28, new_shape=V34)
-    T36 = fd.ops.permute(T35, dims=[0, 2, 3, 1, 4])
-    
-    # Q, K, V
-    T37 = fd.ops.slice(T36, start_indices=[0, 0, 0, 0, 0], end_indices=[2, 8, 4, 4096, 128], strides=[1, 1, 1, 1, 1])
-    T38 = fd.ops.slice(T36, start_indices=[0, 0, 4, 0, 0], end_indices=[2, 8, 5, 4096, 128], strides=[1, 1, 1, 1, 1])
-    T39 = fd.ops.slice(T36, start_indices=[0, 0, 5, 0, 0], end_indices=[2, 8, 6, 4096, 128], strides=[1, 1, 1, 1, 1])
-
-    S40 = fd.define_scalar(2, dtype=DataType.Int)
-    S41 = fd.define_scalar(8, dtype=DataType.Int)
-    S42 = fd.define_scalar(4, dtype=DataType.Int)
-    S43 = fd.define_scalar(4096, dtype=DataType.Int)
-    S44 = fd.define_scalar(128, dtype=DataType.Int)
-    V45 = fd.define_vector([S40, S41, S42, S43, S44], dtype=DataType.Int)
-    T46 = fd.ops.broadcast_in_dim(T38, shape=V45, broadcast_dims=[0, 1, 2, 3, 4])
-    S47 = fd.define_scalar(2, dtype=DataType.Int)
-    S48 = fd.define_scalar(32, dtype=DataType.Int)
-    S49 = fd.define_scalar(4096, dtype=DataType.Int)
-    S50 = fd.define_scalar(128, dtype=DataType.Int)
-    V51 = fd.define_vector([S47, S48, S49, S50], dtype=DataType.Int)
-    T52 = fd.ops.reshape(T37, new_shape=V51)
-
-    S53 = fd.define_scalar(2, dtype=DataType.Int)
-    S54 = fd.define_scalar(32, dtype=DataType.Int)
-    S55 = fd.define_scalar(4096, dtype=DataType.Int)
-    S56 = fd.define_scalar(128, dtype=DataType.Int)
-    V57 = fd.define_vector([S53, S54, S55, S56], dtype=DataType.Int)
-    T58 = fd.ops.reshape(T46, new_shape=V57)
-
-    T59 = fd.ops.slice(T52, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 4096, 128], strides=[1, 1, 1, 1])
-
-    # RoPE: Q
-    T60 = fd.ops.slice(T59, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 4096, 64], strides=[1, 1, 1, 1])
-    T61 = fd.ops.slice(T59, start_indices=[0, 0, 0, 64], end_indices=[2, 32, 4096, 128], strides=[1, 1, 1, 1])
-    T62 = fd.ops.cast(T61, dtype=DataType.Float)
-    T63 = fd.ops.neg(T62)
-    T64 = fd.ops.cast(T63, dtype=DataType.BFloat16)
-    T65 = fd.ops.cat([T64, T60], dim=-1)
-    T66 = fd.ops.cast(T59, dtype=DataType.Float)
-    T67 = fd.ops.cast(T2, dtype=DataType.Float)
-    T68 = fd.ops.mul(T66, T67)
-    T69 = fd.ops.cast(T65, dtype=DataType.Float)
-    T70 = fd.ops.cast(T3, dtype=DataType.Float)
-    T71 = fd.ops.mul(T69, T70)
-    T72 = fd.ops.add(T68, T71)
-    T73 = fd.ops.cast(T72, dtype=DataType.BFloat16)
-
-    #RoPE: K
-    T74 = fd.ops.slice(T58, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 4096, 128], strides=[1, 1, 1, 1])
-    T75 = fd.ops.slice(T74, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 4096, 64], strides=[1, 1, 1, 1])
-    T76 = fd.ops.slice(T74, start_indices=[0, 0, 0, 64], end_indices=[2, 32, 4096, 128], strides=[1, 1, 1, 1])
-    T77 = fd.ops.cast(T76, dtype=DataType.Float)
-    T78 = fd.ops.neg(T77)
-    T79 = fd.ops.cast(T78, dtype=DataType.BFloat16)
-    T80 = fd.ops.cat([T79, T75], dim=-1)
-    T81 = fd.ops.cast(T74, dtype=DataType.Float)
-    T82 = fd.ops.mul(T81, T67)
-    T83 = fd.ops.cast(T80, dtype=DataType.Float)
-    T84 = fd.ops.mul(T83, T70)
-    T85 = fd.ops.add(T82, T84)
-    T86 = fd.ops.cast(T85, dtype=DataType.BFloat16)
-
-    T87 = fd.ops.slice(T52, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 4096, 1], strides=[1, 1, 1, 1])
-    T88 = fd.ops.cat([T73, T87], dim=-1)
-
-    # T89 = fd.ops.slice(T58, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 4096, 128], strides=[1, 1, 1, 1])
-    # T90 = fd.ops.cat([T86, T89], dim=-1)
-    
-    fd.add_output(T18)
-    fd.add_output(T27)
-    fd.add_output(T39)
-    fd.add_output(T88)
-    # fd.add_output(T90)
-
-with FusionDefinition() as fd:
-    nvfuser_fusion_id14(fd)
-
-# def cat_repro(fd : FusionDefinition) -> None :
-    # T52 = fd.define_tensor(shape=[-1, -1, -1, -1], contiguity=[True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
-    # T86 = fd.define_tensor(shape=[-1, -1, -1, -1], contiguity=[True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
-    # T87 = fd.ops.slice(T52, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 4096, 0], strides=[1, 1, 1, 1])
-    # T88 = fd.ops.cat([T73, T87], dim=-1)
-    # T89 = fd.ops.slice(T58, start_indices=[0, 0, 0, 0], end_indices=[2, 32, 4096, 0], strides=[1, 1, 1, 1])
-
-    # T90 = fd.ops.cat([T86, T89], dim=-1)
-
-inputs = [
-    torch.randn((4096,), dtype=torch.bfloat16, device='cuda:0').as_strided((2, 4096, 4096), (0, 0, 1)),
-    torch.randn((33554432,), dtype=torch.bfloat16, device='cuda:0').as_strided((2, 4096, 4096), (16777216, 4096, 1)),
-    torch.randn((524288,), dtype=torch.bfloat16, device='cuda:0').as_strided((2, 32, 4096, 128), (0, 0, 128, 1)),
-    torch.randn((524288,), dtype=torch.bfloat16, device='cuda:0').as_strided((2, 32, 4096, 128), (0, 0, 128, 1)),
-    torch.randn((25165824,), dtype=torch.bfloat16, device='cuda:0').as_strided((6144, 4096), (4096, 1)),
-]
-fd.execute(inputs)
-
+out = jit_model(x)
