@@ -319,6 +319,7 @@ std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion);
 //! fusion has blockDim.x = 128, this function will return 3 instead of 128.
 Val* getNumThreadsInTensorView(TensorView* tv);
 
+//! Get the unit dimensions of A and B for the given MmaOp.
 std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr);
 
 } // namespace lower_utils
