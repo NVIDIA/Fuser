@@ -1578,7 +1578,7 @@ void IndexLowering::handle(const MmaOp* mma) {
   constexpr int64_t core_matrix_outer_size = 8;
   Val* a = nullptr;
   Val* b = nullptr;
-  auto layout = lower_utils::getMmaLayout(mma);
+  const auto& [unitdim_a, unitdim_b] = lower_utils::getMmaLayout(mma);
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
@@ -1588,7 +1588,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
-        layout[0] == UnitDim::K ? getK(mma->macro()) : getM(mma->macro());
+        unitdim_a == UnitDim::K ? getK(mma->macro()) : getM(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
@@ -1620,7 +1620,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
-        layout[1] == UnitDim::K ? getK(mma->macro()) : getN(mma->macro());
+        unitdim_b == UnitDim::K ? getK(mma->macro()) : getN(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
