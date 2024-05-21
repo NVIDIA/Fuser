@@ -306,7 +306,7 @@ NVF_API MatmulProblemLayoutOpt getProblemLayout(
 
 //! This version assumes the Fusion contains a single MatmulPattern, then builds
 //! an IdModel and infers dim roles then calls the above function.
-// NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
+NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
 
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
