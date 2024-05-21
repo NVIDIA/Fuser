@@ -206,7 +206,7 @@ std::string isMatmulFusionDefinitionSupported(
     for (const auto& [g, dom] : id_roles) {
       num_axes[(size_t)dom]++;
     }
-    constexpr size_t expected_axes_numbers = 1;
+    constexpr int64_t expected_axes_numbers = 1;
     if (num_axes[(size_t)MatmulDomain::M] != expected_axes_numbers ||
         num_axes[(size_t)MatmulDomain::N] != expected_axes_numbers ||
         num_axes[(size_t)MatmulDomain::K] != expected_axes_numbers ||
