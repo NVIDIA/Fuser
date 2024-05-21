@@ -16,6 +16,10 @@ struct __align__(1) __e4m3 {
     __x = other.__x;
   }
 
+  __e4m3(const __e4m3&& other) {
+    __x = other.__x;
+  }
+
   __e4m3(const volatile __e4m3& other) {
     __x = other.__x;
   }
@@ -32,6 +36,10 @@ struct __align__(1) __e4m3 {
     __x = other.__x;
   }
 
+  __device__ void operator=(const __e4m3&& other) {
+    __x = other.__x;
+  }
+
   __device__ void operator=(const volatile __e4m3& other) {
     __x = other.__x;
   }
@@ -41,6 +49,10 @@ struct __align__(1) __e4m3 {
   }
 
   __device__ void operator=(const __e4m3& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __e4m3&& other) volatile {
     __x = other.__x;
   }
 
@@ -193,6 +205,10 @@ struct __align__(1) __e5m2 {
     __x = other.__x;
   }
 
+  __e5m2(const __e5m2&& other) {
+    __x = other.__x;
+  }
+
   __e5m2(const volatile __e5m2& other) {
     __x = other.__x;
   }
@@ -209,6 +225,10 @@ struct __align__(1) __e5m2 {
     __x = other.__x;
   }
 
+  __device__ void operator=(const __e5m2&& other) {
+    __x = other.__x;
+  }
+
   __device__ void operator=(const volatile __e5m2& other) {
     __x = other.__x;
   }
@@ -218,6 +238,10 @@ struct __align__(1) __e5m2 {
   }
 
   __device__ void operator=(const __e5m2& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __e5m2&& other) volatile {
     __x = other.__x;
   }
 

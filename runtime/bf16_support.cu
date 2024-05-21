@@ -20,6 +20,10 @@ struct __align__(2) __bfloat {
     __x = other.__x;
   }
 
+  __bfloat(const __bfloat&& other) {
+    __x = other.__x;
+  }
+
   __bfloat(const volatile __bfloat& other) {
     __x = other.__x;
   }
@@ -36,6 +40,10 @@ struct __align__(2) __bfloat {
     __x = other.__x;
   }
 
+  __device__ void operator=(const __bfloat&& other) {
+    __x = other.__x;
+  }
+
   __device__ void operator=(const volatile __bfloat& other) {
     __x = other.__x;
   }
@@ -45,6 +53,10 @@ struct __align__(2) __bfloat {
   }
 
   __device__ void operator=(const __bfloat& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __bfloat&& other) volatile {
     __x = other.__x;
   }
 
