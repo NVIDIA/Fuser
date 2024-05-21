@@ -67,12 +67,12 @@ void HostIrExecutor::postCompute(PostOnStream* post) {
 
   // placeholder for storing the outputs
   std::vector<at::Tensor> preallocated_outputs;
-  bool use_preallocated_outputs = true;
+  // bool use_preallocated_outputs = true;
   for (auto& output : post->outputs()) {
     if (val_to_IValue_.find(output) != val_to_IValue_.end()) {
       preallocated_outputs.push_back(val_to_IValue_.at(output).toTensor());
     } else {
-      use_preallocated_outputs = false;
+      // use_preallocated_outputs = false;
       preallocated_outputs = {};
     }
   }
@@ -91,13 +91,7 @@ void HostIrExecutor::postCompute(PostOnStream* post) {
         std::make_unique<Fusion>(*hu->fusion_to_execute()),
         0,
         !params_.skip_auto_scheduling);
-    outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
-    for (auto output_idx : c10::irange(outputs.size())) {
-      if (use_preallocated_outputs) {
-        preallocated_outputs.at(output_idx).copy_(outputs.at(output_idx));
-        outputs = preallocated_outputs;
-      }
-    }
+    outputs = fec_.at(hu).runFusionWithInputs(input_IValues, preallocated_outputs);
   } else {
     auto [it, has_emplaced] = fe_.try_emplace(hu);
     auto& fe = it->second;

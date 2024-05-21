@@ -1909,9 +1909,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
-  NVF_ERROR(
-      !args.getCacheId().has_value() || outputs.empty(),
-      "short cut input cache is not compatible with pre-allocated output");
+
+  // short cut input cache is not compatible with pre-allocated output
+  if (!outputs.empty()) {
+    args.getCacheId() = std::nullopt;
+  }
 
   validateIndexType(kernel(), compile_params);
 
