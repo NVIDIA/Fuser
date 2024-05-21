@@ -1300,4 +1300,119 @@ TEST_F(IndexingOpTest, GatherIterGoupedReduction_CUDA) {
       lparams);
 }
 
+
+void persistentViewAddFusion(
+    std::vector<int64_t>& input_shape,
+    std::vector<int64_t>& output_shape,
+    bool reshape_before_persistent) {
+  constexpr int kAxis = -1;
+
+  // Support -1 sizes in the inputs
+  auto inferred_shapes = inferViewShapes(input_shape, output_shape);
+  auto inferred_input = inferred_shapes.first;
+  auto inferred_output = inferred_shapes.second;
+
+  auto bias_shape =
+      reshape_before_persistent ? inferred_input : inferred_output;
+  for (auto has_implicit_broadcast : {false, true}) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    TensorView* x = (has_implicit_broadcast)
+        ? makeConcreteTensor(inferred_input)
+        : makeSymbolicTensor(inferred_input.size());
+    TensorView* bias = (has_implicit_broadcast)
+        ? makeConcreteTensor(bias_shape)
+        : makeSymbolicTensor(bias_shape.size());
+    fusion.addInput(x);
+    fusion.addInput(bias);
+
+    auto tv1 = (reshape_before_persistent) ? add(x, bias) : softmax(x, kAxis);
+    auto x_reshape = reshape(tv1, inferred_input, inferred_output);
+    auto y = (reshape_before_persistent) ? softmax(x_reshape, kAxis)
+                                         : add(x_reshape, bias);
+    fusion.addOutput(y);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor at_x = at::randn(inferred_input, options);
+    at::Tensor at_bias = at::randn(bias_shape, options);
+    std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
+
+    FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+    auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
+typedef std::vector<int64_t> shape_t;
+typedef std::pair<shape_t, shape_t> reshape_example;
+std::vector<reshape_example> all_reshape_examples = {
+    {{1, 19, 1, 3 * 4, 7, 1, 99}, {1, 19, -1, 3, 4 * 7 * 99}},
+    {{1, 19, 1, 3 * 4, 7, 1, 99}, {1, 19, 1, 3, 4 * 7 * 99}},
+    {{19, 3 * 4, 7, 99}, {19, 3, 4 * 7 * 99}},
+
+    {{3, 17, 2 * 4 * 10, 1}, {3 * 17, 1, 2, 4, -1}},
+    {{3, 17, 2 * 4 * 10, 1}, {3 * 17, 1, 2, 4, 10}},
+    {{3, 17, 2 * 4 * 10, 1}, {3 * 17, 2, 4, 1, 10}},
+
+    {{3, 17, 2 * 4 * 10, 1, 9}, {-1, 1, 2, 4, 10, 9}},
+    {{3, 17, 2 * 4 * 10, 1, 9}, {3 * 17, 1, 2, 4, 10, 9}},
+    {{3, 17, 2 * 4 * 10, 1, 9}, {3 * 17, 2, 4, 1, 10, 9}},
+
+    {{2, 3, 2 * 2, 5}, {1, 2 * 3, 1, -1, 2, 5, 1}},
+
+    {{22, 11 * 2, 2}, {22, -1, 1, 1, 2 * 2}},
+    {{22, 1, 22, 1}, {-1}},
+    {{22, 11 * 2, 2}, {22, 11, 1, 1, 2 * 2}},
+    {{22, 1, 22, 1}, {22 * 22}},
+
+    {{37, 9, 7, 3 * 2, 5 * 2}, {37 * 9, 2, -1, 3, 7 * 5}},
+    {{37, 9, 7, 3 * 2, 5 * 2}, {37 * 9, 2, 2, 3, 7 * 5}},
+
+    {{1, 1, 3333, 1}, {1, 1, -1, 1}},
+    // Disabled for now due to non-deterministic nan issue (#1920)
+    // {{1, 1111 * 3}, {1, 1, 1, -1, 1, 3}},
+    {{1, 3333, 1}, {-1}},
+    {{1, 1, 3333, 1}, {1, 1, 3333, 1}},
+    {{1, 303 * 11, 1}, {1, 303, -1, 1}},
+    {{1, 3333, 1}, {1, 303, 11, 1}},
+    // Disabled for now due to non-deterministic nan issue (#1920)
+    // {{1, 3333}, {1, 1, 1, 1111, 1, 3}},
+    {{1, 3333, 1}, {3333}},
+
+    {{1, 3922 * 7, 1, 2}, {1, 3922 * 2, 1, -1}},
+    {{1, 3922 * 2, 1, 7}, {1, -1, 2}},
+    {{1, 3922 * 7, 2}, {1, 3922 * 2, 7}},
+    {{1, 3922 * 2, 1, 7}, {1, 3922 * 7, 2}},
+    {{1, 3922 * 7, 1, 2}, {1, 3922 * 2, 1, 7}},
+
+    {{8, 1, 1, 2 * 4, 1, 8}, {8, 2, 4, 1, -1}},
+    {{8, 1, 1, 8, 1, 8}, {8, 2, 4, 1, 8}},
+
+    {{2, 3, 2 * 2, 5}, {1, 6, 1, 2, 2, 5, 1}},
+};
+
+TEST_F(IndexingOpTest, TMP) {
+  int caseid= 0 ;
+  for (auto e : all_reshape_examples) {
+    // Shmoo tests can occupy a lot of memory due to allocating many
+    // different tensor sizes. So in order to avoid an OOM during this
+    // test, we manually clear the allocator after it's reached a certain
+    // threshold.
+    std::cout << "1Case " << caseid++ << std::endl;
+    maybeClearAllocator();
+    persistentViewAddFusion(
+        e.first, e.second, true /* reshape_before_persistent */);
+  }
+caseid= 0 ;
+  for (auto e : all_reshape_examples) {
+    std::cout << "2Case " << caseid++ << std::endl;
+    maybeClearAllocator(); // see above
+    persistentViewAddFusion(
+        e.first, e.second, false /* reshape_before_persistent */);
+  }
+}
+
+
 } // namespace nvfuser

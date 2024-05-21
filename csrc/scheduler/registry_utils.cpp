@@ -686,6 +686,9 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         auto  output_tvs = ir_utils::filterByType<TensorView>(output_vals);
         bool is_output = std::find(output_tvs.begin(), output_tvs.end(),forward_running_consumer) != output_tvs.end();
         while(!use_main && !is_output && !forward_tv_dep_chain.empty()){
+          if(forward_running_consumer->definition() && forward_running_consumer->definition()->isA<BroadcastOp>()){
+            break;
+          }
           // move forward to output
           forward_running_producer = forward_running_consumer;
           forward_running_consumer = forward_tv_dep_chain.front();
@@ -698,7 +701,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
           auto forward_p2c_root_map =
               forward_pairwise_root_map.mapProducerToConsumer();
           std::cout << "forward_pairwise_root_map: " << forward_pairwise_root_map.toString() << std::endl;
-
+          bool at_leat_one_id_mapped = false; 
           for (size_t entry_i = ids_to_resolve.size(); entry_i > 0;
                 entry_i--) {
             auto orig_id = ids_to_resolve[entry_i - 1].first;
@@ -709,8 +712,14 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
                           << forward_p2c_root_map.at(running_id)->toString() << std::endl << std::endl;
                 ids_to_resolve[entry_i - 1] = std::make_pair(
                     forward_p2c_root_map.at(running_id), forward_p2c_root_map.at(running_id));
+                at_leat_one_id_mapped = true;
             }
-          }          
+          } 
+          if(!at_leat_one_id_mapped){
+            // move back
+            forward_running_consumer = forward_running_producer;
+            break;
+          }
         }
 
         for(auto item : ids_to_resolve){

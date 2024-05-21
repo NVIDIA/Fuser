@@ -181,7 +181,8 @@ void RemoveBcastSqueeze::runPass(Fusion* fusion) {
   debug() << "\n========Fusion before RemoveBcastSqueeze:" << std::endl;
   fusion->printMath();
 
-  removeBcastSqueeze(fusion);
+  // removeBcastSqueeze(fusion);
+  std::cout << "DISABLED ===================== removeBcastSqueeze ======================== \n\n" << std::endl;
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
   }
