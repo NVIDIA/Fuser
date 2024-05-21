@@ -189,9 +189,6 @@ class ValGraph {
 
   std::string toString() const;
 
-  // Returns if all atributes of the ID transforms first and second are the same
-  static bool transformAtributesMatch(Expr* first, Expr* second);
-
   // Initializes entries for the provided Val with its definitions and
   // uses.
   void initializeVal(
