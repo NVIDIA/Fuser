@@ -37,8 +37,10 @@ struct StatefulInliningInfo {
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       p2c_root_broadcast_resolution_map;
 
+  // All IDs of all first siblings
   VectorOfUniqueEntries<IterDomain*> ordered_sibling_ids;
 
+  // Mappings to other sibling IDs from ordered_sibling_ids
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>> sibling_maps;
 };
 

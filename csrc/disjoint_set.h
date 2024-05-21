@@ -96,16 +96,6 @@ class VectorOfUniqueEntries {
   }
 
   // Returns true if any node was added
-  template <
-      typename VectorOfUniqueEntriesType,
-      typename VectorOfUniqueEntriesHash>
-  bool pushBack(const VectorOfUniqueEntries<
-                VectorOfUniqueEntriesType,
-                VectorOfUniqueEntriesHash>& other) {
-    return pushBack(other.vector());
-  }
-
-  // Returns if any node was added
   template <typename OtherType>
   bool pushBack(const std::vector<OtherType>& other) {
     bool any_added = false;
