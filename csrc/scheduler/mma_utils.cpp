@@ -1552,7 +1552,7 @@ MmaOp* MatmulPattern::translateToMmaOp() {
   if (auto mma_op = dynamic_cast<MmaOp*>(output->definition())) {
     // No translation needed
     return mma_op;
-  } else if (auto rop = dynamic_cast<ReductionOp*>(output->definition())) {
+  } else if (output->definition()->isA<ReductionOp>()) {
     Val* init = IrBuilder::create<Val>(0.0, output->dtype());
     // This replaces the mul and sum by overwriting output->definition()
     return IrBuilder::create<MmaOp>(output, A, B, init);
