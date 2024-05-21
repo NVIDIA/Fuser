@@ -594,6 +594,10 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self) { return self.fusionIr(); },
           py::return_value_policy::reference)
       .def(
+          "_user_schedule_ir",
+          [](FusionDefinition& self) { return self.userScheduleIr(); },
+          py::return_value_policy::reference)
+      .def(
           "_last_cuda_code",
           [](FusionDefinition& self,
              bool intrinsic_code,
@@ -2777,6 +2781,20 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::SchedOperators> nvf_sched(
       fusion_def, "SchedOperators");
   nvf_sched.def(py::init<FusionDefinition*>());
+  nvf_sched.def(
+      "to_string",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor) {
+        // NOTE: For debugging purposes, print the state of TensorView
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        // Determine if tensor is a result from a reduction operation.
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        return tv->toString();
+      },
+      py::arg("tensor"));
   //! experimental API for multidevice support
   nvf_sched.def(
       "_create_device_mesh",

@@ -142,6 +142,8 @@ class NVF_API FusionDefinition : public FusionState {
 
   //! Return the unscheduled Fusion IR
   NVF_API std::string fusionIr();
+  //! Return the user scheduled FusionIR;
+  NVF_API std::string userScheduleIr();
   //! Return the Cuda code for the last executed set of inputs
   NVF_API std::string lastCudaCode(
       bool intrinsic_code,
