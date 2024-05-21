@@ -203,6 +203,8 @@ constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro)
 //! TN : M,K X N,K -> M,N
 //! NN : K,M X N,K -> M,N
 enum class MmaLayout { NT = 0, TT, TN, NN };
+
+//! Indicates which dimension is innermost in the allocation domain of an operand
 enum class UnitDim { K, M_or_N };
 
 //! Utility to annotate which input of mma this option struct describes
