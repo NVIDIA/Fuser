@@ -625,6 +625,9 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 //! Returns true if fusion has any reduction ops.
 bool hasAnyReductionOps(Fusion* fusion);
 
+//! Returns true if fusion has any matmul ops.
+bool hasAnyMatmulOps(Fusion* fusion);
+
 int64_t getVectorizeSize(const TensorView* tv);
 
 // Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. If
