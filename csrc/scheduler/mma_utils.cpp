@@ -1178,9 +1178,9 @@ RolesMapOpt getTensorsRoles(
         has_unmapped = true;
         continue;
       }
-      has_m |= it->second == MatmulDomain::M;
-      has_n |= it->second == MatmulDomain::N;
-      has_k |= it->second == MatmulDomain::K;
+      has_m = has_m || it->second == MatmulDomain::M;
+      has_n = has_n || it->second == MatmulDomain::N;
+      has_k = has_k || it->second == MatmulDomain::K;
     }
     if (has_unmapped) {
       // Don't map TVs to roles if they have unmapped dims
@@ -1217,9 +1217,9 @@ RolesMapOpt getTensorsRoles(
         has_unmapped = true;
         continue;
       }
-      has_m |= it->second == MatmulDomain::M;
-      has_n |= it->second == MatmulDomain::N;
-      has_k |= it->second == MatmulDomain::K;
+      has_m = has_m || it->second == MatmulDomain::M;
+      has_n = has_n || it->second == MatmulDomain::N;
+      has_k = has_k || it->second == MatmulDomain::K;
     }
     // NOTE: depending on fusion definition k domain may appear in the output:
     //  - for mma_output == fusion output k domain is present
