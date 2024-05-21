@@ -1068,7 +1068,7 @@ MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion) {
 MatmulProblemLayoutOpt getProblemLayout(
     const IdModel& id_model,
     const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
-    const RolesMap& roles_map) {
+    const RolesMap& tensor_roles) {
   // Assumes the exact graph has already been built, since we've been provided
   // dim_roles
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
@@ -1079,11 +1079,11 @@ MatmulProblemLayoutOpt getProblemLayout(
   // constructor for DataWrapperOpt to prevent inadvertent copying. To avoid
   // this complication I'm using a simple pair for the lambda's result type.
   using InnerDomResult = std::pair<MatmulDomain, std::string>;
-  const auto innerDomain = [&roles_map, &dim_roles, &exact_graph](
+  const auto innerDomain = [&tensor_roles, &dim_roles, &exact_graph](
                                MatmulRole role) -> InnerDomResult {
-    const auto role_it = roles_map.find(role);
-    if (role_it == roles_map.end()) {
-      return {MatmulDomain::M, "Could not find role in roles_map"};
+    const auto role_it = tensor_roles.find(role);
+    if (role_it == tensor_roles.end()) {
+      return {MatmulDomain::M, "Could not find role in tensor_roles"};
     }
     std::optional<MatmulDomain> group_inner_dom = std::nullopt;
     for (TensorView* tv : role_it->second) {
@@ -1162,7 +1162,7 @@ RolesMapOpt getTensorsRoles(
     return {"Failed to find any TV that is fusion output"};
   }
 
-  RolesMap roles_map;
+  RolesMap tensor_roles;
 
   // Assumes the exact graph has already been built, since we've been provided
   // dim_roles
@@ -1192,16 +1192,16 @@ RolesMapOpt getTensorsRoles(
       continue;
     }
     if (has_m && has_k && !has_n) {
-      roles_map[MatmulRole::INPUT_A].push_back(tv);
+      tensor_roles[MatmulRole::INPUT_A].push_back(tv);
       continue;
     }
     if (has_n && has_k && !has_m) {
-      roles_map[MatmulRole::INPUT_B].push_back(tv);
+      tensor_roles[MatmulRole::INPUT_B].push_back(tv);
       continue;
     }
     // Bias vectors are assigned to INPUT_C role
     if (!has_k) {
-      roles_map[MatmulRole::INPUT_C].push_back(tv);
+      tensor_roles[MatmulRole::INPUT_C].push_back(tv);
       continue;
     }
   }
@@ -1256,13 +1256,13 @@ RolesMapOpt getTensorsRoles(
     // NOTE: currently, we pick as a reference tensor one with `m` and `n`
     //       IterDomains and the most uses
     auto pos = storage.begin();
-    roles_map[MatmulRole::OUTPUT_D].push_back(*pos);
+    tensor_roles[MatmulRole::OUTPUT_D].push_back(*pos);
     for (++pos; pos != storage.end(); ++pos) {
-      roles_map[MatmulRole::OUTPUT_AUX].push_back(*pos);
+      tensor_roles[MatmulRole::OUTPUT_AUX].push_back(*pos);
     }
   }
 
-  for (auto& [role, tvs] : roles_map) {
+  for (auto& [role, tvs] : tensor_roles) {
     // NOTE: sort input roles in descending order by uses() size, and
     //  if equal then by name() to ensure the stable ordering of tensor
     //  views in collections assigned to the supported roles
@@ -1273,7 +1273,7 @@ RolesMapOpt getTensorsRoles(
     });
   }
 
-  return roles_map;
+  return tensor_roles;
 }
 
 namespace {
