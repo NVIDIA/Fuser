@@ -1533,16 +1533,16 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   recordPresence(B, 1);
   recordPresence(output, 2);
 
-  std::unordered_map<ValGroup, MatmulDomain> dim_to_domain;
+  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
   for (const auto& [g, flags] : present_flags) {
     if (flags.all()) {
-      dim_to_domain[g] = MatmulDomain::Batch;
+      dim_roles[g] = MatmulDomain::Batch;
     } else if (flags.test(0) && flags.test(1)) {
-      dim_to_domain[g] = MatmulDomain::K;
+      dim_roles[g] = MatmulDomain::K;
     } else if (flags.test(0) && flags.test(2)) {
-      dim_to_domain[g] = MatmulDomain::M;
+      dim_roles[g] = MatmulDomain::M;
     } else if (flags.test(1) && flags.test(2)) {
-      dim_to_domain[g] = MatmulDomain::N;
+      dim_roles[g] = MatmulDomain::N;
     } else {
       NVF_ERROR(
           false,
@@ -1551,7 +1551,7 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
     }
   }
 
-  return dim_to_domain;
+  return dim_roles;
 }
 
 } // namespace mma_utils
