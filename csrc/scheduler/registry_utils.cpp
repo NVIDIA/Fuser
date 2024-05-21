@@ -631,6 +631,12 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         // reduction input iteration domain is used after this tensor. See
         // PostReductionBroadcastCheck test and issue-2146.
         while (!forward_tv_dep_chain.empty()) {
+          // broadcastOp introduces a new broadcast axis, and it may be resolved
+          // and requires a new check. So, we need to stop at the broadcastOp.
+          // see FusionReshapePersistentShmoo.
+          if (forward_running_consumer->definition()->isA<BroadcastOp>()) {
+            break;
+          }
           forward_running_producer = forward_running_consumer;
           forward_running_consumer = forward_tv_dep_chain.front();
           forward_tv_dep_chain.pop_front();
@@ -638,14 +644,22 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
               forward_running_producer, forward_running_consumer);
           auto forward_p2c_root_map =
               forward_pairwise_root_map.mapProducerToConsumer();
+          bool at_leat_one_id_mapped = false;
           for (size_t entry_i = ids_to_resolve.size(); entry_i > 0; entry_i--) {
             auto running_id = ids_to_resolve[entry_i - 1].second;
             if (forward_p2c_root_map.find(running_id) !=
                 forward_p2c_root_map.end()) {
+              at_leat_one_id_mapped = true;
               ids_to_resolve[entry_i - 1] = std::make_pair(
                   forward_p2c_root_map.at(running_id),
                   forward_p2c_root_map.at(running_id));
             }
+          }
+          // If no id's map, roll back and stop moving forward
+          // see TakeAlongAxisIntermediateTensorNormalization1_CUDA
+          if (!at_leat_one_id_mapped) {
+            forward_running_consumer = forward_running_producer;
+            break;
           }
         }
 
