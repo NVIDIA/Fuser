@@ -3390,6 +3390,8 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
   }
   if (deviceMajorMinorCheck(9)) {
     dtype_variants.push_back(DataType::Float8_e4m3fn);
+    // We cannot set nan to e5m2.
+    setFillAllocationWithNan(false);
     dtype_variants.push_back(DataType::Float8_e5m2);
   }
 
@@ -3409,22 +3411,31 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
     TensorView* tv5 = cat({tv4, tv1}, -1);
     fusion_ptr->addOutput(tv5);
 
-    auto options = at::TensorOptions()
-                       .dtype(data_type_to_aten(dtype))
-                       .device(at::kCUDA, 0);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-    at::Tensor t0 = at::randn({4, 8}, options);
-    at::Tensor t1 = at::randn({4, 12}, options);
+    // note randn doesn't support fp8 types. so we cast after initialize
+    at::Tensor t0 = at::randn({4, 8}, options).to(data_type_to_aten(dtype));
+    at::Tensor t1 = at::randn({4, 12}, options).to(data_type_to_aten(dtype));
 
     std::vector<c10::IValue> aten_inputs = {t0, t1};
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
+    EXPECT_EQ(cg_outputs.size(), 1);
+    EXPECT_EQ(cg_outputs[0].dtype(), data_type_to_aten(dtype));
+
+    // note cat doesn't support fp8 types, running reference with floating point
+    // instead.
+    auto t0_fp32 = t0.to(at::kFloat);
+    auto t1_fp32 = t1.to(at::kFloat);
+    auto ref = at::cat({-t0_fp32, t1_fp32}, -1);
+
     testValidate(
         executor_cache.fusion(),
-        cg_outputs,
+        {cg_outputs[0].to(at::kFloat)},
         aten_inputs,
+        {ref},
         __LINE__,
         __FILE__,
         "");
