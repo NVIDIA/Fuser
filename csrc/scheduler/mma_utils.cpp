@@ -1554,7 +1554,7 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   //   M: present in A and output, but not B
   //   N: present in B and output, but not A
   //   K: present in A and B, but not output
-  //   Batch: present in all A, B, and Batch
+  //   Batch: present in all A, B, and output
   // If there are other membership patterns, for example a ValGroup present in
   // only A, then we should raise an exception here.
 
