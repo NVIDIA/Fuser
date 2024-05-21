@@ -80,14 +80,6 @@ class Communicator {
     default_backend_ = backend;
   }
 
-  // performs a send/receive p2p data transfer
-  c10::intrusive_ptr<c10d::Work> sendRecv(
-      DeviceIdxType receiver,
-      DeviceIdxType sender,
-      std::vector<at::Tensor>& tensor,
-      std::optional<CommunicatorBackend> backend = std::nullopt,
-      int tag = 0);
-
   // performs a blocking barrier in the communicator
   void barrier(std::optional<CommunicatorBackend> backend = std::nullopt) {
     getWorld(backend)->barrier()->wait();

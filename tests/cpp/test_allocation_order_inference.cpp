@@ -25,6 +25,13 @@ using testing::ElementsAre;
 
 using AllocationOrderInferenceTest = NVFuserTest;
 
+std::vector<int64_t> getAllocationDomainPermutation(TensorView* tv) {
+  std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(
+          tv->getMaybeRFactorDomain(), tv->getMaybeAllocationDomain());
+  return permutation.value();
+}
+
 TEST_F(AllocationOrderInferenceTest, BroadcastOpPropagation) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -44,9 +51,10 @@ TEST_F(AllocationOrderInferenceTest, BroadcastOpPropagation) {
       tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
   tv0->setAllocationDomain(tv0_nhwc, true);
 
-  auto updated_layout = preseg_passes::inferenceAllocationOrder(&fusion);
-  EXPECT_THAT(updated_layout[tv2], ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
-  EXPECT_THAT(updated_layout[tv3], ElementsAre(0, 2, 3, 1));
+  preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2, tv3});
+  EXPECT_THAT(
+      getAllocationDomainPermutation(tv2), ElementsAre(0, 3, 5, 7, 1, 4, 6, 2));
+  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(0, 2, 3, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, UnaryOpPropagation) {
@@ -63,8 +71,8 @@ TEST_F(AllocationOrderInferenceTest, UnaryOpPropagation) {
       tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
   tv0->setAllocationDomain(tv0_nhwc, true);
 
-  const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
-  EXPECT_THAT(inferred_layout.at(tv1), ElementsAre(0, 2, 3, 1));
+  preseg_passes::inferenceAllocationOrder(&fusion, {tv0}, {tv1});
+  EXPECT_THAT(getAllocationDomainPermutation(tv1), ElementsAre(0, 2, 3, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
@@ -94,12 +102,12 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
         tv0->axis(0), tv0->axis(2), tv0->axis(3), tv0->axis(1)};
     tv0->setAllocationDomain(tv0_nhwc, true);
 
-    const auto inferred_layout =
-        preseg_passes::inferenceAllocationOrder(&fusion);
-    EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(0, 2, 3, 1));
-    EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(0, 2, 3, 1));
-    EXPECT_THAT(inferred_layout.at(tv6), ElementsAre(0, 2, 3, 1));
-    EXPECT_THAT(inferred_layout.at(tv7), ElementsAre(0, 2, 3, 1));
+    preseg_passes::inferenceAllocationOrder(
+        &fusion, {tv0}, {tv2, tv3, tv6, tv7});
+    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(0, 2, 3, 1));
+    EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(0, 2, 3, 1));
+    EXPECT_THAT(getAllocationDomainPermutation(tv6), ElementsAre(0, 2, 3, 1));
+    EXPECT_THAT(getAllocationDomainPermutation(tv7), ElementsAre(0, 2, 3, 1));
   }
   {
     auto fusion_ptr = std::make_unique<Fusion>();
@@ -124,82 +132,14 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
         tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
     tv1->setAllocationDomain(tv1_format, true);
 
-    const auto inferred_layout =
-        preseg_passes::inferenceAllocationOrder(&fusion);
-    EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(1, 0, 2, 3));
-    EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(1, 0, 2, 3));
-  }
-  {
-    auto fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
-
-    // Testing propagation between two tensors
-    // tv0 and tv1 has the same number of non-broadcast iter domains, so lhs
-    // operand would propagate its allocation order.
-    auto tv0 = makeSymbolicTensor({-1, -1, 1, 1});
-    fusion.addInput(tv0);
-    auto tv1 = makeSymbolicTensor({-1, -1, 1, 1});
-    fusion.addInput(tv1);
-    // tv2 should have allocation order from tv0
-    auto tv2 = add(tv0, tv1);
-    fusion.addOutput(tv2);
-    // tv3 should have allocation order from tv1
-    auto tv3 = add(tv1, tv0);
-    fusion.addOutput(tv3);
-
-    std::vector<IterDomain*> tv0_format = {
-        tv0->axis(0), tv0->axis(2), tv0->axis(1), tv0->axis(3)};
-    tv0->setAllocationDomain(tv0_format, true);
-    std::vector<IterDomain*> tv1_format = {
-        tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
-    tv1->setAllocationDomain(tv1_format, true);
-
-    const auto inferred_layout =
-        preseg_passes::inferenceAllocationOrder(&fusion);
-    EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(0, 2, 1, 3));
-    EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(1, 0, 2, 3));
-  }
-  {
-    auto fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
-
-    // Testing propagation between two tensors
-    // tv0 and tv1 has the same number of non-broadcast iter domains, so lhs
-    // operand would propagate its allocation order.
-    auto tv0 = makeSymbolicTensor({-1, -1, 1, 1});
-    fusion.addInput(tv0);
-    auto tv1 = makeSymbolicTensor({-1, -1, 1, 1});
-    fusion.addInput(tv1);
-    // tv2 should have allocation order from tv0
-    auto tv2 = add(tv0, tv1);
-    fusion.addOutput(tv2);
-
-    // reshape propagation is not supported yet
-    auto tv3 = reshape(
-        tv1,
-        {
-            tv0->axis(0)->extent(),
-            tv0->axis(1)->extent(),
-            tv0->axis(2)->extent(),
-            tv0->axis(3)->extent(),
-        });
-    auto tv4 = add(tv0, tv3);
-    fusion.addOutput(tv4);
-
-    std::vector<IterDomain*> tv0_format = {
-        tv0->axis(0), tv0->axis(2), tv0->axis(1), tv0->axis(3)};
-    tv0->setAllocationDomain(tv0_format, true);
-    std::vector<IterDomain*> tv1_format = {
-        tv1->axis(1), tv1->axis(0), tv1->axis(2), tv1->axis(3)};
-    tv1->setAllocationDomain(tv1_format, true);
-
-    const auto inferred_layout =
-        preseg_passes::inferenceAllocationOrder(&fusion);
-    EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(0, 2, 1, 3));
-    EXPECT_TRUE(inferred_layout.count(tv3) == 0);
-    EXPECT_TRUE(inferred_layout.count(tv4) == 0);
+    preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2, tv3});
+    // tv1 dominates output allocation order, which has a permutation {1, 0, 2,
+    // 3}. But since tv1->axis(3) is a broadcast dimension, it did not map to
+    // tv2->axis(3)/tv3->axis(3). Propagated permutation would push the unmapped
+    // axis(3) first in the allocation domain while keeping mapped ids in its
+    // original order {1, 0, 2} as inner entries in its allocation domain.
+    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(3, 1, 0, 2));
+    EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(3, 1, 0, 2));
   }
 }
 
@@ -228,9 +168,9 @@ TEST_F(AllocationOrderInferenceTest, TensorFactoryBinaryOpPropagation) {
   std::vector<IterDomain*> tv1_c_last = {tv1->axis(0), tv1->axis(1)};
   tv1->setAllocationDomain(tv1_c_last, true);
 
-  const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
-  EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(1, 0));
-  EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(1, 0));
+  preseg_passes::inferenceAllocationOrder(&fusion, {tv0}, {tv2, tv3});
+  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(1, 0));
+  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 0));
 }
 
 TEST_F(AllocationOrderInferenceTest, TensorEmptyAllocationOrderPropagation) {
@@ -256,8 +196,8 @@ TEST_F(AllocationOrderInferenceTest, TensorEmptyAllocationOrderPropagation) {
   std::vector<IterDomain*> tv0_c_last = {tv0->axis(1), tv0->axis(0)};
   tv0->setAllocationDomain(tv0_c_last, true);
 
-  const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
-  EXPECT_THAT(inferred_layout.at(tv4), ElementsAre(1, 0));
+  preseg_passes::inferenceAllocationOrder(&fusion, {tv0}, {tv4});
+  EXPECT_THAT(getAllocationDomainPermutation(tv4), ElementsAre(1, 0));
 }
 
 TEST_F(AllocationOrderInferenceTest, TernaryOpPropagation) {
@@ -272,6 +212,7 @@ TEST_F(AllocationOrderInferenceTest, TernaryOpPropagation) {
   auto tv2 = makeSymbolicTensor({-1, -1, -1, -1});
   fusion.addInput(tv2);
   auto tv3 = gt(tv0, IrBuilder::create<Val>(0.0));
+  fusion.addOutput(tv3);
   auto tv4 = where(tv3, tv1, tv2);
   fusion.addOutput(tv4);
 
@@ -285,9 +226,9 @@ TEST_F(AllocationOrderInferenceTest, TernaryOpPropagation) {
       tv2->axis(0), tv2->axis(2), tv2->axis(3), tv2->axis(1)};
   tv2->setAllocationDomain(tv2_nhwc, true);
 
-  const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
-  EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(0, 2, 3, 1));
-  EXPECT_THAT(inferred_layout.at(tv4), ElementsAre(0, 2, 3, 1));
+  preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1, tv2}, {tv3, tv4});
+  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(0, 2, 3, 1));
+  EXPECT_THAT(getAllocationDomainPermutation(tv4), ElementsAre(0, 2, 3, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
@@ -302,8 +243,16 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
   fusion.addInput(tv0);
   auto tv1 = makeSymbolicTensor({-1, 1}); // stride order: {0, 1}
   fusion.addInput(tv1);
-  auto tv2 = sum(tv0, {1}); // stride order: {1, 2, 3, 0}
-  auto tv3 = sum(tv2, {1}); // stride order: {1, 2, 0}
+  // Instead of propagating stride order: {1, 2, 3, 0}
+  // The end result is {2, 1, 3, 0} because we skip mapping from Iteration id to
+  // reduction id. See Note [ Allocation Order Mapping ] sharp-edge 0 for
+  // details.
+  // TODO: restore behavior after issue:
+  // https://github.com/NVIDIA/Fuser/issues/2202
+  auto tv2 = sum(tv0, {1});
+  fusion.addOutput(tv2);
+  // ditto. stride order here is {2, 1, 0} instead of {1, 2, 0}
+  auto tv3 = sum(tv2, {1});
   fusion.addOutput(tv3);
   // tv3 dominates the propagation since it has more non-broadcast dimension
   auto tv4 = add(tv1, tv3); // stride order: {1, 0}
@@ -314,11 +263,20 @@ TEST_F(AllocationOrderInferenceTest, ReductionOpPropagation) {
   auto tv5 = broadcast(tv3, {true, false, false, true});
   fusion.addOutput(tv5);
 
-  const auto inferred_layout = preseg_passes::inferenceAllocationOrder(&fusion);
-  EXPECT_THAT(inferred_layout.at(tv2), ElementsAre(1, 2, 3, 0));
-  EXPECT_THAT(inferred_layout.at(tv3), ElementsAre(1, 2, 0));
-  EXPECT_THAT(inferred_layout.at(tv4), ElementsAre(1, 0));
-  EXPECT_THAT(inferred_layout.at(tv5), ElementsAre(0, 3, 2, 1));
+  preseg_passes::inferenceAllocationOrder(
+      &fusion, {tv0, tv1}, {tv2, tv3, tv4, tv5});
+#if true
+  // permutation here is strange because in propagation we are preserving
+  // reduction iter domain in its position in rfactor domain See issue:
+  // https://github.com/NVIDIA/Fuser/issues/2202
+  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(2, 1, 3, 0));
+  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(2, 1, 0));
+#else
+  EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(1, 2, 3, 0));
+  EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(1, 2, 0));
+#endif
+  EXPECT_THAT(getAllocationDomainPermutation(tv4), ElementsAre(1, 0));
+  EXPECT_THAT(getAllocationDomainPermutation(tv5), ElementsAre(0, 3, 2, 1));
 }
 
 TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {

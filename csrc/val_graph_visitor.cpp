@@ -324,7 +324,7 @@ ValGraphBFS::isReady(const ExprGroup& expr_group) const {
 
 std::optional<std::pair<Direction, std::vector<ValGraphBFS::GroupType>>>
 ValGraphBFS::isReady(const ValGroup& val_group) const {
-  // In the case of Val, requires one def or use expr.
+  // In the case of Val, requires just one def or use expr.
   // Check if any use is visited
   if (!graph_.getUses(val_group).empty()) {
     auto it = std::find_if(
@@ -337,7 +337,7 @@ ValGraphBFS::isReady(const ValGroup& val_group) const {
       return std::make_pair(Direction::Backward, std::vector<GroupType>{*it});
     }
   }
-  // Check if all defs are visited
+  // Check if any def is visited
   if (!graph_.getDefinitions(val_group).empty()) {
     auto it = std::find_if(
         graph_.getDefinitions(val_group).begin(),
@@ -443,17 +443,7 @@ ExprPath ValGraphBFS::getShortestExprPath() {
     }
 
     auto prev_groups_it = prev_groups_.find(group);
-
-    // Some groups may be considered visited without actually
-    // visited. No previous path set for such groups.
-    // TODO: really?
-#if 1
     NVF_ERROR(prev_groups_it != prev_groups_.end());
-#else
-    if (prev_groups_it == prev_groups_.end()) {
-      continue;
-    }
-#endif
 
     const Direction dir = prev_groups_it->second.first;
     for (const auto& prev_group : prev_groups_it->second.second) {
@@ -462,7 +452,7 @@ ExprPath ValGraphBFS::getShortestExprPath() {
   }
 
   // At this point, we have the reverse path, but it may have multiple exprs
-  // that need to be filtered out. Let's say theare are domains 0, 1 and 2, and
+  // that need to be filtered out. Let's say there are domains 0, 1 and 2, and
   // domains 1 and 2 are merged to produce domain 3, and then domains
   // 0 and 3 are merged to produce domain 4.
   //
@@ -530,16 +520,16 @@ ExprPath ValGraphBFS::getShortestExprPath() {
   // that the last visit is always guaranteed to satisfy its
   // dependencies.
   //
-  // Here, instead of finding the last appearance of each node, the
-  // path is first reversed and then only the first appearance is
-  // taken since the path needs to be reversed anyway.
+  // Recall that the final path needs to be reversed, so instead of
+  // finding the last appearance of each node, the final path can be
+  // obtained by first reversing the current path and then only taking
+  // the first appearance of each ExprGroup. Or, more simply, we can
+  // just use VectorOfUniqueEntries with the reverse iterator.
   //
   // See the ValGraphBFS2 test for a concrete example.
 
-  std::reverse(path.begin(), path.end());
-
   VectorOfUniqueEntries<std::pair<ExprGroup, Direction>> unique_path(
-      path.begin(), path.end());
+      path.rbegin(), path.rend());
 
   return unique_path.vector();
 }

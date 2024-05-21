@@ -507,55 +507,6 @@ std::string ValGraph::toString() const {
   ss << " } IdGraph\n" << std::endl;
   return ss.str();
 }
-#if 0
-bool ValGraph::transformAtributesMatch(Expr* first, Expr* second) {
-  if (first == nullptr || second == nullptr) {
-    return false;
-  }
-
-  NVF_ERROR(
-      first->isA<Merge>() || first->isA<Split>() || first->isA<Swizzle2D>() ||
-          first->isA<Resize>() || first->isA<Swizzle>(),
-      "Unsupported rfactor expressions in compute at map:\n",
-      first->toString());
-
-  if (typeid(*first) != typeid(*second)) {
-    return false;
-  }
-
-  if (first->isA<Split>()) {
-    auto first_split = first->as<Split>();
-    auto second_split = second->as<Split>();
-    if (!first_split->factor()->sameAs(second_split->factor()) ||
-        first_split->innerSplit() != second_split->innerSplit() ||
-        !first_split->startOffset()->sameAs(second_split->startOffset()) ||
-        !first_split->stopOffset()->sameAs(second_split->stopOffset())) {
-      return false;
-    }
-  }
-
-  if (first->isA<Swizzle2D>()) {
-    auto first_swizzle = first->as<Swizzle2D>();
-    auto second_swizzle = second->as<Swizzle2D>();
-    if (first_swizzle->swizzleMode() != second_swizzle->swizzleMode() ||
-        first_swizzle->swizzleType() != second_swizzle->swizzleType()) {
-      return false;
-    }
-  }
-
-  if (first->isA<Swizzle>()) {
-    auto swizzle_1 = first->as<Swizzle>();
-    auto swizzle_2 = first->as<Swizzle>();
-    if (swizzle_1->swizzleType() != swizzle_2->swizzleType()) {
-      return false;
-    }
-  }
-
-  // TODO: Resize properties
-
-  return true;
-}
-#endif
 
 void ValGraph::initializeVal(
     Val* val,

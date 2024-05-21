@@ -176,9 +176,11 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   }
 
   // post and wait communications
-  for (auto& communication : communications) {
-    c10::intrusive_ptr<c10d::Work> work =
-        communication->post(comm_, input_tensor, output_tensor);
+  for (Communication* communication : communications) {
+    c10::intrusive_ptr<c10d::Backend> backend =
+        comm_.getBackendForTeam(communication->params().team, std::nullopt);
+    c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+        communication, comm_.deviceId(), backend, input_tensor, output_tensor);
     if (work != nullptr) {
       work->wait();
     }

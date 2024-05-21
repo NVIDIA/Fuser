@@ -11,6 +11,8 @@
 #include <ir/all_nodes.h>
 #include <val_graph.h>
 
+#include <variant>
+
 namespace nvfuser {
 
 // Iterates through a Val Graph in topological order, calling handle on
@@ -145,6 +147,21 @@ inline ExprPath reverse(const ExprPath& path) {
   return rev;
 }
 
+// Traversal for finding the shortest path from ValGroups to another
+// ValGroups. The algorithm is based on the standard BFS traversal,
+// however, since ValGraph is not an undirected graph, the
+// dependencies of ValGroups and ExprGroups need to be
+// satisfied. Specifically, when visiting an ExprGroup, either its
+// inputs or outputs must be visited before. Similarly, when visiting
+// a ValGroup, there must be at least one defining ExprGroup or one
+// use ExprGroup that is already visited.
+//
+// The main use case is tensor indexing, where a typical traversal
+// would be from loop domains to allocation domains. Some
+// indexing-specific specialization would be needed, for example,
+// dependencies with broadcast domains can be ignored as their index
+// is always just zero. The indexing shortest-path traversal would be
+// implemented by subclassing this class.
 class ValGraphBFS {
  public:
   using GroupType = std::variant<ExprGroup, ValGroup>;
@@ -216,7 +233,7 @@ class ValGraphBFS {
   // Check if all to_groups_ are visited
   virtual bool allToGroupsVisited() const;
 
-  // Set the previous group of a given group that is visited in a
+  // Set the previous groups of a given group that is visited in a
   // given direction
   virtual void setPrevGroups(
       const GroupType& group,

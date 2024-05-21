@@ -4510,4 +4510,51 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   return {at::matmul(a, b)};
 }
 
+LinearOp::LinearOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* in_a,
+    Val* in_b,
+    Val* bias)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in_a);
+  addInput(in_b);
+
+  if (bias != nullptr) {
+    addInput(bias);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(LinearOp)
+
+std::string LinearOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = linear(" << inA()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << inB()->toString();
+  if (has_bias()) {
+    indent(ss, indent_size + 1) << ",\n          " << bias()->toString();
+  }
+  indent(ss, indent_size + 1) << ")\n";
+  return ss.str();
+}
+
+std::string LinearOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> LinearOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto a = inputs.at(0).as<at::Tensor>();
+  const auto b = inputs.at(1).as<at::Tensor>();
+
+  if (has_bias()) {
+    const auto bias = inputs.at(2).as<at::Tensor>();
+    return {at::linear(a, b, bias)};
+  }
+  return {at::linear(a, b)};
+}
+
 } // namespace nvfuser

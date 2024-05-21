@@ -1488,7 +1488,7 @@ def vector_at_error_generator(
         ), error_type, error_msg
 
 
-def matmul_or_linear_input_generator(
+def matmul_input_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     make_arg = partial(
@@ -1500,24 +1500,77 @@ def matmul_or_linear_input_generator(
         requires_grad=requires_grad,
     )
 
-    def multiply_range(maximum, step):
-        assert maximum % step == 0
-        num_steps = int(math.log(maximum, step))
-        return tuple(
-            map(pow, itertools.repeat(step, num_steps), range(1, num_steps + 1))
+    B = 64
+    M = 512
+    N = 256
+    K = 32
+
+    shapes_a = ((K,), (M, K), (1, K), (B, M, K), (B, 1, M, K))
+    shapes_b = ((K,), (K, N), (K, 1), (B, K, N))
+
+    for shape_a, shape_b in itertools.product(shapes_a, shapes_b):
+        yield SampleInput(make_arg(shape_a), make_arg(shape_b))
+
+
+def linear_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor,
+        dtype=dtype,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    B = 64
+    M = 512
+    N = 256
+    K = 32
+
+    # Cases without bias
+    shapes_input = ((K), (M, K), (B, M, K), (B, 1, M, K))
+    shapes_weight = ((K), (N, K), (1, K))
+    for shape_input, shape_weight in itertools.product(shapes_input, shapes_weight):
+        yield SampleInput(make_arg(shape_input), make_arg(shape_weight))
+
+    # Cases with bias
+    shape_weight = (N, K)
+    shapes_bias = ((), (N,))
+    for shape_input, shape_bias in itertools.product(shapes_input, shapes_bias):
+        yield SampleInput(
+            make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias)
         )
 
-    is_linear = op.name == "linear"
 
-    # Ranges of tensor sizes: 8, 64, 512, 4096, 32768, ...
-    # Use a Cartesian product to create a wide range of matrix shapes
-    # I'll stop at 512 as possible numerical difference may show up.
-    M, N, K = itertools.repeat(multiply_range(512, 8), 3)
-    for M, N, K in itertools.product(M, N, K):
-        lhs_shape = (M, K)
-        rhs_shape = (N, K) if is_linear else (K, N)
-        yield (
-            SampleInput(make_arg(lhs_shape), make_arg(rhs_shape), make_arg((N,)))
-            if is_linear
-            else SampleInput(make_arg(lhs_shape), make_arg(rhs_shape))
-        )
+def linear_error_generator(
+    op, dtype=torch.float32, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    # shapes, dim, exception type, exception string
+    M = 512
+    N = 256
+    K = 32
+
+    bias_with_1dweight = (
+        ((M, K), (K), (N)),
+        RuntimeError,
+        "Expected B to be a 2D matrix if bias is given, got 1D.",
+    )
+
+    mismatched_bias_extent = (
+        ((M, K), (1, K), (N)),
+        RuntimeError,
+        f"The expanded size of the tensor (1) must match the existing size ({N}) at non-singleton dimension 1.  Target sizes: [{M}, 1].  Tensor sizes: [{N}]",
+    )
+
+    error_cases = [bias_with_1dweight, mismatched_bias_extent]
+
+    for input_shapes, ex_type, ex_str in error_cases:
+        shape_input, shape_weight, shape_bias = input_shapes
+        yield SampleInput(
+            make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias)
+        ), ex_type, ex_str
