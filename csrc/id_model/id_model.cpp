@@ -741,6 +741,26 @@ StatefulInliningInfo buildStatefulInliningInfo(
         }
       }
     }
+
+    // Siblings should always be mapped
+    auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    if (consumer_tvs.size() > 1) {
+      auto all_consumer_ids = ir_utils::allIDsOf(consumer_tvs.vector().at(0));
+      info.ordered_sibling_ids.pushBack(
+          {all_consumer_ids.begin(), all_consumer_ids.end()});
+      for (const auto i : c10::irange(1, consumer_tvs.size())) {
+        auto consumer_tv_i = consumer_tvs.vector().at(i);
+        auto all_consumer_i_ids = ir_utils::allIDsOf(consumer_tv_i);
+
+        auto sibling_map =
+            exact_graph.buildMapBetween(all_consumer_ids, all_consumer_i_ids);
+
+        for (const auto& [c_id_1, c_ids] : sibling_map) {
+          NVF_ERROR(c_ids.size() == 1);
+          info.sibling_maps[c_id_1->as<IterDomain>()].pushBack(c_ids);
+        }
+      }
+    }
   }
   return info;
 }
@@ -760,6 +780,17 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
       const VectorOfUniqueEntries<Val*>& c_ids = entry_it->second;
       for (Val* c_id : c_ids) {
         idGraph(IdMappingMode::LOOP).mapVals(p_id, c_id);
+      }
+    }
+  }
+
+  // Similarly maps all sibling domains
+  for (IterDomain* id : info.ordered_sibling_ids) {
+    auto entry_it = info.sibling_maps.find(id);
+    if (entry_it != info.sibling_maps.end()) {
+      const VectorOfUniqueEntries<Val*>& sibling_ids = entry_it->second;
+      for (Val* sibling_id : sibling_ids) {
+        idGraph(IdMappingMode::LOOP).mapVals(id, sibling_id);
       }
     }
   }
