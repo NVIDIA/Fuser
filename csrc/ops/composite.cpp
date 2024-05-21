@@ -54,42 +54,92 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   return dx;
 }
 
-TensorView* linear(TensorView* a, TensorView* b, TensorView* bias) {
-  // TODO: Support 1+ dimensional A.
-  NVF_CHECK(
-      (a->nDims() == 2 && b->nDims() == 2),
-      "Only 2-D Inputs and Weights are currently supported in Linear!");
+namespace {
 
-  std::vector<bool> bcast_dims(a->nDims() + 1, false);
-  // A: [M, Bcast, K]
-  // B: [Bcast, N, K]
-  bcast_dims.at(bcast_dims.size() - 2) = true;
-  auto* tv0b = broadcast(a, bcast_dims);
-  bcast_dims.at(bcast_dims.size() - 2) = false;
-  bcast_dims.at(bcast_dims.size() - 3) = true;
-  auto* tv1b = broadcast(b, bcast_dims);
+static TensorView* newForLinear(
+    TensorView* input,
+    TensorView* weight,
+    TensorView* bias) {
+  auto input_domain =
+      TensorDomain::noReductions(input->getMaybeRFactorDomain());
+  auto weight_domain =
+      TensorDomain::noReductions(weight->getMaybeRFactorDomain());
 
-  NVF_CHECK(
-      a->getDataType().value() == b->getDataType().value(),
-      "data types of inputs to matmul don't match");
+  // Linear: a = {*, in_features}, b = {out_features, in_features} /
+  // {in_features}.The linear output is {*, (out_features), rK}.
+  // The first out_size -2 dimensions are as the first input, followed by
+  // out_features (if present) and an additional reduction axis K.
+  auto ndims_out = input_domain.size() + weight_domain.size() - 1;
 
-  auto* output = fusedMultiplySum(tv0b, tv1b, {-1});
-  if (bias) {
-    NVF_CHECK(
-        (bias->nDims() <= a->nDims()), "bias should be broadcastable to A");
-    NVF_CHECK(
-        a->getDataType().value() == bias->getDataType().value(),
-        "bias doesn't match input/weight dtype");
-    auto* bias_with_cast = maybeCastOp(output->getDataType().value(), bias);
-    auto* bcast_bias = ops::maybeBroadcast({output, bias_with_cast})[1];
-    auto* bias_output = add(output, bcast_bias);
-    return maybeCastOp(a->getDataType().value(), bias_output);
+  const std::vector<IterDomain*>& mapping_a =
+      ops::mapLinearOpIterDomains(input_domain, MatmulRole::INPUT_A, ndims_out);
+  const std::vector<IterDomain*>& mapping_b = ops::mapLinearOpIterDomains(
+      weight_domain, MatmulRole::INPUT_B, ndims_out);
+  std::vector<IterDomain*> mapping_bias(ndims_out, nullptr);
+  if (bias != nullptr) {
+    auto bias_domain =
+        TensorDomain::noReductions(bias->getMaybeRFactorDomain());
+    mapping_bias = ops::mapLinearOpIterDomains(
+        bias_domain, MatmulRole::INPUT_C, ndims_out);
   }
-  return maybeCastOp(a->getDataType().value(), output);
+
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+
+  for (auto idx : c10::irange(ndims_out - 1)) {
+    out_domain[idx] = ops::newOutputIterDomain(
+        {mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
+  }
+  // Specify the iterdomain for K as reduction
+  out_domain[ndims_out - 1] = ops::newOutputIterDomain(
+      {mapping_a.back(), mapping_b.back()},
+      /*force_iter_type=*/IterType::Reduction);
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+
+  return IrBuilder::create<TensorView>(td, input->dtype());
 }
 
-TensorView* linear(TensorView* a, TensorView* b) {
-  return linear(a, b, nullptr /*bias*/);
+} // namespace
+
+TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
+  auto input_ndims =
+      TensorDomain::noReductions(input->getMaybeRFactorDomain()).size();
+  NVF_CHECK(input_ndims > 0, "Input A must be atleast 1D.");
+
+  auto weight_ndims =
+      TensorDomain::noReductions(weight->getMaybeRFactorDomain()).size();
+  NVF_CHECK(
+      weight_ndims == 1 || weight_ndims == 2,
+      "Input B must be a 1D / 2D tensor.");
+
+  // Note: This constraint is not documented but F.linear errors out if bias is
+  // given with 1D weights.
+  NVF_CHECK(
+      weight_ndims == 2 || bias == nullptr,
+      "Expected B to be a 2D matrix if bias is given, got 1D.")
+
+  NVF_CHECK(
+      input->dtype() == weight->dtype(),
+      "Expected input and weight dtypes to have the same dtype, got: ",
+      input->dtype(),
+      " and ",
+      weight->dtype());
+
+  NVF_CHECK(
+      bias == nullptr || bias->dtype() == input->dtype(),
+      "Expected bias to have the same dtype as A and B, got: ",
+      bias->dtype(),
+      " and ",
+      input->dtype());
+  // For all other cases, create a new LinearOp
+  TensorView* out = newForLinear(input, weight, bias);
+  IrBuilder::create<LinearOp>(out, input, weight, bias);
+  return out;
+}
+
+TensorView* linear(TensorView* tv_a, TensorView* tv_b) {
+  return linear(tv_a, tv_b, /*bias=*/nullptr);
 }
 
 LstmResult lstm(
@@ -293,15 +343,8 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
       orig_domain_b, MatmulRole::INPUT_B, ndims_out);
 
   for (auto idx : c10::irange(ndims_out - 1)) {
-    std::vector<IterDomain*> input_ids;
-    input_ids.reserve(2);
-    if (mapping_a[idx] != nullptr) {
-      input_ids.emplace_back(mapping_a[idx]);
-    }
-    if (mapping_b[idx] != nullptr) {
-      input_ids.emplace_back(mapping_b[idx]);
-    }
-    out_domain[idx] = ops::newOutputIterDomain(input_ids);
+    out_domain[idx] =
+        ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
   }
 
   out_domain[ndims_out - 1] = ops::newOutputIterDomain(
