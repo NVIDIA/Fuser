@@ -764,7 +764,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   IdModel id_model(fusion);
   std::unordered_map<ValGroup, MatmulDomain> id_roles =
       patterns.front().getDimRoles(id_model);
-  const auto& roles_map_opt =
+  const auto& tensor_roles_opt =
       mma_utils::getTensorsRoles(fusion, id_model, id_roles);
 
   // NOTE: the contents of roles_map have been already validated during
