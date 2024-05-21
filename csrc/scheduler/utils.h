@@ -32,6 +32,7 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
@@ -42,12 +43,24 @@ constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
 constexpr int64_t z_block_limit = 64;
 
+// Find largest power of 2 that is a factor of n. If n==0, return largest power
+// of 2 representable by int64_t
 constexpr int64_t maxVectorizationWidth(int64_t n) {
-  int64_t next_vector_size = 2;
-  while (next_vector_size <= n && n % next_vector_size == 0) {
-    next_vector_size <<= 1;
+  if (n == 0) {
+    // Max representable int has null sign bit then all ones. Shift right then
+    // xor to preserve only the most significant bit.
+    int64_t m = std::numeric_limits<int64_t>::max();
+    return m ^ (m >> 1);
   }
-  return next_vector_size >> 1;
+  // For example
+  //   n               = b101101000
+  //           n - 1   = b101100111
+  //        ~ (n - 1)  = b010011000
+  //   n & (~ (n - 1)) = b000001000
+  // The key is that subtracting one flips all trailing 0s as well as the least
+  // significant 1, so all of the other bits will fail the &, leaving
+  // only that 1.
+  return n & (~(n - 1));
 }
 
 // Largest Power of 2 less-than n
@@ -645,6 +658,19 @@ int64_t getPersistentBufferSizeOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info);
+
+//! The required shared memory size for a block inclues two parts: (1) smem
+//! for persistent buffers and (2) overhead. The overhead includes space
+//! reserved by the CUDA driver and reduction workspace which depends on the
+//! number of threads per block specified by the parameter threads_per_block.
+//! By default, the function uses the maximum allowed number of threads per
+//! block (threads_per_block = -1) to calculate the overhead. The caller can
+//! specify a different value if they are sure about the max value used at
+//! runtime.
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    int64_t threads_per_block = -1);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

@@ -7,6 +7,8 @@
 // clang-format on
 #include <gtest/gtest.h>
 
+#include <fusion.h>
+#include <ir/builder.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <tests/cpp/multidevice.h>
@@ -35,11 +37,14 @@ class CommunicationTest
       c10d::ReduceOp::RedOpType::SUM;
   CommParams params;
   std::vector<DeviceIdxType> all_ranks;
+  c10::intrusive_ptr<c10d::Backend> backend;
+  IrContainer container;
 };
 
 CommunicationTest::CommunicationTest() {
   all_ranks = std::vector<DeviceIdxType>(communicator->size());
   std::iota(all_ranks.begin(), all_ranks.end(), 0);
+  backend = communicator->getBackendForTeam(all_ranks, GetParam());
 }
 
 void CommunicationTest::SetUp() {
@@ -58,9 +63,10 @@ void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
 }
 
 TEST_P(CommunicationTest, Gather) {
+  params.type = CommunicationType::Gather;
   params.root = root;
   params.team = all_ranks;
-  auto communication = Gather(params);
+  auto communication = IrBuilder::create<Communication>(&container, params);
 
   at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
   at::Tensor output_tensor =
@@ -69,8 +75,12 @@ TEST_P(CommunicationTest, Gather) {
     input_tensor.copy_(
         at::arange(tensor_size, tensor_options).unsqueeze(0) +
         (communicator->deviceId() + 1) * repetition);
-    auto work = communication.post(
-        *communicator, input_tensor, output_tensor, GetParam());
+    auto work = postSingleCommunication(
+        communication,
+        communicator->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
     work->wait();
 
     if (communicator->deviceId() == root) {
@@ -83,8 +93,9 @@ TEST_P(CommunicationTest, Gather) {
 }
 
 TEST_P(CommunicationTest, Allgather) {
+  params.type = CommunicationType::Allgather;
   params.team = all_ranks;
-  auto communication = Allgather(params);
+  auto communication = IrBuilder::create<Communication>(&container, params);
 
   at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
   at::Tensor output_tensor =
@@ -94,8 +105,12 @@ TEST_P(CommunicationTest, Allgather) {
         at::arange(tensor_size, tensor_options).unsqueeze(0) +
         (communicator->deviceId() + 1) * repetition);
 
-    auto work = communication.post(
-        *communicator, input_tensor, output_tensor, GetParam());
+    auto work = postSingleCommunication(
+        communication,
+        communicator->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
     work->wait();
 
     at::Tensor ref = at::arange(tensor_size, tensor_options).unsqueeze(0) +
@@ -106,9 +121,10 @@ TEST_P(CommunicationTest, Allgather) {
 }
 
 TEST_P(CommunicationTest, Scatter) {
+  params.type = CommunicationType::Scatter;
   params.root = root;
   params.team = all_ranks;
-  auto communication = Scatter(params);
+  auto communication = IrBuilder::create<Communication>(&container, params);
 
   at::Tensor input_tensor;
   if (communicator->deviceId() == root) {
@@ -125,8 +141,12 @@ TEST_P(CommunicationTest, Scatter) {
               repetition);
     }
 
-    auto work = communication.post(
-        *communicator, input_tensor, output_tensor, GetParam());
+    auto work = postSingleCommunication(
+        communication,
+        communicator->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
     work->wait();
 
     auto ref = at::arange(tensor_size, tensor_options).unsqueeze(0) +
@@ -136,9 +156,10 @@ TEST_P(CommunicationTest, Scatter) {
 }
 
 TEST_P(CommunicationTest, Broadcast) {
+  params.type = CommunicationType::Broadcast;
   params.root = root;
   params.team = all_ranks;
-  auto communication = Broadcast(params);
+  auto communication = IrBuilder::create<Communication>(&container, params);
 
   at::Tensor input_tensor;
   if (communicator->deviceId() == root) {
@@ -150,8 +171,12 @@ TEST_P(CommunicationTest, Broadcast) {
       input_tensor.copy_(at::arange(tensor_size, tensor_options) + repetition);
     }
 
-    auto work = communication.post(
-        *communicator, input_tensor, output_tensor, GetParam());
+    auto work = postSingleCommunication(
+        communication,
+        communicator->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
     if (work != nullptr) {
       work->wait();
     }
@@ -162,6 +187,9 @@ TEST_P(CommunicationTest, Broadcast) {
 }
 
 TEST_P(CommunicationTest, SendRecv) {
+  if (GetParam() == CommunicatorBackend::ucc) {
+    GTEST_SKIP() << "Disabling because of UCC hangs, see issue #2091";
+  }
   if (communicator->size() < 2 || torch::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
@@ -173,9 +201,10 @@ TEST_P(CommunicationTest, SendRecv) {
     return;
   }
 
+  params.type = CommunicationType::SendRecv;
   params.root = sender;
   params.team = {0, 1};
-  auto communication = SendRecv(params);
+  auto communication = IrBuilder::create<Communication>(&container, params);
 
   at::Tensor input_tensor;
   at::Tensor output_tensor;
@@ -191,8 +220,12 @@ TEST_P(CommunicationTest, SendRecv) {
       input_tensor.copy_(at::arange(tensor_size, tensor_options) + repetition);
     }
 
-    auto work = communication.post(
-        *communicator, input_tensor, output_tensor, GetParam());
+    auto work = postSingleCommunication(
+        communication,
+        communicator->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
     work->wait();
 
     if (communicator->deviceId() == receiver) {
@@ -209,9 +242,10 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
     return;
   }
 
+  params.type = CommunicationType::SendRecv;
   params.root = sender;
   params.team = {0};
-  auto communication = SendRecv(params);
+  auto communication = IrBuilder::create<Communication>(&container, params);
 
   at::Tensor input_tensor = at::empty({tensor_size}, tensor_options);
   at::Tensor output_tensor = at::empty_like(input_tensor);
@@ -219,7 +253,12 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
   for (auto repetition : c10::irange(num_repetitions)) {
     input_tensor.copy_(at::arange(tensor_size, tensor_options) + repetition);
 
-    communication.post(*communicator, input_tensor, output_tensor, GetParam());
+    postSingleCommunication(
+        communication,
+        communicator->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
 
     auto ref = at::arange(tensor_size, tensor_options) + repetition;
     validate(output_tensor, ref);
@@ -227,10 +266,11 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
 }
 
 TEST_P(CommunicationTest, Reduce) {
+  params.type = CommunicationType::Reduce;
   params.redOp = red_op;
   params.root = root;
   params.team = all_ranks;
-  auto communication = Reduce(params);
+  auto communication = IrBuilder::create<Communication>(&container, params);
 
   at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
   at::Tensor output_tensor = at::empty({tensor_size}, tensor_options);
@@ -240,8 +280,12 @@ TEST_P(CommunicationTest, Reduce) {
         at::arange(tensor_size, tensor_options).unsqueeze(0) +
         (communicator->deviceId() + 1) * repetition);
 
-    auto work = communication.post(
-        *communicator, input_tensor, output_tensor, GetParam());
+    auto work = postSingleCommunication(
+        communication,
+        communicator->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
     work->wait();
 
     if (communicator->deviceId() == root) {
@@ -254,9 +298,10 @@ TEST_P(CommunicationTest, Reduce) {
 }
 
 TEST_P(CommunicationTest, Allreduce) {
+  params.type = CommunicationType::Allreduce;
   params.redOp = red_op;
   params.team = all_ranks;
-  auto communication = Allreduce(params);
+  auto communication = IrBuilder::create<Communication>(&container, params);
 
   at::Tensor input_tensor = at::empty({1, tensor_size}, tensor_options);
   at::Tensor output_tensor = at::empty({tensor_size}, tensor_options);
@@ -265,8 +310,12 @@ TEST_P(CommunicationTest, Allreduce) {
         at::arange(tensor_size, tensor_options).unsqueeze(0) +
         (communicator->deviceId() + 1) * repetition);
 
-    auto work = communication.post(
-        *communicator, input_tensor, output_tensor, GetParam());
+    auto work = postSingleCommunication(
+        communication,
+        communicator->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
     work->wait();
 
     const int s = communicator->size();
@@ -277,11 +326,12 @@ TEST_P(CommunicationTest, Allreduce) {
 }
 
 TEST_P(CommunicationTest, ReduceScatter) {
+  params.type = CommunicationType::ReduceScatter;
   params.redOp = red_op;
   params.root = root;
   params.team = all_ranks;
   params.scattered_axis = 1;
-  auto communication = ReduceScatter(params);
+  auto communication = IrBuilder::create<Communication>(&container, params);
 
   const int num_devices = communicator->size();
   const int device_id = communicator->deviceId();
@@ -299,8 +349,12 @@ TEST_P(CommunicationTest, ReduceScatter) {
     unsharded_input_tensor.copy_(at::randint(
         2, {num_devices, num_devices, tensor_size}, tensor_options));
 
-    auto work = communication.post(
-        *communicator, input_tensor, output_tensor, GetParam());
+    auto work = postSingleCommunication(
+        communication,
+        communicator->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
     work->wait();
 
     auto ref =
