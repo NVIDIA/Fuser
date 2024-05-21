@@ -1100,10 +1100,10 @@ bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
     return false;
   }
 
-  // Fusions handled by persistent kernel scheduler cannot have MmaOp.
-  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+  // Fusions handled by persistent schedulers cannot have matmul ops.
+  if (ir_utils::hasAnyMatmulOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "no support for mma ops.");
+        schedule_heuristic, "no support for matmul ops.");
     return false;
   }
 
