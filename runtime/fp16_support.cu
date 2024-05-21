@@ -16,6 +16,58 @@ __device__ __inline__ __half __float2half(const float);
 struct __align__(2) __half {
   __half() = default;
 
+  __half(const __half& other) {
+    __x = other.__x;
+  }
+
+  __half(const __half&& other) {
+    __x = other.__x;
+  }
+
+  __half(const volatile __half& other) {
+    __x = other.__x;
+  }
+
+  __half(const volatile __half&& other) {
+    __x = other.__x;
+  }
+
+  // Note: not returning reference for `__half::operator=`
+  // Doing so would requires us to return `volatile __half&` for the volatile
+  // variants, which would trigger a gcc warning `implicit dereference will not
+  // access object of type ‘volatile S’ in statement`
+  __device__ void operator=(const __half& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __half&& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __half& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __half&& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __half& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __half&& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __half& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __half&& other) volatile {
+    __x = other.__x;
+  }
+
   __device__ __half(const float f) {
     __x = __float2half(f).__x;
   }
