@@ -299,19 +299,14 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-NVF_API MatmulProblemLayoutOpt
-getProblemLayout(Fusion* fusion, const MatmulPattern& pattern);
-
-//! This overloaded version is just a wrapper on the above function, where
-//! the MatmulPattern is extracted from the fusion.
-NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
-
-//! Determine the problem layout based on allocation domain of inputs. This is
-//! called by the above overloads.
 NVF_API MatmulProblemLayoutOpt getProblemLayout(
     const IdModel& id_model,
     const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
     const RolesMap& tensor_roles);
+
+//! This version assumes the Fusion contains a single MatmulPattern, then builds
+//! an IdModel and infers dim roles then calls the above function.
+// NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
 
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot

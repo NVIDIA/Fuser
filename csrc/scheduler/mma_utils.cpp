@@ -1062,7 +1062,14 @@ MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion) {
        << patterns.size();
     return ss.str();
   }
-  return getProblemLayout(fusion, patterns.front());
+  const MatmulPattern& pattern = patterns[0];
+  IdModel id_model(fusion);
+  const auto id_roles = pattern.getDimRoles(id_model);
+  const auto tensor_roles_opt = getTensorsRoles(fusion, id_model, id_roles);
+  if (!tensor_roles_opt.isValid()) {
+    return {tensor_roles_opt.getErrorMsg()};
+  }
+  return getProblemLayout(id_model, id_roles, tensor_roles_opt.getData());
 }
 
 MatmulProblemLayoutOpt getProblemLayout(
@@ -1133,18 +1140,6 @@ MatmulProblemLayoutOpt getProblemLayout(
     return MmaLayout::NN;
   }
   NVF_ERROR(false, "Reached unreachable section of getProblemLayout");
-}
-
-MatmulProblemLayoutOpt getProblemLayout(
-    Fusion* fusion,
-    const MatmulPattern& pattern) {
-  IdModel id_model(fusion);
-  const auto id_roles = pattern.getDimRoles(id_model);
-  const auto roles_map_opt = getTensorsRoles(fusion, id_model, id_roles);
-  if (!roles_map_opt.isValid()) {
-    return {roles_map_opt.getErrorMsg()};
-  }
-  return getProblemLayout(id_model, id_roles, roles_map_opt.getData());
 }
 
 RolesMapOpt getTensorsRoles(
