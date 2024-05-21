@@ -245,59 +245,73 @@ __device__ void blockIterGroupedYdimReduce(
   // Perform parallel reduction for each element in the array
   int np2 = 1 << (31 - __clz(reduction_size));
   if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
-    // vectorized load from smem to regs
-    T self[N];
-    T peer[N];
-#pragma unroll
-    for (unsigned int i = 0; i < total_loads; ++i) {
-      int self_offset = smem_offset_inter * i + smem_offset_intra;
-      int peer_offset = self_offset + np2 * peer_stride;
-      loadGeneric<T, elements_per_load>(
-          self + i * elements_per_load, shared_mem + self_offset);
-      loadGeneric<T, elements_per_load>(
-          peer + i * elements_per_load, shared_mem + peer_offset);
-    }
+//     // vectorized load from smem to regs
+//     T self[N];
+//     T peer[N];
+// #pragma unroll
+//     for (unsigned int i = 0; i < total_loads; ++i) {
+//       int self_offset = smem_offset_inter * i + smem_offset_intra;
+//       int peer_offset = self_offset + np2 * peer_stride;
+//       loadGeneric<T, elements_per_load>(
+//           self + i * elements_per_load, shared_mem + self_offset);
+//       loadGeneric<T, elements_per_load>(
+//           peer + i * elements_per_load, shared_mem + peer_offset);
+//     }
 // reduction
 #pragma unroll
-    for (int i = 0; i < N; ++i) {
-      reduction_op(self[i], peer[i]);
-    }
-// write self back to smem
-#pragma unroll
-    for (unsigned int i = 0; i < total_loads; ++i) {
+    for (int i = 0; i < total_loads; ++i) {
       int self_offset = smem_offset_inter * i + smem_offset_intra;
-      loadGeneric<T, elements_per_load>(
-          shared_mem + self_offset, self + i * elements_per_load);
+      int peer_offset = self_offset + np2 * peer_stride;
+#pragma unroll
+    for (int j = 0; j < elements_per_load; ++j) {
+        reduction_op(shared_mem[self_offset + j], shared_mem[peer_offset + j]);
+      }
     }
+// // write self back to smem
+// #pragma unroll
+//     for (unsigned int i = 0; i < total_loads; ++i) {
+//       int self_offset = smem_offset_inter * i + smem_offset_intra;
+//       loadGeneric<T, elements_per_load>(
+//           shared_mem + self_offset, self + i * elements_per_load);
+//     }
   }
   block_sync::sync<Aligned>();
 
   // Tree reduction
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
     if (reduction_tid < factor) {
-      // vectorized load from smem to regs
-      T self[N];
-      T peer[N];
+//       // vectorized load from smem to regs
+//       T self[N];
+//       T peer[N];
+// #pragma unroll
+//       for (unsigned int i = 0; i < total_loads; ++i) {
+//         int self_offset = smem_offset_inter * i + smem_offset_intra;
+//         int peer_offset = self_offset + factor * peer_stride;
+//         loadGeneric<T, elements_per_load>(
+//             self + i * elements_per_load, shared_mem + self_offset);
+//         loadGeneric<T, elements_per_load>(
+//             peer + i * elements_per_load, shared_mem + peer_offset);
+//       }
+// // reduction
+// #pragma unroll
+//       for (int i = 0; i < N; ++i) {
+//         reduction_op(self[i], peer[i]);
+//       }
+// // write self back to smem
+// #pragma unroll
+//       for (unsigned int i = 0; i < total_loads; ++i) {
+//         int self_offset = smem_offset_inter * i + smem_offset_intra;
+//         loadGeneric<T, elements_per_load>(
+//             shared_mem + self_offset, self + i * elements_per_load);
+//       }
 #pragma unroll
-      for (unsigned int i = 0; i < total_loads; ++i) {
+      for (int i = 0; i < total_loads; ++i) {
         int self_offset = smem_offset_inter * i + smem_offset_intra;
         int peer_offset = self_offset + factor * peer_stride;
-        loadGeneric<T, elements_per_load>(
-            self + i * elements_per_load, shared_mem + self_offset);
-        loadGeneric<T, elements_per_load>(
-            peer + i * elements_per_load, shared_mem + peer_offset);
-      }
-// reduction
 #pragma unroll
-      for (int i = 0; i < N; ++i) {
-        reduction_op(self[i], peer[i]);
-      }
-// write self back to smem
-#pragma unroll
-      for (unsigned int i = 0; i < total_loads; ++i) {
-        int self_offset = smem_offset_inter * i + smem_offset_intra;
-        loadGeneric<T, elements_per_load>(
-            shared_mem + self_offset, self + i * elements_per_load);
+        for (int j = 0; j < elements_per_load; ++j) {
+          reduction_op(shared_mem[self_offset + j], shared_mem[peer_offset + j]);
+        }
       }
     }
     block_sync::sync<Aligned>();
@@ -312,32 +326,47 @@ __device__ void blockIterGroupedYdimReduce(
       result[i] = out[i];
     }
 
-    // copy first element to result
-    T self[N];
+//     // copy first element to result
+//     T self[N];
+// #pragma unroll
+//     for (unsigned int i = 0; i < total_loads; ++i) {
+//       int self_offset = smem_offset_inter * i + smem_offset_intra;
+//       loadGeneric<T, elements_per_load>(
+//           self + i * elements_per_load, shared_mem + self_offset);
+//     }
+// #pragma unroll
+//     for (int i = 0; i < N; ++i) {
+//       reduction_op(result[i], self[i]);
+//     }
 #pragma unroll
-    for (unsigned int i = 0; i < total_loads; ++i) {
-      int self_offset = smem_offset_inter * i + smem_offset_intra;
-      loadGeneric<T, elements_per_load>(
-          self + i * elements_per_load, shared_mem + self_offset);
-    }
+      for (int i = 0; i < total_loads; ++i) {
+        int self_offset = smem_offset_inter * i + smem_offset_intra;
 #pragma unroll
-    for (int i = 0; i < N; ++i) {
-      reduction_op(result[i], self[i]);
-    }
-
+        for (int j = 0; j < elements_per_load; ++j) {
+          reduction_op(result[i * elements_per_load + j], shared_mem[self_offset + j]);
+        }
+      }
     // reduction of the 2nd last element
     if (reduction_size > 1) {
-      T peer[N];
+//       T peer[N];
+// #pragma unroll
+//       for (unsigned int i = 0; i < total_loads; ++i) {
+//         int peer_offset =
+//             smem_offset_inter * i + smem_offset_intra + peer_stride;
+//         loadGeneric<T, elements_per_load>(
+//             peer + i * elements_per_load, shared_mem + peer_offset);
+//       }
+// #pragma unroll
+//       for (int i = 0; i < N; ++i) {
+//         reduction_op(result[i], peer[i]);
+//       }
 #pragma unroll
-      for (unsigned int i = 0; i < total_loads; ++i) {
-        int peer_offset =
-            smem_offset_inter * i + smem_offset_intra + peer_stride;
-        loadGeneric<T, elements_per_load>(
-            peer + i * elements_per_load, shared_mem + peer_offset);
-      }
+      for (int i = 0; i < total_loads; ++i) {
+        int peer_offset = smem_offset_inter * i + smem_offset_intra + peer_stride;
 #pragma unroll
-      for (int i = 0; i < N; ++i) {
-        reduction_op(result[i], peer[i]);
+        for (int j = 0; j < elements_per_load; ++j) {
+          reduction_op(result[i * elements_per_load + j], shared_mem[peer_offset + j]);
+        }
       }
     }
 #pragma unroll
