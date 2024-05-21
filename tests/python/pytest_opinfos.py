@@ -48,7 +48,9 @@ from pytest_input_generators import (
     var_mean_generator,
     vector_at_error_generator,
     where_error_generator,
-    matmul_or_linear_input_generator,
+    matmul_input_generator,
+    linear_input_generator,
+    linear_error_generator,
 )
 from pytest_utils import (
     bool_int_dtypes,
@@ -1115,7 +1117,7 @@ matmul_opinfo = OpInfo(
         if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 8
         else (torch.float16,)
     ),
-    sample_input_generator=matmul_or_linear_input_generator,
+    sample_input_generator=matmul_input_generator,
     reference=torch.matmul,
 )
 matmul_ops.append(matmul_opinfo)
@@ -1131,7 +1133,8 @@ linear_opinfo = OpInfo(
         if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 8
         else (torch.float16,)
     ),
-    sample_input_generator=matmul_or_linear_input_generator,
+    sample_input_generator=linear_input_generator,
+    error_input_generator=linear_error_generator,
     reference=torch.nn.functional.linear,
 )
 linear_ops.append(linear_opinfo)

@@ -1018,6 +1018,7 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
 
   // Create the new expression with provided inputs
   auto replay = ReplayTransform::replayAs(new_inputs, expr);
+  NVF_ERROR(replay != nullptr, "no replay found");
 
   for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
     id_definitions_[out_id].pushBack(replay);

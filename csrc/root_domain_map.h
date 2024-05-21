@@ -90,7 +90,6 @@ class NVF_API PairwiseRootDomainMap : public RootDomainMap {
   //!
   //! \param producer The producer tensor of a producer-consumer pair.
   //! \param consumer The consumer tensor of a producer-consumer pair.
-  //! \param is_exact If true, broadcast andnon-broadcast IDs are not mapped
   explicit PairwiseRootDomainMap(
       const TensorView* producer,
       const TensorView* consumer);
