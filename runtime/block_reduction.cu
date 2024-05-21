@@ -191,19 +191,12 @@ __device__ void blockReduce(
 // is parallelized by bdimy. This function works as follows:
 // (1) Each thread vectorized loads N elements from input register array to
 // smem. (2) do N * bdimx parallel reductions in smem.
-
-// TODO: merge `blockIterGroupedReduce` with `blockReduce`
-// (1) for-loops are fully unrolled should not cause overhead for `blockReduce`
-// (2) used in gridReduce, needs to change correspodning gridReduce function
 template <
-    bool X_REDUCE,
-    bool Y_REDUCE,
-    bool Z_REDUCE,
     bool Aligned,
     int N, // Number of elements per input array
     typename T,
     typename Func>
-__device__ void blockIterGroupedReduce(
+__device__ void blockIterGroupedYdimReduce(
     T out[N],
     const T inp_val[N],
     Func reduction_op,
@@ -215,8 +208,6 @@ __device__ void blockIterGroupedReduce(
   static_assert(
       N == 2 || N == 4 || N == 8 || N == 16,
       "N should be a valid vectorization factor, one of (2, 4, 8, 16)!");
-  static_assert(
-      !X_REDUCE && Y_REDUCE && !Z_REDUCE, "Only support reduction in Y dim!");
 
   bool should_write = threadIdx.y == 0;
   unsigned int reduction_size = blockDim.y;
@@ -359,21 +350,18 @@ __device__ void blockIterGroupedReduce(
 
 // Use the same pred for both reads and writes
 template <
-    bool X_REDUCE,
-    bool Y_REDUCE,
-    bool Z_REDUCE,
     bool Aligned,
     int N, // Number of elements per input array
     typename T,
     typename Func>
-__device__ void blockIterGroupedReduce(
+__device__ void blockIterGroupedYdimReduce(
     T out[N],
     const T inp_val[N],
     Func reduction_op,
     T* shared_mem,
     bool read_write_pred,
     T init_val) {
-  blockIterGroupedReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, N, T, Func>(
+  blockIterGroupedYdimReduce<Aligned, N, T, Func>(
       out,
       inp_val,
       reduction_op,
