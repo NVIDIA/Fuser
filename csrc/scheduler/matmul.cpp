@@ -770,7 +770,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // NOTE: the contents of roles_map have been already validated during
   //  compute-time checks
   NVF_ERROR(roles_map_opt.isValid(), roles_map_opt.getErrorMsg());
-  const auto roles_map = roles_map_opt.getData();
+  const auto tensor_roles = tensor_roles_opt.getData();
 
   const mma_utils::MatmulProblemLayoutOpt fusion_layout =
       mma_utils::getProblemLayout(id_model, id_roles, roles_map);
