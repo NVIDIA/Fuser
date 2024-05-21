@@ -1067,10 +1067,10 @@ MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion) {
 
 MatmulProblemLayoutOpt getProblemLayout(
     const IdModel& id_model,
-    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain,
+    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
     const RolesMap& roles_map) {
   // Assumes the exact graph has already been built, since we've been provided
-  // group_to_domain
+  // dim_roles
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
   // Note: using DataWrapperOpt<MatmulDomain> would be preferable here. However,
@@ -1079,7 +1079,7 @@ MatmulProblemLayoutOpt getProblemLayout(
   // constructor for DataWrapperOpt to prevent inadvertent copying. To avoid
   // this complication I'm using a simple pair for the lambda's result type.
   using InnerDomResult = std::pair<MatmulDomain, std::string>;
-  const auto innerDomain = [&roles_map, &group_to_domain, &exact_graph](
+  const auto innerDomain = [&roles_map, &dim_roles, &exact_graph](
                                MatmulRole role) -> InnerDomResult {
     const auto role_it = roles_map.find(role);
     if (role_it == roles_map.end()) {
@@ -1090,8 +1090,8 @@ MatmulProblemLayoutOpt getProblemLayout(
       IterDomain* inner_id =
           TensorDomain::noReductions(tv->getMaybeAllocationDomain()).back();
       const ValGroup& g = exact_graph.toGroup(inner_id);
-      auto g_it = group_to_domain.find(g);
-      if (g_it == group_to_domain.end()) {
+      auto g_it = dim_roles.find(g);
+      if (g_it == dim_roles.end()) {
         return {
             MatmulDomain::M,
             "Inner domain of tensor was not mapped to a MatmulDomain"};
@@ -1150,7 +1150,7 @@ MatmulProblemLayoutOpt getProblemLayout(
 RolesMapOpt getTensorsRoles(
     Fusion* fusion,
     const IdModel& id_model,
-    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain) {
+    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles) {
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
   if (mma_input_candidates.empty()) {
@@ -1165,7 +1165,7 @@ RolesMapOpt getTensorsRoles(
   RolesMap roles_map;
 
   // Assumes the exact graph has already been built, since we've been provided
-  // group_to_domain
+  // dim_roles
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
   for (TensorView* tv : mma_input_candidates) {
@@ -1177,8 +1177,8 @@ RolesMapOpt getTensorsRoles(
         continue;
       }
       const ValGroup& g = exact_graph.toGroup(id);
-      auto it = group_to_domain.find(g);
-      if (it == group_to_domain.end()) {
+      auto it = dim_roles.find(g);
+      if (it == dim_roles.end()) {
         // tv has an unmapped non-broadcast and non-reduction dimension
         has_unmapped = true;
         continue;
@@ -1216,8 +1216,8 @@ RolesMapOpt getTensorsRoles(
         continue;
       }
       const ValGroup& g = exact_graph.toGroup(id);
-      auto it = group_to_domain.find(g);
-      if (it == group_to_domain.end()) {
+      auto it = dim_roles.find(g);
+      if (it == dim_roles.end()) {
         // output tv has an unmapped non-broadcast dimension
         has_unmapped = true;
         continue;

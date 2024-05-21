@@ -310,7 +310,7 @@ NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
 //! called by the above overloads.
 NVF_API MatmulProblemLayoutOpt getProblemLayout(
     const IdModel& id_model,
-    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain,
+    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
     const RolesMap& roles_map);
 
 //! Returns wrapped collection of TensorView roles in fusion.
@@ -319,7 +319,7 @@ NVF_API MatmulProblemLayoutOpt getProblemLayout(
 RolesMapOpt getTensorsRoles(
     Fusion* fusion,
     const IdModel& id_model,
-    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain);
+    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles);
 
 //! Return pair of whether use shared memory epilogue or not and whether to
 //!  reuse shared memory for the prologue at the expense of an additional block

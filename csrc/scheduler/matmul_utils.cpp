@@ -166,10 +166,10 @@ inline bool initCoreHeuristics(
 //! MatmulDomain::Batch, we evaluate the extent of each, then we multiply those
 //! dimensions together to get the overall batch size.
 ProblemShape getProblemShape(
-    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain,
+    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
     SchedulerRuntimeInfo& runtime_info) {
   ProblemShape shape{1, 1, 1, 1};
-  for (const auto& [g, dom] : group_to_domain) {
+  for (const auto& [g, dom] : dim_roles) {
     NVF_ERROR(!g->empty());
     IterDomain* id = g->front()->as<IterDomain>();
     const PolymorphicValue extent =
