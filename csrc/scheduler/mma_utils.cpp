@@ -1463,19 +1463,6 @@ class MatmulPatternMatcher : IterVisitor {
       if (bop->getBinaryOpType() != BinaryOpType::Mul) {
         return;
       }
-      // TODO: Allow multiple K dimensions
-      // Check that there's a single K dimension
-      bool has_k = false;
-      for (IterDomain* id :
-           rop->out()->as<TensorView>()->getMaybeRFactorDomain()) {
-        if (id->isReduction()) {
-          if (has_k) {
-            return;
-          }
-          has_k = true;
-        }
-      }
-
       // Remember that we are just gathering the immediate inputs to the
       // matmul, so there should be no prologue between a, b and the mul/sum.
 
@@ -1498,16 +1485,8 @@ class MatmulPatternMatcher : IterVisitor {
       bool has_m = false, has_n = false;
       for (size_t i : c10::irange(lrf.size())) {
         if (lrf[i]->isBroadcast() && !rrf[i]->isBroadcast()) {
-          if (has_m) {
-            // TODO: Handle multiple M dimensions
-            return;
-          }
           has_m = true;
         } else if (!lrf[i]->isBroadcast() && rrf[i]->isBroadcast()) {
-          if (has_n) {
-            // TODO: Handle multiple N dimensions
-            return;
-          }
           has_n = true;
         }
         if (red_root[i]->isReduction()) {
