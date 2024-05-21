@@ -2815,6 +2815,91 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
+// Test that we can segment a fusion that has a MatmulOp with epilogue
+// TODO: Once we can control the ExprEval and Matmul schedulers via options, run
+// this test with all three combinations (with and without each scheduler, but
+// at least one enabled).
+TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // A - tv0, B - tv1, C - tv2
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Prologue prevents ExprEval scheduler from accepting. If Matmul scheduler
+  // rejects, then Pointwise must not accept this unsegmented fusion.
+  tv1 = castOp(DataType::Half, sin(tv1));
+
+  auto tv2 = matmul(tv0, tv1);
+
+  fusion->addOutput(tv2);
+
+  NVF_CHECK(
+      ir_utils::getOpsOfType<MatmulOp>(fusion.get()).size() == 1,
+      "matmul fusion must have at least one MmaOp");
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  // TODO: check vectorization if fusion is enabled
+  // checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
+
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// This is just like the above test but with LinearOp instead of MatmulOp
+TEST_F(NVFuserTest, SegmentLinearOpPrologue) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // A - tv0, B - tv1, C - tv2
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Prologue prevents ExprEval scheduler from accepting. If Matmul scheduler
+  // rejects, then Pointwise must not accept this unsegmented fusion.
+  tv1 = castOp(DataType::Half, sin(tv1));
+
+  auto tv2 = linear(tv0, tv1);
+
+  fusion->addOutput(tv2);
+
+  NVF_CHECK(
+      ir_utils::getOpsOfType<LinearOp>(fusion.get()).size() == 1,
+      "matmul fusion must have at least one MmaOp");
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  // TODO: check vectorization if fusion is enabled
+  // checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
+
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 // This test can be used to check that an external plugin has been loaded. It
 // is DISABLED_ so that the test suite will pass even if the user has not
 // provided a plugin via NVFUSER_MATMUL_HEURISTIC_PLUGIN. To check that a
