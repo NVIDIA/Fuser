@@ -1468,6 +1468,13 @@ class MatmulPatternMatcher : IterVisitor {
 
       // Check that the inputs have broadcasts that are not all in common, i.e.
       // that there is at least one M and at least one N dimension.
+
+      // Note that there might be a cast to Float just before the multiply. This
+      // happens when using the `mul` op with reduced precision inputs. It can
+      // also happen if the inputs to `mul` in the definition were Float, but
+      // the Fusion was segmented and casts to half precision were inserted at
+      // the segmentation edge (see castInputOutputToLowerPrecision in
+      // fusion_segmenter.cpp).
       TensorView* ltv = getTensorviewPriorToCast(bop->lhs()->as<TensorView>());
       TensorView* rtv = getTensorviewPriorToCast(bop->rhs()->as<TensorView>());
 
