@@ -1109,23 +1109,8 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
   }
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
   const std::vector<IterDomain*>& rf = tv->getMaybeRFactorDomain();
-  size_t i = 0, j = 0;
-  while (i < alloc.size() && j < rf.size()) {
-    if (alloc[i]->isBroadcast() || alloc[i]->isReduction()) {
-      i++;
-      continue;
-    }
-    if (rf[j]->isBroadcast() || rf[j]->isReduction()) {
-      j++;
-      continue;
-    }
-    if (!alloc[i]->sameAs(rf[j])) {
-      return false;
-    }
-    i++;
-    j++;
-  }
-  return true;
+  return TensorDomain::noBroadcasts(TensorDomain::noReductions(rf)) ==
+      TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
 }
 
 } // namespace nvfuser::ir_utils
