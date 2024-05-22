@@ -780,14 +780,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   TensorView* a = tensor_roles.at(MatmulRole::INPUT_A).front();
   TensorView* b = tensor_roles.at(MatmulRole::INPUT_B).front();
 
+  const auto& gemm_tile = params.tile_sizes;
+
   // Collect mma swizzle info
   auto mma = mma_ops.front();
-  const auto mma_layout_opt = mma->layout();
-  NVF_ERROR(
-      mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
-  const auto mma_layout = mma_layout_opt.value();
-
-  const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
   const bool has_fusion_c_roles =
@@ -904,12 +900,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   } else {
     bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
   }
-
-  // For Turing and Ampere, the layout of the MmaOp is always TN
-  NVF_ERROR(
-      mma_layout == MmaLayout::TN,
-      "MMAs in Turing and Ampere are TN only, transpose is handled either "
-      "via ldmatrix.trans for fp16 or explicitly for other types.");
 
   // Make a CTA tile
   // ------------------------------------------------------------------
