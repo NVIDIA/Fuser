@@ -669,7 +669,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   int64_t transaction_based_vect =
       ceilDiv(bytes_per_transaction, max_input_dtype_size * bdimx);
   int64_t target_vect = std::max(target_unroll, transaction_based_vect);
-  std::cout << "target_unroll: " << target_unroll << " transaction_based_vect: " << transaction_based_vect << std::endl;
   // gradually increased iter_unroll_factor from 1 to 2, 4, 8, ensure the
   // split is divisible. This improves performance when iteration dim is not
   // power of 2, e.g. 1600 and 4800.
@@ -717,18 +716,16 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   // Try to hit a wave by going cross reduction
   grdim = std::min(rDimAvail(), ceilDiv(device_multiprocessor_count, gidim));
-  std::cout << "grdim1: " << grdim << std::endl;
-  // // Extend to go to target blocks, but keep 16 iterations per thread
+  // // Extend to go to target blocks
   if (gidim * grdim < target_blocks) {
     // What should we use out of the reduction factor to hit target blocks? Make
-    // sure we have 4 reductions per thread beyond what's already set as we
+    // sure we have 2 reductions per thread beyond what's already set as we
     // consider expanding to target block
     grdim = std::min(
-        // At least 4 iterations of the reduction per thread ontop of unroll
+        // At least 2 iterations of the reduction per thread ontop of unroll
         ceilDiv(rDimAvail() * grdim, 2),
         // Expand to target blocks
         ceilDiv(target_blocks, gidim));
-    std::cout << "grdim2: " << grdim << std::endl;
   }
 
   // If there isn't a lot of available parallelism from the iteration dimension,
@@ -773,7 +770,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         new_grdim * gidim % device_multiprocessor_count >
             grdim * gidim % device_multiprocessor_count) {
       grdim = new_grdim;
-      std::cout << "grdim3: " << grdim << std::endl;
     }
   }
 
