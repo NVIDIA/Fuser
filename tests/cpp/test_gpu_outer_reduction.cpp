@@ -2363,7 +2363,7 @@ TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
     auto options = at::TensorOptions()
                        .dtype(data_type_to_aten(dtype))
                        .device(at::kCUDA, 0);
-    auto t0 = at::ones(shape, options);
+    auto t0 = at::randn(shape, options);
     std::vector<c10::IValue> inputs({t0});
     FusionExecutorCache executor_cache(std::move(fusion));
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
