@@ -1163,8 +1163,15 @@ RolesMapOpt getTensorsRoles(
   // dim_roles
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  for (TensorView* tv : mma_input_candidates) {
-    bool has_m = false, has_n = false, has_k = false, has_unmapped = false;
+  struct DimPresence {
+    bool m = false;
+    bool n = false;
+    bool k = false;
+    bool unmapped = false;
+  };
+
+  const auto findDims = [&dim_roles, &exact_graph](TensorView* tv) {
+    DimPresence has;
     for (IterDomain* id :
          TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
       if (id->isBroadcast()) {
@@ -1175,27 +1182,32 @@ RolesMapOpt getTensorsRoles(
       auto it = dim_roles.find(g);
       if (it == dim_roles.end()) {
         // tv has an unmapped non-broadcast and non-reduction dimension
-        has_unmapped = true;
+        has.unmapped = true;
         continue;
       }
-      has_m = has_m || it->second == MatmulDomain::M;
-      has_n = has_n || it->second == MatmulDomain::N;
-      has_k = has_k || it->second == MatmulDomain::K;
+      has.m = has.m || it->second == MatmulDomain::M;
+      has.n = has.n || it->second == MatmulDomain::N;
+      has.k = has.k || it->second == MatmulDomain::K;
     }
-    if (has_unmapped) {
+    return has;
+  };
+
+  for (TensorView* tv : mma_input_candidates) {
+    DimPresence has = findDims(tv);
+    if (has.unmapped) {
       // Don't map TVs to roles if they have unmapped dims
       continue;
     }
-    if (has_m && has_k && !has_n) {
+    if (has.m && has.k && !has.n) {
       tensor_roles[MatmulRole::INPUT_A].push_back(tv);
       continue;
     }
-    if (has_n && has_k && !has_m) {
+    if (has.n && has.k && !has.m) {
       tensor_roles[MatmulRole::INPUT_B].push_back(tv);
       continue;
     }
     // Bias vectors are assigned to INPUT_C role
-    if (!has_k) {
+    if (!has.k) {
       tensor_roles[MatmulRole::INPUT_C].push_back(tv);
       continue;
     }
@@ -1203,29 +1215,12 @@ RolesMapOpt getTensorsRoles(
 
   std::vector<TensorView*> storage;
   for (TensorView* tv : mma_output_candidates) {
-    bool has_m = false, has_n = false, has_k = false, has_unmapped = false;
-    for (IterDomain* id :
-         TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
-      if (id->isBroadcast()) {
-        // Ignore broadcasts in output
-        continue;
-      }
-      const ValGroup& g = exact_graph.toGroup(id);
-      auto it = dim_roles.find(g);
-      if (it == dim_roles.end()) {
-        // output tv has an unmapped non-broadcast dimension
-        has_unmapped = true;
-        continue;
-      }
-      has_m = has_m || it->second == MatmulDomain::M;
-      has_n = has_n || it->second == MatmulDomain::N;
-      has_k = has_k || it->second == MatmulDomain::K;
-    }
+    DimPresence has = findDims(tv);
     // NOTE: depending on fusion definition k domain may appear in the output:
     //  - for mma_output == fusion output k domain is present
     //  - for mma_output != fusion output (fusion with epilogue) k domain
     //    is not present
-    if (has_k || has_unmapped) {
+    if (has.k || has.unmapped) {
       // Don't map TVs to output roles if they have unmapped dims, or if they
       // have K dimension
       continue;
@@ -1233,7 +1228,7 @@ RolesMapOpt getTensorsRoles(
 
     // NOTE: the core fusion output tensors are the ones with m and n
     //  domains
-    if (has_m && has_n) {
+    if (has.m && has.n) {
       storage.push_back(tv);
     }
   }
