@@ -1065,7 +1065,7 @@ MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion) {
   const MatmulPattern& pattern = patterns[0];
   IdModel id_model(fusion);
   const auto id_roles = pattern.getDimRoles(id_model);
-  const auto tensor_roles_opt = getTensorsRoles(fusion, id_model, id_roles);
+  const auto tensor_roles_opt = getTensorRoles(fusion, id_model, id_roles);
   if (!tensor_roles_opt.isValid()) {
     return {tensor_roles_opt.getErrorMsg()};
   }
@@ -1142,7 +1142,7 @@ MatmulProblemLayoutOpt getProblemLayout(
   NVF_ERROR(false, "Reached unreachable section of getProblemLayout");
 }
 
-RolesMapOpt getTensorsRoles(
+RolesMapOpt getTensorRoles(
     Fusion* fusion,
     const IdModel& id_model,
     const std::unordered_map<ValGroup, MatmulDomain>& dim_roles) {

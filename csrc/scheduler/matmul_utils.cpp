@@ -497,7 +497,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   IdModel id_model(fusion);
   const auto id_roles = patterns.front().getDimRoles(id_model);
   const mma_utils::RolesMapOpt roles_map_opt =
-      mma_utils::getTensorsRoles(fusion, id_model, id_roles);
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
   if (!roles_map_opt.isValid()) {
     return {roles_map_opt.getErrorMsg()};
   }
@@ -576,7 +576,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   params->mma_macro = mma_op.value();
 
   const auto& roles_map_opt =
-      mma_utils::getTensorsRoles(fusion, id_model, id_roles);
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
   NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto roles_map = roles_map_opt.getData();
 

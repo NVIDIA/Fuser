@@ -311,7 +311,7 @@ NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
-RolesMapOpt getTensorsRoles(
+RolesMapOpt getTensorRoles(
     Fusion* fusion,
     const IdModel& id_model,
     const std::unordered_map<ValGroup, MatmulDomain>& dim_roles);
