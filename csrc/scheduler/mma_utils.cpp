@@ -1288,13 +1288,7 @@ RolesMapOpt getTensorsRoles(
     });
 
     if (!storage.empty()) {
-      // NOTE: currently, we pick as a reference tensor one with `m` and `n`
-      //       IterDomains and the most uses
-      auto pos = storage.begin();
-      roles_map[MatmulRole::OUTPUT_D].push_back(*pos);
-      for (++pos; pos != storage.end(); ++pos) {
-        roles_map[MatmulRole::OUTPUT_AUX].push_back(*pos);
-      }
+      roles_map[MatmulRole::OUTPUT_D] = storage;
     }
   };
 
