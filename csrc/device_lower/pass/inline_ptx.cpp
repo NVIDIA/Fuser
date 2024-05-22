@@ -221,17 +221,17 @@ class LowerToInlinePtx : public kir::ExprMutator {
         /*scaleD=*/IrBuilder::create<Val>(true),
         /*scaleA=*/IrBuilder::create<Val>(1, DataType::Int32),
         /*scaleB=*/IrBuilder::create<Val>(1, DataType::Int32)};
-    auto layout = *mma->layout();
+    auto layout = lower_utils::getMmaLayout(mma);
     if (a_on_smem) {
       // tnspA
-      if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
+      if (layout[0] == UnitDim::K) {
         inputs.push_back(IrBuilder::create<Val>(0, DataType::Int32));
       } else {
         inputs.push_back(IrBuilder::create<Val>(1, DataType::Int32));
       }
     }
     // tnspB
-    if (layout == MmaLayout::TN || layout == MmaLayout::NN) {
+    if (layout[1] == UnitDim::K) {
       inputs.push_back(IrBuilder::create<Val>(0, DataType::Int32));
     } else {
       inputs.push_back(IrBuilder::create<Val>(1, DataType::Int32));

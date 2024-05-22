@@ -653,8 +653,18 @@ TensorView* cat(
       pad_widths.at((ndims - dim - 1) * 2 + 1) = right_pad_i;
     }
 
-    resized_inputs.at(input_idx) =
+    TensorView* padded =
         pad(inputs.at(input_idx), pad_widths, nullptr, iter_type_opt);
+    NVF_ERROR(padded->definition() != nullptr);
+    if (padded->definition()->isA<LoadStoreOp>()) {
+      // If the pad was actually a "set" of the input, that means we proved that
+      // the pad widths are all zero. In that case, we don't need to check the
+      // other input sizes since we know that they are all empty (i.e. they have
+      // size zero in the cat dimension). We just return the "padded" tensor in
+      // that case.
+      return padded;
+    }
+    resized_inputs.at(input_idx) = padded;
   }
 
   // Now all of resized_inputs have the same shape as the out tensor
