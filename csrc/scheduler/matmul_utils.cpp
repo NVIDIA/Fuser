@@ -181,6 +181,13 @@ ProblemShape getProblemShape(
   return shape;
 }
 
+// Checks that this pattern:
+//   - is a GEMM or batch GEMM
+//   - has at least two inputs i.e. not A @ A.T
+//   - has a single A and a single B operand i.e not A @ (B1 * B2)
+//   - has a fusion output with OUTPUT_D role i.e. that has M, N dims
+//   - includes all fusion inputs/outputs in its tensor roles
+//   - has no fusion inputs with non-trivial allocation domain
 std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
     const mma_utils::MatmulPattern& pattern,
