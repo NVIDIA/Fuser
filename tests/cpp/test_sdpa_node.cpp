@@ -35,7 +35,7 @@ TEST (SDPATest, Concrete) {
     auto tvq = makeConcreteTensor(q_shape, DataType::Half);
     auto tvk = makeConcreteTensor(k_shape, DataType::Half);
     auto tvv = makeConcreteTensor(k_shape, DataType::Half);
-    auto attn = sdpa(tvq, tvk, tvv, nullptr, /*dropout_p=*/0.0, /*is_causal=*/false);
+    auto attn = sdpa(tvq, tvk, tvv, nullptr, /*dropout_p=*/0.0, /*is_causal=*/false, std::nullopt);
 
     fusion->addInput(tvq);
     fusion->addInput(tvk);
@@ -64,7 +64,7 @@ TEST (SDPATest, Symbolic) {
     auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
     auto tvk = makeSymbolicTensor(k_shape, DataType::Half);
     auto tvv = makeSymbolicTensor(k_shape, DataType::Half);
-    auto attn = sdpa(tvq, tvk, tvv, nullptr, /*dropout_p=*/0.0, /*is_causal=*/false);
+    auto attn = sdpa(tvq, tvk, tvv, nullptr, /*dropout_p=*/0.0, /*is_causal=*/false, std::nullopt);
 
     fusion->addInput(tvq);
     fusion->addInput(tvk);

@@ -470,9 +470,9 @@ static TensorView* newForSdpa(
 } // namespace
 
 
-TensorView* sdpa(TensorView* query, TensorView* key, TensorView* value, TensorView* attn_mask, double dropout_p, bool is_causal) {
+TensorView* sdpa(TensorView* query, TensorView* key, TensorView* value, TensorView* attn_mask, double dropout_p, bool is_causal, std::optional<double> scale) {
   TensorView* out = newForSdpa(query, key, value, attn_mask);
-  IrBuilder::create<SdpaOp>(out, query, key, value, attn_mask, dropout_p, is_causal);
+  IrBuilder::create<SdpaOp>(out, query, key, value, attn_mask, dropout_p, is_causal, scale);
   return out;
 }
 

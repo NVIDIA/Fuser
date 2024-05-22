@@ -2211,7 +2211,8 @@ class SdpaOp : public Expr {
     Val* value,
     Val* attn_mask,
     double dropout_p,
-    bool is_causal);
+    bool is_causal,
+    std::optional<double> scale);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2251,6 +2252,12 @@ class SdpaOp : public Expr {
 
   bool is_causal() const{
     return attribute<bool>(1);
+  }
+  std::optional<double> scale() const {
+    if (attributes().size() == 3) {
+      return attribute<double>(2);
+    }
+    return std::nullopt;
   }
 
   std::vector<PolymorphicValue> evaluate(

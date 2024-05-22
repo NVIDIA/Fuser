@@ -4270,7 +4270,8 @@ SdpaOp::SdpaOp(
     Val* value,
     Val* attn_mask,
     double dropout_p,
-    bool is_causal
+    bool is_causal,
+    std::optional<double> scale
     )
     : Expr(passkey) {
   addOutput(out);
@@ -4282,6 +4283,9 @@ SdpaOp::SdpaOp(
   }
   addDataAttribute(dropout_p);
   addDataAttribute(is_causal);
+  if (scale.has_value()){
+    addDataAttribute(scale.value());
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaOp)
@@ -4311,8 +4315,9 @@ std::vector<PolymorphicValue> SdpaOp::evaluate(
   }
   double dropout_p = this->dropout_p();
   bool is_causal = this->is_causal();
+  std::optional<double> scale = this->scale();
 
-  return {at::scaled_dot_product_attention(query, key, value, attn_mask, dropout_p, is_causal)};
+  return {at::scaled_dot_product_attention(query, key, value, attn_mask, dropout_p, is_causal, scale)};
 }
 
 } // namespace nvfuser
