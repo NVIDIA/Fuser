@@ -299,10 +299,10 @@ class PredicateChcker : public IterVisitor {
         "Should never have a reduction op without a tensor view input.");
     bool found_expand = false;
     for (auto tv_input : tv_inputs) {
-      found_expand |= std::any_of(
-          tv_input->getMaybeRFactorDomain().begin(),
-          tv_input->getMaybeRFactorDomain().end(),
-          [](IterDomain* id) { return id->hasExpandedExtent(); });
+      found_expand = found_expand ||
+          std::any_of(tv_input->getMaybeRFactorDomain().begin(),
+                      tv_input->getMaybeRFactorDomain().end(),
+                      [](IterDomain* id) { return id->hasExpandedExtent(); });
     }
 
     if (!found_expand) {

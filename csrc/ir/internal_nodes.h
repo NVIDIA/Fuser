@@ -1359,7 +1359,6 @@ class GroupedWelfordOp : public Expr {
 class NVF_API MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
-  using MmaLayoutOpt = std::optional<MmaLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1370,8 +1369,7 @@ class NVF_API MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      const MmaMacro& options,
-      const MmaLayoutOpt& input_layout);
+      const MmaMacro& options);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1428,10 +1426,6 @@ class NVF_API MmaOp : public Expr {
 
   void setMacro(MmaMacro options);
 
-  auto layout() const {
-    return attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
-  }
-
   const auto& mAxes() const {
     return attribute<AxesData>(ATTR_POS_M_AXES);
   }
@@ -1458,7 +1452,6 @@ class NVF_API MmaOp : public Expr {
   static constexpr size_t ATTR_POS_N_AXES = 3;
   static constexpr size_t ATTR_POS_K_AXES = 4;
   static constexpr size_t ATTR_POS_BATCH_AXES = 5;
-  static constexpr size_t ATTR_POS_INPUT_LAYOUT = 6;
 };
 
 //! The semantics are identical to torch.broadcast_to.

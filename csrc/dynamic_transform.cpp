@@ -1263,7 +1263,8 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
           "Producer ID not concretized: ",
           input_id->toString());
 
-      has_expanded_producer |= input_id->hasExpandedExtent();
+      has_expanded_producer =
+          has_expanded_producer || input_id->hasExpandedExtent();
 
       if (id_type.has_value()) {
         id_type = ops::promoteIterType(*id_type, input_id->getIterType());
