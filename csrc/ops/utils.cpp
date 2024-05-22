@@ -259,6 +259,43 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
   return mapping;
 }
 
+std::vector<IterDomain*> mapSdpaOpIterDomains(
+    const std::vector<IterDomain*>& input_domain,
+    AttnRole input_role,
+    size_t out_size) {
+  std::vector<IterDomain*> mapping(out_size, nullptr);
+  int64_t inp_size = input_domain.size();
+
+  // Query: [N,..,L,E], Key: [N,..,S,E], Value: [N,..,S,Ev], Attn_mask = null/[N,..,L,S]/[L,S]/(any broadcastable input)
+  // Output: [N,..,L,Ev]
+
+  // Map the first out_size - 2 ids for any input, start from reverse since attn mask only needs to be broadcastable to attn_weights
+  for (auto out_idx = (int64_t)out_size - 3, inp_idx = inp_size - 3;
+       inp_idx >= 0;
+       inp_idx--, out_idx--) {
+    mapping[out_idx] = input_domain[inp_idx];
+  }
+
+  switch (input_role) {
+    case AttnRole::Q:
+    case AttnRole::Mask:{
+      // Map L
+      mapping[out_size-2] = input_domain[out_size-2];
+      break;
+    }
+    case AttnRole::V:{
+      // Map Ev
+      mapping[out_size-1] = input_domain[out_size-1];
+      break;
+    }
+    default:
+      NVF_ERROR("Unexpected input type.");
+  }
+  return mapping;
+}
+
+
+
 // Adding these pragmas since gcc-12.2.1
 // incorrectly reports a warning with the use of evaluate
 #if defined(__GNUC__) && !defined(__clang__)

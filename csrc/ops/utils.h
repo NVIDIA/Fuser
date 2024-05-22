@@ -75,6 +75,11 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
     MatmulRole input_role,
     size_t out_size);
 
+std::vector<IterDomain*> mapSdpaOpIterDomains(
+    const std::vector<IterDomain*>& input_domain,
+    AttnRole input_role,
+    size_t out_size);
+
 // Takes a vector of aligned input iterdomains to create the output iterdomain.
 // This is used if the input iterdomains are not trivially mapped to the output
 // iterdomains. For eg: MatmulOp. If given, the forced_iter_type argument will
