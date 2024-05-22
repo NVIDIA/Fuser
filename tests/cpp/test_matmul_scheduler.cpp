@@ -2906,4 +2906,60 @@ INSTANTIATE_TEST_SUITE_P(
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
+// Matmul test for Ampere MMA: across supported layouts
+TEST_F(MatmulSchedulerTest, FusionAmpereMatmul_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 512, N = 128, K = 256;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
+  auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
+  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tvSet = set(tv1);
+  // K, N -> N, K
+  auto tv1t = transpose(tvSet);
+
+  // M, N, K
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1t, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  params.supported_vec_size = {8, 8, 4};
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.double_buffer_options.double_buffer_smem_write = false;
+  params.double_buffer_options.double_buffer_smem_read = false;
+  params.double_buffer_options.smem_double_buffer_stage = 1;
+  scheduleMatmul(&fusion, params);
+
+  const auto options =
+      at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options).as_strided({K, N}, {1, K});
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8,
+      0,
+      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
 } // namespace nvfuser

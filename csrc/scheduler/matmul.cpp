@@ -905,6 +905,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     auto toTranspose = needsTranposedLoad(producer, consumer);
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
       *tv_r = ldst->out()->as<TensorView>();
+      if (*tv_r == bcr){
+        toTranspose = false;
+      } 
       ldst->setOpType(
           toTranspose ? LoadStoreOpType::LdMatrixTranspose
                       : LoadStoreOpType::LdMatrix);
