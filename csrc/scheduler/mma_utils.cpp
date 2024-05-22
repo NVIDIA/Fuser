@@ -1538,14 +1538,14 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   //   N: present in B and output, but not A
   //   K: present in A and B, but not output
   //   Batch: present in all A, B, and output
-  // If there are other membership patterns, for example a ValGroup present in
-  // only A, then we should raise an exception here.
+  // If there are other patterns, for example a ValGroup present in only A, then
+  // we should raise an exception here.
 
   // Indicates whether a ValGroup is present in A (bit 0), B (bit 1), or output
   // (bit 2)
-  using ValGroupPresence = std::bitset<3>;
+  using DimPresence = std::bitset<3>;
 
-  std::unordered_map<ValGroup, ValGroupPresence> present_flags;
+  std::unordered_map<ValGroup, DimPresence> present_flags;
   const auto recordPresence = [&exact_graph, &present_flags](
                                   TensorView* tv, size_t tensor_num) {
     for (IterDomain* id : tv->getMaybeRFactorDomain()) {
