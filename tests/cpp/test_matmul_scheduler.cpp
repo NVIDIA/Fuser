@@ -27,18 +27,13 @@ namespace nvfuser {
 namespace {
 class MatmulSchedulerTest : public NVFuserTest {
  protected:
-  MatmulSchedulerTest() : optimization_guard_(false) {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
+  MatmulSchedulerTest() : optimization_guard_(false) {}
 
  private:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
-  // RAII style options guard. This is used to disable
-  // (via set) options in the constructor.
-  DisableOptionsGuard option_guard_;
 };
 
 using PrecisionsDesc = std::tuple<PrimDataType, PrimDataType, PrimDataType>;
@@ -52,15 +47,11 @@ class PrecisionParametrizedTest
  protected:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
-  PrecisionParametrizedTest() : optimization_guard_(false) {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
+  PrecisionParametrizedTest() : optimization_guard_(false) {}
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
-
-  DisableOptionsGuard option_guard_;
 };
 
 [[nodiscard]] auto get_type_letter(const PrimDataType& type) {
@@ -2745,9 +2736,7 @@ std::unique_ptr<matmul_heuristic_plugin::KernelConfig> testConfigFactory() {
 class MatmulSchedulerPluginTest : public NVFuserTest {
  protected:
   MatmulSchedulerPluginTest()
-      : optimization_guard_(false), factory_guard_(testConfigFactory) {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
+      : optimization_guard_(false), factory_guard_(testConfigFactory) {}
 
  private:
   // Allocation order set by the pass breaks matmul tests
@@ -2909,9 +2898,6 @@ TEST_F(NVFuserTest, SegmentLinearOpPrologue) {
 //   build/test_matmul --gtest_also_run_disabled_tests
 //
 TEST_F(MatmulSchedulerTest, DISABLED_RequireExternalPlugin) {
-  DisableOptionsGuard dog;
-  DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
-
   EXPECT_TRUE(matmul_heuristic_plugin::hasPlugin());
 
   MatmulParams params;
