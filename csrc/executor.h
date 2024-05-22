@@ -110,14 +110,15 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const at::ArrayRef<c10::IValue>& inputs,
       int64_t fusion_id,
-      int64_t concrete_id) {
+      int64_t concrete_id,
+      CompileParams compile_params = CompileParams()) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
     compileFusion(
         fusion,
         args,
         LaunchParams(),
-        CompileParams(),
+        compile_params,
         ScheduleHeuristic::None,
         fusion_id,
         concrete_id);

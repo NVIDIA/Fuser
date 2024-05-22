@@ -570,12 +570,14 @@ void initNvFuserPythonBindings(PyObject* module) {
           })
       .def(
           "_finalize_schedule",
-          [](FusionDefinition& self, const py::iterable& iter) {
+          [](FusionDefinition& self,
+             const py::iterable& iter,
+             bool uses_tma_ops) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            self.finalizeSchedule(inputs);
+            self.finalizeSchedule(inputs, uses_tma_ops);
             // Mark the end of a schedule
             inst::Trace::instance()->endEvent(nullptr);
           })

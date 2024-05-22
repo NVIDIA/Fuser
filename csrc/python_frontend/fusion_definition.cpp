@@ -129,7 +129,8 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 }
 
 void FusionDefinition::finalizeSchedule(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const at::ArrayRef<c10::IValue>& inputs,
+    bool uses_tma_ops) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
   // TODO: remove when multidevice executor integration is done natively
   Fusion* fusion = user_sched_->schedule.get();
@@ -145,11 +146,16 @@ void FusionDefinition::finalizeSchedule(
   FusionGuard::setCurFusion(prev_fusion_);
   prev_fusion_ = nullptr;
   if (multidevice_executor_ == nullptr) {
+    // NOTE: TMA operations require 32-bit indexing and magic zero support to be
+    // disabled.
     user_sched_->executor->compileFusion(
         user_sched_->schedule.get(),
         inputs,
         user_sched_->fusion_id_,
-        user_sched_->device_id_);
+        user_sched_->device_id_,
+        (uses_tma_ops)
+            ? CompileParams{DataType::Int32, /*maxrregcount=*/255, /*enable_magic_zero=*/false}
+            : CompileParams());
   }
   user_sched_ = nullptr;
 }
