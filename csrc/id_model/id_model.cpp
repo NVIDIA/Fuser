@@ -602,9 +602,8 @@ void IdModel::buildLoopGraph() {
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
-  const StatefulInliningInfo inlining_info = buildStatefulInliningInfo(
-      tv_exprs_,
-      idGraph(IdMappingMode::PERMISSIVE));
+  const StatefulInliningInfo inlining_info =
+      buildStatefulInliningInfo(tv_exprs_, idGraph(IdMappingMode::PERMISSIVE));
 
   initializeLoopGraph(inlining_info);
 
