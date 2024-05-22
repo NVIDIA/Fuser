@@ -37,7 +37,6 @@ enum class MatmulDomain { M = 0, N, K };
 //!
 //! Naming convention is based on the following formula:
 //!    D = alpha * A x B + beta * C
-//!    AUX = relu(D)
 //!  Note: bias vector tensors will be assigned to INPUT_C role.
 enum class MatmulRole { INPUT_A = 0, INPUT_B, INPUT_C, OUTPUT_D };
 
