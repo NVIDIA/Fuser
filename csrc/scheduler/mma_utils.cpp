@@ -1084,13 +1084,14 @@ MatmulProblemLayoutOpt getProblemLayout(
   // using DataWrapperOpt<MatmulDomain>(std::move(dom)) leads to a clang-tidy
   // warning because MatmulDomain is trivially movable. There is only a move
   // constructor for DataWrapperOpt to prevent inadvertent copying. To avoid
-  // this complication I'm using a simple pair for the lambda's result type.
-  using InnerDomResult = std::pair<MatmulDomain, std::string>;
-  const auto innerDomain = [&tensor_roles, &dim_roles, &exact_graph](
-                               MatmulRole role) -> InnerDomResult {
+  // this complication I'm using an unwrapped variant for the lambda's result
+  // type.
+  using UnitDimOpt = std::variant<std::string, UnitDim>;
+  const auto findUnitDim =
+      [&tensor_roles, &dim_roles, &exact_graph](MatmulRole role) -> UnitDimOpt {
     const auto role_it = tensor_roles.find(role);
     if (role_it == tensor_roles.end()) {
-      return {MatmulDomain::M, "Could not find role in tensor_roles"};
+      return "Could not find role in tensor_roles";
     }
     std::optional<MatmulDomain> group_inner_dom = std::nullopt;
     for (TensorView* tv : role_it->second) {
@@ -1099,44 +1100,41 @@ MatmulProblemLayoutOpt getProblemLayout(
       const ValGroup& g = exact_graph.toGroup(inner_id);
       auto g_it = dim_roles.find(g);
       if (g_it == dim_roles.end()) {
-        return {
-            MatmulDomain::M,
-            "Inner domain of tensor was not mapped to a MatmulDomain"};
+        return "Inner domain of tensor was not mapped to a MatmulDomain";
       }
       if (!group_inner_dom.has_value()) {
         group_inner_dom = g_it->second;
       } else if (group_inner_dom.value() != g_it->second) {
-        return {
-            MatmulDomain::M, "Group contains multiple inner dimension domains"};
+        return "Group contains multiple inner dimension domains";
       }
     }
     if (!group_inner_dom.has_value()) {
-      return {MatmulDomain::M, "No tensor found in role"};
+      return "No tensor found in role";
     }
-    return {group_inner_dom.value(), ""};
+    return group_inner_dom.value() == MatmulDomain::K ? UnitDim::K
+                                                      : UnitDim::M_or_N;
   };
 
-  const InnerDomResult a_dom_res = innerDomain(MatmulRole::INPUT_A);
-  if (!a_dom_res.second.empty()) {
-    std::string err = a_dom_res.second;
+  const UnitDimOpt unitdim_a_opt = findUnitDim(MatmulRole::INPUT_A);
+  if (std::holds_alternative<std::string>(unitdim_a_opt)) {
+    std::string err = std::get<std::string>(unitdim_a_opt);
     return err;
   }
-  const bool kinner_a = a_dom_res.first == MatmulDomain::K;
-
-  const InnerDomResult b_dom_res = innerDomain(MatmulRole::INPUT_B);
-  if (!b_dom_res.second.empty()) {
-    std::string err = b_dom_res.second;
+  const UnitDimOpt unitdim_b_opt = findUnitDim(MatmulRole::INPUT_B);
+  if (std::holds_alternative<std::string>(unitdim_b_opt)) {
+    std::string err = std::get<std::string>(unitdim_b_opt);
     return err;
   }
-  const bool kinner_b = b_dom_res.first == MatmulDomain::K;
+  const UnitDim unitdim_a = std::get<UnitDim>(unitdim_a_opt);
+  const UnitDim unitdim_b = std::get<UnitDim>(unitdim_b_opt);
 
-  if (kinner_a && kinner_b) {
+  if (unitdim_a == UnitDim::K && unitdim_b == UnitDim::K) {
     return MmaLayout::TN;
-  } else if (kinner_a && !kinner_b) {
+  } else if (unitdim_a == UnitDim::K && unitdim_b == UnitDim::M_or_N) {
     return MmaLayout::TT;
-  } else if (!kinner_a && !kinner_b) {
+  } else if (unitdim_a == UnitDim::M_or_N && unitdim_b == UnitDim::M_or_N) {
     return MmaLayout::NT;
-  } else if (!kinner_a && kinner_b) {
+  } else if (unitdim_a == UnitDim::M_or_N && unitdim_b == UnitDim::K) {
     return MmaLayout::NN;
   }
   NVF_ERROR(false, "Reached unreachable section of getProblemLayout");
