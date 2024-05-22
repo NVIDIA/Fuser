@@ -269,4 +269,41 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
   }
 }
 
+// Check that we determine A and B properly when they are swapped as inputs to
+// mul
+TEST_F(CombineMulSumAsMmaTest, SwapAandB) {
+  for (auto layout : kAllSupportedMmaLayout) {
+    for (bool swap : {false, true}) {
+      Fusion fusion;
+      FusionGuard fg(&fusion);
+      auto tv0 = makeContigTensor(2, DataType::Half);
+      auto tv1 = makeContigTensor(2, DataType::Half);
+
+      fusion.addInput(tv0);
+      fusion.addInput(tv1);
+
+      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+      // We should identify tv0 as A and tv1 as B regardless of the order here
+      auto tv2 = swap ? mul(tv1, tv0) : mul(tv0, tv1);
+      auto tv3 = sum(tv2, {-1});
+
+      fusion.addOutput(tv3);
+
+      std::vector<mma_utils::MatmulPattern> patterns =
+          mma_utils::findMatmulPatterns(&fusion);
+
+      ASSERT_FALSE(patterns.empty());
+      EXPECT_EQ(patterns.size(), 1);
+
+      EXPECT_EQ(patterns.front().A, tv0);
+      EXPECT_EQ(patterns.front().B, tv1);
+
+      patterns.front().translateToMmaOp();
+
+      ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
+    }
+  }
+}
+
 } // namespace nvfuser

@@ -1387,6 +1387,11 @@ class MatmulPatternMatcher : IterVisitor {
  private:
   using IterVisitor::handle;
 
+  // TODO: These methods currently assume the output will have allocation domain
+  // equal to its rfactor. However, if the rfactor domain is specified, or if
+  // there is a transpose operation in the epilogue, then this assumption will
+  // be violated. In such cases we should actually swap and transpose A and B.
+
   // Handle the case when no translation is needed.
   void handle(MmaOp* mop) override {
     MatmulPattern& pattern = patterns_.emplace_back();
@@ -1431,18 +1436,47 @@ class MatmulPatternMatcher : IterVisitor {
       const std::vector<IterDomain*>& red_root =
           rop->out()->as<TensorView>()->getRootDomain();
       NVF_ERROR(red_root.size() == lrf.size());
+      // Find innermost M or N dimension in output
+      // We will assume for now that the output rfactor domain matches the
+      // fusion output's allocation domain; in particular that the innermost
+      // dimension is an N dimension. This allows us to determine which of lhs
+      // and rhs is A and B.
+      // TODO: analyze fusion outputs to determine N dimensions
+      bool lhs_is_A = true;
       bool has_m = false, has_n = false;
-      for (size_t i : c10::irange(lrf.size())) {
-        if (lrf[i]->isBroadcast() && !rrf[i]->isBroadcast()) {
-          has_m = true;
-        } else if (!lrf[i]->isBroadcast() && rrf[i]->isBroadcast()) {
-          has_n = true;
-        }
-        if (red_root[i]->isReduction()) {
+      // Loop backwards to find inner-most Iteration domain in output
+      for (int64_t i = red_root.size() - 1; i >= 0; --i) {
+        IterDomain* lhs_id = lrf[(size_t)i];
+        IterDomain* rhs_id = rrf[(size_t)i];
+        IterDomain* out_id = red_root[(size_t)i];
+        if (out_id->isIteration()) {
+          if (lhs_id->isBroadcast() != rhs_id->isBroadcast()) {
+            // This is either an M or N dimension
+
+            // Operand domains must be Broadcast and Iteration
+            NVF_ERROR(lhs_id->isIteration() || rhs_id->isIteration());
+
+            if (!has_n) {
+              // This is the inner-most output non-batch dim, so it is N
+              has_n = true;
+              // rhs is B if it has this dimension
+              lhs_is_A = rhs_id->isIteration();
+              continue;
+            }
+            // We have found the inner-most N dim, so we can now use lhs_is_A to
+            // tell whether this is M or N
+            has_m = has_m || (lhs_is_A && lhs_id->isIteration()) ||
+                (!lhs_is_A && (rhs_id->isIteration()));
+          }
+          // out_id could also be a batch dim
+        } else if (out_id->isReduction()) {
           // matmul must be contraction of non-broadcast dimensions
-          if (!lrf[i]->isIteration() || !rrf[i]->isIteration()) {
+          if (!lhs_id->isIteration() || !rhs_id->isIteration()) {
             return;
           }
+        } else if (!out_id->isBroadcast()) {
+          // Reduction output ID should be iteration, reduction, or broadcast
+          return;
         }
       }
       if (!has_m || !has_n) {
@@ -1451,8 +1485,8 @@ class MatmulPatternMatcher : IterVisitor {
       }
 
       MatmulPattern& pattern = patterns_.emplace_back();
-      pattern.A = ltv;
-      pattern.B = rtv;
+      pattern.A = lhs_is_A ? ltv : rtv;
+      pattern.B = lhs_is_A ? rtv : ltv;
       pattern.output = rop->out()->as<TensorView>();
     }
   }
