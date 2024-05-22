@@ -2201,4 +2201,66 @@ class LinearOp : public Expr {
   }
 };
 
+class SdpaOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  SdpaOp(IrBuilderPasskey, Val* out,
+    Val* query,
+    Val* key,
+    Val* value,
+    Val* attn_mask,
+    double dropout_p,
+    bool is_causal);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "SdpaOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* query() const {
+    return input(0);
+  }
+
+  Val* key() const {
+    return input(1);
+  }
+
+  Val* value() const {
+    return input(2);
+  }
+
+  Val* attn_mask() const {
+    if (has_mask()){
+      return input(3);
+    }
+    return nullptr;
+  }
+
+  double dropout_p() const {
+    return attribute<double>(0);
+  }
+
+  bool is_causal() const{
+    return attribute<bool>(1);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+  
+  private:
+    bool has_mask() const {
+      return inputs().size() == 4;
+    }
+};
+
 } // namespace nvfuser

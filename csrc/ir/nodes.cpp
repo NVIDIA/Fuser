@@ -4262,4 +4262,57 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   return {at::linear(a, b)};
 }
 
+SdpaOp::SdpaOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* query,
+    Val* key,
+    Val* value,
+    Val* attn_mask,
+    double dropout_p,
+    bool is_causal
+    )
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(query);
+  addInput(key);
+  addInput(value);
+  if (attn_mask != nullptr){
+    addInput(attn_mask);
+  }
+  addDataAttribute(dropout_p);
+  addDataAttribute(is_causal);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaOp)
+
+std::string SdpaOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  return ss.str();
+}
+
+std::string SdpaOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> SdpaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto query = inputs.at(0).as<at::Tensor>();
+  const auto key = inputs.at(1).as<at::Tensor>();
+  const auto value = inputs.at(2).as<at::Tensor>();
+  std::optional<at::Tensor> attn_mask = std::nullopt;
+  if (has_mask()){
+    attn_mask = inputs.at(3).as<at::Tensor>();
+  }
+  double dropout_p = this->dropout_p();
+  bool is_causal = this->is_causal();
+
+  return {at::scaled_dot_product_attention(query, key, value, attn_mask, dropout_p, is_causal)};
+}
+
 } // namespace nvfuser

@@ -76,4 +76,6 @@ NVF_API TensorView* view_as_real(TensorView* x);
 // layouts via strides. This has the same functionality as torch.matmul
 TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
 
+TensorView* sdpa(TensorView* query, TensorView* key, TensorView* value, TensorView* attn_mask, double dropout_p, bool is_causal);
+
 } // namespace nvfuser

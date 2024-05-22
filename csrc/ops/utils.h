@@ -16,6 +16,9 @@
 #include <vector>
 
 namespace nvfuser {
+
+enum class AttnRole { Q = 0, K, V, Mask};
+
 namespace ops {
 
 TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank);
@@ -70,6 +73,11 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     MatmulRole input_role,
+    size_t out_size);
+
+std::vector<IterDomain*> mapSdpaOpIterDomains(
+    const std::vector<IterDomain*>& input_domain,
+    AttnRole input_role,
     size_t out_size);
 
 // Takes a vector of aligned input iterdomains to create the output iterdomain.

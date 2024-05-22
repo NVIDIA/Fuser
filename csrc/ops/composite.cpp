@@ -426,4 +426,54 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   return out;
 }
 
+
+namespace {
+
+static TensorView* newForSdpa(
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* attn_mask) {
+  auto query_domain =
+      TensorDomain::noReductions(query->getMaybeRFactorDomain());
+  auto key_domain =
+      TensorDomain::noReductions(key->getMaybeRFactorDomain());
+  auto value_domain =
+      TensorDomain::noReductions(value->getMaybeRFactorDomain());
+
+  // Query: [N,..,L,E], Key: [N,..,S,E], Value: [N,..,S,Ev], Attn_mask = null/[N,..,L,S]/[L,S]/(any broadcastable input)
+  // Output: [N,..,L,Ev]
+  auto ndims_out = query_domain.size();
+
+  const std::vector<IterDomain*>& mapping_q = ops::mapSdpaOpIterDomains(query_domain, AttnRole::Q, ndims_out);
+  const std::vector<IterDomain*>& mapping_k = ops::mapSdpaOpIterDomains(key_domain, AttnRole::K, ndims_out);
+  const std::vector<IterDomain*>& mapping_v = ops::mapSdpaOpIterDomains(value_domain, AttnRole::V, ndims_out);
+  std::vector<IterDomain*> mapping_mask(ndims_out, nullptr);
+  if (attn_mask != nullptr) {
+    auto mask_domain =TensorDomain::noReductions(attn_mask->getMaybeRFactorDomain());
+    mapping_mask = ops::mapSdpaOpIterDomains(mask_domain, AttnRole::Mask, ndims_out);
+  }
+
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+
+  for (auto idx : c10::irange(ndims_out)) {
+    out_domain[idx] = ops::newOutputIterDomain(
+        {mapping_q.at(idx), mapping_k.at(idx), mapping_v.at(idx), mapping_mask.at(idx)});
+  }
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+
+  return IrBuilder::create<TensorView>(td, query->dtype());
+}
+
+} // namespace
+
+
+TensorView* sdpa(TensorView* query, TensorView* key, TensorView* value, TensorView* attn_mask, double dropout_p, bool is_causal) {
+  TensorView* out = newForSdpa(query, key, value, attn_mask);
+  IrBuilder::create<SdpaOp>(out, query, key, value, attn_mask, dropout_p, is_causal);
+  return out;
+}
+
 } // namespace nvfuser
