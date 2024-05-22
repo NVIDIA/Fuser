@@ -1443,7 +1443,7 @@ class MatmulPatternMatcher : IterVisitor {
       bool lhs_is_A = true;
       bool has_m = false, has_n = false;
       // Loop backwards to find inner-most Iteration domain in output
-      for (int64_t i = red_root.size() - 1; i >= 0; --i) {
+      for (int64_t i = (int64_t)red_root.size() - 1; i >= 0; --i) {
         IterDomain* lhs_id = lrf[(size_t)i];
         IterDomain* rhs_id = rrf[(size_t)i];
         IterDomain* out_id = red_root[(size_t)i];
