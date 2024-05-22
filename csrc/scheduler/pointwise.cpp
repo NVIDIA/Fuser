@@ -46,10 +46,10 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  // Fusions handled by pointwise scheduler cannot have MmaOp.
-  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+  // Fusions handled by pointwise scheduler cannot have matmul ops.
+  if (ir_utils::hasAnyMatmulOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no support for mma ops.");
+        heuristicType(), "no support for matmul ops.");
     return false;
   }
 

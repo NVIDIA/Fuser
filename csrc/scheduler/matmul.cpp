@@ -761,19 +761,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
 
-  // Skip scheduling if Matmul will be expression evaluated.
-  if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    NVF_CHECK(fusion->outputs().size() == 1)
-    fusion->aliasOutputToInput(
-        fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-    scheduler_debug_utils::log(
-        __FILE__,
-        ":",
-        __LINE__,
-        ", Matmul output to be computed through expression evaluator. Skipping codegen.");
-    return;
-  }
-
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
 
   // NOTE: the contents of roles_map have been already validated during
@@ -787,10 +774,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
-  const auto mma_layout_opt = mma->layout();
-  NVF_ERROR(
-      mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
-  const auto mma_layout = mma_layout_opt.value();
   const auto fusion_layout = mma_utils::getMmaLayout(fusion);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
@@ -910,12 +893,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   } else {
     bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
   }
-
-  // For Turing and Ampere, the layout of the MmaOp is always TN
-  NVF_ERROR(
-      mma_layout == MmaLayout::TN,
-      "MMAs in Turing and Ampere are TN only, transpose is handled either "
-      "via ldmatrix.trans for fp16 or explicitly for other types.");
 
   // Make a CTA tile
   // ------------------------------------------------------------------
