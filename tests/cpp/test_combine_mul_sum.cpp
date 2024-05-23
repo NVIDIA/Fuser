@@ -595,10 +595,6 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
   // Bias cases
   run(2, 2, 0, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
   run(2, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
-  // Undocumented 2D bias support
-  // TODO: Currently failing in propagateBoundValuesThroughExactMaps, indicating
-  // possible PairwiseRootDomainMap issue for 2D bias?
-  // run(2, 2, 2, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
 
   // TODO: Mixed-length inputs are rejected
   run(3, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
