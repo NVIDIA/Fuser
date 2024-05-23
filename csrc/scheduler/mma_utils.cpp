@@ -12,6 +12,7 @@
 #include <id_model/id_model.h>
 #include <ir/printer.h>
 #include <ops/all_ops.h>
+#include <ops/utils.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
@@ -1585,6 +1586,12 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     TensorView* Btrans = transpose(B);
     A = unsqueeze(A, -2);
     B = unsqueeze(Btrans, -3);
+    // A and B might have different dimensions. If so, broadcast the smaller one
+    // up to the size of the larger.
+    int64_t out_dims = std::max(A->nDims(), B->nDims());
+    // Add new outer broadcast dimensions if necessary
+    A = ops::maybe_broadcast_inner_to_rank(A, out_dims);
+    B = ops::maybe_broadcast_inner_to_rank(B, out_dims);
     fms = fusedMultiplySum(A, B, {-1});
     mma_op = fms->definition()->as<MmaOp>();
   } else {

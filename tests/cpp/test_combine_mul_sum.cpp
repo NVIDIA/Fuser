@@ -274,6 +274,12 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
 // Test that a simple matmul fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
+  // The allocation domain propagation pass sets the output allocation domain,
+  // which sometimes causes the matmul scheduler to decline the whole fusion
+  // when it could compile it otherwise.
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      alloc_pass_guard(false);
+
   const auto run = [&](int64_t A_dim,
                        int64_t B_dim,
                        bool transpose_a_alloc,
@@ -411,10 +417,27 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
       /*expect_segmented=*/true,
       ScheduleHeuristic::ExprEval);
   run(3,
+      3,
+      /*transpose_a_alloc=*/false,
+      /*expect_segmented=*/false,
+      ScheduleHeuristic::Matmul);
+  run(3,
       2,
       /*transpose_a_alloc=*/false,
       /*expect_segmented=*/false,
       ScheduleHeuristic::Matmul);
+  run(2,
+      3,
+      /*transpose_a_alloc=*/false,
+      /*expect_segmented=*/false,
+      ScheduleHeuristic::Matmul);
+  // TODO: More than one batch dimension is not yet supported in Matmul
+  // scheduler
+  run(4,
+      3,
+      /*transpose_a_alloc=*/false,
+      /*expect_segmented=*/true,
+      ScheduleHeuristic::ExprEval);
 }
 
 // Test that a simple linear op fusion is picked up by the appropriate scheduler
