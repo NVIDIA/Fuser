@@ -1103,6 +1103,16 @@ int64_t getVectorizeSize(const TensorView* tv) {
   return 1;
 }
 
+bool hasTrivialAllocationDomain(const TensorView* tv) {
+  if (!tv->hasAllocation()) {
+    return true;
+  }
+  const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+  const std::vector<IterDomain*>& rf = tv->getMaybeRFactorDomain();
+  return TensorDomain::noBroadcasts(TensorDomain::noReductions(rf)) ==
+      TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
+}
+
 } // namespace nvfuser::ir_utils
 
 namespace nvfuser::MmaOpUtils {
@@ -1269,7 +1279,6 @@ MmaOpDetails getMmaOpDetails(
   const auto validateOutputDetails = [](const TensorViewDetails& details,
                                         const std::string& desc) {
     // TODO: revise rules when add support for batch gemms
-    NVF_ERROR(details.bcasts.empty(), desc, ": has broadcast domains.");
     NVF_ERROR(!details.rdomains.empty(), desc, ": has no reduction domains.");
     NVF_ERROR(
         (details.cdomains.size() >= expected_gemm_cdomains),

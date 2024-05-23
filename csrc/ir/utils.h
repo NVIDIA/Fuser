@@ -652,4 +652,6 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
+bool hasTrivialAllocationDomain(const TensorView* tv);
+
 } // namespace nvfuser::ir_utils
