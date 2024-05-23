@@ -421,20 +421,23 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
       /*transpose_a_alloc=*/false,
       /*expect_segmented=*/false,
       ScheduleHeuristic::Matmul);
+  // TODO: mixed length inputs via broadcasted batch dims
+  // We currently reject differently-sized inputs since these translate to
+  // multiple M or N dims
   run(3,
       2,
       /*transpose_a_alloc=*/false,
-      /*expect_segmented=*/false,
-      ScheduleHeuristic::Matmul);
+      /*expect_segmented=*/true,
+      ScheduleHeuristic::ExprEval);
   run(2,
       3,
       /*transpose_a_alloc=*/false,
-      /*expect_segmented=*/false,
-      ScheduleHeuristic::Matmul);
+      /*expect_segmented=*/true,
+      ScheduleHeuristic::ExprEval);
   // TODO: More than one batch dimension is not yet supported in Matmul
   // scheduler
   run(4,
-      3,
+      4,
       /*transpose_a_alloc=*/false,
       /*expect_segmented=*/true,
       ScheduleHeuristic::ExprEval);
@@ -582,8 +585,10 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
   // run(1, 1, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
 
   // Batch dims in input
-  // TODO: This is a single batch dim in the input. This fails currently
-  run(3, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  // TODO: mixed length inputs via broadcasted batch dims
+  // We currently reject differently-sized inputs since these translate to
+  // multiple M or N dims
+  run(3, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
   // TODO: We don't yet support multiple batch dims in matmul scheduler
   run(4, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
 
@@ -595,7 +600,8 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
   // possible PairwiseRootDomainMap issue for 2D bias?
   // run(2, 2, 2, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
 
-  run(3, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  // TODO: Mixed-length inputs are rejected
+  run(3, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
   // TODO: We don't yet support multiple batch dims in matmul scheduler
   run(4, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
 }

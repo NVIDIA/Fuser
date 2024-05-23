@@ -1583,7 +1583,7 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     NVF_ERROR(
         A->nDims() > 1 && B->nDims() > 1,
         "Cannot translate MatmulOp with 1D input");
-    TensorView* Btrans = transpose(B);
+    TensorView* Btrans = transpose(B, -2, -1);
     A = unsqueeze(A, -2);
     B = unsqueeze(Btrans, -3);
     // A and B might have different dimensions. If so, broadcast the smaller one

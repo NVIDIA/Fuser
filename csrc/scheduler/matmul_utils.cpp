@@ -236,12 +236,22 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
+    // We will check that all operands have same dimension
+    int64_t operand_dim = -1;
+
     auto entry = roles_map.find(MatmulRole::INPUT_A);
     std::set<TensorView*> tvs_with_roles;
 
     if (entry != roles_map.end()) {
       if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
         tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+        for (TensorView* tv : entry->second) {
+          if (operand_dim == -1) {
+            operand_dim = tv->nDims();
+          } else if (tv->nDims() != operand_dim) {
+            return "All A operands must have the same dimension.";
+          }
+        }
       } else {
         return "There is more than a single fusion input that can be MMA first input";
       }
@@ -253,6 +263,21 @@ std::string isMatmulFusionDefinitionSupported(
     if (entry != roles_map.end()) {
       if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
         tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+        for (TensorView* tv : entry->second) {
+          if (operand_dim == -1) {
+            operand_dim = tv->nDims();
+          } else if (tv->nDims() != operand_dim) {
+            // We cannot always handle differently sized inputs, such as those
+            // we encounter when translating MatmulOp and LinearOp. This is
+            // because in those cases one of the operands will have new
+            // Broadcast dimensions where the other operand has Iteration
+            // batch dimensions, meaning these new dims are actually M or N
+            // dimensions. Multiple M and N dimension support is planned but for
+            // now we must reject these patterns before attempting to translate
+            // them.
+            return "All A and B operands must have the same dimension.";
+          }
+        }
       } else {
         return "There is more than a single fusion input that can be MMA second input";
       }
@@ -467,8 +492,8 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // 2. Check if matmul scheduler is enabled
   // 3. Check if inputs to the mma op or mul sum pair match any of
   // supported inputs layout
-  // 4. Check if the input layout for the matmul pattern can be determined
-  // 5. Check if fusion represents expressions that are recognized by matmul
+  // 4. Check if fusion represents expressions that are recognized by matmul
+  // 5. Check if the input layout for the matmul pattern can be determined
   // scheduler.
 
   // #0
@@ -527,19 +552,19 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   mma_utils::RolesMap roles_map = roles_map_opt.getData();
 
   // #4
-  const auto input_layout_opt =
-      mma_utils::getProblemLayout(id_model, id_roles, roles_map);
-  if (!input_layout_opt.isValid()) {
-    return input_layout_opt.getErrorMsg();
-  }
-
-  // #5
   {
     auto support_status = isMatmulFusionDefinitionSupported(
         fusion, patterns.front(), roles_map, id_roles);
     if (!support_status.empty()) {
       return support_status;
     }
+  }
+
+  // #5
+  const auto input_layout_opt =
+      mma_utils::getProblemLayout(id_model, id_roles, roles_map);
+  if (!input_layout_opt.isValid()) {
+    return input_layout_opt.getErrorMsg();
   }
 
   return "";
