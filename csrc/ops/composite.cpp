@@ -471,6 +471,18 @@ static TensorView* newForSdpa(
 
 
 TensorView* sdpa(TensorView* query, TensorView* key, TensorView* value, TensorView* attn_mask, double dropout_p, bool is_causal, std::optional<double> scale) {
+  NVF_CHECK(query->dtype() == key->dtype() && query->dtype() == value->dtype(),
+  "Expected query, key, and value to have the same dtype but got: ", query->dtype(), " ", key->dtype(), " ,and ", value->dtype());
+
+  NVF_CHECK(query->nDims() >=2 && key->nDims() >=2 && value->nDims() >=2 ,
+  "Expected query, key, and value to be atleast 2D but got: ", query->nDims(), " ", key->nDims(), " ,and ", value->nDims());
+
+  if (attn_mask != nullptr) {
+    NVF_CHECK(attn_mask->dtype() == DataType::Bool || attn_mask->dtype() == query->dtype(), "Expected attn_mask to be either boolean or same dtype as Q/K/V, but got: ", attn_mask->dtype());
+    NVF_CHECK(attn_mask->nDims() >=2, "Expected attn_mask to be atleast 2D, but got: ", attn_mask->nDims());
+    NVF_CHECK(!is_causal, "Only one of is_causal or attn_mask can be set.");
+  }
+
   TensorView* out = newForSdpa(query, key, value, attn_mask);
   IrBuilder::create<SdpaOp>(out, query, key, value, attn_mask, dropout_p, is_causal, scale);
   return out;
