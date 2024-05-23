@@ -14,35 +14,62 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-
+inline bool isFusionOutput(Fusion* fusion, Val* val) {
+  const auto& outputs = fusion->outputs();
+  return std::find(outputs.begin(), outputs.end(), val) != outputs.end();
+}
 void removeBcastSqueeze(Fusion* fusion) {
-
-  std::unordered_map<Val*, Val*> replacement_map;
-  // Find broadcast + squeeze pattern
-  for (auto expr : fusion->exprs()) {
-    auto sop = dynamic_cast<SqueezeOp*>(expr);
-    if(!sop){
-      continue;
+  // step-1: find and remove broadcast + squeeze pattern
+  // before: Y = broadcast(X); Z = squeeze(Y);  M = someOp(Z)
+  // after : M = someOp(X)
+  // conditions: (1) broadcast and squeeze have the same dim flags
+  //             (2) Y is only consumed by Z (has only one consumer)
+  // special case: if Z is a fusion output, replace the output with X
+  {
+    std::unordered_map<Val*, Val*> replacement_map;
+    for (auto expr : fusion->exprs()) {
+      if (auto sop = dynamic_cast<SqueezeOp*>(expr)) {
+        if (auto bcast = dynamic_cast<BroadcastOp*>(sop->in()->definition())) {
+          if (bcast->getBroadcastDimFlags() == sop->getSqueezeDimFlags() &&
+              bcast->out()->uses().size() == 1) {
+            if (isFusionOutput(fusion, sop->out())) {
+              fusion->replaceOutput(sop->out(), bcast->in());
+            }
+            replacement_map.insert({sop->out(), bcast->in()});
+          }
+        }
+      }
     }
-    // Y = squeeze(broadcast(X))
-    auto def_sop_in = sop->in()->definition();
-    if(auto bcast = dynamic_cast<BroadcastOp*>(def_sop_in)){
-      replacement_map.insert({sop->out(), bcast->in()});
-      std::cout << "Replace " << sop->out() << " with " << bcast->in() << std::endl;
-    }else if (auto sop_out_tv = dynamic_cast<TensorView*>(sop->out())) {
-        // Y = broadcast(squeeze(X))
-        auto consumers = ir_utils::consumerTvsOf(sop_out_tv);
-        for(auto consumer : consumers){
-          std::cout << "Consumer: " << consumer->toString() << std::endl;
-          if(auto bcast = dynamic_cast<BroadcastOp*>(consumer->definition())){
+    // Replace if there is any match
+    if (!replacement_map.empty()) {
+      ir_utils::replaceValue(fusion, replacement_map);
+    }
+  }
+  // step-2: find and remove squeeze + broadcast pattern
+  // before: Y = squeeze(X); Z = broadcast(Y);  M = someOp(Z)
+  // after : M = someOp(X)
+  // conditions: (1) broadcast and squeeze have the same dim flags
+  //             (2) Y is only consumed by Z (has only one consumer)
+  // special case: if Z is a fusion output, replace the output with X
+  {
+    std::unordered_map<Val*, Val*> replacement_map;
+    for (auto expr : fusion->exprs()) {
+      if (auto bcast = dynamic_cast<BroadcastOp*>(expr)) {
+        if (auto sop = dynamic_cast<SqueezeOp*>(bcast->in()->definition())) {
+          if (bcast->getBroadcastDimFlags() == sop->getSqueezeDimFlags() &&
+              sop->out()->uses().size() == 1) {
+            if (isFusionOutput(fusion, bcast->out())) {
+              fusion->replaceOutput(bcast->out(), sop->in());
+            }
             replacement_map.insert({bcast->out(), sop->in()});
           }
         }
       }
-  }
-  // Replace non-const extents with const extents
-  if(!replacement_map.empty()){
-    ir_utils::replaceValue(fusion, replacement_map);
+    }
+    // Replace if there is any match
+    if (!replacement_map.empty()) {
+      ir_utils::replaceValue(fusion, replacement_map);
+    }
   }
 }
 
@@ -52,14 +79,14 @@ void RemoveBcastSqueeze::runPass(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Fusion before RemoveBcastSqueeze:" << std::endl;
   }
-    fusion->printMath();
+  fusion->printMath();
 
   removeBcastSqueeze(fusion);
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Fusion after RemoveBcastSqueeze:" << std::endl;
   }
-    fusion->printMath();
+  fusion->printMath();
 }
 
 } // namespace nvfuser::preseg_passes

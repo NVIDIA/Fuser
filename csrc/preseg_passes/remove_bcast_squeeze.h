@@ -10,8 +10,7 @@
 namespace nvfuser::preseg_passes {
 
 // Remove broadcast + squeeze pattern
-class RemoveBcastSqueeze
-    : public OptimizationPass<RemoveBcastSqueeze> {
+class RemoveBcastSqueeze : public OptimizationPass<RemoveBcastSqueeze> {
   friend class OptimizationPass<RemoveBcastSqueeze>;
 
  protected:
