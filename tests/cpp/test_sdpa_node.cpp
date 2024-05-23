@@ -21,7 +21,9 @@
 
 namespace nvfuser {
 
-using SDPATest = NVFuserTest;
+using Sizes = std::vector<int64_t>;
+using SDPAParamType = std::tuple<std::optional<Sizes>, DataType>;
+using SDPATest = NVFuserFixtureParamTest<SDPAParamType>;
 
 constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
