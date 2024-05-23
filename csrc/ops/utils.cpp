@@ -280,12 +280,12 @@ std::vector<IterDomain*> mapSdpaOpIterDomains(
     case AttnRole::Q:
     case AttnRole::Mask:{
       // Map L
-      mapping[out_size-2] = input_domain[out_size-2];
+      mapping[out_size-2] = input_domain[inp_size-2];
       break;
     }
     case AttnRole::V:{
       // Map Ev
-      mapping[out_size-1] = input_domain[out_size-1];
+      mapping[out_size-1] = input_domain[inp_size-1];
       break;
     }
     default:

@@ -21,67 +21,117 @@
 
 namespace nvfuser {
 
-using SDPATest = NVFuserTest;
+using Sizes = std::vector<int64_t>;
+using SDPAParamType = std::tuple<std::optional<Sizes>, DataType>;
+using SDPATest = NVFuserFixtureParamTest<SDPAParamType>;
 
 constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 32, ev = 32;
 
-TEST (SDPATest, Concrete) {
+TEST_P (SDPATest, Concrete) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     std::vector<int64_t> q_shape ({n, h, l, e});
     std::vector<int64_t> k_shape ({n, h, s, e});
     std::vector<int64_t> v_shape ({n, h, s, ev});
+
+    const auto& [mask_shape, mask_dtype] = GetParam();
 
     auto tvq = makeConcreteTensor(q_shape, DataType::Half);
     auto tvk = makeConcreteTensor(k_shape, DataType::Half);
     auto tvv = makeConcreteTensor(k_shape, DataType::Half);
-    auto attn = sdpa(tvq, tvk, tvv, nullptr, /*dropout_p=*/0.0, /*is_causal=*/false, std::nullopt);
 
     fusion->addInput(tvq);
     fusion->addInput(tvk);
     fusion->addInput(tvv);
-    fusion->addOutput(attn);
+
+    TensorView* tvmask = nullptr;
+    if (mask_shape.has_value()){
+        tvmask = makeConcreteTensor(*mask_shape, mask_dtype);
+        fusion->addInput(tvmask);
+    }
+    auto tvattn = sdpa(tvq, tvk, tvv, tvmask, /*dropout_p=*/0.0, /*is_causal=*/false, /*scale=*/std::nullopt);
+    fusion->addOutput(tvattn);
 
     auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
     at::Tensor q = at::randn(q_shape, options);
     at::Tensor k = at::randn(k_shape, options);
     at::Tensor v = at::randn(v_shape, options);
-    at::Tensor out_ref = at::scaled_dot_product_attention(q, k, v);
+    std::optional<at::Tensor> attn_mask = std::nullopt;
+    if (mask_shape.has_value()){
+        if (mask_dtype == DataType::Bool){
+            attn_mask = at::randint(0, 2, *mask_shape, data_type_to_aten(mask_dtype)).cuda();
+        } else {
+            attn_mask = at::rand(*mask_shape, data_type_to_aten(mask_dtype)).cuda();
+        }
+    }
+    at::Tensor out_ref = at::scaled_dot_product_attention(q, k, v, attn_mask);
 
     FusionExecutorCache fec(std::move(fusion));
-    auto out = fec.runFusionWithInputs({q, k, v});
+    std::vector<at::Tensor> out = {};
+    if (mask_shape.has_value()){
+        out = fec.runFusionWithInputs({q, k, v, attn_mask});
+    } else {
+        out = fec.runFusionWithInputs({q, k, v});
+    }
 
     EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-TEST (SDPATest, Symbolic) {
+TEST_P (SDPATest, Symbolic) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
     std::vector<int64_t> q_shape ({n, h, l, e});
     std::vector<int64_t> k_shape ({n, h, s, e});
     std::vector<int64_t> v_shape ({n, h, s, ev});
 
+    const auto& [mask_shape, mask_dtype] = GetParam();
+
     auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
     auto tvk = makeSymbolicTensor(k_shape, DataType::Half);
     auto tvv = makeSymbolicTensor(k_shape, DataType::Half);
-    auto attn = sdpa(tvq, tvk, tvv, nullptr, /*dropout_p=*/0.0, /*is_causal=*/false, std::nullopt);
 
     fusion->addInput(tvq);
     fusion->addInput(tvk);
     fusion->addInput(tvv);
-    fusion->addOutput(attn);
+
+    TensorView* tvmask = nullptr;
+    if (mask_shape.has_value()){
+        tvmask = makeSymbolicTensor(*mask_shape, mask_dtype);
+        fusion->addInput(tvmask);
+    }
+    auto tvattn = sdpa(tvq, tvk, tvv, tvmask, /*dropout_p=*/0.0, /*is_causal=*/false, /*scale=*/std::nullopt);
+    fusion->addOutput(tvattn);
 
     auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
     at::Tensor q = at::randn(q_shape, options);
     at::Tensor k = at::randn(k_shape, options);
     at::Tensor v = at::randn(v_shape, options);
-    at::Tensor out_ref = at::scaled_dot_product_attention(q, k, v);
+    std::optional<at::Tensor> attn_mask = std::nullopt;
+    if (mask_shape.has_value()){
+        if (mask_dtype == DataType::Bool){
+            attn_mask = at::randint(0, 2, *mask_shape, data_type_to_aten(mask_dtype)).cuda();
+        } else {
+            attn_mask = at::rand(*mask_shape, data_type_to_aten(mask_dtype)).cuda();
+        }
+    }
+    at::Tensor out_ref = at::scaled_dot_product_attention(q, k, v, attn_mask);
 
     FusionExecutorCache fec(std::move(fusion));
-    auto out = fec.runFusionWithInputs({q, k, v});
+    std::vector<at::Tensor> out = {};
+    if (mask_shape.has_value()){
+        out = fec.runFusionWithInputs({q, k, v, attn_mask});
+    } else {
+        out = fec.runFusionWithInputs({q, k, v});
+    }
 
     EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    SDPATest,
+    testing::Combine(
+        testing::Values(std::nullopt, Sizes({l, s}), Sizes({h, l, s}), Sizes({n, 1, l, s})),
+        testing::Values(DataType::Bool, DataType::Half))
+);
 }
