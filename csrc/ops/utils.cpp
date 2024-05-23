@@ -266,10 +266,11 @@ std::vector<IterDomain*> mapSdpaOpIterDomains(
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = (int64_t)input_domain.size();
 
-  // Query: [N,..,L,E], Key: [N,..,S,E], Value: [N,..,S,Ev], Attn_mask = null/[N,..,L,S]/[L,S]/(any broadcastable input)
-  // Output: [N,..,L,Ev]
+  // Query: [N,..,L,E], Key: [N,..,S,E], Value: [N,..,S,Ev], Attn_mask =
+  // null/[N,..,L,S]/[L,S]/(any broadcastable input) Output: [N,..,L,Ev]
 
-  // Map the first out_size - 2 ids for any input, start from reverse since attn mask only needs to be broadcastable to attn_weights
+  // Map the first out_size - 2 ids for any input, start from reverse since attn
+  // mask only needs to be broadcastable to attn_weights
   for (auto out_idx = (int64_t)out_size - 3, inp_idx = inp_size - 3;
        inp_idx >= 0;
        inp_idx--, out_idx--) {
@@ -278,14 +279,14 @@ std::vector<IterDomain*> mapSdpaOpIterDomains(
 
   switch (input_role) {
     case AttnRole::Q:
-    case AttnRole::Mask:{
+    case AttnRole::Mask: {
       // Map L
-      mapping[out_size-2] = input_domain[inp_size-2];
+      mapping[out_size - 2] = input_domain[inp_size - 2];
       break;
     }
-    case AttnRole::V:{
+    case AttnRole::V: {
       // Map Ev
-      mapping[out_size-1] = input_domain[inp_size-1];
+      mapping[out_size - 1] = input_domain[inp_size - 1];
       break;
     }
     default:
@@ -293,8 +294,6 @@ std::vector<IterDomain*> mapSdpaOpIterDomains(
   }
   return mapping;
 }
-
-
 
 // Adding these pragmas since gcc-12.2.1
 // incorrectly reports a warning with the use of evaluate

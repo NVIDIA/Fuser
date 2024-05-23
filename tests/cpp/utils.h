@@ -8,7 +8,6 @@
 #pragma once
 
 #include <codegen.h>
-#include <id_model/id_model.h>
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>

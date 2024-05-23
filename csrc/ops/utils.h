@@ -75,6 +75,13 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
     MatmulRole input_role,
     size_t out_size);
 
+// Query: [N,..,L,E], Key: [N,..,S,E], Value: [N,..,S,Ev], Attn_mask =
+// null/[N,..,L,S]/[L,S]/(any broadcastable input) Output: [N,..,L,Ev]
+// The batch dimension ids are mapped for all inputs to outputs. For attn_mask,
+// with different number of dims, the mapping starts from innermost batch
+// position L is mapped from query and attn_mask to output. Ev is mapped from
+// value to output. Note: There is no mapping for S, E. This may change in the
+// future if we add additional reduction ids to the output
 std::vector<IterDomain*> mapSdpaOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     AttnRole input_role,
