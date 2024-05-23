@@ -274,16 +274,23 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
 // Test that a simple matmul fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
-  const auto run = [&](bool transpose_a_alloc, bool expect_aten_eval) {
-    int M = 504, N = 136, K = 248;
+  const auto run = [&](int64_t A_dim,
+                       int64_t B_dim,
+                       bool transpose_a_alloc,
+                       bool expect_segmented,
+                       ScheduleHeuristic expected_heuristic) {
+    int batch_size = 3, M = 504, N = 136, K = 248;
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+    auto tv0 = makeContigTensor(A_dim, DataType::Half);
+    auto tv1 = makeContigTensor(B_dim, DataType::Half);
 
-    if (transpose_a_alloc) {
-      tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+    if (transpose_a_alloc && A_dim > 1) {
+      std::vector<IterDomain*> alloc = tv0->getMaybeAllocationDomain();
+      alloc[alloc.size() - 1] = tv0->axis(-2);
+      alloc[alloc.size() - 2] = tv0->axis(-1);
+      tv0->setAllocationDomain(alloc, true);
     }
 
     fusion->addInput(tv0);
@@ -301,8 +308,20 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
     ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
 
     auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    auto t0 = at::randn({M, K}, options);
-    auto t1 = at::randn({K, N}, options);
+    std::vector<int64_t> A_shape(A_dim, batch_size);
+    A_shape[A_dim - 1] = K;
+    if (A_dim > 1) {
+      A_shape[A_dim - 2] = M;
+    }
+    at::Tensor t0 = at::randn(A_shape, options);
+    std::vector<int64_t> B_shape(B_dim, batch_size);
+    if (B_dim > 1) {
+      B_shape[B_dim - 2] = K;
+      B_shape[B_dim - 1] = N;
+    } else {
+      B_shape[B_dim - 1] = K;
+    }
+    auto t1 = at::randn(B_shape, options);
     if (transpose_a_alloc) {
       t0 = t0.as_strided({M, K}, {1, M});
     }
@@ -315,7 +334,7 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
         executor_cache.getMostRecentKernelRuntime();
     ASSERT_NE(runtime, nullptr);
 
-    if (expect_aten_eval) {
+    if (expect_segmented) {
       EXPECT_TRUE(runtime->isSegmented());
     } else {
       EXPECT_FALSE(runtime->isSegmented());
@@ -323,13 +342,9 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
 
     ScheduleHeuristic heuristic =
         runtime->schedulerHeuristics()->heuristicsList().front()->heuristic();
-    if (expect_aten_eval) {
-      EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
-    } else {
-      // Ensure that the Matmul scheduler ran.
-      // Assert here since we will inspect the kernel next, which we can't do if
-      // ExprEval accepts the segment.
-      ASSERT_EQ(heuristic, ScheduleHeuristic::Matmul);
+    EXPECT_EQ(heuristic, expected_heuristic);
+
+    if (heuristic == ScheduleHeuristic::Matmul) {
       // Ensure there's an MmaOp.
       EXPECT_FALSE(
           ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
@@ -346,14 +361,60 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
 
   // Run the test with and without matmul fusion enabled
   EnableOptionsGuard::getCurOptions().unset(EnableOption::FuseMatmul);
-  run(/*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
-  run(/*transpose_a_alloc=*/true, /*expect_aten_eval=*/true);
+  run(2,
+      2,
+      /*transpose_a_alloc=*/false,
+      /*expect_segmented=*/true,
+      ScheduleHeuristic::ExprEval);
+  run(2,
+      2,
+      /*transpose_a_alloc=*/true,
+      /*expect_segmented=*/true,
+      ScheduleHeuristic::ExprEval);
 
   // Allow Matmul Scheduler to fuse MatmulOp and LinearOp
   EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
-  run(/*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  run(2,
+      2,
+      /*transpose_a_alloc=*/false,
+      /*expect_segmented=*/false,
+      ScheduleHeuristic::Matmul);
   // We cannot yet handle allocation domain in matmul scheduler
-  run(/*transpose_a_alloc=*/true, /*expect_aten_eval=*/true);
+  run(2,
+      2,
+      /*transpose_a_alloc=*/true,
+      /*expect_segmented=*/true,
+      ScheduleHeuristic::ExprEval);
+
+  // Size-1 input combinations
+  run(1,
+      2,
+      /*transpose_a_alloc=*/false,
+      /*expect_segmented=*/true,
+      ScheduleHeuristic::ExprEval);
+  run(2,
+      1,
+      /*transpose_a_alloc=*/false,
+      /*expect_segmented=*/true,
+      ScheduleHeuristic::ExprEval);
+  // We fuse this case using the Reduction scheduler
+  run(1,
+      1,
+      /*transpose_a_alloc=*/false,
+      /*expect_segmented=*/false,
+      ScheduleHeuristic::Reduction);
+
+  // Batch dims
+  run(3,
+      1,
+      /*transpose_a_alloc=*/false,
+      /*expect_segmented=*/true,
+      ScheduleHeuristic::ExprEval);
+  run(3,
+      2,
+      /*transpose_a_alloc=*/false,
+      /*expect_segmented=*/false,
+      ScheduleHeuristic::Matmul);
 }
 
 // Test that a simple linear op fusion is picked up by the appropriate scheduler
