@@ -2205,14 +2205,16 @@ class SdpaOp : public Expr {
  public:
   using Expr::Expr;
 
-  SdpaOp(IrBuilderPasskey, Val* out,
-    Val* query,
-    Val* key,
-    Val* value,
-    Val* attn_mask,
-    double dropout_p,
-    bool is_causal,
-    std::optional<double> scale);
+  SdpaOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* query,
+      Val* key,
+      Val* value,
+      Val* attn_mask,
+      double dropout_p,
+      bool is_causal,
+      std::optional<double> scale);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2240,7 +2242,7 @@ class SdpaOp : public Expr {
   }
 
   Val* attn_mask() const {
-    if (has_mask()){
+    if (has_mask()) {
       return input(3);
     }
     return nullptr;
@@ -2250,7 +2252,7 @@ class SdpaOp : public Expr {
     return attribute<double>(0);
   }
 
-  bool is_causal() const{
+  bool is_causal() const {
     return attribute<bool>(1);
   }
   std::optional<double> scale() const {
@@ -2263,11 +2265,11 @@ class SdpaOp : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
-  
-  private:
-    bool has_mask() const {
-      return inputs().size() == 4;
-    }
+
+ private:
+  bool has_mask() const {
+    return inputs().size() == 4;
+  }
 };
 
 } // namespace nvfuser

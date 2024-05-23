@@ -247,8 +247,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     }
 
     const std::vector<IterDomain*>& aligned_producer_ids =
-        ops::mapSdpaOpIterDomains(
-            producer_root, input_role.value(), out_size);
+        ops::mapSdpaOpIterDomains(producer_root, input_role.value(), out_size);
     pairwiseMapAllIds(aligned_producer_ids, consumer_root);
     return dom_map;
   }

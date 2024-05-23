@@ -426,7 +426,6 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   return out;
 }
 
-
 namespace {
 
 static TensorView* newForSdpa(
@@ -436,29 +435,36 @@ static TensorView* newForSdpa(
     TensorView* attn_mask) {
   auto query_domain =
       TensorDomain::noReductions(query->getMaybeRFactorDomain());
-  auto key_domain =
-      TensorDomain::noReductions(key->getMaybeRFactorDomain());
+  auto key_domain = TensorDomain::noReductions(key->getMaybeRFactorDomain());
   auto value_domain =
       TensorDomain::noReductions(value->getMaybeRFactorDomain());
 
-  // Query: [N,..,L,E], Key: [N,..,S,E], Value: [N,..,S,Ev], Attn_mask = null/[N,..,L,S]/[L,S]/(any broadcastable input)
-  // Output: [N,..,L,Ev]
+  // Query: [N,..,L,E], Key: [N,..,S,E], Value: [N,..,S,Ev], Attn_mask =
+  // null/[N,..,L,S]/[L,S]/(any broadcastable input) Output: [N,..,L,Ev]
   auto ndims_out = query_domain.size();
 
-  const std::vector<IterDomain*>& mapping_q = ops::mapSdpaOpIterDomains(query_domain, AttnRole::Q, ndims_out);
-  const std::vector<IterDomain*>& mapping_k = ops::mapSdpaOpIterDomains(key_domain, AttnRole::K, ndims_out);
-  const std::vector<IterDomain*>& mapping_v = ops::mapSdpaOpIterDomains(value_domain, AttnRole::V, ndims_out);
+  const std::vector<IterDomain*>& mapping_q =
+      ops::mapSdpaOpIterDomains(query_domain, AttnRole::Q, ndims_out);
+  const std::vector<IterDomain*>& mapping_k =
+      ops::mapSdpaOpIterDomains(key_domain, AttnRole::K, ndims_out);
+  const std::vector<IterDomain*>& mapping_v =
+      ops::mapSdpaOpIterDomains(value_domain, AttnRole::V, ndims_out);
   std::vector<IterDomain*> mapping_mask(ndims_out, nullptr);
   if (attn_mask != nullptr) {
-    auto mask_domain =TensorDomain::noReductions(attn_mask->getMaybeRFactorDomain());
-    mapping_mask = ops::mapSdpaOpIterDomains(mask_domain, AttnRole::Mask, ndims_out);
+    auto mask_domain =
+        TensorDomain::noReductions(attn_mask->getMaybeRFactorDomain());
+    mapping_mask =
+        ops::mapSdpaOpIterDomains(mask_domain, AttnRole::Mask, ndims_out);
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
   for (auto idx : c10::irange(ndims_out)) {
     out_domain[idx] = ops::newOutputIterDomain(
-        {mapping_q.at(idx), mapping_k.at(idx), mapping_v.at(idx), mapping_mask.at(idx)});
+        {mapping_q.at(idx),
+         mapping_k.at(idx),
+         mapping_v.at(idx),
+         mapping_mask.at(idx)});
   }
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
@@ -469,22 +475,48 @@ static TensorView* newForSdpa(
 
 } // namespace
 
+TensorView* sdpa(
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* attn_mask,
+    double dropout_p,
+    bool is_causal,
+    std::optional<double> scale) {
+  NVF_CHECK(
+      query->dtype() == key->dtype() && query->dtype() == value->dtype(),
+      "Expected query, key, and value to have the same dtype but got: ",
+      query->dtype(),
+      " ",
+      key->dtype(),
+      " ,and ",
+      value->dtype());
 
-TensorView* sdpa(TensorView* query, TensorView* key, TensorView* value, TensorView* attn_mask, double dropout_p, bool is_causal, std::optional<double> scale) {
-  NVF_CHECK(query->dtype() == key->dtype() && query->dtype() == value->dtype(),
-  "Expected query, key, and value to have the same dtype but got: ", query->dtype(), " ", key->dtype(), " ,and ", value->dtype());
-
-  NVF_CHECK(query->nDims() >=2 && key->nDims() >=2 && value->nDims() >=2 ,
-  "Expected query, key, and value to be atleast 2D but got: ", query->nDims(), " ", key->nDims(), " ,and ", value->nDims());
+  NVF_CHECK(
+      query->nDims() >= 2 && key->nDims() >= 2 && value->nDims() >= 2,
+      "Expected query, key, and value to be atleast 2D but got: ",
+      query->nDims(),
+      " ",
+      key->nDims(),
+      " ,and ",
+      value->nDims());
 
   if (attn_mask != nullptr) {
-    NVF_CHECK(attn_mask->dtype() == DataType::Bool || attn_mask->dtype() == query->dtype(), "Expected attn_mask to be either boolean or same dtype as Q/K/V, but got: ", attn_mask->dtype());
-    NVF_CHECK(attn_mask->nDims() >=2, "Expected attn_mask to be atleast 2D, but got: ", attn_mask->nDims());
+    NVF_CHECK(
+        attn_mask->dtype() == DataType::Bool ||
+            attn_mask->dtype() == query->dtype(),
+        "Expected attn_mask to be either boolean or same dtype as Q/K/V, but got: ",
+        attn_mask->dtype());
+    NVF_CHECK(
+        attn_mask->nDims() >= 2,
+        "Expected attn_mask to be atleast 2D, but got: ",
+        attn_mask->nDims());
     NVF_CHECK(!is_causal, "Only one of is_causal or attn_mask can be set.");
   }
 
   TensorView* out = newForSdpa(query, key, value, attn_mask);
-  IrBuilder::create<SdpaOp>(out, query, key, value, attn_mask, dropout_p, is_causal, scale);
+  IrBuilder::create<SdpaOp>(
+      out, query, key, value, attn_mask, dropout_p, is_causal, scale);
   return out;
 }
 

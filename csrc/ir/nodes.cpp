@@ -4271,19 +4271,18 @@ SdpaOp::SdpaOp(
     Val* attn_mask,
     double dropout_p,
     bool is_causal,
-    std::optional<double> scale
-    )
+    std::optional<double> scale)
     : Expr(passkey) {
   addOutput(out);
   addInput(query);
   addInput(key);
   addInput(value);
-  if (attn_mask != nullptr){
+  if (attn_mask != nullptr) {
     addInput(attn_mask);
   }
   addDataAttribute(dropout_p);
   addDataAttribute(is_causal);
-  if (scale.has_value()){
+  if (scale.has_value()) {
     addDataAttribute(scale.value());
   }
 }
@@ -4310,14 +4309,15 @@ std::vector<PolymorphicValue> SdpaOp::evaluate(
   const auto key = inputs.at(1).as<at::Tensor>();
   const auto value = inputs.at(2).as<at::Tensor>();
   std::optional<at::Tensor> attn_mask = std::nullopt;
-  if (has_mask()){
+  if (has_mask()) {
     attn_mask = inputs.at(3).as<at::Tensor>();
   }
   double dropout_p = this->dropout_p();
   bool is_causal = this->is_causal();
   std::optional<double> scale = this->scale();
 
-  return {at::scaled_dot_product_attention(query, key, value, attn_mask, dropout_p, is_causal, scale)};
+  return {at::scaled_dot_product_attention(
+      query, key, value, attn_mask, dropout_p, is_causal, scale)};
 }
 
 } // namespace nvfuser
