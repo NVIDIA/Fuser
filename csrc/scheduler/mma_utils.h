@@ -272,6 +272,8 @@ struct MatmulPattern {
   //! object can safely outlive id_model.
   std::unordered_map<ValGroup, MatmulDomain> getDimRoles(
       IdModel& id_model) const;
+
+  std::string toString() const;
 };
 
 //! Traverse the fusion to find supported matmul patterns
@@ -321,13 +323,22 @@ NVF_API MatmulProblemLayoutOpt getProblemLayout(
 ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
 ProblemIterDomainsOpt getProblemIterDomains(const MatmulPattern& pattern);
 
+NVF_API MatmulProblemLayoutOpt getProblemLayout(
+    const IdModel& id_model,
+    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
+    const RolesMap& tensor_roles);
+
+//! This version assumes the Fusion contains a single MatmulPattern, then builds
+//! an IdModel and infers dim roles then calls the above function.
+NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
+
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
-RolesMapOpt getTensorsRoles(
+RolesMapOpt getTensorRoles(
     Fusion* fusion,
     const IdModel& id_model,
-    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain);
+    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles);
 
 //! Return pair of whether use shared memory epilogue or not and whether to
 //!  reuse shared memory for the prologue at the expense of an additional block

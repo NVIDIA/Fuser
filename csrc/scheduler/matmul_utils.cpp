@@ -166,10 +166,10 @@ inline bool initCoreHeuristics(
 //! MatmulDomain::Batch, we evaluate the extent of each, then we multiply those
 //! dimensions together to get the overall batch size.
 ProblemShape getProblemShape(
-    const std::unordered_map<ValGroup, MatmulDomain>& group_to_domain,
+    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
     SchedulerRuntimeInfo& runtime_info) {
   ProblemShape shape{1, 1, 1, 1};
-  for (const auto& [g, dom] : group_to_domain) {
+  for (const auto& [g, dom] : dim_roles) {
     NVF_ERROR(!g->empty());
     IterDomain* id = g->front()->as<IterDomain>();
     const PolymorphicValue extent =
@@ -181,6 +181,13 @@ ProblemShape getProblemShape(
   return shape;
 }
 
+// Checks that this pattern:
+//   - is a GEMM or batch GEMM
+//   - has at least two inputs i.e. not A @ A.T
+//   - has a single A and a single B operand i.e not A @ (B1 * B2)
+//   - has a fusion output with OUTPUT_D role i.e. that has M, N dims
+//   - includes all fusion inputs/outputs in its tensor roles
+//   - has no fusion inputs with non-trivial allocation domain
 std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
     const mma_utils::MatmulPattern& pattern,
@@ -206,7 +213,7 @@ std::string isMatmulFusionDefinitionSupported(
     for (const auto& [g, dom] : id_roles) {
       num_axes[(size_t)dom]++;
     }
-    constexpr size_t expected_axes_numbers = 1;
+    constexpr int64_t expected_axes_numbers = 1;
     if (num_axes[(size_t)MatmulDomain::M] != expected_axes_numbers ||
         num_axes[(size_t)MatmulDomain::N] != expected_axes_numbers ||
         num_axes[(size_t)MatmulDomain::K] != expected_axes_numbers ||
@@ -456,12 +463,11 @@ std::string getMatmulRunTimeRejectReason(
 std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // The plan:
   // 0. Check if the current CUDA device is supported
-  // 1. Check if there is exactly one MmaOp or suitable mul sum pair
->>>>>>> origin/main
-  // defined in the fusion.
-  // 3. Check if matmul scheduler is enabled
-  // 4. Check if inputs to the mma op or mul sum pair match any of
+  // 1. Check if there is exactly one matmul pattern defined in the fusion.
+  // 2. Check if matmul scheduler is enabled
+  // 3. Check if inputs to the mma op or mul sum pair match any of
   // supported inputs layout
+  // 4. Check if the input layout for the matmul pattern can be determined
   // 5. Check if fusion represents expressions that are recognized by matmul
   // scheduler.
 
@@ -470,23 +476,19 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     const auto device_prop = at::cuda::getCurrentDeviceProperties();
     // Use a dummy problem shape to determine whether this is a supported
     // device.
-    const auto mma_op =
-        getMmaOp(device_prop->major * 10 + device_prop->minor, {128, 128, 128, 1});
+    const auto mma_op = getMmaOp(
+        device_prop->major * 10 + device_prop->minor, {128, 128, 128, 1});
     if (!mma_op.has_value()) {
       return "Unsupported device compute capability";
     }
   }
 
   // #1
-  // Initializing the machinery to check if there's a Mul-Sum pair
-  // can be replaced by a Mma Op.
+  // Find matmul patterns
   std::vector<mma_utils::MatmulPattern> patterns =
       mma_utils::findMatmulPatterns(fusion);
   if (patterns.empty()) {
     return "No matmul patterns were found";
-  }
-  if (patterns.size() > 1) {
-    return "Only a single matmul pattern can currently be fused";
   }
 
   // #2
@@ -501,12 +503,16 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     }
   }
 
+  if (patterns.size() > 1) {
+    return "Only a single matmul pattern can currently be fused";
+  }
+
   // #3
   // Prepare an IdModel which will be reused to check remaining conditions
   IdModel id_model(fusion);
   const auto id_roles = patterns.front().getDimRoles(id_model);
   const mma_utils::RolesMapOpt roles_map_opt =
-      mma_utils::getTensorsRoles(fusion, id_model, id_roles);
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
   if (!roles_map_opt.isValid()) {
     return {roles_map_opt.getErrorMsg()};
   }
@@ -585,7 +591,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   params->mma_macro = mma_op.value();
 
   const auto& roles_map_opt =
-      mma_utils::getTensorsRoles(fusion, id_model, id_roles);
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
   NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto roles_map = roles_map_opt.getData();
 

@@ -37,9 +37,7 @@ namespace nvfuser {
 class DistributedMatmulTest : public MultiDeviceTest {
  protected:
   DistributedMatmulTest()
-      : num_devices_(communicator->size()), optimization_guard_(false) {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
+      : num_devices_(communicator->size()), optimization_guard_(false) {}
 
   void SetUp() {
     MultiDeviceTest::SetUp();

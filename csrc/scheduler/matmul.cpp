@@ -764,33 +764,30 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   IdModel id_model(fusion);
   std::unordered_map<ValGroup, MatmulDomain> id_roles =
       patterns.front().getDimRoles(id_model);
-  const auto& roles_map_opt =
-      mma_utils::getTensorsRoles(fusion, id_model, id_roles);
+  const auto& tensor_roles_opt =
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
 
-  // NOTE: the contents of roles_map have been already validated during
+  // NOTE: the contents of tensor_roles have been already validated during
   //  compute-time checks
-  NVF_ERROR(roles_map_opt.isValid(), roles_map_opt.getErrorMsg());
-  const auto roles_map = roles_map_opt.getData();
+  NVF_ERROR(tensor_roles_opt.isValid(), tensor_roles_opt.getErrorMsg());
+  const auto tensor_roles = tensor_roles_opt.getData();
 
   const mma_utils::MatmulProblemLayoutOpt fusion_layout =
-      mma_utils::getProblemLayout(id_model, id_roles, roles_map);
+      mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
   // Core roles: there can be only one... TV with assigned core role
-  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
-  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  TensorView* a = tensor_roles.at(MatmulRole::INPUT_A).front();
+  TensorView* b = tensor_roles.at(MatmulRole::INPUT_B).front();
+
+  const auto& gemm_tile = params.tile_sizes;
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
-  const auto mma_layout_opt = mma->layout();
-  NVF_ERROR(
-      mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
-  const auto mma_layout = mma_layout_opt.value();
-
-  const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
-  const bool has_fusion_c_roles = (0 != roles_map.count(MatmulRole::INPUT_C));
+  const bool has_fusion_c_roles =
+      (0 != tensor_roles.count(MatmulRole::INPUT_C));
   const bool has_non_mma_input_tvs = has_epilogue && has_fusion_c_roles;
 
   // Including current tensor naming convention for reference,
@@ -903,12 +900,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   } else {
     bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
   }
-
-  // For Turing and Ampere, the layout of the MmaOp is always TN
-  NVF_ERROR(
-      mma_layout == MmaLayout::TN,
-      "MMAs in Turing and Ampere are TN only, transpose is handled either "
-      "via ldmatrix.trans for fp16 or explicitly for other types.");
 
   // Make a CTA tile
   // ------------------------------------------------------------------
@@ -1243,7 +1234,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  operations, input tvs with non-core roles
   //  core roles: essential for matmul, for example mma inputs' producers
   if (has_non_mma_input_tvs) {
-    scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
+    scheduleFusionInputsForEpilogue(tensor_roles, params.use_smem_epilogue);
   }
 
   scheduleSplitKSum(

@@ -39,11 +39,6 @@
 namespace nvfuser {
 
 class CombineMulSumAsMmaTest : public NVFuserTest {
- protected:
-  CombineMulSumAsMmaTest() {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
-
   void SetUp() override {
     // These test are enable for Turing and newer. Temporarily
     // we are skipping Hopper since the matmul for it is under development.
@@ -60,11 +55,6 @@ class CombineMulSumAsMmaTest : public NVFuserTest {
     }
     NVFuserTest::SetUp();
   }
-
- private:
-  // RAII style options guard. This is used to disable
-  // (via set) options in the constructor.
-  DisableOptionsGuard opt_guard_;
 };
 
 void performSubstitution(Fusion* fusion, bool should_not_find = false) {
@@ -127,18 +117,17 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Fail1) {
   performSubstitution(&fusion, /*should_not_find=*/true);
 }
 
-// This fusion has more than one broadcasted dimension for each operand, so it
-// is currently rejected isMatmulFusionDefinitionSupported. Still, it is a valid
-// MatmulPattern so we check that it is found.
+// This fusion has Broadcast batch axes in each operand.
 TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
   // Assumes layout is kAllSupportedMmaLayout::NT;
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
 
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
 
   auto tv0t = transpose(tv0, 0, 1);
   auto tv1t = transpose(tv1, 0, 1);
@@ -155,9 +144,24 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
   auto tv1b = broadcast(tv1t, bcast_dims);
   auto tv2 = mul(tv0b, tv1b);
   auto tv3 = sum(tv2, {-1});
-  fusion.addOutput(tv3);
+  fusion->addOutput(tv3);
 
-  performSubstitution(&fusion, /*should_not_find=*/false);
+  performSubstitution(fusion, /*should_not_find=*/false);
+
+  // We test running this fusion also to verify that the broadcast batch
+  // dimension does not cause unforeseen issues
+
+  int64_t M = 256, N = 128, K = 64;
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({K, M}, options);
+  auto t1 = at::randn({K, N}, options);
+  auto tref = at::linear(t0.t(), t1.t()).unsqueeze(1);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
 // As a sanity check we test that after replacing a mul-sum
@@ -348,6 +352,66 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
   run(/*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
   // We cannot yet handle allocation domain in matmul scheduler
   run(/*transpose_a_alloc=*/true, /*expect_aten_eval=*/true);
+}
+
+// Check that we determine A and B properly when they are swapped as inputs to
+// mul
+TEST_F(CombineMulSumAsMmaTest, SwapAandB) {
+  for (auto layout : kAllSupportedMmaLayout) {
+    for (bool swap : {false, true}) {
+      Fusion fusion;
+      FusionGuard fg(&fusion);
+      auto tv0 = makeContigTensor(2, DataType::Half);
+      auto tv1 = makeContigTensor(2, DataType::Half);
+
+      fusion.addInput(tv0);
+      fusion.addInput(tv1);
+
+      tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+      tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+      // We should identify tv0 as A and tv1 as B regardless of the order here
+      auto tv2 = swap ? mul(tv1, tv0) : mul(tv0, tv1);
+      auto tv3 = sum(tv2, {-1});
+
+      fusion.addOutput(tv3);
+
+      std::vector<mma_utils::MatmulPattern> patterns =
+          mma_utils::findMatmulPatterns(&fusion);
+
+      ASSERT_FALSE(patterns.empty());
+      EXPECT_EQ(patterns.size(), 1);
+
+      mma_utils::MatmulPattern& pattern = patterns.front();
+
+      EXPECT_EQ(pattern.A, tv0);
+      EXPECT_EQ(pattern.B, tv1);
+      EXPECT_EQ(pattern.output, tv3);
+
+      pattern.translateToMmaOp();
+
+      // Check that we didn't modify the pattern roles
+      EXPECT_EQ(pattern.A, tv0);
+      EXPECT_EQ(pattern.B, tv1);
+      EXPECT_EQ(pattern.output, tv3);
+
+      // Check that we properly map M and N to their roles even with swap
+      IdModel id_model(&fusion);
+      std::unordered_map<ValGroup, MatmulDomain> dim_roles =
+          pattern.getDimRoles(id_model);
+      ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+      const ValGroup& m_gp = exact_graph.toGroup(tv0->axis(-3));
+      auto m_it = dim_roles.find(m_gp);
+      ASSERT_NE(m_it, dim_roles.end());
+      EXPECT_EQ(m_it->second, MatmulDomain::M);
+
+      const ValGroup& n_gp = exact_graph.toGroup(tv1->axis(-2));
+      auto n_it = dim_roles.find(n_gp);
+      ASSERT_NE(n_it, dim_roles.end());
+      EXPECT_EQ(n_it->second, MatmulDomain::N);
+
+      ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
+    }
+  }
 }
 
 } // namespace nvfuser

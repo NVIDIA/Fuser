@@ -817,10 +817,11 @@ struct BroadcastOpRecord : RecordFunctor {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const BroadcastOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      result &= std::equal(
-          is_broadcast_dim_.begin(),
-          is_broadcast_dim_.end(),
-          child_ptr->is_broadcast_dim_.begin());
+      result = result &&
+          std::equal(
+                   is_broadcast_dim_.begin(),
+                   is_broadcast_dim_.end(),
+                   child_ptr->is_broadcast_dim_.begin());
     }
     return result;
   }
