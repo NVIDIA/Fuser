@@ -1629,6 +1629,72 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   // If there are other patterns, for example a ValGroup present in only A, then
   // we should raise an exception here.
 
+  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
+
+  if (output->definition()->isA<MatmulOp>()) {
+    // Special case for MatmulOp
+    // torch.matmul has a single M, N, and K dimension and 0 or more batch
+    // dimensions.
+    dim_roles[exact_graph.toGroup(A->axis(-1))] = MatmulDomain::K;
+    NVF_ERROR(A->nDims() > 0 && B->nDims() > 0);
+    size_t m_and_k_dims = 0;
+    if (A->nDims() == 1 && B->nDims() == 1) {
+      NVF_ERROR(
+          false, "MatmulOp node should not be created when both inputs are 1D");
+    } else if (A->nDims() == 1) {
+      // Missing M dimension
+      dim_roles[exact_graph.toGroup(B->axis(-1))] = MatmulDomain::N;
+      m_and_k_dims = 1;
+    } else if (B->nDims() == 1) {
+      // Missing N dimension
+      dim_roles[exact_graph.toGroup(A->axis(-2))] = MatmulDomain::M;
+      m_and_k_dims = 1;
+    } else {
+      // Both A and B are at least 2D
+      dim_roles[exact_graph.toGroup(A->axis(-2))] = MatmulDomain::M;
+      dim_roles[exact_graph.toGroup(B->axis(-1))] = MatmulDomain::N;
+      m_and_k_dims = 2;
+    }
+    // Skip one dimension for the reduction axis in the output
+    for (size_t i : c10::irange(output->nDims() - 1 - m_and_k_dims)) {
+      dim_roles[exact_graph.toGroup(output->axis((int64_t)i))] =
+          MatmulDomain::Batch;
+    }
+    return dim_roles;
+  } else if (output->definition()->isA<LinearOp>()) {
+    // Special case for LinearOp
+    // torch.matmul has a single M, N, and K dimension and 0 or more batch
+    // dimensions. The batch dimensions are only present in A
+    dim_roles[exact_graph.toGroup(A->axis(-1))] = MatmulDomain::K;
+    NVF_ERROR(A->nDims() > 0 && B->nDims() > 0);
+    size_t m_and_k_dims = 0;
+    if (A->nDims() == 1 && B->nDims() == 1) {
+      NVF_ERROR(
+          false, "MatmulOp node should not be created when both inputs are 1D");
+    } else if (A->nDims() == 1) {
+      // Missing M dimension
+      dim_roles[exact_graph.toGroup(B->axis(-2))] = MatmulDomain::N;
+      m_and_k_dims = 1;
+    } else if (B->nDims() == 1) {
+      // Missing N dimension
+      dim_roles[exact_graph.toGroup(A->axis(-2))] = MatmulDomain::M;
+      m_and_k_dims = 1;
+    } else {
+      // Both A and B are at least 2D
+      dim_roles[exact_graph.toGroup(A->axis(-2))] = MatmulDomain::M;
+      dim_roles[exact_graph.toGroup(B->axis(-2))] = MatmulDomain::N;
+      m_and_k_dims = 2;
+    }
+    // Skip one dimension for the reduction axis in the output
+    for (size_t i : c10::irange(output->nDims() - 1 - m_and_k_dims)) {
+      dim_roles[exact_graph.toGroup(output->axis((int64_t)i))] =
+          MatmulDomain::Batch;
+    }
+    return dim_roles;
+  }
+
+  // The code below handles MmaOp or mul-sum patterns
+
   // Indicates whether a ValGroup is present in A (bit 0), B (bit 1), or output
   // (bit 2)
   using DimPresence = std::bitset<3>;
@@ -1650,15 +1716,14 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   recordPresence(B, 1);
   recordPresence(output, 2);
 
-  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
   for (const auto& [g, flags] : present_flags) {
     if (flags.all()) {
       dim_roles[g] = MatmulDomain::Batch;
     } else if (flags.test(0) && flags.test(1)) {
       dim_roles[g] = MatmulDomain::K;
-    } else if (flags.test(0) && flags.test(2)) {
+    } else if (flags.test(0) && !flags.test(1) && flags.test(2)) {
       dim_roles[g] = MatmulDomain::M;
-    } else if (flags.test(1) && flags.test(2)) {
+    } else if (!flags.test(0) && flags.test(1) && flags.test(2)) {
       dim_roles[g] = MatmulDomain::N;
     } else {
       NVF_ERROR(

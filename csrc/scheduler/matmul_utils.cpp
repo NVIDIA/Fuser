@@ -205,9 +205,9 @@ std::string isMatmulFusionDefinitionSupported(
 
   constexpr size_t minimal_number_of_inputs = 2;
 
-  // Quick checks - MmaOp
+  // Quick checks
   {
-    // Check if MmaOp represents gemm (requires M/N/K == 1, B == 0)
+    // Check if matmul pattern represents gemm (requires M/N/K == 1, B == 0)
     //  or bgemm (requires M/N/K/B == 1)
     std::array<int64_t, 4> num_axes{};
     for (const auto& [g, dom] : id_roles) {
@@ -218,7 +218,7 @@ std::string isMatmulFusionDefinitionSupported(
         num_axes[(size_t)MatmulDomain::N] != expected_axes_numbers ||
         num_axes[(size_t)MatmulDomain::K] != expected_axes_numbers ||
         num_axes[(size_t)MatmulDomain::Batch] > expected_axes_numbers) {
-      return "MmaOp has unsupported number of one of M/N/K/Batch axes";
+      return "Matmul pattern has unsupported number of one of M/N/K/Batch axes";
     }
 
     if (!mma_output->hasReduction()) {
