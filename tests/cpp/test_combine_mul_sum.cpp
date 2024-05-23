@@ -354,6 +354,125 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
   run(/*transpose_a_alloc=*/true, /*expect_aten_eval=*/true);
 }
 
+// Test that a simple linear op fusion is picked up by the appropriate scheduler
+// and the translation to MmaOp is performed properly.
+TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
+  const auto run = [&](int64_t A_dim,
+                       int64_t B_dim,
+                       int64_t bias_dim,
+                       bool transpose_a_alloc,
+                       bool expect_aten_eval) {
+    int M = 504, N = 136, K = 248;
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeContigTensor(A_dim, DataType::Half);
+    auto tv1 = makeContigTensor(B_dim, DataType::Half);
+
+    if (transpose_a_alloc && A_dim > 1) {
+      std::vector<IterDomain*> alloc = tv0->getMaybeAllocationDomain();
+      alloc[alloc.size() - 1] = tv0->axis(-2);
+      alloc[alloc.size() - 2] = tv0->axis(-1);
+      tv0->setAllocationDomain(alloc, true);
+    }
+
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+
+    TensorView* tv2 = nullptr;
+    if (bias_dim >= 0) {
+      // bias_dim = -1 indicates we should not use any bias argument
+      auto bias = makeContigTensor(B_dim, DataType::Half);
+      fusion->addInput(bias);
+      tv2 = linear(tv0, tv1, bias);
+    } else {
+      tv2 = linear(tv0, tv1);
+    }
+
+    // add an epilogue
+    auto tv3 = sin(tv2);
+    auto tv4 = castOp(DataType::Half, tv3);
+
+    fusion->addOutput(tv4);
+
+    // Verify that we no longer set up MmaOp in matmul()
+    ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
+
+    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    auto t0 = at::randn({M, K}, options);
+    auto t1 = at::randn({N, K}, options);
+    if (transpose_a_alloc) {
+      t0 = t0.as_strided({M, K}, {1, M});
+    }
+    std::vector<c10::IValue> inputs{t0, t1};
+    at::Tensor tref;
+    if (bias_dim >= 0) {
+      at::Tensor bias;
+      if (bias_dim == 0) {
+        bias = at::randn({}, options);
+      } else if (bias_dim == 1) {
+        bias = at::randn({N}, options);
+      } else if (bias_dim == 2) {
+        bias = at::randn({M, N}, options);
+      } else {
+        NVF_ERROR(false, "Invalid bias dimension given:", bias_dim);
+      }
+      inputs.emplace_back(bias);
+      tref = at::linear(t0, t1, bias);
+    } else {
+      tref = at::linear(t0, t1);
+    }
+    tref = tref.sin().to(at::kHalf);
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+    const FusionKernelRuntime* runtime =
+        executor_cache.getMostRecentKernelRuntime();
+    ASSERT_NE(runtime, nullptr);
+
+    if (expect_aten_eval) {
+      EXPECT_TRUE(runtime->isSegmented());
+    } else {
+      EXPECT_FALSE(runtime->isSegmented());
+    }
+
+    ScheduleHeuristic heuristic =
+        runtime->schedulerHeuristics()->heuristicsList().front()->heuristic();
+    if (expect_aten_eval) {
+      EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
+    } else {
+      // Ensure that the Matmul scheduler ran.
+      // Assert here since we will inspect the kernel next, which we can't
+      // do if ExprEval accepts the segment.
+      ASSERT_EQ(heuristic, ScheduleHeuristic::Matmul);
+      // Ensure there's an MmaOp.
+      EXPECT_FALSE(
+          ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
+              .empty());
+    }
+
+    testValidate(
+        executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+  };
+  // CombineMulSumAsMmaTest disabled MatmulExprEval, but we need it
+  // enabled
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
+  EnableOptionsGuard eog;
+
+  // Run the test with and without matmul fusion enabled
+  EnableOptionsGuard::getCurOptions().unset(EnableOption::FuseMatmul);
+  run(2, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
+  run(2, 2, -1, /*transpose_a_alloc=*/true, /*expect_aten_eval=*/true);
+
+  // Allow Matmul Scheduler to fuse MatmulOp and LinearOp
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+  run(2, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  // We cannot yet handle allocation domain in matmul scheduler
+  run(2, 2, -1, /*transpose_a_alloc=*/true, /*expect_aten_eval=*/true);
+}
+
 // Check that we determine A and B properly when they are swapped as inputs to
 // mul
 TEST_F(CombineMulSumAsMmaTest, SwapAandB) {

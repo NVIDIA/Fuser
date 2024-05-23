@@ -1390,6 +1390,17 @@ class MatmulPatternMatcher : IterVisitor {
   // there is a transpose operation in the epilogue, then this assumption will
   // be violated. In such cases we should actually swap and transpose A and B.
 
+  // Match all LinearOps and MatmulOps as MatmulPatterns. This includes ops
+  // whose inputs are not 2D, i.e. matrix-vector products. The matmul scheduler
+  // will decide whether or not it can fuse a given pattern based on the
+  // dimensionality of its inputs.
+  void handle(LinearOp* lop) override {
+    MatmulPattern& pattern = patterns_.emplace_back();
+    pattern.A = lop->inA()->as<TensorView>();
+    pattern.B = lop->inB()->as<TensorView>();
+    pattern.output = lop->out()->as<TensorView>();
+  }
+
   void handle(MatmulOp* mop) override {
     MatmulPattern& pattern = patterns_.emplace_back();
     pattern.A = mop->inA()->as<TensorView>();

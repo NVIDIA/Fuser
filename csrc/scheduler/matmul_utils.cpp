@@ -493,12 +493,21 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
   // #2
   {
-    if (!isOptionEnabled(EnableOption::FuseMatmul)) {
-      // Check for MatmulOp or LinearOp. If found, then only fuse if option is
-      // specified
-      Expr* op = patterns.front().output->definition();
-      if (op->isA<MatmulOp>() /* || op->isA<LinearOp>()*/) {
-        return "Matmul fusion is disabled by default. Enable it using NVFUSER_ENABLE=fuse_matmul";
+    for (const mma_utils::MatmulPattern& pattern : patterns) {
+      Expr* op = pattern.output->definition();
+      if (op->isA<MatmulOp>() || op->isA<LinearOp>()) {
+        if (!isOptionEnabled(EnableOption::FuseMatmul)) {
+          // Check for MatmulOp or LinearOp. If found, then only fuse if option
+          // is specified
+          return "MatmulOp and LinearOp fusion is disabled by default. "
+                 "Enable it using NVFUSER_ENABLE=fuse_matmul";
+        }
+        // Refuse patterns containing 1D inputs since these are mat-vec as
+        // opposed to mat-mat products.
+        if (op->input(0)->as<TensorView>()->nDims() < 2 ||
+            op->input(1)->as<TensorView>()->nDims() < 2) {
+          return "Cannot fuse matrix-vector products";
+        }
       }
     }
   }
