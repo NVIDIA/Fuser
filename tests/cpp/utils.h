@@ -8,6 +8,7 @@
 #pragma once
 
 #include <codegen.h>
+#include <id_model/id_model.h>
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
@@ -682,5 +683,7 @@ at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
 
 // Get the number of SMs on the current device
 int64_t getNumSMs();
+
+const bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y);
 
 } // namespace nvfuser

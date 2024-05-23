@@ -264,7 +264,7 @@ std::vector<IterDomain*> mapSdpaOpIterDomains(
     AttnRole input_role,
     size_t out_size) {
   std::vector<IterDomain*> mapping(out_size, nullptr);
-  int64_t inp_size = input_domain.size();
+  auto inp_size = (int64_t)input_domain.size();
 
   // Query: [N,..,L,E], Key: [N,..,S,E], Value: [N,..,S,Ev], Attn_mask = null/[N,..,L,S]/[L,S]/(any broadcastable input)
   // Output: [N,..,L,Ev]
