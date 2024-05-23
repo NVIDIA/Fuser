@@ -504,8 +504,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
         }
         // Refuse patterns containing 1D inputs since these are mat-vec as
         // opposed to mat-mat products.
-        if (op->input(0)->as<TensorView>()->nDims() < 2 ||
-            op->input(1)->as<TensorView>()->nDims() < 2) {
+        if (pattern.A->nDims() < 2 || pattern.B->nDims() < 2) {
           return "Cannot fuse matrix-vector products";
         }
       }

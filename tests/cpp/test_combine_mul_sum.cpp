@@ -362,7 +362,7 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
                        int64_t bias_dim,
                        bool transpose_a_alloc,
                        bool expect_aten_eval) {
-    int M = 504, N = 136, K = 248;
+    int batch_size = 3, M = 504, N = 136, K = 248;
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -382,7 +382,7 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
     TensorView* tv2 = nullptr;
     if (bias_dim >= 0) {
       // bias_dim = -1 indicates we should not use any bias argument
-      auto bias = makeContigTensor(B_dim, DataType::Half);
+      auto bias = makeContigTensor(bias_dim, DataType::Half);
       fusion->addInput(bias);
       tv2 = linear(tv0, tv1, bias);
     } else {
@@ -399,8 +399,18 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
     ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
 
     auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    auto t0 = at::randn({M, K}, options);
-    auto t1 = at::randn({N, K}, options);
+    std::vector<int64_t> A_shape(A_dim, batch_size);
+    A_shape[A_dim - 1] = K;
+    if (A_dim > 1) {
+      A_shape[A_dim - 2] = M;
+    }
+    at::Tensor t0 = at::randn(A_shape, options);
+    std::vector<int64_t> B_shape(B_dim, batch_size);
+    B_shape[B_dim - 1] = K;
+    if (B_dim > 1) {
+      B_shape[B_dim - 2] = N;
+    }
+    auto t1 = at::randn(B_shape, options);
     if (transpose_a_alloc) {
       t0 = t0.as_strided({M, K}, {1, M});
     }
@@ -471,6 +481,26 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
   run(2, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
   // We cannot yet handle allocation domain in matmul scheduler
   run(2, 2, -1, /*transpose_a_alloc=*/true, /*expect_aten_eval=*/true);
+
+  // Don't fuse 1D inputs
+  run(1, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
+  run(2, 1, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
+  // The following currently fails but it should not be translated to LinearOp
+  // to begin with
+  // run(1, 1, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
+
+  // Multiple batch dims in input
+  run(3, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  run(4, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+
+  // Bias cases
+  run(2, 2, 0, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  run(2, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  // Undocumented 2D bias support
+  run(2, 2, 2, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+
+  run(3, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  run(4, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
 }
 
 // Check that we determine A and B properly when they are swapped as inputs to
