@@ -1530,6 +1530,47 @@ MmaOp* MatmulPattern::translateToMmaOp() {
   if (auto mma_op = dynamic_cast<MmaOp*>(output->definition())) {
     // No translation needed
     return mma_op;
+  } else if (output->definition()->isA<ReductionOp>()) {
+    Val* init = IrBuilder::create<Val>(0.0, output->dtype());
+    // This replaces the mul and sum by overwriting output->definition()
+    return IrBuilder::create<MmaOp>(output, A, B, init);
+  }
+
+  // This will hold the translated output from MatmulOp or LinearOp
+  TensorView* fms = nullptr;
+  MmaOp* mma_op = nullptr;
+  if (auto lop = dynamic_cast<LinearOp*>(output->definition())) {
+    // Linear takes inputs input, weight(, bias)
+    //   - input can be any dimension > 0. We assert that it must be at least 2
+    //   and refuse to translate if dimension is 1.
+    //   - weight can be one or two dimensional. We refuse to translate if
+    //   dimension is 1.
+    //   - bias, if present, can be zero or two dimensional. Bias can only be
+    //   present if weight is 2D
+    //
+    // We translate by broadcasting input, weight, and bias such that the
+    // contracted dimension K is in the last position (this is true of the
+    // rfactor domains in input and weight already). Then we form an MmaOp and
+    // optionally add the bias tensor followed by a cast back to the input
+    // dtype.
+    NVF_ERROR(
+        A->nDims() > 1 && B->nDims() > 1,
+        "Cannot translate LinearOp with 1D input");
+    std::vector<bool> bcast_dim((size_t)A->nDims() + 1, false);
+    bcast_dim[bcast_dim.size() - 2] = true; // N
+    A = broadcast(A, bcast_dim);
+
+    bcast_dim[bcast_dim.size() - 2] = false; // reset N
+    std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
+    B = broadcast(B, bcast_dim);
+
+    fms = fusedMultiplySum(A, B, {-1});
+    mma_op = fms->definition()->as<MmaOp>();
+
+    auto* bias = dynamic_cast<TensorView*>(lop->bias());
+    if (bias != nullptr) {
+      fms = add(fms, bias);
+    }
   } else if (auto mop = dynamic_cast<MatmulOp*>(output->definition())) {
     // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so we
     // must transpose B then broadcast both operands before creating the final
@@ -1538,37 +1579,39 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     // Also note that the output of MatmulOp is a tensor of shape [..., M, N]
     // whose matches that of the inputs. We will most commonly then also need to
     // cast the output of the MmaOp to produce the output TensorView.
+    NVF_ERROR(
+        A->nDims() > 1 && B->nDims() > 1,
+        "Cannot translate MatmulOp with 1D input");
     TensorView* Btrans = transpose(B);
-    TensorView* Abcast = unsqueeze(A, -2);
-    TensorView* Bbcast = unsqueeze(Btrans, -3);
-    TensorView* fms = fusedMultiplySum(Abcast, Bbcast, {-1});
-    auto mma_op = fms->definition()->as<MmaOp>();
-    // Update operands to keep the pattern minimal
-    A = Abcast;
-    B = Bbcast;
-    // TODO: skip downcasting if the only uses of `output` are casts back to
-    // higher precision in order avoid the round trip cast in defining an
-    // epilogue that starts with MatmulOp.
-    if (output->dtype() != fms->dtype()) {
-      // Redefine output as cast of MmaOp->out()
-      IrBuilder::create<UnaryOp>(UnaryOpType::Cast, output, fms);
-      // Update output so that cast is part of the epilogue
-      output = fms;
-    } else {
-      // No cast needed, for example the inputs might be Float
-      ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
-    }
-    return mma_op;
-  } else if (output->definition()->isA<ReductionOp>()) {
-    Val* init = IrBuilder::create<Val>(0.0, output->dtype());
-    // This replaces the mul and sum by overwriting output->definition()
-    return IrBuilder::create<MmaOp>(output, A, B, init);
+    A = unsqueeze(A, -2);
+    B = unsqueeze(Btrans, -3);
+    fms = fusedMultiplySum(A, B, {-1});
+    mma_op = fms->definition()->as<MmaOp>();
+  } else {
+    NVF_ERROR(
+        false,
+        "Could not translate matmul pattern with output ",
+        output->toString(),
+        " to MmaOp");
   }
-  NVF_ERROR(
-      false,
-      "Could not translate matmul pattern with output ",
-      output->toString(),
-      " to MmaOp");
+  NVF_ERROR(fms != nullptr);
+  NVF_ERROR(mma_op != nullptr);
+
+  // The following is common to both MatmulOp and LinearOp translation
+
+  // TODO: skip downcasting if the only uses of `output` are casts back to
+  // higher precision in order avoid the round trip cast in defining an
+  // epilogue that starts with MatmulOp.
+  if (output->dtype() != fms->dtype()) {
+    // Redefine output as cast of MmaOp->out()
+    IrBuilder::create<UnaryOp>(UnaryOpType::Cast, output, fms);
+    // Update output so that cast is part of the epilogue
+    output = fms;
+  } else {
+    // No cast needed, for example the inputs might be Float
+    ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
+  }
+  return mma_op;
 }
 
 std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
