@@ -1572,7 +1572,7 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     if (bias != nullptr) {
       fms = add(fms, bias);
     }
-  } else if (auto mop = dynamic_cast<MatmulOp*>(output->definition())) {
+  } else if (output->definition()->isA<MatmulOp>()) {
     // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so we
     // must transpose B then broadcast both operands before creating the final
     // op.
