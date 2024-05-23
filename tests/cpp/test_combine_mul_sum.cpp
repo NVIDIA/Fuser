@@ -27,6 +27,8 @@
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <options.h>
+#include <preseg_passes/allocation_order_inference.h>
+#include <preseg_passes/optimization_pass.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
@@ -357,6 +359,12 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerMatmulNode) {
 // Test that a simple linear op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
+  // The allocation domain propagation pass sets the output allocation domain,
+  // which sometimes causes the matmul scheduler to decline the whole fusion
+  // when it could compile it otherwise.
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      alloc_pass_guard(false);
+
   const auto run = [&](int64_t A_dim,
                        int64_t B_dim,
                        int64_t bias_dim,
@@ -486,23 +494,26 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
   run(1, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
   run(2, 1, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
   // TODO: The following currently fails but it should not be translated to
-  // LinearOp to begin with run(1, 1, -1, /*transpose_a_alloc=*/false,
-  // /*expect_aten_eval=*/true);
+  // LinearOp to begin with
+  // run(1, 1, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
 
-  // Multiple batch dims in input
+  // Batch dims in input
+  // TODO: This is a single batch dim in the input. This fails currently
   run(3, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
-  run(4, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  // TODO: We don't yet support multiple batch dims in matmul scheduler
+  run(4, 2, -1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
 
   // Bias cases
   run(2, 2, 0, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
   run(2, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
   // Undocumented 2D bias support
   // TODO: Currently failing in propagateBoundValuesThroughExactMaps, indicating
-  // possible PairwiseRootDomainMap issue?
+  // possible PairwiseRootDomainMap issue for 2D bias?
   // run(2, 2, 2, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
 
   run(3, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
-  run(4, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/false);
+  // TODO: We don't yet support multiple batch dims in matmul scheduler
+  run(4, 2, 1, /*transpose_a_alloc=*/false, /*expect_aten_eval=*/true);
 }
 
 // Check that we determine A and B properly when they are swapped as inputs to
