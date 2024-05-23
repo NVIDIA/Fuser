@@ -1546,7 +1546,7 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     //   and refuse to translate if dimension is 1.
     //   - weight can be one or two dimensional. We refuse to translate if
     //   dimension is 1.
-    //   - bias, if present, can be zero or two dimensional. Bias can only be
+    //   - bias, if present, can be zero or one dimensional. Bias can only be
     //   present if weight is 2D
     //
     // We translate by broadcasting input, weight, and bias such that the
