@@ -172,7 +172,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -266,7 +266,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -366,7 +366,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -462,7 +462,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -570,7 +570,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -666,7 +666,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -755,7 +755,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -857,7 +857,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -967,7 +967,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1084,7 +1084,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1134,7 +1134,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -1186,7 +1186,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1236,7 +1236,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1292,7 +1292,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1350,7 +1350,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1417,7 +1417,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1492,7 +1492,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1573,7 +1573,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1658,7 +1658,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1728,7 +1728,7 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -1801,7 +1801,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -1887,7 +1887,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -1961,7 +1961,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -2028,7 +2028,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -2097,7 +2097,7 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
 
         fusion->addOutput(tv2);
 
-        const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+        const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
         NVF_CHECK(
             fusion_layout.isValid(),
             "failed to get decide matmul layout through fusion definition");
@@ -2288,7 +2288,7 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
 
           fusion->addOutput(tv2);
 
-          const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+          const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
           NVF_CHECK(
               fusion_layout.isValid(),
               "failed to get decide matmul layout through fusion definition");
