@@ -53,19 +53,8 @@
 #include "c10/core/ScalarType.h"
 
 namespace nvfuser {
-namespace {
-class GPUTTensorCoreTest : public NVFuserTest {
- protected:
-  GPUTTensorCoreTest() {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
 
- private:
-  // RAII style options guard. This is used to disable
-  // (via set) options in the constructor.
-  DisableOptionsGuard opt_guard_;
-};
-} // namespace
+using GPUTTensorCoreTest = NVFuserTest;
 
 using namespace at::indexing;
 

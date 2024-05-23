@@ -5977,7 +5977,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
   at::Tensor t1 = at::randn({K, N}, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-  at::Tensor aten_output = matmul(t0.to(at::kDouble), t1.to(at::kDouble));
+  at::Tensor aten_output = at::matmul(t0.to(at::kDouble), t1.to(at::kDouble));
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0, t1});
@@ -6064,7 +6064,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemmCache_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({M, K}, options);
   at::Tensor t1 = at::randn({K, N}, options);
-  at::Tensor aten_output = matmul(t0.to(at::kDouble), t1.to(at::kDouble));
+  at::Tensor aten_output = at::matmul(t0.to(at::kDouble), t1.to(at::kDouble));
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 

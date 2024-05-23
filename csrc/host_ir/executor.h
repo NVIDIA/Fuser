@@ -12,6 +12,7 @@
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <kernel_cache.h>
+#include <multidevice/communicator.h>
 
 namespace nvfuser {
 
@@ -47,20 +48,25 @@ class HostIrExecutor final : public OptInDispatch {
  public:
   HostIrExecutor(
       std::unique_ptr<HostIrContainer> container,
+      Communicator* communicator = nullptr,
       HostIrExecutorParams = HostIrExecutorParams());
-  std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
+  std::vector<at::Tensor> runWithInput(
+      std::unordered_map<Val*, c10::IValue> val_to_IValue);
 
  private:
   using OptInDispatch::handle;
-  void handle(PostOnStream* post) override;
+  void handle(PostOnStream* post_ir) override;
+  void postCompute(PostOnStream* post_ir);
+  void postCommunication(PostOnStream* post_ir);
 
   std::unique_ptr<HostIrContainer> container_;
+  Communicator* communicator_;
   HostIrExecutorParams params_;
   // Stores concrete computed values
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
   // Cache Fusions, FusionExecutors
-  std::unordered_map<PostOnStream*, FusionExecutor> fe_;
-  std::unordered_map<PostOnStream*, FusionExecutorCache> fec_;
+  std::unordered_map<HostUnit*, FusionExecutor> fe_;
+  std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
 };
 
 } // namespace hir

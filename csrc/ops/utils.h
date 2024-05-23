@@ -46,15 +46,40 @@ IterType promoteIterType(IterType type1, IterType type2);
 // Mapping B: {nullptr, id_N})
 // 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M,
 // N] (Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N})
+// Args:
+// 1. input_domain: root/rfactor domain without reductions for any input to
+// MatmulOp
+// 2. input_role: Specifies if the input is A / B (MatmulRole::Input_A/Input_B)
+// 3: out_size: MatmulOp output dimension (input and output may not be the same
+// size).
 std::vector<IterDomain*> mapMatmulOpIterDomains(
+    const std::vector<IterDomain*>& input_domain,
+    MatmulRole input_role,
+    size_t out_size);
+
+// For LinearOp, the output is the same as the first input (A[*,
+// in_features])for all but the last dimension. If the second input is 2D
+// (B[out_features, in_features]), the last dimension of output is out_features.
+// If bias is 1D (bias[out_features]) it maps to the last dimension of the
+// output. Args:
+// 1. input_domain: root/rfactor domain without reductions for any input to
+// LinearOp
+// 2. input_role: Specifies if the input is A / B / Bias
+// (MatmulRole::Input_A/Input_B/Input_C) 3: out_size: LinearOp output dimension
+// (input and output may not be the same size).
+std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     MatmulRole input_role,
     size_t out_size);
 
 // Takes a vector of aligned input iterdomains to create the output iterdomain.
 // This is used if the input iterdomains are not trivially mapped to the output
-// iterdomains. For eg: MatmulOp.
-IterDomain* newOutputIterDomain(const std::vector<IterDomain*>& ids);
+// iterdomains. For eg: MatmulOp. If given, the forced_iter_type argument will
+// be the output IterType regardless of the inputs; otherwise the output
+// IterType is inferred from ids.
+IterDomain* newOutputIterDomain(
+    const std::vector<IterDomain*>& ids,
+    const std::optional<IterType> force_iter_type = std::nullopt);
 
 // Takes a vector of tensorviews and assumes they are all aligned to create the
 // output tensorview. For eg: BinaryOp.

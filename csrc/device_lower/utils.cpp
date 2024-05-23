@@ -149,7 +149,9 @@ bool isTvOp(const Expr* expr) {
           WelfordOp,
           GroupedWelfordOp,
           LoadStoreOp,
+          MatmulOp,
           MmaOp,
+          LinearOp,
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
@@ -603,8 +605,7 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->macro(),
-          node->layout());
+          node->macro());
       registerReplaceWithPredicate(node, replacement);
     }
   }
@@ -880,6 +881,46 @@ Val* getNumThreadsInTensorView(TensorView* tv) {
     }
   }
   return num_threads;
+}
+
+std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
+  if (isAmpere(expr->macro()) || isTuring(expr->macro())) {
+    return {UnitDim::K, UnitDim::K};
+  }
+  NVF_ERROR(isHopper(expr->macro()));
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
+  std::array<UnitDim, 2> layout;
+
+  auto out_tv = ir_utils::getTv(expr->out());
+  IterDomain* reduction_id = nullptr;
+  for (auto id : out_tv->getRootDomain()) {
+    if (id->isReduction()) {
+      reduction_id = id;
+      break;
+    }
+  }
+  NVF_ERROR(reduction_id != nullptr);
+
+  std::array<TensorView*, 2> inputs = {
+      ir_utils::getTv(expr->inA()), ir_utils::getTv(expr->inB())};
+  for (auto i : c10::irange(2)) {
+    auto in_tv = inputs.at(i);
+    if (in_tv->getMemoryType() == MemoryType::Local) {
+      layout[i] = UnitDim::K;
+      continue;
+    }
+    NVF_ERROR(in_tv->getMemoryType() == MemoryType::Shared);
+    auto out2in = PairwiseRootDomainMap(in_tv, out_tv).mapConsumerToProducer();
+    auto reduction_id_in = out2in.at(reduction_id);
+    auto inner_id = in_tv->getMaybeAllocationDomain().back();
+    while (inner_id != reduction_id_in && inner_id->definition() != nullptr) {
+      inner_id = inner_id->definition()->inputs().back()->as<IterDomain>();
+    }
+    layout[i] = inner_id == reduction_id_in ? UnitDim::K : UnitDim::M_or_N;
+  }
+
+  return layout;
 }
 
 } // namespace lower_utils
