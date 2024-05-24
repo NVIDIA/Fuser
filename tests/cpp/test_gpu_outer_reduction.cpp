@@ -2400,8 +2400,7 @@ TEST_F(OuterReductionTest, IterGroupedGridReductionShmooTests) {
               for (int gdimy : gdimy_list) {
                 for (int serial : serial_list) {
                   // skip invalid configures
-                  if (bdimx * bdimy > max_threads_per_blk ||
-                      vect * unroll > 16) {
+                  if (bdimx * bdimy > max_threads_per_blk) {
                     continue;
                   }
                   shmooTestsOfIterGroupedBlockOrGridReduction(
