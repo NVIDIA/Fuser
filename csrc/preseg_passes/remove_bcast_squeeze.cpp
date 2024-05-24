@@ -18,6 +18,9 @@ inline bool isFusionOutput(Fusion* fusion, Val* val) {
   const auto& outputs = fusion->outputs();
   return std::find(outputs.begin(), outputs.end(), val) != outputs.end();
 }
+
+// Remove broadcast-squeeze and squeeze-broadcast patterns
+// TODO: still remove when have intermediate ops between broadcast and squeeze
 void removeBcastSqueeze(Fusion* fusion) {
   // step-1: find and remove broadcast + squeeze pattern
   // before: Y = broadcast(X); Z = squeeze(Y);  M = someOp(Z)
@@ -78,15 +81,15 @@ void removeBcastSqueeze(Fusion* fusion) {
 void RemoveBcastSqueeze::runPass(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Fusion before RemoveBcastSqueeze:" << std::endl;
+    fusion->printMath();
   }
-  fusion->printMath();
 
   removeBcastSqueeze(fusion);
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Fusion after RemoveBcastSqueeze:" << std::endl;
+    fusion->printMath();
   }
-  fusion->printMath();
 }
 
 } // namespace nvfuser::preseg_passes
