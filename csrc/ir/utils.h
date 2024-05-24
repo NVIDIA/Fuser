@@ -652,6 +652,8 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
+bool hasTrivialAllocationDomain(const TensorView* tv);
+
 // Returns true if memory_type is shared in parallel_type
 inline bool isShared(MemoryType memory_type, ParallelType parallel_type) {
   switch (memory_type) {
