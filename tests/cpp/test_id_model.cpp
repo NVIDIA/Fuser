@@ -17,8 +17,8 @@
 #include <id_model/id_model.h>
 #include <id_model/loop_promotion.h>
 #include <id_model/to_string.h>
-#include <ir/graphviz.h>
 #include <inlining.h>
+#include <ir/graphviz.h>
 #include <ops/all_ops.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
