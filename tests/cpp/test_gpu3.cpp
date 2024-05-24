@@ -8174,6 +8174,34 @@ TEST_F(NVFuserTest, BlockReduction3D) {
   }
 }
 
+// Simple test to merge an inner domain as an outer input
+TEST_F(NVFuserTest, ReverseMerge) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->merge(1, 0);
+
+  ASSERT_EQ(tv1->nDims(), 1);
+  auto merge = dynamic_cast<Merge*>(tv1->axis(0)->definition());
+  ASSERT_NE(merge, nullptr);
+  ASSERT_EQ(merge->outer(), tv1->getRootDomain().at(1));
+  ASSERT_EQ(merge->inner(), tv1->getRootDomain().at(0));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({11, 12}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

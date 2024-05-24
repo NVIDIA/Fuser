@@ -400,9 +400,6 @@ static void NvFuserScheduler_Matmul(
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
 
-  DisableOptionsGuard dog;
-  DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-
   // Run benchmark:
   if (partitionedk) {
     SingleMatmulPartitionedK(benchmark_state, layout, params, splitk_factor);

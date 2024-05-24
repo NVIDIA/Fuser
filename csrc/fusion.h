@@ -96,7 +96,7 @@ enum class AllocationType : int {
   // pointer arithmetic of the input.  In this case, aliased_io is a non-null
   // tensor.
   // 2. To evaluate output tensors which are not aliases. For example, default
-  // scheduling in matmul when DisableOption::MatmulExprEval is not set.
+  // scheduling for MatmulOp/LinearOp in ExprEval scheduler.
   Evaluate,
 };
 

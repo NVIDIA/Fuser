@@ -15,11 +15,13 @@
 // 'SchedulerRuntimeInfo'
 #include <debug.h>
 #include <executor_utils.h>
+#include <id_model/id_model.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <val_graph.h>
 #include <algorithm>
 #include <deque>
 #include <iostream>
@@ -38,9 +40,8 @@
 namespace nvfuser {
 namespace {
 
-//! Access to the structure should be done with labels defined in
-//!  MmaOptions::MmaDomains.
-using ProblemShape = std::array<int64_t, 3>;
+//! Access to the structure should be done with labels defined in MatmulDomain.
+using ProblemShape = std::array<int64_t, 4>;
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
 inline std::optional<MmaMacro> getMmaOp(
@@ -158,43 +159,44 @@ inline bool initCoreHeuristics(
 }
 
 //! A helper for getting problem shape from fusion and runtime info.
+//!
+//! For a given domain, try to find the size by evaluating the extent of an
+//! IterDomain in each group of that domain type. For example, if there are
+//! multiple Batch dimensions, we find all ValGroups that are mapped as
+//! MatmulDomain::Batch, we evaluate the extent of each, then we multiply those
+//! dimensions together to get the overall batch size.
 ProblemShape getProblemShape(
-    const mma_utils::MulSumProperties::InputsOutputs& props,
+    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
     SchedulerRuntimeInfo& runtime_info) {
-  const auto mma_output_domains = mma_utils::getProblemIterDomains({props});
-  if (!mma_output_domains.isValid()) {
-    NVF_ERROR(false, mma_output_domains.getErrorMsg());
-  }
-
-  const auto [m, n, k] = mma_output_domains.getData();
-
-  auto m_extend = runtime_info.expressionEvaluator().evaluate(m->extent());
-  auto n_extend = runtime_info.expressionEvaluator().evaluate(n->extent());
-  auto k_extend = runtime_info.expressionEvaluator().evaluate(k->extent());
-
-  if (!(m_extend && n_extend && k_extend)) {
+  ProblemShape shape{1, 1, 1, 1};
+  for (const auto& [g, dom] : dim_roles) {
+    NVF_ERROR(!g->empty());
+    IterDomain* id = g->front()->as<IterDomain>();
+    const PolymorphicValue extent =
+        runtime_info.expressionEvaluator().evaluate(id->extent());
     NVF_ERROR(
-        false,
-        "Failed to acquire one of problem dimensions, M(",
-        m_extend.hasValue(),
-        "), N(",
-        n_extend.hasValue(),
-        " K(",
-        k_extend.hasValue(),
-        ")");
+        extent.hasValue(), "Could not evaluate extent of ", id->toString());
+    shape[(size_t)dom] *= extent.as<int64_t>();
   }
-
-  return ProblemShape{
-      m_extend.as<int64_t>(), n_extend.as<int64_t>(), k_extend.as<int64_t>()};
+  return shape;
 }
 
+// Checks that this pattern:
+//   - is a GEMM or batch GEMM
+//   - has at least two inputs i.e. not A @ A.T
+//   - has a single A and a single B operand i.e not A @ (B1 * B2)
+//   - has a fusion output with OUTPUT_D role i.e. that has M, N dims
+//   - includes all fusion inputs/outputs in its tensor roles
+//   - has no fusion inputs with non-trivial allocation domain
 std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
-    const mma_utils::MulSumProperties::InputsOutputs& props) {
+    const mma_utils::MatmulPattern& pattern,
+    const mma_utils::RolesMap& roles_map,
+    const std::unordered_map<ValGroup, MatmulDomain>& id_roles) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
-  std::vector<TensorView*> mma_inputs = {props.a, props.b};
-  const auto mma_output = props.out;
+  std::vector<TensorView*> mma_inputs = {pattern.A, pattern.B};
+  const auto mma_output = pattern.output;
 
   const auto fusion_inputs_tvs =
       ir_utils::filterByType<TensorView>(fusion_inputs).vector();
@@ -202,18 +204,20 @@ std::string isMatmulFusionDefinitionSupported(
       ir_utils::filterByType<TensorView>(fusion_outputs).vector();
 
   constexpr size_t minimal_number_of_inputs = 2;
-  MmaOpUtils::MmaOpDetails mma_details =
-      MmaOpUtils::getMmaOpDetails(props.out, props.a, props.b);
 
   // Quick checks - MmaOp
   {
     // Check if MmaOp represents gemm (requires M/N/K == 1, B == 0)
     //  or bgemm (requires M/N/K/B == 1)
-    constexpr size_t expected_axes_numbers = 1;
-    if (mma_details.m_axes.size() != expected_axes_numbers ||
-        mma_details.n_axes.size() != expected_axes_numbers ||
-        mma_details.k_axes.size() != expected_axes_numbers ||
-        mma_details.batch_axes.size() > expected_axes_numbers) {
+    std::array<int64_t, 4> num_axes{};
+    for (const auto& [g, dom] : id_roles) {
+      num_axes[(size_t)dom]++;
+    }
+    constexpr int64_t expected_axes_numbers = 1;
+    if (num_axes[(size_t)MatmulDomain::M] != expected_axes_numbers ||
+        num_axes[(size_t)MatmulDomain::N] != expected_axes_numbers ||
+        num_axes[(size_t)MatmulDomain::K] != expected_axes_numbers ||
+        num_axes[(size_t)MatmulDomain::Batch] > expected_axes_numbers) {
       return "MmaOp has unsupported number of one of M/N/K/Batch axes";
     }
 
@@ -232,12 +236,6 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
-    const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion, props);
-    if (!roles_map_opt.isValid()) {
-      return roles_map_opt.getErrorMsg();
-    }
-
-    const auto& roles_map = roles_map_opt.getData();
     auto entry = roles_map.find(MatmulRole::INPUT_A);
     std::set<TensorView*> tvs_with_roles;
 
@@ -275,16 +273,25 @@ std::string isMatmulFusionDefinitionSupported(
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     }
 
-    // Non-core output roles are optional, no requirements for definitions
-    entry = roles_map.find(MatmulRole::OUTPUT_AUX);
-    if (entry != roles_map.end()) {
-      tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-    }
-
     const auto in_out_tvs_count =
         fusion_inputs_tvs.size() + fusion_outputs_tvs.size();
     if (in_out_tvs_count != tvs_with_roles.size()) {
       return "Detected input/output TVs without assigned roles";
+    }
+  }
+
+  // Check that no non-trivial allocation domains are set on inputs or outputs.
+  // TODO: Lift this requirement once we have proper allocation domain support
+  for (Val* inp : fusion->inputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(inp);
+        tv && !ir_utils::hasTrivialAllocationDomain(tv)) {
+      return "detected input TV with non-trivial allocation domain";
+    }
+  }
+  for (Val* outp : fusion->outputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(outp);
+        tv && !ir_utils::hasTrivialAllocationDomain(tv)) {
+      return "detected output TV with non-trivial allocation domain";
     }
   }
 
@@ -450,10 +457,8 @@ std::string getMatmulRunTimeRejectReason(
 std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // The plan:
   // 0. Check if the current CUDA device is supported
-  // 1. Check if there is exactly one MmaOp or suitable mul sum pair
-  // defined in the fusion.
-  // 2. Check if inputs to the mma op or mul sum pair match any of
-  // supported inputs layout
+  // 1. Check if there is exactly one matmul pattern defined in the fusion.
+  // 2. Check if the input layout for the matmul pattern can be determined
   // 3. Check if fusion represents expressions that are recognized by matmul
   // scheduler.
 
@@ -462,8 +467,8 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     const auto device_prop = at::cuda::getCurrentDeviceProperties();
     // Use a dummy problem shape to determine whether this is a supported
     // device.
-    const auto mma_op =
-        getMmaOp(device_prop->major * 10 + device_prop->minor, {128, 128, 128});
+    const auto mma_op = getMmaOp(
+        device_prop->major * 10 + device_prop->minor, {128, 128, 128, 1});
     if (!mma_op.has_value()) {
       return "Unsupported device compute capability";
     }
@@ -472,29 +477,37 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // #1
   // Initializing the machinery to check if there's a Mul-Sum pair
   // can be replaced by a Mma Op.
-  mma_utils::CombineMulSum combiner(fusion);
-  if (!combiner.isValid()) {
-    std::stringstream ss;
-    ss << "Matmul scheduler supports fusions only with a single mma op"
-       << "or supports a mul-sum pair which can be replaced with a mma op";
-    return ss.str();
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion);
+  if (patterns.empty()) {
+    return "No matmul patterns were found";
   }
-
-  const std::vector<mma_utils::MulSumProperties>& mma_from_mul_sums =
-      combiner.getMulSumCanidates();
-  // #2
-  {
-    const auto input_layout_opt =
-        mma_utils::getMmaLayout(fusion, mma_from_mul_sums.front().insouts);
-    if (!input_layout_opt.isValid()) {
-      return input_layout_opt.getErrorMsg();
-    }
+  if (patterns.size() > 1) {
+    return "Only a single matmul pattern can currently be fused";
   }
 
   // #3
+  // Prepare an IdModel which will be reused to check remaining conditions
+  IdModel id_model(fusion);
+  const auto id_roles = patterns.front().getDimRoles(id_model);
+  const mma_utils::RolesMapOpt roles_map_opt =
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
+  if (!roles_map_opt.isValid()) {
+    return {roles_map_opt.getErrorMsg()};
+  }
+  mma_utils::RolesMap roles_map = roles_map_opt.getData();
+
+  // #4
+  const auto input_layout_opt =
+      mma_utils::getProblemLayout(id_model, id_roles, roles_map);
+  if (!input_layout_opt.isValid()) {
+    return input_layout_opt.getErrorMsg();
+  }
+
+  // #5
   {
     auto support_status = isMatmulFusionDefinitionSupported(
-        fusion, mma_from_mul_sums.front().insouts);
+        fusion, patterns.front(), roles_map, id_roles);
     if (!support_status.empty()) {
       return support_status;
     }
@@ -532,21 +545,22 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Set kernel index mode
   params->cparams.index_type = runtime_info.getIndexType();
 
-  if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    return params;
-  }
-
   // Check initial conditions
-  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
-  mma_utils::CombineMulSum combiner(fusion);
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion);
+  NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
   NVF_ERROR(
-      combiner.isValid(),
-      "There's no (single) mma op or mul-sum op which mma op can replace")
+      patterns.size() == 1,
+      "Only a single matmul pattern can currently be fused");
+  mma_utils::MatmulPattern& pattern = patterns.front();
 
-  const std::vector<mma_utils::MulSumProperties>& mulSum =
-      combiner.getMulSumCanidates();
-  const auto problem_shape =
-      getProblemShape(mulSum.front().insouts, runtime_info);
+  // IdModel is used to analyze problem shape & layout
+  IdModel id_model(fusion);
+
+  const std::unordered_map<ValGroup, MatmulDomain> id_roles =
+      pattern.getDimRoles(id_model);
+
+  const auto problem_shape = getProblemShape(id_roles, runtime_info);
 
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const auto mma_op =
@@ -556,7 +570,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   params->mma_macro = mma_op.value();
 
   const auto& roles_map_opt =
-      mma_utils::getTensorsRoles(fusion, mulSum.front().insouts);
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
   NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto roles_map = roles_map_opt.getData();
 
@@ -565,17 +579,17 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   if (matmul_heuristic_plugin::hasPlugin()) {
     const mma_utils::MatmulProblemLayoutOpt layout_opt =
-        mma_utils::getMmaLayout(fusion, mulSum.front().insouts);
+        mma_utils::getProblemLayout(id_model, id_roles, roles_map);
     NVF_ERROR(layout_opt.isValid(), layout_opt.getErrorMsg());
     const MmaLayout layout = layout_opt.getData();
 
     // Fill in proper values using plugin
     matmul_heuristic_plugin::updateMatmulParams(
         *params,
-        /*M=*/problem_shape[0],
-        /*N=*/problem_shape[1],
-        /*K=*/problem_shape[2],
-        /*batch_size=*/1, // TODO: extract actual batch size
+        problem_shape[(size_t)MatmulDomain::M],
+        problem_shape[(size_t)MatmulDomain::N],
+        problem_shape[(size_t)MatmulDomain::K],
+        problem_shape[(size_t)MatmulDomain::Batch],
         layout,
         roles_map);
   } else {
