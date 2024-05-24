@@ -419,7 +419,7 @@ std::vector<ValGroup> canonicalDimOrdering(
            id_it != tv->getMaybeAllocationDomain().rend();
            id_it++) {
         IterDomain* id = *id_it;
-        ValGroup g = exact_graph.toGroup(id);
+        const ValGroup& g = exact_graph.toGroup(id);
         const auto it = dim_roles.find(g);
         if (it == dim_roles.end()) {
           other_dims.pushBack(g);
@@ -489,7 +489,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
 
   ValGroup inner_non_k_dim = nullptr;
   for (auto g_it = dim_order.rbegin(); g_it != dim_order.rend(); ++g_it) {
-    ValGroup g = *g_it;
+    const ValGroup& g = *g_it;
     auto role_it = dim_roles.find(g);
     NVF_ERROR(
         role_it != dim_roles.end(),
