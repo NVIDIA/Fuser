@@ -1232,27 +1232,12 @@ RolesMapOpt getTensorRoles(
     }
   }
 
-  // NOTE: sort output roles in descending order by uses() size, and
-  //  if equal then by name() to ensure the stable ordering of tensor
-  //  views in collections assigned to the supported roles
-  std::sort(storage.begin(), storage.end(), [](TensorView* a, TensorView* b) {
-    return (a->uses().size() == b->uses().size())
-        ? (a->name() < b->name())
-        : (a->uses().size() > b->uses().size());
-  });
-
   if (!storage.empty()) {
-    // NOTE: currently, we pick as a reference tensor one with `m` and `n`
-    //       IterDomains and the most uses
-    auto pos = storage.begin();
-    tensor_roles[MatmulRole::OUTPUT_D].push_back(*pos);
-    for (++pos; pos != storage.end(); ++pos) {
-      tensor_roles[MatmulRole::OUTPUT_AUX].push_back(*pos);
-    }
+    tensor_roles[MatmulRole::OUTPUT_D] = storage;
   }
 
   for (auto& [role, tvs] : tensor_roles) {
-    // NOTE: sort input roles in descending order by uses() size, and
+    // NOTE: sort role tvs in descending order by uses() size, and
     //  if equal then by name() to ensure the stable ordering of tensor
     //  views in collections assigned to the supported roles
     std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
@@ -1439,8 +1424,14 @@ class MatmulPatternMatcher : IterVisitor {
       // the Fusion was segmented and casts to half precision were inserted at
       // the segmentation edge (see castInputOutputToLowerPrecision in
       // fusion_segmenter.cpp).
-      TensorView* ltv = getTensorviewPriorToCast(bop->lhs()->as<TensorView>());
-      TensorView* rtv = getTensorviewPriorToCast(bop->rhs()->as<TensorView>());
+      TensorView* ltv = dynamic_cast<TensorView*>(bop->lhs());
+      TensorView* rtv = dynamic_cast<TensorView*>(bop->rhs());
+      if (ltv == nullptr || rtv == nullptr) {
+        // Found a scalar input
+        return;
+      }
+      ltv = getTensorviewPriorToCast(ltv);
+      rtv = getTensorviewPriorToCast(rtv);
 
       std::vector<IterDomain*> lrf =
           TensorDomain::noReductions(ltv->getMaybeRFactorDomain());
