@@ -2998,90 +2998,6 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
   return {start_offset, stop_offset};
 }
 
-bool canOmitStopPredicate(
-    Val* stop_index,
-    Val* stop_offset,
-    IterDomain* contig_id) {
-  bool index_simple = stop_index->definition() == nullptr;
-  // The definition may be just adding the magic zero, which can be
-  // effectively considered "simple"
-  if (!index_simple && isProtectedWithMagicZero(stop_index)) {
-    // Make sure the lhs of stop_index is simple.
-    auto lhs = stop_index->definition()->as<BinaryOp>()->lhs();
-    if (lhs->definition() == nullptr) {
-      index_simple = true;
-    }
-  }
-
-  if (!index_simple) {
-    return false;
-  }
-
-  const auto gpu_lower = GpuLower::current();
-
-  auto stop_offset_val = stop_offset->value();
-
-  // If they are not compile-time constant, can't prove the
-  // condition.
-  if (!stop_offset_val.hasValue()) {
-    return false;
-  }
-
-  auto stop_index_val = stop_index->value();
-
-  // If stop_index is a constant, then the expr can be in a trivial loop.
-  // Trivial loop is not materialized, so it is not protected under the `for`
-  // statement. If this is the case, we omit stop predicate only if we can
-  // prove: stop_index + stop_offset < extent
-  if (stop_index_val.hasValue()) {
-    // Stop predicate: stop_index + stop_offset < extent
-    auto lhs = stop_index_val + stop_offset_val;
-    auto in_extent = IrBuilder::ltExpr(
-        IrBuilder::create<Val>(lhs, *stop_index->getDataType()),
-        contig_id->getMaybeExpandedExtent());
-    auto expr_val = simplifyExpr(in_extent)->value();
-    if (expr_val.hasValue() && expr_val.is<bool>() && expr_val.as<bool>()) {
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  // Stop predicate: stop_index + stop_offset < extent, where
-  // stop_index ranges from 0 to (extent + halo), so this can be
-  // omitted if extent + halo + stop_offset < extent, i.e., halo +
-  // stop_offset < 0.
-
-  // Note that when a root domain is halo extended, it is the domain
-  // to be predicated, not its merged contig id even if it exists. So,
-  // if contig_id does not have root axis info, contig_id is
-  // guaranteed to have no halo.
-  auto halo_ext = gpu_lower->haloInfo()->hasRootAxisInfo(contig_id)
-      ? gpu_lower->haloInfo()->getRootAxisInfo(contig_id).width()
-      : 0;
-
-  if (halo_ext + stop_offset_val >= 0) {
-    return false;
-  }
-
-  // When the domain is parallelized, the parallel dimension must be
-  // exact. Otherwise, there would be extra threads/blocks that need
-  // to be predicated out.
-  if (isParallelTypeThread(contig_id->getParallelType())) {
-    if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(contig_id)) {
-      return false;
-    }
-    // If the domain has halo, the loop is expanded by the halo
-    // extent, so we can't prove the loop extent is the same as the
-    // parallel dimension.
-    if (halo_ext != 0) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 // Updates a loop index map with a loop index protected by magic zero
 std::unordered_map<IterDomain*, Val*> updateInitialLoopIndexMap(
     const std::unordered_map<IterDomain*, Val*>& initial_loop_index_map,
@@ -3239,15 +3155,11 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     // Build predicates for stop positions as:
     //   stop_index + stop_offset < IterDomain::extent
     auto stop_offset = info.stop_offset_;
-    if (canOmitStopPredicate(stop_index, stop_offset, contig_id)) {
-      info.stop_predicate_ = GpuLower::current()->kernel()->trueVal();
-    } else {
-      auto offsetted_stop_index =
-          SimplifyingIrBuilder::addExpr(stop_index, stop_offset);
-      auto stop_pred = SimplifyingIrBuilder::ltExpr(
-          offsetted_stop_index, contig_id->extent());
-      info.stop_predicate_ = stop_pred;
-    }
+    auto offsetted_stop_index =
+        SimplifyingIrBuilder::addExpr(stop_index, stop_offset);
+    auto stop_pred = SimplifyingIrBuilder::ltExpr(
+        offsetted_stop_index, contig_id->extent());
+    info.stop_predicate_ = stop_pred;
 
     for (auto consumer_id : contig_id_entry.covered_ids) {
       info.root_ids_.insert(consumer_id);
