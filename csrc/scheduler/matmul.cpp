@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <id_model/id_model.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <multidevice/utils.h>
@@ -905,9 +906,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     auto toTranspose = needsTranposedLoad(producer, consumer);
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
       *tv_r = ldst->out()->as<TensorView>();
-      if (*tv_r == bcr){
-        toTranspose = false;
-      } 
       ldst->setOpType(
           toTranspose ? LoadStoreOpType::LdMatrixTranspose
                       : LoadStoreOpType::LdMatrix);
