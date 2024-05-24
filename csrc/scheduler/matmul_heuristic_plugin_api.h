@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace nvfuser {
 
@@ -62,9 +63,9 @@ struct KernelConfig {
 
     //! Supported vectorization of operands and epilogue inputs (bias)
     struct SupportedVectorization {
-      uint8_t a = 16;
-      uint8_t b = 16;
-      uint8_t epilogue = 16;
+      std::vector<uint8_t> operands{};
+      std::vector<uint8_t> epilogue_inputs{};
+      std::vector<uint8_t> outputs{};
     } supported_vec_size;
   } problem;
 

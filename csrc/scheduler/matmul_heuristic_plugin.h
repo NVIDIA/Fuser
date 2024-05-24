@@ -35,7 +35,7 @@ bool updateMatmulParams(
     int64_t K,
     int64_t batch_size,
     MmaLayout layout,
-    const mma_utils::RolesMap& roles_map);
+    const mma_utils::TensorRolesMap& tensor_roles);
 
 //! Defines the type of the "makeConfig" symbol
 using KernelConfigFactory = std::function<std::unique_ptr<KernelConfig>()>;

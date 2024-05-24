@@ -82,13 +82,14 @@ uint8_t layoutToByte(MmaLayout layout) {
   }
 }
 
-std::string rolesToPrecisionString(const mma_utils::RolesMap& roles_map) {
+std::string rolesToPrecisionString(
+    const mma_utils::TensorRolesMap& tensor_roles) {
   std::string precision = "   ";
-  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
-  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  TensorView* a = tensor_roles.at(MatmulRole::INPUT_A).front();
+  TensorView* b = tensor_roles.at(MatmulRole::INPUT_B).front();
   NVF_CHECK(
       a->dtype() == b->dtype(), "Differing A and B dtypes not yet supported");
-  TensorView* d = roles_map.at(MatmulRole::OUTPUT_D).front();
+  TensorView* d = tensor_roles.at(MatmulRole::OUTPUT_D).front();
   precision[0] = mma_utils::dtypeToChar(a->dtype());
   // NOTE: this assumes compute type is Float
   precision[1] = 'S';
@@ -135,10 +136,23 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
   config->rotate_ldmatrix_out_of_main_loop =
       params.rotate_ldmatrix_out_of_main_loop;
 
-  config->problem.supported_vec_size.a = (uint8_t)params.supported_vec_size.a;
-  config->problem.supported_vec_size.b = (uint8_t)params.supported_vec_size.b;
-  config->problem.supported_vec_size.epilogue =
-      (uint8_t)params.supported_vec_size.epilogue;
+  const auto setUCharVec = [](std::vector<uint8_t>& out,
+                              const std::vector<int64_t>& in) {
+    out.clear();
+    out.reserve(in.size());
+    for (size_t i : c10::irange(in.size())) {
+      out.push_back((uint8_t)in[i]);
+    }
+  };
+  setUCharVec(
+      config->problem.supported_vec_size.operands,
+      params.supported_vec_size.operands);
+  setUCharVec(
+      config->problem.supported_vec_size.epilogue_inputs,
+      params.supported_vec_size.epilogue_inputs);
+  setUCharVec(
+      config->problem.supported_vec_size.outputs,
+      params.supported_vec_size.outputs);
 }
 
 void copyConfigToParams(MatmulParams& params, const KernelConfig* config) {
@@ -194,7 +208,7 @@ bool updateMatmulParams(
     int64_t k,
     int64_t batch_size,
     MmaLayout layout,
-    const mma_utils::RolesMap& roles_map) {
+    const mma_utils::TensorRolesMap& tensor_roles) {
   if (!hasPlugin()) {
     return false;
   }
@@ -206,7 +220,7 @@ bool updateMatmulParams(
   copyParamsToConfig(config.get(), params);
 
   // The heuristic must know the input shapes, precision, and layout.
-  std::string precision = rolesToPrecisionString(roles_map);
+  std::string precision = rolesToPrecisionString(tensor_roles);
   fillProblemDescription(
       config->problem, m, n, k, batch_size, layout, precision.c_str());
 

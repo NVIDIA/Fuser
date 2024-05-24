@@ -178,9 +178,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
-    const RolesMap& roles_map,
+    const TensorRolesMap& tensor_roles,
     const bool ignore_occupancy_drop) {
-  auto data_types = getMmaDataTypes(roles_map);
+  auto data_types = getMmaDataTypes(tensor_roles);
   // getMmaDataTypes provides the dtypes of INPUT_A, INPUT_B, and OUTPUT_D.
   // These are the problem types that indicate the gmem IO. We use smem to load
   // INPUT_A and INPUT_B, but instead of OUTPUT_D which is the result of the
@@ -215,8 +215,8 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // cases, we check that there is no re-use when there is more than one use of
   // either a or b. If there are multiple uses we might wind up re-using memory,
   // but in that case the calculation below will be overly conservative.
-  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
-  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  TensorView* a = tensor_roles.at(MatmulRole::INPUT_A).front();
+  TensorView* b = tensor_roles.at(MatmulRole::INPUT_B).front();
   bool smem_a_reuse_guaranteed = a->uses().size() == 1;
   bool smem_b_reuse_guaranteed = b->uses().size() == 1;
 
@@ -1074,8 +1074,8 @@ MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion) {
 
 MatmulProblemLayoutOpt getProblemLayout(
     const IdModel& id_model,
-    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
-    const RolesMap& tensor_roles) {
+    const DimRolesMap& dim_roles,
+    const TensorRolesMap& tensor_roles) {
   // Assumes the exact graph has already been built, since we've been provided
   // dim_roles
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
@@ -1140,10 +1140,10 @@ MatmulProblemLayoutOpt getProblemLayout(
   NVF_ERROR(false, "Reached unreachable section of getProblemLayout");
 }
 
-RolesMapOpt getTensorRoles(
+TensorRolesMapOpt getTensorRoles(
     Fusion* fusion,
     const IdModel& id_model,
-    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles) {
+    const DimRolesMap& dim_roles) {
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
   if (mma_input_candidates.empty()) {
@@ -1155,7 +1155,7 @@ RolesMapOpt getTensorRoles(
     return {"Failed to find any TV that is fusion output"};
   }
 
-  RolesMap tensor_roles;
+  TensorRolesMap tensor_roles;
 
   // Assumes the exact graph has already been built, since we've been provided
   // dim_roles
@@ -1515,8 +1515,7 @@ MmaOp* MatmulPattern::translateToMmaOp() {
       " to MmaOp");
 }
 
-std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
-    IdModel& id_model) const {
+DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   id_model.maybeBuildGraph(IdMappingMode::EXACT);
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
@@ -1551,7 +1550,7 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   recordPresence(B, 1);
   recordPresence(output, 2);
 
-  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
+  DimRolesMap dim_roles;
   for (const auto& [g, flags] : present_flags) {
     if (flags.all()) {
       dim_roles[g] = MatmulDomain::Batch;

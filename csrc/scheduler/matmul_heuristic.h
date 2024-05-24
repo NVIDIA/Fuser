@@ -68,42 +68,59 @@ class MatmulParams : public HeuristicParams {
   //! the number of data elements loaded simultaneously, not the number of
   //! bytes.
   struct SupportedVectorization {
-    // Note that by default these values are set to 16, which is the maximum
-    // vectorization factor one might encounter. Failing to set these
-    // appropriately will lead to lowering errors, so each operand and epilogue
-    // input/output should be examined to compute its maximum vectorization and
-    // the respective minimums of these values should be set for each of the
-    // variables below. They are initialized to a high value to facilitate this
-    // minimum computation and to signal errors where we fail to
-    // analyze/validate the inputs before scheduling.
+    // Failing to set vectorization appropriately will lead to lowering errors,
+    // so each operand and epilogue input/output should be examined to compute
+    // the maximum vectorization possible on its inner allocation dimension. For
+    // epilogue inputs (i.e. MatmulRole::INPUT_C) the vectorized load will be in
+    // the N dimension as these loads are inlined with the epilogue as much as
+    // possible.
 
-    // operands
-    int64_t a = 16;
-    int64_t b = 16;
-    // This is the minimum vectorization factor between all epilogue tensor
-    // inputs and output tensors. These are treated jointly since we inline the
-    // epilogue with the output store and vectorize the inputs and outputs in
-    // the same way.
-    int64_t epilogue = 16;
+    // Each operand load is vectorized along the inner-most allocation
+    // dimension. Here we list the vectorization for each operand, listing all A
+    // operands then all B operands.
+    std::vector<int64_t> operands;
+
+    // Epilogue inputs like bias (i.e. MatmulRole::INPUT_C). These are inlined
+    // with the output stores, which are vectorized along the innermost N
+    // dimension (innermost allocation dimension in output). If the input does
+    // not have that dimension, its supported vectorization is set to 1.
+    std::vector<int64_t> epilogue_inputs;
+
+    // Output stores are vectorized whenever they have an N dimension (an output
+    // might not have an N dimension if there is a reduction in the epilogue).
+    // We cannot assume that they are fully vectorizable because, even though we
+    // allocate them so their base pointer is fully aligned, the size of N could
+    // limit vectorization. Here we store the vectorization width of all
+    // outputs. For any output without an innermost N dimension the
+    // vectorization is set to 1.
+    std::vector<int64_t> outputs;
 
     bool operator==(const SupportedVectorization& other) const {
-      return other.a == a && other.b == b && other.epilogue == epilogue;
+      return other.operands == operands &&
+          other.epilogue_inputs == epilogue_inputs && other.outputs == outputs;
     }
 
     std::string toString() const {
       std::stringstream ss;
       ss << "SupportedVectorization:\n"
-         << "  a: " << a << "\n"
-         << "  b: " << b << "\n"
-         << "  epilogue: " << epilogue;
+         << "  operands: " << operands << "\n"
+         << "  epilogue_inputs: " << epilogue_inputs << "\n"
+         << "  outputs: " << outputs;
       return ss.str();
     }
 
     size_t hash() const {
-      return std::hash<size_t>{}(
-                 (static_cast<size_t>(a) << 8) |
-                 (static_cast<size_t>(b)) << 4) |
-          (static_cast<size_t>(epilogue));
+      size_t h = 0l;
+      for (int64_t v : operands) {
+        hashCombine(h, (size_t)v);
+      }
+      for (int64_t v : epilogue_inputs) {
+        hashCombine(h, (size_t)v);
+      }
+      for (int64_t v : outputs) {
+        hashCombine(h, (size_t)v);
+      }
+      return h;
     }
   } supported_vec_size;
 

@@ -208,10 +208,14 @@ constexpr size_t MIN_MATMUL_INPUTS_NUMBER = 2;
 //!  TODO: extend definition for handling batch matmuls
 using ProblemIterDomains = std::array<IterDomain*, 3>;
 
+//! A mapping from ValGroup pointers to MatmulDomain. The ValGroups should
+//! correspond to IterDomain groups from an IdModel's exact graph. This
+using DimRolesMap = std::map<ValGroup, MatmulDomain>;
+
 //! An alias for mapping between TensorView instance and its role in
 //!  matmul fusion definition, some roles can be assigned to more than
 //!  a single tv, for example input for beta scaling in epilogue
-using RolesMap = std::map<MatmulRole, std::vector<TensorView*>>;
+using TensorRolesMap = std::map<MatmulRole, std::vector<TensorView*>>;
 
 //! An alias for storing data types of the tensors in the mma op
 //!  the order is INPUT_A, INPUT_B, OUTPUT_D
@@ -270,8 +274,7 @@ struct MatmulPattern {
   //! (MatmulDomain). Note that ValGroup is a shared_ptr to a
   //! VectorOfUniqueEntries<Val*>. We copy these as keys so that the returned
   //! object can safely outlive id_model.
-  std::unordered_map<ValGroup, MatmulDomain> getDimRoles(
-      IdModel& id_model) const;
+  DimRolesMap getDimRoles(IdModel& id_model) const;
 
   std::string toString() const;
 };
@@ -281,7 +284,8 @@ std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion);
 
 using MatmulProblemLayoutOpt = DataWrapperOpt<MmaLayout>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
-using RolesMapOpt = DataWrapperOpt<RolesMap>;
+using DimRolesMapOpt = DataWrapperOpt<DimRolesMap>;
+using TensorRolesMapOpt = DataWrapperOpt<TensorRolesMap>;
 
 using DomainsDesc = std::vector<MatmulDomain>;
 using DependenciesMap = std::map<TensorView*, DomainsDesc>;
@@ -301,8 +305,8 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  instruction first input is transposed, the second input is non-transposed.
 NVF_API MatmulProblemLayoutOpt getProblemLayout(
     const IdModel& id_model,
-    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
-    const RolesMap& tensor_roles);
+    const DimRolesMap& dim_roles,
+    const TensorRolesMap& tensor_roles);
 
 //! This version assumes the Fusion contains a single MatmulPattern, then builds
 //! an IdModel and infers dim roles then calls the above function.
@@ -311,10 +315,10 @@ NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
-RolesMapOpt getTensorRoles(
+TensorRolesMapOpt getTensorRoles(
     Fusion* fusion,
     const IdModel& id_model,
-    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles);
+    const DimRolesMap& dim_roles);
 
 //! Return pair of whether use shared memory epilogue or not and whether to
 //!  reuse shared memory for the prologue at the expense of an additional block
@@ -332,7 +336,7 @@ RolesMapOpt getTensorRoles(
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
-    const RolesMap& roles_map,
+    const TensorRolesMap& tensor_roles,
     bool ignore_occupancy_drop = false);
 
 //! This version assumes roles_map has been analyzed to determine smem datatypes

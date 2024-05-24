@@ -73,7 +73,7 @@ inline std::optional<MmaMacro> getMmaOp(
 inline bool initCoreHeuristics(
     std::shared_ptr<MatmulParams> params,
     const ProblemShape& problem_shape,
-    const mma_utils::RolesMap& roles_map) {
+    const mma_utils::TensorRolesMap& tensor_roles) {
   const GemmTile instruction_tile = getMmaOpShape(params->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
@@ -134,9 +134,9 @@ inline bool initCoreHeuristics(
     }
   }
 
-  const auto& roleMinDtypeSize = [&roles_map](MatmulRole role) -> int64_t {
-    const auto op_it = roles_map.find(role);
-    NVF_ERROR(op_it != roles_map.end());
+  const auto& roleMinDtypeSize = [&tensor_roles](MatmulRole role) -> int64_t {
+    const auto op_it = tensor_roles.find(role);
+    NVF_ERROR(op_it != tensor_roles.end());
     int64_t min_size_bytes = 128LL;
     for (const TensorView* operand : op_it->second) {
       min_size_bytes = std::min(min_size_bytes, dataTypeSize(operand->dtype()));
@@ -166,7 +166,7 @@ inline bool initCoreHeuristics(
 //! MatmulDomain::Batch, we evaluate the extent of each, then we multiply those
 //! dimensions together to get the overall batch size.
 ProblemShape getProblemShape(
-    const std::unordered_map<ValGroup, MatmulDomain>& dim_roles,
+    const mma_utils::DimRolesMap& dim_roles,
     SchedulerRuntimeInfo& runtime_info) {
   ProblemShape shape{1, 1, 1, 1};
   for (const auto& [g, dom] : dim_roles) {
@@ -191,8 +191,8 @@ ProblemShape getProblemShape(
 std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
     const mma_utils::MatmulPattern& pattern,
-    const mma_utils::RolesMap& roles_map,
-    const std::unordered_map<ValGroup, MatmulDomain>& id_roles) {
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const mma_utils::DimRolesMap& id_roles) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   std::vector<TensorView*> mma_inputs = {pattern.A, pattern.B};
@@ -236,10 +236,10 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
-    auto entry = roles_map.find(MatmulRole::INPUT_A);
+    auto entry = tensor_roles.find(MatmulRole::INPUT_A);
     std::set<TensorView*> tvs_with_roles;
 
-    if (entry != roles_map.end()) {
+    if (entry != tensor_roles.end()) {
       if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
         tvs_with_roles.insert(entry->second.begin(), entry->second.end());
       } else {
@@ -249,8 +249,8 @@ std::string isMatmulFusionDefinitionSupported(
       return "No candidate in fusion inputs for MMA first input";
     }
 
-    entry = roles_map.find(MatmulRole::INPUT_B);
-    if (entry != roles_map.end()) {
+    entry = tensor_roles.find(MatmulRole::INPUT_B);
+    if (entry != tensor_roles.end()) {
       if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
         tvs_with_roles.insert(entry->second.begin(), entry->second.end());
       } else {
@@ -260,16 +260,16 @@ std::string isMatmulFusionDefinitionSupported(
       return "No candidate in fusion inputs for MMA second input";
     }
 
-    entry = roles_map.find(MatmulRole::OUTPUT_D);
-    if (entry != roles_map.end()) {
+    entry = tensor_roles.find(MatmulRole::OUTPUT_D);
+    if (entry != tensor_roles.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     } else {
       return "No candidate in fusion outputs MMA output";
     }
 
     // Non-core input roles are optional, no requirements for definitions
-    entry = roles_map.find(MatmulRole::INPUT_C);
-    if (entry != roles_map.end()) {
+    entry = tensor_roles.find(MatmulRole::INPUT_C);
+    if (entry != tensor_roles.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     }
 
@@ -313,9 +313,12 @@ std::string isMatmulFusionDefinitionSupported(
 // to 16) as well as the data pointer.
 int64_t maxUnpredicatedRowVectorization(
     TensorView* tv,
-    const int64_t data_ptr_int,
-    const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& strides) {
+    const SchedulerRuntimeInfo& runtime_info) {
+  const int64_t data_ptr_int = (int64_t)runtime_info.ptrOf(tv);
+  const std::vector<int64_t>& sizes = runtime_info.getInputAllocationSizes(tv);
+  const std::vector<int64_t>& strides =
+      runtime_info.getInputAllocationStrides(tv);
+
   // Check data pointer alignment
   int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
   vec_size = std::min(vec_size, 16l);
@@ -373,66 +376,181 @@ int64_t maxUnpredicatedRowVectorization(
   return vec_size;
 }
 
-MatmulParams::SupportedVectorization getSupportedVectorization(
-    const mma_utils::RolesMap& roles_map,
-    SchedulerRuntimeInfo& runtime_info) {
-  auto getMinVectorization = [&roles_map,
-                              &runtime_info](MatmulRole role) -> int64_t {
-    int64_t vec_size = 16; // max vectorization size
-    const auto it = roles_map.find(role);
-    if (it == roles_map.end()) {
-      return 16;
+namespace {
+// Get a total ordering of dimensions for known tensors. To do this, we visit
+// each leaf domain for every tensor role. All dims of a particular DimRole are
+// adjacent in the output. We then set the order as follows:
+// 1. Batch dimensions go first, in arbitrary order (chosen based on the first
+//    output's allocation domain).
+// 2. K dimensions are innermost
+// 3. M or N can be innermost, depending on the first output's allocation
+//    domain's innermost non-batch dimension.
+// 4. Within each DimRole, dims are ordered as follows:
+//    a. Batch, M, and N dimensions are ordered like the allocation domain of
+//       the first output
+//    b. K dimensions are ordered like the allocation domain of the first
+//       A operand
+// TODO: we might want more sophisticated ordering analysis for multi-dim role
+// ordering (rule 4)
+// TODO: This should be a general utility and we should use it for
+// canonicalizeMmaTvOrdering
+std::vector<ValGroup> canonicalDimOrdering(
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const mma_utils::DimRolesMap& dim_roles,
+    const ValGraph& exact_graph) {
+  VectorOfUniqueEntries<ValGroup> batch_dims, m_dims, n_dims, k_dims,
+      other_dims;
+  // This is +1 if N should come before M and -1 otherwise. It is zero until it
+  // has been determined.
+  int64_t n_inside_m = 0;
+  for (MatmulRole tv_role :
+       {MatmulRole::OUTPUT_D,
+        MatmulRole::INPUT_A,
+        MatmulRole::INPUT_B,
+        MatmulRole::INPUT_C}) {
+    const auto it = tensor_roles.find(tv_role);
+    if (it == tensor_roles.end()) {
+      continue;
     }
     for (TensorView* tv : it->second) {
-      // TODO: handle the case when tv is not a Fusion input by filling default
-      // contiguous strides based on tv->getMaybeAllocationDomain() and data
-      // pointer aligned to 16 bytes.
-      int64_t v = maxUnpredicatedRowVectorization(
-          tv,
-          (int64_t)runtime_info.ptrOf(tv),
-          runtime_info.getInputAllocationSizes(tv),
-          runtime_info.getInputAllocationStrides(tv));
-      if (v < vec_size) {
-        vec_size = v;
-      }
-      if (v == 1) {
-        // No need to continue analyzing if we know we cannot vectorize
-        break;
+      // We iterate in reverse through the leaf domain of tv so that we can find
+      // the inner-most dimensions
+      for (auto id_it = tv->getMaybeAllocationDomain().rbegin();
+           id_it != tv->getMaybeAllocationDomain().rend();
+           id_it++) {
+        IterDomain* id = *id_it;
+        ValGroup g = exact_graph.toGroup(id);
+        const auto it = dim_roles.find(g);
+        if (it == dim_roles.end()) {
+          other_dims.pushBack(g);
+        } else {
+          switch (it->second) {
+            case MatmulDomain::Batch:
+              batch_dims.pushBack(g);
+            case MatmulDomain::M:
+              if (n_inside_m == 0) {
+                // We encountered an M dimension before an N dimension
+                n_inside_m = -1;
+              }
+              m_dims.pushBack(g);
+            case MatmulDomain::N:
+              if (n_inside_m == 0) {
+                // We encountered an N dimension before an M dimension
+                n_inside_m = -1;
+              }
+              n_dims.pushBack(g);
+            case MatmulDomain::K:
+              // Order K dimensions like operands, and all others like outputs
+              if (tv_role == MatmulRole::INPUT_A ||
+                  tv_role == MatmulRole::INPUT_B) {
+                k_dims.pushBack(g);
+              }
+              break;
+          }
+        }
       }
     }
-    return vec_size;
+  }
+  NVF_ERROR(other_dims.empty(), "Found unrecognized dims in matmul tensors");
+
+  // Insert the reverse-ordered groups in group order
+  std::vector<ValGroup> ordering;
+  ordering.reserve(
+      batch_dims.size() + m_dims.size() + n_dims.size() + k_dims.size());
+  const auto insert = [&ordering](const VectorOfUniqueEntries<ValGroup>& v) {
+    for (auto it = v.rbegin(); it != v.rend(); ++it) {
+      ordering.push_back(*it);
+    }
   };
+  insert(batch_dims);
+  if (n_inside_m) {
+    insert(m_dims);
+    insert(n_dims);
+  } else {
+    insert(n_dims);
+    insert(m_dims);
+  }
+  insert(k_dims);
+
+  return ordering;
+}
+} // namespace
+
+MatmulParams::SupportedVectorization getSupportedVectorization(
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const mma_utils::DimRolesMap& dim_roles,
+    const IdModel& id_model,
+    SchedulerRuntimeInfo& runtime_info) {
   MatmulParams::SupportedVectorization supported_vec_size;
-  supported_vec_size.a = getMinVectorization(MatmulRole::INPUT_A);
-  supported_vec_size.b = getMinVectorization(MatmulRole::INPUT_B);
-  // Currently we set epilogue to the max vectorization supported by all outputs
-  // and all "C" type input dtypes.
-  // See https://github.com/NVIDIA/Fuser/issues/2169
-  supported_vec_size.epilogue = 16l;
-  // We will write OUTPUT_D role tensors in the default stride order. So
-  // vectorization is based on the inner dimension
-  const auto d_it = roles_map.find(MatmulRole::OUTPUT_D);
-  NVF_ERROR(d_it != roles_map.end(), "Could not find any output D tensors");
+
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const std::vector<ValGroup> dim_order =
+      canonicalDimOrdering(tensor_roles, dim_roles, exact_graph);
+
+  ValGroup inner_non_k_dim = nullptr;
+  for (auto g_it = dim_order.rbegin(); g_it != dim_order.rend(); ++g_it) {
+    ValGroup g = *g_it;
+    auto role_it = dim_roles.find(g);
+    NVF_ERROR(
+        role_it != dim_roles.end(),
+        "Dim without role found in canonical ordering");
+    if (role_it->second != MatmulDomain::K) {
+      inner_non_k_dim = g;
+    }
+  }
+  NVF_ERROR(
+      inner_non_k_dim != nullptr,
+      "Could not determine innermost non-K dimension");
+
+  // Find first output's innermost N dimension, which is the dimension we will
+  // vectorize outputs and epilogue inputs along.
+  const auto innerMostNonKDimIsInnerMostAlloc =
+      [&exact_graph, &inner_non_k_dim](TensorView* tv) {
+        if (tv->nDims() == 0) {
+          return false;
+        }
+        return inner_non_k_dim ==
+            exact_graph.toGroup(tv->getMaybeAllocationDomain().back());
+      };
+
+  // Operands are listed in A then B order. Each operand is loaded row by row
+  // based on the inner-most dimension, as long as that dimension is the
+  // innermost M or innermost N dimension.
+  supported_vec_size.operands.clear();
+  for (MatmulRole role : {MatmulRole::INPUT_A, MatmulRole::INPUT_B}) {
+    const auto op_it = tensor_roles.find(role);
+    if (op_it == tensor_roles.end()) {
+      continue;
+    }
+    for (TensorView* tv : op_it->second) {
+      supported_vec_size.operands.push_back(
+          maxUnpredicatedRowVectorization(tv, runtime_info));
+    }
+  }
+
+  // If the innermost N is the innermost allocation domain of tv, then find the
+  // maximum vectorization for this tensor. Otherwise set to 1.
+  const auto innerMostNVec =
+      [&runtime_info, &innerMostNonKDimIsInnerMostAlloc](TensorView* tv) {
+        return innerMostNonKDimIsInnerMostAlloc(tv)
+            ? maxUnpredicatedRowVectorization(tv, runtime_info)
+            : 1l;
+      };
+
+  const auto d_it = tensor_roles.find(MatmulRole::OUTPUT_D);
+  NVF_ERROR(d_it != tensor_roles.end(), "Could not find any output D tensors");
+  supported_vec_size.outputs.clear();
+  supported_vec_size.outputs.reserve(d_it->second.size());
   for (TensorView* tv : d_it->second) {
-    const int64_t N =
-        runtime_info.expressionEvaluator()
-            .evaluate(TensorDomain::noReductions(tv->getRootDomain())
-                          .back()
-                          ->extent())
-            .as<int64_t>();
-    supported_vec_size.epilogue =
-        std::min(supported_vec_size.epilogue, 16l / dataTypeSize(tv->dtype()));
-    supported_vec_size.epilogue = std::min(
-        supported_vec_size.epilogue, scheduler_utils::maxVectorizationWidth(N));
+    supported_vec_size.outputs.push_back(innerMostNVec(tv));
   }
   // For INPUT_C role tensors, we do not necessarily know which axis we would
   // like to vectorize, so we set vectorization based on dtype instead here
   // until a more complete analysis is implemented.
-  if (const auto c_it = roles_map.find(MatmulRole::INPUT_C);
-      c_it != roles_map.end()) {
+  if (const auto c_it = tensor_roles.find(MatmulRole::INPUT_C);
+      c_it != tensor_roles.end()) {
     for (TensorView* tv : c_it->second) {
-      supported_vec_size.epilogue = std::min(
-          supported_vec_size.epilogue, 16l / dataTypeSize(tv->dtype()));
+      supported_vec_size.epilogue_inputs.push_back(innerMostNVec(tv));
     }
   }
   return supported_vec_size;
@@ -490,16 +608,16 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // Prepare an IdModel which will be reused to check remaining conditions
   IdModel id_model(fusion);
   const auto id_roles = patterns.front().getDimRoles(id_model);
-  const mma_utils::RolesMapOpt roles_map_opt =
+  const mma_utils::TensorRolesMapOpt tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
-  if (!roles_map_opt.isValid()) {
-    return {roles_map_opt.getErrorMsg()};
+  if (!tensor_roles_opt.isValid()) {
+    return {tensor_roles_opt.getErrorMsg()};
   }
-  mma_utils::RolesMap roles_map = roles_map_opt.getData();
+  mma_utils::TensorRolesMap tensor_roles = tensor_roles_opt.getData();
 
   // #4
   const auto input_layout_opt =
-      mma_utils::getProblemLayout(id_model, id_roles, roles_map);
+      mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
   if (!input_layout_opt.isValid()) {
     return input_layout_opt.getErrorMsg();
   }
@@ -507,7 +625,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // #5
   {
     auto support_status = isMatmulFusionDefinitionSupported(
-        fusion, patterns.front(), roles_map, id_roles);
+        fusion, patterns.front(), tensor_roles, id_roles);
     if (!support_status.empty()) {
       return support_status;
     }
@@ -529,9 +647,13 @@ bool isCpAsyncOperandLoadSupported(
     int64_t cp_bytes = dtype_size * vec_size;
     return cp_bytes == 16 || cp_bytes == 8 || cp_bytes == 4;
   };
+  NVF_ERROR(
+      params->supported_vec_size.operands.size() == 2,
+      "Only two operands supported");
   return params->double_buffer_options.smem_double_buffer_stage > 1 &&
-      validCpAsyncVecSize(dtype_size_a, params->supported_vec_size.a) &&
-      validCpAsyncVecSize(dtype_size_b, params->supported_vec_size.b);
+      validCpAsyncVecSize(
+             dtype_size_a, params->supported_vec_size.operands[0]) &&
+      validCpAsyncVecSize(dtype_size_b, params->supported_vec_size.operands[1]);
 }
 
 std::shared_ptr<MatmulParams> getMatmulHeuristics(
@@ -557,8 +679,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // IdModel is used to analyze problem shape & layout
   IdModel id_model(fusion);
 
-  const std::unordered_map<ValGroup, MatmulDomain> id_roles =
-      pattern.getDimRoles(id_model);
+  const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
 
   const auto problem_shape = getProblemShape(id_roles, runtime_info);
 
@@ -569,17 +690,18 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       mma_op.has_value(), "Failed to determine a MMA op for given problem.");
   params->mma_macro = mma_op.value();
 
-  const auto& roles_map_opt =
+  const auto& tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
-  NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
-  const auto roles_map = roles_map_opt.getData();
+  NVF_ERROR(
+      tensor_roles_opt.isValid(), "Tensor roles map in mma is not valid.");
+  const auto tensor_roles = tensor_roles_opt.getData();
 
   params->supported_vec_size =
-      getSupportedVectorization(roles_map, runtime_info);
+      getSupportedVectorization(tensor_roles, id_roles, id_model, runtime_info);
 
   if (matmul_heuristic_plugin::hasPlugin()) {
     const mma_utils::MatmulProblemLayoutOpt layout_opt =
-        mma_utils::getProblemLayout(id_model, id_roles, roles_map);
+        mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
     NVF_ERROR(layout_opt.isValid(), layout_opt.getErrorMsg());
     const MmaLayout layout = layout_opt.getData();
 
@@ -591,14 +713,14 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
         problem_shape[(size_t)MatmulDomain::K],
         problem_shape[(size_t)MatmulDomain::Batch],
         layout,
-        roles_map);
+        tensor_roles);
   } else {
     TORCH_WARN_ONCE(
         "Scheduling a matmul without heuristic plugin. "
         "Specify plugin location like this: "
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
     // Populate heuristic details
-    auto status = initCoreHeuristics(params, problem_shape, roles_map);
+    auto status = initCoreHeuristics(params, problem_shape, tensor_roles);
     NVF_ERROR(status, "Initialization of core part of heuristics failed.");
   }
 
@@ -610,7 +732,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           params->tile_sizes,
           params->double_buffer_options.smem_double_buffer_stage,
-          roles_map);
+          tensor_roles);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << params->toString() << std::endl;
