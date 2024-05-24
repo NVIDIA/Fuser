@@ -496,7 +496,6 @@ std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
 // Grab inlining relationships
 StatefulInliningInfo buildStatefulInliningInfo(
     const std::vector<Expr*>& exprs,
-    const ValGraph& exact_graph,
     const ValGraph& permissive_graph) {
   StatefulInliningInfo info;
   for (auto expr : exprs) {
@@ -554,8 +553,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
         auto consumer_tv_i = consumer_tvs.vector().at(i);
         auto all_consumer_i_ids = ir_utils::allIDsOf(consumer_tv_i);
 
-        auto sibling_map =
-            exact_graph.buildMapBetween(all_consumer_ids, all_consumer_i_ids);
+        auto sibling_map = permissive_graph.buildMapBetween(
+            all_consumer_ids, all_consumer_i_ids);
 
         for (const auto& [c_id_1, c_ids] : sibling_map) {
           NVF_ERROR(c_ids.size() == 1);
@@ -603,10 +602,8 @@ void IdModel::buildLoopGraph() {
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
-  const StatefulInliningInfo inlining_info = buildStatefulInliningInfo(
-      tv_exprs_,
-      idGraph(IdMappingMode::EXACT),
-      idGraph(IdMappingMode::PERMISSIVE));
+  const StatefulInliningInfo inlining_info =
+      buildStatefulInliningInfo(tv_exprs_, idGraph(IdMappingMode::PERMISSIVE));
 
   initializeLoopGraph(inlining_info);
 
