@@ -2306,37 +2306,10 @@ std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
   return pred_info_vec;
 }
 
-// Get an additional offset of a stop index when building a predicate
-// for unswitch. Initial stop indices generated at
-// getPredicateIndexingFromIdGraph do not take halo into account, and the
-// adjustment for halo is done as an additional offset to the final index value
-// so that unswitch predicates can be compared with each other by just looking
-// at the additional offsets.
-//
-// consumer_root_id: the domain for which a stop predicate is being built.
-int64_t getUnswitchStopOffset(
-    IterDomain* consumer_root_id,
-    TensorView* consumer_tv) {
-  return 0;
-}
-
-std::pair<Val*, Val*> getStartAndStopOffsetsForShift(
-    TensorView* consumer_tv,
-    IterDomain* consumer_id,
-    bool padding_predicate) {
-  NVF_ERROR(consumer_id != nullptr);
-
-  return {
-      GpuLower::current()->kernel()->zeroVal(),
-      GpuLower::current()->kernel()->zeroVal()};
-}
-
 // Get the start and stop limit offsets that define the valid range to
 // compute. In the simplest case, they are just 0 and
 // IterDomain::extent. However, IterDomain may have non-zero start and
-// stop that's different from extent. Also, when IterDomain has halo,
-// the actual offsets of the logical start and stop positions are
-// shifted.
+// stop that's different from extent.
 std::pair<Val*, Val*> getStartAndStopLimitOffsets(IterDomain* consumer_id) {
   NVF_ERROR(consumer_id != nullptr);
 
@@ -2364,22 +2337,6 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
         GpuLower::current()->kernel()->zeroVal()};
   }
 
-  Val* start_offset = GpuLower::current()->kernel()->zeroVal();
-  Val* stop_offset = GpuLower::current()->kernel()->zeroVal();
-
-  // These adjustments are not required when predicating non-divisible splits
-  if (!intermediate_domain_pred) {
-    // If generating a predicate for unswitch, adjust the stop offset to
-    // accommodate the addition of halo to the loop stop. See the
-    // comment in getPredicateIndexingFromIdGraph as well.
-    if (unswitch) {
-      auto stop_unswitch_offset =
-          getUnswitchStopOffset(consumer_id, consumer_tv);
-      stop_offset =
-          SimplifyingIrBuilder::addExpr(stop_offset, stop_unswitch_offset);
-    }
-  }
-
   // Get the boundaries of two ends
   auto limits = getStartAndStopLimitOffsets(consumer_id);
 
@@ -2389,14 +2346,16 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
   //  index + start_offset >= start_limit
   //  index + stop_offset  < extent + stop_limit
   //
+  // start_offset and stop_limit are both zero (was not the case with shift)
+  //
   // In order to enable consolidating unswitch predicates, organize
   // the predicates as:
   //
   //  index + (start_offset - start_limit) >= 0
   //  index + (stop_offset - stop_limit)  < extent
 
-  start_offset = SimplifyingIrBuilder::subExpr(start_offset, limits.first);
-  stop_offset = SimplifyingIrBuilder::subExpr(stop_offset, limits.second);
+  auto start_offset = SimplifyingIrBuilder::negExpr(limits.first);
+  auto stop_offset = SimplifyingIrBuilder::negExpr(limits.second);
 
   return {start_offset, stop_offset};
 }
@@ -2498,15 +2457,6 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
 
     RootPredicateInfo info;
 
-    // Compute offsets for start and stop predicate. For non-shift,
-    // non-gather ops, there's only stop predicate as indices never be
-    // negative. However, for shift and gather, the index may need to
-    // be predicated so that it is >= zero.
-    //
-    // Furthermore, in case of gather, both producer and consumer
-    // positions may need to be predicated, so there can be multiple
-    // offset values.
-    //
     // The final predicates will look like:
     // (index + start_offset) >= 0 && (index + stop_offset) < extent.
 

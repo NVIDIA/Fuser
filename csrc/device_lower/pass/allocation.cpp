@@ -132,8 +132,7 @@ class AllocationInserter : public kir::ExprMutator {
          init_loop_it != init_dims.rend();
          ++init_loop_it) {
       auto id = *init_loop_it;
-      kir::ForLoop* new_loop = nullptr;
-      new_loop = IrBuilder::create<kir::ForLoop>(id);
+      kir::ForLoop* new_loop = IrBuilder::create<kir::ForLoop>(id);
       new_loop->body().push_back(init_expr);
       init_expr = new_loop;
     }
