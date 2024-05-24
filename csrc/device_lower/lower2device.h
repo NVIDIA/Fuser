@@ -29,7 +29,6 @@
 #include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
-#include <partial_split_map.h>
 #include <root_domain_map.h>
 #include <vectorization_info.h>
 #include <visibility.h>
@@ -133,14 +132,6 @@ class GpuLower : public NonCopyable {
 
   const WarpPaddedParallelInfo& getWarpPaddedParallelInfo() const {
     return warp_pad_info_;
-  }
-
-  PartialSplitMap& partialSplitMap() {
-    return partial_split_map_;
-  }
-
-  const PartialSplitMap& partialSplitMap() const {
-    return partial_split_map_;
   }
 
   auto& nonDivisibleSplitInfo() {
@@ -292,7 +283,6 @@ class GpuLower : public NonCopyable {
   LocalAllocationInfoMap local_allocation_info_map_;
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;
-  PartialSplitMap partial_split_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
   DoubleBufferInfo double_buffer_info_;
   CommonScalarMap common_scalar_map_;

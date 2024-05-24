@@ -443,12 +443,13 @@ void GpuLower::analysis(Fusion* fusion) {
   fuseReductionsAndBroadcasts(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
-  // Want to run this after parallel map and halo info map are
-  // created. vectorized_accesses_ and vectorized_set_info_ are filled.
+  // Want to run this after parallel map is
+  // created. vectorized_accesses_ and vectorized_set_info_ are
+  // filled.
   validateAndCollectVectorizeInfo(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
 
-  // Depends on ComputeAtMap and HaloInfo.
+  // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
 
@@ -469,9 +470,6 @@ void GpuLower::analysis(Fusion* fusion) {
     debug() << sync_map_->toString() << std::endl;
   }
   dumpExprsIfEnabled(fusion_->exprs(), "SyncMap");
-
-  partialSplitMap().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build partialSplitMap");
 
   nonDivisibleSplitInfo().build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build nonDivisibleSplitInfo");

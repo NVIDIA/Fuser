@@ -99,8 +99,6 @@ struct IndexingParameters {
   //!  be propagating contiguously merged indices backward.
   std::unordered_set<IterDomain*> preferred_concrete_ids;
 
-  std::unordered_map<IterDomain*, Val*> concrete_id_to_halo_extent;
-
   //! Unswitched concrete domains. Back-traversing through the inner
   //! domain of a merge may need to be replaced with the maximum of
   //! the inner domain.

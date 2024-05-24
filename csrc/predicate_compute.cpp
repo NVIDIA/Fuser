@@ -385,8 +385,7 @@ Val* PredicateCompute::getInlinePredicate(
       out_tv,
       loops,
       rotated_loops,
-      nullptr,
-      pred_type == PredicateType::Padding);
+      nullptr);
 
   std::vector<Val*> preds;
 
@@ -478,7 +477,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   auto ref_pred_info = Index::getReferenceRootPredicates(
-      out_tv, for_loops_, rotated_loop_, unrolled_loop_, false);
+      out_tv, for_loops_, rotated_loop_, unrolled_loop_);
 
   // If RootPredicateInfo has a static predicate that is more
   // restrictive than the current one, replace the current with the

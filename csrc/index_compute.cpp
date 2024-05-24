@@ -33,274 +33,6 @@
 
 namespace nvfuser {
 
-namespace {
-
-//! Offset of an index of a producer axis with respect to its
-//! corresponding consumer index
-//! TODO: this function assumes that we are indexing into rFactor domain, which
-//! is no longer the case. Today, we are indexing into allocaiton domain, and if
-//! the allocation domain is not a permutation of the rFactor domain, this
-//! function will just return 0, because we do not have a case that uses both
-//! allocation domain and halo yet.
-int getProducerHaloOffset(
-    const TensorView* producer_tv,
-    size_t producer_axis,
-    const TensorView* consumer_tv) {
-  return 0;
-}
-
-//! Offset producer index when necessary
-Val* getProducerIndexWithHalo(
-    const TensorView* producer_tv,
-    size_t producer_axis,
-    Val* producer_index,
-    const TensorView* consumer_tv,
-    bool is_overriden_index) {
-  const int64_t offset = is_overriden_index
-      ? 0
-      : getProducerHaloOffset(producer_tv, producer_axis, consumer_tv);
-
-  if (offset == 0) {
-    return producer_index;
-  }
-
-  producer_index = SimplifyingIrBuilder::addExpr(producer_index, offset);
-
-  return producer_index;
-}
-
-//! Create a producer offset based off a consumer index
-//!
-//! \param consumer_root_axis Position of corresponding consumer axis
-//! \param consumer_tv Consumer TensorView
-//! \param index_map Mappings from consumer or reference to indices
-//! \param use_reference_map True when index_map maps reference domains
-//! \param concrete_to_ref_map Mappings from concrete to reference domains
-Val* getProducerOffsetWithGather(
-    int64_t consumer_root_axis,
-    const TensorView* consumer_tv,
-    const std::unordered_map<IterDomain*, Val*>& index_map,
-    bool use_reference_map = false,
-    const std::unordered_map<IterDomain*, IterDomain*>& concrete_to_ref_map =
-        {}) {
-  const auto gpu_lower = GpuLower::current();
-
-  const auto gather_expr = dynamic_cast<GatherOp*>(consumer_tv->definition());
-
-  if (gather_expr == nullptr) {
-    return gpu_lower->kernel()->zeroVal();
-  }
-
-  // If the window extent is one, no specific offsetting
-  // is necessary
-  if (consumer_root_axis >= (int)gather_expr->windowShape().size() ||
-      gather_expr->windowShape()[consumer_root_axis] == 1) {
-    return gpu_lower->kernel()->zeroVal();
-  }
-
-  // Basically, the goal is to build an expression of producer_index +
-  // window_index, so we first need to locate the index expression
-  // that corresponds to the window axis of this producer axis.
-
-  const auto window_axis = gather_expr->gatherAxis(consumer_root_axis);
-  auto window_id = consumer_tv->getRootDomain().at(window_axis);
-
-  // When index_map maps a reference tensor, find the corresponding
-  // reference ID of window_id.
-  if (use_reference_map) {
-    auto concrete_window_id = gpu_lower->caMap()->getConcreteMappedID(
-        window_id, IdMappingMode::EXACT);
-    auto concrete_2_ref_it = concrete_to_ref_map.find(concrete_window_id);
-    NVF_ERROR(concrete_2_ref_it != concrete_to_ref_map.end());
-    window_id = concrete_2_ref_it->second;
-  }
-
-  auto window_idx = index_map.at(window_id);
-
-  // Positive padding at offset zero means the indexing shifted to the
-  // negative direction.
-  auto pad_width = (int64_t)gather_expr->padWidth()[consumer_root_axis][0];
-
-  // producer offset: window_index - padding
-  auto producer_offset = SimplifyingIrBuilder::subExpr(
-      window_idx,
-      SimplifyingIrBuilder::create<Val>(pad_width, DataType::Index));
-  return producer_offset;
-}
-
-//! Create a producer offset based off a consumer index
-//!
-//! \param consumer_root_axis Position of corresponding consumer axis
-//! \param consumer_tv Consumer TensorView
-//! \param index_map Mappings from consumer or reference to indices
-//! \param use_reference_map True when index_map maps reference domains
-//! \param concrete_to_ref_map Mappings from concrete to reference domains
-Val* getConcreteProducerOffsetWithGather(
-    int64_t consumer_root_axis,
-    const TensorView* consumer_tv,
-    const std::unordered_map<IterDomain*, Val*>& index_map,
-    bool use_concrete_map = false) {
-  const auto gpu_lower = GpuLower::current();
-
-  const auto gather_expr = dynamic_cast<GatherOp*>(consumer_tv->definition());
-
-  if (gather_expr == nullptr) {
-    return gpu_lower->kernel()->zeroVal();
-  }
-
-  // If the window extent is one, no specific offsetting
-  // is necessary
-  if (consumer_root_axis >= (int64_t)gather_expr->windowShape().size() ||
-      gather_expr->windowShape()[consumer_root_axis] == 1) {
-    return gpu_lower->kernel()->zeroVal();
-  }
-
-  // Basically, the goal is to build an expression of producer_index +
-  // window_index, so we first need to locate the index expression
-  // that corresponds to the window axis of this producer axis.
-
-  const auto window_axis = gather_expr->gatherAxis(consumer_root_axis);
-  auto window_id = consumer_tv->getRootDomain().at(window_axis);
-
-  Val* window_idx = nullptr;
-
-  if (use_concrete_map) {
-    window_idx = index_map.at(GpuLower::current()->caMap()->getConcreteMappedID(
-        window_id, IdMappingMode::EXACT));
-  } else {
-    window_idx = index_map.at(window_id);
-  }
-
-  // Positive padding at offset zero means the indexing shifted to the
-  // negative direction.
-  auto pad_width = (int64_t)gather_expr->padWidth()[consumer_root_axis][0];
-
-  // producer offset: window_index - padding
-  auto producer_offset = SimplifyingIrBuilder::subExpr(
-      window_idx,
-      SimplifyingIrBuilder::create<Val>(pad_width, DataType::Index));
-  return producer_offset;
-}
-
-//! Offset a producer index of a gather expression
-//!
-//! Given an index of a producer root axis, build a new index
-//! expression that accesses a window position that the current loop
-//! structure refers to. Use getGatherProducerOffset to create an
-//! offset Val.
-Val* getProducerIndexWithGather(
-    Val* producer_index,
-    size_t producer_root_axis,
-    const TensorView* producer_tv,
-    const TensorView* consumer_tv,
-    const std::unordered_map<IterDomain*, Val*>& concrete_index_map) {
-  auto gather_op = dynamic_cast<const GatherOp*>(consumer_tv->definition());
-
-  // Just return the producer index as is if this is not a gather
-  if (gather_op == nullptr) {
-    return producer_index;
-  }
-
-  // Consumer axis that corresponds to the producer axis
-  int64_t consumer_axis = -1;
-  for (const auto i : c10::irange(producer_root_axis + 1)) {
-    if (producer_tv->getMaybeRFactorDomain()[i]->isReduction() ||
-        producer_tv->getMaybeRFactorDomain()[i]->isStride()) {
-      continue;
-    }
-    ++consumer_axis;
-  }
-
-  NVF_ERROR(
-      consumer_axis >= 0 &&
-          consumer_axis < (int)gather_op->windowShape().size(),
-      "Invalid consumer axis",
-      consumer_axis,
-      ", producer_axis: ",
-      producer_root_axis);
-
-  auto offset = getConcreteProducerOffsetWithGather(
-      consumer_axis, consumer_tv, concrete_index_map, true);
-  return SimplifyingIrBuilder::addExpr(producer_index, offset);
-}
-
-// Adjusts a global consumer index when its root domain is partially
-// split. Note that non-global consumer indices don't need any
-// adjustment.
-Val* getGlobalConsumerOffsetWithPartialSplit(IterDomain* root_id) {
-  auto offset = GpuLower::current()->partialSplitMap().getStartOffset(root_id);
-  if (offset == nullptr) {
-    return GpuLower::current()->kernel()->zeroVal();
-  } else {
-    return offset;
-  }
-}
-
-// Adjusts a global producer index when its root domain and
-// corresponding consumer root domain have non-matching split
-// offsets. Specifically, since producer_index is calcualted based on
-// the consumer, if the consumer has a non-zero offset,
-// it needs to be added to the index. Also, when the producer itself
-// also has a non-zero split offset, that needs to be subtracted from
-// the index.
-Val* getProducerIndexWithPartialSplit(
-    Val* producer_index,
-    IterDomain* producer_root_id,
-    const TensorView* producer_tv,
-    const TensorView* consumer_tv) {
-  const auto gpu_lower = GpuLower::current();
-
-  auto p2c =
-      PairwiseRootDomainMap(producer_tv, consumer_tv).mapProducerToConsumer();
-
-  auto it = p2c.find(producer_root_id);
-  if (it == p2c.end()) {
-    return producer_index;
-  }
-
-  auto consumer_root_id = it->second;
-
-  auto consumer_offset =
-      gpu_lower->partialSplitMap().getStartOffset(consumer_root_id);
-  consumer_offset = consumer_offset == nullptr ? gpu_lower->kernel()->zeroVal()
-                                               : consumer_offset;
-
-  auto producer_offset =
-      gpu_lower->partialSplitMap().getStartOffset(producer_root_id);
-  producer_offset = producer_offset == nullptr ? gpu_lower->kernel()->zeroVal()
-                                               : producer_offset;
-
-  // If the producer is on global memory, it's always allocated
-  // without trimming the out-of-bounds region, so the consumer offset
-  // should be added to the index.
-  if (producer_tv->getMemoryType() == MemoryType::Global) {
-    if (consumer_offset->isZeroInt()) {
-      return producer_index;
-    } else {
-      return SimplifyingIrBuilder::addExpr(producer_index, consumer_offset);
-    }
-  }
-
-  // Non-global case. Difference of the split offsets must be
-  // accounted.
-
-  auto diff = SimplifyingIrBuilder::subExpr(consumer_offset, producer_offset);
-  // We currently only allow constant offsetting
-  NVF_ERROR(
-      diff->isConstScalar(),
-      "Invalid partial split, must be a constant value.");
-
-  if (diff->evaluate() == 0) {
-    return producer_index;
-  }
-
-  return SimplifyingIrBuilder::addExpr(
-      producer_index,
-      SimplifyingIrBuilder::create<Val>(diff->evaluate(), DataType::Index));
-}
-
-} // namespace
-
 bool IndexCompute::hasUnswitchedDependentDomains(IterDomain* id) const {
   auto concrete_id = maybeGetExactMapConcreteID(id);
   auto it = unswitched_domain_map_.find(concrete_id);
@@ -543,12 +275,6 @@ void IndexCompute::handle(Merge* merge) {
   }
 
   Val* inner_extent = getExtent(inner_id);
-
-  // When the reference has halo extent for inner_id, that extent needs to
-  // be used to un-merge
-  if (halo_extent_map_.find(inner_id) != halo_extent_map_.end()) {
-    inner_extent = halo_extent_map_[inner_id];
-  }
 
   const auto outer_extent = getExtent(outer_id);
 
@@ -1162,7 +888,7 @@ class UpdateLeafIndices : public IterVisitor {
   std::unordered_map<IterDomain*, Val*> extent_map_;
 };
 
-Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
+Val* getExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
   // If id is device dim, ignore the extent which holds the unsharded extent.
   if (id->isDeviceDim()) {
     normal_extent = GpuLower::current()->kernel()->oneVal();
@@ -1576,13 +1302,13 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
       strides[dim] = cur_contig_stride;
       // Prepare for the next dimension which may also be contiguous, multiply
       // by extent of this dimension
-      auto alloc_dim_extent = getHaloExtentOfRootAxis(alloc_dom[dim]);
+      auto alloc_dim_extent = getExtentOfRootAxis(alloc_dom[dim]);
       cur_contig_stride =
           SimplifyingIrBuilder::mulExpr(cur_contig_stride, alloc_dim_extent);
     } else {
       // If non contiguous dimension, keep local stride information, set cur
       // stride to local stride * local raw extent
-      auto alloc_dim_extent = getHaloExtentOfRootAxis(alloc_dom[dim]);
+      auto alloc_dim_extent = getExtentOfRootAxis(alloc_dom[dim]);
       cur_contig_stride =
           SimplifyingIrBuilder::mulExpr(strides[dim], alloc_dim_extent);
     }
@@ -1810,19 +1536,6 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     auto alloc_ind_i =
         is_overriden ? override_it->second : index_map.at(alloc_dom[i]);
 
-    alloc_ind_i = getProducerIndexWithHalo(
-        producer_tv, i, alloc_ind_i, consumer_tv, is_overriden);
-
-    alloc_ind_i = getProducerIndexWithGather(
-        alloc_ind_i,
-        i,
-        producer_tv,
-        consumer_tv,
-        producer_indexing_from_idgraph.concrete_index.indexMap());
-
-    alloc_ind_i = getProducerIndexWithPartialSplit(
-        alloc_ind_i, alloc_dom[i], producer_tv, consumer_tv);
-
     if (alloc_ind_i->isZeroInt()) {
       continue;
     }
@@ -1839,7 +1552,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
           ? alloc_dom[j]->extent()
           : extent_map.at(alloc_dom[j]);
 
-      alloc_ext_j = getHaloExtentOfRootAxis(alloc_dom[j], alloc_ext_j);
+      alloc_ext_j = getExtentOfRootAxis(alloc_dom[j], alloc_ext_j);
 
       if (zero_domain_map.count(alloc_dom[j]) == 0 ||
           is_mma_allocation(alloc_dom[j])) {
@@ -1953,14 +1666,14 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
       strides[dim] = cur_contig_stride;
       // Prepare for the next dimension which may also be contiguous, multiply
       // by extent of this dimension
-      auto alloc_dim_extent = getHaloExtentOfRootAxis(alloc_dom[dim]);
+      auto alloc_dim_extent = getExtentOfRootAxis(alloc_dom[dim]);
       cur_contig_stride =
           SimplifyingIrBuilder::mulExpr(cur_contig_stride, alloc_dim_extent);
     } else {
       // If non contiguous dimension, keep local stride information, set cur
       // stride to local stride * local raw extent
       cur_contig_stride = SimplifyingIrBuilder::mulExpr(
-          strides[dim], getHaloExtentOfRootAxis(alloc_dom[dim]));
+          strides[dim], getExtentOfRootAxis(alloc_dom[dim]));
     }
   }
   return strides;
@@ -1994,8 +1707,6 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
 
     auto alloc_ind = indexing.indexMap().at(alloc_dom[i]);
 
-    alloc_ind = SimplifyingIrBuilder::addExpr(
-        alloc_ind, getGlobalConsumerOffsetWithPartialSplit(alloc_dom[i]));
     alloc_inds[i] = alloc_ind;
   }
   return alloc_inds;
@@ -2107,22 +1818,6 @@ std::vector<Val*> Index::getProducerAllocationIndices(
         i,
         " id: ",
         alloc_dom[i]->toString());
-
-    if (!alloc_dom[i]->isBroadcast() || !is_overriden) {
-      // This is an Iteration domain or a non-padded broadcast domain
-      alloc_ind = getProducerIndexWithHalo(
-          producer_tv, i, alloc_ind, consumer_tv, is_overriden);
-
-      alloc_ind = getProducerIndexWithGather(
-          alloc_ind,
-          i,
-          producer_tv,
-          consumer_tv,
-          producer_indexing_from_idgraph.concrete_index.indexMap());
-
-      alloc_ind = getProducerIndexWithPartialSplit(
-          alloc_ind, alloc_dom[i], producer_tv, consumer_tv);
-    }
 
     alloc_inds.at(i) = alloc_ind;
   }
@@ -2267,7 +1962,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
           ? alloc_dom[j]->extent()
           : extent_map.at(alloc_dom[j]);
 
-      alloc_ext_j = getHaloExtentOfRootAxis(alloc_dom[j], alloc_ext_j);
+      alloc_ext_j = getExtentOfRootAxis(alloc_dom[j], alloc_ext_j);
 
       if (zero_domain_map.count(alloc_dom[j]) == 0) {
         if (stride == nullptr) {
@@ -2539,14 +2234,6 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
       final_ids.insert(root_id);
       continue;
     }
-    // Shifted or gathered axes need to be predicated at the root domain
-    auto shift_expr = dynamic_cast<ShiftOp*>(consumer_tv->definition());
-    auto gather_expr = dynamic_cast<GatherOp*>(consumer_tv->definition());
-    if ((shift_expr && shift_expr->offset(root_i) != 0) ||
-        (gather_expr && root_i < gather_expr->windowShape().size() &&
-         gather_expr->windowShape().at(root_i) != 1)) {
-      final_ids.insert(root_id);
-    }
   }
 
   ContigIDs contig_finder(
@@ -2619,14 +2306,6 @@ std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
   return pred_info_vec;
 }
 
-bool needsPadding(TensorView* tv) {
-  auto shift_expr = dynamic_cast<ShiftOp*>(tv->definition());
-  auto gather_expr = dynamic_cast<GatherOp*>(tv->definition());
-
-  return (shift_expr != nullptr && shift_expr->hasPadding()) ||
-      (gather_expr != nullptr && gather_expr->hasPadding());
-}
-
 // Get an additional offset of a stop index when building a predicate
 // for unswitch. Initial stop indices generated at
 // getPredicateIndexingFromIdGraph do not take halo into account, and the
@@ -2647,130 +2326,9 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForShift(
     bool padding_predicate) {
   NVF_ERROR(consumer_id != nullptr);
 
-  auto shift_expr = dynamic_cast<ShiftOp*>(consumer_tv->definition());
-
-  // Adjustment is not necessary if not shift.
-  // Even so, padding predicate does not need any adjustment.
-  if (shift_expr == nullptr || padding_predicate) {
-    return {
-        GpuLower::current()->kernel()->zeroVal(),
-        GpuLower::current()->kernel()->zeroVal()};
-  }
-
-  const auto root_axis_pos = consumer_tv->domain()->rootPosOf(consumer_id);
-
-  // The first or last N elements, where N is the padding width,
-  // correspond to the padding predicate.
-
-  const auto shift_offset = shift_expr->offset(root_axis_pos);
-  const auto pad_width = shift_expr->padWidth().at(root_axis_pos);
-
-  int64_t start_offset = 0;
-  int64_t stop_offset = 0;
-
-  if (shift_offset > 0) {
-    start_offset = -pad_width;
-  } else if (shift_offset < 0) {
-    stop_offset = pad_width;
-  }
-
   return {
-      SimplifyingIrBuilder::create<Val>(start_offset, DataType::Index),
-      SimplifyingIrBuilder::create<Val>(stop_offset, DataType::Index)};
-}
-
-std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
-    TensorView* consumer_tv,
-    IterDomain* consumer_id,
-    const std::unordered_map<IterDomain*, Val*>& ref_start_index_map,
-    const std::unordered_map<IterDomain*, Val*>& ref_stop_index_map,
-    bool padding_predicate) {
-  NVF_ERROR(consumer_id != nullptr);
-
-  // Adjustment is not necessary if not gather. Even so, padding
-  // predicate does not need any adjustment.
-  if (!consumer_tv->definition()->isA<GatherOp>() || padding_predicate) {
-    return {
-        GpuLower::current()->kernel()->zeroVal(),
-        GpuLower::current()->kernel()->zeroVal()};
-  }
-
-  const auto root_axis_pos = consumer_tv->domain()->rootPosOf(consumer_id);
-
-  auto producer_start_offset = getProducerOffsetWithGather(
-      root_axis_pos, consumer_tv, ref_start_index_map);
-
-  auto producer_stop_offset = getProducerOffsetWithGather(
-      root_axis_pos, consumer_tv, ref_stop_index_map);
-
-  auto consumer_start_offset = GpuLower::current()->kernel()->zeroVal();
-  auto consumer_stop_offset = GpuLower::current()->kernel()->zeroVal();
-
-  if (producer_start_offset->isZeroInt() && producer_stop_offset->isZeroInt()) {
-    return {consumer_start_offset, consumer_stop_offset};
-  }
-
-  Val* start_offset = nullptr;
-  Val* stop_offset = nullptr;
-
-  // In the normal case, take the minimum of the start and the
-  // maximum of the stop offsets. If there's no padding, the producer
-  // offset must be always larger than the consumer
-  // offset. So, the consumer and produce offsets can be always used
-  // for the start and stop offsets, respectively.
-  const auto pad_left =
-      consumer_tv->definition()->as<GatherOp>()->padWidth()[root_axis_pos][0];
-  const auto pad_right =
-      consumer_tv->definition()->as<GatherOp>()->padWidth()[root_axis_pos][1];
-  const auto window_size =
-      consumer_tv->definition()->as<GatherOp>()->windowShape()[root_axis_pos];
-
-  // consumer index: index
-  // producer index: index + window_index - pad_left
-  //
-  // consumer extent: ext
-  // producer extent: ext + window_size - 1 - pad_left - pad_right
-  //
-  // consumer stop pred: index < ext
-  // producer stop pred: index + window_index - pad_left < ext + window_size - 1
-  // - pad_left - pad_right
-  //                  -> index + window_index - pad_left - (window_size - 1 -
-  //                  pad_left - pad_right) < ext
-  //                  -> index + window_index - (window_size - 1 - pad_right) <
-  //                  ext
-  //
-  // consumer start pred: index >= 0
-  // producer start pred: index + window_index - pad_left >= 0
-
-  const auto producer_ext_adj = window_size - 1 - pad_left - pad_right;
-  producer_stop_offset = SimplifyingIrBuilder::subExpr(
-      producer_stop_offset,
-      SimplifyingIrBuilder::create<Val>(
-          (int64_t)producer_ext_adj, DataType::Index));
-
-  // As commented above, when pad_left is zero, the consumer predicate
-  // is always more restrictive than the producer predicate.
-  if (pad_left == 0) {
-    start_offset = consumer_start_offset;
-  } else {
-    start_offset = SimplifyingIrBuilder::minExpr(
-        consumer_start_offset, producer_start_offset);
-  }
-
-  // As commented above, when pad_right is zero, the consumer
-  // predicate is always more restrictive than the producer
-  // predicate.
-  if (pad_right == 0) {
-    stop_offset = consumer_stop_offset;
-  } else {
-    stop_offset = SimplifyingIrBuilder::maxExpr(
-        consumer_stop_offset, producer_stop_offset);
-  }
-
-  NVF_ERROR(start_offset != nullptr);
-  NVF_ERROR(stop_offset != nullptr);
-
-  return {start_offset, stop_offset};
+      GpuLower::current()->kernel()->zeroVal(),
+      GpuLower::current()->kernel()->zeroVal()};
 }
 
 // Get the start and stop limit offsets that define the valid range to
@@ -2779,10 +2337,7 @@ std::pair<Val*, Val*> getStartAndStopOffsetsForGather(
 // stop that's different from extent. Also, when IterDomain has halo,
 // the actual offsets of the logical start and stop positions are
 // shifted.
-std::pair<Val*, Val*> getStartAndStopLimitOffsets(
-    IterDomain* consumer_id,
-    bool padding_predicate,
-    bool intemediate_domain_pred) {
+std::pair<Val*, Val*> getStartAndStopLimitOffsets(IterDomain* consumer_id) {
   NVF_ERROR(consumer_id != nullptr);
 
   Val* start_limit = consumer_id->start();
@@ -2798,7 +2353,6 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
     TensorView* consumer_tv,
     const std::unordered_map<IterDomain*, Val*>& consumer_start_index_map,
     const std::unordered_map<IterDomain*, Val*>& consumer_stop_index_map,
-    bool padding_predicate,
     bool unswitch,
     bool intermediate_domain_pred) {
   // By default, the offsets for the start and stop predicates are
@@ -2810,39 +2364,15 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
         GpuLower::current()->kernel()->zeroVal()};
   }
 
-  auto consumer_def = consumer_tv->definition();
-
   Val* start_offset = GpuLower::current()->kernel()->zeroVal();
   Val* stop_offset = GpuLower::current()->kernel()->zeroVal();
 
   // These adjustments are not required when predicating non-divisible splits
   if (!intermediate_domain_pred) {
-    if (consumer_def->isA<ShiftOp>()) {
-      std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForShift(
-          consumer_tv, consumer_id, padding_predicate);
-    } else if (consumer_def->isA<GatherOp>()) {
-      std::tie(start_offset, stop_offset) = getStartAndStopOffsetsForGather(
-          consumer_tv,
-          consumer_id,
-          consumer_start_index_map,
-          consumer_stop_index_map,
-          padding_predicate);
-    }
-
-    // Adjustment for partial split
-    auto partial_split_offset =
-        getGlobalConsumerOffsetWithPartialSplit(consumer_id);
-    start_offset =
-        SimplifyingIrBuilder::addExpr(start_offset, partial_split_offset);
-    stop_offset =
-        SimplifyingIrBuilder::addExpr(stop_offset, partial_split_offset);
-
     // If generating a predicate for unswitch, adjust the stop offset to
     // accommodate the addition of halo to the loop stop. See the
     // comment in getPredicateIndexingFromIdGraph as well.
     if (unswitch) {
-      NVF_ERROR(
-          !padding_predicate, "Unswitch should not use the padding predicate");
       auto stop_unswitch_offset =
           getUnswitchStopOffset(consumer_id, consumer_tv);
       stop_offset =
@@ -2851,8 +2381,7 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
   }
 
   // Get the boundaries of two ends
-  auto limits = getStartAndStopLimitOffsets(
-      consumer_id, padding_predicate, intermediate_domain_pred);
+  auto limits = getStartAndStopLimitOffsets(consumer_id);
 
   // At this point, we have everything to create both start and stop
   // predicates as:
@@ -2895,18 +2424,12 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    kir::ForLoop* unswitch_or_vec_loop,
-    bool shift_padding) {
+    kir::ForLoop* unswitch_or_vec_loop) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getReferenceRootPredicates");
 
   const auto gpu_lower = GpuLower::current();
 
   const bool is_unswitch = unswitch_or_vec_loop != nullptr;
-
-  // Nothing needs to be done when padding is not required.
-  if (shift_padding && !needsPadding(consumer_tv)) {
-    return {RootPredicateInfo::getFalseInfo()};
-  }
 
   auto db_axis = gpu_lower->doubleBufferInfo().getDoubleBufferAxis(consumer_tv);
 
@@ -2992,7 +2515,6 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
         consumer_tv,
         consumer_start_index_map,
         consumer_stop_index_map,
-        shift_padding,
         unswitch_or_vec_loop != nullptr,
         contig_id_entry.is_intermediate_domain);
 

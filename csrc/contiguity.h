@@ -157,8 +157,7 @@ class ContigIDs : public OptInDispatch {
   //! analyzed, in which case producer-to-consumer maps should be
   //! passed.
   //!
-  //! If ignore_indexability and ignore_halo_constraint are true,
-  //! ignore the constraint on indexing and halo, respectively. It is
+  //! If ignore_indexability is true, ignore the constraint on indexing. It is
   //! the caller that is responsible for its correctness.
   //! Not really sure why but clang-tidy only complains about
   //! std::unordered_map if passed as a const reference.

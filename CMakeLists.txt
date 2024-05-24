@@ -175,7 +175,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/options.cpp
   ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
   ${NVFUSER_SRCS_DIR}/parallel_type_bitmap.cpp
-  ${NVFUSER_SRCS_DIR}/partial_split_map.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/add_axioms.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
