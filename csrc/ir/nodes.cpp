@@ -4295,6 +4295,15 @@ std::string SdpaOp::toString(int indent_size) const {
   indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  if (has_mask()) {
+    indent(ss, indent_size + 1) << "          " << attn_mask()->toString() << ",\n";
+  }
+  indent(ss, indent_size + 1) << "          dropout_p = " << dropout_p() << ",\n";
+  indent(ss, indent_size + 1) << "          is_causal = " << is_causal();
+  if (scale().has_value()){
+    indent(ss, indent_size + 1) << ",\n          scale = " << scale().value();
+  }
+  indent(ss, indent_size + 1) << ")\n";
   return ss.str();
 }
 

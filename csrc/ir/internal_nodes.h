@@ -2201,6 +2201,8 @@ class LinearOp : public Expr {
   }
 };
 
+// SDPA node with same functionality as F.scaled_dot_product_attention
+// https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
 class SdpaOp : public Expr {
  public:
   using Expr::Expr;
