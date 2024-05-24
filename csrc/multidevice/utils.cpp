@@ -333,8 +333,9 @@ void propagateShardings(Fusion* fusion) {
     for (auto tv : inputs) {
       NVF_CHECK(
           tv->hasDeviceMesh(),
-          "Expression inputs should be assigned a DeviceMesh ",
-          expr->toString());
+          "Tensor ",
+          tv->toString(),
+          " should be assigned a DeviceMesh");
       if (input_with_mesh == nullptr) {
         input_with_mesh = tv;
       }
@@ -366,7 +367,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
     }
     NVF_ERROR(
         ir_utils::isTvOp(expr),
-        "Non-tv op is not supported : ",
+        "Non-tv op is not supported:",
         expr->toString());
     NVF_ERROR(
         expr->outputs().size() == 1,
@@ -381,7 +382,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
     auto [shard_additions, shard_deletions] = getShardingChanges(expr);
     NVF_ERROR(
         shard_additions.size() + shard_deletions.size() <= 1,
-        "Resharding expr can only support one axis ",
+        "Resharding expr can only support one axis:",
         expr->toString())
 
     // For gather operations i.e. ID goes from sharded to unsharded
@@ -472,22 +473,23 @@ void insertShardedAxisReordering(Fusion* fusion) {
 }
 
 void setShardedAllocationDomain(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
-    if (isResharding(expr)) {
-      for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        for (auto c : tv->getContiguity()) {
-          if (c.has_value()) {
-            NVF_CHECK(
-                c.value(),
-                "Resharding expression input must be contiguous ",
-                expr);
-          }
+  for (Expr* expr : fusion->exprs()) {
+    if (!isResharding(expr)) {
+      continue;
+    }
+    for (TensorView* tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      for (auto c : tv->getContiguity()) {
+        if (c.has_value()) {
+          NVF_CHECK(
+              c.value(),
+              "Resharding expression input must be contiguous: ",
+              expr);
         }
-        setShardedAllocationDomain(tv);
       }
-      for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        setShardedAllocationDomain(tv);
-      }
+      setShardedAllocationDomain(tv);
+    }
+    for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      setShardedAllocationDomain(tv);
     }
   }
 }

@@ -64,6 +64,21 @@ TEST_F(ShardingTest, PropagateSharding) {
   EXPECT_TRUE(getTvsWithDifferentSharding(a, tvs).empty());
 }
 
+void isContiguous(TensorView* tv) {
+  EXPECT_TRUE(tv->hasAllocation());
+  auto contiguity = tv->getContiguity();
+  auto alloc_domain = tv->getAllocationDomain();
+  for (auto i : c10::irange(contiguity.size())) {
+    // TODO: This should eventually check that DeviceDim domains also has no
+    // value.
+    if (alloc_domain[i]->isReduction() || alloc_domain[i]->isBroadcast()) {
+      EXPECT_FALSE(contiguity[i].has_value());
+    } else {
+      EXPECT_TRUE(contiguity[i].value());
+    }
+  }
+}
+
 TEST_F(ShardingTest, ShardedAllocationDomain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -77,8 +92,10 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
   for (auto tv : {a, b, c, d}) {
     tv->setDeviceMesh(mesh);
   }
-  a->axis(1)->parallelize(ParallelType::DIDx);
-  c->axis(1)->parallelize(ParallelType::DIDx);
+
+  int sharded_dim = 1;
+  a->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  c->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   fusion.addInput(a);
   fusion.addInput(b);
   fusion.addOutput(d);
@@ -90,10 +107,10 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
       for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        EXPECT_TRUE(tv->hasAllocation());
+        isContiguous(tv);
       }
       for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        EXPECT_TRUE(tv->hasAllocation());
+        isContiguous(tv);
       }
     }
   }
