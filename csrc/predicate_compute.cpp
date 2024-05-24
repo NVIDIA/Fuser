@@ -381,11 +381,8 @@ Val* PredicateCompute::getInlinePredicate(
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
-  auto pred_info_vec = Index::getReferenceRootPredicates(
-      out_tv,
-      loops,
-      rotated_loops,
-      nullptr);
+  auto pred_info_vec =
+      Index::getReferenceRootPredicates(out_tv, loops, rotated_loops, nullptr);
 
   std::vector<Val*> preds;
 
