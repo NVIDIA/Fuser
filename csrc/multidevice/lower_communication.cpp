@@ -377,8 +377,8 @@ bool isLowerableToCommunication(Expr* expr) {
     // get the reduced axis
     std::vector<IterDomain*> reduction_axis;
     std::copy_if(
-        out->getRootDomain().begin(),
-        out->getRootDomain().end(),
+        out->getRFactorDomain().begin(),
+        out->getRFactorDomain().end(),
         std::back_inserter(reduction_axis),
         [](IterDomain* id) { return id->isReduction(); });
     // check whether the reduction involves only one axis

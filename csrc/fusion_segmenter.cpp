@@ -328,7 +328,7 @@ void SegmentedGroup::finalize() {
     if (auto tv = dynamic_cast<TensorView*>(i)) {
       // We do not need to add scalars which are the extents of already-added
       // input TensorViews
-      for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+      for (auto id : TensorDomain::noReductions(tv->getRFactorDomain())) {
         input_set.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -1159,7 +1159,7 @@ TensorView* castIntermediateValueInCompleteFusion(
     // Keep broadcast axes and remove reduction axes
     size_t i = 0;
     auto no_reduction_root_domain =
-        TensorDomain::noReductions(original_fp32_tv->getMaybeRFactorDomain());
+        TensorDomain::noReductions(original_fp32_tv->getRFactorDomain());
     std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
     for (const auto& dom : no_reduction_root_domain) {
       new_root_domain[i++] = dom->cloneWithoutRFactor();
@@ -1837,7 +1837,7 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
     // Given an rfactor domain, create a new IterDomain.
     // Otherwise, clone the previous IterDomain
     std::vector<IterDomain*> new_root_domain;
-    auto rfactor = tv->getMaybeRFactorDomain();
+    auto rfactor = tv->getRFactorDomain();
     new_root_domain.reserve(rfactor.size());
 
     // Does the domain (root / rfactor) contain all concrete sized extents?
@@ -2927,9 +2927,8 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   // Create normalization based welford graph
   //  largely taken from batchnorm cpp benchmark
-  const auto& in_root =
-      TensorDomain::noReductions(in_val->getMaybeRFactorDomain());
-  const auto& out_root = out_avg->getRootDomain();
+  const auto& in_root = TensorDomain::noReductions(in_val->getRFactorDomain());
+  const auto& out_root = out_avg->getRFactorDomain();
   std::vector<int64_t> red_axes;
 
   NVF_ERROR(
@@ -3458,7 +3457,7 @@ class CombineReductions {
       auto out_tv = rop->out()->template as<TensorView>();
       NVF_ERROR(out_tv != nullptr);
       has_reduction_ = out_tv->hasReduction();
-      auto& root_domain = out_tv->getRootDomain();
+      auto& root_domain = out_tv->getRFactorDomain();
       root_domain_size_ = root_domain.size();
 
       for (const auto i : c10::irange(root_domain_size_)) {
@@ -4108,16 +4107,16 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   std::unordered_set<Val*> visited;
 
   const auto processTV = [&to_visit](TensorView* tv) {
-    for (auto id : TensorDomain::noReductions(tv->getRootDomain())) {
+    for (auto id : TensorDomain::noReductions(tv->getMaybeRootDomain())) {
       to_visit.push_back(id->getMaybeExpandedExtent());
     }
-    if (tv->domain()->hasRFactor()) {
+    if (tv->domain()->hasRoot()) {
       // traverse from root to rfactor and inspect all Expr attrs and outputs
       std::vector<Val*> all_vals;
       for (const auto id_expr : StmtSort::getExprsBetween(
                {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-               {tv->getMaybeRFactorDomain().begin(),
-                tv->getMaybeRFactorDomain().end()})) {
+               {tv->getRFactorDomain().begin(),
+                tv->getRFactorDomain().end()})) {
         all_vals.insert(
             all_vals.end(), id_expr->inputs().begin(), id_expr->inputs().end());
         all_vals.insert(
@@ -4144,7 +4143,7 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   // avoid adding them as separate scalar inputs.
   for (auto e : group->producer_edges) {
     if (const auto tv = dynamic_cast<TensorView*>(e->val)) {
-      for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+      for (auto id : TensorDomain::noReductions(tv->getRFactorDomain())) {
         visited.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -4195,7 +4194,7 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     input_set.insert(inp);
     if (auto tv = dynamic_cast<TensorView*>(inp)) {
       for (IterDomain* id :
-           TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+           TensorDomain::noReductions(tv->getRFactorDomain())) {
         // Extents of inputs will already be bound. This prevents adding them
         // as redundant inputs.
         input_set.insert(id->getMaybeExpandedExtent());

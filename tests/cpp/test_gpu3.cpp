@@ -2054,7 +2054,7 @@ TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
 
   // They must not be mapped with anything else.
   for (auto tv : ir_utils::allTvs(&fusion)) {
-    for (auto root_id : tv->getRootDomain()) {
+    for (auto root_id : tv->getRFactorDomain()) {
       if (root_id == tv2_bc || root_id == tv3_bc) {
         continue;
       }
@@ -6560,14 +6560,14 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->split(0, 4);
   // [I0/4, 4, I1]
 
-  // Initial domain: root domain
+  // Initial domain: rfactor domain
   // Derived domain: [4, I1]
   // Should fail as the derived domain only partially covers the
-  // root domain
+  // rfactor domain
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv1->getRootDomain(), {tv1->axis(1), tv1->axis(2)});
+            tv1->getRFactorDomain(), {tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
@@ -6575,24 +6575,24 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->merge(0);
   // [I0/4*4, I1]
 
-  // Initial domain: root domain
+  // Initial domain: rfactor domain
   // Derived domain: leaf domain
   // Should succeed.
   ir_utils::validateDomainEquivalence(
-      tv1->getRootDomain(), tv1->getLeafDomain());
+      tv1->getRFactorDomain(), tv1->getLeafDomain());
 
   auto tv1_intermediate_id = tv1->axis(0);
 
   tv1->split(0, 3);
   // [I0/4*4/3, 3, I1]
 
-  // Initial domain: root domain
+  // Initial domain: rfactor domain
   // Derived domain: leaf + tv1_intermediate_id
   // Should fail as the intermediate ID and the first two leaves are redundant
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv1->getRootDomain(),
+            tv1->getRFactorDomain(),
             {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
@@ -6616,7 +6616,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // [S0, B0/4, 4]
 
   ir_utils::validateDomainEquivalence(
-      tv4->getRootDomain(), tv4->getLeafDomain());
+      tv4->getRFactorDomain(), tv4->getLeafDomain());
 
   // Initial domain: root domain
   // Derived domain: [S0, B0/4]
@@ -6625,7 +6625,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv4->getRootDomain(), {tv4->axis(0), tv4->axis(1)});
+            tv4->getRFactorDomain(), {tv4->axis(0), tv4->axis(1)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
@@ -6679,14 +6679,14 @@ TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
   tv1->split(1, 4);
   // [I0, I1/4, 4]
 
-  const auto& root_domain = tv1->getRootDomain();
+  const auto& rfactor_domain = tv1->getRFactorDomain();
 
   // legal, as I0 is also a leaf domain
-  root_domain[0]->parallelize(ParallelType::BIDx);
+  rfactor_domain[0]->parallelize(ParallelType::BIDx);
 
   // llegal, as I1 is not a leaf domain
   EXPECT_THAT(
-      [&]() { root_domain[1]->parallelize(ParallelType::BIDy); },
+      [&]() { rfactor_domain[1]->parallelize(ParallelType::BIDy); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Only allowed to parallelize a leaf domain")));
 }
@@ -8190,8 +8190,8 @@ TEST_F(NVFuserTest, ReverseMerge) {
   ASSERT_EQ(tv1->nDims(), 1);
   auto merge = dynamic_cast<Merge*>(tv1->axis(0)->definition());
   ASSERT_NE(merge, nullptr);
-  ASSERT_EQ(merge->outer(), tv1->getRootDomain().at(1));
-  ASSERT_EQ(merge->inner(), tv1->getRootDomain().at(0));
+  ASSERT_EQ(merge->outer(), tv1->getRFactorDomain().at(1));
+  ASSERT_EQ(merge->inner(), tv1->getRFactorDomain().at(0));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({11, 12}, options);

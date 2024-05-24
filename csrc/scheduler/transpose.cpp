@@ -642,7 +642,7 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     DomainMap& domain_map) {
-  auto ref_root = reference->getMaybeRFactorDomain();
+  auto ref_root = reference->getRFactorDomain();
   std::vector<int64_t> shape_in_ref;
   shape_in_ref.reserve(reference->nDims());
   int64_t n_elems = 1;

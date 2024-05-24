@@ -263,8 +263,7 @@ void FusionExecutor::compileFusion(
   }
 
   for (auto out : fusion->outputs()) {
-    const auto maybe_rfactor_domain =
-        out->as<TensorView>()->getMaybeRFactorDomain();
+    const auto maybe_rfactor_domain = out->as<TensorView>()->getRFactorDomain();
     // walking through outputs to see if output shapes are dependent on
     // non-tensor inputs. For which case, we should have disabled output
     // allocation, since the caching id only looks at tensor shapes.
@@ -883,7 +882,7 @@ at::Tensor transformOutputFromAllocationToRFactor(
     TensorView* tv,
     ExpressionEvaluator& ee) {
   // Ignore reductions because reductions does not exist in tensor's definition
-  auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto rfactor = TensorDomain::noReductions(tv->getRFactorDomain());
   auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   // Traverse all affine transformations from allocation domain. Because
   // allocation domain can be before or after the rFactor domain, we need both a

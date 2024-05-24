@@ -119,7 +119,7 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
     const {
   // Get concrete IDs for input root or rfactor domain
   std::unordered_set<IterDomain*> in_concrete_ids;
-  for (auto in_id : input_tv->getMaybeRFactorDomain()) {
+  for (auto in_id : input_tv->getRFactorDomain()) {
     if (canIgnoreIndexedInputDomainID(input_tv, in_id, ca_map_)) {
       continue;
     }
@@ -137,7 +137,7 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
   // Erase all input concrete IDs mapped to the output domain
   // Ignore unresolved broadcast dimensions
   eraseifInputMappedThroughRFactorDomainAndIndexing(
-      in_concrete_ids, tv->getMaybeRFactorDomain());
+      in_concrete_ids, tv->getRFactorDomain());
 
   return in_concrete_ids.empty();
 }

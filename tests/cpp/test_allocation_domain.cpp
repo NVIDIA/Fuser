@@ -998,10 +998,10 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
   auto tv3 = tv1->cacheFork();
 
   std::vector<IterDomain*> expected_new_allocation_domain{
-      tv3->getMaybeRFactorDomain().at(0),
-      tv3->getMaybeRFactorDomain().at(2),
-      tv3->getMaybeRFactorDomain().at(3),
-      tv3->getMaybeRFactorDomain().at(1)};
+      tv3->getRFactorDomain().at(0),
+      tv3->getRFactorDomain().at(2),
+      tv3->getRFactorDomain().at(3),
+      tv3->getRFactorDomain().at(1)};
 
   ASSERT_EQ(tv0->getAllocationDomain(), tv0_2d);
   ASSERT_EQ(tv1->getAllocationDomain(), tv1_nhwc);
@@ -1418,7 +1418,7 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
       {tv1->axis(1), tv1->axis(2), tv1->axis(0)},
       {std::nullopt, std::nullopt, true});
   // copy entries from old domain for validation later
-  std::vector<IterDomain*> root_copy = tv1->getRootDomain();
+  std::vector<IterDomain*> rfactor_copy = tv1->getRFactorDomain();
   std::vector<IterDomain*> alloc_copy = tv1->getAllocationDomain();
   std::vector<std::optional<bool>> contig_copy = tv1->getContiguity();
   // clear reduction iter domain removed reduction iter domain from both root
@@ -1426,7 +1426,8 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
   tv1->clearReductionIterDomains();
   // entry 2 is removed since tv1->axis(2) is a reduction iter domain in tv1's
   // root domain
-  EXPECT_THAT(tv1->getRootDomain(), ElementsAre(root_copy[0], root_copy[1]));
+  EXPECT_THAT(
+      tv1->getRFactorDomain(), ElementsAre(rfactor_copy[0], rfactor_copy[1]));
   // entry 1 is removed since tv1->axis(2) is a reduction iter domain and tv1's
   // allocation domain looks like {tv1->axis(1), tv1->axis(2), tv1->axis(0)},
   EXPECT_THAT(

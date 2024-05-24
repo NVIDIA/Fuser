@@ -197,13 +197,13 @@ TEST_F(ExprEvalTest, Basic) {
   // IMPORTANT:
   // a. The bindings are only as stable as the Vals are in the fusion graph
   // b. You must use the original (rootDomain) extents
-  //  (ex. `tv0->getRootDomain()[0]->extent()`
+  //  (ex. `tv0->getRFactorDomain()[0]->extent()`
   //   instead of `tv0->axis(0)->extent()`)
   //
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6L);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128L);
-  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6L);
-  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128L);
+  evaluator.bind(tv0->getRFactorDomain()[0]->extent(), 6L);
+  evaluator.bind(tv0->getRFactorDomain()[1]->extent(), 128L);
+  evaluator.bind(tv1->getRFactorDomain()[0]->extent(), 6L);
+  evaluator.bind(tv1->getRFactorDomain()[1]->extent(), 128L);
 
   // 3. Evaluate and check result values
   EXPECT_EQ(tv2->domain()->nDims(), 3);
@@ -244,8 +244,8 @@ TEST_F(ExprEvalTest, Complex) {
   ExpressionEvaluator evaluator;
 
   // 2. Bind values
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 129L);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 127L);
+  evaluator.bind(tv0->getRFactorDomain()[0]->extent(), 129L);
+  evaluator.bind(tv0->getRFactorDomain()[1]->extent(), 127L);
 
   // Evaluate and check extent values
   EXPECT_EQ(tv0->domain()->nDims(), 2);
@@ -308,10 +308,10 @@ TEST_F(ExprEvalTest, PostLower) {
   ExpressionEvaluator evaluator;
 
   // 2. Bind values
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6L);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128L);
-  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6L);
-  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128L);
+  evaluator.bind(tv0->getRFactorDomain()[0]->extent(), 6L);
+  evaluator.bind(tv0->getRFactorDomain()[1]->extent(), 128L);
+  evaluator.bind(tv1->getRFactorDomain()[0]->extent(), 6L);
+  evaluator.bind(tv1->getRFactorDomain()[1]->extent(), 128L);
 
   // 3. Evaluate and check result values
   EXPECT_EQ(tv2->domain()->nDims(), 3);

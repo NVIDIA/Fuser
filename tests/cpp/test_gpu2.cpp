@@ -7180,7 +7180,8 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   auto t29 = mul(t25, t23);
   auto t30 = sum(t29, {2});
   auto t31 = broadcast(t30, {false, false, true});
-  auto d59 = mul(t1->getRootDomain()[2]->extent(), IrBuilder::create<Val>(1.0));
+  auto d59 =
+      mul(t1->getRFactorDomain()[2]->extent(), IrBuilder::create<Val>(1.0));
   auto t26 = mul(d59, t25);
   auto txx = mul(t26, IrBuilder::create<Val>(1.0));
   auto t33 = sub(txx, t28);

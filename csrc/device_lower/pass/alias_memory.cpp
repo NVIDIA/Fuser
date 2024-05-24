@@ -126,8 +126,7 @@ bool isSerialBroadcastResolution(
 
   // Collect exact concrete id's in producer's root domain
   std::unordered_set<IterDomain*> producer_exact_concrete_root_ids;
-  auto producer_root =
-      TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+  auto producer_root = TensorDomain::noReductions(producer->getRFactorDomain());
   std::transform(
       producer_root.begin(),
       producer_root.end(),

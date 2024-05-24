@@ -566,8 +566,8 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
 void LoopIndexingAnalysis::run() {
   // Collect consumer id's for view rfactor traversal.
   all_consumer_id_vals_ = DependencyCheck::getAllValsBetween(
-      {consumer_tv_->getRootDomain().begin(),
-       consumer_tv_->getRootDomain().end()},
+      {consumer_tv_->getMaybeRootDomain().begin(),
+       consumer_tv_->getMaybeRootDomain().end()},
       {consumer_tv_->getLeafDomain().begin(),
        consumer_tv_->getLeafDomain().end()});
 
@@ -860,7 +860,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   indexing.run(loop_indexing);
 
   // Populate indexing through exact map from initial indexing
-  auto consumer_root = index_producer ? consumer_tv->getRootDomain()
+  auto consumer_root = index_producer ? consumer_tv->getMaybeRootDomain()
                                       : consumer_tv->getMaybeAllocationDomain();
 
   // First collect all iterdomains in consumer transform history.

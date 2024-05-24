@@ -34,7 +34,7 @@ void validateValWithConcreteValue(
         concrete_value.type().name());
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
-        (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+        (int64_t)TensorDomain::noReductions(tv->getRFactorDomain()).size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -113,8 +113,7 @@ void ExpressionEvaluator::bind_(
   }
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
-    auto rfactor_domain =
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    auto rfactor_domain = TensorDomain::noReductions(tv->getRFactorDomain());
     NVF_ERROR(
         t.dim() == (int64_t)rfactor_domain.size(),
         "Expected ",

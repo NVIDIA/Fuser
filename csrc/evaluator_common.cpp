@@ -98,7 +98,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
     for (auto id : tv->getLeafDomain()) {
       ret.push_back(id->extent());
     }
-    for (auto id : tv->getMaybeRFactorDomain()) {
+    for (auto id : tv->getRFactorDomain()) {
       if (id->hasExpandedExtent()) {
         ret.push_back(id->expandedExtent());
       }
@@ -327,8 +327,7 @@ void PrecomputedValues::validate() {
 void PrecomputedValues::bindTensorMetaData(
     TensorView* tv,
     const at::Tensor& tensor) {
-  const auto root_domain =
-      TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  const auto root_domain = TensorDomain::noReductions(tv->getRFactorDomain());
   NVF_ERROR(
       tensor.dim() == static_cast<int64_t>(root_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");

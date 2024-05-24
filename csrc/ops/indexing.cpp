@@ -21,7 +21,7 @@
 namespace nvfuser {
 
 TensorView* select(TensorView* tv, int64_t dim, Val* index) {
-  auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto dom = TensorDomain::noReductions(tv->getRFactorDomain());
   NVF_CHECK(!dom.empty(), "select can not be applied to 0d tensor.");
 
   std::vector<IterDomain*> new_root;
@@ -49,10 +49,8 @@ TensorView* index_select(
   DataType dtype = lookup_tv->getDataType().value();
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
-  auto lookup_dom =
-      TensorDomain::noReductions(lookup_tv->getMaybeRFactorDomain());
-  auto index_dom =
-      TensorDomain::noReductions(index_tv->getMaybeRFactorDomain());
+  auto lookup_dom = TensorDomain::noReductions(lookup_tv->getRFactorDomain());
+  auto index_dom = TensorDomain::noReductions(index_tv->getRFactorDomain());
   int64_t n_dims = (int64_t)lookup_dom.size();
   dim = wrapDim(dim, n_dims);
   NVF_CHECK(n_dims > 0, "index_select can not be applied to 0d tensor.");
@@ -87,8 +85,8 @@ TensorView* index_select(
 
 // torch.gather
 TensorView* torch_gather(TensorView* inp, int64_t dim, TensorView* index) {
-  auto inp_domain = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
-  auto idx_domain = TensorDomain::noReductions(index->getMaybeRFactorDomain());
+  auto inp_domain = TensorDomain::noReductions(inp->getRFactorDomain());
+  auto idx_domain = TensorDomain::noReductions(index->getRFactorDomain());
   NVF_CHECK(
       !inp_domain.empty(), "torch.gather can not be applied to 0d tensor.");
   NVF_CHECK(
@@ -124,9 +122,9 @@ TensorView* scatterOp(
     int64_t dim,
     TensorView* index,
     TensorView* src) {
-  auto self_dom = TensorDomain::noReductions(self->getMaybeRFactorDomain());
-  auto idx_dom = TensorDomain::noReductions(index->getMaybeRFactorDomain());
-  auto src_dom = TensorDomain::noReductions(src->getMaybeRFactorDomain());
+  auto self_dom = TensorDomain::noReductions(self->getRFactorDomain());
+  auto idx_dom = TensorDomain::noReductions(index->getRFactorDomain());
+  auto src_dom = TensorDomain::noReductions(src->getRFactorDomain());
 
   NVF_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
   NVF_CHECK(
@@ -164,10 +162,8 @@ TensorView* scatter(
 }
 
 TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
-  const auto inp_domain =
-      TensorDomain::noReductions(inp->getMaybeRFactorDomain());
-  const auto idx_domain =
-      TensorDomain::noReductions(index->getMaybeRFactorDomain());
+  const auto inp_domain = TensorDomain::noReductions(inp->getRFactorDomain());
+  const auto idx_domain = TensorDomain::noReductions(index->getRFactorDomain());
 
   NVF_CHECK(
       !inp_domain.empty(), "take_along_axis can not be applied to 0d tensor.");
