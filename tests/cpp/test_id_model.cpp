@@ -19,9 +19,12 @@
 #include <id_model/to_string.h>
 #include <id_model/utils.h>
 #include <inlining.h>
+#include <ir/graphviz.h>
 #include <ops/all_ops.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
+
+#include <fstream>
 
 namespace nvfuser {
 
@@ -2379,4 +2382,99 @@ TEST_F(IdModelTest, LoopGraphWithSibling) {
     }
   }
 }
+
+// Repro of issue #2296
+TEST_F(IdModelTest, LoopPromotionWithRfactorDomains1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({5});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({5, 2});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = reshape(tv4, {5, 2}, {10});
+  fusion.addOutput(tv5);
+
+  tv4->merge(0);
+  tv3->merge(0);
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  const auto& loop_group = loop_graph.toGroup(tv5->axis(0));
+
+  // All of the inlined tensors (i.e., all tensors except for the
+  // inputs) should be grouped together.
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      ASSERT_TRUE(loop_group->has(id))
+          << "Expected to be included. ID: " << id->toString()
+          << ". Loop group: " << nvfuser::toString(loop_group);
+    }
+  }
+
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  auto promotion = loop_promotion_map.at(loop_group);
+  ASSERT_EQ(promotion, tv5->axis(0)) << "Invalid promotion";
+}
+
+// Another repro of issue #2296
+TEST_F(IdModelTest, LoopPromotionWithRfactorDomains2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({5});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({5, 2});
+  fusion.addInput(tv1);
+  auto tv2 = makeConcreteTensor({10, 3});
+  fusion.addInput(tv2);
+
+  auto tv3 = set(tv0);
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv4, tv1);
+  auto tv6 = reshape(tv5, {5, 2}, {10});
+  auto tv7 = broadcast(tv6, {false, true});
+  auto tv8 = add(tv7, tv2);
+  fusion.addOutput(tv8);
+
+  tv4->merge(0);
+  tv5->merge(0);
+  tv8->merge(0);
+  tv7->merge(0);
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  const auto& loop_group = loop_graph.toGroup(tv8->axis(0));
+
+  // All of the inlined tensors (i.e., all tensors except for the
+  // inputs) should be grouped together.
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      ASSERT_TRUE(loop_group->has(id))
+          << "Expected to be included. ID: " << id->toString()
+          << ". Loop group: " << nvfuser::toString(loop_group);
+    }
+  }
+
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  auto promotion = loop_promotion_map.at(loop_group);
+  ASSERT_EQ(promotion, tv8->axis(0)) << "Invalid promotion";
+}
+
 } // namespace nvfuser
