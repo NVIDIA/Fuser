@@ -52,9 +52,6 @@ class AllocationInserter : public kir::ExprMutator {
     // The buffer this allocation is for
     TensorView* buffer = nullptr;
 
-    // Info to transfer to GPU lower
-    bool has_halo = false;
-
     // Local Iterdomains that this allocation covers
     std::unique_ptr<std::vector<IterDomain*>> allocation_domains;
   };
@@ -136,21 +133,7 @@ class AllocationInserter : public kir::ExprMutator {
          ++init_loop_it) {
       auto id = *init_loop_it;
       kir::ForLoop* new_loop = nullptr;
-      auto extent_with_halo = gpu_lower->haloInfo()->getExtent(id);
-      if (extent_with_halo) {
-        new_loop = IrBuilder::create<kir::ForLoop>(
-            id,
-            IrBuilder::create<Val>(DataType::Index),
-            nullptr,
-            extent_with_halo,
-            nullptr,
-            false,
-            nullptr,
-            false,
-            DoubleBufferLoopStage::NotApplicable);
-      } else {
-        new_loop = IrBuilder::create<kir::ForLoop>(id);
-      }
+      new_loop = IrBuilder::create<kir::ForLoop>(id);
       new_loop->body().push_back(init_expr);
       init_expr = new_loop;
     }
@@ -173,14 +156,6 @@ class AllocationInserter : public kir::ExprMutator {
         continue;
       }
       auto extent = id->extent();
-      // Use halo-extended extent if found
-      auto halo_extent = gpu_lower->haloInfo()->getRootAxisInfo(id);
-      if (halo_extent.hasHalo()) {
-        extent = IrBuilder::addExpr(
-            extent,
-            IrBuilder::create<Val>(
-                (int64_t)halo_extent.width(), DataType::Index));
-      }
       alloc_dims.emplace_back(extent);
     }
 
@@ -221,13 +196,8 @@ class AllocationInserter : public kir::ExprMutator {
     // Get all exprs involved in generating the allocation IDs
     auto exprs = StmtSort::getExprsTo(start_vals);
 
-    // Get the halo extent if found
-    auto getExtent = [this](IterDomain* id) {
-      auto extent = gpu_lower->haloInfo()->getExtent(id);
-      if (extent == nullptr) {
-        extent = id->extent();
-      }
-      return extent;
+    auto getExtent = [](IterDomain* id) {
+      return id->extent();
     };
 
     std::unordered_map<IterDomain*, Val*> known_extents;
@@ -328,7 +298,6 @@ class AllocationInserter : public kir::ExprMutator {
 
     std::vector<Val*> alloc_dims;
 
-    bool has_halo = false;
     std::vector<IterDomain*> alloc_domains;
 
     info.allocation_domains = std::make_unique<std::vector<IterDomain*>>();
@@ -378,20 +347,8 @@ class AllocationInserter : public kir::ExprMutator {
 
       auto extent = concrete_id->extent();
 
-      if (gpu_lower->haloInfo()->getExtent(info.buffer->axis(axis_i)) !=
-          nullptr) {
-        has_halo = true;
-      }
-
       alloc_dims.push_back(extent);
       info.allocation_domains->push_back(local_id);
-    }
-
-    // When an axis with halo extension is detected, propagate back
-    // the halo extents from leaf IDs to root IDs
-    if (has_halo) {
-      info.has_halo = true;
-      return getNonGlobalAllocExprWithHalo(info.buffer, alloc_domains);
     }
 
     return alloc_dims;
@@ -582,7 +539,7 @@ class AllocationInserter : public kir::ExprMutator {
     }
   }
 
-  // Sends alloc_expr, info.has_halo, info.allocation_domains to GpuLower
+  // Sends alloc_expr, info.allocation_domains to GpuLower
   void writeInfoToGPULower(
       const AllocationInformation& allocation,
       kir::Allocate* alloc_expr) {
@@ -598,7 +555,6 @@ class AllocationInserter : public kir::ExprMutator {
     // Create info entry for GPULower
     auto lower_alloc_info_ptr = std::make_unique<LocalAllocationInfo>();
     lower_alloc_info_ptr->alloc_expr = alloc_expr;
-    lower_alloc_info_ptr->has_halo = allocation.has_halo;
     if (allocation.allocation_domains) {
       lower_alloc_info_ptr->alloc_domains = *(allocation.allocation_domains);
     }

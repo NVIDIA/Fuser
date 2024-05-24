@@ -10,7 +10,6 @@
 #include <exceptions.h>
 
 #include <compute_at_map.h>
-#include <device_lower/analysis/shift.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <disjoint_set.h>
 #include <ir/all_nodes.h>
@@ -184,7 +183,6 @@ class ContigIDs : public OptInDispatch {
   //! \param divisible_splits a set of all splits in the fusion that are
   //! divisible.
   //! \param ca_map compute at map of the fusion.
-  //! \param halo_info halo information of the fusion.
   //! \param concrete_info concretized broadcast information of the fusion.
   //! \param p2c_id_map map from producer to consumer ids used for indexing
   //! producer tensors.
@@ -202,7 +200,6 @@ class ContigIDs : public OptInDispatch {
       const std::unordered_map<IterDomain*, Val*>& index_map,
       const std::unordered_set<Split*>& divisible_splits,
       std::shared_ptr<const ComputeAtMap> ca_map,
-      std::shared_ptr<const HaloInfo> halo_info,
       std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info,
       std::unordered_map<IterDomain*, IterDomain*> p2c_id_map = {},
       bool ignore_indexability = false,
@@ -288,7 +285,6 @@ class ContigIDs : public OptInDispatch {
   const std::unordered_set<Split*>& divisible_splits_;
 
   std::shared_ptr<const ComputeAtMap> ca_map_;
-  std::shared_ptr<const HaloInfo> halo_info_;
   std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info_;
 
   //! Producer-to-consumer index map in the case of analyzing replayed

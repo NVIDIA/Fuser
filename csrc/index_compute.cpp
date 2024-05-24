@@ -12,7 +12,6 @@
 
 #include <contiguity.h>
 #include <device_lower/analysis/index_compute.h>
-#include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/double_buffer.h>
 #include <device_lower/pass/magic_zero.h>
@@ -47,39 +46,7 @@ int getProducerHaloOffset(
     const TensorView* producer_tv,
     size_t producer_axis,
     const TensorView* consumer_tv) {
-  // For indexing, having same extents is not required for root
-  // domains
-  auto p2c = PairwiseRootDomainMap(producer_tv, consumer_tv)
-                 .mapBroadcast(true)
-                 .mapDifferentExtents(true)
-                 .mapProducerToConsumer();
-
-  auto producer_id = producer_tv->getMaybeAllocationDomain()[producer_axis];
-
-  auto it = p2c.find(producer_id);
-  // p2c should always have a mapping for producer_id. The only case
-  // where no mapping exists for a producer axis is when it is a
-  // reduction axis. Since this function is only used for indexing
-  // producer tensors, where reduction axes are skipped, producer_id
-  // should never be a reduction axis.
-  if (it == p2c.end()) {
-    return 0;
-  }
-  IterDomain* consumer_id = it->second;
-
-  const auto& halo_map = GpuLower::current()->haloInfo();
-  const auto p_pad = halo_map->getRootAxisInfo(producer_id).width(0);
-  const auto c_pad = halo_map->getRootAxisInfo(consumer_id).width(0);
-
-  auto offset = p_pad - c_pad;
-
-  // If the consumer is a result of shifting the producer, adjust the
-  // producer index per the offsets argument of the shift op.
-  if (auto shift_op = dynamic_cast<const ShiftOp*>(consumer_tv->definition())) {
-    offset -= shift_op->offset(producer_axis);
-  }
-
-  return offset;
+  return 0;
 }
 
 //! Offset producer index when necessary
@@ -771,8 +738,7 @@ IndexCompute::IndexCompute(
     std::unordered_map<IterDomain*, Val*> extent_map,
     std::unordered_set<IterDomain*> zero_domains,
     std::unordered_set<IterDomain*> zero_merged_in,
-    std::unordered_set<IterDomain*> preferred_paths,
-    std::unordered_map<IterDomain*, Val*> halo_extent_map)
+    std::unordered_set<IterDomain*> preferred_paths)
     : IndexCompute(
           _td,
           std::move(initial_index_map),
@@ -780,8 +746,7 @@ IndexCompute::IndexCompute(
           std::move(zero_domains),
           std::move(zero_merged_in),
           ContigIDs::getNonContigIDs(),
-          std::move(preferred_paths),
-          std::move(halo_extent_map)) {}
+          std::move(preferred_paths)) {}
 
 IndexCompute::IndexCompute(
     const TensorDomain* _td,
@@ -791,7 +756,6 @@ IndexCompute::IndexCompute(
     std::unordered_set<IterDomain*> zero_merged_in,
     const ContigIDs& contig_finder,
     std::unordered_set<IterDomain*> preferred_paths,
-    std::unordered_map<IterDomain*, Val*> halo_extent_map,
     std::unordered_set<IterDomain*> unswitched_leaf_domains)
     : td_(_td),
       index_map_(std::move(initial_index_map)),
@@ -800,7 +764,6 @@ IndexCompute::IndexCompute(
       zero_merged_in_(std::move(zero_merged_in)),
       contig_ids_{contig_finder.contigIDs()},
       preferred_paths_(std::move(preferred_paths)),
-      halo_extent_map_(std::move(halo_extent_map)),
       unswitched_leaf_domains_(std::move(unswitched_leaf_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
   // Make sure we recompute any indices we can that map to a contiguous access
@@ -822,13 +785,11 @@ IndexCompute::IndexCompute(
     std::unordered_map<IterDomain*, Val*> initial_index_map,
     std::unordered_set<IterDomain*> zero_domains,
     std::unordered_set<IterDomain*> preferred_paths,
-    std::unordered_map<IterDomain*, Val*> halo_extent_map,
     std::unordered_set<IterDomain*> unswitched_leaf_domains)
     : td_{nullptr},
       index_map_(std::move(initial_index_map)),
       zero_domains_(std::move(zero_domains)),
       preferred_paths_(std::move(preferred_paths)),
-      halo_extent_map_(std::move(halo_extent_map)),
       concrete_id_pass_{true},
       swizzle_mode_{SwizzleMode::Loop},
       unswitched_leaf_domains_(std::move(unswitched_leaf_domains)) {
@@ -980,7 +941,6 @@ IndexCompute IndexCompute::updateIndexCompute(
   std::unordered_map<IterDomain*, Val*> updated_extent_map;
   std::unordered_set<IterDomain*> updated_zero_domains;
   std::unordered_set<IterDomain*> updated_zero_merged_in;
-  std::unordered_map<IterDomain*, Val*> updated_halo_extent_map;
   std::unordered_set<IterDomain*> updated_unswitched_domains;
 
   // Multile IDs can map to the same ID, so loop over the mappings in
@@ -1004,11 +964,6 @@ IndexCompute IndexCompute::updateIndexCompute(
         updated_zero_merged_in.emplace(new_id);
       }
 
-      auto halo_extent_it = halo_extent_map_.find(prev_id);
-      if (halo_extent_it != halo_extent_map_.end()) {
-        updated_halo_extent_map[new_id] = halo_extent_it->second;
-      }
-
       if (auto it = unswitched_leaf_domains_.find(prev_id);
           it != unswitched_leaf_domains_.end()) {
         updated_unswitched_domains.emplace(new_id);
@@ -1024,7 +979,6 @@ IndexCompute IndexCompute::updateIndexCompute(
       updated_zero_merged_in,
       contig_finder,
       {},
-      updated_halo_extent_map,
       updated_unswitched_domains);
 
   updated_index_compute.run();
@@ -1208,8 +1162,6 @@ class UpdateLeafIndices : public IterVisitor {
   std::unordered_map<IterDomain*, Val*> extent_map_;
 };
 
-// Returns halo-extended extent if id has halo. Otherwise, just
-// returns id->extent.
 Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
   // If id is device dim, ignore the extent which holds the unsharded extent.
   if (id->isDeviceDim()) {
@@ -1218,16 +1170,7 @@ Val* getHaloExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
     normal_extent = id->extent();
   }
 
-  const auto& halo = GpuLower::current()->haloInfo()->getRootAxisInfo(id);
-  if (halo.hasHalo()) {
-    auto halo_extent = SimplifyingIrBuilder::addExpr(
-        normal_extent,
-        SimplifyingIrBuilder::create<Val>(
-            (int64_t)halo.width(), DataType::Index));
-    return halo_extent;
-  } else {
-    return normal_extent;
-  }
+  return normal_extent;
 }
 
 } // namespace
@@ -2614,7 +2557,6 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
       concrete_index_map,
       GpuLower::current()->divisibleSplitSet(),
       GpuLower::current()->caMap(),
-      GpuLower::current()->haloInfo(),
       GpuLower::current()->concretizedBroadcastDomains(),
       {},
       false,
@@ -2696,40 +2638,7 @@ bool needsPadding(TensorView* tv) {
 int64_t getUnswitchStopOffset(
     IterDomain* consumer_root_id,
     TensorView* consumer_tv) {
-  const auto gpu_lower = GpuLower::current();
-
-  AxisHaloInfo halo_info =
-      gpu_lower->haloInfo()->getRootAxisInfo(consumer_root_id);
-
-  // If the consumer root domain to predicate does not have halo, no
-  // adjustment is required.
-  if (!halo_info.hasHalo()) {
-    return 0;
-  }
-
-  // Find if this contig_id is used in the unswitched domains
-  auto unswitch_it = std::find_if(
-      consumer_tv->getLeafDomain().begin(),
-      consumer_tv->getLeafDomain().end(),
-      [](IterDomain* id) {
-        return id->getParallelType() == ParallelType::Unswitch ||
-            id->getParallelType() == ParallelType::Unroll ||
-            id->getParallelType() == ParallelType::Vectorize;
-      });
-
-  // If any of the unswitched leaf domains inherits the halo from the
-  // root domain, the halo width needs to be added to the stop offset
-  if (std::any_of(
-          unswitch_it,
-          consumer_tv->getLeafDomain().end(),
-          [&gpu_lower, &consumer_root_id](auto leaf_id) {
-            return gpu_lower->haloInfo()->isHaloInherited(
-                consumer_root_id, leaf_id);
-          })) {
-    return halo_info.width();
-  } else {
-    return 0;
-  }
+  return 0;
 }
 
 std::pair<Val*, Val*> getStartAndStopOffsetsForShift(
@@ -2874,45 +2783,10 @@ std::pair<Val*, Val*> getStartAndStopLimitOffsets(
     IterDomain* consumer_id,
     bool padding_predicate,
     bool intemediate_domain_pred) {
-  const auto gpu_lower = GpuLower::current();
-
   NVF_ERROR(consumer_id != nullptr);
 
   Val* start_limit = consumer_id->start();
   Val* stop_limit = SimplifyingIrBuilder::negExpr(consumer_id->stopOffset());
-
-  if (!intemediate_domain_pred) {
-    AxisHaloInfo halo_info =
-        gpu_lower->haloInfo()->getRootAxisInfo(consumer_id);
-
-    // Below, "left" and "right" halo mean halo at offset zero and
-    // axis extent, respectively.
-    //
-    // The consumer axis looks like this:
-    //
-    // [0, left halo)[start_limit, stop_limit)[0, right halo)
-    //
-    if (!padding_predicate) {
-      start_limit = SimplifyingIrBuilder::addExpr(
-          start_limit, (int64_t)halo_info.width(0));
-      stop_limit = SimplifyingIrBuilder::addExpr(
-          stop_limit, (int64_t)halo_info.width(0));
-    } else {
-      // In case of the padding predicate, the whole range, including both left
-      // and right halo regions, is computed.
-      stop_limit =
-          SimplifyingIrBuilder::addExpr(stop_limit, (int64_t)halo_info.width());
-    }
-  } else {
-    // For non-divisible predicates, the index must be predicated such
-    // that it is less than the extent of the predicated ID +
-    // halo. Note that getRootAxisInfo doesn't work since consumer_id
-    // isn't a root domain.
-    if (gpu_lower->haloInfo()->hasHaloWidth(consumer_id)) {
-      auto halo = gpu_lower->haloInfo()->getHaloWidth(consumer_id);
-      stop_limit = SimplifyingIrBuilder::addExpr(stop_limit, (int64_t)halo);
-    }
-  }
 
   return {start_limit, stop_limit};
 }

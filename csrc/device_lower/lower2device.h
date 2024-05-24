@@ -12,7 +12,6 @@
 #include <compute_at_map.h>
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/predicate_elimination.h>
-#include <device_lower/analysis/shift.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/analysis/trivial_broadcast.h>
@@ -108,10 +107,6 @@ class GpuLower : public NonCopyable {
 
   std::shared_ptr<const ComputeAtMap> caMap() const {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
-  }
-
-  std::shared_ptr<const HaloInfo> haloInfo() const {
-    return std::const_pointer_cast<const HaloInfo>(halo_info_);
   }
 
   const ParallelDimensionMap& parallelDimensionMap() const {
@@ -294,7 +289,6 @@ class GpuLower : public NonCopyable {
   ThreadPredicateMap thread_pred_map_;
   std::unique_ptr<PredicateElimination> pred_elimination_;
   std::shared_ptr<ComputeAtMap> compute_at_map_;
-  std::shared_ptr<HaloInfo> halo_info_;
   LocalAllocationInfoMap local_allocation_info_map_;
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;

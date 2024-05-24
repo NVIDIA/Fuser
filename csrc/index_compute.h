@@ -293,8 +293,7 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_map<IterDomain*, Val*> _extent_map,
       std::unordered_set<IterDomain*> zero_domains,
       std::unordered_set<IterDomain*> _zero_merged_in,
-      std::unordered_set<IterDomain*> preferred_paths = {},
-      std::unordered_map<IterDomain*, Val*> halo_extent_map = {});
+      std::unordered_set<IterDomain*> preferred_paths = {});
 
   IndexCompute(
       const TensorDomain* _td,
@@ -304,7 +303,6 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_set<IterDomain*> _zero_merged_in,
       const ContigIDs& contig_finder,
       std::unordered_set<IterDomain*> preferred_paths = {},
-      std::unordered_map<IterDomain*, Val*> halo_extent_map = {},
       std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Entry point used for using concrete id based traversal. This traversal is
@@ -313,7 +311,6 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_map<IterDomain*, Val*> initial_index_map,
       std::unordered_set<IterDomain*> zero_domains,
       std::unordered_set<IterDomain*> preferred_paths,
-      std::unordered_map<IterDomain*, Val*> concrete_halo_extent_map,
       std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Updates index_map, extent_map, and zero_merged_in based on id_map and

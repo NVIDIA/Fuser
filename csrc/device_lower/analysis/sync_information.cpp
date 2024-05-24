@@ -576,54 +576,37 @@ SyncMap::SyncMap(Fusion* fusion) {
 
           if (p_id == nullptr && c_id == nullptr) {
             continue;
-          } else if (p_id != nullptr && c_id != nullptr) {
-            if (GpuLower::current()->caMap()->areMapped(
-                    p_id, c_id, IdMappingMode::PERMISSIVE)) {
-              const auto halo_info = GpuLower::current()->haloInfo();
+          } else if (p_id != nullptr && c_id == nullptr) {
+            auto it = std::find_if(
+                consumer->getLeafDomain().begin(),
+                consumer->getLeafDomain().end(),
+                [&](IterDomain* c_id) {
+                  return GpuLower::current()->caMap()->areMapped(
+                      p_id, c_id, IdMappingMode::PERMISSIVE);
+                });
 
-              if (halo_info->hasHaloWidth(p_id) !=
-                      halo_info->hasHaloWidth(c_id) ||
-                  (halo_info->hasHaloWidth(p_id) &&
-                   halo_info->hasHaloWidth(c_id) &&
-                   halo_info->getHaloWidth(p_id) !=
-                       halo_info->getHaloWidth(c_id))) {
-                raw_dims.set(parallel_type);
-                continue;
-              }
+            // If there isn't a mapping from producer to a consumer domain,
+            // need to assume there's communication across this parallel
+            // dimension.
+            c_id = it == consumer->getLeafDomain().end() ? nullptr : *it;
+            // i.e. if producer is parallelized across threadIdx.x in a
+            // certain split, if the consumer doesn't map to this split,
+            // then we need to assume it has to be in smem with proper
+            // syncs.
+          } else if (p_id == nullptr && c_id != nullptr) {
+            auto it = std::find_if(
+                producer->getLeafDomain().begin(),
+                producer->getLeafDomain().end(),
+                [&](IterDomain* p_id) {
+                  return GpuLower::current()->caMap()->areMapped(
+                      p_id, c_id, IdMappingMode::PERMISSIVE);
+                });
+            if (it == producer->getLeafDomain().end()) {
+              // Can't infer anything if producer doesn't have a matching axis
+              // to parallel consumer dim.
+              continue;
             }
-          } else {
-            if (p_id != nullptr) {
-              auto it = std::find_if(
-                  consumer->getLeafDomain().begin(),
-                  consumer->getLeafDomain().end(),
-                  [&](IterDomain* c_id) {
-                    return GpuLower::current()->caMap()->areMapped(
-                        p_id, c_id, IdMappingMode::PERMISSIVE);
-                  });
-
-              // If there isn't a mapping from producer to a consumer domain,
-              // need to assume there's communication across this parallel
-              // dimension.
-              c_id = it == consumer->getLeafDomain().end() ? nullptr : *it;
-              // i.e. if producer is parallelized across threadIdx.x in a
-              // certain split, if the consumer doesn't map to this split,
-              // then we need to assume it has to be in smem with proper
-              // syncs.
-            } else {
-              auto it = std::find_if(
-                  producer->getLeafDomain().begin(),
-                  producer->getLeafDomain().end(),
-                  [&](IterDomain* p_id) {
-                    return GpuLower::current()->caMap()->areMapped(
-                        p_id, c_id, IdMappingMode::PERMISSIVE);
-                  });
-              if (it == producer->getLeafDomain().end()) {
-                // Can't infer anything if producer doesn't have a matching axis
-                // to parallel consumer dim.
-                continue;
-              }
-              p_id = *it;
-            }
+            p_id = *it;
           }
 
           // Comm pattern options (when parallel types don't have matching
