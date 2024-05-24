@@ -684,10 +684,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // unroll
     iter_unroll_factor = std::min(2L, opt_max_vect);
 
-    if(std::getenv("VECT") != nullptr){
-      iter_unroll_factor = std::stoi(std::getenv("VECT"));
-      opt_max_vect = iter_unroll_factor;
-    }
 
     // calculate the number of blocks needed
     gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
@@ -751,6 +747,14 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     is_block_reduction =
         gidim <= device_multiprocessor_count && gidim >= required_blocks;
     is_block_reduction = true;
+
+    if(std::getenv("VECT") != nullptr){
+      iter_unroll_factor = std::stoi(std::getenv("VECT"));
+      bdimx = 8;
+      bdimy = 32;
+      gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
+      inner_reduction_unroll_factor = scheduler_utils::safeDiv(16, iter_unroll_factor);
+    }    
   }else{
     // warp reduction requires bdimx <= 32, prefer 8
     bdimx = 8;
