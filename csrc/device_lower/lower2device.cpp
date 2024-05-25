@@ -11,7 +11,6 @@
 #include <debug.h>
 #include <device_lower/analysis/device_version.h>
 #include <device_lower/analysis/divisible_split.h>
-#include <device_lower/analysis/shift.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/double_buffer.h>
@@ -444,17 +443,13 @@ void GpuLower::analysis(Fusion* fusion) {
   fuseReductionsAndBroadcasts(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
-  // Scan the whole fusion and build mappings about halo extensions of
-  // all IterDomains
-  halo_info_ = std::make_shared<HaloInfo>(fusion_, compute_at_map_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build HaloInfo");
-
-  // Want to run this after parallel map and halo info map are
-  // created. vectorized_accesses_ and vectorized_set_info_ are filled.
+  // Want to run this after parallel map is
+  // created. vectorized_accesses_ and vectorized_set_info_ are
+  // filled.
   validateAndCollectVectorizeInfo(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
 
-  // Depends on ComputeAtMap and HaloInfo.
+  // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
 
@@ -475,12 +470,6 @@ void GpuLower::analysis(Fusion* fusion) {
     debug() << sync_map_->toString() << std::endl;
   }
   dumpExprsIfEnabled(fusion_->exprs(), "SyncMap");
-
-  partialSplitMap().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build partialSplitMap");
-
-  validatePartialSplit(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validatePartialSplit");
 
   nonDivisibleSplitInfo().build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build nonDivisibleSplitInfo");

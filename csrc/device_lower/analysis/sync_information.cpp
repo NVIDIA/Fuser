@@ -576,54 +576,37 @@ SyncMap::SyncMap(Fusion* fusion) {
 
           if (p_id == nullptr && c_id == nullptr) {
             continue;
-          } else if (p_id != nullptr && c_id != nullptr) {
-            if (GpuLower::current()->caMap()->areMapped(
-                    p_id, c_id, IdMappingMode::PERMISSIVE)) {
-              const auto halo_info = GpuLower::current()->haloInfo();
+          } else if (p_id != nullptr && c_id == nullptr) {
+            auto it = std::find_if(
+                consumer->getLeafDomain().begin(),
+                consumer->getLeafDomain().end(),
+                [&](IterDomain* c_id) {
+                  return GpuLower::current()->caMap()->areMapped(
+                      p_id, c_id, IdMappingMode::PERMISSIVE);
+                });
 
-              if (halo_info->hasHaloWidth(p_id) !=
-                      halo_info->hasHaloWidth(c_id) ||
-                  (halo_info->hasHaloWidth(p_id) &&
-                   halo_info->hasHaloWidth(c_id) &&
-                   halo_info->getHaloWidth(p_id) !=
-                       halo_info->getHaloWidth(c_id))) {
-                raw_dims.set(parallel_type);
-                continue;
-              }
+            // If there isn't a mapping from producer to a consumer domain,
+            // need to assume there's communication across this parallel
+            // dimension.
+            c_id = it == consumer->getLeafDomain().end() ? nullptr : *it;
+            // i.e. if producer is parallelized across threadIdx.x in a
+            // certain split, if the consumer doesn't map to this split,
+            // then we need to assume it has to be in smem with proper
+            // syncs.
+          } else if (p_id == nullptr && c_id != nullptr) {
+            auto it = std::find_if(
+                producer->getLeafDomain().begin(),
+                producer->getLeafDomain().end(),
+                [&](IterDomain* p_id) {
+                  return GpuLower::current()->caMap()->areMapped(
+                      p_id, c_id, IdMappingMode::PERMISSIVE);
+                });
+            if (it == producer->getLeafDomain().end()) {
+              // Can't infer anything if producer doesn't have a matching axis
+              // to parallel consumer dim.
+              continue;
             }
-          } else {
-            if (p_id != nullptr) {
-              auto it = std::find_if(
-                  consumer->getLeafDomain().begin(),
-                  consumer->getLeafDomain().end(),
-                  [&](IterDomain* c_id) {
-                    return GpuLower::current()->caMap()->areMapped(
-                        p_id, c_id, IdMappingMode::PERMISSIVE);
-                  });
-
-              // If there isn't a mapping from producer to a consumer domain,
-              // need to assume there's communication across this parallel
-              // dimension.
-              c_id = it == consumer->getLeafDomain().end() ? nullptr : *it;
-              // i.e. if producer is parallelized across threadIdx.x in a
-              // certain split, if the consumer doesn't map to this split,
-              // then we need to assume it has to be in smem with proper
-              // syncs.
-            } else {
-              auto it = std::find_if(
-                  producer->getLeafDomain().begin(),
-                  producer->getLeafDomain().end(),
-                  [&](IterDomain* p_id) {
-                    return GpuLower::current()->caMap()->areMapped(
-                        p_id, c_id, IdMappingMode::PERMISSIVE);
-                  });
-              if (it == producer->getLeafDomain().end()) {
-                // Can't infer anything if producer doesn't have a matching axis
-                // to parallel consumer dim.
-                continue;
-              }
-              p_id = *it;
-            }
+            p_id = *it;
           }
 
           // Comm pattern options (when parallel types don't have matching
@@ -673,53 +656,6 @@ SyncMap::SyncMap(Fusion* fusion) {
             if (!ir_utils::getAllSwizzlesBetween(
                      producer->getMaybeRFactorDomain(), {p_id})
                      .empty()) {
-              raw_dims.set(producer_ptype);
-            }
-          }
-
-          // In shift or gather operations, if a thread or block
-          // domain's root ID is shifted or gathered, it can overlap
-          // in shared or global memory. This doesn't
-          // require a RAW sync since each thread would still write every value
-          // it would read, but it can require a WAR sync for Shared Memory.
-          // Since there isn't a separate structure for WAR than RAW for now
-          // we'll flag it on RAW which will trigger the WAR.
-          // See test FusionValidateParallelizeShift_CUDA for a
-          // concrete example where this sync is required.
-          if ((expr->isOneOf<GatherOp, ShiftOp>()) &&
-              producer->getMemoryType() == MemoryType::Shared &&
-              isParallelTypeThreadDim(producer_ptype)) {
-            std::unordered_set<Val*> shifted_rfactor_ids;
-            if (expr->isA<GatherOp>()) {
-              auto gather_op = expr->as<GatherOp>();
-              for (auto root_i :
-                   c10::irange(producer->getMaybeRFactorDomain().size())) {
-                auto rfactor_id = producer->getMaybeRFactorDomain()[root_i];
-                // If the window shape is 1, it just copies the
-                // producer to the consumer
-                if (gather_op->windowShape()[root_i] != 1) {
-                  shifted_rfactor_ids.insert(rfactor_id);
-                }
-              }
-            } else if (expr->isA<ShiftOp>()) {
-              auto shift_op = expr->as<ShiftOp>();
-              for (auto root_i :
-                   c10::irange(producer->getMaybeRFactorDomain().size())) {
-                auto rfactor_id = producer->getMaybeRFactorDomain()[root_i];
-                // If the shift offset is 0, it doesn't actually shift
-                if (shift_op->offsets()[root_i] != 0) {
-                  shifted_rfactor_ids.insert(rfactor_id);
-                }
-              }
-            }
-
-            // Grab all values between shifted rfactor domains and p_id so we
-            // can identify which rfactor domains are inputs to the p_id
-            auto p_id_dep_vals =
-                DependencyCheck::getAllValsBetween(shifted_rfactor_ids, {p_id});
-            // If this shifted rfactor domain is an input to p_id, we
-            // must have a WAR sync. Mark raw sync so it will be generated.
-            if (!p_id_dep_vals.empty()) {
               raw_dims.set(producer_ptype);
             }
           }

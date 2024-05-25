@@ -1219,24 +1219,6 @@ void ComputeAtRootDomainMapBuilder::handle(ViewAsScalar* op) {
       "The last dim of ViewDtypeOp's output must be a ViewAsScalar");
 }
 
-void ComputeAtRootDomainMapBuilder::handle(GatherOp* op) {
-  const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
-  const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
-  const auto in_root = TensorDomain::noReductions(in_td->maybeRFactor());
-  const auto& out_root = out_td->root();
-
-  // Only maps the input root axes. Do not map the new window axes.
-  for (const auto it : c10::irange(in_root.size())) {
-    setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
-  }
-
-  // Keep track of window axes so that they can be skipped when
-  // mapping root domains
-  for (const auto it : c10::irange(in_root.size(), out_root.size())) {
-    root_map_.window_axes_.insert(out_root[it]);
-  }
-}
-
 void ComputeAtRootDomainMapBuilder::mapAllPendingMappings(
     const DomainKey& key) {
   auto it = pending_map_.find(key);

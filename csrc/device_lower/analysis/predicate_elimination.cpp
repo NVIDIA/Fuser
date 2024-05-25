@@ -7,7 +7,6 @@
 // clang-format on
 #include <device_lower/analysis/predicate_elimination.h>
 
-#include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
@@ -234,8 +233,8 @@ class PredicateChcker : public IterVisitor {
   void dispatch(Expr* expr) final {
     const bool needs_predicate_smem_access = predicateSharedMemAccess(expr);
     needs_predicate_ = predicateIntDiv(expr) ||
-        predicateMisalignedVectorize(expr) || predicateShift(expr) ||
-        needs_predicate_smem_access || predicateProducerConsumerPair(expr) ||
+        predicateMisalignedVectorize(expr) || needs_predicate_smem_access ||
+        predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
@@ -353,19 +352,6 @@ class PredicateChcker : public IterVisitor {
       }
     }
     RECORD_AND_RETURN(false);
-  }
-
-  // Shift is not supported yet.
-  bool predicateShift(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
-    auto halo_info = GpuLower::current()->haloInfo();
-    auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
-    RECORD_AND_RETURN(
-        halo_info->needsShiftPredicate(expr) ||
-        std::any_of(input_tvs.begin(), input_tvs.end(), [&](auto input_tv) {
-          return input_tv->definition() != nullptr &&
-              halo_info->needsShiftPredicate(input_tv->definition());
-        }));
   }
 
   // Predicates the expression if any producer-consumer pair of the
