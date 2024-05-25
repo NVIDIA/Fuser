@@ -901,18 +901,13 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   for (auto [tv_smem, tv_r] :
        {std::make_pair(acw_smem, &acr), std::make_pair(bcw_smem, &bcr)}) {
-    auto producer = tv_smem;
-    auto consumer = tv_smem->uses().at(0)->output(0)->as<TensorView>();
-    auto toTranspose = needsTranposedLoad(producer, consumer);
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
       *tv_r = ldst->out()->as<TensorView>();
-      ldst->setOpType(
-          toTranspose ? LoadStoreOpType::LdMatrixTranspose
-                      : LoadStoreOpType::LdMatrix);
     } else {
       *tv_r = tv_smem->cacheAfter(
-          toTranspose ? LoadStoreOpType::LdMatrixTranspose
-                      : LoadStoreOpType::LdMatrix);
+          LoadStoreOpType::Set,
+          CacheOp::Unspecified,
+          false /* propagate allocation*/);
     }
   }
 

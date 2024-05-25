@@ -2916,7 +2916,7 @@ TEST_F(MatmulSchedulerTest, FusionAmpereMatmul_CUDA) {
 
   auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
   auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
-  // tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -2950,8 +2950,7 @@ TEST_F(MatmulSchedulerTest, FusionAmpereMatmul_CUDA) {
   const auto options =
       at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
   auto t0 = at::randn({M, K}, options);
-  // auto t1 = at::randn({K, N}, options).as_strided({K, N}, {1, K});
-  auto t1 = at::randn({K, N}, options);
+  auto t1 = at::randn({K, N}, options).as_strided({K, N}, {1, K});
 
   FusionExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -3016,8 +3015,6 @@ TEST_F(MatmulSchedulerTest, FusionAmpereMatmulWithPrologue) {
       fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   auto cg_outputs = fe.runFusion({t0, t1});
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
-  std::cout << tref << std::endl;
-  std::cout << cg_outputs[0] << std::endl;
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.1, 0.1));
 }
 
