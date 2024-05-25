@@ -2899,24 +2899,28 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    MatmulSchedulerTest,
-    AllocationDomainTest,
-    testing::Combine(testing::Bool(), testing::Bool()));
-
-#undef NVFUSER_TEST_CUDA_ARCH_GUARD
-
 // Matmul test for Ampere MMA: across supported layouts
-TEST_F(MatmulSchedulerTest, FusionAmpereMatmul_CUDA) {
+TEST_P(AllocationDomainTest, FusionAmpereMatmul_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 512, N = 128, K = 256;
+
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<0>(GetParam());
 
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
   auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
-  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+
+  if (a_m_inner) {
+    tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+  }
+
+  if (b_k_inner) {
+    tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+  }
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -2949,8 +2953,10 @@ TEST_F(MatmulSchedulerTest, FusionAmpereMatmul_CUDA) {
 
   const auto options =
       at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
-  auto t0 = at::randn({M, K}, options);
-  auto t1 = at::randn({K, N}, options).as_strided({K, N}, {1, K});
+  auto t0 = a_m_inner ? at::randn({M, K}, options).as_strided({M, K}, {1, M})
+                      : at::randn({M, K}, options);
+  auto t1 = b_k_inner ? at::randn({K, N}, options).as_strided({K, N}, {1, K})
+                      : at::randn({K, N}, options);
 
   FusionExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -2962,16 +2968,27 @@ TEST_F(MatmulSchedulerTest, FusionAmpereMatmul_CUDA) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
-TEST_F(MatmulSchedulerTest, FusionAmpereMatmulWithPrologue) {
+TEST_P(AllocationDomainTest, FusionAmpereMatmulWithPrologue) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 512, N = 128, K = 256;
+
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<0>(GetParam());
 
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
   auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
-  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+
+  if (a_m_inner) {
+    tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+  }
+
+  if (b_k_inner) {
+    tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+  }
 
   fusion.addInput(tv0);
   fusion.addInput(tv1);
@@ -3005,8 +3022,10 @@ TEST_F(MatmulSchedulerTest, FusionAmpereMatmulWithPrologue) {
 
   const auto options =
       at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
-  auto t0 = at::randn({M, K}, options);
-  auto t1 = at::randn({K, N}, options).as_strided({K, N}, {1, K});
+  auto t0 = a_m_inner ? at::randn({M, K}, options).as_strided({M, K}, {1, M})
+                      : at::randn({M, K}, options);
+  auto t1 = b_k_inner ? at::randn({K, N}, options).as_strided({K, N}, {1, K})
+                      : at::randn({K, N}, options);
 
   FusionExecutor fe;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
@@ -3017,5 +3036,12 @@ TEST_F(MatmulSchedulerTest, FusionAmpereMatmulWithPrologue) {
   auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.1, 0.1));
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    MatmulSchedulerTest,
+    AllocationDomainTest,
+    testing::Combine(testing::Bool(), testing::Bool()));
+
+#undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
