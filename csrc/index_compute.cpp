@@ -2503,8 +2503,8 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     auto stop_offset = info.stop_offset_;
     auto offsetted_stop_index =
         SimplifyingIrBuilder::addExpr(stop_index, stop_offset);
-    auto stop_pred = SimplifyingIrBuilder::ltExpr(
-        offsetted_stop_index, contig_id->extent());
+    auto stop_pred =
+        SimplifyingIrBuilder::ltExpr(offsetted_stop_index, contig_id->extent());
     info.stop_predicate_ = stop_pred;
 
     for (auto consumer_id : contig_id_entry.covered_ids) {
