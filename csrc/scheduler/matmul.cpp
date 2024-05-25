@@ -749,38 +749,45 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
-  mma_utils::CombineMulSum combiner(fusion);
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
-  if (combiner.isValid() && mma_ops.empty()) {
-    combiner.replaceWithMmaOp();
-    mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion);
+  NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
+  NVF_ERROR(
+      patterns.size() == 1,
+      "Only a single matmul pattern can currently be fused");
+  std::vector<MmaOp*> mma_ops;
+  mma_ops.reserve(patterns.size());
+  for (mma_utils::MatmulPattern& pattern : patterns) {
+    mma_ops.push_back(pattern.translateToMmaOp());
   }
 
-  NVF_ERROR(
-      mma_ops.size() == 1,
-      "scheduleMatmul supports fusion with single mma op in definition, got ",
-      mma_ops.size());
+  IdModel id_model(fusion);
+  std::unordered_map<ValGroup, MatmulDomain> id_roles =
+      patterns.front().getDimRoles(id_model);
+  const auto& tensor_roles_opt =
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
 
-  const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
-
-  // NOTE: the contents of roles_map have been already validated during
+  // NOTE: the contents of tensor_roles have been already validated during
   //  compute-time checks
-  NVF_ERROR(roles_map_opt.isValid(), roles_map_opt.getErrorMsg());
-  const auto roles_map = roles_map_opt.getData();
+  NVF_ERROR(tensor_roles_opt.isValid(), tensor_roles_opt.getErrorMsg());
+  const auto tensor_roles = tensor_roles_opt.getData();
+
+  const mma_utils::MatmulProblemLayoutOpt fusion_layout =
+      mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
+  NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
   // Core roles: there can be only one... TV with assigned core role
-  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
-  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  TensorView* a = tensor_roles.at(MatmulRole::INPUT_A).front();
+  TensorView* b = tensor_roles.at(MatmulRole::INPUT_B).front();
+
+  const auto& gemm_tile = params.tile_sizes;
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion);
-  NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
-
-  const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
-  const bool has_fusion_c_roles = (0 != roles_map.count(MatmulRole::INPUT_C));
+  const bool has_fusion_c_roles =
+      (0 != tensor_roles.count(MatmulRole::INPUT_C));
   const bool has_non_mma_input_tvs = has_epilogue && has_fusion_c_roles;
 
   // Including current tensor naming convention for reference,
@@ -1227,7 +1234,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  operations, input tvs with non-core roles
   //  core roles: essential for matmul, for example mma inputs' producers
   if (has_non_mma_input_tvs) {
-    scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
+    scheduleFusionInputsForEpilogue(tensor_roles, params.use_smem_epilogue);
   }
 
   scheduleSplitKSum(
