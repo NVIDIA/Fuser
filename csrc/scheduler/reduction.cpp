@@ -750,11 +750,12 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
     if(std::getenv("VECT") != nullptr){
       iter_unroll_factor = std::stoi(std::getenv("VECT"));
-      bdimx = 8;
+      bdimx = 16;
       bdimy = 32;
       gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
       inner_reduction_unroll_factor = scheduler_utils::safeDiv(16, iter_unroll_factor);
     }    
+
   }else{
     // warp reduction requires bdimx <= 32, prefer 8
     bdimx = 8;
@@ -791,6 +792,14 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       bdimy *= 2;
     }
     is_block_reduction = true;
+
+    if(std::getenv("VECT") != nullptr){
+      iter_unroll_factor = std::stoi(std::getenv("VECT"));
+      bdimx = 16;
+      bdimy = 32;
+      gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
+      inner_reduction_unroll_factor = scheduler_utils::safeDiv(16, iter_unroll_factor);
+    }     
   }
 
   // grid reduction
