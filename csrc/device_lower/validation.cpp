@@ -140,22 +140,7 @@ void validateIterDomainUsage(Fusion* fusion) {
   std::unordered_map<IterDomain*, TensorView*> domain_use_map;
 
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    std::unordered_set<Val*> root_domains;
-    std::copy(
-        tv->getRootDomain().begin(),
-        tv->getRootDomain().end(),
-        std::inserter(root_domains, root_domains.begin()));
-
-    std::vector<Val*> leaf_domains;
-    std::copy(
-        tv->getLeafDomain().begin(),
-        tv->getLeafDomain().end(),
-        std::back_inserter(leaf_domains));
-
-    auto all_domain_vals =
-        DependencyCheck::getAllValsBetween(root_domains, leaf_domains);
-
-    for (auto id : ir_utils::filterByType<IterDomain>(all_domain_vals)) {
+    for (auto id : ir_utils::allIDsOf(tv)) {
       auto it = domain_use_map.find(id);
       NVF_ERROR(
           it == domain_use_map.end(),
