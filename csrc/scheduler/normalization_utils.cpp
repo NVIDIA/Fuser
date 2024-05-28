@@ -1136,10 +1136,10 @@ bool checkReductionPattern(
               rtvs[it - 1], rtvs[it], root_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedule_heuristic,
-            "Unmapped reduction ",
-            rtvs[it - 1],
+            "Un-mapped multi-reduction: ",
+            rtvs[it - 1]->toString(),
             " and ",
-            rtvs[it]);
+            rtvs[it]->toString());
         return false;
       }
     }
@@ -1237,7 +1237,7 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
       if (reduction_root_size(red) != axis_count) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedule_heuristic,
-            "inconsistent reduction root size: ",
+            "Inconsistent reduction root size: ",
             red->toString(),
             ", expected: ",
             axis_count);

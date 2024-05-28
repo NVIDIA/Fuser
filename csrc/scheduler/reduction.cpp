@@ -954,9 +954,9 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
         if (reduction_root_size(red) != axis_count) {
           scheduler_debug_utils::canScheduleRejectReason(
               heuristicType(),
-              "Inconsistent reduction axes ",
-              red,
-              "is not ",
+              "Inconsistent reduction root size: ",
+              red->toString(),
+              ", expected: ",
               axis_count);
           return false;
         }
@@ -976,7 +976,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
             heuristicType(),
             "Un-mapped multi-reduction: ",
             reduction_tvs[it - 1]->toString(),
-            " ",
+            " and ",
             reduction_tvs[it]->toString());
         return false;
       }
