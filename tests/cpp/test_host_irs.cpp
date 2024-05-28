@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <iostream>
 
+#include <c10/cuda/CUDAStream.h>
+
 namespace nvfuser {
 
 namespace hir {
@@ -424,6 +426,18 @@ INSTANTIATE_TEST_SUITE_P(
       s += std::get<1>(info.param) ? "_usePreallocatedOutputs" : "";
       return s;
     });
+
+TEST_F(NVFuserTest, HostIrSetStream) {
+    auto hic = std::make_unique<HostIrContainer>();
+    auto stream = IrBuilder::create<StreamIr>(static_cast<IrContainer*>(hic.get()));
+    auto set_stream = IrBuilder::create<SetCurrentStream>(static_cast<IrContainer*>(hic.get()), stream);
+	hic->pushBackTopLevelExprs(set_stream);
+
+	HostIrExecutor hie(std::move(hic));
+	setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
+	hie.runWithInput({});
+	EXPECT_NE(c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+}
 
 } // namespace hir
 
