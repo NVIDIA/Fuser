@@ -130,6 +130,31 @@ class StreamIr : public Val {
   static int running_counter_;
 };
 
+class SetCurrentStream : public Expr {
+ public:
+  using Expr::Expr;
+  SetCurrentStream(IrBuilderPasskey passkey, StreamIr* stream);
+
+  SetCurrentStream(const SetCurrentStream& other) = delete;
+  SetCurrentStream& operator=(const SetCurrentStream& other) = delete;
+  SetCurrentStream(SetCurrentStream&& other) = delete;
+  SetCurrentStream& operator=(SetCurrentStream&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::SetCurrentStream";
+  }
+
+  bool sameAs(const Statement* other) const override;
+
+  StreamIr* stream() const {
+    return attributes_.at(0)->as<StreamIr>();
+  }
+};
+
 } // namespace hir
 
 } // namespace nvfuser

@@ -139,7 +139,8 @@ class Val;
   f(EncodeTensorMapTiled);
 #define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
   f(HostUnit);                        \
-  f(PostOnStream);
+  f(PostOnStream);                    \
+  f(SetCurrentStream);
 
 // Forward declarations for all Val and Expr types
 
