@@ -90,7 +90,7 @@ class ArgumentManager {
         fusion_inputs, runtime_workspace.group_extent_binding_order);
     setLastUsedSegmentID(runtime_workspace.group_run_order);
   }
-  const std::unordered_map<Val*, const PolymorphicValue*>& getTensorMap() {
+  const TensorMapType& getTensorMap() {
     return tensor_map_;
   }
   const PolymorphicValue* checkTensorMap(Val* v) {
@@ -108,10 +108,14 @@ class ArgumentManager {
     deleteUnusedArgs(group_id);
   }
 
+  void updateTensorMap(TensorMapType tensor_map) {
+    tensor_map_.merge(tensor_map);
+  }
+
  private:
   KernelArgumentHolder& fusion_args_;
   // map from val to args
-  std::unordered_map<Val*, const PolymorphicValue*> tensor_map_;
+  TensorMapType tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
   std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
 
@@ -517,7 +521,7 @@ bool FusionExecutorCache::isCompiled(
 // Bookkeeping and Propagation in Parser ]
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs,
-    const std::vector<at::Tensor>& preallocated_outputs,
+    const TensorMapType& preallocated_outputs,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
@@ -1405,7 +1409,7 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
 
 std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs) {
+    const TensorMapType& outputs) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -1414,7 +1418,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   }
 
   c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
-  const auto& tensor_map = runSegmentsWithInputs(args, outputs);
+  const auto& tensor_map = runSegmentsWithInputs(args, outputs); // should take a tensor_map as input here
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "============= FINISHED RUNNING FUSION SEGMENTS ============"
@@ -1436,10 +1440,10 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   return fusion_outputs;
 }
 
-std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
+TensorMapType FusionKernelRuntime::
     runSegmentsWithInputs(
         KernelArgumentHolder& args,
-        const std::vector<at::Tensor>& outputs) {
+        const TensorMapType& outputs) {
   NVF_ERROR(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
@@ -1476,9 +1480,17 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     // TODO: currently we are still outputing PyTorch tensors, instead of
     // something abstract. This is quite unsatisfying.
 
+    // here we can add the right tensors to args_manager.
+    args_manager.updateTensorMap(outputs);
+    std::vector<at::Tensor> group_runtime_outputs;
+    for (auto output : group_to_run->outputs()) {
+      if (args_manager.getTensorMap().count(output)) {
+        group_runtime_outputs.push_back(args_manager.checkTensorMap(output)->as<at::Tensor>());
+      }
+    }
     // Run graph segment
-    std::vector<at::Tensor> group_runtime_outputs =
-        runKernelWithInput(group_runtime_inputs, group_to_run, outputs);
+    group_runtime_outputs =
+        runKernelWithInput(group_runtime_inputs, group_to_run, group_runtime_outputs);
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
