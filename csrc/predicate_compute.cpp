@@ -394,8 +394,7 @@ Val* PredicateCompute::getInlinePredicate(
         out_tv,
         loops,
         rotated_loops,
-        nullptr,
-        pred_type == PredicateType::Padding);
+        nullptr);
   }
 
   std::vector<Val*> preds;
@@ -502,7 +501,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
         out_tv, tv_expr, for_loops_, is_unswitch);
   } else {
     ref_pred_info = Index::getReferenceRootPredicates(
-        out_tv, for_loops_, rotated_loop_, unrolled_loop_, false);
+        out_tv, for_loops_, rotated_loop_, unrolled_loop_);
   }
 
   // If RootPredicateInfo has a static predicate that is more

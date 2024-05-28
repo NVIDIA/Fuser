@@ -157,9 +157,6 @@ class IndexCompute : public BackwardVisitor {
   // if there's an option
   std::unordered_set<IterDomain*> preferred_paths_;
 
-  // Map from IterDomains to halo-extended extents
-  std::unordered_map<IterDomain*, Val*> halo_extent_map_;
-
   // Temporary flag which tells IndexCompute to use concrete id's from the exact
   // map rather than the actual IDs used in the ID expressions.
   bool concrete_id_pass_ = false;
@@ -294,8 +291,7 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_map<IterDomain*, Val*> _extent_map,
       std::unordered_set<IterDomain*> zero_domains,
       std::unordered_set<IterDomain*> _zero_merged_in,
-      std::unordered_set<IterDomain*> preferred_paths = {},
-      std::unordered_map<IterDomain*, Val*> halo_extent_map = {});
+      std::unordered_set<IterDomain*> preferred_paths = {});
 
   IndexCompute(
       const TensorDomain* _td,
@@ -305,7 +301,6 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_set<IterDomain*> _zero_merged_in,
       const ContigIDs& contig_finder,
       std::unordered_set<IterDomain*> preferred_paths = {},
-      std::unordered_map<IterDomain*, Val*> halo_extent_map = {},
       std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Entry point used for using concrete id based traversal. This traversal is
@@ -314,7 +309,6 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_map<IterDomain*, Val*> initial_index_map,
       std::unordered_set<IterDomain*> zero_domains,
       std::unordered_set<IterDomain*> preferred_paths,
-      std::unordered_map<IterDomain*, Val*> concrete_halo_extent_map,
       std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Updates index_map, extent_map, and zero_merged_in based on id_map and
@@ -583,8 +577,7 @@ class Index {
       TensorView* consumer_tv,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
-      kir::ForLoop* unswitch_or_vec_loop,
-      bool padding_predicate);
+      kir::ForLoop* unswitch_or_vec_loop);
 
   //! Compute the result for iota
   static Val* iota(

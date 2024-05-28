@@ -99,9 +99,6 @@ struct IndexingParameters {
   //!  be propagating contiguously merged indices backward.
   std::unordered_set<IterDomain*> preferred_concrete_ids;
 
-  //! The inferred halo padded extents of the concrete iterdomains.
-  std::unordered_map<IterDomain*, Val*> concrete_id_to_halo_extent;
-
   //! Unswitched concrete domains. Back-traversing through the inner
   //! domain of a merge may need to be replaced with the maximum of
   //! the inner domain.
@@ -129,11 +126,6 @@ IndexingParameters getLinearIndexParameters(
           loop_index_map.at(index_domain), loop->step());
     }
   }
-
-  // Derive the halo extents from the loop indexing result.
-  index_parameters.concrete_id_to_halo_extent =
-      GpuLower::current()->haloInfo()->buildConcreteHaloExtentMap(
-          loop_indexing);
 
   protectNonPredicateIndexWithMagicZero(
       loops,
@@ -242,11 +234,6 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   const TensorView* target_tv = index_producer ? producer_tv : consumer_tv;
   index_parameters.preferred_concrete_ids = buildLoopIndexingPreferredPath(
       target_tv, loop_indexing, index_producer, p2c_map);
-
-  // Derive the halo extents from the loop indexing result.
-  index_parameters.concrete_id_to_halo_extent =
-      GpuLower::current()->haloInfo()->buildConcreteHaloExtentMap(
-          loop_indexing);
 
   return index_parameters;
 }
@@ -458,11 +445,6 @@ IndexingParameters getPredicateInitialIndexParameters(
   // Note that, unlike non-predicate indexing, magic-zero insertion is
   // not done at this point but is done individually for each indexed
   // domain. See Index::getReferenceRootPredicates.
-
-  // Derive the halo extents from the loop indexing result.
-  index_parameters.concrete_id_to_halo_extent =
-      GpuLower::current()->haloInfo()->buildConcreteHaloExtentMap(
-          loop_indexing);
 
   return index_parameters;
 }
@@ -854,8 +836,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   IndexCompute indexing(
       index_parameters.initial_concrete_id_index,
       index_parameters.zero_domains,
-      index_parameters.preferred_concrete_ids,
-      index_parameters.concrete_id_to_halo_extent);
+      index_parameters.preferred_concrete_ids);
 
   // Run first backward traversal to generate
   //  loop nest based indexing math.
@@ -947,7 +928,6 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       indexing.indexMap(),
       GpuLower::current()->divisibleSplitSet(),
       GpuLower::current()->caMap(),
-      GpuLower::current()->haloInfo(),
       GpuLower::current()->concretizedBroadcastDomains(),
       p2c_map);
 
@@ -998,7 +978,6 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
       index_parameters.initial_concrete_id_index,
       index_parameters.zero_domains,
       index_parameters.preferred_concrete_ids,
-      index_parameters.concrete_id_to_halo_extent,
       index_parameters.unswitched_domains);
 
   indexing.run(loop_indexing);

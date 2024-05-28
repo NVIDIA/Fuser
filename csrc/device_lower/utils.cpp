@@ -155,8 +155,6 @@ bool isTvOp(const Expr* expr) {
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
-          ShiftOp,
-          GatherOp,
           ViewAsScalar,
           ViewOp,
           PadOp,

@@ -525,7 +525,6 @@ ContigIDs::ContigIDs(
     // This constructor doesn't provide the following information so it needs to
     // be built.
     ca_map_ = std::make_shared<ComputeAtMap>(ids[0]->fusion());
-    halo_info_ = std::make_shared<HaloInfo>(ids[0]->fusion(), ca_map_);
     concrete_info_ =
         std::make_shared<ConcretizedBroadcastDomains>(ids[0]->fusion());
 
@@ -542,7 +541,6 @@ ContigIDs::ContigIDs(
     const std::unordered_map<IterDomain*, Val*>& index_map,
     const std::unordered_set<Split*>& divisible_splits,
     std::shared_ptr<const ComputeAtMap> ca_map,
-    std::shared_ptr<const HaloInfo> halo_info,
     std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info,
     std::unordered_map<IterDomain*, IterDomain*> p2c_id_map,
     bool ignore_indexability,
@@ -553,7 +551,6 @@ ContigIDs::ContigIDs(
       index_map_(index_map),
       divisible_splits_(divisible_splits),
       ca_map_(std::move(ca_map)),
-      halo_info_(std::move(halo_info)),
       concrete_info_(std::move(concrete_info)),
       p2c_id_map_(std::move(p2c_id_map)),
       ignore_indexability_(ignore_indexability),
@@ -590,11 +587,6 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
     alloc_to_indexed_id_[alloc_domain_id] = alloc_domain_id;
     // Initialize to false
     is_contig_alloc_[alloc_domain_id] = false;
-    // If a allocation domain has halo, can't use merged domain even if
-    // both inputs are contiguous. HaloInfo is also initialized for
-    // rfactor root domains, which should just return "zero"
-    // RootAxisInfo. This should be safe as no rfactor tensor should
-    // need halo.
     auto alloc_contiguity = alloc_contiguity_.at(alloc_domain_i);
     NVF_ERROR(
         alloc_domain_id->isReduction() != alloc_contiguity.has_value(),
@@ -603,7 +595,6 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
     // Index of merged reductions can always be coalesced, so considering
     // reduction as true contiguity.
     if (alloc_contiguity.value_or(true) &&
-        !halo_info_->getRootAxisInfo(alloc_domain_id).hasHalo() &&
         alloc_domain_id->getIterType() != IterType::GatherScatter) {
       contig_ids_.emplace(alloc_domain_id);
       is_contig_alloc_.at(alloc_domain_id) = true;
