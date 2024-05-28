@@ -5,40 +5,12 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
-#include <gtest/gtest.h>
-
-#include <codegen.h>
-#include <device_lower/lower2device.h>
-#include <disjoint_set.h>
-#include <executor.h>
-#include <executor_params.h>
-#include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/graphviz.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_cache.h>
-#include <kernel_ir.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <root_domain_map.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/multidevice.h>
-#include <torch/csrc/jit/codegen/cuda/interface.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
-
-#include <algorithm>
-#include <iostream>
-
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
+#include <ir/all_nodes.h>
+#include <ops/all_ops.h>
+#include <tests/cpp/multidevice.h>
 
 namespace nvfuser {
 
@@ -50,24 +22,22 @@ class MultiDeviceHostIrTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<MultiDeviceHostIrTestParams> {};
 
-/*
-    This file implements test that combine multidevice communications and host
-   irs. See test_host_irs.cpp for an introduction on host irs and a summary of
-   the different steps necessary to write a host program.
+// This file implements test that combine multidevice communications and host
+// irs. See test_host_irs.cpp for an introduction on host irs and a summary of
+// the different steps necessary to write a host program.
 
-    The host program of the first test could be illustrated as follows:
+// The host program of the first test could be illustrated as follows:
 
-    tv0_fusion: input, sharded accross devices on its first dimension
+// tv0_fusion: input, sharded accross devices on its first dimension
 
-    tv1_fusion = Fusion0 (tv0_fusion), on each device
+// tv1_fusion = Fusion0 (tv0_fusion), on each device
 
-    tv2 = Allgather(tv1_fusion)
+// tv2 = Allgather(tv1_fusion)
 
-    tv2: output
+// tv2: output
 
-    Note that the Fusion may or may not be multi-device scheduled for achieving
-   the same result. We test both cases.
-*/
+// Note that the Fusion may or may not be multi-device scheduled for achieving
+// the same result. We test both cases.
 
 TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto [use_fusion_executor_cache, with_sharding_annotations] = GetParam();

@@ -322,8 +322,7 @@ class NVF_API UnaryOp : public Expr {
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
-      std::unordered_map<const Val*, PolymorphicValue>& known_values)
-      const override;
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
@@ -1360,7 +1359,6 @@ class GroupedWelfordOp : public Expr {
 class NVF_API MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
-  using MmaLayoutOpt = std::optional<MmaLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1371,8 +1369,7 @@ class NVF_API MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      const MmaMacro& options,
-      const MmaLayoutOpt& input_layout);
+      const MmaMacro& options);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1429,10 +1426,6 @@ class NVF_API MmaOp : public Expr {
 
   void setMacro(MmaMacro options);
 
-  auto layout() const {
-    return attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
-  }
-
   const auto& mAxes() const {
     return attribute<AxesData>(ATTR_POS_M_AXES);
   }
@@ -1459,7 +1452,6 @@ class NVF_API MmaOp : public Expr {
   static constexpr size_t ATTR_POS_N_AXES = 3;
   static constexpr size_t ATTR_POS_K_AXES = 4;
   static constexpr size_t ATTR_POS_BATCH_AXES = 5;
-  static constexpr size_t ATTR_POS_INPUT_LAYOUT = 6;
 };
 
 //! The semantics are identical to torch.broadcast_to.
@@ -1497,106 +1489,6 @@ class ExpandOp : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
-};
-
-//! Shift
-class ShiftOp : public Expr {
- public:
-  using Expr::Expr;
-
-  //! \param out
-  //! \param in
-  //! \param offsets
-  ShiftOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in,
-      std::vector<int> offsets,
-      std::vector<int> pad_width);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "ShiftOp";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* out() const {
-    return output(0);
-  }
-  Val* in() const {
-    return input(0);
-  }
-
-  int offset(size_t dim) const {
-    return offsets().at(dim);
-  }
-
-  //! Each of the root axes is shifted by the corresponding value of
-  //! offsets. The sign of each value indicates the direction of shifting.
-  const std::vector<int>& offsets() const {
-    return attribute<std::vector<int>>(0);
-  }
-
-  const std::vector<int>& padWidth() const {
-    return attribute<std::vector<int>>(1);
-  }
-
-  bool hasPadding() const {
-    return std::any_of(padWidth().begin(), padWidth().end(), [](const auto p) {
-      return p > 0;
-    });
-  }
-};
-
-//! Gather a window around each element.
-class GatherOp : public Expr {
- public:
-  using Expr::Expr;
-
-  GatherOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in,
-      std::vector<int> window_shape,
-      std::vector<std::vector<int>> pad_width);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "GatherOp";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* out() const {
-    return output(0);
-  }
-  Val* in() const {
-    return input(0);
-  }
-
-  //! Shape of a window gathered for each element.
-  const auto& windowShape() const {
-    return attribute<std::vector<int>>(0);
-  }
-
-  //! Returns the gather axis that corresponds to an input axis
-  int64_t gatherAxis(int64_t axis) const;
-
-  //! The size of zero-padding of each axis.
-  const auto& padWidth() const {
-    return attribute<std::vector<std::vector<int>>>(1);
-  }
-
-  bool hasPadding() const {
-    return std::any_of(padWidth().begin(), padWidth().end(), [](const auto& p) {
-      return p[0] > 0 || p[1] > 0;
-    });
-  }
 };
 
 class ViewAsScalar : public Expr {
@@ -2286,6 +2178,53 @@ class MatmulOp : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+// Linear node with same functionality as F.linear
+// (https://pytorch.org/docs/stable/generated/torch.nn.functional.linear.html#torch.nn.functional.linear)
+class LinearOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  LinearOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* bias);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "LinearOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* inA() const {
+    return input(0);
+  }
+
+  Val* inB() const {
+    return input(1);
+  }
+
+  Val* bias() const {
+    if (has_bias()) {
+      return input(2);
+    } else {
+      return nullptr;
+    }
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+ private:
+  bool has_bias() const {
+    return inputs().size() == 3;
+  }
 };
 
 } // namespace nvfuser

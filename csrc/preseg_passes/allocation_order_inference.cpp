@@ -215,7 +215,8 @@ void inferenceAllocationOrder(
   // even though we do NOT populate allocation order where self_mapping is
   // present
   auto id_model =
-      IdModel(fusion, /*build_graphs=*/true, /*allow_self_mapping=*/true);
+      IdModel(fusion, /*build_graphs=*/false, /*allow_self_mapping=*/true);
+  id_model.buildExactGraph();
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
 

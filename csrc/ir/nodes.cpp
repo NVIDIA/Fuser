@@ -389,80 +389,10 @@ UnaryOp::UnaryOp(IrBuilderPasskey passkey, UnaryOpType type, Val* out, Val* in)
 
 std::vector<PolymorphicValue> UnaryOp::evaluate(
     const ExpressionEvaluator& ee,
-    std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+    const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
 
-  // If the UnaryOp is CastOp, check if the preceding pattern of
-  // operators matches with matmul (MmaOp(Broadcast (A), Broadcast(B)) -> Cast)
-  // or matmul + bias (BinaryOp::Add (MmaOp(Broadcast (A), Broadcast(B),
-  // Broadcast(bias)) -> Cast) If not, evaluate UnaryOp::CastOp along with the
-  // other types by evaluating the immediate input.
-
-  // Check if the unary op is a cast from fp32 to lower precision.
-  auto is_downcast = [this]() -> bool {
-    if (getUnaryOpType() != UnaryOpType::Cast) {
-      return false;
-    }
-    auto in_dtype = input(0)->getDataType().value();
-    return (
-        in_dtype == DataType::Float &&
-        isInclusiveType(*(out()->getDataType()), in_dtype));
-  };
-
-  if (is_downcast() && input(0)->definition() != nullptr) {
-    MmaOpUtils::MatmulInputs matmul_inp;
-
-    if (MmaOpUtils::matchMatmulPatterns(this, &matmul_inp)) {
-      // Inputs to the pattern are of the shape [M, K] x [K, N] (matmul) / [M,
-      // K] x [N, K] (linear). Note: alpha, beta parameters are nullptr for
-      // linear.
-      const auto a =
-          ee.evaluate(matmul_inp.mma_lhs, known_values).as<at::Tensor>();
-      const auto b =
-          ee.evaluate(matmul_inp.mma_rhs, known_values).as<at::Tensor>();
-      const c10::Scalar alpha = matmul_inp.alpha
-          ? toScalar(ee.evaluate(matmul_inp.alpha, known_values))
-          : 1;
-
-      // Matmul/Addmm: n_pos=2, k_pos=1
-      // Linear: n_pos=1, k_pos=2
-      const int k_pos =
-          std::get<(size_t)MatmulDomain::K>(matmul_inp.mma_dims_pos);
-      const int n_pos =
-          std::get<(size_t)MatmulDomain::N>(matmul_inp.mma_dims_pos);
-
-      if (matmul_inp.bias == nullptr) {
-        auto out = k_pos < n_pos ? alpha * a.matmul(b) : at::linear(a, b);
-        return {out};
-      }
-
-      auto bias = ee.evaluate(matmul_inp.bias, known_values).as<at::Tensor>();
-
-      // Linear takes 1D bias. Unsqueeze for 1D bias in matmul/addmm.
-      if (bias.dim() != a.dim() && (k_pos < n_pos)) {
-        // Unsqueeze the broadcast dimensions.
-        // For 2D inputs to the pattern, bias is of shape [M,1]/[1,N]
-        for (auto dim :
-             c10::irange((int64_t)matmul_inp.bias_bcast_flags.size())) {
-          if (matmul_inp.bias_bcast_flags[dim]) {
-            bias = bias.unsqueeze(dim);
-          }
-        }
-      }
-
-      const c10::Scalar beta = matmul_inp.beta
-          ? toScalar(ee.evaluate(matmul_inp.beta, known_values))
-          : 1;
-
-      auto out = k_pos < n_pos ? at::addmm(bias, a, b, beta, alpha)
-                               : at::linear(a, b, bias);
-      return {out};
-    }
-  }
-
-  // If there is not a preceding MmaOp, evaluate immediate inputs and compute
-  // the output for unary ops.
-  const auto& in = ee.evaluate(inputs().at(0), known_values);
+  const auto& in = inputs.at(0);
   if (!in.hasValue()) {
     return {std::monostate{}};
   }
@@ -2082,8 +2012,6 @@ MmaOp::MmaOp(
   addDataAttribute(AxesData{});
   // ATTR_POS_BATCH_AXES
   addDataAttribute(AxesData{});
-  // ATTR_POS_INPUT_LAYOUT
-  addDataAttribute(MmaLayoutOpt{});
 
   MmaOpUtils::MmaOpDetails mma_details;
   // Detailed consistency checks for use case with TensorViews as
@@ -2098,7 +2026,6 @@ MmaOp::MmaOp(
   attribute<AxesData>(ATTR_POS_N_AXES) = std::move(mma_details.n_axes);
   attribute<AxesData>(ATTR_POS_K_AXES) = std::move(mma_details.k_axes);
   attribute<AxesData>(ATTR_POS_BATCH_AXES) = std::move(mma_details.batch_axes);
-  attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT) = mma_details.input_layout;
 }
 
 MmaOp::MmaOp(
@@ -2107,24 +2034,9 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const MmaMacro& macro,
-    const MmaLayoutOpt& input_layout)
+    const MmaMacro& macro)
     : MmaOp(passkey, out, in_a, in_b, init) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
-
-  const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
-  if (input_layout_.has_value()) {
-    NVF_ERROR(input_layout.has_value());
-    NVF_ERROR(
-        input_layout_.value() == input_layout.value(),
-        "Input layout mismatch, infered attribute (",
-        nvfuser::toString(input_layout_.value()),
-        "), provided attribute (",
-        nvfuser::toString(input_layout.value()),
-        ")");
-  } else {
-    attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT) = input_layout;
-  }
 }
 
 std::string MmaOp::toString(int indent_size) const {
@@ -2188,125 +2100,6 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
-
-ShiftOp::ShiftOp(
-    IrBuilderPasskey passkey,
-    Val* out,
-    Val* in,
-    std::vector<int> offsets,
-    std::vector<int> pad_width)
-    : Expr(passkey) {
-  // clang-tidy complains about out that it may be null.
-  NVF_ERROR(out != nullptr);
-  NVF_ERROR(in != nullptr);
-
-  auto out_type = out->getValType().value();
-  auto in_type = in->getValType().value();
-
-  NVF_ERROR(
-      out_type == ValType::TensorView && in_type == ValType::TensorView,
-      "Cannot shift a non-tensor object.");
-
-  NVF_ERROR(
-      offsets.size() ==
-          TensorDomain::noReductions(in->as<TensorView>()->getRootDomain())
-              .size(),
-      "Invalid offset vector: ",
-      offsets);
-
-  NVF_ERROR(
-      pad_width.size() ==
-          TensorDomain::noReductions(in->as<TensorView>()->getRootDomain())
-              .size(),
-      "Invalid padding width vector: ",
-      pad_width);
-
-  addOutput(out);
-  addInput(in);
-  addDataAttribute(std::move(offsets));
-  addDataAttribute(std::move(pad_width));
-}
-
-std::string ShiftOp::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = shift( "
-                          << in()->toString() << ", {" << offsets() << "}, {"
-                          << padWidth() << "} )\n";
-  return ss.str();
-}
-
-std::string ShiftOp::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(ShiftOp)
-
-GatherOp::GatherOp(
-    IrBuilderPasskey passkey,
-    Val* out,
-    Val* in,
-    std::vector<int> window_shape,
-    std::vector<std::vector<int>> pad_width)
-    : Expr(passkey) {
-  // clang-tidy complains about out_ that it may be null.
-  NVF_ERROR(out != nullptr);
-  NVF_ERROR(in != nullptr);
-
-  auto out_type = out->getValType().value();
-  auto in_type = in->getValType().value();
-
-  NVF_ERROR(
-      out_type == ValType::TensorView && in_type == ValType::TensorView,
-      "Cannot shift a non-tensor object.");
-
-  const auto ndims =
-      TensorDomain::noReductions(in->as<TensorView>()->getRootDomain()).size();
-
-  NVF_ERROR(
-      window_shape.size() == ndims,
-      "Invalid window_shape vector: ",
-      window_shape);
-  NVF_ERROR(pad_width.size() == ndims, "Invalid pad_width vector: ", pad_width);
-
-  for (const auto& pad : pad_width) {
-    NVF_ERROR(
-        pad.size() == 2, "Padding size for each axis must have two Int vals.");
-  }
-
-  addOutput(out);
-  addInput(in);
-  addDataAttribute(std::move(window_shape));
-  addDataAttribute(std::move(pad_width));
-}
-
-std::string GatherOp::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = gather( "
-                          << in()->toString() << ", {";
-  ss << toDelimitedString(windowShape()) << "}, {";
-  bool no_comma = true;
-  for (const auto& pad : padWidth()) {
-    if (!no_comma) {
-      ss << ", ";
-    }
-    ss << "{" << pad[0] << ", " << pad[1] << "}";
-    no_comma = false;
-  }
-  ss << "} )\n";
-  return ss.str();
-}
-
-std::string GatherOp::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
-}
-
-int64_t GatherOp::gatherAxis(int64_t axis) const {
-  axis = wrapDim(axis, out()->as<TensorView>()->nDims());
-  NVF_ERROR(axis < (int64_t)windowShape().size(), "Invalid axis: ", axis);
-  return (int64_t)windowShape().size() + axis;
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
 
 ViewAsScalar::ViewAsScalar(
     IrBuilderPasskey passkey,
@@ -3663,9 +3456,14 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
 
   IterDomain* merged_id = IterDomain::merge(first, second);
 
-  leaf_domain_.erase(leaf_domain_.begin() + axis_i);
-  leaf_domain_.erase(leaf_domain_.begin() + axis_o);
-  leaf_domain_.insert(leaf_domain_.begin() + axis_o, merged_id);
+  // axis_o is the outer input of this merge but does not
+  // automatically mean it's an outer domain in TensorDomain.
+  auto td_outer_pos = axis_o < axis_i ? axis_o : axis_i;
+  auto td_inner_pos = axis_o < axis_i ? axis_i : axis_o;
+
+  leaf_domain_.erase(leaf_domain_.begin() + td_inner_pos);
+  leaf_domain_.erase(leaf_domain_.begin() + td_outer_pos);
+  leaf_domain_.insert(leaf_domain_.begin() + td_outer_pos, merged_id);
   resetDomains();
 }
 
@@ -4499,6 +4297,53 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
   return {at::matmul(a, b)};
+}
+
+LinearOp::LinearOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* in_a,
+    Val* in_b,
+    Val* bias)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in_a);
+  addInput(in_b);
+
+  if (bias != nullptr) {
+    addInput(bias);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(LinearOp)
+
+std::string LinearOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = linear(" << inA()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << inB()->toString();
+  if (has_bias()) {
+    indent(ss, indent_size + 1) << ",\n          " << bias()->toString();
+  }
+  indent(ss, indent_size + 1) << ")\n";
+  return ss.str();
+}
+
+std::string LinearOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> LinearOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto a = inputs.at(0).as<at::Tensor>();
+  const auto b = inputs.at(1).as<at::Tensor>();
+
+  if (has_bias()) {
+    const auto bias = inputs.at(2).as<at::Tensor>();
+    return {at::linear(a, b, bias)};
+  }
+  return {at::linear(a, b)};
 }
 
 } // namespace nvfuser

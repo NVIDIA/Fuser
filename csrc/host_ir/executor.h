@@ -58,9 +58,9 @@ class HostIrExecutor final : public OptInDispatch {
  private:
   using OptInDispatch::handle;
   void handle(SetCurrentStream* set_current_stream);
-  void handle(PostOnStream* post) override;
-  void postCompute(PostOnStream* post);
-  void postCommunication(PostOnStream* post);
+  void handle(PostOnStream* post_ir) override;
+  void postCompute(PostOnStream* post_ir);
+  void postCommunication(PostOnStream* post_ir);
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;

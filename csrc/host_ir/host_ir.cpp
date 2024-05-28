@@ -52,7 +52,12 @@ PostOnStream::PostOnStream(
     std::vector<Val*> inputs,
     std::vector<Val*> outputs)
     : Expr(passkey, std::move(inputs), std::move(outputs), {host_op}) {
-  NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
+  NVF_ERROR(
+      passkey.ir_container_->isA<hir::HostIrContainer>(), // NOLINT
+      this,
+      "must be registered in a HostIrContainer");
+  NVF_ERROR(
+      (host_op->isOneOf<HostUnit, Communication>()), "wrong host op type");
   if (host_op->isA<HostUnit>()) {
     NVF_ERROR(
         this->inputs().size() ==
@@ -60,6 +65,13 @@ PostOnStream::PostOnStream(
     NVF_ERROR(
         this->outputs().size() ==
         host_op->as<HostUnit>()->fusion_to_execute()->outputs().size());
+    // TODO: harden the assert checks with smth like
+    // for (int i : c10::irange(inputs.size())) {
+    //     NVF_ERROR(inputs.at(i)->sameAs(executable_fusion->inputs().at(i)));
+    // }
+    // for (int i : c10::irange(outputs.size())) {
+    //     NVF_ERROR(outputs.at(i)->sameAs(executable_fusion->outputs().at(i)));
+    // }
   } else if (host_op->isA<Communication>()) {
     NVF_ERROR(
         this->inputs().size() == 1,
@@ -68,14 +80,6 @@ PostOnStream::PostOnStream(
         this->outputs().size() == 1,
         "Communication must have exactly one output");
   }
-  // TODO: harden the assert checks with smth like
-  // for (int i : c10::irange(inputs.size())) {
-  //     // NVF_ERROR(inputs.at(i)->sameAs(executable_fusion->inputs().at(i)));
-  // }
-  // for (int i : c10::irange(outputs.size())) {
-  //     //
-  //     NVF_ERROR(outputs.at(i)->sameAs(executable_fusion->outputs().at(i)));
-  // }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(PostOnStream)
@@ -83,17 +87,17 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(PostOnStream)
 std::string PostOnStream::toString(int indent_size) const {
   int indent_increment = 2;
   std::stringstream ss;
-  indent(ss, indent_size) << "PostOnStream the operation :{\n";
-  indent(ss, indent_size) << hostOpToPost()->toString();
-  indent(ss, indent_size) << "\n}, taking inputs: {";
+  indent(ss, indent_size) << "PostOnStream the operation :{" << std::endl;
+  indent(ss, indent_size) << hostOpToPost();
+  indent(ss, indent_size) << std::endl << "}, taking inputs: {";
   for (auto input : inputs()) {
     indent(ss, indent_size + indent_increment)
-        << input->toString(indent_size + indent_increment) << "\n";
+        << input->toString(indent_size + indent_increment) << std::endl;
   }
-  indent(ss, indent_size) << "} and outputs: {\n";
+  indent(ss, indent_size) << "} and outputs: {" << std::endl;
   for (auto output : outputs()) {
     indent(ss, indent_size + indent_increment)
-        << output->toString(indent_size + indent_increment) << "\n";
+        << output->toString(indent_size + indent_increment) << std::endl;
   }
   indent(ss, indent_size) << "}" << std::endl;
   return ss.str();

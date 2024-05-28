@@ -165,11 +165,25 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     }
   };
 
+  // Assumes producer and consumer IDs to be trivially aligned and adds them to
+  // domain map.
+  auto pairwiseMapAllIds = [&](std::vector<IterDomain*> producer_ids,
+                               std::vector<IterDomain*> consumer_ids) {
+    NVF_ERROR(producer_ids.size() == consumer_ids.size());
+    for (auto idx : c10::irange(consumer_ids.size())) {
+      IterDomain* producer_id = producer_ids.at(idx);
+      IterDomain* consumer_id = consumer_ids.at(idx);
+      if (producer_id == nullptr) {
+        continue;
+      }
+      updatePairwiseRootDomainMap(producer_id, consumer_id);
+    }
+  };
+
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
-    MatmulRole input_role =
-        producer->sameAs(op->inA()->as<TensorView>()->domain())
+    MatmulRole input_role = producer_tv_->sameAs(op->inA())
         ? MatmulRole::INPUT_A
         : MatmulRole::INPUT_B;
     auto out_size = consumer_root.size();
@@ -184,16 +198,35 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // maps to the third output iterdomain.
     const std::vector<IterDomain*>& aligned_producer_ids =
         ops::mapMatmulOpIterDomains(producer_root, input_role, out_size);
+    pairwiseMapAllIds(aligned_producer_ids, consumer_root);
+    return dom_map;
+  }
 
-    for (auto inx : c10::irange(out_size)) {
-      IterDomain* producer_id = aligned_producer_ids.at(inx);
-      IterDomain* consumer_id = consumer_root.at(inx);
-      if (producer_id == nullptr) {
-        continue;
-      }
-      updatePairwiseRootDomainMap(producer_id, consumer_id);
+  if (LinearOp* op = dynamic_cast<LinearOp*>(consumer_tv_->definition())) {
+    auto out_size = consumer_root.size();
+
+    // Check if the producer is A, B or bias.
+    std::optional<MatmulRole> input_role = std::nullopt;
+    if (producer->sameAs(op->inA()->as<TensorView>()->domain())) {
+      input_role = MatmulRole::INPUT_A;
+    } else if (producer->sameAs(op->inB()->as<TensorView>()->domain())) {
+      input_role = MatmulRole::INPUT_B;
+    } else if (producer->sameAs(op->bias()->as<TensorView>()->domain())) {
+      input_role = MatmulRole::INPUT_C;
+    } else {
+      NVF_ERROR(false, "Producer did not match any LinearOp input.")
     }
 
+    // LinearOp:
+    // inputs (INPUT_A) = {*, in_features}
+    // weight (INPUT_B) = {out_features, in_features} / {in_features}
+    // bias (INPUT_C) = {out_features} / {}
+    // output = {*, out_features} / {*}
+
+    const std::vector<IterDomain*>& aligned_producer_ids =
+        ops::mapLinearOpIterDomains(
+            producer_root, input_role.value(), out_size);
+    pairwiseMapAllIds(aligned_producer_ids, consumer_root);
     return dom_map;
   }
 
@@ -1184,24 +1217,6 @@ void ComputeAtRootDomainMapBuilder::handle(ViewAsScalar* op) {
   NVF_ERROR(
       (*out_it)->isVectorComponent(),
       "The last dim of ViewDtypeOp's output must be a ViewAsScalar");
-}
-
-void ComputeAtRootDomainMapBuilder::handle(GatherOp* op) {
-  const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
-  const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
-  const auto in_root = TensorDomain::noReductions(in_td->maybeRFactor());
-  const auto& out_root = out_td->root();
-
-  // Only maps the input root axes. Do not map the new window axes.
-  for (const auto it : c10::irange(in_root.size())) {
-    setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
-  }
-
-  // Keep track of window axes so that they can be skipped when
-  // mapping root domains
-  for (const auto it : c10::irange(in_root.size(), out_root.size())) {
-    root_map_.window_axes_.insert(out_root[it]);
-  }
 }
 
 void ComputeAtRootDomainMapBuilder::mapAllPendingMappings(

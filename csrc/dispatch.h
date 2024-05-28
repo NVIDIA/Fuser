@@ -96,8 +96,6 @@ class Val;
   f(BroadcastOp);                 \
   f(SqueezeOp);                   \
   f(ExpandOp);                    \
-  f(ShiftOp);                     \
-  f(GatherOp);                    \
   f(ViewAsScalar);                \
   f(ViewOp);                      \
   f(CatOp);                       \
@@ -109,6 +107,7 @@ class Val;
   f(Swizzle2D);                   \
   f(Resize);                      \
   f(MatmulOp);                    \
+  f(LinearOp);                    \
   f(Communication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \

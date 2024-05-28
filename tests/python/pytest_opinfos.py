@@ -50,6 +50,7 @@ from pytest_input_generators import (
     where_error_generator,
     matmul_input_generator,
     linear_input_generator,
+    linear_error_generator,
 )
 from pytest_utils import (
     bool_int_dtypes,
@@ -1133,6 +1134,7 @@ linear_opinfo = OpInfo(
         else (torch.float16,)
     ),
     sample_input_generator=linear_input_generator,
+    error_input_generator=linear_error_generator,
     reference=torch.nn.functional.linear,
 )
 linear_ops.append(linear_opinfo)
