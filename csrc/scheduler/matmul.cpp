@@ -735,16 +735,6 @@ void scheduleSplitKSum(
   splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
-bool needsTranposedLoad(TensorView* producer, TensorView* consumer) {
-  const auto map =
-      PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
-  auto maybeProducerAlloc = producer->getMaybeAllocationDomain();
-  auto maybeConsumerRFactor = consumer->getMaybeRFactorDomain();
-  auto prodToconsumerAllocDomInner =
-      map.find(maybeProducerAlloc.back())->second;
-  return maybeConsumerRFactor.back() != prodToconsumerAllocDomInner;
-}
-
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
