@@ -301,10 +301,10 @@ std::string isMatmulFusionDefinitionSupported(
 class VectorizationCalculator {
  public:
   VectorizationCalculator(
-      const SchedulerRuntimeInfo& runtime_info,
       const mma_utils::TensorRolesMap& tensor_roles,
       const mma_utils::DimRolesMap& dim_roles,
-      const ValGraph& exact_graph)
+      const ValGraph& exact_graph,
+      SchedulerRuntimeInfo& runtime_info)
       : runtime_info_(runtime_info),
         tensor_roles_(tensor_roles),
         dim_roles_(dim_roles),
@@ -318,7 +318,7 @@ class VectorizationCalculator {
   }
 
  private:
-  std::vector<int64_t> operandVectorizations() const {
+  std::vector<int64_t> operandVectorizations() {
     std::vector<int64_t> vec_sizes;
     for (MatmulRole role : {MatmulRole::INPUT_A, MatmulRole::INPUT_B}) {
       const auto op_it = tensor_roles_.find(role);
@@ -348,6 +348,37 @@ class VectorizationCalculator {
     return vec_size;
   }
 
+  // Note this is non-const because we use runtime_info_.expressionEvaluator()
+  std::pair<std::vector<int64_t>, std::vector<int64_t>> getSizesAndStrides(
+      TensorView* tv) {
+    if (tv->isFusionInput()) {
+      return {
+          runtime_info_.getInputAllocationSizes(tv),
+          runtime_info_.getInputAllocationStrides(tv)};
+    }
+    // For non-inputs, compute sizes using ExpressionEvaluator, then compute
+    // strides based on allocation domain, assuming full contiguity regardless
+    // of how it is marked in the TensorView.
+    std::vector<int64_t> sizes, strides;
+    for (IterDomain* id : tv->getMaybeAllocationDomain()) {
+      if (id->isBroadcast() || id->isReduction()) {
+        continue;
+      }
+      PolymorphicValue ext =
+          runtime_info_.expressionEvaluator().evaluate(id->extent());
+      NVF_ERROR(ext.hasValue());
+      sizes.push_back(ext.as<int64_t>());
+    }
+
+    strides.resize(sizes.size(), 0l);
+    int64_t stride = 1l;
+    for (int64_t i = (int64_t)(sizes.size()) - 1l; i >= 0; --i) {
+      strides[(size_t)i] = stride;
+      stride *= sizes[(size_t)i];
+    }
+    return {sizes, strides};
+  }
+
   // Given a TensorView and a vector of dimension ValGroups find vectorization.
   // The vector of dimensions indicates how the tensor will be scheduled;
   // dimensions in tv will be reordered if needed then the vector of dimensions
@@ -355,13 +386,9 @@ class VectorizationCalculator {
   // resulting merged TV can be vectorized.
   int64_t innerDimsVectorization(
       TensorView* tv,
-      const std::vector<ValGroup>& inner_dims) const {
-    const std::vector<int64_t>& sizes =
-        runtime_info_.getInputAllocationSizes(tv);
-    const std::vector<int64_t>& strides =
-        runtime_info_.getInputAllocationStrides(tv);
+      const std::vector<ValGroup>& inner_dims) {
+    const auto& [sizes, strides] = getSizesAndStrides(tv);
     NVF_ERROR(sizes.size() == strides.size());
-    NVF_ERROR((int64_t)sizes.size() == tv->nDims());
 
     // Position of the outermost vectorizable dimension, in allocation domain
     size_t inner_dim_pos = tv->getMaybeAllocationDomain().size();
@@ -431,7 +458,7 @@ class VectorizationCalculator {
   // this might mean that the inner-most dimension gets reordered to be outer,
   // even if it has the same role as the innermost dimension in the canonical
   // ordering.
-  int64_t operandVectorization(TensorView* tv) const {
+  int64_t operandVectorization(TensorView* tv) {
     // Check data pointer alignment
     int64_t vec_size = ptrAndDTypeVec(tv);
     if (vec_size == 1l) {
@@ -441,7 +468,9 @@ class VectorizationCalculator {
     // Find the inner-most non-batch role for this tensor, and collect all
     // ValGroups in that role, in the canonical ordering.
     std::optional<MatmulDomain> vec_dim_role = std::nullopt;
-    for (size_t i = tv->getMaybeAllocationDomain().size() - 1; i >= 0; --i) {
+    for (int64_t i = (int64_t)(tv->getMaybeAllocationDomain().size()) - 1;
+         i >= 0;
+         --i) {
       IterDomain* id = tv->getMaybeAllocationDomain()[i];
       if (id->isReduction() || id->isBroadcast()) {
         continue;
@@ -470,16 +499,17 @@ class VectorizationCalculator {
       }
     }
 
-    return innerDimsVectorization(tv, ordered_inner_dims);
+    return std::min(vec_size, innerDimsVectorization(tv, ordered_inner_dims));
   }
 
-  int64_t epilogueVectorization() const {
+  int64_t epilogueVectorization() {
     // This is a vector of non-K dimensions sorted from inner to outer
     std::vector<ValGroup> inner_nonk_dims;
     std::optional<MatmulDomain> inner_nonk_role = std::nullopt;
     for (auto g_it = dim_ordering_.rbegin(); g_it != dim_ordering_.rend();
          ++g_it) {
       const ValGroup& g = *g_it;
+
       MatmulDomain dim_role = dimRole(g);
       if (dim_role == MatmulDomain::K) {
         // Skip K dims since they won't appear in epilogue loop nest
@@ -530,7 +560,7 @@ class VectorizationCalculator {
   }
 
  private:
-  const SchedulerRuntimeInfo& runtime_info_;
+  SchedulerRuntimeInfo& runtime_info_;
   const mma_utils::TensorRolesMap& tensor_roles_;
   const mma_utils::DimRolesMap& dim_roles_;
   const ValGraph& exact_graph_;
@@ -543,7 +573,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
     const ValGraph& exact_graph,
     SchedulerRuntimeInfo& runtime_info) {
   VectorizationCalculator calc(
-      runtime_info, tensor_roles, dim_roles, exact_graph);
+      tensor_roles, dim_roles, exact_graph, runtime_info);
   return calc.compute();
 }
 

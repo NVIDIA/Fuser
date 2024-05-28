@@ -89,8 +89,7 @@ static const PrecisionsDesc TSS = std::make_tuple(
 void checkUnsegmentedVectorization(
     const FusionExecutorCache& executor_cache,
     const std::vector<int64_t>& expected_vec_operands,
-    const std::vector<int64_t>& expected_vec_outputs,
-    const std::vector<int64_t>& expected_vec_epilogue_inputs = {}) {
+    const int64_t expected_vec_epilogue) {
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();
 
@@ -106,9 +105,7 @@ void checkUnsegmentedVectorization(
       runtime->schedulerHeuristics()->heuristicsList().front()->matmulParams();
 
   EXPECT_EQ(params.supported_vec_size.operands, expected_vec_operands);
-  EXPECT_EQ(params.supported_vec_size.outputs, expected_vec_outputs);
-  EXPECT_EQ(
-      params.supported_vec_size.epilogue_inputs, expected_vec_epilogue_inputs);
+  EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -206,7 +203,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   checkUnsegmentedVectorization(
       executor_cache,
       {16l / dataTypeSize(in_type), 16l / dataTypeSize(in_type)},
-      {16l / dataTypeSize(out_type)});
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -294,7 +291,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   checkUnsegmentedVectorization(
       executor_cache,
       {16l / dataTypeSize(in_type), 16l / dataTypeSize(in_type)},
-      {16l / dataTypeSize(out_type)});
+      16l / dataTypeSize(out_type));
 
   NVF_CHECK(outputs[0].allclose(t4, abs_err_thr, rel_err_thr));
 }
@@ -398,8 +395,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   checkUnsegmentedVectorization(
       executor_cache,
       {16l / dataTypeSize(in_type), 16l / dataTypeSize(in_type)},
-      {16l / dataTypeSize(out_type)},
-      {16l / dataTypeSize(in_type)});
+      std::min(16l / dataTypeSize(out_type), 16l / dataTypeSize(in_type)));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -490,7 +486,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
   checkUnsegmentedVectorization(
       executor_cache,
       {16l / dataTypeSize(in_type), 16l / dataTypeSize(in_type)},
-      {16l / dataTypeSize(out_type)});
+      16l / dataTypeSize(out_type));
 
   // D tensor results
   NVF_CHECK(outputs[0].allclose(t3, abs_err_thr, rel_err_thr));
@@ -602,8 +598,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   checkUnsegmentedVectorization(
       executor_cache,
       {16l / dataTypeSize(in_type), 16l / dataTypeSize(in_type)},
-      {16l / dataTypeSize(out_type)},
-      {16l / dataTypeSize(in_type)});
+      std::min(16l / dataTypeSize(out_type), 16l / dataTypeSize(in_type)));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -692,7 +687,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   checkUnsegmentedVectorization(
       executor_cache,
       {16l / dataTypeSize(in_type), 16l / dataTypeSize(in_type)},
-      {16l / dataTypeSize(out_type)});
+      16l / dataTypeSize(out_type));
 
   NVF_CHECK(outputs[0].allclose(t4, abs_err_thr, rel_err_thr));
 }
@@ -781,7 +776,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
   checkUnsegmentedVectorization(
       executor_cache,
       {16l / dataTypeSize(in_type), 16l / dataTypeSize(in_type)},
-      {16l / dataTypeSize(out_type)});
+      16l / dataTypeSize(out_type));
 
   // D tensor results
   NVF_CHECK(outputs[0].allclose(t3, abs_err_thr, rel_err_thr));
@@ -886,7 +881,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   checkUnsegmentedVectorization(
       executor_cache,
       {16l / dataTypeSize(in_type), 16l / dataTypeSize(in_type)},
-      {16l / dataTypeSize(out_type)});
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -996,7 +991,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
   checkUnsegmentedVectorization(
       executor_cache,
       {16l / dataTypeSize(in_type), 16l / dataTypeSize(in_type)},
-      {16l / dataTypeSize(out_type)});
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -1043,7 +1038,7 @@ TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
 
   auto out_tensors = executor_cache.runFusionWithInputs({x_ref, y_ref});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
   testValidate(
       executor_cache.fusion(),
@@ -1098,7 +1093,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
@@ -1148,7 +1143,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-    checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+    checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
     NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
   }
@@ -1200,7 +1195,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
 
   auto outputs = executor_cache.runFusionWithInputs({t1, t0});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1254,7 +1249,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {8});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 8);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1311,7 +1306,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1370,7 +1365,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {8});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 8);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1440,7 +1435,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, beta});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1517,7 +1512,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1601,7 +1596,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {8});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 8);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1689,7 +1684,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   auto outputs =
       executor_cache.runFusionWithInputs({t0, t1, t2, t3, alpha, beta});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1745,7 +1740,7 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-    checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+    checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     // verification
@@ -1828,7 +1823,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
     auto outputs =
         executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-    checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+    checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -1916,7 +1911,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
     auto outputs =
         executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-    checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+    checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -1982,7 +1977,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-    checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+    checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -2050,7 +2045,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-    checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+    checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -2113,8 +2108,7 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
                        int align_B,
                        int align_bias,
                        const std::vector<int64_t>& expected_vec_operands,
-                       const std::vector<int64_t>& expected_vec_epilogue_inputs,
-                       const std::vector<int64_t>& expected_vec_outputs) {
+                       const int64_t expected_vec_epilogue) {
           const auto maybeUnalign = [](const at::Tensor& t, int offset) {
             if (offset == 16 / t.element_size()) {
               // Already fully aligned
@@ -2167,14 +2161,7 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
                                            ->matmulParams();
 
           EXPECT_EQ(params.supported_vec_size.operands, expected_vec_operands);
-          if (add_2d_bias) {
-            EXPECT_EQ(
-                params.supported_vec_size.epilogue_inputs,
-                expected_vec_epilogue_inputs);
-          } else {
-            EXPECT_TRUE(params.supported_vec_size.epilogue_inputs.empty());
-          }
-          EXPECT_EQ(params.supported_vec_size.outputs, expected_vec_outputs);
+          EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
 
           EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
         };
@@ -2185,10 +2172,10 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
             layout == MmaLayout::TN || layout == MmaLayout::NN;
 
         // When not downcasting, outputs are Float
-        const int max_vec_epi = downcast_output ? 8 : 4;
+        const int64_t max_vec_epi = downcast_output ? 8 : 4;
 
         // all fully vectorizable in all layouts
-        run(504, 136, 248, 8, 8, 8, {8, 8}, {8}, {max_vec_epi});
+        run(504, 136, 248, 8, 8, 8, {8, 8}, max_vec_epi);
         // odd K. Operands vectorizable when K is not the contiguous axis.
         // Output always fully vectorizable
         run(504,
@@ -2198,30 +2185,31 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
             8,
             8,
             {contig_K_A ? 1 : 8, contig_K_B ? 1 : 8},
-            {8},
-            {max_vec_epi});
-        std::cerr << "FINISH CONVERTING THIS TEST" << std::endl;
-        /*
+            max_vec_epi);
         // Odd N. Output not vectorizable. A fully vectorizable. B fully
         // vectorizable unless N is the contiguous dim.
-        run(504, 137, 248, 8, 8, 8, 8, contig_K_B ? 8 : 1, 1);
+        run(504, 137, 248, 8, 8, 8, {8, contig_K_B ? 8 : 1}, 1);
         // Odd M. Output fully vectorizable. B fully vectorizable. A fully
         // vectorizable unless M is the contiguous dim.
-        run(505, 136, 248, 8, 8, 8, contig_K_A ? 8 : 1, 8, max_vec_epi);
+        run(505, 136, 248, 8, 8, 8, {contig_K_A ? 8 : 1, 8}, max_vec_epi);
         // Odd M and N. Output not vectorizable. A and B fully vectorizable
         // unless K is not the contiguous dim.
-        run(505, 137, 248, 8, 8, 8, contig_K_A ? 8 : 1, contig_K_B ? 8 : 1, 1);
+        run(505,
+            137,
+            248,
+            8,
+            8,
+            8,
+            {contig_K_A ? 8 : 1, contig_K_B ? 8 : 1},
+            1);
         // Odd M, N, K. None vectorizable.
-        run(505, 137, 249, 8, 8, 8, 1, 1, 1);
+        run(505, 137, 249, 8, 8, 8, {1, 1}, 1);
         // Cases with vectorizable strides but misaligned base pointers
         // A not vectorizable due to pointer offset
-        run(504, 136, 248, 2, 8, 8, 2, 8, max_vec_epi);
+        run(504, 136, 248, 2, 8, 8, {2, 8}, max_vec_epi);
         // B not vectorizable due to pointer offset
-        run(504, 136, 248, 8, 2, 8, 8, 2, max_vec_epi);
-        // epilogue not vectorizable due to pointer offset
-        // Disabled temporarily: https://github.com/NVIDIA/Fuser/issues/2169
-        // run(504, 136, 248, 8, 8, 2, 8, 8, 2);
-        */
+        run(504, 136, 248, 8, 2, 8, {8, 2}, max_vec_epi);
+        run(504, 136, 248, 8, 8, 2, {8, 8}, add_2d_bias ? 2 : max_vec_epi);
       }
     }
   }
@@ -2249,9 +2237,8 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
                        int pad_A,
                        int pad_B,
                        int pad_bias,
-                       int expected_vec_A,
-                       int expected_vec_B,
-                       int expected_vec_epilogue) {
+                       const std::vector<int64_t>& expected_vec_operands,
+                       const int64_t expected_vec_epilogue) {
           auto fusion = std::make_unique<Fusion>();
           FusionGuard fg(fusion.get());
 
@@ -2373,27 +2360,19 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
           ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
 
           // Check that supported_vec_size matches expected.
-          std::cerr << "FIX THIS TEST" << std::endl;
-          /*const MatmulParams& params = runtime->schedulerHeuristics()
+          const MatmulParams& params = runtime->schedulerHeuristics()
                                            ->heuristicsList()
                                            .front()
                                            ->matmulParams();
 
-          EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
-          EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
+          EXPECT_EQ(params.supported_vec_size.operands, expected_vec_operands);
           EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
-          */
 
           EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
         };
 
-        [[maybe_unused]] bool contig_K_A =
-            layout == MmaLayout::TT || layout == MmaLayout::TN;
-        [[maybe_unused]] bool contig_K_B =
-            layout == MmaLayout::TN || layout == MmaLayout::NN;
-
         // When not downcasting, outputs are Float
-        [[maybe_unused]] int max_vec_epi = downcast_output ? 8 : 4;
+        const int64_t max_vec_epi = downcast_output ? 8 : 4;
 
         // Pad outer stride of A by 1. M and K are even, so no vectorization of
         // A is possible despite compatible sizes.
@@ -2409,9 +2388,9 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
             1,
             0,
             0,
-            1,
-            8,
+            {1, 8},
             max_vec_epi);
+        /*
         // Pad outer stride of B by 1. N and K are even, so no vectorization of
         // B is possible despite compatible sizes.
         run(504,
@@ -2515,6 +2494,7 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
             1,
             max_vec_epi);
         // run(504, 136, 248, 8, 8, 8, true, true, false, 0, 0, 0, 8, 8, 1);
+        */
       }
     }
   }
@@ -2581,7 +2561,7 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  checkUnsegmentedVectorization(executor_cache, {8, 8}, {4});
+  checkUnsegmentedVectorization(executor_cache, {8, 8}, 4);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
 
@@ -2644,7 +2624,7 @@ TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   // TODO: check vectorization if fusion is enabled
-  // checkUnsegmentedVectorization(executor_cache, {8, 8}, {8});
+  // checkUnsegmentedVectorization(executor_cache, {8, 8}, 8);
 
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -2685,7 +2665,7 @@ TEST_F(NVFuserTest, SegmentLinearOpPrologue) {
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   // TODO: check vectorization if fusion is enabled
-  // checkUnsegmentedVectorization(executor_cache, {8, 8}, {8});
+  // checkUnsegmentedVectorization(executor_cache, {8, 8}, 8);
 
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }

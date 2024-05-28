@@ -1604,18 +1604,21 @@ std::vector<ValGroup> canonicalDimOrdering(
           switch (it->second) {
             case MatmulDomain::Batch:
               batch_dims.pushBack(g);
+              break;
             case MatmulDomain::M:
               if (n_inside_m == 0) {
                 // We encountered an M dimension before an N dimension
                 n_inside_m = -1;
               }
               m_dims.pushBack(g);
+              break;
             case MatmulDomain::N:
               if (n_inside_m == 0) {
                 // We encountered an N dimension before an M dimension
-                n_inside_m = -1;
+                n_inside_m = 1;
               }
               n_dims.pushBack(g);
+              break;
             case MatmulDomain::K:
               // Order K dimensions like operands, and all others like outputs
               if (tv_role == MatmulRole::INPUT_A ||
@@ -1635,15 +1638,18 @@ std::vector<ValGroup> canonicalDimOrdering(
   ordering.reserve(
       batch_dims.size() + m_dims.size() + n_dims.size() + k_dims.size());
   const auto insert = [&ordering](const VectorOfUniqueEntries<ValGroup>& v) {
-    for (auto it = v.rbegin(); it != v.rend(); ++it) {
+    for (auto it = v.vector().rbegin(); it != v.vector().rend(); ++it) {
       ordering.push_back(*it);
     }
   };
   insert(batch_dims);
-  if (n_inside_m) {
+  if (n_inside_m == 1) {
     insert(m_dims);
     insert(n_dims);
   } else {
+    NVF_ERROR(
+        n_inside_m == -1 || (n_dims.empty() && m_dims.empty()),
+        "Could not determine order of M and N dims");
     insert(n_dims);
     insert(m_dims);
   }

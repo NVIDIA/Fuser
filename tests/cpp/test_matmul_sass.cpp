@@ -72,7 +72,7 @@ sass::Container getSASSFor(
   gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams params;
-  params.supported_vec_size = {{8, 8}, {}, {4}};
+  params.supported_vec_size = {{8, 8}, 4};
   params.mma_macro = macro;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
@@ -135,7 +135,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams params;
-  params.supported_vec_size = {{8, 8}, {}, {4}};
+  params.supported_vec_size = {{8, 8}, 4};
   params.mma_macro = macro;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
