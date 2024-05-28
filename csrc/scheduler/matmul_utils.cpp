@@ -412,8 +412,8 @@ class VectorizationCalculator {
       std::optional<bool> c = tv->getContiguity().at(i);
       NVF_ERROR(c.has_value());
       if (!c.value()) {
-        // TensorView is marked discontiguous; can't vectorize
-        return 1l;
+        // axis is marked discontiguous; can't vectorize
+        break;
       } else {
         NVF_CHECK(
             strides[i] == 1,
