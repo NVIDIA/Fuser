@@ -109,6 +109,27 @@ bool PostOnStream::sameAs(const Statement* other) const {
   return false;
 }
 
+int StreamIr::running_counter_ = 0;
+
+StreamIr::StreamIr(IrBuilderPasskey passkey): Val(passkey, ValType::StreamIr), idx_(running_counter_++) {};
+
+StreamIr::StreamIr(const StreamIr* src, IrCloner* ir_cloner): Val(src, ir_cloner), idx_(src->idx_){};
+NVFUSER_DEFINE_CLONE(StreamIr)
+
+std::string StreamIr::toString(int indent_size) const {
+    std::stringstream ss;
+    indent(ss, indent_size) << "Stream " << idx_;
+    return ss.str();
+}
+
+std::string StreamIr::toInlineString(int indent_size) const {
+    return toString(indent_size);
+}
+
+bool StreamIr::sameAs(const Statement* other) const {
+    return false;
+}
+
 } // namespace hir
 
 } // namespace nvfuser

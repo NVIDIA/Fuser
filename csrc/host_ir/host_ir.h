@@ -114,6 +114,22 @@ class PostOnStream : public Expr {
   }
 };
 
+class StreamIr : public Val {
+ public:
+  StreamIr(IrBuilderPasskey passkey);
+  StreamIr(const StreamIr* src, IrCloner* ir_cloner);
+  bool sameAs(const Statement* other) const override;
+
+  NVFUSER_DECLARE_CLONE
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+ private:
+  // the class contains a unique ID counter accross instances that is mainly useful for debug print
+  const int idx_;
+  static int running_counter_;
+};
+
 } // namespace hir
 
 } // namespace nvfuser

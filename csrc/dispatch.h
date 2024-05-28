@@ -66,6 +66,7 @@ class Val;
   f(TensorView);                 \
   f(NamedScalar);
 #define DISPATCH_FOR_ALL_KIR_VALS(f) f(Predicate) f(TensorIndex)
+#define DISPATCH_FOR_ALL_HIR_VALS(f) f(StreamIr)
 
 #define DISPATCH_FOR_ALL_EXPRS(f) \
   f(FullOp);                      \
@@ -159,6 +160,7 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
 namespace hir {
 
 #define M(e) class e;
+DISPATCH_FOR_ALL_HIR_VALS(M)
 DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 
