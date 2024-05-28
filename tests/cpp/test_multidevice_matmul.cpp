@@ -61,7 +61,7 @@ class DistributedMatmulTest : public MultiDeviceTest {
     auto b = matmulAtInput2D(
         layout, TensorMatmulPos::B, type, M, N, K, 0, local_rank);
     auto c =
-        atMatmul(a.to(at::kDouble), b.to(at::kDouble), layout).to(at::kFloat);
+        atMatmul(a.to(at::kDouble), b.to(at::kDouble), layout).to(at::kHalf);
     return std::make_tuple(a, b, c);
   }
 };
@@ -82,17 +82,19 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
 
   TensorView* a = makeContigTensor(3, DataType::Half); // (Mo,Mi,K)
   TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
-  TensorView* a_b = broadcast(a, {false, false, true, false}); // (Mo,Mi,b,K)
-  TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
-  TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
-  TensorView* c = sum(ab, {-1}); // (Mo,Mi,N,r)
+  // TensorView* a_b = broadcast(a, {false, false, true, false}); // (Mo,Mi,b,K)
+  // TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
+  // TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
+  // TensorView* c = sum(ab, {-1}); // (Mo,Mi,N,r)
+  TensorView* c = matmul(a, b);
 
   fusion->addInput(a);
   fusion->addInput(b);
   fusion->addOutput(c);
 
   // Sharding M dimension
-  auto all_sharded_tvs = {a, a_b, b_b, ab, c};
+  // auto all_sharded_tvs = {a, a_b, b_b, ab, c};
+  auto all_sharded_tvs = {a, c};
   for (auto tv : all_sharded_tvs) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setDeviceMesh(mesh);
