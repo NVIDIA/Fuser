@@ -12,6 +12,9 @@
 #include <ir/utils.h>
 #include <val_graph_visitor.h>
 
+#include <ir/graphviz.h>
+#include <fstream>
+
 namespace nvfuser {
 
 LoopPromotionMapBuilder::LoopPromotionMapBuilder(
@@ -564,7 +567,6 @@ bool hasUniqueInputLoopGroups(
   }
 
   // Check if input groups that are not included in the output group set
-  // return !inp_loop_groups.computeSubtract(out_loop_groups).empty();
   return !inp_loop_groups.computeSubtract(out_loop_groups).empty();
 }
 
@@ -708,6 +710,17 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
   // covers
   std::unordered_map<ValGroup, ValGroups> covered_ids;
 
+  if (false) {
+    if (!graph.disjointValSets().disjointSets().empty()) {
+      Fusion* fusion =
+          graph.disjointValSets().disjointSets().front()->front()->fusion();
+      std::ofstream ofs("transform.dot", std::ofstream::trunc);
+      auto dot_string = irTransformToDot(fusion);
+      ofs << dot_string;
+      ofs.close();
+    }
+  }
+
   for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
     // Initialize inputs
     const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
@@ -741,11 +754,15 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
       } else {
         // TODO:
         if (!getenv("DISABLE_COMBINE")) {
-          VERBOSE() << "Combining coverage of "
-                    << nvfuser::toString(output_group) << ". "
-                    << nvfuser::toString(covered_ids[output_group])
-                    << std::endl;
-          covered_ids[output_group].pushBack(covered);
+          if (covered.vector() != covered_ids[output_group].vector()) {
+            // This can happen with reshape and resize. If disabled,
+            // ReshapeConcreteDomain3 failed.
+            std::cerr << "Combining coverage of "
+                      << nvfuser::toString(output_group) << ". Existing: "
+                      << nvfuser::toString(covered_ids[output_group])
+                      << ". New: " << nvfuser::toString(covered) << std::endl;
+            covered_ids[output_group].pushBack(covered);
+          }
         } else {
           VERBOSE() << "Avoid overwriting covered group of "
                     << nvfuser::toString(output_group) << ". Existing: "
