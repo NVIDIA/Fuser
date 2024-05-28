@@ -1423,7 +1423,7 @@ class MatmulPatternMatcher : IterVisitor {
       // for implicit broadcasting.
       NVF_ERROR(lrf.size() == rrf.size());
       const std::vector<IterDomain*>& red_root =
-          rop->out()->as<TensorView>()->getMaybeRootDomain();
+          TensorDomain::noDevices(rop->out()->as<TensorView>()->getMaybeRootDomain());
       NVF_ERROR(red_root.size() == lrf.size());
       // Find innermost M or N dimension in output
       // We will assume for now that the output rfactor domain matches the
