@@ -147,12 +147,8 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
   setUCharVec(
       config->problem.supported_vec_size.operands,
       params.supported_vec_size.operands);
-  setUCharVec(
-      config->problem.supported_vec_size.epilogue_inputs,
-      params.supported_vec_size.epilogue_inputs);
-  setUCharVec(
-      config->problem.supported_vec_size.outputs,
-      params.supported_vec_size.outputs);
+  config->problem.supported_vec_size.epilogue =
+      (uint8_t)params.supported_vec_size.epilogue;
 }
 
 void copyConfigToParams(MatmulParams& params, const KernelConfig* config) {

@@ -374,6 +374,25 @@ int64_t computeExpectedSharedMemoryUsage(
 //!  Z = complex<double>
 char dtypeToChar(const DataType& dtype);
 
+//! Get a total ordering of dimensions for known tensors. To do this, we visit
+//! each leaf domain for every tensor role. All dims of a particular DimRole are
+//! adjacent in the output. We then set the order as follows:
+//! 1. Batch dimensions go first
+//! 2. K dimensions are innermost
+//! 3. M or N can be innermost, depending on the first output's allocation
+//!    domain's innermost non-batch dimension.
+//! 4. Within each DimRole, dims are ordered as follows:
+//!    a. Batch, M, and N dimensions are ordered like the allocation domain of
+//!       the first output
+//!    b. K dimensions are ordered like the allocation domain of the first
+//!       A operand
+// TODO: we might want more sophisticated ordering analysis for multi-dim role
+// ordering to maximize vectorization across multiple tensors (rule 4)
+std::vector<ValGroup> canonicalDimOrdering(
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const mma_utils::DimRolesMap& dim_roles,
+    const ValGraph& exact_graph);
+
 } // namespace mma_utils
 
 } // namespace nvfuser

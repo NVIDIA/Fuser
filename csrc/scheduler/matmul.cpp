@@ -649,7 +649,8 @@ void scheduleOutputTensor(
 //!  producers in the epilogue. Transformations' propagation aims at input tvs
 //!  which are not assigned to core roles, that is, are not MMA inputs.
 void scheduleFusionInputsForEpilogue(
-    const mma_utils::TensorRolesMap& tensor_roles) {
+    const mma_utils::TensorRolesMap& tensor_roles,
+    bool with_smem_epilogue) {
   std::vector<TensorView*> cached_tvs;
 
   // Handling transformations in fusion input tvs with assigned INPUT_C role by
@@ -670,47 +671,21 @@ void scheduleFusionInputsForEpilogue(
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
         output_d, -1, c_tvs);
 
-    scheduler_utils::parallelizeAllLike(output_d, -1, cached_tvs);
+    std::unordered_set<ParallelType> parallel_types = {};
+    if (with_smem_epilogue) {
+      //! In cases where smem epilogue feature is enabled, the vectorization of
+      //!  domains will be propagated to fusion inputs that are epilogue inputs,
+      //!  this may result in unaligned memory reads. Vectorization is
+      //!  explicitly excluded form parallelization types to avoid this issue.
+      //! This should be changed when vectorization analysis is available and
+      //!  enabled for matmul scheduler.
+      parallel_types = allParallelTypesExcept({ParallelType::Vectorize});
+    }
+    scheduler_utils::parallelizeAllLike(
+        output_d, -1, cached_tvs, parallel_types);
 
     // The cached INPUT_C tvs are not needed anymore
     cached_tvs.clear();
-  }
-}
-
-// Perform inner vectorization splits and set ParallelType::Vectorize for all
-// epilogue inputs and outputs
-void scheduleEpilogueVectorization(
-    const MatmulParams::SupportedVectorization& supported_vec,
-    const mma_utils::TensorRolesMap& tensor_roles) {
-  const auto doInnerSplit = [](TensorView* tv, int64_t vec_size) {
-    PolymorphicValue outer_size_pv = tv->axis(-1)->extent()->value();
-    NVF_ERROR(outer_size_pv.is<int64_t>());
-    int64_t outer_size = outer_size_pv.as<int64_t>();
-    if (outer_size != vec_size) {
-      NVF_ERROR(
-          vec_size % outer_size == 0, "Vectorization split must be divisible");
-      tv->split(-1, vec_size);
-      tv->axis(-2)->parallelize(ParallelType::Unroll);
-    }
-    tv->axis(-1)->parallelize(ParallelType::Vectorize);
-  };
-
-  auto it = tensor_roles.find(MatmulRole::INPUT_C);
-  if (it != tensor_roles.end()) {
-    const std::vector<TensorView*>& tvs = it->second;
-    NVF_ERROR(tvs.size() == supported_vec.epilogue_inputs.size());
-    for (size_t i : c10::irange(tvs.size())) {
-      doInnerSplit(tvs[i], supported_vec.epilogue_inputs[i]);
-    }
-  }
-
-  it = tensor_roles.find(MatmulRole::OUTPUT_D);
-  if (it != tensor_roles.end()) {
-    const std::vector<TensorView*>& tvs = it->second;
-    NVF_ERROR(supported_vec.outputs.size() >= tvs.size());
-    for (size_t i : c10::irange(tvs.size())) {
-      doInnerSplit(tvs[i], supported_vec.outputs[i]);
-    }
   }
 }
 
@@ -1211,20 +1186,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       {acr, bcr, ab, bb},
       {ParallelType::TIDy, ParallelType::TIDz});
 
-  // We will first schedule all output tensors assuming they can all be
-  // vectorized with a width as large as the max supported by any single output
-  // or epilogue input. Once we have propagated the transformations back to
-  // epilogue inputs, we will perform inner vectorization splits and set
-  // vectorization for all outputs and epilogue inputs. We call these two steps
-  // the outer and inner vectorization splits.
-  int64_t outer_epilogue_vec_size = 1;
-  for (int64_t v : params.supported_vec_size.epilogue_inputs) {
-    outer_epilogue_vec_size = std::max(outer_epilogue_vec_size, v);
-  }
-  for (int64_t v : params.supported_vec_size.outputs) {
-    outer_epilogue_vec_size = std::max(outer_epilogue_vec_size, v);
-  }
-
   // handle epilogue and always vectorize Ki
   if (params.use_smem_epilogue) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
@@ -1241,7 +1202,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     for (auto [dc, d] : cached_outputs) {
       // Schedule output tensor differently for better global memory access
       // pattern.
-      scheduleOutputTensor(mma_result, d, gemm_tile, outer_epilogue_vec_size);
+      scheduleOutputTensor(
+          mma_result, d, gemm_tile, params.supported_vec_size.epilogue);
+      d->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Propagate output tensor transformations back to smem_epilogue
       scheduler_utils::BoundedDirectionalTransformPropagator::backward(
@@ -1256,19 +1219,27 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
           scheduler_utils::BoundedDirectionalTransformPropagator::Options()
               .propagateParallelType()
               .propagateToBoundary());
+      // We might propagate an inner dimension that is not compatible with the
+      // output or bias-like inputs. In those cases, we will further split this
+      // dimension with an outer unrolled loop to achieve the proper
+      // vectorization as specified by params.supported_vec_size.epilogue.
+      NVF_ERROR(d->axis(-1)->extent()->isConst());
+      int64_t d_extent = d->axis(-1)->extent()->value().as<int64_t>();
+      if (d_extent > params.supported_vec_size.epilogue) {
+        // Should always be a divisible split
+        NVF_ERROR(d_extent % params.supported_vec_size.epilogue == 0);
+        d->split(-1, params.supported_vec_size.epilogue, /*inner_split=*/true);
+        d->axis(-2)->parallelize(ParallelType::Unroll);
+      }
+      d->axis(-1)->parallelize(ParallelType::Vectorize);
     }
   }
   // propagate output transformations to all inputs that are part of epilogue
   //  operations, input tvs with non-core roles
   //  core roles: essential for matmul, for example mma inputs' producers
   if (has_non_mma_input_tvs) {
-    scheduleFusionInputsForEpilogue(tensor_roles);
+    scheduleFusionInputsForEpilogue(tensor_roles, params.use_smem_epilogue);
   }
-
-  // Now that the outer vectorization split is propagated back to all epilogue
-  // inputs, we can perform inner vectorization splits and set vectorization for
-  // each tensor individually.
-  scheduleEpilogueVectorization(params.supported_vec_size, tensor_roles);
 
   scheduleSplitKSum(
       splitk_sum, num_device_and_batch_dims, params.use_smem_epilogue);

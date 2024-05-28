@@ -1571,6 +1571,87 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   return dim_roles;
 }
 
+std::vector<ValGroup> canonicalDimOrdering(
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const mma_utils::DimRolesMap& dim_roles,
+    const ValGraph& exact_graph) {
+  VectorOfUniqueEntries<ValGroup> batch_dims, m_dims, n_dims, k_dims,
+      other_dims;
+  // This is +1 if N should come before M and -1 otherwise. It is zero until the
+  // M/N ordering has been determined.
+  int64_t n_inside_m = 0;
+  for (MatmulRole tv_role :
+       {MatmulRole::OUTPUT_D,
+        MatmulRole::INPUT_A,
+        MatmulRole::INPUT_B,
+        MatmulRole::INPUT_C}) {
+    const auto it = tensor_roles.find(tv_role);
+    if (it == tensor_roles.end()) {
+      continue;
+    }
+    for (TensorView* tv : it->second) {
+      // We iterate in reverse through the leaf domain of tv so that we can find
+      // the inner-most dimensions
+      for (auto id_it = tv->getMaybeAllocationDomain().rbegin();
+           id_it != tv->getMaybeAllocationDomain().rend();
+           id_it++) {
+        IterDomain* id = *id_it;
+        const ValGroup& g = exact_graph.toGroup(id);
+        const auto it = dim_roles.find(g);
+        if (it == dim_roles.end()) {
+          other_dims.pushBack(g);
+        } else {
+          switch (it->second) {
+            case MatmulDomain::Batch:
+              batch_dims.pushBack(g);
+            case MatmulDomain::M:
+              if (n_inside_m == 0) {
+                // We encountered an M dimension before an N dimension
+                n_inside_m = -1;
+              }
+              m_dims.pushBack(g);
+            case MatmulDomain::N:
+              if (n_inside_m == 0) {
+                // We encountered an N dimension before an M dimension
+                n_inside_m = -1;
+              }
+              n_dims.pushBack(g);
+            case MatmulDomain::K:
+              // Order K dimensions like operands, and all others like outputs
+              if (tv_role == MatmulRole::INPUT_A ||
+                  tv_role == MatmulRole::INPUT_B) {
+                k_dims.pushBack(g);
+              }
+              break;
+          }
+        }
+      }
+    }
+  }
+  NVF_ERROR(other_dims.empty(), "Found unrecognized dims in matmul tensors");
+
+  // Insert the reverse-ordered groups in order
+  std::vector<ValGroup> ordering;
+  ordering.reserve(
+      batch_dims.size() + m_dims.size() + n_dims.size() + k_dims.size());
+  const auto insert = [&ordering](const VectorOfUniqueEntries<ValGroup>& v) {
+    for (auto it = v.rbegin(); it != v.rend(); ++it) {
+      ordering.push_back(*it);
+    }
+  };
+  insert(batch_dims);
+  if (n_inside_m) {
+    insert(m_dims);
+    insert(n_dims);
+  } else {
+    insert(n_dims);
+    insert(m_dims);
+  }
+  insert(k_dims);
+
+  return ordering;
+}
+
 } // namespace mma_utils
 
 } // namespace nvfuser

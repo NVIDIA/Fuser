@@ -298,262 +298,253 @@ std::string isMatmulFusionDefinitionSupported(
   return "";
 }
 
-// Assume that tens has a contiguous dimension, and that we will load rows of
-// that dimension, without merging with another dimension first. Then determine
-// the maximum vectorization that can be used.
-//
-// If the argument has no contiguous dimensions, then a vectorization width of 1
-// is returned.
-//
-// The sizes and strides given should be in the same order as one another and
-// should match the no-reductions allocation domain of tv.
-//
-// These rows can start at any multiple of the non-contiguous strides, so we
-// seek the largest power of 2 that divides all those other dimensions (capped
-// to 16) as well as the data pointer.
-int64_t maxUnpredicatedRowVectorization(
-    TensorView* tv,
-    const SchedulerRuntimeInfo& runtime_info) {
-  const int64_t data_ptr_int = (int64_t)runtime_info.ptrOf(tv);
-  const std::vector<int64_t>& sizes = runtime_info.getInputAllocationSizes(tv);
-  const std::vector<int64_t>& strides =
-      runtime_info.getInputAllocationStrides(tv);
+class VectorizationCalculator {
+ public:
+  VectorizationCalculator(
+      const SchedulerRuntimeInfo& runtime_info,
+      const mma_utils::TensorRolesMap& tensor_roles,
+      const mma_utils::DimRolesMap& dim_roles,
+      const ValGraph& exact_graph)
+      : runtime_info_(runtime_info),
+        tensor_roles_(tensor_roles),
+        dim_roles_(dim_roles),
+        exact_graph_(exact_graph) {
+    dim_ordering_ =
+        mma_utils::canonicalDimOrdering(tensor_roles, dim_roles_, exact_graph_);
+  }
 
-  // Check data pointer alignment
-  int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
-  vec_size = std::min(vec_size, 16l);
-  vec_size /= dataTypeSize(tv->dtype());
-  vec_size = std::max(vec_size, 1l);
-  if (vec_size == 1l) {
+  MatmulParams::SupportedVectorization compute() {
+    return {operandVectorizations(), epilogueVectorization()};
+  }
+
+ private:
+  std::vector<int64_t> operandVectorizations() const {
+    std::vector<int64_t> vec_sizes;
+    for (MatmulRole role : {MatmulRole::INPUT_A, MatmulRole::INPUT_B}) {
+      const auto op_it = tensor_roles_.find(role);
+      if (op_it == tensor_roles_.end()) {
+        continue;
+      }
+      for (TensorView* tv : op_it->second) {
+        vec_sizes.push_back(operandVectorization(tv));
+      }
+    }
+    return vec_sizes;
+  }
+
+  MatmulDomain dimRole(const ValGroup& g) const {
+    auto dim_role_it = dim_roles_.find(g);
+    NVF_ERROR(
+        dim_role_it != dim_roles_.end(), "Found ValGroup with unknown role");
+    return dim_role_it->second;
+  }
+
+  int64_t ptrAndDTypeVec(TensorView* tv) const {
+    const int64_t data_ptr_int = (int64_t)runtime_info_.ptrOf(tv);
+    int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
+    vec_size = std::min(vec_size, 16l);
+    vec_size /= dataTypeSize(tv->dtype());
+    vec_size = std::max(vec_size, 1l);
     return vec_size;
   }
 
-  // Check that inner dimension is contiguous
-  NVF_ERROR(sizes.size() == strides.size());
-  NVF_ERROR((int64_t)sizes.size() == tv->nDims());
-  size_t inner_dim_pos = 0;
-  for (size_t i = tv->getMaybeAllocationDomain().size() - 1; i >= 0; --i) {
-    IterDomain* id = tv->getMaybeAllocationDomain()[i];
-    if (id->isReduction() || id->isBroadcast()) {
-      continue;
-    }
-    inner_dim_pos = i;
-    std::optional<bool> c = tv->getContiguity().at(i);
-    NVF_ERROR(c.has_value());
-    if (!c.value()) {
-      // If TensorView is marked discontiguous in inner dimension, we cannot
-      // vectorize regardless of input.
-      return 1l;
-    } else {
-      NVF_CHECK(
-          strides[i] == 1,
-          "TensorView ",
-          tv->toString(),
-          " has marked contiguous inner dimension ",
-          id->toString(),
-          " but provided tensor has stride ",
-          strides[i],
-          " in that dimension.");
-    }
-    break; // only check innermost realized dimension
-  }
+  // Given a TensorView and a vector of dimension ValGroups find vectorization.
+  // The vector of dimensions indicates how the tensor will be scheduled;
+  // dimensions in tv will be reordered if needed then the vector of dimensions
+  // will be merged. We check the allocation domain of tv to tell how the
+  // resulting merged TV can be vectorized.
+  int64_t innerDimsVectorization(
+      TensorView* tv,
+      const std::vector<ValGroup>& inner_dims) const {
+    const std::vector<int64_t>& sizes =
+        runtime_info_.getInputAllocationSizes(tv);
+    const std::vector<int64_t>& strides =
+        runtime_info_.getInputAllocationStrides(tv);
+    NVF_ERROR(sizes.size() == strides.size());
+    NVF_ERROR((int64_t)sizes.size() == tv->nDims());
 
-  // Since this is unpredicated vectorization, the size of the innermost
-  // dimension must be a multiple of the vectorization factor.
-  vec_size = std::min(
-      vec_size, scheduler_utils::maxVectorizationWidth(sizes[inner_dim_pos]));
+    // Position of the outermost vectorizable dimension, in allocation domain
+    size_t inner_dim_pos = tv->getMaybeAllocationDomain().size();
+    // Product of sizes of all vectorizable dims; i.e. the size of the merged
+    // vectorized dimension.
+    int64_t inner_dims_size = 1;
+    std::vector<ValGroup> remaining_inner_dims(inner_dims);
+    for (size_t i = tv->getMaybeAllocationDomain().size() - 1; i >= 0; --i) {
+      IterDomain* id = tv->getMaybeAllocationDomain()[i];
+      if (id->isReduction() || id->isBroadcast()) {
+        continue;
+      }
 
-  // Account for misaligned rows due to outer strides
-  for (size_t i : c10::irange(inner_dim_pos)) {
-    if (sizes[i] == 1) {
-      // outer size-1 dimensions don't affect vectorizability
-      continue;
-    }
-    vec_size =
-        std::min(vec_size, scheduler_utils::maxVectorizationWidth(strides[i]));
-  }
+      ValGroup g = exact_graph_.toGroup(id);
+      // Exit when this does not match the given ordered inner dimension
+      if (g != remaining_inner_dims.back()) {
+        break;
+      }
+      remaining_inner_dims.pop_back();
 
-  return vec_size;
-}
-
-namespace {
-// Get a total ordering of dimensions for known tensors. To do this, we visit
-// each leaf domain for every tensor role. All dims of a particular DimRole are
-// adjacent in the output. We then set the order as follows:
-// 1. Batch dimensions go first, in arbitrary order (chosen based on the first
-//    output's allocation domain).
-// 2. K dimensions are innermost
-// 3. M or N can be innermost, depending on the first output's allocation
-//    domain's innermost non-batch dimension.
-// 4. Within each DimRole, dims are ordered as follows:
-//    a. Batch, M, and N dimensions are ordered like the allocation domain of
-//       the first output
-//    b. K dimensions are ordered like the allocation domain of the first
-//       A operand
-// TODO: we might want more sophisticated ordering analysis for multi-dim role
-// ordering (rule 4)
-// TODO: This should be a general utility and we should use it for
-// canonicalizeMmaTvOrdering
-std::vector<ValGroup> canonicalDimOrdering(
-    const mma_utils::TensorRolesMap& tensor_roles,
-    const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& exact_graph) {
-  VectorOfUniqueEntries<ValGroup> batch_dims, m_dims, n_dims, k_dims,
-      other_dims;
-  // This is +1 if N should come before M and -1 otherwise. It is zero until it
-  // has been determined.
-  int64_t n_inside_m = 0;
-  for (MatmulRole tv_role :
-       {MatmulRole::OUTPUT_D,
-        MatmulRole::INPUT_A,
-        MatmulRole::INPUT_B,
-        MatmulRole::INPUT_C}) {
-    const auto it = tensor_roles.find(tv_role);
-    if (it == tensor_roles.end()) {
-      continue;
-    }
-    for (TensorView* tv : it->second) {
-      // We iterate in reverse through the leaf domain of tv so that we can find
-      // the inner-most dimensions
-      for (auto id_it = tv->getMaybeAllocationDomain().rbegin();
-           id_it != tv->getMaybeAllocationDomain().rend();
-           id_it++) {
-        IterDomain* id = *id_it;
-        const ValGroup& g = exact_graph.toGroup(id);
-        const auto it = dim_roles.find(g);
-        if (it == dim_roles.end()) {
-          other_dims.pushBack(g);
-        } else {
-          switch (it->second) {
-            case MatmulDomain::Batch:
-              batch_dims.pushBack(g);
-            case MatmulDomain::M:
-              if (n_inside_m == 0) {
-                // We encountered an M dimension before an N dimension
-                n_inside_m = -1;
-              }
-              m_dims.pushBack(g);
-            case MatmulDomain::N:
-              if (n_inside_m == 0) {
-                // We encountered an N dimension before an M dimension
-                n_inside_m = -1;
-              }
-              n_dims.pushBack(g);
-            case MatmulDomain::K:
-              // Order K dimensions like operands, and all others like outputs
-              if (tv_role == MatmulRole::INPUT_A ||
-                  tv_role == MatmulRole::INPUT_B) {
-                k_dims.pushBack(g);
-              }
-              break;
-          }
-        }
+      std::optional<bool> c = tv->getContiguity().at(i);
+      NVF_ERROR(c.has_value());
+      if (!c.value()) {
+        // TensorView is marked discontiguous; can't vectorize
+        return 1l;
+      } else {
+        NVF_CHECK(
+            strides[i] == 1,
+            "TensorView ",
+            tv->toString(),
+            " has marked contiguous inner dimension ",
+            id->toString(),
+            " but provided tensor has stride ",
+            strides[i],
+            " in that dimension.");
+        inner_dim_pos = i;
+        inner_dims_size *= sizes[i];
       }
     }
-  }
-  NVF_ERROR(other_dims.empty(), "Found unrecognized dims in matmul tensors");
 
-  // Insert the reverse-ordered groups in group order
-  std::vector<ValGroup> ordering;
-  ordering.reserve(
-      batch_dims.size() + m_dims.size() + n_dims.size() + k_dims.size());
-  const auto insert = [&ordering](const VectorOfUniqueEntries<ValGroup>& v) {
-    for (auto it = v.rbegin(); it != v.rend(); ++it) {
-      ordering.push_back(*it);
+    if (inner_dims_size == 1l) {
+      return 1l;
     }
-  };
-  insert(batch_dims);
-  if (n_inside_m) {
-    insert(m_dims);
-    insert(n_dims);
-  } else {
-    insert(n_dims);
-    insert(m_dims);
-  }
-  insert(k_dims);
 
-  return ordering;
-}
-} // namespace
+    // Since this is unpredicated vectorization, the size of the innermost
+    // dimension must be a multiple of the vectorization factor.
+    int64_t vec_size = scheduler_utils::maxVectorizationWidth(inner_dims_size);
+
+    // Account for misaligned rows due to outer strides
+    for (size_t i : c10::irange(inner_dim_pos)) {
+      if (sizes[i] == 1) {
+        // outer size-1 dimensions don't affect vectorizability
+        continue;
+      }
+      vec_size = std::min(
+          vec_size, scheduler_utils::maxVectorizationWidth(strides[i]));
+    }
+
+    return vec_size;
+  }
+
+  // Inspect the allocation domain of an operand input TensorView to determine
+  // vectorization width.
+  //
+  // We canonicalize dimensions by reordering them with the given ordering
+  // before merging all dimensions that have the same role. For a given operand,
+  // this might mean that the inner-most dimension gets reordered to be outer,
+  // even if it has the same role as the innermost dimension in the canonical
+  // ordering.
+  int64_t operandVectorization(TensorView* tv) const {
+    // Check data pointer alignment
+    int64_t vec_size = ptrAndDTypeVec(tv);
+    if (vec_size == 1l) {
+      return vec_size;
+    }
+
+    // Find the inner-most non-batch role for this tensor, and collect all
+    // ValGroups in that role, in the canonical ordering.
+    std::optional<MatmulDomain> vec_dim_role = std::nullopt;
+    for (size_t i = tv->getMaybeAllocationDomain().size() - 1; i >= 0; --i) {
+      IterDomain* id = tv->getMaybeAllocationDomain()[i];
+      if (id->isReduction() || id->isBroadcast()) {
+        continue;
+      }
+
+      ValGroup g = exact_graph_.toGroup(id);
+      MatmulDomain dim_role = dimRole(g);
+      if (dim_role == MatmulDomain::Batch) {
+        // We cannot vectorize in batch dimensions
+        break;
+      }
+      if (!vec_dim_role.has_value()) {
+        vec_dim_role = dim_role;
+      }
+    }
+    if (!vec_dim_role.has_value()) {
+      // Didn't find any dimensions to vectorize
+      return 1l;
+    }
+
+    // Extract dims with this role in the canonical ordering
+    std::vector<ValGroup> ordered_inner_dims;
+    for (const ValGroup& og : dim_ordering_) {
+      if (dimRole(og) == vec_dim_role.value()) {
+        ordered_inner_dims.push_back(og);
+      }
+    }
+
+    return innerDimsVectorization(tv, ordered_inner_dims);
+  }
+
+  int64_t epilogueVectorization() const {
+    // This is a vector of non-K dimensions sorted from inner to outer
+    std::vector<ValGroup> inner_nonk_dims;
+    std::optional<MatmulDomain> inner_nonk_role = std::nullopt;
+    for (auto g_it = dim_ordering_.rbegin(); g_it != dim_ordering_.rend();
+         ++g_it) {
+      const ValGroup& g = *g_it;
+      MatmulDomain dim_role = dimRole(g);
+      if (dim_role == MatmulDomain::K) {
+        // Skip K dims since they won't appear in epilogue loop nest
+        continue;
+      }
+      if (!inner_nonk_role.has_value()) {
+        inner_nonk_role = dim_role;
+      }
+      if (dim_role != inner_nonk_role.value()) {
+        break;
+      }
+      inner_nonk_dims.push_back(g);
+    }
+
+    if (!inner_nonk_role.has_value() ||
+        inner_nonk_role.value() == MatmulDomain::Batch) {
+      // If the innermost non-K dimension is a batch dimension, then we cannot
+      // vectorize the outputs since we parallelize batch dimensions across the
+      // grid.
+      return 1l;
+    }
+
+    // Match the innermost dimensions above to contiguous innermost dims in tv
+    // from inner to outer. Determine supported vectorization based on product
+    // of matching sizes along with all outer strides.
+    const auto innerMostVec = [&](TensorView* tv) {
+      int64_t vec_size = ptrAndDTypeVec(tv);
+      if (vec_size == 1l) {
+        return vec_size;
+      }
+      return std::min(vec_size, innerDimsVectorization(tv, inner_nonk_dims));
+    };
+
+    const auto d_it = tensor_roles_.find(MatmulRole::OUTPUT_D);
+    NVF_ERROR(
+        d_it != tensor_roles_.end(), "Could not find any output D tensors");
+    int64_t vec_size = 16l;
+    for (TensorView* tv : d_it->second) {
+      vec_size = std::min(vec_size, innerMostVec(tv));
+    }
+    if (const auto c_it = tensor_roles_.find(MatmulRole::INPUT_C);
+        c_it != tensor_roles_.end()) {
+      for (TensorView* tv : c_it->second) {
+        vec_size = std::min(vec_size, innerMostVec(tv));
+      }
+    }
+    return vec_size;
+  }
+
+ private:
+  const SchedulerRuntimeInfo& runtime_info_;
+  const mma_utils::TensorRolesMap& tensor_roles_;
+  const mma_utils::DimRolesMap& dim_roles_;
+  const ValGraph& exact_graph_;
+  std::vector<ValGroup> dim_ordering_;
+};
 
 MatmulParams::SupportedVectorization getSupportedVectorization(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const IdModel& id_model,
+    const ValGraph& exact_graph,
     SchedulerRuntimeInfo& runtime_info) {
-  MatmulParams::SupportedVectorization supported_vec_size;
-
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  const std::vector<ValGroup> dim_order =
-      canonicalDimOrdering(tensor_roles, dim_roles, exact_graph);
-
-  ValGroup inner_non_k_dim = nullptr;
-  for (auto g_it = dim_order.rbegin(); g_it != dim_order.rend(); ++g_it) {
-    const ValGroup& g = *g_it;
-    auto role_it = dim_roles.find(g);
-    NVF_ERROR(
-        role_it != dim_roles.end(),
-        "Dim without role found in canonical ordering");
-    if (role_it->second != MatmulDomain::K) {
-      inner_non_k_dim = g;
-    }
-  }
-  NVF_ERROR(
-      inner_non_k_dim != nullptr,
-      "Could not determine innermost non-K dimension");
-
-  // Find first output's innermost N dimension, which is the dimension we will
-  // vectorize outputs and epilogue inputs along.
-  const auto innerMostNonKDimIsInnerMostAlloc =
-      [&exact_graph, &inner_non_k_dim](TensorView* tv) {
-        if (tv->nDims() == 0) {
-          return false;
-        }
-        return inner_non_k_dim ==
-            exact_graph.toGroup(tv->getMaybeAllocationDomain().back());
-      };
-
-  // Operands are listed in A then B order. Each operand is loaded row by row
-  // based on the inner-most dimension, as long as that dimension is the
-  // innermost M or innermost N dimension.
-  supported_vec_size.operands.clear();
-  for (MatmulRole role : {MatmulRole::INPUT_A, MatmulRole::INPUT_B}) {
-    const auto op_it = tensor_roles.find(role);
-    if (op_it == tensor_roles.end()) {
-      continue;
-    }
-    for (TensorView* tv : op_it->second) {
-      supported_vec_size.operands.push_back(
-          maxUnpredicatedRowVectorization(tv, runtime_info));
-    }
-  }
-
-  // If the innermost N is the innermost allocation domain of tv, then find the
-  // maximum vectorization for this tensor. Otherwise set to 1.
-  const auto innerMostNVec =
-      [&runtime_info, &innerMostNonKDimIsInnerMostAlloc](TensorView* tv) {
-        return innerMostNonKDimIsInnerMostAlloc(tv)
-            ? maxUnpredicatedRowVectorization(tv, runtime_info)
-            : 1l;
-      };
-
-  const auto d_it = tensor_roles.find(MatmulRole::OUTPUT_D);
-  NVF_ERROR(d_it != tensor_roles.end(), "Could not find any output D tensors");
-  supported_vec_size.outputs.clear();
-  supported_vec_size.outputs.reserve(d_it->second.size());
-  for (TensorView* tv : d_it->second) {
-    supported_vec_size.outputs.push_back(innerMostNVec(tv));
-  }
-  // For INPUT_C role tensors, we do not necessarily know which axis we would
-  // like to vectorize, so we set vectorization based on dtype instead here
-  // until a more complete analysis is implemented.
-  if (const auto c_it = tensor_roles.find(MatmulRole::INPUT_C);
-      c_it != tensor_roles.end()) {
-    for (TensorView* tv : c_it->second) {
-      supported_vec_size.epilogue_inputs.push_back(innerMostNVec(tv));
-    }
-  }
-  return supported_vec_size;
+  VectorizationCalculator calc(
+      runtime_info, tensor_roles, dim_roles, exact_graph);
+  return calc.compute();
 }
 
 } // anonymous namespace
@@ -678,6 +669,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   // IdModel is used to analyze problem shape & layout
   IdModel id_model(fusion);
+  id_model.maybeBuildGraph(IdMappingMode::EXACT);
 
   const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
 
@@ -696,8 +688,11 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       tensor_roles_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto tensor_roles = tensor_roles_opt.getData();
 
-  params->supported_vec_size =
-      getSupportedVectorization(tensor_roles, id_roles, id_model, runtime_info);
+  params->supported_vec_size = getSupportedVectorization(
+      tensor_roles,
+      id_roles,
+      id_model.idGraph(IdMappingMode::EXACT),
+      runtime_info);
 
   if (matmul_heuristic_plugin::hasPlugin()) {
     const mma_utils::MatmulProblemLayoutOpt layout_opt =
