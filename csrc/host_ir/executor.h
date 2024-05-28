@@ -14,6 +14,8 @@
 #include <kernel_cache.h>
 #include <multidevice/communicator.h>
 
+#include <c10/cuda/CUDAStream.h>
+
 namespace nvfuser {
 
 namespace hir {
@@ -55,6 +57,7 @@ class HostIrExecutor final : public OptInDispatch {
 
  private:
   using OptInDispatch::handle;
+  void handle(SetCurrentStream* set_current_stream);
   void handle(PostOnStream* post) override;
   void postCompute(PostOnStream* post);
   void postCommunication(PostOnStream* post);
@@ -67,6 +70,7 @@ class HostIrExecutor final : public OptInDispatch {
   // Cache Fusions, FusionExecutors
   std::unordered_map<HostUnit*, FusionExecutor> fe_;
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
+  std::unordered_map<StreamIr*, c10::cuda::CUDAStream> streams_;
 };
 
 } // namespace hir
