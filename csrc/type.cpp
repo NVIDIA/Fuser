@@ -314,10 +314,6 @@ const char* predicate_type2string(PredicateType t) {
       return "Vectorize";
     case PredicateType::Misaligned:
       return "Misaligned";
-    case PredicateType::Shift:
-      return "Shift";
-    case PredicateType::Padding:
-      return "Padding";
     case PredicateType::ReductionWrite:
       return "ReductionWrite";
     case PredicateType::LoopRotation:

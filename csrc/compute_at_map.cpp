@@ -827,13 +827,7 @@ void ComputeAtMap::allocateIndexVariables() {
     if (auto result = std::find_if(
             loop_disjoint_set->vector().begin(),
             loop_disjoint_set->vector().end(),
-            [](IterDomain* id) {
-              // Halo extended parallel loops currently are handled
-              // differently and an index variable would still
-              // be allocated in this case.
-              return id->isThread() &&
-                  (GpuLower::current()->haloInfo()->getExtent(id) == nullptr);
-            });
+            [](IterDomain* id) { return id->isThread(); });
         result != loop_disjoint_set->vector().end()) {
       ptype = (*result)->getParallelType();
       loop_index_variable_map_[loop_disjoint_set.get()] =
