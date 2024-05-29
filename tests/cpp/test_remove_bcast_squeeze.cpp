@@ -76,7 +76,7 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueeze) {
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
   auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
-  ASSERT_FALSE(has_bcast);
+  EXPECT_FALSE(has_bcast);
   ASSERT_FALSE(has_squeeze);
 }
 
