@@ -8,6 +8,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <optional>
 #include <ostream>
 #include <type_traits>
@@ -92,6 +93,9 @@ struct DynamicType {
       typename Containers::template TypeIdentitiesAsTuple<DynamicType, Ts...>;
   static constexpr TypeIdentitiesAsTuple type_identities_as_tuple{};
 
+  static constexpr std::size_t num_types =
+      std::tuple_size_v<TypeIdentitiesAsTuple>;
+
   using ForAllTypes =
       typename Containers::template ForAllTypes<DynamicType, Ts...>;
   static constexpr ForAllTypes for_all_types{};
@@ -107,6 +111,76 @@ struct DynamicType {
         return opcheck<typename decltype(t)::type>.canCastTo(opcheck<T>);
       },
       type_identities_as_tuple);
+
+  template <typename FuncT, typename FirstArg, typename... OtherArgs>
+  static constexpr decltype(auto) dispatch(
+      FuncT&& f,
+      FirstArg&& arg0,
+      OtherArgs&&... args) {
+    if constexpr (std::is_same_v<std::decay_t<FirstArg>, DynamicType>) {
+      auto f0 = [&](auto&& a0) {
+        if constexpr (sizeof...(OtherArgs) == 0) {
+          return std::forward<FuncT>(f)(std::forward<decltype(a0)>(a0));
+        } else {
+          auto f_others = [&](auto&&... others) {
+            return std::forward<FuncT>(f)(
+                std::forward<decltype(a0)>(a0),
+                std::forward<decltype(others)>(others)...);
+          };
+          return dispatch(f_others, std::forward<OtherArgs>(args)...);
+        }
+      };
+      auto get_result_type = [&](auto t) {
+        using T = typename decltype(t)::type;
+        return f0(arg0.template as<T>());
+      };
+      using result_types =
+          decltype(DynamicType::for_all_types(get_result_type));
+      constexpr bool has_single_return_type = are_all_same<result_types>::value;
+      using result_type = std::conditional_t<
+          has_single_return_type,
+          std::tuple_element_t<0, result_types>,
+          DynamicType>;
+      if constexpr (std::is_same_v<result_type, Void>) {
+        DynamicType::for_all_types([&](auto t) {
+          using T = typename decltype(t)::type;
+          if (arg0.template is<T>()) {
+            f0(arg0.template as<T>());
+          }
+        });
+        return;
+      } else {
+        result_type ret;
+        DynamicType::for_all_types([&](auto t) {
+          using T = typename decltype(t)::type;
+          if (arg0.template is<T>()) {
+            auto get_result = [&] { return f0(arg0.template as<T>()); };
+            if constexpr (std::is_convertible_v<
+                              decltype(get_result()),
+                              result_type>) {
+              ret = get_result();
+            } else {
+              DYNAMIC_TYPE_CHECK(
+                  false,
+                  "Result is dynamic but not convertible to DynamicType");
+            }
+          }
+        });
+        return ret;
+      }
+    } else {
+      if constexpr (sizeof...(OtherArgs) == 0) {
+        return std::forward<FuncT>(f)(std::forward<FirstArg>(arg0));
+      } else {
+        auto ff = [&](auto&&... others) {
+          return std::forward<FuncT>(f)(
+              std::forward<FirstArg>(arg0),
+              std::forward<decltype(others)>(others)...);
+        };
+        return dispatch(ff, std::forward<OtherArgs>(args)...);
+      }
+    }
+  }
 
   constexpr DynamicType() = default;
 
