@@ -113,38 +113,48 @@ struct DynamicType {
       type_identities_as_tuple);
 
   template <typename FuncT, typename FirstArg, typename... OtherArgs>
-  static constexpr decltype(auto) dispatch(
+  static inline constexpr decltype(auto) dispatch(
       FuncT&& f,
       FirstArg&& arg0,
       OtherArgs&&... args) {
+    // Recursively dispatch on `args`, only leaving arg0 as undispatched
+    // argument
+    auto f0 = [&](auto&& a0) -> decltype(auto) {
+      if constexpr (sizeof...(OtherArgs) == 0) {
+        return std::forward<FuncT>(f)(std::forward<decltype(a0)>(a0));
+      } else {
+        auto f_others = [&](auto&&... others) -> decltype(auto) {
+          return std::forward<FuncT>(f)(
+              std::forward<decltype(a0)>(a0),
+              std::forward<decltype(others)>(others)...);
+        };
+        return dispatch(f_others, std::forward<OtherArgs>(args)...);
+      }
+    };
+    // Does arg0 need dispatch?
     if constexpr (std::is_same_v<std::decay_t<FirstArg>, DynamicType>) {
-      auto f0 = [&](auto&& a0) -> decltype(auto) {
-        if constexpr (sizeof...(OtherArgs) == 0) {
-          // std::tuple<decltype(std::forward<FuncT>(f)(std::forward<decltype(a0)>(a0)))>
-          // a = 0;
-          return std::forward<FuncT>(f)(std::forward<decltype(a0)>(a0));
-        } else {
-          auto f_others = [&](auto&&... others) -> decltype(auto) {
-            return std::forward<FuncT>(f)(
-                std::forward<decltype(a0)>(a0),
-                std::forward<decltype(others)>(others)...);
-          };
-          // std::tuple<decltype(dispatch(f_others,
-          // std::forward<OtherArgs>(args)...))> a = 0;
-          return dispatch(f_others, std::forward<OtherArgs>(args)...);
-        }
-      };
-      auto get_result_type = [](auto t) {
+      // Infer return result: if f always returns the same type, then we return
+      // the same type as well. Otherwise, we return DynamicType assuming that
+      // DynamicType is the common holder of these types. Void is treated
+      // specially here: if for some case the function returns some type, and
+      // for other cases the function returns void, then we ignore void and use
+      // the cases with return value for inference. We decide to do this because
+      // non-void return values can be ignored, but void returning can never
+      // pass any information. There is no single best inference strategy that
+      // fits all cases, ignoring void seems to be good tradeoff.
+      auto get_single_result_type = [](auto t) {
         using T = typename decltype(t)::type;
         using RetT = decltype(f0(std::declval<T>()));
         if constexpr (!std::is_void_v<RetT>) {
           return std::type_identity<RetT>{};
         } else {
+          // return void instead of std::type_identity<void> so that we can use
+          // remove_void_from_tuple to remove it.
           return;
         }
       };
       using result_types = decltype(remove_void_from_tuple(
-          DynamicType::for_all_types(get_result_type)));
+          DynamicType::for_all_types(get_single_result_type)));
       constexpr bool returns_void = (std::tuple_size_v<result_types> == 0);
       if constexpr (returns_void) {
         DynamicType::for_all_types([&](auto t) -> decltype(auto) {
@@ -178,7 +188,7 @@ struct DynamicType {
             } else {
               DYNAMIC_TYPE_CHECK(
                   false,
-                  "Result is dynamic but not convertible to DynamicType");
+                  "Result is dynamic but not convertible to result type");
             }
           }
         });
@@ -189,16 +199,8 @@ struct DynamicType {
         }
       }
     } else {
-      if constexpr (sizeof...(OtherArgs) == 0) {
-        return std::forward<FuncT>(f)(std::forward<FirstArg>(arg0));
-      } else {
-        auto ff = [&](auto&&... others) -> decltype(auto) {
-          return std::forward<FuncT>(f)(
-              std::forward<FirstArg>(arg0),
-              std::forward<decltype(others)>(others)...);
-        };
-        return dispatch(ff, std::forward<OtherArgs>(args)...);
-      }
+      // No need to dispatch arg0, just perfectly forwarding it.
+      return f0(std::forward<FirstArg>(arg0));
     }
   }
 

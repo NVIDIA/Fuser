@@ -162,5 +162,5 @@ TEST_F(DynamicTypeTest, DispatchReturnsReference) {
   EXPECT_THAT(
       [&]() { IntOrFloat::dispatch(add, a, two, 1); },
       ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Result is dynamic but not convertible to DynamicType")));
+          "Result is dynamic but not convertible to result type")));
 }
