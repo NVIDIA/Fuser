@@ -25,7 +25,7 @@
 
 namespace nvfuser {
 
-using TensorMapType = std::unordered_map<Val*, at::Tensor>;
+using TensorMapType = std::vector<at::Tensor>;
 
 class SegmentedGroup;
 class FusionHeuristics;

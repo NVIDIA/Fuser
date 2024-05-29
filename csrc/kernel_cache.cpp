@@ -1446,6 +1446,17 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
       args.size(),
       " inputs but expected ",
       segmented_fusion_->inputs().size());
+  NVF_ERROR(
+      outputs.empty() ||
+      outputs.size() == segmented_fusion_->outputs().size(),
+      "Outputs were not set up correctly, received ",
+      outputs.size(),
+      " outputs but expected ",
+      segmented_fusion_->outputs().size());
+  std::unordered_map<Val*, at::Tensor> output_tensor_map;
+  for (auto i : c10::irange(outputs.size())) {
+    output_tensor_map.insert({segmented_fusion_->outputs().at(i), outputs.at(i)});
+  }
 
   bool compute_overall_bw =
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
@@ -1478,8 +1489,8 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
 
     std::vector<at::Tensor> group_runtime_preallocated_outputs;
     for (auto output : group_to_run->outputs()) {
-      if (outputs.count(output)) {
-        group_runtime_preallocated_outputs.push_back(outputs.at(output));
+      if (output_tensor_map.count(output)) {
+        group_runtime_preallocated_outputs.push_back(output_tensor_map.at(output));
       }
     }
     // Run graph segment

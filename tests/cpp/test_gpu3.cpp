@@ -4092,7 +4092,7 @@ TEST_F(NVFuserTest, preallocated_outputs) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
-  std::unordered_map<Val*, at::Tensor> preallocated_output = {{tv6, t6}};
+  std::vector<at::Tensor> preallocated_output = {t6};
 
   auto outputs = executor_cache.runFusionWithInputs(aten_inputs, preallocated_output);
 
@@ -4106,7 +4106,7 @@ TEST_F(NVFuserTest, preallocated_outputs) {
               .size() == 2,
       "segmentation didn't happen as expected");
 
-  GTEST_EXPECT_TRUE(torch::allclose(preallocated_output.at(tv6), outputs.at(0))) << "preallocated: " << preallocated_output.at(tv6) <<"\n obtained outputs: " << outputs.at(0);
+  GTEST_EXPECT_TRUE(torch::allclose(preallocated_output.at(0), outputs.at(0))) << "preallocated: " << preallocated_output.at(0) <<"\n obtained outputs: " << outputs.at(0);
   testValidate(
       executor_cache.fusion(), outputs, aten_inputs, __LINE__, __FILE__);
 }
