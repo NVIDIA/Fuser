@@ -168,9 +168,6 @@ struct DynamicType {
                 std::reference_wrapper<std::remove_reference_t<result_type>>>,
             result_type>;
         ret_storage_t ret;
-        // if constexpr (!std::is_same_v<ret_storage_t, float>) {
-        //   std::tuple<ret_storage_t> a = std::nullopt;
-        // }
         DynamicType::for_all_types([&](auto t) -> decltype(auto) {
           using T = typename decltype(t)::type;
           if (arg0.template is<T>()) {
