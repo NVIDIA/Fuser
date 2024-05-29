@@ -66,7 +66,6 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueeze) {
   EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
 }
 
-
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeMultipleUses) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
