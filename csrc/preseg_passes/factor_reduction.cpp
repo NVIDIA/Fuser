@@ -27,13 +27,14 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
 
   const int64_t kNumDims = original_td->nDims();
 
-  NVF_CHECK(axes.size() < kNumDims);
+  NVF_CHECK((int64_t)axes.size() < kNumDims);
 
   // Check that axes are valid
   std::for_each(axes.begin(), axes.end(), [kNumDims](int64_t i) {
     NVF_CHECK(
         i >= -kNumDims && i < kNumDims,
-        "Rfactor replay received an axis outside the number of dims in the tensor, acceptable inclusive range is ",
+        "Rfactor received an axis outside the number of dims in the tensor.",
+        " Acceptable inclusive range is ",
         -kNumDims,
         " to ",
         kNumDims - 1);
@@ -52,9 +53,11 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
 
   // Put in a set to make searching easy
   std::unordered_set<IterDomain*> rfactor_root_axes;
-  std::copy_if(axes.begin(), axes.end(), [&original_td_root](int64_t pos) {
-    return original_td_root.at(pos);
-  });
+  std::transform(
+      axes.begin(),
+      axes.end(),
+      std::inserter(rfactor_root_axes, rfactor_root_axes.begin()),
+      [&original_td_root](int64_t pos) { return original_td_root.at(pos); });
 
   // Generate a new TensorDomain and set up map from one root to this one.
   std::vector<IterDomain*> new_producer_root;
@@ -87,15 +90,14 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
       new_producer_root,
       TensorDomain::getContiguityFilledWith(new_producer_root, true));
 
-  std::vector<IterDomain*> new_consumer_root_domain;
-  new_consumer_root_domain.reserve(original_td_root.size() - axes.size());
+  std::vector<IterDomain*> new_consumer_root;
+  new_consumer_root.reserve(original_td_root.size() - axes.size());
   for (IterDomain* id : original_td_root) {
     // If this is an rfactor root, skip it at this stage
     if (rfactor_root_axes.find(id) != rfactor_root_axes.end()) {
       continue;
     }
-    IterDomain* new_consumer_root = id->cloneWithoutRFactor();
-    new_consumer_root_domain.push_back(new_consumer_root);
+    new_consumer_root.push_back(id->cloneWithoutRFactor());
   }
 
   TensorDomain* consumer_domain = IrBuilder::create<TensorDomain>(
@@ -119,16 +121,18 @@ void applyReductionFactor(
       " its definition is either a nullptr or not a reduction.");
 
   // Split tensor view into 2 parts
-  auto&& [producer_domain, consumer_domain] = factorReductionDomain(axes);
+  auto&& [producer_domain, consumer_domain] =
+      factorReductionDomain(consumer->domain(), axes);
 
   // Create the new producer
-  TensorView* producer =
-      IrBuilder::create<TensorView>(producer_domain, tv->getDataType().value());
+  TensorView* producer = IrBuilder::create<TensorView>(
+      producer_domain, consumer->getDataType().value());
 
   // This TensorView is the consumer; Update its domain
   consumer->setDomain(consumer_domain);
 
-  ReductionOp* this_reduction = dynamic_cast<ReductionOp*>(definition());
+  ReductionOp* this_reduction =
+      dynamic_cast<ReductionOp*>(consumer->definition());
   // Setup dependency chain, inserting producer before this op.
   // Expr* producer_definition =
   IrBuilder::create<ReductionOp>(
