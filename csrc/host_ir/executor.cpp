@@ -45,8 +45,12 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
   StreamIr* stream = set_current_stream->stream();
   if (streams_.find(stream) == streams_.end()) {
-    c10::DeviceIndex i = (communicator_ != nullptr && communicator_->is_available())? communicator_->deviceId() : 0;
-    streams_.insert({stream, c10::cuda::getStreamFromPool(/* high priority */true, i)});
+    c10::DeviceIndex i =
+        (communicator_ != nullptr && communicator_->is_available())
+        ? communicator_->deviceId()
+        : 0;
+    streams_.insert(
+        {stream, c10::cuda::getStreamFromPool(/* high priority */ true, i)});
   }
   setCurrentCUDAStream(streams_.at(stream));
 }
