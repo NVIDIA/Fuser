@@ -239,53 +239,39 @@ std::string isMatmulFusionDefinitionSupported(
     // We will check that all operands have same dimension
     int64_t operand_dim = -1;
 
-    auto entry = roles_map.find(MatmulRole::INPUT_A);
+    // Track TensorViews with assigned roles so we can check that all inputs and
+    // outputs have recognized roles
     std::set<TensorView*> tvs_with_roles;
 
-    if (entry != roles_map.end()) {
-      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
-        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-        for (TensorView* tv : entry->second) {
-          if (operand_dim == -1) {
-            operand_dim = tv->nDims();
-          } else if (tv->nDims() != operand_dim) {
-            return "All A operands must have the same dimension.";
+    for (MatmulRole role : {MatmulRole::INPUT_A, MatmulRole::INPUT_B}) {
+      auto entry = roles_map.find(role);
+      if (entry != roles_map.end()) {
+        if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+          tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+          for (TensorView* tv : entry->second) {
+            if (operand_dim == -1) {
+              operand_dim = tv->nDims();
+            } else if (tv->nDims() != operand_dim) {
+              // We cannot always handle differently sized inputs, such as those
+              // we encounter when translating MatmulOp and LinearOp. This is
+              // because in those cases one of the operands will have new
+              // Broadcast dimensions where the other operand has Iteration
+              // batch dimensions, meaning these new dims are actually M or N
+              // dimensions. Multiple M and N dimension support is planned but
+              // for now we must reject these patterns before attempting to
+              // translate them.
+              return "All operands must have the same dimension.";
+            }
           }
+        } else {
+          return "There is more than a single fusion input that can be MMA operand ";
         }
       } else {
-        return "There is more than a single fusion input that can be MMA first input";
+        return "No candidate in fusion inputs for MMA operand";
       }
-    } else {
-      return "No candidate in fusion inputs for MMA first input";
     }
 
-    entry = roles_map.find(MatmulRole::INPUT_B);
-    if (entry != roles_map.end()) {
-      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
-        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-        for (TensorView* tv : entry->second) {
-          if (operand_dim == -1) {
-            operand_dim = tv->nDims();
-          } else if (tv->nDims() != operand_dim) {
-            // We cannot always handle differently sized inputs, such as those
-            // we encounter when translating MatmulOp and LinearOp. This is
-            // because in those cases one of the operands will have new
-            // Broadcast dimensions where the other operand has Iteration
-            // batch dimensions, meaning these new dims are actually M or N
-            // dimensions. Multiple M and N dimension support is planned but for
-            // now we must reject these patterns before attempting to translate
-            // them.
-            return "All A and B operands must have the same dimension.";
-          }
-        }
-      } else {
-        return "There is more than a single fusion input that can be MMA second input";
-      }
-    } else {
-      return "No candidate in fusion inputs for MMA second input";
-    }
-
-    entry = roles_map.find(MatmulRole::OUTPUT_D);
+    auto entry = roles_map.find(MatmulRole::OUTPUT_D);
     if (entry != roles_map.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     } else {
