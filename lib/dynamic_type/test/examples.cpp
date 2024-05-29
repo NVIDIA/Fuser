@@ -235,4 +235,17 @@ TEST_F(Examples, Example11) {
   static_assert(std::is_same_v<decltype(r22), IntDoubleVec>);
   EXPECT_TRUE(r22.is<int>());
   EXPECT_EQ(r22, 4);
+
+  std::vector<float> vec = {0.0, 1.0, 2.0, 3.0};
+  auto get_item = [](auto& v, auto index) -> decltype(auto) {
+    if constexpr (std::is_integral_v<decltype(index)>) {
+      return v[index];
+    } else {
+      throw std::runtime_error("Illegal index type");
+      return;
+    }
+  };
+  IntDoubleVec::dispatch(get_item, vec, mydata2) = 100.0;
+  std::vector<float> expect{0.0, 1.0, 100.0, 3.0};
+  EXPECT_EQ(vec, expect);
 }

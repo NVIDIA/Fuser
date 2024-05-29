@@ -323,6 +323,24 @@ IntDoubleVec::dispatch(my_pow, mydata2, mydata1); //IntDoubleVec(double, 8.0)
 IntDoubleVec::dispatch(my_pow, mydata2, mydata2); //IntDoubleVec(int, 4)
 ```
 
+The arguments and return types of the callback function are perfectly forwarded.
+So we can use references as arguments or return values, and it will be correctly handled.
+For example:
+
+```C++
+std::vector<float> vec = {0.0, 1.0, 2.0, 3.0};
+auto get_item = [](auto& v, auto index) -> decltype(auto) {
+  if constexpr (std::is_integral_v<decltype(index)>) {
+    return v[index];
+  } else {
+    throw std::runtime_error("Illegal index type");
+    return;
+  }
+};
+IntDoubleVec::dispatch(get_item, vec, mydata2) = 100.0;
+// vec is now {0.0, 1.0, 100.0, 3.0}
+```
+
 # Benchmarks
 
 The benchmark `benchmark/sort.cpp` for running a simple `std::sort` on a vector of `int64_t`
