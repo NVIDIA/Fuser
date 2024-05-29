@@ -171,6 +171,8 @@ struct DynamicType {
             has_single_return_type,
             typename std::tuple_element_t<0, result_types>::type,
             DynamicType>;
+        // Needs to wrap reference as optional<reference_wrapper<T>> because
+        // C++ does not allow rebinding a reference.
         constexpr bool is_reference = std::is_reference_v<result_type>;
         using ret_storage_t = std::conditional_t<
             is_reference,
