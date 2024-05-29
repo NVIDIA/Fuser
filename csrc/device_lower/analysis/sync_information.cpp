@@ -263,8 +263,8 @@ bool useSameIndex(
   auto consumer_root_ids = InputsOf::output(consumer_id);
 
   auto producer_root_vals = StmtSort::getStmtsBetween(
-      {producer_tv->getMaybeRFactorDomain().begin(),
-       producer_tv->getMaybeRFactorDomain().end()},
+      {producer_tv->getRFactorDomain().begin(),
+       producer_tv->getRFactorDomain().end()},
       {producer_id});
   auto producer_root_ids =
       ir_utils::filterByType<IterDomain>(producer_root_vals);
@@ -654,7 +654,7 @@ SyncMap::SyncMap(Fusion* fusion) {
           if (isParallelTypeThread(producer_ptype) &&
               producer->hasSwizzleOp()) {
             if (!ir_utils::getAllSwizzlesBetween(
-                     producer->getMaybeRFactorDomain(), {p_id})
+                     producer->getRFactorDomain(), {p_id})
                      .empty()) {
               raw_dims.set(producer_ptype);
             }
