@@ -512,6 +512,12 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
         if (pattern.A->nDims() < 2 || pattern.B->nDims() < 2) {
           return "Cannot fuse matrix-vector products";
         }
+        for (TensorView* operand : {pattern.A, pattern.B}) {
+          if (operand->dtype() != DataType::Half &&
+              operand->dtype() != DataType::BFloat16) {
+            return "Unsupported operand type. Operands must be fp16 or bf16";
+          }
+        }
       }
     }
   }

@@ -2685,6 +2685,55 @@ TEST_F(NVFuserTest, SegmentLinearOpPrologue) {
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+// Test that the matmul scheduler refuses to translate a matmul that is not
+// Half or BFloat16
+TEST_F(NVFuserTest, SegmentMatmulOpUnsupportedDtype) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // A - tv0, B - tv1, C - tv2
+  auto tv0 = makeContigTensor(2, DataType::Float);
+  auto tv1 = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Prologue prevents ExprEval scheduler from accepting. If Matmul scheduler
+  // rejects, then Pointwise must not accept this unsegmented fusion.
+  tv1 = castOp(DataType::Float, sin(tv1));
+
+  auto tv2 = matmul(tv0, tv1);
+
+  fusion->addOutput(tv2);
+
+  NVF_CHECK(
+      ir_utils::getOpsOfType<MatmulOp>(fusion.get()).size() == 1,
+      "matmul fusion must have at least one MmaOp");
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options);
+
+  // Enable MatmulOp fusion, which should reject because float operands are not
+  // supported.
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  const FusionKernelRuntime* runtime =
+      executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_TRUE(runtime->isSegmented());
+
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 // This test can be used to check that an external plugin has been loaded. It
 // is DISABLED_ so that the test suite will pass even if the user has not
 // provided a plugin via NVFUSER_MATMUL_HEURISTIC_PLUGIN. To check that a
