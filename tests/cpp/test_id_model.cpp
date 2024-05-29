@@ -18,9 +18,12 @@
 #include <id_model/loop_promotion.h>
 #include <id_model/to_string.h>
 #include <inlining.h>
+#include <ir/graphviz.h>
 #include <ops/all_ops.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
+
+#include <fstream>
 
 namespace nvfuser {
 
@@ -261,8 +264,8 @@ void checkStep2Results(Fusion* fusion, const IdModelTester& tester) {
     // If there's no broadcast or it isn't inlined, there's no
     // promotion
     if (std::none_of(
-            tv->getRootDomain().begin(),
-            tv->getRootDomain().end(),
+            tv->getRFactorDomain().begin(),
+            tv->getRFactorDomain().end(),
             [](auto id) { return id->isBroadcast(); }) ||
         (tv->getComputeAtPosition() == 0 &&
          tv->getMaxProducerPosition() == 0)) {
@@ -286,14 +289,16 @@ void checkStep2Results(Fusion* fusion, const IdModelTester& tester) {
     for (auto p_id : ir_utils::allIDsOf(tv)) {
       // Root domains are already done at Step 1
       if (std::find(
-              tv->getRootDomain().begin(), tv->getRootDomain().end(), p_id) !=
-          tv->getRootDomain().end()) {
+              tv->getRFactorDomain().begin(),
+              tv->getRFactorDomain().end(),
+              p_id) != tv->getRFactorDomain().end()) {
         continue;
       }
 
       // If no broadcast is involved, nothing should be promoted
       auto p_id_dep_vals = DependencyCheck::getAllValsBetween(
-          {tv->getRootDomain().begin(), tv->getRootDomain().end()}, {p_id});
+          {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()},
+          {p_id});
       if (std::find_if(
               p_id_dep_vals.begin(), p_id_dep_vals.end(), [](Val* dep_id) {
                 return dep_id->as<IterDomain>()->isBroadcast();
@@ -773,8 +778,8 @@ TEST_F(IdModelTest, LoopPromotion1) {
     // t2 is now fully inlined. Its root broadcast domain should be
     // resoled with the corresponding domain of t3
     validateIELResolution(
-        t2->getRootDomain().at(0),
-        t3->getRootDomain().at(0),
+        t2->getRFactorDomain().at(0),
+        t3->getRFactorDomain().at(0),
         tester,
         tester.s1_root_resolution_map);
 
@@ -819,14 +824,14 @@ TEST_F(IdModelTest, LoopPromotion2) {
   // Check Step 1 results
   // Validate t2 and t3 as they have root broadcast domains
   validateIELResolution(
-      t2->getRootDomain().at(0),
-      t4->getRootDomain().at(1),
+      t2->getRFactorDomain().at(0),
+      t4->getRFactorDomain().at(1),
       tester,
       tester.s1_root_resolution_map);
 
   validateIELResolution(
-      t3->getRootDomain().at(0),
-      t4->getRootDomain().at(0),
+      t3->getRFactorDomain().at(0),
+      t4->getRFactorDomain().at(0),
       tester,
       tester.s1_root_resolution_map);
 
@@ -883,13 +888,13 @@ TEST_F(IdModelTest, LoopPromotion3) {
   // The b1 broadcast domain tv2 should be resolved as it's inlined,
   // but b3 should not.
   validateIELResolution(
-      tv2->getRootDomain().at(1),
-      tv3->getRootDomain().at(1),
+      tv2->getRFactorDomain().at(1),
+      tv3->getRFactorDomain().at(1),
       tester,
       tester.s1_root_resolution_map);
 
   validateIELResolution(
-      tv2->getRootDomain().at(3),
+      tv2->getRFactorDomain().at(3),
       nullptr,
       tester,
       tester.s1_root_resolution_map);
@@ -906,11 +911,11 @@ TEST_F(IdModelTest, LoopPromotion3) {
       s3_reference_map = {
           {std::unordered_set<Val*>{
                tv2->axis(0),
-               tv2->getRootDomain().at(0),
-               tv2->getRootDomain().at(1),
+               tv2->getRFactorDomain().at(0),
+               tv2->getRFactorDomain().at(1),
                tv3->axis(0),
-               tv3->getRootDomain().at(0),
-               tv3->getRootDomain().at(1)},
+               tv3->getRFactorDomain().at(0),
+               tv3->getRFactorDomain().at(1)},
            tv3->axis(0)}};
 
   checkStep3Results(tester, s3_reference_map);
@@ -957,8 +962,8 @@ TEST_F(IdModelTest, LoopPromotion4) {
   for (auto tv : ir_utils::allTvs(&fusion)) {
     // Skip tensors with no broadcast or non-inlined
     if (std::none_of(
-            tv->getRootDomain().begin(),
-            tv->getRootDomain().end(),
+            tv->getRFactorDomain().begin(),
+            tv->getRFactorDomain().end(),
             [](auto id) { return id->isBroadcast(); }) ||
         tv->getComputeAtPosition() == 0) {
       continue;
@@ -969,8 +974,8 @@ TEST_F(IdModelTest, LoopPromotion4) {
         // T2_l[ iS20{4}, iS21{( ceilDiv(( 1 * 4 ), 4) )} ] ca_pos( 1 )
         //  root domain : (bS4{1}, iS5{4})
         validateIELResolution(
-            tv->getRootDomain().at(0),
-            tv4->getRootDomain().at(0),
+            tv->getRFactorDomain().at(0),
+            tv4->getRFactorDomain().at(0),
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -981,12 +986,12 @@ TEST_F(IdModelTest, LoopPromotion4) {
 
   checkStep2Results(&fusion, tester);
 
-  auto id10 = getChildIdByName(tv4->getRootDomain()[0], 10);
+  auto id10 = getChildIdByName(tv4->getRFactorDomain()[0], 10);
   auto id11 = getChildIdByName(id10, 11);
   auto id12 = getChildIdByName(id10, 12);
-  auto id13 = getChildIdByName(tv3->getRootDomain()[0], 13);
+  auto id13 = getChildIdByName(tv3->getRFactorDomain()[0], 13);
   auto id15 = getChildIdByName(id13, 15);
-  auto id19 = getChildIdByName(tv2->getRootDomain()[0], 19);
+  auto id19 = getChildIdByName(tv2->getRFactorDomain()[0], 19);
   auto id25 = getChildIdByName(id10, 25);
   auto id26 = getChildIdByName(id10, 26);
 
@@ -994,16 +999,16 @@ TEST_F(IdModelTest, LoopPromotion4) {
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s3_reference_map = {// 4, 6, 8 -> 8
                           {std::unordered_set<Val*>{
-                               tv2->getRootDomain().at(0),
-                               tv3->getRootDomain().at(0),
-                               tv4->getRootDomain().at(0)},
-                           tv4->getRootDomain().at(0)},
+                               tv2->getRFactorDomain().at(0),
+                               tv3->getRFactorDomain().at(0),
+                               tv4->getRFactorDomain().at(0)},
+                           tv4->getRFactorDomain().at(0)},
                           // 5, 7, 9 -> 9
                           {std::unordered_set<Val*>{
-                               tv2->getRootDomain().at(1),
-                               tv3->getRootDomain().at(1),
-                               tv4->getRootDomain().at(1)},
-                           tv4->getRootDomain().at(1)},
+                               tv2->getRFactorDomain().at(1),
+                               tv3->getRFactorDomain().at(1),
+                               tv4->getRFactorDomain().at(1)},
+                           tv4->getRFactorDomain().at(1)},
                           // 10, 13, 19 -> 10
                           {std::unordered_set<Val*>{id10, id13, id19}, id10},
                           // 11, 14, 20, 25 -> 11
@@ -1082,8 +1087,8 @@ TEST_F(IdModelTest, LoopPromotion5) {
   for (auto tv : all_tvs) {
     // Skip tensors with no broadcast or non-inlined
     if (std::none_of(
-            tv->getRootDomain().begin(),
-            tv->getRootDomain().end(),
+            tv->getRFactorDomain().begin(),
+            tv->getRFactorDomain().end(),
             [](auto id) { return id->isBroadcast(); }) ||
         tv->getComputeAtPosition() == 0) {
       continue;
@@ -1095,8 +1100,8 @@ TEST_F(IdModelTest, LoopPromotion5) {
         // 4) )}, iUR31{4}, ithreadIdx.x29{128} ] ca_pos( 1 ) produce_pos( 1 )
         //  root domain : (bS10{1}, iS11{i0}, iS12{i2}, iS13{i3})
         validateIELResolution(
-            tv->getRootDomain().at(0),
-            tv4->getRootDomain().at(0),
+            tv->getRFactorDomain().at(0),
+            tv4->getRFactorDomain().at(0),
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1126,26 +1131,26 @@ TEST_F(IdModelTest, LoopPromotion5) {
       s3_reference_map = {
           // 7, 10, 11, 25, 14, 15, 18 -> 18
           {std::unordered_set<Val*>{
-               tv2->getRootDomain().at(0),
-               tv3->getRootDomain().at(0),
-               tv3->getRootDomain().at(1),
+               tv2->getRFactorDomain().at(0),
+               tv3->getRFactorDomain().at(0),
+               tv3->getRFactorDomain().at(1),
                getParentId(tv3->axis(0), 4),
-               tv4->getRootDomain().at(0),
-               tv4->getRootDomain().at(1),
+               tv4->getRFactorDomain().at(0),
+               tv4->getRFactorDomain().at(1),
                getParentId(tv4->axis(0), 4)},
            getParentId(tv4->axis(0), 4)},
           // 8, 12, 16 -> 16
           {std::unordered_set<Val*>{
-               tv2->getRootDomain().at(1),
-               tv3->getRootDomain().at(2),
-               tv4->getRootDomain().at(2)},
-           tv4->getRootDomain().at(2)},
+               tv2->getRFactorDomain().at(1),
+               tv3->getRFactorDomain().at(2),
+               tv4->getRFactorDomain().at(2)},
+           tv4->getRFactorDomain().at(2)},
           // 9, 13, 17 -> 17
           {std::unordered_set<Val*>{
-               tv2->getRootDomain().at(2),
-               tv3->getRootDomain().at(3),
-               tv4->getRootDomain().at(3)},
-           tv4->getRootDomain().at(3)},
+               tv2->getRFactorDomain().at(2),
+               tv3->getRFactorDomain().at(3),
+               tv4->getRFactorDomain().at(3)},
+           tv4->getRFactorDomain().at(3)},
           // 32, 26, 19 -> 19
           {std::unordered_set<Val*>{
                getParentId(tv2->axis(0), 3),
@@ -1245,8 +1250,8 @@ TEST_F(IdModelTest, LoopPromotion6) {
   for (auto tv : all_tvs) {
     // Skip tensors with no broadcast or non-inlined
     if (std::none_of(
-            tv->getRootDomain().begin(),
-            tv->getRootDomain().end(),
+            tv->getRFactorDomain().begin(),
+            tv->getRFactorDomain().end(),
             [](auto id) { return id->isBroadcast(); }) ||
         tv->getComputeAtPosition() == 0) {
       continue;
@@ -1259,8 +1264,8 @@ TEST_F(IdModelTest, LoopPromotion6) {
         //  root domain : (iS2{7}, bS3{1})
         // Resolution: Resolved by the immediate consumer (T4)
         validateIELResolution(
-            tv->getRootDomain().at(1),
-            tv4->getRootDomain().at(1),
+            tv->getRFactorDomain().at(1),
+            tv4->getRFactorDomain().at(1),
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1272,8 +1277,8 @@ TEST_F(IdModelTest, LoopPromotion6) {
         // T10. Resolution is done with the other path from T1, such
         // as T8 or T9.
         validateIELResolution(
-            tv->getRootDomain().at(2),
-            tv9->getRootDomain().at(2),
+            tv->getRFactorDomain().at(2),
+            tv9->getRFactorDomain().at(2),
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1283,8 +1288,8 @@ TEST_F(IdModelTest, LoopPromotion6) {
         //  root domain : (iS11{7}, bS12{1})
         // Resolution: Resolved by the immediate consumer (T8)
         validateIELResolution(
-            tv->getRootDomain().at(1),
-            tv8->getRootDomain().at(1),
+            tv->getRFactorDomain().at(1),
+            tv8->getRFactorDomain().at(1),
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1296,8 +1301,8 @@ TEST_F(IdModelTest, LoopPromotion6) {
         // T10. Resolution is done with the other path from T1, such
         // as T4 or T5
         validateIELResolution(
-            tv->getRootDomain().at(1),
-            tv5->getRootDomain().at(1),
+            tv->getRFactorDomain().at(1),
+            tv5->getRFactorDomain().at(1),
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1310,7 +1315,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
 
   // 83 -> 89, 90
   // 89 -> 93, 94
-  auto id83 = getChildIdByName(tv9->getRootDomain().at(2), 83);
+  auto id83 = getChildIdByName(tv9->getRFactorDomain().at(2), 83);
   auto id89 = getChildIdByName(id83, 89);
   auto id90 = getChildIdByName(id83, 90);
   auto id93 = getChildIdByName(id89, 93);
@@ -1318,7 +1323,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
 
   // 84 -> 91, 92
   // 91 -> 95, 96
-  auto id84 = getChildIdByName(tv9->getRootDomain().at(2), 84);
+  auto id84 = getChildIdByName(tv9->getRFactorDomain().at(2), 84);
   auto id91 = getChildIdByName(id84, 91);
   auto id92 = getChildIdByName(id84, 92);
   auto id95 = getChildIdByName(id91, 95);
@@ -1326,7 +1331,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
 
   // 35 -> 79, 80
   // 79 -> 85, 86
-  auto id35 = getChildIdByName(tv5->getRootDomain().at(0), 35);
+  auto id35 = getChildIdByName(tv5->getRFactorDomain().at(0), 35);
   auto id79 = getChildIdByName(id35, 79);
   auto id80 = getChildIdByName(id35, 80);
   auto id85 = getChildIdByName(id79, 85);
@@ -1334,7 +1339,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
 
   // 56 -> 81, 82
   // 81 -> 87, 88
-  auto id56 = getChildIdByName(tv8->getRootDomain().at(0), 56);
+  auto id56 = getChildIdByName(tv8->getRFactorDomain().at(0), 56);
   auto id81 = getChildIdByName(id56, 81);
   auto id82 = getChildIdByName(id56, 82);
   auto id87 = getChildIdByName(id81, 87);
@@ -1346,41 +1351,41 @@ TEST_F(IdModelTest, LoopPromotion6) {
           // 1 2 3 6 7 8 9 10 11 12 15 16 17 18 19 29 30 35 36 41 46 56 61
           // 83 84 -> 84
           {std::unordered_set<Val*>{
-               tv1->getRootDomain().at(0),
-               tv2->getRootDomain().at(0),
-               tv2->getRootDomain().at(1),
-               getChildId(tv2->getRootDomain().at(0), 1),
-               tv4->getRootDomain().at(0),
-               tv4->getRootDomain().at(1),
-               getChildId(tv4->getRootDomain().at(0), 1),
-               tv5->getRootDomain().at(0),
-               tv5->getRootDomain().at(1),
-               tv5->getRootDomain().at(2),
-               getChildId(tv5->getRootDomain().at(0), 1),
-               getChildId(tv5->getRootDomain().at(2), 1),
-               tv6->getRootDomain().at(0),
-               tv6->getRootDomain().at(1),
-               getChildId(tv6->getRootDomain().at(0), 1),
-               tv8->getRootDomain().at(0),
-               tv8->getRootDomain().at(1),
-               getChildId(tv8->getRootDomain().at(0), 1),
-               tv9->getRootDomain().at(0),
-               tv9->getRootDomain().at(1),
-               tv9->getRootDomain().at(2),
-               getChildId(tv9->getRootDomain().at(0), 1),
-               getChildId(tv9->getRootDomain().at(0), 2),
+               tv1->getRFactorDomain().at(0),
+               tv2->getRFactorDomain().at(0),
+               tv2->getRFactorDomain().at(1),
+               getChildId(tv2->getRFactorDomain().at(0), 1),
+               tv4->getRFactorDomain().at(0),
+               tv4->getRFactorDomain().at(1),
+               getChildId(tv4->getRFactorDomain().at(0), 1),
+               tv5->getRFactorDomain().at(0),
+               tv5->getRFactorDomain().at(1),
+               tv5->getRFactorDomain().at(2),
+               getChildId(tv5->getRFactorDomain().at(0), 1),
+               getChildId(tv5->getRFactorDomain().at(2), 1),
+               tv6->getRFactorDomain().at(0),
+               tv6->getRFactorDomain().at(1),
+               getChildId(tv6->getRFactorDomain().at(0), 1),
+               tv8->getRFactorDomain().at(0),
+               tv8->getRFactorDomain().at(1),
+               getChildId(tv8->getRFactorDomain().at(0), 1),
+               tv9->getRFactorDomain().at(0),
+               tv9->getRFactorDomain().at(1),
+               tv9->getRFactorDomain().at(2),
+               getChildId(tv9->getRFactorDomain().at(0), 1),
+               getChildId(tv9->getRFactorDomain().at(0), 2),
                id83,
                id84},
            id84},
           // 31 37 42 47 57 62 71 79 81 89 91 -> 91
           {std::unordered_set<Val*>{
-               getChildId(tv1->getRootDomain().at(0), 1),
-               getChildId(tv2->getRootDomain().at(0), 2),
-               getChildId(tv4->getRootDomain().at(0), 2),
-               getChildId(tv5->getRootDomain().at(0), 3),
-               getChildId(tv6->getRootDomain().at(0), 2),
-               getChildId(tv8->getRootDomain().at(0), 2),
-               getChildId(tv9->getRootDomain().at(0), 3),
+               getChildId(tv1->getRFactorDomain().at(0), 1),
+               getChildId(tv2->getRFactorDomain().at(0), 2),
+               getChildId(tv4->getRFactorDomain().at(0), 2),
+               getChildId(tv5->getRFactorDomain().at(0), 3),
+               getChildId(tv6->getRFactorDomain().at(0), 2),
+               getChildId(tv8->getRFactorDomain().at(0), 2),
+               getChildId(tv9->getRFactorDomain().at(0), 3),
                id79,
                id81,
                id89,
@@ -1570,8 +1575,8 @@ TEST_F(IdModelTest, LoopPromotion7) {
   for (auto tv : all_tvs) {
     // Skip tensors with no broadcast or non-inlined
     if (std::none_of(
-            tv->getRootDomain().begin(),
-            tv->getRootDomain().end(),
+            tv->getRFactorDomain().begin(),
+            tv->getRFactorDomain().end(),
             [](auto id) { return id->isBroadcast(); }) ||
         tv->getComputeAtPosition() == 0) {
       continue;
@@ -1582,8 +1587,8 @@ TEST_F(IdModelTest, LoopPromotion7) {
         // T3_l[ iS15{( ceilDiv(( 1 * i0 ), 32) )}, iS16{32} ] ca_pos( 1 )
         // produce_pos( 1 ) root domain : (bS4{1}, iS5{i0})
         validateIELResolution(
-            tv->getRootDomain().at(0),
-            tv4->getRootDomain().at(0),
+            tv->getRFactorDomain().at(0),
+            tv4->getRFactorDomain().at(0),
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1594,7 +1599,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
 
   checkStep2Results(&fusion, tester);
 
-  auto id8 = getChildIdByName(tv4->getRootDomain().at(0), 8);
+  auto id8 = getChildIdByName(tv4->getRFactorDomain().at(0), 8);
   auto id9 = getChildIdByName(id8, 9);
   auto id10 = getChildIdByName(id8, 10);
   auto id23 = getChildIdByName(id8, 23);
@@ -1605,12 +1610,12 @@ TEST_F(IdModelTest, LoopPromotion7) {
       s3_reference_map = {
           // 3, 4, 5, 14, 6, 7, 8, -> 8
           {std::unordered_set<Val*>{
-               tv2->getRootDomain().at(0),
-               tv3->getRootDomain().at(0),
-               tv3->getRootDomain().at(1),
-               getChildId(tv3->getRootDomain().at(0), 1),
-               tv4->getRootDomain().at(0),
-               tv4->getRootDomain().at(1),
+               tv2->getRFactorDomain().at(0),
+               tv3->getRFactorDomain().at(0),
+               tv3->getRFactorDomain().at(1),
+               getChildId(tv3->getRFactorDomain().at(0), 1),
+               tv4->getRFactorDomain().at(0),
+               tv4->getRFactorDomain().at(1),
                id8},
            id8},
           // 9, 15, 17, 23 -> 9
@@ -1710,8 +1715,8 @@ TEST_F(IdModelTest, LoopPromotion8) {
   for (auto tv : all_tvs) {
     // Skip tensors with no broadcast or non-inlined
     if (std::none_of(
-            tv->getRootDomain().begin(),
-            tv->getRootDomain().end(),
+            tv->getRFactorDomain().begin(),
+            tv->getRFactorDomain().end(),
             [](auto id) { return id->isBroadcast(); }) ||
         tv->getComputeAtPosition() == 0) {
       continue;
@@ -1722,8 +1727,8 @@ TEST_F(IdModelTest, LoopPromotion8) {
         // T2_l[ iS21{2}, iS22{( ceilDiv(( 1 * 5 ), 2) )} ] ca_pos( 1 )
         // produce_pos( 1 ) root domain : (bS2{1}, iS3{5})
         validateIELResolution(
-            tv->getRootDomain().at(0),
-            tv7->getRootDomain().at(0),
+            tv->getRFactorDomain().at(0),
+            tv7->getRFactorDomain().at(0),
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1732,8 +1737,8 @@ TEST_F(IdModelTest, LoopPromotion8) {
         // 1 ), 4) )} ] ca_pos( 2 ) produce_pos( 1 ) root domain : (iS8{3},
         // iS9{5}, bS10{1})
         validateIELResolution(
-            tv->getRootDomain().at(2),
-            tv7->getRootDomain().at(2),
+            tv->getRFactorDomain().at(2),
+            tv7->getRFactorDomain().at(2),
             tester,
             tester.s1_root_resolution_map);
         break;
@@ -1745,17 +1750,17 @@ TEST_F(IdModelTest, LoopPromotion8) {
   checkStep2Results(&fusion, tester);
 
   // tv7
-  auto id14 = tv7->getRootDomain().at(0);
-  auto id15 = tv7->getRootDomain().at(1);
-  auto id16 = tv7->getRootDomain().at(2);
+  auto id14 = tv7->getRFactorDomain().at(0);
+  auto id15 = tv7->getRFactorDomain().at(1);
+  auto id16 = tv7->getRFactorDomain().at(2);
   auto id29 = getChildIdByName(id14, 29);
   auto id30 = getChildIdByName(id29, 30);
   auto id31 = getChildIdByName(id29, 31);
   auto id43 = tv7->axis(1);
 
   // tv2
-  auto id2 = tv2->getRootDomain().at(0);
-  auto id3 = tv2->getRootDomain().at(1);
+  auto id2 = tv2->getRFactorDomain().at(0);
+  auto id3 = tv2->getRFactorDomain().at(1);
   auto id20 = getChildIdByName(id2, 20);
   auto id21 = tv2->axis(0);
   auto id22 = tv2->axis(1);
@@ -1763,9 +1768,9 @@ TEST_F(IdModelTest, LoopPromotion8) {
   auto id46 = getChildIdByName(id29, 46);
 
   // tv5
-  auto id8 = tv5->getRootDomain().at(0);
-  auto id9 = tv5->getRootDomain().at(1);
-  auto id10 = tv5->getRootDomain().at(2);
+  auto id8 = tv5->getRFactorDomain().at(0);
+  auto id9 = tv5->getRFactorDomain().at(1);
+  auto id10 = tv5->getRFactorDomain().at(2);
   auto id27 = tv5->axis(0);
   auto id26 = getChildIdByName(id8, 26);
   auto id28 = getChildIdByName(id26, 28);
@@ -1778,14 +1783,14 @@ TEST_F(IdModelTest, LoopPromotion8) {
   auto id48 = getChildIdByName(id42, 48);
 
   // tv4
-  auto id6 = tv4->getRootDomain().at(0);
-  auto id7 = tv4->getRootDomain().at(1);
+  auto id6 = tv4->getRFactorDomain().at(0);
+  auto id7 = tv4->getRFactorDomain().at(1);
   auto id17 = getChildIdByName(id6, 17);
   auto id18 = getChildIdByName(id17, 18);
   auto id19 = getChildIdByName(id17, 19);
 
   // tv1
-  auto id1 = tv1->getRootDomain().at(0);
+  auto id1 = tv1->getRFactorDomain().at(0);
   auto id35 = tv1->axis(0);
   auto id36 = tv1->axis(1);
 
@@ -1900,16 +1905,16 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
 
   ASSERT_EQ(tester.s1_root_resolution_map.size(), 1);
   validateIELResolution(
-      tv2->getRootDomain().at(0),
-      tv4->getRootDomain().at(0),
+      tv2->getRFactorDomain().at(0),
+      tv4->getRFactorDomain().at(0),
       tester,
       tester.s1_root_resolution_map);
 
   checkStep2Results(&fusion, tester);
 
   // tv4
-  auto id7 = tv4->getRootDomain().at(0);
-  auto id8 = tv4->getRootDomain().at(1);
+  auto id7 = tv4->getRFactorDomain().at(0);
+  auto id8 = tv4->getRFactorDomain().at(1);
   auto id11 = getChildIdByName(id7, 11);
   auto id9 = getChildIdByName(id8, 9);
   auto id10 = getChildIdByName(id8, 10);
@@ -1917,8 +1922,8 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   auto id14 = getChildIdByName(id10, 14);
 
   // tv3
-  auto id5 = tv3->getRootDomain().at(0);
-  auto id6 = tv3->getRootDomain().at(1);
+  auto id5 = tv3->getRFactorDomain().at(0);
+  auto id6 = tv3->getRFactorDomain().at(1);
   auto id15 = getChildIdByName(id5, 15);
   auto id16 = getChildIdByName(id5, 16);
   auto id17 = getChildIdByName(id6, 17);
@@ -1926,8 +1931,8 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   auto id20 = getChildIdByName(id16, 20);
 
   // tv2
-  auto id3 = tv2->getRootDomain().at(0);
-  auto id4 = tv2->getRootDomain().at(1);
+  auto id3 = tv2->getRFactorDomain().at(0);
+  auto id4 = tv2->getRFactorDomain().at(1);
   auto id27 = getChildIdByName(id3, 27);
   auto id28 = getChildIdByName(id3, 28);
   auto id29 = getChildIdByName(id4, 29);
@@ -2378,4 +2383,99 @@ TEST_F(IdModelTest, LoopGraphWithSibling) {
     }
   }
 }
+
+// Repro of issue #2296
+TEST_F(IdModelTest, LoopPromotionWithRfactorDomains1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({5});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({5, 2});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = reshape(tv4, {5, 2}, {10});
+  fusion.addOutput(tv5);
+
+  tv4->merge(0);
+  tv3->merge(0);
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  const auto& loop_group = loop_graph.toGroup(tv5->axis(0));
+
+  // All of the inlined tensors (i.e., all tensors except for the
+  // inputs) should be grouped together.
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      ASSERT_TRUE(loop_group->has(id))
+          << "Expected to be included. ID: " << id->toString()
+          << ". Loop group: " << nvfuser::toString(loop_group);
+    }
+  }
+
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  auto promotion = loop_promotion_map.at(loop_group);
+  ASSERT_EQ(promotion, tv5->axis(0)) << "Invalid promotion";
+}
+
+// Another repro of issue #2296
+TEST_F(IdModelTest, LoopPromotionWithRfactorDomains2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({5});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({5, 2});
+  fusion.addInput(tv1);
+  auto tv2 = makeConcreteTensor({10, 3});
+  fusion.addInput(tv2);
+
+  auto tv3 = set(tv0);
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv4, tv1);
+  auto tv6 = reshape(tv5, {5, 2}, {10});
+  auto tv7 = broadcast(tv6, {false, true});
+  auto tv8 = add(tv7, tv2);
+  fusion.addOutput(tv8);
+
+  tv4->merge(0);
+  tv5->merge(0);
+  tv8->merge(0);
+  tv7->merge(0);
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  const auto& loop_group = loop_graph.toGroup(tv8->axis(0));
+
+  // All of the inlined tensors (i.e., all tensors except for the
+  // inputs) should be grouped together.
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      ASSERT_TRUE(loop_group->has(id))
+          << "Expected to be included. ID: " << id->toString()
+          << ". Loop group: " << nvfuser::toString(loop_group);
+    }
+  }
+
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  auto promotion = loop_promotion_map.at(loop_group);
+  ASSERT_EQ(promotion, tv8->axis(0)) << "Invalid promotion";
+}
+
 } // namespace nvfuser

@@ -664,7 +664,7 @@ int64_t partialReductionBufferSize(
   int64_t partial_reduction_buffer_size = 0;
   for (auto buffer : outer_reduction_tvs) {
     int64_t buffer_size = -1;
-    for (auto id : buffer->getMaybeRFactorDomain()) {
+    for (auto id : buffer->getRFactorDomain()) {
       if (id->isReduction() || id->isBroadcast()) {
         continue;
       }
@@ -1221,7 +1221,7 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   size_t axis_count = 0;
   auto reduction_root_size = [](TensorView* red_tv) {
     size_t count = 0;
-    for (auto id : red_tv->getRootDomain()) {
+    for (auto id : red_tv->getMaybeRootDomain()) {
       if (!id->isBroadcast()) {
         count++;
       }
