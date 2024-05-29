@@ -14,64 +14,41 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-// inline bool isFusionOutput(Fusion* fusion, Val* val) {
-//   const auto& outputs = fusion->outputs();
-//   return std::find(outputs.begin(), outputs.end(), val) != outputs.end();
-// }
-
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 // TODO: still remove when have intermediate ops between broadcast and squeeze
 void removeBcastSqueeze(Fusion* fusion) {
-  // step-1: find and remove broadcast + squeeze pattern
-  // before: Y = broadcast(X); Z = squeeze(Y);  M = someOp(Z)
-  // after : M = someOp(X)
-  // conditions: (1) broadcast and squeeze have the same dim flags
-  //             (2) Y is only consumed by Z (has only one consumer)
-  // special case: if Z is a fusion output, replace the output with X
-  {
-    std::unordered_map<Val*, Val*> replacement_map;
-    for (auto expr : fusion->exprs()) {
-      if (auto sop = dynamic_cast<SqueezeOp*>(expr)) {
-        if (auto bcast = dynamic_cast<BroadcastOp*>(sop->in()->definition())) {
-          if (bcast->getBroadcastDimFlags() == sop->getSqueezeDimFlags() &&
-              bcast->out()->uses().size() == 1) {
-            if (sop->out()->isFusionOutput()) {
-              fusion->replaceOutput(sop->out(), bcast->in());
-            }
-            replacement_map.insert({sop->out(), bcast->in()});
-          }
+  for (auto expr : fusion->exprs()) {
+    // step-1: find and remove broadcast + squeeze pattern
+    // before: Y = broadcast(X); Z = squeeze(Y);  M = someOp(Z)
+    // after : M = someOp(X)
+    // conditions: (1) broadcast and squeeze have the same dim flags
+    //             (2) Y is only consumed by Z (has only one consumer)
+    // special case: if Z is a fusion output, replace the output with X
+    if (auto squeeze = dynamic_cast<SqueezeOp*>(expr)) {
+      if (auto bcast =
+              dynamic_cast<BroadcastOp*>(squeeze->in()->definition())) {
+        if (bcast->getBroadcastDimFlags() == squeeze->getSqueezeDimFlags() &&
+            bcast->out()->uses().size() == 1) {
+          ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+              squeeze->out(), bcast->in());
         }
       }
     }
-    // Replace if there is any match
-    if (!replacement_map.empty()) {
-      ir_utils::replaceValue(fusion, replacement_map);
-    }
-  }
-  // step-2: find and remove squeeze + broadcast pattern
-  // before: Y = squeeze(X); Z = broadcast(Y);  M = someOp(Z)
-  // after : M = someOp(X)
-  // conditions: (1) broadcast and squeeze have the same dim flags
-  //             (2) Y is only consumed by Z (has only one consumer)
-  // special case: if Z is a fusion output, replace the output with X
-  {
-    std::unordered_map<Val*, Val*> replacement_map;
-    for (auto expr : fusion->exprs()) {
-      if (auto bcast = dynamic_cast<BroadcastOp*>(expr)) {
-        if (auto sop = dynamic_cast<SqueezeOp*>(bcast->in()->definition())) {
-          if (bcast->getBroadcastDimFlags() == sop->getSqueezeDimFlags() &&
-              sop->out()->uses().size() == 1) {
-            if (bcast->out()->isFusionOutput()) {
-              fusion->replaceOutput(bcast->out(), sop->in());
-            }
-            replacement_map.insert({bcast->out(), sop->in()});
-          }
+
+    // step-2: find and remove squeeze + broadcast pattern
+    // before: Y = squeeze(X); Z = broadcast(Y);  M = someOp(Z)
+    // after : M = someOp(X)
+    // conditions: (1) broadcast and squeeze have the same dim flags
+    //             (2) Y is only consumed by Z (has only one consumer)
+    // special case: if Z is a fusion output, replace the output with X
+    if (auto bcast = dynamic_cast<BroadcastOp*>(expr)) {
+      if (auto squeeze = dynamic_cast<SqueezeOp*>(bcast->in()->definition())) {
+        if (bcast->getBroadcastDimFlags() == squeeze->getSqueezeDimFlags() &&
+            squeeze->out()->uses().size() == 1) {
+          ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+              bcast->out(), squeeze->in());
         }
       }
-    }
-    // Replace if there is any match
-    if (!replacement_map.empty()) {
-      ir_utils::replaceValue(fusion, replacement_map);
     }
   }
 }

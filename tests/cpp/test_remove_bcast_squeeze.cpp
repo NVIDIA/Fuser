@@ -275,4 +275,48 @@ TEST_F(RemoveBcastSqueezeTest, SqueezeBcastBcastSqueeze) {
   EXPECT_FALSE(has_squeeze);
 }
 
+TEST_F(RemoveBcastSqueezeTest, BcastSqueezeBcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = broadcast(tv1, {false, false, true});
+  auto tv3 = squeeze(tv2, std::vector<bool>{false, false, true});
+  auto tv4 = broadcast(tv3, {false, false, true});
+  auto tv5 = set(tv4);
+  fusion->addOutput(tv5);
+
+  // preseg_passes should remove the first broadcast and squeeze
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      fusion.get());
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_TRUE(has_bcast);
+  EXPECT_FALSE(has_squeeze);
+}
+
+TEST_F(RemoveBcastSqueezeTest, BcastSqueezeSqueezeBcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeBroadcastTensor({false, true}, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = broadcast(tv1, std::vector<bool>{false, false, true});
+  auto tv3 = squeeze(tv2, std::vector<bool>{false, false, true});
+  auto tv4 = squeeze(tv3, std::vector<bool>{false, true});
+  auto tv5 = broadcast(tv4, std::vector<bool>{false, true});
+  auto tv6 = set(tv5);
+  fusion->addOutput(tv6);
+
+  // preseg_passes should remove the first broadcast and squeeze
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      fusion.get());
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_FALSE(has_bcast);
+  EXPECT_FALSE(has_squeeze);
+}
 } // namespace nvfuser
