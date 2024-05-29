@@ -87,11 +87,13 @@ void HostIrExecutor::postCompute(PostOnStream* post_ir) {
   // Compile the fusion and execute it with FusionExecutor(Cache)
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
-    fec_.try_emplace(
-        hu,
-        std::make_unique<Fusion>(*hu->fusion_to_execute()),
-        0,
-        !params_.skip_auto_scheduling);
+    if (!fec_.count(hu)) {
+      fec_.try_emplace(
+          hu,
+          std::make_unique<Fusion>(*hu->fusion_to_execute()),
+          0,
+          !params_.skip_auto_scheduling);
+    }
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
     auto [it, has_emplaced] = fe_.try_emplace(hu);
