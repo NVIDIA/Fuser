@@ -469,7 +469,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // The plan:
   // 0. Check if the current CUDA device is supported
   // 1. Check if there is exactly one matmul pattern defined in the fusion.
-  // 2. Check if matmul scheduler is enabled
+  // 2. Check if fusion of MatmulOp and LinearOp is enabled, if applicable
   // 3. Check if inputs to the mma op or mul sum pair match any of
   // supported inputs layout
   // 4. Check if fusion represents expressions that are recognized by matmul
