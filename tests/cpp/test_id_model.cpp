@@ -1979,6 +1979,49 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   checkStep5Results(tester, s5_reference_map);
 }
 
+// A repro for issue #2261
+TEST_F(IdModelTest, LoopPromotionTwoStepFailureReproSimple) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto t0 = makeSymbolicTensor(3);
+  fusion.addInput(t0);
+  auto t1 = makeSymbolicTensor(5);
+  fusion.addInput(t1);
+
+  auto t2 = set(t0);
+  auto t3 = broadcast(t2, {true, false, false, false, true});
+  auto t4 = add(t3, t1);
+  fusion.addOutput(t4);
+
+  t4->merge(-2, -1)->merge(-2, -1)->merge(-2, -1)->merge(-2, -1)->split(0, 4);
+
+  TransformPropagatorWithCheck propagator(t4);
+  MaxRootDomainInfoSpanningTree(t4).traverse(&propagator);
+
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    tv->inlineAt(1);
+  }
+
+  IdModelTester tester(&fusion);
+
+  auto id38 = t2->axis(1);
+  auto id38_promotion_it =
+      tester.s5_loop_promotion_map.find(tester.s5_loop_graph.toGroup(id38));
+  ASSERT_NE(id38_promotion_it, tester.s5_loop_promotion_map.end())
+      << "No loop promotion found";
+
+  auto id38_promotion = id38_promotion_it->second;
+
+  auto reference_loop_promotion = t4->axis(1);
+
+  ASSERT_TRUE(tester.id_model->idGraph(IdMappingMode::EXACT)
+                  .disjointValSets()
+                  .strictAreMapped(id38_promotion, reference_loop_promotion))
+      << "Invalid loop promotion: " << id38_promotion->toString()
+      << ", expected: " << reference_loop_promotion->toString();
+}
+
 // A repro that produces an invalid loop graph due to the compliment
 // mapping. This is not currently supported. See
 // https://github.com/NVIDIA/Fuser/issues/1759
