@@ -537,7 +537,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
       DT>                                                                  \
   func_name(const DT& x, const std::type_identity_t<DT>& y) {              \
     return DT::dispatch(                                                   \
-        [](auto&& x, auto&& y) {                                           \
+        [](auto&& x, auto&& y) -> decltype(auto) {                         \
           if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
             return x op y;                                                 \
           }                                                                \
@@ -565,30 +565,14 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
               DT::type_identities_as_tuple),                               \
       DT>                                                                  \
   func_name(const DT& x, const RHS& y) {                                   \
-    DT ret(std::monostate{});                                              \
-    DT::for_all_types([&ret, &x, &y](auto lhs) {                           \
-      using LHS = typename decltype(lhs)::type;                            \
-      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                      \
-        if constexpr (std::is_constructible_v<                             \
-                          typename DT::VariantType,                        \
-                          decltype(std::declval<LHS>()                     \
-                                       op std::declval<RHS>())>) {         \
-          if (x.template is<LHS>()) {                                      \
-            ret = DT(x.template as<LHS>() op y);                           \
+    return DT::dispatch(                                                   \
+        [](auto&& x, auto&& y) -> decltype(auto) {                         \
+          if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
+            return x op y;                                                 \
           }                                                                \
-        }                                                                  \
-      }                                                                    \
-    });                                                                    \
-    DYNAMIC_TYPE_CHECK(                                                    \
-        !ret.template is<std::monostate>(),                                \
-        "Cannot compute ",                                                 \
-        x.type().name(),                                                   \
-        " ",                                                               \
-        #op,                                                               \
-        " ",                                                               \
-        typeid(RHS).name(),                                                \
-        " : incompatible type");                                           \
-    return ret;                                                            \
+        },                                                                 \
+        x,                                                                 \
+        y);                                                                \
   }                                                                        \
   /*TODO: we should inline the definition of lambdas into enable_if,*/     \
   /*but I can only do this in C++20 */                                     \
