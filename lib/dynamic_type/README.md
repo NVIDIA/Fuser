@@ -262,10 +262,9 @@ IntDoubleVec mydata2 = 123;
 IntDoubleVec::dispatch(get_size, mydata2); // returns 4
 ```
 
-The above code is equivalent to the following pseudocode:
+The above dispatch is equivalent to the following pseudocode:
 
 ```C++
-auto get_size = [](auto x) { return sizeof(x); };
 for (T : {int, double, std::monostate, std::vector<IntDoubleVec>}) {
   if (mydata.is<T>()) {
     return get_size(mydata.as<T>());
