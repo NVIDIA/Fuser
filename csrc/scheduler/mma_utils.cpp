@@ -1569,8 +1569,8 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     // op.
     //
     // Also note that the output of MatmulOp is a tensor of shape [..., M, N]
-    // whose dtype matches that of the inputs. We will most commonly then also need to
-    // cast the output of the MmaOp to produce the output TensorView.
+    // whose dtype matches that of the inputs. We will most commonly then also
+    // need to cast the output of the MmaOp to produce the output TensorView.
     NVF_ERROR(
         A->nDims() > 1 && B->nDims() > 1,
         "Cannot translate MatmulOp with 1D input");
