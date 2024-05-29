@@ -387,7 +387,7 @@ void prepareRuntimeOrder(
     available_input.insert(input_val);
 
     if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
-      auto root_dom = TensorDomain::noReductions(input_tv->getRootDomain());
+      auto root_dom = TensorDomain::noReductions(input_tv->getRFactorDomain());
       for (const size_t dim : c10::irange(root_dom.size())) {
         const auto extent = root_dom[dim]->getMaybeExpandedExtent();
         available_input.insert(extent);

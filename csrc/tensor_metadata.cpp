@@ -291,7 +291,7 @@ inferAndValidateAllocationSizesAndStrides(
   }
   const auto& alloc =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  const auto& rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  const auto& rfactor = TensorDomain::noReductions(tv->getRFactorDomain());
 
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;

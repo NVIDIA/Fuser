@@ -124,8 +124,8 @@ class NVF_API TensorView : public Val {
   }
 
   void setContiguity(bool contig) {
-    setContiguity(
-        TensorDomain::getContiguityFilledWith(getMaybeRFactorDomain(), contig));
+    setContiguity(TensorDomain::getContiguityFilledWith(
+        getMaybeAllocationDomain(), contig));
   }
 
   const std::vector<std::optional<bool>>& getContiguity() const {
@@ -148,8 +148,8 @@ class NVF_API TensorView : public Val {
     return domain()->hasBroadcast();
   }
 
-  bool hasRFactor() const {
-    return domain()->hasRFactor();
+  bool hasRoot() const {
+    return domain()->hasRoot();
   }
 
   bool hasAllocation() const {
@@ -174,6 +174,10 @@ class NVF_API TensorView : public Val {
     return domain()->root();
   };
 
+  const std::vector<IterDomain*>& getMaybeRootDomain() const {
+    return domain()->maybeRoot();
+  };
+
   const std::vector<IterDomain*>& getRFactorDomain() const {
     return domain()->rfactor();
   };
@@ -186,14 +190,8 @@ class NVF_API TensorView : public Val {
     return domain()->leaf();
   };
 
-  // If rfactor domain exists in domain() return it, otherwise return root
-  // domain.
-  const std::vector<IterDomain*>& getMaybeRFactorDomain() const {
-    return domain()->maybeRFactor();
-  };
-
   // If allocation domain exists in domain() return it, otherwise return
-  // getMaybeRFactorDomain()
+  // rfactor domain
   const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
     return domain()->maybeAllocation();
   };
