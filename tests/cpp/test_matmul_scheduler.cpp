@@ -2625,7 +2625,7 @@ TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
 
   NVF_CHECK(
       ir_utils::getOpsOfType<MatmulOp>(fusion.get()).size() == 1,
-      "matmul fusion must have at least one MmaOp");
+      "matmul fusion must have at least one MatmulOp");
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
@@ -2692,7 +2692,6 @@ TEST_F(NVFuserTest, SegmentMatmulOpUnsupportedDtype) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // A - tv0, B - tv1, C - tv2
   auto tv0 = makeContigTensor(2, DataType::Float);
   auto tv1 = makeContigTensor(2, DataType::Float);
   fusion->addInput(tv0);
@@ -2705,10 +2704,6 @@ TEST_F(NVFuserTest, SegmentMatmulOpUnsupportedDtype) {
   auto tv2 = matmul(tv0, tv1);
 
   fusion->addOutput(tv2);
-
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MatmulOp>(fusion.get()).size() == 1,
-      "matmul fusion must have at least one MmaOp");
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
@@ -2746,6 +2741,66 @@ TEST_F(MatmulSchedulerTest, DISABLED_RequireExternalPlugin) {
   EXPECT_TRUE(matmul_heuristic_plugin::hasPlugin());
 
   MatmulParams params;
+}
+
+// Test that we can segment a Fusion containing two matmuls
+TEST_F(MatmulSchedulerTest, Llama2FFN) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
+  for (bool enable_fusion : {false, true}) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+    auto tv2 = makeContigTensor(2, DataType::Half);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(tv2);
+
+    auto tv3 = matmul(tv0, tv1);
+    auto tv4 = matmul(tv0, tv2);
+
+    // silu
+    auto tv5 = mul(sigmoid(tv3), tv3);
+
+    auto tv6 = mul(tv5, tv4);
+
+    fusion->addOutput(tv6);
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+
+    const int M = 504, N = 136, K = 248;
+
+    at::manual_seed(0);
+    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+    auto t0 = at::randn({M, K}, options);
+    auto t1 = at::randn({K, N}, options);
+    auto t2 = at::randn({K, N}, options);
+    std::vector<c10::IValue> inputs{t0, t1, t2};
+
+    EnableOptionsGuard eog;
+    if (enable_fusion) {
+      EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+    } else {
+      EnableOptionsGuard::getCurOptions().unset(EnableOption::FuseMatmul);
+    }
+
+    auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+    testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+    const FusionKernelRuntime* runtime =
+        executor_cache.getMostRecentKernelRuntime();
+
+    EXPECT_TRUE(runtime->isSegmented());
+
+    if (enable_fusion) {
+      EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
+    } else {
+      EXPECT_EQ(runtime->fusionSegments()->groups().size(), 3);
+    }
+  }
 }
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
