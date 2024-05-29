@@ -3092,12 +3092,7 @@ TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
                  {504, 136, 248, 8, 8, 2}, // epilogue not vectorizable due to
                  // offset
              }) {
-          std::cout << "run " << toString(layout) << " bias=" << add_2d_bias
-                    << " cast=" << downcast_output;
-          std::cout << " M=" << M << " N=" << N << " K=" << K;
-          std::cout << " alignA=" << alignA << " alignB=" << alignB
-                    << " alignBias=" << alignBias << std::endl;
-          const auto maybeUnalign = [](const at::Tensor& t, int offset) {
+          const auto maybeUnalign = [](const at::Tensor& t, int64_t offset) {
             if (offset == 16 / t.element_size()) {
               // Already fully aligned
               return t;
