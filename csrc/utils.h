@@ -117,6 +117,9 @@ class PolymorphicBase {
     auto downcast_ptr = static_cast<T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<T*>(this);
+    if (downcast_ptr == nullptr) {
+      std::cout << "null";
+    }
     NVF_ERROR(downcast_ptr != nullptr);
 #endif
     return downcast_ptr;
@@ -128,6 +131,9 @@ class PolymorphicBase {
     auto downcast_ptr = static_cast<const T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<const T*>(this);
+    if (downcast_ptr == nullptr) {
+      std::cout << "null";
+    }
     NVF_ERROR(downcast_ptr != nullptr);
 #endif
     return downcast_ptr;
@@ -215,8 +221,9 @@ std::vector<KeyType> getSortedKeys(
 
 // Based on https://stackoverflow.com/a/9154394
 template <typename T>
-static auto hasToStringHelper(int)
-    -> decltype(std::declval<typename std::remove_pointer<T>::type>().toString(), std::true_type{});
+static auto hasToStringHelper(int) -> decltype(
+    std::declval<typename std::remove_pointer<T>::type>().toString(),
+    std::true_type{});
 
 template <typename>
 static auto hasToStringHelper(long) -> std::false_type;
