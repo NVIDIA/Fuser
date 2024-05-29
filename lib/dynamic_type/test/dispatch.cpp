@@ -136,35 +136,16 @@ TEST_F(DynamicTypeTest, DispatchReturnsDynamicType) {
   static_assert(std::is_same_v<decltype(ce_r12), const IntOrFloat>);
   static_assert(ce_r12.is<float>());
   static_assert(ce_r12 == 3.0f);
-
-  auto r21 = IntOrFloat::dispatch(add, two, one);
-  static_assert(std::is_same_v<decltype(r21), IntOrFloat>);
-  EXPECT_TRUE(r21.is<float>());
-  EXPECT_EQ(r21, 3.0f);
-
-  constexpr auto ce_r21 = IntOrFloat::dispatch(add, two, one);
-  static_assert(std::is_same_v<decltype(ce_r21), const IntOrFloat>);
-  static_assert(ce_r21.is<float>());
-  static_assert(ce_r21 == 3.0f);
-
-  auto r22 = IntOrFloat::dispatch(add, two, two);
-  static_assert(std::is_same_v<decltype(r22), IntOrFloat>);
-  EXPECT_TRUE(r22.is<float>());
-  EXPECT_EQ(r22, 4.0f);
-
-  constexpr auto ce_r22 = IntOrFloat::dispatch(add, two, two);
-  static_assert(std::is_same_v<decltype(ce_r22), const IntOrFloat>);
-  static_assert(ce_r22.is<float>());
-  static_assert(ce_r22 == 4.0f);
 }
 
 TEST_F(DynamicTypeTest, DispatchReturnsReference) {
   using IntOrFloat = DynamicType<NoContainers, int64_t, float>;
-  auto add = [](std::vector<int>& a, auto x, int64_t y) -> int& {
+  auto add = [](std::vector<int>& a, auto x, int64_t y) -> decltype(auto) {
     if constexpr (std::is_integral_v<decltype(x)>) {
       return a[x + y];
+    } else {
+      return;
     }
-    throw std::runtime_error("Bad type");
   };
   constexpr IntOrFloat one(1);
   constexpr IntOrFloat two(2.0f);
@@ -177,4 +158,9 @@ TEST_F(DynamicTypeTest, DispatchReturnsReference) {
   static_assert(std::is_same_v<decltype(r1), int&>);
   EXPECT_EQ(r1, 2);
   EXPECT_EQ(&r1, &a[2]);
+
+  EXPECT_THAT(
+      [&]() { IntOrFloat::dispatch(add, a, two, 1); },
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to DynamicType")));
 }

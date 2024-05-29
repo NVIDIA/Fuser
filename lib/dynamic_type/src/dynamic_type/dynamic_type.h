@@ -134,19 +134,19 @@ struct DynamicType {
           return dispatch(f_others, std::forward<OtherArgs>(args)...);
         }
       };
-      auto get_result_type = [&](auto t) {
+      auto get_result_type = [](auto t) {
         using T = typename decltype(t)::type;
-        using RetT = decltype(f0(arg0.template as<T>()));
-        return std::type_identity<RetT>{};
+        using RetT = decltype(f0(std::declval<T>()));
+        if constexpr (!std::is_void_v<RetT>) {
+          return std::type_identity<RetT>{};
+        } else {
+          return;
+        }
       };
-      using result_types =
-          decltype(DynamicType::for_all_types(get_result_type));
-      constexpr bool has_single_return_type = are_all_same<result_types>::value;
-      using result_type = std::conditional_t<
-          has_single_return_type,
-          typename std::tuple_element_t<0, result_types>::type,
-          DynamicType>;
-      if constexpr (std::is_same_v<result_type, void>) {
+      using result_types = decltype(remove_void_from_tuple(
+          DynamicType::for_all_types(get_result_type)));
+      constexpr bool returns_void = (std::tuple_size_v<result_types> == 0);
+      if constexpr (returns_void) {
         DynamicType::for_all_types([&](auto t) -> decltype(auto) {
           using T = typename decltype(t)::type;
           if (arg0.template is<T>()) {
@@ -155,6 +155,12 @@ struct DynamicType {
         });
         return;
       } else {
+        constexpr bool has_single_return_type =
+            are_all_same<result_types>::value;
+        using result_type = std::conditional_t<
+            has_single_return_type,
+            typename std::tuple_element_t<0, result_types>::type,
+            DynamicType>;
         constexpr bool is_reference = std::is_reference_v<result_type>;
         using ret_storage_t = std::conditional_t<
             is_reference,
@@ -162,6 +168,9 @@ struct DynamicType {
                 std::reference_wrapper<std::remove_reference_t<result_type>>>,
             result_type>;
         ret_storage_t ret;
+        // if constexpr (!std::is_same_v<ret_storage_t, float>) {
+        //   std::tuple<ret_storage_t> a = std::nullopt;
+        // }
         DynamicType::for_all_types([&](auto t) -> decltype(auto) {
           using T = typename decltype(t)::type;
           if (arg0.template is<T>()) {
