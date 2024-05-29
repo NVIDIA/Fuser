@@ -76,14 +76,14 @@ void HostIrExecutor::postCompute(PostOnStream* post_ir) {
     input_IValues.push_back(val_to_IValue_.at(input));
   }
 
+  // placeholder for storing the outputs
+  std::vector<at::Tensor> outputs;
+
   NVF_ERROR(
       post_ir->hostOpToPost()->isA<HostUnit>(),
       "op must be a HostUnit: ",
       post_ir->hostOpToPost());
   auto hu = post_ir->hostOpToPost()->as<HostUnit>();
-
-  // placeholder for storing the outputs
-  std::vector<at::Tensor> outputs;
   // Compile the fusion and execute it with FusionExecutor(Cache)
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
