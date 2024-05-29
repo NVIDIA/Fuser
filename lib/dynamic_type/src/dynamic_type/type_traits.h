@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <cstddef>
 #include <tuple>
 #include <type_traits>
 #include <utility>
