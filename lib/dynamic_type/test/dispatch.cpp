@@ -160,9 +160,9 @@ TEST_F(DynamicTypeTest, DispatchReturnsDynamicType) {
 
 TEST_F(DynamicTypeTest, DispatchReturnsReference) {
   using IntOrFloat = DynamicType<NoContainers, int64_t, float>;
-  auto add = [](std::vector<int> &x, auto y) -> int& {
-    if constexpr (std::is_integral_v<decltype(y)>) {
-      return x[y];
+  auto add = [](std::vector<int>& a, auto x, int64_t y) -> int& {
+    if constexpr (std::is_integral_v<decltype(x)>) {
+      return a[x + y];
     }
     throw std::runtime_error("Bad type");
   };
@@ -171,10 +171,10 @@ TEST_F(DynamicTypeTest, DispatchReturnsReference) {
   static_assert(one.is<int64_t>());
   static_assert(two.is<float>());
 
-  std::vector<int> x = {0, 1, 2, 3};
+  std::vector<int> a = {0, 1, 2, 3};
 
-  auto& r1 = IntOrFloat::dispatch(add, x, one);
+  auto& r1 = IntOrFloat::dispatch(add, a, one, 1);
   static_assert(std::is_same_v<decltype(r1), int&>);
-  EXPECT_EQ(r1, 1);
-  EXPECT_EQ(&r1, &x[1]);
+  EXPECT_EQ(r1, 2);
+  EXPECT_EQ(&r1, &a[2]);
 }

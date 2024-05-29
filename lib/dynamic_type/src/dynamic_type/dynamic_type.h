@@ -118,31 +118,36 @@ struct DynamicType {
       FirstArg&& arg0,
       OtherArgs&&... args) {
     if constexpr (std::is_same_v<std::decay_t<FirstArg>, DynamicType>) {
-      auto f0 = [&](auto&& a0) {
+      auto f0 = [&](auto&& a0) -> decltype(auto) {
         if constexpr (sizeof...(OtherArgs) == 0) {
+          // std::tuple<decltype(std::forward<FuncT>(f)(std::forward<decltype(a0)>(a0)))>
+          // a = 0;
           return std::forward<FuncT>(f)(std::forward<decltype(a0)>(a0));
         } else {
-          auto f_others = [&](auto&&... others) {
+          auto f_others = [&](auto&&... others) -> decltype(auto) {
             return std::forward<FuncT>(f)(
                 std::forward<decltype(a0)>(a0),
                 std::forward<decltype(others)>(others)...);
           };
+          // std::tuple<decltype(dispatch(f_others,
+          // std::forward<OtherArgs>(args)...))> a = 0;
           return dispatch(f_others, std::forward<OtherArgs>(args)...);
         }
       };
       auto get_result_type = [&](auto t) {
         using T = typename decltype(t)::type;
-        return f0(arg0.template as<T>());
+        using RetT = decltype(f0(arg0.template as<T>()));
+        return std::type_identity<RetT>{};
       };
       using result_types =
           decltype(DynamicType::for_all_types(get_result_type));
       constexpr bool has_single_return_type = are_all_same<result_types>::value;
       using result_type = std::conditional_t<
           has_single_return_type,
-          std::tuple_element_t<0, result_types>,
+          typename std::tuple_element_t<0, result_types>::type,
           DynamicType>;
-      if constexpr (std::is_same_v<result_type, Void>) {
-        DynamicType::for_all_types([&](auto t) {
+      if constexpr (std::is_same_v<result_type, void>) {
+        DynamicType::for_all_types([&](auto t) -> decltype(auto) {
           using T = typename decltype(t)::type;
           if (arg0.template is<T>()) {
             f0(arg0.template as<T>());
@@ -150,15 +155,20 @@ struct DynamicType {
         });
         return;
       } else {
-        result_type ret;
-        DynamicType::for_all_types([&](auto t) {
+        constexpr bool is_reference = std::is_reference_v<result_type>;
+        using ret_storage_t = std::conditional_t<
+            is_reference,
+            std::optional<
+                std::reference_wrapper<std::remove_reference_t<result_type>>>,
+            result_type>;
+        ret_storage_t ret;
+        DynamicType::for_all_types([&](auto t) -> decltype(auto) {
           using T = typename decltype(t)::type;
           if (arg0.template is<T>()) {
-            auto get_result = [&] { return f0(arg0.template as<T>()); };
-            if constexpr (std::is_convertible_v<
-                              decltype(get_result()),
-                              result_type>) {
-              ret = get_result();
+            const T& a0 = arg0.template as<T>();
+            if constexpr (std::
+                              is_convertible_v<decltype(f0(a0)), result_type>) {
+              ret = f0(a0);
             } else {
               DYNAMIC_TYPE_CHECK(
                   false,
@@ -166,13 +176,17 @@ struct DynamicType {
             }
           }
         });
-        return ret;
+        if constexpr (is_reference) {
+          return ret->get();
+        } else {
+          return ret;
+        }
       }
     } else {
       if constexpr (sizeof...(OtherArgs) == 0) {
         return std::forward<FuncT>(f)(std::forward<FirstArg>(arg0));
       } else {
-        auto ff = [&](auto&&... others) {
+        auto ff = [&](auto&&... others) -> decltype(auto) {
           return std::forward<FuncT>(f)(
               std::forward<FirstArg>(arg0),
               std::forward<decltype(others)>(others)...);
