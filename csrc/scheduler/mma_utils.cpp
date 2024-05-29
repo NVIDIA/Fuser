@@ -1634,29 +1634,38 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
     // torch.matmul has a single M, N, and K dimension and 0 or more batch
     // dimensions.
     dim_roles[exact_graph.toGroup(A->axis(-1))] = MatmulDomain::K;
-    NVF_ERROR(A->nDims() > 0 && B->nDims() > 0);
-    size_t m_and_k_dims = 0;
-    if (A->nDims() == 1 && B->nDims() == 1) {
-      NVF_ERROR(
-          false, "MatmulOp node should not be created when both inputs are 1D");
-    } else if (A->nDims() == 1) {
-      // Missing M dimension
-      dim_roles[exact_graph.toGroup(B->axis(-1))] = MatmulDomain::N;
-      m_and_k_dims = 1;
-    } else if (B->nDims() == 1) {
-      // Missing N dimension
-      dim_roles[exact_graph.toGroup(A->axis(-2))] = MatmulDomain::M;
-      m_and_k_dims = 1;
-    } else {
-      // Both A and B are at least 2D
-      dim_roles[exact_graph.toGroup(A->axis(-2))] = MatmulDomain::M;
-      dim_roles[exact_graph.toGroup(B->axis(-1))] = MatmulDomain::N;
-      m_and_k_dims = 2;
-    }
-    // Skip one dimension for the reduction axis in the output
-    for (size_t i : c10::irange(output->nDims() - 1 - m_and_k_dims)) {
-      dim_roles[exact_graph.toGroup(output->axis((int64_t)i))] =
-          MatmulDomain::Batch;
+
+    // Map output dims to inputs
+    const std::vector<IterDomain*>& out_logical = output->getRFactorDomain();
+    const std::vector<IterDomain*>& mapping_a = ops::mapMatmulOpIterDomains(
+        A->getRFactorDomain(), MatmulRole::INPUT_A, out_logical.size());
+    const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
+        B->getRFactorDomain(), MatmulRole::INPUT_B, out_logical.size());
+
+    NVF_ERROR(mapping_a.size() == out_logical.size());
+    NVF_ERROR(mapping_a.size() == mapping_b.size());
+    for (size_t i : c10::irange(out_logical.size())) {
+      IterDomain* id_out = out_logical[i];
+      ValGroup g = exact_graph.toGroup(id_out);
+
+      if (id_out->isReduction()) {
+        dim_roles[g] = MatmulDomain::K;
+        continue;
+      }
+
+      bool has_a = mapping_a[i] != nullptr && mapping_a[i]->isIteration();
+      bool has_b = mapping_b[i] != nullptr && mapping_b[i]->isIteration();
+
+      NVF_ERROR(has_a || has_b);
+      // If both operand IterDomains are Broadcast, treat as Batch dimension
+      // If they mismatch, then one must be broadcast which determines M or N
+      if (has_a == has_b) {
+        dim_roles[g] = MatmulDomain::Batch;
+      } else if (has_a) {
+        dim_roles[g] = MatmulDomain::M;
+      } else if (has_b) {
+        dim_roles[g] = MatmulDomain::N;
+      }
     }
     return dim_roles;
   } else if (output->definition()->isA<LinearOp>()) {
