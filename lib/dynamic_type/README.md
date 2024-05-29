@@ -130,13 +130,15 @@ extra work. All the behaviors mentioned in this note are tested in
 `test/examples.cpp`, so if you want to change anything in this doc, please make
 sure to update the test as well.
 
+## Containers
+
 `DynamicType` also supports recursive types, that is, the type list can
 contain `DynamicType`. For example, something like:
 
 ```C++
 // Warning: this code does not compile!
 using IntFloatVecList = DynamicType<
-    NoContainers,
+    ??,
     int,
     float,
     std::vector<IntFloatVecList>,
@@ -204,6 +206,8 @@ x[0] // gets IntFloatVec(1)
 x[1] // gets IntFloatVec(2.3f)
 ```
 
+## Class member access
+
 If one of the candidate type of `DynamicType` is a struct or class, then we can use
 operator `->*&` to access their members. For example:
 
@@ -243,6 +247,11 @@ get different hash, which does not make sense.
 
 Operations on `DynamicType` are as `constexpr` as possible. So most tests in
 `DynamicTypeTest` are `static_assert` tests.
+
+## Dispatching
+
+`DynamicType` has a static member function `dispatch`, which is a general tool to dispatch on function calls.
+For example, if you have the following function:
 
 # Benchmarks
 
