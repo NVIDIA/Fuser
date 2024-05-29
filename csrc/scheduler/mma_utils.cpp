@@ -707,41 +707,36 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 } // namespace
 
 bool isConsumerAllocationInnerIDProducerAllocationInnerID(
-    TensorView* consumer) {
-  auto LdStOp = consumer->definition();
-  NVF_CHECK(dynamic_cast<LoadStoreOp*>(LdStOp));
-
+    const TensorView* producer,
+    const TensorView* consumer) {
   // Get all the IDs from the innermost ID of the allocation domain of
   // the consumer to the root domain of the consumer.
-  auto vals = DependencyCheck::getAllValsBetween(
+  const auto vals = DependencyCheck::getAllValsBetween(
       {consumer->getRootDomain().begin(), consumer->getRootDomain().end()},
       {consumer->getMaybeAllocationDomain().back()});
 
-  auto ids = ir_utils::filterByType<IterDomain>(vals);
-  auto idsOnPath = std::vector<IterDomain*>(ids.begin(), ids.end());
+  const auto ids = ir_utils::filterByType<IterDomain>(vals);
+  const auto idsOnPath = std::vector<IterDomain*>(ids.begin(), ids.end());
   NVF_CHECK(!idsOnPath.empty());
   // This gives us the ID in the consumer root domain.
   // We'll later map this ID to one in the producer.
-  auto idInConsumerRoot = idsOnPath.front();
+  const auto idInConsumerRoot = idsOnPath.front();
 
-  auto producer = consumer->definition()->input(0);
-  NVF_CHECK(producer->isA<TensorView>());
-  PairwiseRootDomainMap mapAccrossLdStOp(
-      static_cast<TensorView*>(producer), consumer);
+  const PairwiseRootDomainMap mapAccrossLdStOp(producer, consumer);
 
-  auto c2pMap = mapAccrossLdStOp.mapConsumerToProducer();
-  auto prodID = c2pMap.at(idInConsumerRoot);
+  const auto c2pMap = mapAccrossLdStOp.mapConsumerToProducer();
+  const auto prodID = c2pMap.at(idInConsumerRoot);
 
   // If the innermost ID of the (maybe)Allocation domain
   // is not the same as the mapped ID in the producer, then
   // we need to transpose.
-  return static_cast<TensorView*>(producer)
-             ->getMaybeAllocationDomain()
-             .back() == prodID;
+  return producer->getMaybeAllocationDomain().back() == prodID;
 }
 
 void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
-  bool transpose = !isConsumerAllocationInnerIDProducerAllocationInnerID(tv);
+  const auto producer = tv->definition()->inputs().at(0)->as<TensorView>();
+  bool transpose = !isConsumerAllocationInnerIDProducerAllocationInnerID(
+      producer, tv /*consumer*/);
   // For A, we have an extra outer dim (-6), which is the "warp group". For
   // Hopper, mma instructions executes on warp group level. For Turing/Ampere,
   // this dim will just have extent 1.

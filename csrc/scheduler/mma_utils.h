@@ -370,7 +370,9 @@ int64_t computeExpectedSharedMemoryUsage(
 //!  Z = complex<double>
 char dtypeToChar(const DataType& dtype);
 
-bool isConsumerAllocationInnerIDProducerAllocationInnerID(TensorView* consumer);
+bool isConsumerAllocationInnerIDProducerAllocationInnerID(
+    const TensorView* producer,
+    const TensorView* consumer);
 
 } // namespace mma_utils
 

@@ -396,9 +396,10 @@ class VectorizeValidator : public OptInDispatch {
     }
 
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
-    bool is_ldmatrix_trans = ldst != nullptr &&
+    bool is_ldmatrix_trans =
+        ldst != nullptr &&
         !mma_utils::isConsumerAllocationInnerIDProducerAllocationInnerID(
-                                 ldst->outputs().at(0)->as<TensorView>());
+            ldst->in()->as<TensorView>(), ldst->out()->as<TensorView>());
     if (!is_ldmatrix_trans) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
