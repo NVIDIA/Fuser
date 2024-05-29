@@ -386,12 +386,12 @@ __device__ void blockIterGroupedReduce(
     int64_t& cycles,
     int64_t& count) {
   int64_t start_counter = 0;
-
+  block_sync::sync<Aligned>();
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
     start_counter = readCycleCounter();
   }
-  for(int i = 0; i< 100; i++){
+
     blockIterGroupedReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, N, T, Func>(
       out,
       inp_val,
@@ -400,8 +400,8 @@ __device__ void blockIterGroupedReduce(
       read_pred,
       write_pred,
       init_val);
-    }
-
+    
+    block_sync::sync<Aligned>();
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
     cycles += readCycleCounter() - start_counter;
@@ -427,14 +427,13 @@ __device__ void blockReduce(
     int64_t& cycles,
     int64_t& count) {
   int64_t start_counter = 0;
-
+  block_sync::sync<Aligned>();
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
     start_counter = readCycleCounter();
   }
 
 
-  for(int i = 0; i< 100; i++){
     blockReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
         out,
         inp_val,
@@ -443,8 +442,7 @@ __device__ void blockReduce(
         read_pred,
         write_pred,
         init_val);
-  }
-      
+  block_sync::sync<Aligned>();
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
     cycles += readCycleCounter() - start_counter;
@@ -756,19 +754,17 @@ __inline__ __device__ void blockIterGroupedWarpReduce(
   int64_t& cycles,
   int64_t& count) {
   int64_t start_counter = 0;
-
+  block_sync::sync<Aligned>();
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
     start_counter = readCycleCounter();
   }
 
-  for(int i = 0; i< 100; i++){
     blockIterGroupedWarpReduce<Aligned, N, T, BDIMX, BDIMY>(
       out,
       inp_val,
       smem);
-  }
-
+      block_sync::sync<Aligned>();
   if (index_utils::maskedIsLast<true, true, true>(blockIdx, gridDim) &&
       index_utils::maskedIsZero<true, true, true>(threadIdx)) {
     cycles += readCycleCounter() - start_counter;

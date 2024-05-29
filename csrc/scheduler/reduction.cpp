@@ -670,7 +670,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // go to grid reduction. Block reduction doesn't require expensive cross-block
   // communications and leads to better performance if SM usage is high.
   auto is_block_reduction = false;
-  bool use_warp_reduction = isOptionEnabled(EnableOption::IterGroupedWarpReduction);
+  bool use_warp_reduction =
+      isOptionEnabled(EnableOption::IterGroupedWarpReduction);
   if (!use_warp_reduction) {
     // block reduction is done with 1 block per sm to ensure it is finished
     // within 1 wave. The number of threads per block is set to 1024 to achieve
@@ -683,7 +684,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // start from a small vectorization factor to leave more for reduction
     // unroll
     iter_unroll_factor = std::min(2L, opt_max_vect);
-
 
     // calculate the number of blocks needed
     gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
@@ -709,7 +709,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       }
       gidim /= 2;
     }
-
 
     // For reduction dim, prioritize unroll, improves perf for cases with small
     // reduction dim e.g. 16 x 32768. If we know the computation cost is low, we
@@ -748,15 +747,16 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         gidim <= device_multiprocessor_count && gidim >= required_blocks;
     is_block_reduction = true;
 
-    if(std::getenv("VECT") != nullptr){
+    if (std::getenv("VECT") != nullptr) {
       iter_unroll_factor = std::stoi(std::getenv("VECT"));
       bdimx = 16;
       bdimy = 32;
       gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
-      inner_reduction_unroll_factor = scheduler_utils::safeDiv(16, iter_unroll_factor);
-    }    
+      inner_reduction_unroll_factor =
+          scheduler_utils::safeDiv(16, iter_unroll_factor);
+    }
 
-  }else{
+  } else {
     // warp reduction requires bdimx <= 32, prefer 8
     bdimx = 8;
     int64_t max_bdimx = 8L;
@@ -788,18 +788,19 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // occupancy is 50%, so we can use 1024 threads per sm
     const int64_t threads_per_sm = 1024;
     int64_t n_wave = ceilDiv(gidim, device_multiprocessor_count);
-    while(n_wave * bdimx * bdimy * 2 <= threads_per_sm){
+    while (n_wave * bdimx * bdimy * 2 <= threads_per_sm) {
       bdimy *= 2;
     }
     is_block_reduction = true;
 
-    if(std::getenv("VECT") != nullptr){
+    if (std::getenv("VECT") != nullptr) {
       iter_unroll_factor = std::stoi(std::getenv("VECT"));
       bdimx = 16;
       bdimy = 32;
       gidim = ceilDiv(total_iteration_numel, bdimx * iter_unroll_factor);
-      inner_reduction_unroll_factor = scheduler_utils::safeDiv(16, iter_unroll_factor);
-    }     
+      inner_reduction_unroll_factor =
+          scheduler_utils::safeDiv(16, iter_unroll_factor);
+    }
   }
 
   // grid reduction
@@ -845,14 +846,15 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         std::min(
             (int64_t)vectorize_factor, std::min(iDimAvail(), target_unroll)));
     // if (total_iteration_numel > 3072) {
-      iter_unroll_factor = bdimx > 64 ? 4L : 2L;
-      if(bdimx > 128){
-        bdimx /= 2;
-        iter_unroll_factor *= 2;
-      }
-      // iter_unroll_factor = bdimx > 128 ? empirical_max_vect : iter_unroll_factor;
-      iter_unroll_factor = std::min(iter_unroll_factor, max_vectorize_factor);
-      iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
+    iter_unroll_factor = bdimx > 64 ? 4L : 2L;
+    if (bdimx > 128) {
+      bdimx /= 2;
+      iter_unroll_factor *= 2;
+    }
+    // iter_unroll_factor = bdimx > 128 ? empirical_max_vect :
+    // iter_unroll_factor;
+    iter_unroll_factor = std::min(iter_unroll_factor, max_vectorize_factor);
+    iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
     // }
 
     // Fill bdimy with left over threads
@@ -967,9 +969,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     rparams->block_dim_iter_dom = ParallelType::TIDx;
     // check why if static split, leads to more register usage
     // at 32768 x 6400, increase from 64 to 72
-    if(isOptionEnabled(EnableOption::IterGroupedWarpReduction)){
-      rparams->static_bdimx = true;
-    }
+    // if(isOptionEnabled(EnableOption::IterGroupedWarpReduction)){
+    rparams->static_bdimx = true;
+    // }
   }
 
   rparams->grid_dim_iter_dom =
@@ -988,9 +990,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   if (rparams->cross_block_inner_reduction) {
     if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
-      if(isOptionEnabled(EnableOption::IterGroupedWarpReduction)){
-        rparams->static_bdimy = true;
-      }
+      // if(isOptionEnabled(EnableOption::IterGroupedWarpReduction)){
+      rparams->static_bdimy = true;
+      // }
       rparams->block_dim_inner_reduction = ParallelType::TIDy;
     } else {
       rparams->block_dim_inner_reduction = ParallelType::TIDx;
