@@ -295,6 +295,34 @@ for (T1 : {int, double, std::monostate, std::vector<IntDoubleVec>}) {
 }
 ```
 
+If the output type of the callback function is different for different input types,
+then we promote the output type to `DynamicType`. For example:
+
+```C++
+auto my_pow = [](auto x, auto exp) {
+  if constexpr (
+      std::is_arithmetic_v<decltype(x)> &&
+      std::is_arithmetic_v<decltype(exp)>) {
+    if constexpr (std::is_integral_v<decltype(exp)>) {
+      decltype(x) result = 1;
+      while (exp-- > 0) {
+        result *= x;
+      }
+      return result;
+    } else {
+      return std::pow(x, exp);
+    }
+  } else {
+    throw std::runtime_error("Unsupported type");
+    return;
+  }
+};
+IntDoubleVec::dispatch(my_pow, mydata1, mydata1); //IntDoubleVec(double, 27.0)
+IntDoubleVec::dispatch(my_pow, mydata1, mydata2); //IntDoubleVec(double, 9.0)
+IntDoubleVec::dispatch(my_pow, mydata2, mydata1); //IntDoubleVec(double, 8.0)
+IntDoubleVec::dispatch(my_pow, mydata2, mydata2); //IntDoubleVec(int, 4)
+```
+
 # Benchmarks
 
 The benchmark `benchmark/sort.cpp` for running a simple `std::sort` on a vector of `int64_t`
