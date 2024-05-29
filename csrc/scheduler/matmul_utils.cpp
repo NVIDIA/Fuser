@@ -387,7 +387,9 @@ class VectorizationCalculator {
   // The vector of dimensions indicates how the tensor will be scheduled;
   // dimensions in tv will be reordered if needed then the vector of dimensions
   // will be merged. We check the allocation domain of tv to tell how the
-  // resulting merged TV can be vectorized.
+  // resulting merged TV can be vectorized. If the tensor does not have any
+  // inner_dims, then it cannot be vectorized. In that case we return 0 so that
+  // this tensor can be ignored in later computation.
   int64_t innerDimsVectorization(
       TensorView* tv,
       const std::vector<ValGroup>& inner_dims) {
@@ -431,6 +433,11 @@ class VectorizationCalculator {
         inner_dim_pos = i;
         inner_dims_size *= sizes[i];
       }
+    }
+
+    if (remaining_inner_dims.size() == inner_dims.size()) {
+      // We didn't match any inner dims, so this tensor is not vectorizable.
+      return 0l;
     }
 
     if (inner_dims_size == 1l) {
@@ -540,11 +547,8 @@ class VectorizationCalculator {
     // from inner to outer. Determine supported vectorization based on product
     // of matching sizes along with all outer strides.
     const auto innerMostVec = [&](TensorView* tv) {
-      int64_t vec_size = ptrAndDTypeVec(tv);
-      if (vec_size == 1l) {
-        return vec_size;
-      }
-      return std::min(vec_size, innerDimsVectorization(tv, inner_nonk_dims));
+      return std::min(
+          ptrAndDTypeVec(tv), innerDimsVectorization(tv, inner_nonk_dims));
     };
 
     const auto d_it = tensor_roles_.find(MatmulRole::OUTPUT_D);
@@ -552,12 +556,20 @@ class VectorizationCalculator {
         d_it != tensor_roles_.end(), "Could not find any output D tensors");
     int64_t vec_size = 16l;
     for (TensorView* tv : d_it->second) {
-      vec_size = std::min(vec_size, innerMostVec(tv));
+      int64_t v = innerMostVec(tv);
+      if (v == 0) {
+        continue;
+      }
+      vec_size = std::min(vec_size, v);
     }
     if (const auto c_it = tensor_roles_.find(MatmulRole::INPUT_C);
         c_it != tensor_roles_.end()) {
       for (TensorView* tv : c_it->second) {
-        vec_size = std::min(vec_size, innerMostVec(tv));
+        int64_t v = innerMostVec(tv);
+        if (v == 0) {
+          continue;
+        }
+        vec_size = std::min(vec_size, v);
       }
     }
     return vec_size;
