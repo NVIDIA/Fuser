@@ -12,7 +12,6 @@
 #include <utility>
 
 #include "C++20/type_traits"
-#include "error.h"
 
 // Note on the coding style of this file:
 // - I use `namespace dynamic_type` and `} // namespace dynamic_type` a lot to
