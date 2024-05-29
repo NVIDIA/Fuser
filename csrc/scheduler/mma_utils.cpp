@@ -717,7 +717,8 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   // Get all the IDs from the innermost ID of the allocation domain of
   // the consumer to the root domain of the consumer.
   const auto vals = DependencyCheck::getAllValsBetween(
-      {consumer->getMaybeRootDomain().begin(), consumer->getMaybeRootDomain().end()},
+      {consumer->getMaybeRootDomain().begin(),
+       consumer->getMaybeRootDomain().end()},
       {consumer->getMaybeAllocationDomain().back()});
 
   const auto ids = ir_utils::filterByType<IterDomain>(vals);
