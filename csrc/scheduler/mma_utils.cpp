@@ -1596,6 +1596,9 @@ std::vector<ValGroup> canonicalDimOrdering(
            id_it != tv->getMaybeAllocationDomain().rend();
            id_it++) {
         IterDomain* id = *id_it;
+        if (id->isBroadcast() || id->isReduction()) {
+          continue;
+        }
         const ValGroup& g = exact_graph.toGroup(id);
         const auto it = dim_roles.find(g);
         if (it == dim_roles.end()) {

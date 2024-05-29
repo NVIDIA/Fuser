@@ -361,7 +361,11 @@ class VectorizationCalculator {
     // of how it is marked in the TensorView.
     std::vector<int64_t> sizes, strides;
     for (IterDomain* id : tv->getMaybeAllocationDomain()) {
-      if (id->isBroadcast() || id->isReduction()) {
+      if (id->isBroadcast()) {
+        sizes.push_back(1);
+        continue;
+      }
+      if (id->isReduction()) {
         continue;
       }
       PolymorphicValue ext =
@@ -373,7 +377,7 @@ class VectorizationCalculator {
     strides.resize(sizes.size(), 0l);
     int64_t stride = 1l;
     for (int64_t i = (int64_t)(sizes.size()) - 1l; i >= 0; --i) {
-      strides[(size_t)i] = stride;
+      strides[(size_t)i] = sizes[(size_t)i] == 1 ? 0 : stride;
       stride *= sizes[(size_t)i];
     }
     return {sizes, strides};
