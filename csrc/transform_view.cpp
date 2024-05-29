@@ -683,7 +683,7 @@ TensorDomain* createViewDomain(
 
   std::vector<IterDomain*> new_root_domain;
   auto orig_root_domain =
-      TensorDomain::noReductions(original_domain->maybeRFactor());
+      TensorDomain::noReductions(original_domain->rfactor());
 
   // Apply squeeze.
   for (auto id_i : c10::irange(orig_root_domain.size())) {
@@ -772,8 +772,8 @@ AnalyzeViewResult analyzeView(
   }
 
   NVF_ERROR(
-      TensorDomain::noReductions(original_view_tv->getMaybeRFactorDomain())
-          .size() == original_sizes.size());
+      TensorDomain::noReductions(original_view_tv->getRFactorDomain()).size() ==
+      original_sizes.size());
 
   // Fill -1 dimension in new_std::vector<int64_t> with size infered from all
   // other values
@@ -784,7 +784,7 @@ AnalyzeViewResult analyzeView(
   AnalyzeViewTransformation analyzer(
       sizes.first /* original_view */,
       sizes.second /* new_view */,
-      TensorDomain::noReductions(original_view_tv->getMaybeRFactorDomain()));
+      TensorDomain::noReductions(original_view_tv->getRFactorDomain()));
   return analyzer.run();
 }
 

@@ -434,7 +434,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
 
   // Pull the root id's of the given tv.
   std::unordered_set<IterDomain*> maybe_rfactor_id_set{
-      tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
+      tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()};
 
   // Keep track of leaf positions that is either a reduction
   //  or a broadcast.
@@ -507,7 +507,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  domain ordering by iterating on the root domain and
   //  find their corresponding inner tile iterdomains from
   //  the populated root_id_to_inner_leaf_pos.
-  for (auto root_id : tv->getMaybeRFactorDomain()) {
+  for (auto root_id : tv->getRFactorDomain()) {
     auto leaf_id_pos_it = root_id_to_inner_leaf_pos.find(root_id);
     if (leaf_id_pos_it != root_id_to_inner_leaf_pos.end()) {
       reorder_map_old_to_new[leaf_id_pos_it->second] = current_pos++;
@@ -640,11 +640,11 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
   //  This matching pattern should support most common matmul applications,
   //   but in follow ups we may need to extend RFactor matching if there
   //   are more complex scheduling patterns that we want to support.
-  auto accumulator_domain = mma->out()->as<TensorView>()->getRootDomain();
+  auto accumulator_domain = mma->out()->as<TensorView>()->getMaybeRootDomain();
   auto a_domain = TensorDomain::noReductions(
-      mma->inA()->as<TensorView>()->getMaybeRFactorDomain());
+      mma->inA()->as<TensorView>()->getRFactorDomain());
   auto b_domain = TensorDomain::noReductions(
-      mma->inB()->as<TensorView>()->getMaybeRFactorDomain());
+      mma->inB()->as<TensorView>()->getRFactorDomain());
   NVF_CHECK(
       a_domain.size() == b_domain.size() &&
           a_domain.size() == accumulator_domain.size(),
@@ -949,7 +949,7 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
 
 void canonicalizeMmaTvOrdering(TensorView* tv) {
   std::unordered_set<IterDomain*> root_id_set{
-      tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
+      tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()};
 
   auto mma = dynamic_cast<MmaOp*>(tv->definition());
   NVF_CHECK(
@@ -1170,10 +1170,10 @@ TensorRolesMapOpt getTensorRoles(
 
   const auto findDims = [&dim_roles, &exact_graph](TensorView* tv) {
     DimPresence has;
-    for (IterDomain* id :
-         TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
-      if (id->isBroadcast()) {
-        // Broadcast domains won't exact map to concrete domains so skip them
+    for (IterDomain* id : TensorDomain::noReductions(tv->getLeafDomain())) {
+      if (id->isBroadcast() || id->isDeviceDim()) {
+        // Broadcast and device domains won't exact map to concrete domains so
+        // skip them
         continue;
       }
       const ValGroup& g = exact_graph.toGroup(id);
@@ -1414,16 +1414,16 @@ class MatmulPatternMatcher : IterVisitor {
       ltv = getTensorviewPriorToCast(ltv);
       rtv = getTensorviewPriorToCast(rtv);
 
-      std::vector<IterDomain*> lrf =
-          TensorDomain::noReductions(ltv->getMaybeRFactorDomain());
-      std::vector<IterDomain*> rrf =
-          TensorDomain::noReductions(rtv->getMaybeRFactorDomain());
+      std::vector<IterDomain*> lrf = TensorDomain::noDevices(
+          TensorDomain::noReductions(ltv->getLeafDomain()));
+      std::vector<IterDomain*> rrf = TensorDomain::noDevices(
+          TensorDomain::noReductions(rtv->getLeafDomain()));
 
       // These sizes should match since ops::maybeBroadcast places BroadcastOps
       // for implicit broadcasting.
       NVF_ERROR(lrf.size() == rrf.size());
-      const std::vector<IterDomain*>& red_root =
-          rop->out()->as<TensorView>()->getRootDomain();
+      const std::vector<IterDomain*>& red_root = TensorDomain::noDevices(
+          rop->out()->as<TensorView>()->getMaybeRootDomain());
       NVF_ERROR(red_root.size() == lrf.size());
       // Find innermost M or N dimension in output
       // We will assume for now that the output rfactor domain matches the
@@ -1536,10 +1536,10 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   std::unordered_map<ValGroup, DimPresence> present_flags;
   const auto recordPresence = [&exact_graph, &present_flags](
                                   TensorView* tv, size_t tensor_num) {
-    for (IterDomain* id : tv->getMaybeRFactorDomain()) {
-      if (id->isReduction() || id->isBroadcast()) {
-        // ignore reductions and broadcasts since they don't exact map to
-        // problem dims
+    for (IterDomain* id : tv->getLeafDomain()) {
+      if (id->isReduction() || id->isBroadcast() || id->isDeviceDim()) {
+        // ignore device, reductions, and broadcasts since they don't exact map
+        // to problem dims in the generated kernel
         continue;
       }
       const ValGroup& g = exact_graph.toGroup(id);

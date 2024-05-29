@@ -585,14 +585,6 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
       covered_ids[id_group] = {id_group};
     }
 
-    // Initialize rfactor groups
-    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
-          return view_rfactor_ids.find(id->as<IterDomain>()) !=
-              view_rfactor_ids.end();
-        })) {
-      covered_ids[id_group] = {id_group};
-    }
-
     // Initialize broadcast groups to empty since broadcast domains
     // don't matter for indexing
     if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
@@ -668,9 +660,11 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
   // Grab all the (potentially promoted) terminal iter domains in this group.
   // Save the exact group and the iter domain in this vector.
   std::vector<std::pair<ValGroup, IterDomain*>> exact_promoted_terminal_ids;
-  for (auto loop_id : *loop_group) {
+  for (Val* loop_group_val : *loop_group) {
+    auto loop_id = loop_group_val->as<IterDomain>();
+
     // If not a terminal id in the group skip
-    if (!terminal_loop_ids.has(loop_id->as<IterDomain>())) {
+    if (!terminal_loop_ids.has(loop_id)) {
       continue;
     }
 
@@ -680,6 +674,16 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     // so the new domains can be simply ignored.
     if (!iel_graph.hasGroup(loop_id)) {
       continue;
+    }
+
+    // If this domain is a view rfactor domain and a terminal domain,
+    // it is guaranteed to represent this loop group because all the
+    // domains merged into this loop_id must be non-broadcast
+    // domains. A concrete example can be found in test
+    // LoopPromotionWithRfactorDomains1.
+    if (id_model_.viewRfactorIds().find(loop_id) !=
+        id_model_.viewRfactorIds().end()) {
+      return loop_id;
     }
 
     const ValGroup& iel_group = iel_graph.toGroup(loop_id);
