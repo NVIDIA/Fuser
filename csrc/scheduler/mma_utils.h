@@ -370,6 +370,8 @@ int64_t computeExpectedSharedMemoryUsage(
 //!  Z = complex<double>
 char dtypeToChar(const DataType& dtype);
 
+bool isConsumerAllocationInnerIDProducerAllocationInnerID(TensorView* consumer);
+
 } // namespace mma_utils
 
 } // namespace nvfuser
