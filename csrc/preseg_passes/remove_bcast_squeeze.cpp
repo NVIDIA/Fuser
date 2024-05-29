@@ -17,20 +17,27 @@ namespace {
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 // TODO: still remove when have intermediate ops between broadcast and squeeze
 void removeBcastSqueeze(Fusion* fusion) {
+  std::unordered_map<Val*, Val*> replacement_map;
   for (auto expr : fusion->exprs()) {
     // step-1: find and remove broadcast + squeeze pattern
     // before: Y = broadcast(X); Z = squeeze(Y);  M = someOp(Z)
     // after : M = someOp(X)
     // conditions: (1) broadcast and squeeze have the same dim flags
-    //             (2) Y is only consumed by Z (has only one consumer)
     // special case: if Z is a fusion output, replace the output with X
-    if (auto squeeze = dynamic_cast<SqueezeOp*>(expr)) {
-      if (auto bcast =
-              dynamic_cast<BroadcastOp*>(squeeze->in()->definition())) {
-        if (bcast->getBroadcastDimFlags() == squeeze->getSqueezeDimFlags() &&
-            bcast->out()->uses().size() == 1) {
-          ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-              squeeze->out(), bcast->in());
+    if (auto sop = dynamic_cast<SqueezeOp*>(expr)) {
+      if (auto bcast = dynamic_cast<BroadcastOp*>(sop->in()->definition())) {
+        if (bcast->getBroadcastDimFlags() == sop->getSqueezeDimFlags()) {
+          if (sop->out()->isFusionOutput()) {
+            fusion->replaceOutput(sop->out(), bcast->in());
+          }
+          // if already have a -> b in replacement map and comes a new pair of c
+          // -> a, instead of add c -> a to the map, add c -> b to avoid two hop
+          // replacement. see test BcastSqueezeBcastSqueeze.
+          auto new_val = bcast->in();
+          if (replacement_map.count(new_val)) {
+            new_val = replacement_map[new_val];
+          }
+          replacement_map.insert({sop->out(), new_val});
         }
       }
     }
@@ -39,17 +46,28 @@ void removeBcastSqueeze(Fusion* fusion) {
     // before: Y = squeeze(X); Z = broadcast(Y);  M = someOp(Z)
     // after : M = someOp(X)
     // conditions: (1) broadcast and squeeze have the same dim flags
-    //             (2) Y is only consumed by Z (has only one consumer)
     // special case: if Z is a fusion output, replace the output with X
     if (auto bcast = dynamic_cast<BroadcastOp*>(expr)) {
-      if (auto squeeze = dynamic_cast<SqueezeOp*>(bcast->in()->definition())) {
-        if (bcast->getBroadcastDimFlags() == squeeze->getSqueezeDimFlags() &&
-            squeeze->out()->uses().size() == 1) {
-          ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-              bcast->out(), squeeze->in());
+      if (auto sop = dynamic_cast<SqueezeOp*>(bcast->in()->definition())) {
+        if (bcast->getBroadcastDimFlags() == sop->getSqueezeDimFlags()) {
+          if (bcast->out()->isFusionOutput()) {
+            fusion->replaceOutput(bcast->out(), sop->in());
+          }
+          // if already have a -> b in replacement map and comes a new pair of c
+          // -> a, instead of add c -> a to the map, add c -> b to avoid two hop
+          // replacement. see test SqueezeBcastSqueezeBcast
+          auto new_val = sop->in();
+          if (replacement_map.count(new_val)) {
+            new_val = replacement_map[new_val];
+          }
+          replacement_map.insert({bcast->out(), new_val});
         }
       }
     }
+  }
+  // Replace if there is any match
+  if (!replacement_map.empty()) {
+    ir_utils::replaceValue(fusion, replacement_map);
   }
 }
 
