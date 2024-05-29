@@ -72,23 +72,13 @@ void HostIrExecutor::postCompute(PostOnStream* post_ir) {
     input_IValues.push_back(val_to_IValue_.at(input));
   }
 
-  // placeholder for storing the outputs
-  std::vector<at::Tensor> preallocated_outputs;
-  // bool use_preallocated_outputs = true;
-  for (auto& output : post_ir->outputs()) {
-    if (val_to_IValue_.find(output) != val_to_IValue_.end()) {
-      preallocated_outputs.push_back(val_to_IValue_.at(output).toTensor());
-    } else {
-      // use_preallocated_outputs = false;
-      preallocated_outputs = {};
-    }
-  }
-
   NVF_ERROR(
       post_ir->hostOpToPost()->isA<HostUnit>(),
       "op must be a HostUnit: ",
       post_ir->hostOpToPost());
   auto hu = post_ir->hostOpToPost()->as<HostUnit>();
+
+  // placeholder for storing the outputs
   std::vector<at::Tensor> outputs;
   // Compile the fusion and execute it with FusionExecutor(Cache)
   // Check if the executor has been cached. If not, create and cache it
@@ -98,14 +88,14 @@ void HostIrExecutor::postCompute(PostOnStream* post_ir) {
         std::make_unique<Fusion>(*hu->fusion_to_execute()),
         0,
         !params_.skip_auto_scheduling);
-    outputs = fec_.at(hu).runFusionWithInputs(input_IValues, preallocated_outputs);
+    outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
     auto [it, has_emplaced] = fe_.try_emplace(hu);
     auto& fe = it->second;
     if (has_emplaced) {
       fe.compileFusion(hu->fusion_to_execute(), input_IValues);
     }
-    outputs = fe.runFusion(input_IValues, preallocated_outputs);
+    outputs = fe.runFusion(input_IValues);
     if (!params_.cache_fusion_executor) {
       fe_.erase(hu);
     }
