@@ -398,9 +398,9 @@ class VectorizationCalculator {
 
     // Position of the outermost vectorizable dimension, in allocation domain
     size_t inner_dim_pos = tv->getMaybeAllocationDomain().size();
-    // Product of sizes of all vectorizable dims; i.e. the size of the merged
-    // vectorized dimension.
-    int64_t inner_dims_size = 1;
+    // Product of sizes of all vectorizable dims; i.e. the number of elements in
+    // the merged vectorized dimension.
+    int64_t inner_dims_numel = 1;
     std::vector<ValGroup> remaining_inner_dims(inner_dims);
     for (size_t i = tv->getMaybeAllocationDomain().size() - 1; i >= 0; --i) {
       IterDomain* id = tv->getMaybeAllocationDomain()[i];
@@ -422,7 +422,7 @@ class VectorizationCalculator {
         break;
       } else {
         NVF_CHECK(
-            strides[i] == 1,
+            strides[i] == inner_dims_numel,
             "TensorView ",
             tv->toString(),
             " has marked contiguous inner dimension ",
@@ -431,7 +431,7 @@ class VectorizationCalculator {
             strides[i],
             " in that dimension.");
         inner_dim_pos = i;
-        inner_dims_size *= sizes[i];
+        inner_dims_numel *= sizes[i];
       }
     }
 
@@ -440,13 +440,13 @@ class VectorizationCalculator {
       return 0l;
     }
 
-    if (inner_dims_size == 1l) {
+    if (inner_dims_numel == 1l) {
       return 1l;
     }
 
     // Since this is unpredicated vectorization, the size of the innermost
     // dimension must be a multiple of the vectorization factor.
-    int64_t vec_size = scheduler_utils::maxVectorizationWidth(inner_dims_size);
+    int64_t vec_size = scheduler_utils::maxVectorizationWidth(inner_dims_numel);
 
     // Account for misaligned rows due to outer strides
     for (size_t i : c10::irange(inner_dim_pos)) {
