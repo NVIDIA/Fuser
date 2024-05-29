@@ -59,7 +59,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
       std::optional<std::vector<int64_t>> alloc_perm_opt =
           ir_utils::computePermutation(
-              TensorDomain::noReductions(input_tv->getMaybeRFactorDomain()),
+              TensorDomain::noReductions(input_tv->getRFactorDomain()),
               TensorDomain::noReductions(input_tv->getMaybeAllocationDomain()));
       if (alloc_perm_opt.has_value()) {
         // Save the strides in order of allocation domain in case the

@@ -128,8 +128,8 @@ class IndexCompute : public BackwardVisitor {
 
   // Map we update as we propagate backward, containing all IDs in the
   // propagation. Initial indices are mapped with this map at tv->domain()
-  // and are back propagated to tv->getRootDomain(). This index_map_ keeps the
-  // indices at intermediate IterDomain's in that back propagation.
+  // and are back propagated to tv->getMaybeAllocationDomain(). This index_map_
+  // keeps the indices at intermediate IterDomain's in that back propagation.
   std::unordered_map<IterDomain*, Val*> index_map_; // NOLINT
 
   // Map from IterDomain to their broadcasted extent. If a TV has I0*I1 but its

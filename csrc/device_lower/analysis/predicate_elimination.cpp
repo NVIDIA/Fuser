@@ -299,8 +299,8 @@ class PredicateChcker : public IterVisitor {
     bool found_expand = false;
     for (auto tv_input : tv_inputs) {
       found_expand = found_expand ||
-          std::any_of(tv_input->getMaybeRFactorDomain().begin(),
-                      tv_input->getMaybeRFactorDomain().end(),
+          std::any_of(tv_input->getRFactorDomain().begin(),
+                      tv_input->getRFactorDomain().end(),
                       [](IterDomain* id) { return id->hasExpandedExtent(); });
     }
 
@@ -533,13 +533,13 @@ class PredicateChcker : public IterVisitor {
     }
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       const auto all_exprs = DependencyCheck::getAllExprsBetween(
-          {output->getMaybeRFactorDomain().begin(),
-           output->getMaybeRFactorDomain().end()},
+          {output->getRFactorDomain().begin(),
+           output->getRFactorDomain().end()},
           {output->getLeafDomain().begin(), output->getLeafDomain().end()});
       std::unordered_set<Val*> split_root;
       std::copy_if(
-          output->getMaybeRFactorDomain().begin(),
-          output->getMaybeRFactorDomain().end(),
+          output->getRFactorDomain().begin(),
+          output->getRFactorDomain().end(),
           std::inserter(split_root, split_root.end()),
           [&](auto rf_root) {
             if (rf_root->isBroadcast()) {

@@ -298,27 +298,27 @@ findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
     // in the same set of domains. This may be overly conservative,
     // and it maybe enough to check the root domains.
 
-    // Root domains
-    auto self_mappped_root_pair =
-        detectMappablePair(tv->getRootDomain(), id_graph, IdMappingMode::EXACT);
+    // rfactor domains
+    auto self_mappped_root_pair = detectMappablePair(
+        tv->getRFactorDomain(), id_graph, IdMappingMode::EXACT);
     if (self_mappped_root_pair.has_value()) {
       return std::make_tuple(
           tv,
           self_mappped_root_pair->first,
           self_mappped_root_pair->second,
-          "Root");
+          "RFactor");
     }
 
-    // Rfactor domains
-    if (tv->hasRFactor()) {
+    // root domains
+    if (tv->hasRoot()) {
       auto self_mappped_rf_pair = detectMappablePair(
-          tv->getRFactorDomain(), id_graph, IdMappingMode::EXACT);
+          tv->getRootDomain(), id_graph, IdMappingMode::EXACT);
       if (self_mappped_rf_pair.has_value()) {
         return std::make_tuple(
             tv,
             self_mappped_rf_pair->first,
             self_mappped_rf_pair->second,
-            "RFactor");
+            "Root");
       }
     }
 
@@ -350,9 +350,9 @@ void IterDomainGraph::build(Fusion* fusion) {
       // Check if this id is an rfactor id in the rfactor domain
       bool is_rfactor_domain_id = id->isRFactorProduct() &&
           std::find(
-              tv->getMaybeRFactorDomain().begin(),
-              tv->getMaybeRFactorDomain().end(),
-              id) != tv->getMaybeRFactorDomain().end();
+              tv->getRFactorDomain().begin(),
+              tv->getRFactorDomain().end(),
+              id) != tv->getRFactorDomain().end();
       bool is_leaf_id =
           std::find(domain.begin(), domain.end(), id) != domain.end();
       initializeId(id, is_rfactor_domain_id, is_leaf_id);
@@ -385,16 +385,17 @@ void IterDomainGraph::build(Fusion* fusion) {
         // same loops.
 
         NVF_ERROR(
-            c_tv->getRootDomain().size() ==
-                first_output_tv->getRootDomain().size(),
+            c_tv->getMaybeRootDomain().size() ==
+                first_output_tv->getMaybeRootDomain().size(),
             "Multiple outputs with mismatched dimensions is not supported. ",
             "Only supported case is welford op where all outputs tvs have identical domains.");
         // p->f, c->c
         std::unordered_map<IterDomain*, IterDomain*> c2f_root_map;
         for (const auto i :
-             c10::irange(first_output_tv->getRootDomain().size())) {
+             c10::irange(first_output_tv->getMaybeRootDomain().size())) {
           c2f_root_map.insert(std::make_pair(
-              c_tv->getRootDomain()[i], first_output_tv->getRootDomain()[i]));
+              c_tv->getMaybeRootDomain()[i],
+              first_output_tv->getMaybeRootDomain()[i]));
         }
 
         // Multi output mapping, outputs are required to have the same domain
@@ -585,7 +586,7 @@ void IterDomainGraph::build(Fusion* fusion) {
       all_tvs.begin(),
       all_tvs.end(),
       std::back_inserter(all_consumer_tvs),
-      [](TensorView* tv) { return !tv->isFusionInput() && tv->hasRFactor(); });
+      [](TensorView* tv) { return !tv->isFusionInput() && tv->hasRoot(); });
 
   // IterDomains could have multiple uses defined in the fusion if multiple
   // transformations were redefined (more than one transform propagation pass
@@ -604,8 +605,8 @@ void IterDomainGraph::build(Fusion* fusion) {
   // Grab all the rfactor ids.
   for (auto consumer_tv : all_consumer_tvs) {
     auto exprs = StmtSort::getExprsTo(
-        {consumer_tv->getMaybeRFactorDomain().begin(),
-         consumer_tv->getMaybeRFactorDomain().end()});
+        {consumer_tv->getRFactorDomain().begin(),
+         consumer_tv->getRFactorDomain().end()});
     for (auto expr : exprs) {
       auto rfactor_inp_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
       NVF_ERROR(
@@ -627,7 +628,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         rfactor_id_order.push_back(rfactor_inp_id);
       }
     }
-    for (auto rfactor_id : consumer_tv->getMaybeRFactorDomain()) {
+    for (auto rfactor_id : consumer_tv->getRFactorDomain()) {
       if (rfactor_id->isRFactorProduct()) {
         rfactor_id_uses.emplace(rfactor_id, nullptr);
         rfactor_id_order.push_back(rfactor_id);

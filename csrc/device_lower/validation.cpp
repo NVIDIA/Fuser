@@ -50,7 +50,7 @@ class ValidateSiblings : public IterVisitor {
 
     auto ref_output = expr->outputs().at(0)->as<TensorView>();
     auto ref_ndims = ref_output->nDims();
-    const auto& ref_root = ref_output->getRootDomain();
+    const auto& ref_root = ref_output->getMaybeRootDomain();
     std::unordered_map<IterDomain*, IterDomain*> id_map;
 
     for (const auto sibling :
@@ -73,7 +73,7 @@ class ValidateSiblings : public IterVisitor {
       }
 
       for (const auto i : c10::irange(ref_root.size())) {
-        id_map[ref_root[i]] = sibling->getRootDomain().at(i);
+        id_map[ref_root[i]] = sibling->getMaybeRootDomain().at(i);
       }
 
       auto replay =
@@ -886,12 +886,12 @@ void validateSwizzle(Fusion* fusion) {
 
       // Make sure no swizzle op is inlined:
       auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getMaybeRFactorDomain(),
+          tv->getRFactorDomain(),
           {tv->getLeafDomain().begin(),
            tv->getLeafDomain().begin() + tv->getMaxComputePosition()});
 
       auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getMaybeRFactorDomain(),
+          tv->getRFactorDomain(),
           {tv->getLeafDomain().begin() + tv->getMaxComputePosition(),
            tv->getLeafDomain().end()});
 
@@ -1087,8 +1087,7 @@ void validateResize(Fusion* fusion) {
   for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     // Make sure resize is only used as part of rfactor transformations
     auto rf_to_leaf_exprs = StmtSort::getExprsBetween(
-        {tv->getMaybeRFactorDomain().begin(),
-         tv->getMaybeRFactorDomain().end()},
+        {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()},
         {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
 
     NVF_ERROR(
@@ -1109,7 +1108,7 @@ void validateReductions(Fusion* fusion) {
     PairwiseRootDomainMap c2p_map(in, out);
     c2p_map.mapBroadcast(true);
     auto c2p = c2p_map.mapConsumerToProducer();
-    for (auto out_id : out->getRootDomain()) {
+    for (auto out_id : out->getMaybeRootDomain()) {
       if (out_id->isReduction()) {
         auto in_it = c2p.find(out_id);
         NVF_ERROR(

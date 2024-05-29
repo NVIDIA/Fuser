@@ -536,7 +536,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
  public:
   // interface to run the check
   ConcretizedBroadcastRedundantWriteRemover(const TensorView* out_tv)
-      : tv_(out_tv), root_domain_(out_tv->getMaybeRFactorDomain()) {
+      : tv_(out_tv), root_domain_(out_tv->getRFactorDomain()) {
     setCandidateLeafDomains();
     if (candidate_leaf_domains_.empty()) {
       return;

@@ -38,7 +38,7 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
       // can be inlined based on avoiding trying to inline reduction structures.
       auto mappable_roots =
           root_map.getMappableDims(tv->domain(), consumer->domain());
-      for (auto tv_root_id : tv->getMaybeRFactorDomain()) {
+      for (auto tv_root_id : tv->getRFactorDomain()) {
         if (mappable_roots.find(tv_root_id) == mappable_roots.end() &&
             !ir_utils::isSqueezedID(tv, tv_root_id)) {
           unmappable_dims_.emplace(tv_root_id);
@@ -76,7 +76,7 @@ bool MaxPosCalculator::isAllowedID(
   }
 
   if (!allow_unmappable) {
-    auto root_dom = tv->getMaybeRFactorDomain();
+    auto root_dom = tv->getRFactorDomain();
     std::unordered_set<Val*> root_dom_set(root_dom.begin(), root_dom.end());
     auto all_vals = DependencyCheck::getAllValsBetween(root_dom_set, {id});
     bool is_unmappable = false;

@@ -180,10 +180,10 @@ bool CancelSplitCat::sameIterDomainTransforms(
     // Map pads[i0].root[cat_axis] and pads[i1].root[cat_axis]. Other axes were
     // already mapped due to the `cat` when the IdModel was built.
     const std::vector<IterDomain*>& first_root =
-        pads[0]->out()->as<TensorView>()->getRootDomain();
+        pads[0]->out()->as<TensorView>()->getMaybeRootDomain();
     for (size_t i = 1; i < pads.size(); i++) {
       const std::vector<IterDomain*>& other_root =
-          pads[i]->out()->as<TensorView>()->getRootDomain();
+          pads[i]->out()->as<TensorView>()->getMaybeRootDomain();
       NVF_ERROR(first_root.size() == other_root.size());
       exact_graph.mapVals(first_root[cat_axis], other_root[cat_axis]);
     }
@@ -202,11 +202,11 @@ bool CancelSplitCat::sameIterDomainTransforms(
   {
     // Check slices[i0][j] and slices[i1][j] are mapped.
     const std::vector<IterDomain*>& first_rfactor =
-        slices[0]->out()->getMaybeRFactorDomain();
+        slices[0]->out()->getRFactorDomain();
     size_t num_dims = first_rfactor.size();
     for (size_t i = 1; i < slices.size(); i++) {
       const std::vector<IterDomain*>& other_rfactor =
-          slices[i]->out()->getMaybeRFactorDomain();
+          slices[i]->out()->getRFactorDomain();
       if (other_rfactor.size() != num_dims) {
         return false;
       }
@@ -258,10 +258,10 @@ TensorView* slicesFormSplit(
 
     // Check only the split axis is sliced.
     for (auto j : c10::irange(
-             static_cast<int64_t>(slice->out()->getRootDomain().size()))) {
+             static_cast<int64_t>(slice->out()->getMaybeRootDomain().size()))) {
       const bool sliced =
-          (slice->out()->getRootDomain()[j] !=
-           slice->out()->getMaybeRFactorDomain()[j]);
+          (slice->out()->getMaybeRootDomain()[j] !=
+           slice->out()->getRFactorDomain()[j]);
       if ((j == split_axis) != sliced) {
         return nullptr;
       }
@@ -279,7 +279,7 @@ TensorView* slicesFormSplit(
   // slightly lengthy workaround.
   if (!slices.back()
            ->out()
-           ->getMaybeRFactorDomain()[split_axis]
+           ->getRFactorDomain()[split_axis]
            ->definition()
            ->as<Resize>()
            ->rightExpand()
@@ -438,8 +438,8 @@ TensorView* CancelSplitCat::findCancelingSplit(
   }
 
   cat_axis = computeCatAxisAfterZipping(
-      slices[0]->out()->getMaybeRFactorDomain(),
-      pads[0]->out()->as<TensorView>()->getRootDomain()[cat_axis]);
+      slices[0]->out()->getRFactorDomain(),
+      pads[0]->out()->as<TensorView>()->getMaybeRootDomain()[cat_axis]);
   if (cat_axis == -1) {
     return nullptr;
   }
