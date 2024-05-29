@@ -370,6 +370,11 @@ int64_t computeExpectedSharedMemoryUsage(
 //!  Z = complex<double>
 char dtypeToChar(const DataType& dtype);
 
+//! Check if the inner ID of maybeAllocationDomain of the consumer when
+//! mapped to the consumer is the inner ID of the consumer's
+//! maybeAllocationDomain. A typical use of this function would be to help
+//! determine if a tranposed ldMatrix is required. If this function returns
+//! negative we'll need to transpose.
 bool isConsumerAllocationInnerIDProducerAllocationInnerID(
     const TensorView* producer,
     const TensorView* consumer);
