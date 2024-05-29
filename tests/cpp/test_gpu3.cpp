@@ -4059,6 +4059,58 @@ TEST_F(NVFuserTest, AsyncCompilation_CUDA) {
       executor_cache.fusion(), outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, preallocated_outputs) {
+  // Fusion definition taken from NVFuserTest.AsyncCompilation_CUDA
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(1);
+  TensorView* tv2 = makeSymbolicTensor(2);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(1.0)); // Group 0
+  TensorView* tv4 =
+      max(tv3, {0}); // Group 0 (use max instead to avoid numerical issues)
+  TensorView* tv5 = add(tv4, tv1); //  Group 0 (Non Broadcast after reduce,
+                                   //  keeps normalization scheduler away)
+  TensorView* tv6 = add(tv5, tv2); //  Group 1 (Broadcast after reduce)
+
+  fusion->addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({8, 5}, options);
+  at::Tensor t1 = at::randn({5}, options);
+  at::Tensor t2 = at::randn({8, 5}, options);
+
+  at::Tensor t6 = at::empty({8, 5}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
+  std::unordered_map<Val*, at::Tensor> preallocated_output = {{tv6, t6}};
+
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs, preallocated_output);
+
+  NVF_CHECK(
+      executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+      "segmentation didn't happen");
+  NVF_CHECK(
+      executor_cache.getMostRecentKernelRuntime()
+              ->fusionSegments()
+              ->groups()
+              .size() == 2,
+      "segmentation didn't happen as expected");
+
+  GTEST_EXPECT_TRUE(torch::allclose(preallocated_output.at(tv6), outputs.at(0))) << "preallocated: " << preallocated_output.at(tv6) <<"\n obtained outputs: " << outputs.at(0);
+  testValidate(
+      executor_cache.fusion(), outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 TEST_F(NVFuserTest, FusionMergeBroadcastingTrivialReduction1_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();

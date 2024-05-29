@@ -25,7 +25,7 @@
 
 namespace nvfuser {
 
-using TensorMapType = std::unordered_map<Val*, const PolymorphicValue*>;
+using TensorMapType = std::unordered_map<Val*, at::Tensor>;
 
 class SegmentedGroup;
 class FusionHeuristics;
@@ -245,9 +245,8 @@ class FusionKernelRuntime {
   //! added back to the arguments, so they can be used as inputs to successive
   //! segments. Returns a map that links each NvFuser Val to its corresponding
   //! tensor.
-  TensorMapType runSegmentsWithInputs(
-      KernelArgumentHolder& args,
-      const TensorMapType& outputs);
+  std::unordered_map<Val*, const PolymorphicValue*> runSegmentsWithInputs(
+      KernelArgumentHolder& args, const TensorMapType& outputs);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns

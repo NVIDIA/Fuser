@@ -90,7 +90,7 @@ class ArgumentManager {
         fusion_inputs, runtime_workspace.group_extent_binding_order);
     setLastUsedSegmentID(runtime_workspace.group_run_order);
   }
-  const TensorMapType& getTensorMap() {
+  const std::unordered_map<Val*, const PolymorphicValue*>& getTensorMap() {
     return tensor_map_;
   }
   const PolymorphicValue* checkTensorMap(Val* v) {
@@ -108,14 +108,10 @@ class ArgumentManager {
     deleteUnusedArgs(group_id);
   }
 
-  void updateTensorMap(TensorMapType tensor_map) {
-    tensor_map_.merge(tensor_map);
-  }
-
  private:
   KernelArgumentHolder& fusion_args_;
   // map from val to args
-  TensorMapType tensor_map_;
+  std::unordered_map<Val*, const PolymorphicValue*> tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
   std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
 
@@ -1418,7 +1414,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   }
 
   c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
-  const auto& tensor_map = runSegmentsWithInputs(args, outputs); // should take a tensor_map as input here
+  const auto& tensor_map = runSegmentsWithInputs(args, outputs);
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "============= FINISHED RUNNING FUSION SEGMENTS ============"
@@ -1440,7 +1436,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   return fusion_outputs;
 }
 
-TensorMapType FusionKernelRuntime::
+std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     runSegmentsWithInputs(
         KernelArgumentHolder& args,
         const TensorMapType& outputs) {
@@ -1480,17 +1476,15 @@ TensorMapType FusionKernelRuntime::
     // TODO: currently we are still outputing PyTorch tensors, instead of
     // something abstract. This is quite unsatisfying.
 
-    // here we can add the right tensors to args_manager.
-    args_manager.updateTensorMap(outputs);
-    std::vector<at::Tensor> group_runtime_outputs;
+    std::vector<at::Tensor> group_runtime_preallocated_outputs;
     for (auto output : group_to_run->outputs()) {
-      if (args_manager.getTensorMap().count(output)) {
-        group_runtime_outputs.push_back(args_manager.checkTensorMap(output)->as<at::Tensor>());
+      if (outputs.count(output)) {
+        group_runtime_preallocated_outputs.push_back(outputs.at(output));
       }
     }
     // Run graph segment
-    group_runtime_outputs =
-        runKernelWithInput(group_runtime_inputs, group_to_run, group_runtime_outputs);
+    std::vector<at::Tensor> group_runtime_outputs =
+        runKernelWithInput(group_runtime_inputs, group_to_run, group_runtime_preallocated_outputs);
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
