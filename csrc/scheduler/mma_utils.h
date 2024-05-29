@@ -375,9 +375,7 @@ char dtypeToChar(const DataType& dtype);
 //! maybeAllocationDomain. A typical use of this function would be to help
 //! determine if a tranposed ldMatrix is required. If this function returns
 //! negative we'll need to transpose.
-bool isConsumerAllocationInnerIDProducerAllocationInnerID(
-    const TensorView* producer,
-    const TensorView* consumer);
+bool isLdMatrixTranspose(const LoadStoreOp* ldst);
 
 } // namespace mma_utils
 

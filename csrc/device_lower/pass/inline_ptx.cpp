@@ -60,10 +60,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
       std::stringstream ss;
       ss << "ldmatrix.sync.aligned.x"
          << std::get<ArrayType>(ldst->out()->dtype().type).size;
-      auto tv_consumer = ldst->out()->as<kir::TensorIndex>()->view();
-      auto tv_producer = ldst->in()->as<kir::TensorIndex>()->view();
-      if (!mma_utils::isConsumerAllocationInnerIDProducerAllocationInnerID(
-              tv_producer, tv_consumer)) {
+      if (mma_utils::isLdMatrixTranspose(ldst)) {
         ss << ".trans";
       }
       ss << ".m8n8.shared.b16";
