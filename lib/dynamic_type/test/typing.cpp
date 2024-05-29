@@ -76,8 +76,8 @@ TEST_F(DynamicTypeTest, Typing) {
   EXPECT_THAT(
       // suppress unused value warning
       []() { (void)(SomeType)IntSomeType(1); },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Cannot cast from ")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
 }
 
 TEST_F(DynamicTypeTest, CastToDynamicType) {
