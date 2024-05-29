@@ -77,7 +77,7 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueeze) {
       fusion.get());
   auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
   EXPECT_FALSE(has_bcast);
-  ASSERT_FALSE(has_squeeze);
+  EXPECT_FALSE(has_squeeze);
 }
 
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeUnmatchedDim) {
