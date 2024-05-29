@@ -386,6 +386,8 @@ INSTANTIATE_TEST_SUITE_P(
                                      : "useFusionExecutor";
     });
 
+// The following test simply demonstrate how to change current CUDA stream in
+// the host program
 TEST_F(NVFuserTest, HostIrSetStream) {
   auto hic = std::make_unique<HostIrContainer>();
   auto stream =
@@ -404,6 +406,10 @@ TEST_F(NVFuserTest, HostIrSetStream) {
 using StreamHostIrTestParams = std::tuple<bool, int, int>;
 using StreamHostIrTest = NVFuserFixtureParamTest<StreamHostIrTestParams>;
 
+// The following test execute the same fusion `n_iterations` times by posting
+// the kernels on `n_streams` different streams in a Round-Robin fashion. We
+// thus produce `n_iterations` outputs from the same input, with a potential
+// overlap of n_streams/n_iterations
 TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
   auto [use_fusion_executor_cache, n_streams, n_iterations] = GetParam();
 
