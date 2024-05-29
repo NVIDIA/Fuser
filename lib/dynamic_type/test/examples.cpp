@@ -187,3 +187,12 @@ TEST_F(Examples, Example10) {
   EXPECT_EQ(b->*&B::y, 2.5);
   EXPECT_EQ((b->*&B::name)(), "B");
 }
+
+TEST_F(Examples, Example11) {
+  using IntDoubleVec = DynamicType<Containers<std::vector>, int, double>;
+  auto get_size = [](auto x) { return sizeof(x); };
+  IntDoubleVec mydata1 = 3.0;
+  EXPECT_EQ(IntDoubleVec::dispatch(get_size, mydata1), 8);
+  IntDoubleVec mydata2 = 123;
+  EXPECT_EQ(IntDoubleVec::dispatch(get_size, mydata2), 4);
+}

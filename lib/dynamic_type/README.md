@@ -251,7 +251,27 @@ Operations on `DynamicType` are as `constexpr` as possible. So most tests in
 ## Dispatching
 
 `DynamicType` has a static member function `dispatch`, which is a general tool to dispatch on function calls.
-For example, if you have the following function:
+For example, if you want to know the size of the actual data held in a `DynamicType`, you can do the following:
+
+```C++
+using IntDoubleVec = DynamicType<Containers<std::vector>, int, double>;
+auto get_size = [](auto x) { return sizeof(x); };
+IntDoubleVec mydata1 = 3.0;
+IntDoubleVec::dispatch(get_size, mydata1); // returns 8
+IntDoubleVec mydata2 = 123;
+IntDoubleVec::dispatch(get_size, mydata2); // returns 4
+```
+
+The above code is equivalent to the following pseudocode:
+
+```C++
+auto get_size = [](auto x) { return sizeof(x); };
+for (T : {int, double, std::monostate, std::vector<IntDoubleVec>}) {
+  if (mydata.is<T>()) {
+    return get_size(mydata.as<T>());
+  }
+}
+```
 
 # Benchmarks
 
