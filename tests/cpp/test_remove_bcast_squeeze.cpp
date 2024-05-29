@@ -24,19 +24,6 @@ namespace nvfuser {
 using RemoveBcastSqueezeTest = NVFuserTest;
 
 namespace {
-std::pair<bool, bool> hasBcastSqueeze(Fusion* fusion) {
-  bool has_bcast = false;
-  bool has_squeeze = false;
-  for (auto expr : fusion->exprs()) {
-    if (dynamic_cast<BroadcastOp*>(expr)) {
-      has_bcast = true;
-    }
-    if (dynamic_cast<SqueezeOp*>(expr)) {
-      has_squeeze = true;
-    }
-  }
-  return std::make_pair(has_bcast, has_squeeze);
-}
 
 inline TensorView* makeBroadcastTensor(
     const std::vector<bool>& is_broadcast_dim,
@@ -75,7 +62,8 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueeze) {
   // preseg_passes should remove both broadcast and squeeze
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
   EXPECT_FALSE(has_bcast);
   EXPECT_FALSE(has_squeeze);
 }
@@ -96,9 +84,10 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeUnmatchedDim) {
   // becuase broadcast dim doesn't match with squeeze dim
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
-  ASSERT_TRUE(has_bcast);
-  ASSERT_TRUE(has_squeeze);
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_TRUE(has_bcast);
+  EXPECT_TRUE(has_squeeze);
 }
 
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeOutputBcast) {
@@ -118,9 +107,10 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeOutputBcast) {
   // output
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
-  ASSERT_TRUE(has_bcast);
-  ASSERT_FALSE(has_squeeze);
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_TRUE(has_bcast);
+  EXPECT_FALSE(has_squeeze);
 }
 
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeOutputSqueeze) {
@@ -140,9 +130,10 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeOutputSqueeze) {
   // tv3 is an output and it is replaced with tv1.
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
-  ASSERT_FALSE(has_bcast);
-  ASSERT_FALSE(has_squeeze);
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_FALSE(has_bcast);
+  EXPECT_FALSE(has_squeeze);
 }
 
 TEST_F(RemoveBcastSqueezeTest, BcastSqueezeInputBcast) {
@@ -160,9 +151,10 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeInputBcast) {
   // This fusion is a no-op
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
-  ASSERT_FALSE(has_bcast);
-  ASSERT_FALSE(has_squeeze);
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_FALSE(has_bcast);
+  EXPECT_FALSE(has_squeeze);
 }
 
 TEST_F(RemoveBcastSqueezeTest, SqueezeBcast) {
@@ -181,9 +173,10 @@ TEST_F(RemoveBcastSqueezeTest, SqueezeBcast) {
   // preseg_passes should remove both broadcast and squeeze
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
-  ASSERT_FALSE(has_bcast);
-  ASSERT_FALSE(has_squeeze);
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_FALSE(has_bcast);
+  EXPECT_FALSE(has_squeeze);
 }
 
 TEST_F(RemoveBcastSqueezeTest, SqueezeBcastOutputBcast) {
@@ -202,9 +195,10 @@ TEST_F(RemoveBcastSqueezeTest, SqueezeBcastOutputBcast) {
   // preseg_passes should remove both broadcast and squeeze
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
-  ASSERT_FALSE(has_bcast);
-  ASSERT_FALSE(has_squeeze);
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_FALSE(has_bcast);
+  EXPECT_FALSE(has_squeeze);
 }
 
 TEST_F(RemoveBcastSqueezeTest, SqueezeBcastOutputSqueeze) {
@@ -224,9 +218,10 @@ TEST_F(RemoveBcastSqueezeTest, SqueezeBcastOutputSqueeze) {
   // preseg_passes should remove broadcast but not squeeze
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
-  ASSERT_FALSE(has_bcast);
-  ASSERT_TRUE(has_squeeze);
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_FALSE(has_bcast);
+  EXPECT_TRUE(has_squeeze);
 }
 
 TEST_F(RemoveBcastSqueezeTest, SqueezeBcastSqueezeBcast) {
@@ -248,9 +243,10 @@ TEST_F(RemoveBcastSqueezeTest, SqueezeBcastSqueezeBcast) {
   // preseg_passes should remove broadcast but not squeeze
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
-  ASSERT_FALSE(has_bcast);
-  ASSERT_FALSE(has_squeeze);
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_FALSE(has_bcast);
+  EXPECT_FALSE(has_squeeze);
 }
 
 TEST_F(RemoveBcastSqueezeTest, SqueezeBcastBcastSqueeze) {
@@ -273,9 +269,10 @@ TEST_F(RemoveBcastSqueezeTest, SqueezeBcastBcastSqueeze) {
   // preseg_passes should remove both broadcast and squeeze
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  auto [has_bcast, has_squeeze] = hasBcastSqueeze(fusion.get());
-  ASSERT_FALSE(has_bcast);
-  ASSERT_FALSE(has_squeeze);
+  bool has_bcast = ir_utils::hasOpsOfType<BroadcastOp>(fusion.get());
+  bool has_squeeze = ir_utils::hasOpsOfType<SqueezeOp>(fusion.get());
+  EXPECT_FALSE(has_bcast);
+  EXPECT_FALSE(has_squeeze);
 }
 
 } // namespace nvfuser

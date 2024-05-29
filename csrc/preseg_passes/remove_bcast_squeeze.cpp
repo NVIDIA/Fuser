@@ -14,10 +14,10 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-inline bool isFusionOutput(Fusion* fusion, Val* val) {
-  const auto& outputs = fusion->outputs();
-  return std::find(outputs.begin(), outputs.end(), val) != outputs.end();
-}
+// inline bool isFusionOutput(Fusion* fusion, Val* val) {
+//   const auto& outputs = fusion->outputs();
+//   return std::find(outputs.begin(), outputs.end(), val) != outputs.end();
+// }
 
 // Remove broadcast-squeeze and squeeze-broadcast patterns
 // TODO: still remove when have intermediate ops between broadcast and squeeze
@@ -35,7 +35,7 @@ void removeBcastSqueeze(Fusion* fusion) {
         if (auto bcast = dynamic_cast<BroadcastOp*>(sop->in()->definition())) {
           if (bcast->getBroadcastDimFlags() == sop->getSqueezeDimFlags() &&
               bcast->out()->uses().size() == 1) {
-            if (isFusionOutput(fusion, sop->out())) {
+            if (sop->out()->isFusionOutput()) {
               fusion->replaceOutput(sop->out(), bcast->in());
             }
             replacement_map.insert({sop->out(), bcast->in()});
@@ -61,7 +61,7 @@ void removeBcastSqueeze(Fusion* fusion) {
         if (auto sop = dynamic_cast<SqueezeOp*>(bcast->in()->definition())) {
           if (bcast->getBroadcastDimFlags() == sop->getSqueezeDimFlags() &&
               sop->out()->uses().size() == 1) {
-            if (isFusionOutput(fusion, bcast->out())) {
+            if (bcast->out()->isFusionOutput()) {
               fusion->replaceOutput(bcast->out(), sop->in());
             }
             replacement_map.insert({bcast->out(), sop->in()});
