@@ -179,7 +179,7 @@ struct DynamicType {
             std::optional<
                 std::reference_wrapper<std::remove_reference_t<result_type>>>,
             result_type>;
-        ret_storage_t ret;
+        ret_storage_t ret{};
         DynamicType::for_all_types([&](auto t) -> decltype(auto) {
           using T = typename decltype(t)::type;
           if (arg0.template is<T>()) {
@@ -283,23 +283,14 @@ struct DynamicType {
 
   template <typename T, typename = std::enable_if_t<can_cast_to<T>>>
   explicit constexpr operator T() const {
-    std::optional<T> ret = std::nullopt;
-    for_all_types([this, &ret](auto from) {
-      using From = typename decltype(from)::type;
-      if constexpr (opcheck<From>.canCastTo(opcheck<T>)) {
-        if (is<From>()) {
-          ret = (T)as<From>();
-        }
-      }
-    });
-    DYNAMIC_TYPE_CHECK(
-        ret.has_value(),
-        "Cannot cast from ",
-        type().name(),
-        " to ",
-        typeid(T).name(),
-        " : incompatible type");
-    return ret.value();
+    return dispatch(
+        [](auto x) -> decltype(auto) {
+          using X = decltype(x);
+          if constexpr (opcheck<X>.canCastTo(opcheck<T>)) {
+            return (T)x;
+          }
+        },
+        *this);
   }
 
   template <
