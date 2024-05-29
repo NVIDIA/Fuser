@@ -517,7 +517,7 @@ bool FusionExecutorCache::isCompiled(
 // Bookkeeping and Propagation in Parser ]
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs,
-    const TensorMapType& preallocated_outputs,
+    const std::vector<at::Tensor>& preallocated_outputs,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
@@ -1405,7 +1405,7 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
 
 std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args,
-    const TensorMapType& outputs) {
+    const std::vector<at::Tensor>& outputs) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -1439,7 +1439,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     runSegmentsWithInputs(
         KernelArgumentHolder& args,
-        const TensorMapType& outputs) {
+        const std::vector<at::Tensor>& outputs) {
   NVF_ERROR(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
@@ -1447,15 +1447,15 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
       " inputs but expected ",
       segmented_fusion_->inputs().size());
   NVF_ERROR(
-      outputs.empty() ||
-      outputs.size() == segmented_fusion_->outputs().size(),
+      outputs.empty() || outputs.size() == segmented_fusion_->outputs().size(),
       "Outputs were not set up correctly, received ",
       outputs.size(),
       " outputs but expected ",
       segmented_fusion_->outputs().size());
   std::unordered_map<Val*, at::Tensor> output_tensor_map;
   for (auto i : c10::irange(outputs.size())) {
-    output_tensor_map.insert({segmented_fusion_->outputs().at(i), outputs.at(i)});
+    output_tensor_map.insert(
+        {segmented_fusion_->outputs().at(i), outputs.at(i)});
   }
 
   bool compute_overall_bw =
@@ -1490,12 +1490,13 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     std::vector<at::Tensor> group_runtime_preallocated_outputs;
     for (auto output : group_to_run->outputs()) {
       if (output_tensor_map.count(output)) {
-        group_runtime_preallocated_outputs.push_back(output_tensor_map.at(output));
+        group_runtime_preallocated_outputs.push_back(
+            output_tensor_map.at(output));
       }
     }
     // Run graph segment
-    std::vector<at::Tensor> group_runtime_outputs =
-        runKernelWithInput(group_runtime_inputs, group_to_run, group_runtime_preallocated_outputs);
+    std::vector<at::Tensor> group_runtime_outputs = runKernelWithInput(
+        group_runtime_inputs, group_to_run, group_runtime_preallocated_outputs);
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
