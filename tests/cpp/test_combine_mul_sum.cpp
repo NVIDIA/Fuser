@@ -517,8 +517,6 @@ TEST_F(CombineMulSumAsMmaTest, AutomaticSchedulerLinearNode) {
         bias = at::randn({}, options);
       } else if (bias_dim == 1) {
         bias = at::randn({N}, options);
-      } else if (bias_dim == 2) {
-        bias = at::randn({M, N}, options);
       } else {
         NVF_ERROR(false, "Invalid bias dimension given:", bias_dim);
       }
