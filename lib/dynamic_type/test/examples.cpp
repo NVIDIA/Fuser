@@ -195,4 +195,9 @@ TEST_F(Examples, Example11) {
   EXPECT_EQ(IntDoubleVec::dispatch(get_size, mydata1), 8);
   IntDoubleVec mydata2 = 123;
   EXPECT_EQ(IntDoubleVec::dispatch(get_size, mydata2), 4);
+
+  auto get_total_size = [](auto x, size_t num_x, auto y, size_t num_y) {
+    return sizeof(x) * num_x + sizeof(y) * num_y;
+  };
+  EXPECT_EQ(IntDoubleVec::dispatch(get_total_size, mydata1, 3, mydata2, 5), 44);
 }

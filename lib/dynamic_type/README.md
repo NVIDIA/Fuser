@@ -272,6 +272,29 @@ for (T : {int, double, std::monostate, std::vector<IntDoubleVec>}) {
 }
 ```
 
+The function being dispatched can have multiple arguments, each argument can be either a `DynamicType` or a regular type.
+For each `DynamicType` argument, `dispatch` will do a loop on all types to find the actual type and call the function with that type.
+For example:
+
+```C++
+auto get_total_size = [](auto x, size_t num_x, auto y, size_t num_y) {
+  return sizeof(x) * num_x + sizeof(y) * num_y;
+};
+IntDoubleVec::dispatch(get_total_size, mydata1, 3, mydata2, 5); // returns 44
+```
+
+where the above dispatch is equivalent to the following pseudocode:
+
+```C++
+for (T1 : {int, double, std::monostate, std::vector<IntDoubleVec>}) {
+  for (T2 : {int, double, std::monostate, std::vector<IntDoubleVec>}) {
+    if (mydata1.is<T1>() && mydata2.is<T2>()) {
+      return get_total_size(mydata1.as<T1>(), 3, mydata2.as<T2>(), 5);
+    }
+  }
+}
+```
+
 # Benchmarks
 
 The benchmark `benchmark/sort.cpp` for running a simple `std::sort` on a vector of `int64_t`
