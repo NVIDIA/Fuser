@@ -17,8 +17,7 @@ namespace nvfuser {
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto exprs = fusion->exprs();
   if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    if (exprs.size() == 1 &&
-        (exprs.front()->isA<MatmulOp>() || exprs.front()->isA<LinearOp>())) {
+    if (exprs.size() == 1 && (exprs.front()->isOneOf<LinearOp, MatmulOp>())) {
       return true;
     }
     scheduler_debug_utils::canScheduleRejectReason(
