@@ -249,9 +249,14 @@ std::string isMatmulFusionDefinitionSupported(
         if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
           tvs_with_roles.insert(entry->second.begin(), entry->second.end());
           for (TensorView* tv : entry->second) {
+            const std::vector<IterDomain*>& leaf = tv->getLeafDomain();
+            int64_t ndims = (int64_t)std::count_if(
+                leaf.begin(), leaf.end(), [](IterDomain* id) {
+                  return !id->isReduction() && !id->isDeviceDim();
+                });
             if (operand_dim == -1) {
-              operand_dim = tv->nDims();
-            } else if (tv->nDims() != operand_dim) {
+              operand_dim = ndims;
+            } else if (ndims != operand_dim) {
               // We cannot always handle differently sized inputs, such as those
               // we encounter when translating MatmulOp and LinearOp. This is
               // because in those cases one of the operands will have new
@@ -260,7 +265,7 @@ std::string isMatmulFusionDefinitionSupported(
               // dimensions. Multiple M and N dimension support is planned but
               // for now we must reject these patterns before attempting to
               // translate them.
-              return "All operands must have the same dimension.";
+              return "All operands must have the same no-devices dimension.";
             }
           }
         } else {
