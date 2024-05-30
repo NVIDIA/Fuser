@@ -38,7 +38,7 @@ class Pointer {
   template <typename T>
   Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
 
-  Pointer(void* ptr, DataType dtype);
+  inline Pointer(void* ptr, DataType dtype);
 
   Pointer(): ptr_(nullptr), size_(-1) {}
 
