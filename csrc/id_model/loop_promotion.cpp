@@ -32,7 +32,7 @@ const ValGraph& LoopPromotionMapBuilder::idGraph(IdMappingMode mode) const {
 }
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
-    getLoopPromotionsToPropagateAgain(
+    getProducerPromotionsOfPartiallyInlinedGroups(
         const std::unordered_map<ValGroup, IterDomain*>&
             initial_loop_promotion_map,
         const ValGraph& loop_graph) const {
@@ -59,11 +59,16 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     if (uses.empty()) {
       continue;
     }
+
+    // If this expr group has outputs that are partially inlined, the
+    // number of output groups must be larger than the actual number
+    // of outputs of the expr.
+
     const int expected_num_consumer_loop_group_count_if_fully_inlined =
         (int)uses.front()->front()->outputs().size();
 
-    // Should not cause partial inline. This should also filter out
-    // circular output edges due to broadcast merge.
+    // If there's only one output, it should not cause partial
+    // inline.
     if (expected_num_consumer_loop_group_count_if_fully_inlined == 1) {
       continue;
     }
@@ -73,9 +78,9 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       std::vector<ValGroup> output_loop_groups = loop_graph.outputGroups(use);
       consumer_loop_groups.pushBack(output_loop_groups);
     }
+
     if (consumer_loop_groups.size() ==
         expected_num_consumer_loop_group_count_if_fully_inlined) {
-      // Not propagating further as it's not partial inline
       continue;
     }
 
@@ -179,8 +184,11 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // initial IEL promotion map is empty and is populated with the loop
   // promotion map as we traverse down the IEL graph.
 
+  // Find the loop promotions of loop groups that are producers to
+  // partially inlined groups
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_to_propagate =
-      getLoopPromotionsToPropagateAgain(initial_loop_promotion_map, loop_graph);
+      getProducerPromotionsOfPartiallyInlinedGroups(
+          initial_loop_promotion_map, loop_graph);
 
   // If nothing to propagate again, initial_loop_promotion_map is the
   // final result
@@ -195,6 +203,13 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
       }
     }
     return final_loop_promotion_map;
+  }
+
+  {
+    VERBOSE() << "Promotin map to propgate in Step 4:\n";
+    for (const auto& [g, id] : loop_promotion_map_to_propagate) {
+      VERBOSE() << nvfuser::toString(g) << " -> " << id->name() << "\n";
+    }
   }
 
   std::unordered_map<ValGroup, IterDomain*> final_iel_promotion_map;
@@ -675,6 +690,8 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
               .disjointValSets()
               .strictAreMapped(
                   promoted_expr->output(i), out_groups[i]->front())) {
+        VERBOSE() << "Output not promoted as exacltlly mapped: "
+                  << nvfuser::toString(out_groups[i]) << std::endl;
         continue;
       }
       iel_promotion_map[out_groups[i]] =
