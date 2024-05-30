@@ -557,7 +557,9 @@ StatefulInliningInfo buildStatefulInliningInfo(
             all_consumer_ids, all_consumer_i_ids);
 
         for (const auto& [c_id_1, c_ids] : sibling_map) {
-          NVF_ERROR(c_ids.size() == 1);
+          // Note that c_ids can have multiple domains as this graph
+          // is a Permissive graph and there may be broadcast merged
+          // domains
           info.sibling_maps[c_id_1->as<IterDomain>()].pushBack(c_ids);
         }
       }

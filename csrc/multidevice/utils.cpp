@@ -316,6 +316,12 @@ void insertReshardingsAfter(Fusion* fusion) {
   }
 }
 
+void setShardedAllocationDomain(TensorView* tv) {
+  if (!tv->hasAllocation()) {
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  }
+}
+
 } // namespace
 
 void propagateShardings(Fusion* fusion) {
@@ -324,15 +330,16 @@ void propagateShardings(Fusion* fusion) {
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
     TensorView* input_with_mesh = nullptr;
     for (auto tv : inputs) {
-      if (tv->hasDeviceMesh()) {
+      NVF_CHECK(
+          tv->hasDeviceMesh(),
+          "Tensor ",
+          tv->toString(),
+          " should be assigned a DeviceMesh");
+      if (input_with_mesh == nullptr) {
         input_with_mesh = tv;
-        break;
       }
     }
-    NVF_ERROR(
-        input_with_mesh != nullptr,
-        "At least one input requires a DeviceMesh ",
-        expr->toString());
+
     std::vector<TensorView*> outputs_without_mesh;
     for (auto tv : outputs) {
       if (!tv->hasDeviceMesh()) {
@@ -359,7 +366,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
     }
     NVF_ERROR(
         ir_utils::isTvOp(expr),
-        "Non-tv op is not supported : ",
+        "Non-tv op is not supported:",
         expr->toString());
     NVF_ERROR(
         expr->outputs().size() == 1,
@@ -374,7 +381,8 @@ void insertShardedAxisReordering(Fusion* fusion) {
     auto [shard_additions, shard_deletions] = getShardingChanges(expr);
     NVF_ERROR(
         shard_additions.size() + shard_deletions.size() <= 1,
-        "Resharding expr can only support one axis")
+        "Resharding expr can only support one axis:",
+        expr->toString())
 
     // For gather operations i.e. ID goes from sharded to unsharded
     // this will rematerialize a sharded axis.
@@ -459,6 +467,28 @@ void insertShardedAxisReordering(Fusion* fusion) {
           ->parallelize(shard_added_id->getParallelType());
       output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
+    }
+  }
+}
+
+void setShardedAllocationDomain(Fusion* fusion) {
+  for (Expr* expr : fusion->exprs()) {
+    if (!isResharding(expr)) {
+      continue;
+    }
+    for (TensorView* tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      for (auto c : tv->getContiguity()) {
+        if (c.has_value()) {
+          NVF_CHECK(
+              c.value(),
+              "Resharding expression input must be contiguous: ",
+              expr);
+        }
+      }
+      setShardedAllocationDomain(tv);
+    }
+    for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      setShardedAllocationDomain(tv);
     }
   }
 }

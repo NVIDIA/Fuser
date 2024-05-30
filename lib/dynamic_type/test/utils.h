@@ -51,5 +51,3 @@ struct DoubleInt64BoolVecTwo {
 };
 using IntSomeType = DynamicType<NoContainers, int, SomeType, NonInstantiable>;
 using BoolSomeType = DynamicType<NoContainers, bool, SomeType, NonInstantiable>;
-using SomeTypes =
-    DynamicType<NoContainers, SomeType, SomeType, NonInstantiable>;
