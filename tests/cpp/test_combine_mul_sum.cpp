@@ -234,7 +234,7 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
     // setting output alloc_domain to avoid allocation order propagation, which
     // breaks the assumption of matmul scheduler. see issue:
     // https://github.com/NVIDIA/Fuser/issues/2014
-    tv2->setAllocationDomain(tv2->getMaybeRFactorDomain(), true);
+    tv2->setAllocationDomain(tv2->getRFactorDomain(), true);
 
     fusion->addOutput(tv2);
     ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
