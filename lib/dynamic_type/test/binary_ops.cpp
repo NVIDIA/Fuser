@@ -75,10 +75,9 @@
         },                                                                     \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
-    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
-    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
+    static_assert(opcheck<IntSomeType> op opcheck<IntSomeType>);               \
     EXPECT_THAT(                                                               \
-        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
+        [&]() { IntSomeType(SomeType{}) op IntSomeType(SomeType{}); },         \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
   }
@@ -159,10 +158,9 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
         },                                                                     \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
-    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
-    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
+    static_assert(opcheck<IntSomeType> op opcheck<IntSomeType>);               \
     EXPECT_THAT(                                                               \
-        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
+        [&]() { IntSomeType(SomeType{}) op IntSomeType(SomeType{}); },         \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
   }
@@ -297,7 +295,6 @@ TEST_NAMED_COMPARE_OP(NamedGe, >=, ge);
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
     static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
-    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \

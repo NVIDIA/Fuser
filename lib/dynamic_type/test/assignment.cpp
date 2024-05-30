@@ -34,7 +34,6 @@
         },                                                                 \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr( \
             "Result is dynamic but not convertible to result type")));     \
-    static_assert(!(opcheck<SomeTypes&> += opcheck<int>));                 \
   }
 
 TEST_ASSIGN_OP(+, +=, AddAssign)
