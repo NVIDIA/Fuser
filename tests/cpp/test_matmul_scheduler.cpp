@@ -2604,7 +2604,7 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 // TODO: Once we can control the ExprEval and Matmul schedulers via options, run
 // this test with all three combinations (with and without each scheduler, but
 // at least one enabled).
-TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
+TEST_F(MatmulSchedulerTest, SegmentMatmulOpPrologue) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -2645,7 +2645,7 @@ TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
 }
 
 // This is just like the above test but with LinearOp instead of MatmulOp
-TEST_F(NVFuserTest, SegmentLinearOpPrologue) {
+TEST_F(MatmulSchedulerTest, SegmentLinearOpPrologue) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -2687,7 +2687,7 @@ TEST_F(NVFuserTest, SegmentLinearOpPrologue) {
 
 // Test that the matmul scheduler refuses to translate a matmul that is not
 // Half or BFloat16
-TEST_F(NVFuserTest, SegmentMatmulOpUnsupportedDtype) {
+TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
