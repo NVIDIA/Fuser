@@ -38,7 +38,9 @@ class Pointer {
   template <typename T>
   Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
 
-  inline Pointer(void* ptr, DataType dtype);
+  Pointer(void* ptr, DataType dtype);
+
+  Pointer(): ptr_(nullptr), size_(-1) {}
 
   int64_t size() const {
     return size_;
