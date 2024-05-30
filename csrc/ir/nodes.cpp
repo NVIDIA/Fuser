@@ -2090,8 +2090,10 @@ BeginFoldOp::BeginFoldOp(
 }
 
 std::string BeginFoldOp::toString(int indent_size) const {
+  std::string vector_open = numTensors() == 1 ? "" : "{ ";
+  std::string vector_close = numTensors() == 1 ? "" : " }";
   std::stringstream ss;
-  indent(ss, indent_size) << "{prev={ ";
+  indent(ss, indent_size) << "{ acc=" << vector_open;
   bool first = true;
   for (size_t i : c10::irange(numTensors())) {
     if (!first) {
@@ -2100,8 +2102,8 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << prevFoldTensor((int64_t)i)->toString();
   }
-  ss << " },\n";
-  indent(ss, indent_size) << " next={ ";
+  ss << vector_close << ",\n";
+  indent(ss, indent_size) << " next=" << vector_open;
   first = true;
   for (size_t i : c10::irange(numTensors())) {
     if (!first) {
@@ -2110,8 +2112,8 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << nextElementTensor((int64_t)i)->toString();
   }
-  ss << " } }\n";
-  indent(ss, indent_size) << "   = beginFold( { ";
+  ss << vector_close << " }\n";
+  indent(ss, indent_size) << "   = beginFold( " << vector_open;
   first = true;
   for (size_t i : c10::irange(numTensors())) {
     if (!first) {
@@ -2120,7 +2122,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << inputTensor((int64_t)i)->toString();
   }
-  ss << " }, initial values = { ";
+  ss << vector_close << ", initial values = " << vector_open;
   first = true;
   for (size_t i : c10::irange(numTensors())) {
     if (!first) {
@@ -2129,7 +2131,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << initVal((int64_t)i)->toString();
   }
-  ss << " } );\n";
+  ss << vector_close << " );\n";
   return ss.str();
 }
 
@@ -2191,8 +2193,10 @@ EndFoldOp::EndFoldOp(
 }
 
 std::string EndFoldOp::toString(int indent_size) const {
+  std::string vector_open = numTensors() == 1 ? "" : "{ ";
+  std::string vector_close = numTensors() == 1 ? "" : " }";
   std::stringstream ss;
-  indent(ss, indent_size) << "{ ";
+  indent(ss, indent_size) << vector_open;
   bool first = true;
   for (size_t i : c10::irange(outputs().size())) {
     if (!first) {
@@ -2201,8 +2205,8 @@ std::string EndFoldOp::toString(int indent_size) const {
     first = false;
     ss << output((int64_t)i)->toString();
   }
-  ss << " }\n";
-  indent(ss, indent_size) << "   = endFold( { ";
+  ss << vector_close << "\n";
+  indent(ss, indent_size) << "   = endFold( " << vector_open;
   first = true;
   for (size_t i : c10::irange(inputs().size())) {
     if (!first) {
@@ -2211,7 +2215,7 @@ std::string EndFoldOp::toString(int indent_size) const {
     first = false;
     ss << input((int64_t)i)->toString();
   }
-  ss << " } );\n";
+  ss << vector_close << " );\n";
   return ss.str();
 }
 
