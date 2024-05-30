@@ -248,6 +248,39 @@ class TestScheduleOps(TestCase):
         self.valid_use(lambda fd: fd.sched.split(fd.t1, 1, 2))
         self.valid_use(lambda fd: fd.sched.split(fd.t1, -1, 2))
 
+    def test_print(self):
+        """
+        Test to_string and user_schedule_ir print functions
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.add_output(self.t2)
+
+            def schedule(self):
+                fd.sched.merge(self.t0, dim=0)
+                fd.sched.merge(self.t1, dim=0)
+                fd.sched.merge(self.t2, dim=0)
+                assert len(fd.sched.to_string(self.t0)) > 0
+                assert len(fd.sched.to_string(self.t1)) > 0
+                assert len(fd.sched.to_string(self.t2)) > 0
+
+                user_ir = fd.user_schedule_ir()
+                assert len(user_ir) > 0
+                assert user_ir != "User schedule is not defined."
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
 
 if __name__ == "__main__":
     run_tests()
