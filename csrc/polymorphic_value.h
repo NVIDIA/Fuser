@@ -40,7 +40,7 @@ class Pointer {
 
   inline Pointer(void* ptr, DataType dtype);
 
-  Pointer(): ptr_(nullptr), size_(-1) {}
+  Pointer() : ptr_(nullptr), size_(-1) {}
 
   int64_t size() const {
     return size_;
