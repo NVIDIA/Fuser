@@ -668,35 +668,21 @@ DEFINE_BINARY_OP(ge, >=, ge);
       typename =                                                              \
           std::enable_if_t<is_dynamic_type_v<DT> && !is_dynamic_type_v<RHS>>> \
   inline constexpr bool operator op(const DT& x, const RHS& y) {              \
-    std::optional<bool> ret = std::nullopt;                                   \
-    DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
-      using LHS = typename decltype(lhs)::type;                               \
-      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                         \
-        if constexpr (std::is_convertible_v<                                  \
-                          decltype(std::declval<LHS>()                        \
-                                       op std::declval<RHS>()),               \
-                          bool>) {                                            \
-          if (x.template is<LHS>()) {                                         \
-            ret = x.template as<LHS>() op y;                                  \
-          }                                                                   \
-        }                                                                     \
-      }                                                                       \
-    });                                                                       \
-    if (ret.has_value()) {                                                    \
-      return ret.value();                                                     \
-    }                                                                         \
     if constexpr (opcheck<RHS>.hasExplicitCastTo(opcheck<DT>)) {              \
       return x op(DT) y;                                                      \
+    } else {                                                                  \
+      return DT::dispatch(                                                    \
+          [](auto&& x, auto&& y) -> decltype(auto) {                          \
+            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {     \
+              if constexpr (std::is_convertible_v<decltype(x op y), bool>) {  \
+                return std::forward<decltype(x)>(x)                           \
+                    op std::forward<decltype(y)>(y);                          \
+              }                                                               \
+            }                                                                 \
+          },                                                                  \
+          x,                                                                  \
+          y);                                                                 \
     }                                                                         \
-    DYNAMIC_TYPE_CHECK(                                                       \
-        false,                                                                \
-        "Cannot compute ",                                                    \
-        x.type().name(),                                                      \
-        " ",                                                                  \
-        #op,                                                                  \
-        " ",                                                                  \
-        typeid(RHS).name(),                                                   \
-        " : incompatible type");                                              \
   }                                                                           \
   template <typename LHS, typename DT>                                        \
   inline constexpr std::                                                      \
