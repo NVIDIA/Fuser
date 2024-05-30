@@ -56,6 +56,10 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   const ValGraph iel_graph = id_model_.buildIntersection(
       idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
+  // We'll create mappings from a copy of the current loop graph since
+  // idGraph(IdMappingMode::LOOP) will change with replayed domains.
+  const auto loop_graph = idGraph(IdMappingMode::LOOP);
+
   // Step 1: Build a map of the IEL groups of root broadcast domains
   // to resolving domains.
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
@@ -81,10 +85,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // the dependent input domains of the loop group
   const std::unordered_map<ValGroup, IterDomain*> initial_loop_promotion_map =
       projectIELPromotionToLoopGraph(
-          iel_graph,
-          iel_promotion_map,
-          idGraph(IdMappingMode::LOOP),
-          inlining_info_);
+          iel_graph, iel_promotion_map, loop_graph, inlining_info_);
 
   if (callback_) {
     callback_->postStep3(initial_loop_promotion_map);
@@ -105,7 +106,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   propagatePromotionsInIELGraph(
       iel_graph,
       final_iel_promotion_map,
-      idGraph(IdMappingMode::LOOP),
+      loop_graph,
       initial_loop_promotion_map);
 
   if (callback_) {
@@ -115,10 +116,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Step 5: Find the final promotion of each loop group based on the
   // final IEL promotion map
   auto final_loop_promotion_map = projectIELPromotionToLoopGraph(
-      iel_graph,
-      final_iel_promotion_map,
-      idGraph(IdMappingMode::LOOP),
-      inlining_info_);
+      iel_graph, final_iel_promotion_map, loop_graph, inlining_info_);
 
   // The promotion map produced in Step 5 only includes those are
   // further propagated at Step 4, so the correct mappings produced at
@@ -157,15 +155,15 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // but that just means there's no change is necessary from the Step
   // 3 results.
 
-  // Update the Step-3 map to the latest LOOP graph
-  const auto updated_initial_loop_promotion_map = updateValGroupIdMap(
-      initial_loop_promotion_map, idGraph(IdMappingMode::LOOP));
-
   // Insert the updated Step-3 results into the Step-5 resutls. Note
   // that this insertion does not overwrite the existing mappings.
   final_loop_promotion_map.insert(
-      updated_initial_loop_promotion_map.begin(),
-      updated_initial_loop_promotion_map.end());
+      initial_loop_promotion_map.begin(), initial_loop_promotion_map.end());
+
+  // The map is currently for the stale loop graph. Update for the
+  // latest loop graph.
+  final_loop_promotion_map = updateValGroupIdMap(
+      final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
 
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
 

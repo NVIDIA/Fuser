@@ -142,9 +142,7 @@ class DomainMap : public pointwise_utils::DomainMap {
  private:
   bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
     NVF_ERROR(tv != nullptr);
-    return (
-        num_axes == 0 ||
-        (int64_t)tv->getMaybeRFactorDomain().size() > num_axes);
+    return (num_axes == 0 || (int64_t)tv->getRFactorDomain().size() > num_axes);
   }
 };
 
@@ -217,7 +215,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map =
       rfactor_reorder_map_entry.get();
 
-  auto ref_root = largest_out->getMaybeRFactorDomain();
+  auto ref_root = largest_out->getRFactorDomain();
   // reorder of root to align with rfactor map should always help with indexing,
   // even when vectorization isn't used.
   if (!rfactor_reorder_map.empty()) {
@@ -603,8 +601,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // to do this is with Dependency check which will grab all intermediate
     // values too.
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getMaybeRFactorDomain().begin(),
-         reference_tv->getMaybeRFactorDomain().begin() + params.break_point},
+        {reference_tv->getRFactorDomain().begin(),
+         reference_tv->getRFactorDomain().begin() + params.break_point},
         {reference_tv->getLeafDomain().begin(),
          reference_tv->getLeafDomain().end()});
 
@@ -612,8 +610,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
         lhs_all_vals.begin(), lhs_all_vals.end());
 
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getMaybeRFactorDomain().begin() + params.break_point,
-         reference_tv->getMaybeRFactorDomain().end()},
+        {reference_tv->getRFactorDomain().begin() + params.break_point,
+         reference_tv->getRFactorDomain().end()},
         {reference_tv->getLeafDomain().begin(),
          reference_tv->getLeafDomain().end()});
 
