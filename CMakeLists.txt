@@ -116,6 +116,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/utils.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/validation.cpp
   ${NVFUSER_SRCS_DIR}/dispatch.cpp
+  ${NVFUSER_SRCS_DIR}/domain_view.cpp
   ${NVFUSER_SRCS_DIR}/driver_api.cpp
   ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
   ${NVFUSER_SRCS_DIR}/evaluator_common.cpp
@@ -486,6 +487,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_double_buffering.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_domain_view.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_evaluator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
