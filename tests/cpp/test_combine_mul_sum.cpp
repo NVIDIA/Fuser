@@ -568,6 +568,12 @@ INSTANTIATE_TEST_SUITE_P(
         // Tests without fusion enabled
         std::make_tuple(2l, 2l, -1l, false, false, true),
         std::make_tuple(2l, 2l, -1l, false, true, true),
+        std::make_tuple(1l, 2l, -1l, false, false, true),
+        std::make_tuple(2l, 1l, -1l, false, false, true),
+        std::make_tuple(2l, 2l, 1l, false, false, true),
+        std::make_tuple(1l, 1l, -1l, false, false, true),
+        std::make_tuple(3l, 2l, 1l, false, false, true),
+        std::make_tuple(4l, 2l, 1l, false, false, true),
         // Enable fusion
         std::make_tuple(2l, 2l, -1l, true, false, false),
         // We cannot yet handle allocation domain in matmul scheduler
@@ -575,10 +581,8 @@ INSTANTIATE_TEST_SUITE_P(
         // We don't fuse 1D inputs
         std::make_tuple(1l, 2l, -1l, true, false, true),
         std::make_tuple(2l, 1l, -1l, true, false, true),
-        // TODO: The following currently fails but it should not be translated
-        // to LinearOp to begin with.
-        // See https://github.com/NVIDIA/Fuser/issues/2241
-        // std::make_tuple(1l, 1l, -1l, true, false, false),
+        // Check that zero-dim output fusion is not claimed by NoOp scheduler
+        std::make_tuple(1l, 1l, -1l, true, false, true),
         // Batch dims in input
         // TODO: mixed length inputs via broadcasted batch dims
         // We currently reject differently-sized inputs since these translate to
