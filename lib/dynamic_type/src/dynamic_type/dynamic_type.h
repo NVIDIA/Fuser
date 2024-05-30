@@ -555,16 +555,14 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
   template <                                                                 \
       typename LHS,                                                          \
       typename RHS,                                                          \
+      typename DT = std::conditional_t<                                      \
+          is_dynamic_type_v<std::decay_t<LHS>>,                              \
+          std::decay_t<LHS>,                                                 \
+          std::decay_t<RHS>>,                                                \
       typename = std::enable_if_t<opname##_defined<LHS, RHS>()>>             \
-  inline constexpr std::conditional_t<                                       \
-      is_dynamic_type_v<std::decay_t<LHS>>,                                  \
-      std::decay_t<LHS>,                                                     \
-      std::decay_t<RHS>>                                                     \
-  func_name(LHS&& x, RHS&& y) {                                              \
+  inline constexpr DT func_name(LHS&& x, RHS&& y) {                          \
     constexpr bool lhs_is_dt = is_dynamic_type_v<std::decay_t<LHS>>;         \
     constexpr bool rhs_is_dt = is_dynamic_type_v<std::decay_t<RHS>>;         \
-    using DT =                                                               \
-        std::conditional_t<lhs_is_dt, std::decay_t<LHS>, std::decay_t<RHS>>; \
     if constexpr (                                                           \
         lhs_is_dt && !rhs_is_dt &&                                           \
         opcheck<std::decay_t<RHS>>.hasExplicitCastTo(                        \
