@@ -531,7 +531,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
              opcheck<std::decay_t<RHS>>))) {                                 \
       return opname##_defined<DT, DT>();                                     \
     } else {                                                                 \
-      using RetT = typename DT::VariantType;                                 \
+      using RetT = DT;                                                       \
       auto is_valid = [](auto&& x, auto&& y) {                               \
         using X = decltype(x);                                               \
         using Y = decltype(y);                                               \
