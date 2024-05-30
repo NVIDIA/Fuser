@@ -75,6 +75,14 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       consumer_loop_groups.pushBack(output_loop_groups);
     }
 
+    // Suppose the outputs are involved in broadcast forwarding, they
+    // could be grouped together, so if that happens, the number of
+    // output loop groups could be just one. However, there should be
+    // no such broadcast forwarding. Assert here just in case.
+    NVF_ERROR(
+        expected_num_consumer_loop_group_count_if_fully_inlined <=
+        consumer_loop_groups.size());
+
     if (consumer_loop_groups.size() ==
         expected_num_consumer_loop_group_count_if_fully_inlined) {
       continue;
