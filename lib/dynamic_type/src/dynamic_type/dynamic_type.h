@@ -650,33 +650,17 @@ DEFINE_BINARY_OP(ge, >=, ge);
 #define DEFINE_COMPARE_OP(opname, op)                                         \
   template <typename DT, typename = std::enable_if_t<is_dynamic_type_v<DT>>>  \
   inline constexpr bool operator op(const DT& x, const DT& y) {               \
-    std::optional<bool> ret = std::nullopt;                                   \
-    DT::for_all_types([&ret, &x, &y](auto lhs) {                              \
-      using LHS = typename decltype(lhs)::type;                               \
-      DT::for_all_types([&ret, &x, &y](auto rhs) {                            \
-        using RHS = typename decltype(rhs)::type;                             \
-        if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                       \
-          if constexpr (std::is_convertible_v<                                \
-                            decltype(std::declval<LHS>()                      \
-                                         op std::declval<RHS>()),             \
-                            bool>) {                                          \
-            if (x.template is<LHS>() && y.template is<RHS>()) {               \
-              ret = x.template as<LHS>() op y.template as<RHS>();             \
+    return DT::dispatch(                                                      \
+        [](auto&& x, auto&& y) -> decltype(auto) {                            \
+          if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {       \
+            if constexpr (std::is_convertible_v<decltype(x op y), bool>) {    \
+              return std::forward<decltype(x)>(x)                             \
+                  op std::forward<decltype(y)>(y);                            \
             }                                                                 \
           }                                                                   \
-        }                                                                     \
-      });                                                                     \
-    });                                                                       \
-    DYNAMIC_TYPE_CHECK(                                                       \
-        ret.has_value(),                                                      \
-        "Cannot compute ",                                                    \
-        x.type().name(),                                                      \
-        " ",                                                                  \
-        #op,                                                                  \
-        " ",                                                                  \
-        y.type().name(),                                                      \
-        " : incompatible type");                                              \
-    return ret.value();                                                       \
+        },                                                                    \
+        x,                                                                    \
+        y);                                                                   \
   }                                                                           \
   template <                                                                  \
       typename DT,                                                            \
