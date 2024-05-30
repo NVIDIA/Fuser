@@ -515,7 +515,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
 
 #define DEFINE_BINARY_OP(opname, op, func_name, return_type, check_existence)  \
   template <typename X, typename Y, typename RetT>                             \
-  constexpr bool opname##_is_valid_input_type_helper() {                       \
+  constexpr bool opname##_is_valid_input_type() {                              \
     if constexpr (opcheck<X> op opcheck<Y>) {                                  \
       if constexpr (std::is_convertible_v<                                     \
                         decltype(std::declval<X>() op std::declval<Y>()),      \
@@ -525,14 +525,11 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     }                                                                          \
     return false;                                                              \
   }                                                                            \
-  template <typename X, typename Y, typename RetT>                             \
-  constexpr bool opname##_is_valid_input_type =                                \
-      opname##_is_valid_input_type_helper<X, Y, RetT>();                       \
   template <typename RetT>                                                     \
   constexpr auto opname##_is_valid = [](auto&& x, auto&& y) {                  \
     using X = decltype(x);                                                     \
     using Y = decltype(y);                                                     \
-    if constexpr (opname##_is_valid_input_type<X, Y, RetT>) {                  \
+    if constexpr (opname##_is_valid_input_type<X, Y, RetT>()) {                \
       return std::true_type{};                                                 \
     } else {                                                                   \
       return;                                                                  \
@@ -590,8 +587,13 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           [](auto&& x, auto&& y) -> decltype(auto) {                           \
             using X = decltype(x);                                             \
             using Y = decltype(y);                                             \
-            if constexpr (opname##_is_valid_input_type<X, Y, return_type>) {   \
-              return std::forward<X>(x) op std::forward<Y>(y);                 \
+            if constexpr (opcheck<X> op opcheck<Y>) {                          \
+              if constexpr (std::is_convertible_v<                             \
+                                decltype(std::declval<X>()                     \
+                                             op std::declval<Y>()),            \
+                                return_type>) {                                \
+                return std::forward<X>(x) op std::forward<Y>(y);               \
+              }                                                                \
             }                                                                  \
           },                                                                   \
           std::forward<LHS>(x),                                                \
