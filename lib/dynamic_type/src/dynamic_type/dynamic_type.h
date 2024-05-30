@@ -539,7 +539,8 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     return DT::dispatch(                                                   \
         [](auto&& x, auto&& y) -> decltype(auto) {                         \
           if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
-            return x op y;                                                 \
+            return std::forward<decltype(x)>(x)                            \
+                op std::forward<decltype(y)>(y);                           \
           }                                                                \
         },                                                                 \
         x,                                                                 \
@@ -568,7 +569,8 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     return DT::dispatch(                                                   \
         [](auto&& x, auto&& y) -> decltype(auto) {                         \
           if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
-            return x op y;                                                 \
+            return std::forward<decltype(x)>(x)                            \
+                op std::forward<decltype(y)>(y);                           \
           }                                                                \
         },                                                                 \
         x,                                                                 \
@@ -601,7 +603,8 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
       return DT::dispatch(                                                 \
           [](auto&& x, auto&& y) -> decltype(auto) {                       \
             if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {  \
-              return x op y;                                               \
+              return std::forward<decltype(x)>(x)                          \
+                  op std::forward<decltype(y)>(y);                         \
             }                                                              \
           },                                                               \
           x,                                                               \
