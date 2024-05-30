@@ -513,105 +513,107 @@ struct is_dynamic_type<DynamicType<Ts...>> : std::true_type {};
 template <typename T>
 constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
 
-#define DEFINE_BINARY_OP(opname, op, func_name)                            \
-  /*TODO: we should inline the definition of lambdas into enable_if,*/     \
-  /*but I can only do this in C++20 */                                     \
-  template <typename DTVariantType>                                        \
-  constexpr auto opname##_defined_checker = [](auto x, auto y) constexpr { \
-    using X = typename decltype(x)::type;                                  \
-    using Y = typename decltype(y)::type;                                  \
-    if constexpr (opcheck<X> op opcheck<Y>) {                              \
-      return std::is_constructible_v<                                      \
-          DTVariantType,                                                   \
-          decltype(std::declval<X>() op std::declval<Y>())>;               \
-    }                                                                      \
-    return false;                                                          \
-  };                                                                       \
-  template <typename DT>                                                   \
-  inline constexpr std::enable_if_t<                                       \
-      is_dynamic_type_v<DT> &&                                             \
-          any_check(                                                       \
-              opname##_defined_checker<typename DT::VariantType>,          \
-              DT::type_identities_as_tuple,                                \
-              DT::type_identities_as_tuple),                               \
-      DT>                                                                  \
-  func_name(const DT& x, const std::type_identity_t<DT>& y) {              \
-    return DT::dispatch(                                                   \
-        [](auto&& x, auto&& y) -> decltype(auto) {                         \
-          if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
-            return std::forward<decltype(x)>(x)                            \
-                op std::forward<decltype(y)>(y);                           \
-          }                                                                \
-        },                                                                 \
-        x,                                                                 \
-        y);                                                                \
-  }                                                                        \
-  /*TODO: we should inline the definition of lambdas into enable_if,*/     \
-  /*but I can only do this in C++20 */                                     \
-  template <typename RHS, typename DTVariantType>                          \
-  constexpr auto opname##_rdefined_checker = [](auto x) constexpr {        \
-    using X = typename decltype(x)::type;                                  \
-    if constexpr (opcheck<X> op opcheck<RHS>) {                            \
-      return std::is_constructible_v<                                      \
-          DTVariantType,                                                   \
-          decltype(std::declval<X>() op std::declval<RHS>())>;             \
-    }                                                                      \
-    return false;                                                          \
-  };                                                                       \
-  template <typename DT, typename RHS>                                     \
-  inline constexpr std::enable_if_t<                                       \
-      is_dynamic_type_v<DT> && !is_dynamic_type_v<std::decay_t<RHS>> &&    \
-          any_check(                                                       \
-              opname##_rdefined_checker<                                   \
-                  std::decay_t<RHS>,                                       \
-                  typename DT::VariantType>,                               \
-              DT::type_identities_as_tuple),                               \
-      DT>                                                                  \
-  func_name(const DT& x, RHS&& y) {                                        \
-    return DT::dispatch(                                                   \
-        [](auto&& x, auto&& y) -> decltype(auto) {                         \
-          if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
-            return std::forward<decltype(x)>(x)                            \
-                op std::forward<decltype(y)>(y);                           \
-          }                                                                \
-        },                                                                 \
-        x,                                                                 \
-        std::forward<RHS>(y));                                             \
-  }                                                                        \
-  /*TODO: we should inline the definition of lambdas into enable_if,*/     \
-  /*but I can only do this in C++20 */                                     \
-  template <typename LHS, typename DTVariantType>                          \
-  constexpr auto opname##_ldefined_checker = [](auto y) constexpr {        \
-    using Y = typename decltype(y)::type;                                  \
-    if constexpr (opcheck<LHS> op opcheck<Y>) {                            \
-      return std::is_constructible_v<                                      \
-          DTVariantType,                                                   \
-          decltype(std::declval<LHS>() op std::declval<Y>())>;             \
-    }                                                                      \
-    return false;                                                          \
-  };                                                                       \
-  template <typename LHS, typename DT>                                     \
-  inline constexpr std::enable_if_t<                                       \
-      is_dynamic_type_v<DT> && !is_dynamic_type_v<LHS> &&                  \
-          (opcheck<LHS>.hasExplicitCastTo(opcheck<DT>) ||                  \
-           any_check(                                                      \
-               opname##_ldefined_checker<LHS, typename DT::VariantType>,   \
-               DT::type_identities_as_tuple)),                             \
-      DT>                                                                  \
-  func_name(const LHS& x, const DT& y) {                                   \
-    if constexpr (opcheck<LHS>.hasExplicitCastTo(opcheck<DT>)) {           \
-      return (DT)x op y;                                                   \
-    } else {                                                               \
-      return DT::dispatch(                                                 \
-          [](auto&& x, auto&& y) -> decltype(auto) {                       \
-            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {  \
-              return std::forward<decltype(x)>(x)                          \
-                  op std::forward<decltype(y)>(y);                         \
-            }                                                              \
-          },                                                               \
-          x,                                                               \
-          y);                                                              \
-    }                                                                      \
+#define DEFINE_BINARY_OP(opname, op, func_name)                                \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/         \
+  /*but I can only do this in C++20 */                                         \
+  template <typename DTVariantType>                                            \
+  constexpr auto opname##_defined_checker = [](auto x, auto y) constexpr {     \
+    using X = typename decltype(x)::type;                                      \
+    using Y = typename decltype(y)::type;                                      \
+    if constexpr (opcheck<X> op opcheck<Y>) {                                  \
+      return std::is_constructible_v<                                          \
+          DTVariantType,                                                       \
+          decltype(std::declval<X>() op std::declval<Y>())>;                   \
+    }                                                                          \
+    return false;                                                              \
+  };                                                                           \
+  template <typename DT>                                                       \
+  inline constexpr std::enable_if_t<                                           \
+      is_dynamic_type_v<DT> &&                                                 \
+          any_check(                                                           \
+              opname##_defined_checker<typename DT::VariantType>,              \
+              DT::type_identities_as_tuple,                                    \
+              DT::type_identities_as_tuple),                                   \
+      DT>                                                                      \
+  func_name(const DT& x, const std::type_identity_t<DT>& y) {                  \
+    return DT::dispatch(                                                       \
+        [](auto&& x, auto&& y) -> decltype(auto) {                             \
+          if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {        \
+            return std::forward<decltype(x)>(x)                                \
+                op std::forward<decltype(y)>(y);                               \
+          }                                                                    \
+        },                                                                     \
+        x,                                                                     \
+        y);                                                                    \
+  }                                                                            \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/         \
+  /*but I can only do this in C++20 */                                         \
+  template <typename RHS, typename DTVariantType>                              \
+  constexpr auto opname##_rdefined_checker = [](auto x) constexpr {            \
+    using X = typename decltype(x)::type;                                      \
+    if constexpr (opcheck<X> op opcheck<RHS>) {                                \
+      return std::is_constructible_v<                                          \
+          DTVariantType,                                                       \
+          decltype(std::declval<X>() op std::declval<RHS>())>;                 \
+    }                                                                          \
+    return false;                                                              \
+  };                                                                           \
+  template <typename DT, typename RHS>                                         \
+  inline constexpr std::enable_if_t<                                           \
+      is_dynamic_type_v<DT> && !is_dynamic_type_v<std::decay_t<RHS>> &&        \
+          any_check(                                                           \
+              opname##_rdefined_checker<                                       \
+                  std::decay_t<RHS>,                                           \
+                  typename DT::VariantType>,                                   \
+              DT::type_identities_as_tuple),                                   \
+      DT>                                                                      \
+  func_name(const DT& x, RHS&& y) {                                            \
+    return DT::dispatch(                                                       \
+        [](auto&& x, auto&& y) -> decltype(auto) {                             \
+          if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {        \
+            return std::forward<decltype(x)>(x)                                \
+                op std::forward<decltype(y)>(y);                               \
+          }                                                                    \
+        },                                                                     \
+        x,                                                                     \
+        std::forward<RHS>(y));                                                 \
+  }                                                                            \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/         \
+  /*but I can only do this in C++20 */                                         \
+  template <typename LHS, typename DTVariantType>                              \
+  constexpr auto opname##_ldefined_checker = [](auto y) constexpr {            \
+    using Y = typename decltype(y)::type;                                      \
+    if constexpr (opcheck<LHS> op opcheck<Y>) {                                \
+      return std::is_constructible_v<                                          \
+          DTVariantType,                                                       \
+          decltype(std::declval<LHS>() op std::declval<Y>())>;                 \
+    }                                                                          \
+    return false;                                                              \
+  };                                                                           \
+  template <typename LHS, typename DT>                                         \
+  inline constexpr std::enable_if_t<                                           \
+      is_dynamic_type_v<DT> && !is_dynamic_type_v<std::decay_t<LHS>> &&        \
+          (opcheck<std::decay_t<LHS>>.hasExplicitCastTo(opcheck<DT>) ||        \
+           any_check(                                                          \
+               opname##_ldefined_checker<                                      \
+                   std::decay_t<LHS>,                                          \
+                   typename DT::VariantType>,                                  \
+               DT::type_identities_as_tuple)),                                 \
+      DT>                                                                      \
+  func_name(LHS&& x, const DT& y) {                                            \
+    if constexpr (opcheck<std::decay_t<LHS>>.hasExplicitCastTo(opcheck<DT>)) { \
+      return (DT)x op y;                                                       \
+    } else {                                                                   \
+      return DT::dispatch(                                                     \
+          [](auto&& x, auto&& y) -> decltype(auto) {                           \
+            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {      \
+              return std::forward<decltype(x)>(x)                              \
+                  op std::forward<decltype(y)>(y);                             \
+            }                                                                  \
+          },                                                                   \
+          std::forward<LHS>(x),                                                \
+          y);                                                                  \
+    }                                                                          \
   }
 
 DEFINE_BINARY_OP(add, +, operator+);
