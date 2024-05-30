@@ -1533,23 +1533,116 @@ NVF_API std::vector<std::pair<TensorView*, TensorView*>> beginFold(
   return prev_next_tensors;
 }
 
+namespace {
+// Find the innermost fold group's axis positions in combined_tvs. Note that
+// there should be only one fold group for any particular IterType::Fold axis.
+// For example, the following is disallowed:
+//
+//   auto& [accum1, next1] = beginFoldOp(x, init, {-1});
+//   auto& [accum2, next2] = beginFoldOp(y, init, {-1});
+//   auto combined = mul(next1, next2);
+//   auto reduction_tvs = finalizeReductionFold({combined});
+//
+// This is disallowed since although we can _nest_ fold groups, we cannot
+// overlap them for the same IterType::Fold IterDomains.
+//
+// This function tracks FoldGroups for all the IterType::Fold axes found in
+// combined_tvs to determine the innermost fold group. Then it returns the
+// positions of the IterType::Fold axes introduced by that fold group.
+std::vector<size_t> findInnerFoldDimensions(
+    const std::vector<TensorView*>& combined_tvs) {
+  std::vector<size_t> fold_axis_positions;
+  std::unordered_set<Expr*> visited_expr_outputs;
+  std::stack<TensorView*> to_visit;
+  for (auto c : combined_tvs) {
+    to_visit.push(c);
+  }
+  while (!to_visit.empty()) {
+    TensorView* tv = to_visit.top();
+    to_visit.pop();
+    if (!std::any_of(
+            tv->getMaybeRFactorDomain().begin(),
+            tv->getMaybeRFactorDomain().end(),
+            [](IterDomain* id) -> bool { return id->isFold(); })) {
+      // Skip tensors that do not contain Fold dimensions
+      continue;
+    }
+    NVF_ERROR(
+        tv->definition() != nullptr,
+        "TensorView ",
+        tv->toString(),
+        " has fold dimensions but no definition");
+    if (!(visited_expr_outputs.insert(tv->definition()).second)) {
+      continue;
+    }
+    if (auto bfop = dynamic_cast<BeginFoldOp*>(tv->definition())) {
+      std::cout << bfop->toString() << std::endl;
+      std::cout << "fold_axis_positions: " << fold_axis_positions << std::endl;
+      NVF_ERROR(bfop->numTensors() > 0);
+      // Determine which fold axes were introduced by this op.
+      std::vector<size_t> this_fold_axis_positions;
+      TensorView* inp_tensor = bfop->inputTensor(0);
+      TensorView* next_tensor = bfop->nextElementTensor(0);
+      for (size_t i : c10::irange(inp_tensor->nDims())) {
+        if (!inp_tensor->axis(i)->isFold() && next_tensor->axis(i)->isFold()) {
+          this_fold_axis_positions.push_back(i);
+        }
+      }
+      std::cout << "this_fold_axis_positions: " << fold_axis_positions
+                << std::endl;
+
+      ure that either fold_axis_positions is empty, or that it matches the fold 
+      // xes we found in bfop.
+      if (fold_axis_positions.empty()) {
+        fold_axis_positions.insert(
+            fold_axis_positions.end(),
+            this_fold_axis_positions.begin(),
+            this_fold_axis_positions.end());
+      } else {
+        for (size_t p : this_fold_axis_positions) {
+          NVF_CHECK(
+              std::find(
+                  fold_axis_positions.begin(), fold_axis_positions.end(), p) ==
+                  fold_axis_positions.end(),
+              "Fold groups can nest but must not overlap.");
+        }
+      }
+
+      continue;
+    }
+    for (Val* inp : tv->definition()->inputs()) {
+      if (auto* inp_tv = dynamic_cast<TensorView*>(inp)) {
+        to_visit.push(inp_tv);
+      }
+    }
+  }
+  return fold_axis_positions;
+}
+} // namespace
+
 std::vector<TensorView*> finalizeReductionFold(
     const std::vector<TensorView*>& combined_tvs,
     bool associative,
     bool commutative) {
+  NVF_CHECK(!combined_tvs.empty(), "combined_tvs must not be empty");
+  std::vector<size_t> fold_dims = findInnerFoldDimensions(combined_tvs);
   std::vector<TensorView*> out_tvs;
   out_tvs.reserve(combined_tvs.size());
   for (TensorView* tv : combined_tvs) {
     std::vector<IterDomain*> out_root;
-    out_root.reserve(tv->getMaybeRFactorDomain().size());
-
-    for (IterDomain* id : tv->getMaybeRFactorDomain()) {
+    out_root.reserve(tv->nDims());
+    for (size_t i : c10::irange(tv->nDims())) {
+      IterDomain* id = tv->axis(i);
       // Convert all IterType::Fold axes to IterType::Reduction
       // TODO: If there are nested fold groups, this op should only operate on
       // the inner group.
       out_root.push_back(
           IterDomainBuilder(id)
-              .iter_type(id->isFold() ? IterType::Reduction : id->getIterType())
+              .iter_type(
+                  std::find(fold_dims.begin(), fold_dims.end(), i) !=
+                          fold_dims.end()
+                      ? IterType::Reduction
+                      : id->getIterType())
               .build());
     }
 

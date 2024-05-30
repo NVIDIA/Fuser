@@ -3945,7 +3945,9 @@ std::vector<IterDomain*> TensorDomain::noReductions(
       td.begin(),
       td.end(),
       std::back_inserter(noReductionDomain),
-      [](IterDomain* id) { return !id->isReduction() && !id->isStride(); });
+      [](IterDomain* id) {
+        return !id->isStrictlyReduction() && !id->isStride();
+      });
   return noReductionDomain;
 }
 
