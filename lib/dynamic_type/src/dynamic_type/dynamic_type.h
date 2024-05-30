@@ -578,7 +578,9 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     } else {                                                                 \
       return DT::dispatch(                                                   \
           [](auto&& x, auto&& y) -> decltype(auto) {                         \
-            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
+            if constexpr (std::is_same_v<                                    \
+                              decltype(opname##_is_valid<DT>(x, y)),         \
+                              std::true_type>) {                             \
               return std::forward<decltype(x)>(x)                            \
                   op std::forward<decltype(y)>(y);                           \
             }                                                                \
