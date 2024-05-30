@@ -2259,7 +2259,7 @@ class SdpaFwdOp : public Expr {
     return "SdpaFwdOp";
   }
 
-  std::string toString(int indent_size = 0) const override;
+  // std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
   Val* attn_out() const {
