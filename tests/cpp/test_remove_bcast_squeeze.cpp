@@ -357,4 +357,67 @@ TEST_F(RemoveBcastSqueezeTest, BcastSqueezeSqueezeBcast) {
   EXPECT_FALSE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
   EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
 }
+
+
+TEST_F(RemoveBcastSqueezeTest, BcastSetSqueeze) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = broadcast(tv1, {false, false, true});
+  auto tv3 = set(tv2);
+  auto tv4 = squeeze(tv3, std::vector<bool>{false, false, true});
+  auto tv5 = set(tv4);
+  fusion->addOutput(tv5);
+
+  // preseg_passes should remove both broadcast and squeeze
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      fusion.get());
+  EXPECT_FALSE(ir_utils::hasOpsOfType<BroadcastOp>(fusion.get()));
+  EXPECT_FALSE(ir_utils::hasOpsOfType<SqueezeOp>(fusion.get()));
+}
+
+// Issue https://github.com/NVIDIA/Fuser/issues/1964
+TEST_F(NVFuserTest, BcastSetSqueezeIssue1964) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(3, input_dtype);
+  auto tv1 = makeContigTensor(1, input_dtype);
+  auto tv2 = makeContigTensor(3, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = broadcast(tv1, {true, false, true});
+  auto tv4 = set(tv3);
+  auto s = IrBuilder::create<Val>(3);
+  auto tv5 = expand(tv4, {s, s, s});
+  auto tv6 = mul(tv5, tv2);
+  auto tv7 = sum(tv6, {0, 2});
+  auto tv8 = mul(tv0, tv2);
+  auto tv9 = sum(tv8, {0, 2});
+  auto tv10 = broadcast(tv9, {true, false, true});
+  auto tv11 = set(tv10);
+  auto tv12 = squeeze(tv11, {true, false, true}, false);
+  auto tv13 = mul(tv12, tv1);
+
+  fusion->addOutput(tv7);
+  fusion->addOutput(tv13);
+
+  auto options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3, 3, 3}, options);
+  auto t1 = at::randn({3}, options);
+  auto t2 = at::randn({3, 3, 3}, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs(inputs);
+  testValidate(fec.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
 } // namespace nvfuser
