@@ -513,79 +513,79 @@ struct is_dynamic_type<DynamicType<Ts...>> : std::true_type {};
 template <typename T>
 constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
 
-#define DEFINE_BINARY_OP(opname, op, func_name)                               \
-  template <typename LHS, typename RHS>                                       \
-  constexpr bool opname##_defined() {                                         \
-    constexpr bool lhs_is_dt = is_dynamic_type_v<std::decay_t<LHS>>;          \
-    constexpr bool rhs_is_dt = is_dynamic_type_v<std::decay_t<RHS>>;          \
-    using DT =                                                                \
-        std::conditional_t<lhs_is_dt, std::decay_t<LHS>, std::decay_t<RHS>>;  \
-    if constexpr (!lhs_is_dt && !rhs_is_dt) {                                 \
-      return false;                                                           \
-    } else if constexpr (                                                     \
-        (lhs_is_dt && !rhs_is_dt &&                                           \
-         opcheck<std::decay_t<RHS>>.hasExplicitCastTo(                        \
-             opcheck<std::decay_t<LHS>>)) ||                                  \
-        (!lhs_is_dt && rhs_is_dt &&                                           \
-         opcheck<std::decay_t<LHS>>.hasExplicitCastTo(                        \
-             opcheck<std::decay_t<RHS>>))) {                                  \
-      return opname##_defined<DT, DT>();                                      \
-    } else {                                                                  \
-      using RetT = DT;                                                        \
-      auto is_valid = [](auto&& x, auto&& y) {                                \
-        using X = decltype(x);                                                \
-        using Y = decltype(y);                                                \
-        if constexpr (opcheck<X> op opcheck<Y>) {                             \
-          if constexpr (std::is_convertible_v<                                \
-                            decltype(std::declval<X>() op std::declval<Y>()), \
-                            RetT>) {                                          \
-            return std::true_type{};                                          \
-          } else {                                                            \
-            return;                                                           \
-          }                                                                   \
-        } else {                                                              \
-          return;                                                             \
-        }                                                                     \
-      };                                                                      \
-      using should_define_t = decltype(DT::dispatch(                          \
-          is_valid, std::declval<LHS>(), std::declval<RHS>()));               \
-      return std::is_same_v<should_define_t, std::true_type>;                 \
-    }                                                                         \
-  }                                                                           \
-  template <                                                                  \
-      typename LHS,                                                           \
-      typename RHS,                                                           \
-      typename = std::enable_if_t<opname##_defined<LHS, RHS>()>>              \
-  inline constexpr std::conditional_t<                                        \
-      is_dynamic_type_v<std::decay_t<LHS>>,                                   \
-      std::decay_t<LHS>,                                                      \
-      std::decay_t<RHS>>                                                      \
-  func_name(LHS&& x, RHS&& y) {                                               \
-    constexpr bool lhs_is_dt = is_dynamic_type_v<std::decay_t<LHS>>;          \
-    constexpr bool rhs_is_dt = is_dynamic_type_v<std::decay_t<RHS>>;          \
-    using DT =                                                                \
-        std::conditional_t<lhs_is_dt, std::decay_t<LHS>, std::decay_t<RHS>>;  \
-    if constexpr (                                                            \
-        lhs_is_dt && !rhs_is_dt &&                                            \
-        opcheck<std::decay_t<RHS>>.hasExplicitCastTo(                         \
-            opcheck<std::decay_t<LHS>>)) {                                    \
-      return x op(DT) y;                                                      \
-    } else if constexpr (                                                     \
-        !lhs_is_dt && rhs_is_dt &&                                            \
-        opcheck<std::decay_t<LHS>>.hasExplicitCastTo(                         \
-            opcheck<std::decay_t<RHS>>)) {                                    \
-      return (DT)x op y;                                                      \
-    } else {                                                                  \
-      return DT::dispatch(                                                    \
-          [](auto&& x, auto&& y) -> decltype(auto) {                          \
-            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {     \
-              return std::forward<decltype(x)>(x)                             \
-                  op std::forward<decltype(y)>(y);                            \
-            }                                                                 \
-          },                                                                  \
-          std::forward<LHS>(x),                                               \
-          std::forward<RHS>(y));                                              \
-    }                                                                         \
+#define DEFINE_BINARY_OP(opname, op, func_name)                              \
+  template <typename RetT>                                                   \
+  constexpr auto opname##_is_valid = [](auto&& x, auto&& y) {                \
+    using X = decltype(x);                                                   \
+    using Y = decltype(y);                                                   \
+    if constexpr (opcheck<X> op opcheck<Y>) {                                \
+      if constexpr (std::is_convertible_v<                                   \
+                        decltype(std::declval<X>() op std::declval<Y>()),    \
+                        RetT>) {                                             \
+        return std::true_type{};                                             \
+      } else {                                                               \
+        return;                                                              \
+      }                                                                      \
+    } else {                                                                 \
+      return;                                                                \
+    }                                                                        \
+  };                                                                         \
+  template <typename LHS, typename RHS>                                      \
+  constexpr bool opname##_defined() {                                        \
+    constexpr bool lhs_is_dt = is_dynamic_type_v<std::decay_t<LHS>>;         \
+    constexpr bool rhs_is_dt = is_dynamic_type_v<std::decay_t<RHS>>;         \
+    using DT =                                                               \
+        std::conditional_t<lhs_is_dt, std::decay_t<LHS>, std::decay_t<RHS>>; \
+    if constexpr (!lhs_is_dt && !rhs_is_dt) {                                \
+      return false;                                                          \
+    } else if constexpr (                                                    \
+        (lhs_is_dt && !rhs_is_dt &&                                          \
+         opcheck<std::decay_t<RHS>>.hasExplicitCastTo(                       \
+             opcheck<std::decay_t<LHS>>)) ||                                 \
+        (!lhs_is_dt && rhs_is_dt &&                                          \
+         opcheck<std::decay_t<LHS>>.hasExplicitCastTo(                       \
+             opcheck<std::decay_t<RHS>>))) {                                 \
+      return opname##_defined<DT, DT>();                                     \
+    } else {                                                                 \
+      using should_define_t = decltype(DT::dispatch(                         \
+          opname##_is_valid<DT>, std::declval<LHS>(), std::declval<RHS>())); \
+      return std::is_same_v<should_define_t, std::true_type>;                \
+    }                                                                        \
+  }                                                                          \
+  template <                                                                 \
+      typename LHS,                                                          \
+      typename RHS,                                                          \
+      typename = std::enable_if_t<opname##_defined<LHS, RHS>()>>             \
+  inline constexpr std::conditional_t<                                       \
+      is_dynamic_type_v<std::decay_t<LHS>>,                                  \
+      std::decay_t<LHS>,                                                     \
+      std::decay_t<RHS>>                                                     \
+  func_name(LHS&& x, RHS&& y) {                                              \
+    constexpr bool lhs_is_dt = is_dynamic_type_v<std::decay_t<LHS>>;         \
+    constexpr bool rhs_is_dt = is_dynamic_type_v<std::decay_t<RHS>>;         \
+    using DT =                                                               \
+        std::conditional_t<lhs_is_dt, std::decay_t<LHS>, std::decay_t<RHS>>; \
+    if constexpr (                                                           \
+        lhs_is_dt && !rhs_is_dt &&                                           \
+        opcheck<std::decay_t<RHS>>.hasExplicitCastTo(                        \
+            opcheck<std::decay_t<LHS>>)) {                                   \
+      return x op(DT) y;                                                     \
+    } else if constexpr (                                                    \
+        !lhs_is_dt && rhs_is_dt &&                                           \
+        opcheck<std::decay_t<LHS>>.hasExplicitCastTo(                        \
+            opcheck<std::decay_t<RHS>>)) {                                   \
+      return (DT)x op y;                                                     \
+    } else {                                                                 \
+      return DT::dispatch(                                                   \
+          [](auto&& x, auto&& y) -> decltype(auto) {                         \
+            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
+              return std::forward<decltype(x)>(x)                            \
+                  op std::forward<decltype(y)>(y);                           \
+            }                                                                \
+          },                                                                 \
+          std::forward<LHS>(x),                                              \
+          std::forward<RHS>(y));                                             \
+    }                                                                        \
   }
 
 DEFINE_BINARY_OP(add, +, operator+);
