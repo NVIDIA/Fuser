@@ -151,20 +151,20 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
     EXPECT_THAT(                                                               \
         [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
         ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("")));                                        \
+            ::testing::HasSubstr("Cannot compute")));                          \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
               op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
         ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("")));                                        \
+            ::testing::HasSubstr("Cannot compute")));                          \
     static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
     static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
-        ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("")));                                        \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
   }
 
 TEST_COMPARE_OP(Eq, ==);

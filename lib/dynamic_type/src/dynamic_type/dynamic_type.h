@@ -595,36 +595,18 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
                DT::type_identities_as_tuple)),                             \
       DT>                                                                  \
   func_name(const LHS& x, const DT& y) {                                   \
-    DT ret(std::monostate{});                                              \
-    DT::for_all_types([&ret, &x, &y](auto rhs) {                           \
-      using RHS = typename decltype(rhs)::type;                            \
-      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                      \
-        if constexpr (std::is_constructible_v<                             \
-                          typename DT::VariantType,                        \
-                          decltype(std::declval<LHS>()                     \
-                                       op std::declval<RHS>())>) {         \
-          if (y.template is<RHS>()) {                                      \
-            ret = DT(x op y.template as<RHS>());                           \
-          }                                                                \
-        }                                                                  \
-      }                                                                    \
-    });                                                                    \
-    if (ret.hasValue()) {                                                  \
-      return ret;                                                          \
-    }                                                                      \
     if constexpr (opcheck<LHS>.hasExplicitCastTo(opcheck<DT>)) {           \
       return (DT)x op y;                                                   \
+    } else {                                                               \
+      return DT::dispatch(                                                 \
+          [](auto&& x, auto&& y) -> decltype(auto) {                       \
+            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {  \
+              return x op y;                                               \
+            }                                                              \
+          },                                                               \
+          x,                                                               \
+          y);                                                              \
     }                                                                      \
-    DYNAMIC_TYPE_CHECK(                                                    \
-        false,                                                             \
-        "Cannot compute ",                                                 \
-        typeid(LHS).name(),                                                \
-        " ",                                                               \
-        #op,                                                               \
-        " ",                                                               \
-        y.type().name(),                                                   \
-        " : incompatible type");                                           \
-    return ret;                                                            \
   }
 
 DEFINE_BINARY_OP(add, +, operator+);
