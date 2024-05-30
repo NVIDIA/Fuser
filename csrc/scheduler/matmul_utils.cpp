@@ -402,7 +402,8 @@ class VectorizationCalculator {
     // the merged vectorized dimension.
     int64_t inner_dims_numel = 1;
     std::vector<ValGroup> remaining_inner_dims(inner_dims);
-    for (size_t i = tv->getMaybeAllocationDomain().size() - 1; i >= 0; --i) {
+    for (int64_t i = (int64_t)tv->getMaybeAllocationDomain().size() - 1; i >= 0;
+         --i) {
       IterDomain* id = tv->getMaybeAllocationDomain()[i];
       if (id->isReduction() || id->isBroadcast()) {
         continue;
@@ -422,16 +423,16 @@ class VectorizationCalculator {
         break;
       } else {
         NVF_CHECK(
-            strides[i] == inner_dims_numel,
+            strides.at(i) == inner_dims_numel,
             "TensorView ",
             tv->toString(),
             " has marked contiguous inner dimension ",
             id->toString(),
             " but provided tensor has stride ",
-            strides[i],
+            strides.at(i),
             " in that dimension.");
         inner_dim_pos = i;
-        inner_dims_numel *= sizes[i];
+        inner_dims_numel *= sizes.at(i);
       }
     }
 
