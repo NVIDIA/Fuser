@@ -240,8 +240,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       input_role = AttnRole::K;
     } else if (producer_tv_->sameAs(op->value())) {
       input_role = AttnRole::V;
-    } else if (producer_tv_->sameAs(op->attn_mask())) {
-      input_role = AttnRole::Mask;
     } else {
       NVF_ERROR(false, "Producer did not match any SdpaOp input.")
     }

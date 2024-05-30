@@ -426,63 +426,14 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   return out;
 }
 
-namespace {
-
-static TensorView* newForSdpa(
+SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,
     TensorView* value,
-    TensorView* attn_mask) {
-  auto query_domain =
-      TensorDomain::noReductions(query->getMaybeRFactorDomain());
-  auto key_domain = TensorDomain::noReductions(key->getMaybeRFactorDomain());
-  auto value_domain =
-      TensorDomain::noReductions(value->getMaybeRFactorDomain());
+    Val* dropout_p,
+    Val* is_causal,
+    Val* scale) {
 
-  // Query: [N,..,L,E], Key: [N,..,S,E], Value: [N,..,S,Ev], Attn_mask =
-  // null/[N,..,L,S]/[L,S]/(any broadcastable input) Output: [N,..,L,Ev]
-  auto ndims_out = query_domain.size();
-
-  const std::vector<IterDomain*>& mapping_q =
-      ops::mapSdpaOpIterDomains(query_domain, AttnRole::Q, ndims_out);
-  const std::vector<IterDomain*>& mapping_k =
-      ops::mapSdpaOpIterDomains(key_domain, AttnRole::K, ndims_out);
-  const std::vector<IterDomain*>& mapping_v =
-      ops::mapSdpaOpIterDomains(value_domain, AttnRole::V, ndims_out);
-  std::vector<IterDomain*> mapping_mask(ndims_out, nullptr);
-  if (attn_mask != nullptr) {
-    auto mask_domain =
-        TensorDomain::noReductions(attn_mask->getMaybeRFactorDomain());
-    mapping_mask =
-        ops::mapSdpaOpIterDomains(mask_domain, AttnRole::Mask, ndims_out);
-  }
-
-  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
-
-  for (auto idx : c10::irange(ndims_out)) {
-    out_domain[idx] = ops::newOutputIterDomain(
-        {mapping_q.at(idx),
-         mapping_k.at(idx),
-         mapping_v.at(idx),
-         mapping_mask.at(idx)});
-  }
-
-  TensorDomain* td = IrBuilder::create<TensorDomain>(
-      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
-
-  return IrBuilder::create<TensorView>(td, query->dtype());
-}
-
-} // namespace
-
-TensorView* sdpa(
-    TensorView* query,
-    TensorView* key,
-    TensorView* value,
-    TensorView* attn_mask,
-    double dropout_p,
-    bool is_causal,
-    std::optional<double> scale) {
   NVF_CHECK(
       query->dtype() == key->dtype() && query->dtype() == value->dtype(),
       "Expected query, key, and value to have the same dtype but got: ",
@@ -492,32 +443,107 @@ TensorView* sdpa(
       " ,and ",
       value->dtype());
 
+  auto query_domain = TensorDomain::noReductions(query->getMaybeRFactorDomain());
+  auto key_domain = TensorDomain::noReductions(key->getMaybeRFactorDomain());
+  auto value_domain = TensorDomain::noReductions(value->getMaybeRFactorDomain());
+  
   NVF_CHECK(
-      query->nDims() >= 2 && key->nDims() >= 2 && value->nDims() >= 2,
-      "Expected query, key, and value to be atleast 2D but got: ",
-      query->nDims(),
+      query_domain.size() == 4 && key_domain.size() == 4 && value_domain.size() == 4,
+      "Expected query, key, and value to be 4D but got: ",
+      query_domain.size(),
       " ",
-      key->nDims(),
+      key_domain.size(),
       " ,and ",
-      value->nDims());
+      value_domain.size());
 
-  if (attn_mask != nullptr) {
-    NVF_CHECK(
-        attn_mask->dtype() == DataType::Bool ||
-            attn_mask->dtype() == query->dtype(),
-        "Expected attn_mask to be either boolean or same dtype as Q/K/V, but got: ",
-        attn_mask->dtype());
-    NVF_CHECK(
-        attn_mask->nDims() >= 2,
-        "Expected attn_mask to be atleast 2D, but got: ",
-        attn_mask->nDims());
-    NVF_CHECK(!is_causal, "Only one of is_causal or attn_mask can be set.");
+  // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
+  auto ndims_out = query_domain.size();
+
+  const std::vector<IterDomain*>& mapping_q =
+      ops::mapSdpaOpIterDomains(query_domain, AttnRole::Q, ndims_out);
+  const std::vector<IterDomain*>& mapping_k =
+      ops::mapSdpaOpIterDomains(key_domain, AttnRole::K, ndims_out);
+  const std::vector<IterDomain*>& mapping_v =
+      ops::mapSdpaOpIterDomains(value_domain, AttnRole::V, ndims_out);
+
+  // TensorView for attention output
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+  for (auto idx : c10::irange(ndims_out)) {
+    out_domain[idx] = ops::newOutputIterDomain(
+        {mapping_q.at(idx),
+         mapping_k.at(idx),
+         mapping_v.at(idx)});
   }
 
-  TensorView* out = newForSdpa(query, key, value, attn_mask);
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+  TensorView* output = IrBuilder::create<TensorView>(td, query->dtype());
+
+  // TensorView for logsumexp
+  std::vector<IterDomain*> log_sumexp_dom (ndims_out - 1, nullptr);
+  for (auto idx : c10::irange(ndims_out - 2)){
+    log_sumexp_dom[idx] = ops::newOutputIterDomain({mapping_q.at(idx),
+         mapping_k.at(idx),
+         mapping_v.at(idx)});
+  }
+  log_sumexp_dom[ndims_out - 2] = ops::newOutputIterDomain({mapping_q[ndims_out - 2]});
+  TensorDomain* log_sumexp_td = IrBuilder::create<TensorDomain>(
+      log_sumexp_dom, TensorDomain::getContiguityFilledWith(log_sumexp_dom, true));
+  TensorView* log_sumexp = IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
+
+  // Create a new ID for cum_seq_q, cum_seq_k which is of shape (batch_size + 1, )
+  // auto newForSeq = [&]() -> TensorDomain* {
+  //   IterDomain* seq_dom = ops::newOutputIterDomain({query_domain.front()});
+  //   seq_dom = IterDomain::resize(seq_dom, IrBuilder::create<Val>(0), IrBuilder::create<Val>(1));
+
+  //   return IrBuilder::create<TensorDomain>(
+  //     std::vector({seq_dom}), TensorDomain::getContiguityFilledWith(std::vector({seq_dom}), true));
+  // };
+
+  // TensorView* cum_seq_q = IrBuilder::create<TensorView>(newForSeq(), DataType::Int);
+  // TensorView* cum_seq_k = IrBuilder::create<TensorView>(newForSeq(), DataType::Int);
+  Val* query_seq_len = IrBuilder::create<Val>(DataType::Int);
+  Val* key_seq_len = IrBuilder::create<Val>(DataType::Int);
+
+  TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
+  TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
+  TensorView* debug_attn_mask = TensorViewBuilder().dtype(DataType::Int).build();
+
+  // Set default values for dropout_p (0.0), is_causal(false)
+  if (dropout_p == nullptr) {
+    dropout_p = IrBuilder::create<Val>(0.0, DataType::Double);
+  }
+
+  if (is_causal == nullptr) {
+    is_causal = IrBuilder::create<Val>(false, DataType::Bool);
+  }
+
   IrBuilder::create<SdpaOp>(
-      out, query, key, value, attn_mask, dropout_p, is_causal, scale);
-  return out;
+    output,
+    log_sumexp,
+    // cum_seq_q,
+    // cum_seq_k,
+    query_seq_len,
+    key_seq_len,
+    philox_seed,
+    philox_offset,
+    debug_attn_mask, 
+    query, 
+    key,
+    value,
+    dropout_p,
+    is_causal,
+    scale
+  );
+  return {output,
+    log_sumexp,
+    // cum_seq_q,
+    // cum_seq_k,
+    query_seq_len,
+    key_seq_len,
+    philox_seed,
+    philox_offset,
+    debug_attn_mask};
 }
 
 } // namespace nvfuser

@@ -2209,14 +2209,21 @@ class SdpaOp : public Expr {
 
   SdpaOp(
       IrBuilderPasskey,
-      Val* out,
+      TensorView* output,
+      TensorView* log_sumexp,
+      // TensorView* cum_seq_q,
+      // TensorView* cum_seq_k,
+      Val* query_seq_len,
+      Val* key_seq_len,
+      TensorView* philox_seed,
+      TensorView* philox_offset,
+      TensorView* debug_attn_mask,
       Val* query,
       Val* key,
       Val* value,
-      Val* attn_mask,
-      double dropout_p,
-      bool is_causal,
-      std::optional<double> scale);
+      Val* dropout_p,
+      Val* is_causal,
+      Val* scale);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2224,12 +2231,12 @@ class SdpaOp : public Expr {
     return "SdpaOp";
   }
 
-  std::string toString(int indent_size = 0) const override;
+  // std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* out() const {
-    return output(0);
-  }
+  // Val* out() const {
+  //   return output(0);
+  // }
 
   Val* query() const {
     return input(0);
@@ -2243,35 +2250,23 @@ class SdpaOp : public Expr {
     return input(2);
   }
 
-  Val* attn_mask() const {
-    if (has_mask()) {
-      return input(3);
-    }
-    return nullptr;
-  }
+  // double dropout_p() const {
+  //   return attribute<double>(0);
+  // }
 
-  double dropout_p() const {
-    return attribute<double>(0);
-  }
-
-  bool is_causal() const {
-    return attribute<bool>(1);
-  }
-  std::optional<double> scale() const {
-    if (attributes().size() == 3) {
-      return attribute<double>(2);
-    }
-    return std::nullopt;
-  }
+  // bool is_causal() const {
+  //   return attribute<bool>(1);
+  // }
+  // std::optional<double> scale() const {
+  //   if (attributes().size() == 3) {
+  //     return attribute<double>(2);
+  //   }
+  //   return std::nullopt;
+  // }
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
-
- private:
-  bool has_mask() const {
-    return inputs().size() == 4;
-  }
 };
 
 } // namespace nvfuser
