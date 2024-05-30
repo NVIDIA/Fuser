@@ -1633,7 +1633,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
       hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
     return tensor_indexer->getPerDimIndex(
         producer_tv,
-        producer_tv->getMaybeRFactorDomain(),
+        producer_tv->getRFactorDomain(),
         consumer_tv->definition(),
         loops);
   } else {
@@ -2298,8 +2298,8 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
   // changes, and the output IterDomain needs to be used to generate
   // its predicate.
   const auto& consumer_root_domain = ir_utils::hasResizedRfactor(consumer_tv)
-      ? consumer_tv->getMaybeRFactorDomain()
-      : consumer_tv->getRootDomain();
+      ? consumer_tv->getRFactorDomain()
+      : consumer_tv->getMaybeRootDomain();
 
   if (consumer_root_domain.empty()) {
     return std::vector<PredicateDomainInfo>();
@@ -2643,8 +2643,7 @@ namespace {
 
 int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
   auto exprs = DependencyCheck::getAllExprsBetween(
-      {smem_tv->getMaybeRFactorDomain().begin(),
-       smem_tv->getMaybeRFactorDomain().end()},
+      {smem_tv->getRFactorDomain().begin(), smem_tv->getRFactorDomain().end()},
       {smem_tv->getMaybeAllocationDomain().begin(),
        smem_tv->getMaybeAllocationDomain().end()});
   for (auto expr : exprs) {

@@ -386,7 +386,7 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
       VERBOSE() << "Tv does not have allocation of " << tv->toString() << ", "
                 << toDelimitedString(tv->getMaybeAllocationDomain())
                 << std::endl;
-      allocation_domains = tv->getMaybeRFactorDomain();
+      allocation_domains = tv->getRFactorDomain();
       contiguity = tv->domain()->contiguity();
       NVF_ERROR(!tv->isDoubleBuffered());
     } else if (tv->getMemoryType() == MemoryType::Shared) {
@@ -579,7 +579,7 @@ ExprPath getIndexingTraversalPath(
     const ValGraph& traversal_graph) {
   auto consumer_tv = ir_utils::getTvOutput(expr);
   std::unordered_set<Resize*> resize_paths;
-  if (consumer_tv->hasRFactor()) {
+  if (consumer_tv->hasRoot()) {
     auto root_to_rf_exprs = StmtSort::getExprsBetween(
         {consumer_tv->getRootDomain().begin(),
          consumer_tv->getRootDomain().end()},
@@ -875,7 +875,7 @@ std::vector<IterDomain*> getPredicateDomains(
   // info does not seem to cover non-divisible reduction rfactor
   // splits.
   std::vector<IterDomain*> predicate_domains =
-      tv->hasReduction() ? tv->getRootDomain() : tv->getMaybeRFactorDomain();
+      tv->hasReduction() ? tv->getMaybeRootDomain() : tv->getRFactorDomain();
 
   // Broadcast domains should not be predicated
   predicate_domains.erase(

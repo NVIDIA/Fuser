@@ -114,9 +114,8 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   const ValGraph iel_graph = id_model_.buildIntersection(
       idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
-  // We'll create mappings from a static loop graph since
-  // idGraph(IdMappingMode::LOOP) will change with replayed
-  // domains.
+  // We'll create mappings from a copy of the current loop graph since
+  // idGraph(IdMappingMode::LOOP) will change with replayed domains.
   const auto loop_graph = idGraph(IdMappingMode::LOOP);
 
   // Step 1: Build a map of the IEL groups of root broadcast domains

@@ -31,7 +31,7 @@ TensorView* mean(
   NVF_ERROR(x != nullptr, "Input is invalid.");
 
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(x->getRFactorDomain()).size();
 
   auto sum_x = sum(x, dims, keepdim);
   auto y = div(sum_x, numFeatures(x, dims, kNumberOfDims));
@@ -64,7 +64,7 @@ TensorView* variance(
   auto sum_x_mean_sub_sq = sum(x_mean_sub_sq, dims, keepdim);
 
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(x->getRFactorDomain()).size();
   auto num_features = numFeatures(x, dims, kNumberOfDims);
 
   // NOTE PyTorch returns 'inf' for the variance if correction is greater than
@@ -111,7 +111,7 @@ VarMeanResult variance_mean(
   }
 
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(x->getRFactorDomain()).size();
   auto num_features = numFeatures(x, dims, kNumberOfDims);
 
   // NOTE PyTorch returns 'inf' for the variance if correction is greater than
@@ -151,7 +151,7 @@ TensorView* softmax(TensorView* x, int64_t dim) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
 
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(x->getRFactorDomain()).size();
   const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
   NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
@@ -174,7 +174,7 @@ TensorView* softmax_backward(TensorView* dy, TensorView* y, int64_t dim) {
   NVF_ERROR(y != nullptr, "Output is invalid.");
 
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(y->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(y->getRFactorDomain()).size();
   const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
   NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
@@ -194,7 +194,7 @@ TensorView* log_softmax(TensorView* x, int64_t dim) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
 
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(x->getRFactorDomain()).size();
   const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
   NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
@@ -217,7 +217,7 @@ TensorView* log_softmax_backward(TensorView* dy, TensorView* y, int64_t dim) {
   NVF_ERROR(y != nullptr, "Output is invalid.");
 
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(y->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(y->getRFactorDomain()).size();
   const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
   NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
@@ -247,7 +247,7 @@ auto norm_properties_from_num_dims(
   // N = reduction = product of norm_shape = H * W * D
   // weight = bias = norm_shape tensor
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(x->getRFactorDomain()).size();
   const int64_t kOuterNumDims = kNumberOfDims - kNormShapeNumDims;
 
   std::vector<int64_t> outer_reduction_axes(kOuterNumDims);
@@ -500,7 +500,7 @@ ForwardNormResult batch_norm(
   // N = reduction = B * H * W * D
   // weight = bias = (C) tensor
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(x->getRFactorDomain()).size();
   // channels last format means C dimension is at axis kNumberOfDims-1 at x
   int64_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
 
@@ -646,8 +646,7 @@ BackwardNormResult batch_norm_backward(
   // N = reduction = B * H * W * D
   // weight = bias = (C) tensor
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(input->getMaybeRFactorDomain())
-          .size();
+      (int64_t)TensorDomain::noReductions(input->getRFactorDomain()).size();
   // channels last format means C dimension is at axis kNumberOfDims-1 at x /
   // grad_out
   int64_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
@@ -756,7 +755,7 @@ ForwardNormResult instance_norm(
   // weight = bias = C tensor
   const int64_t kBatchDim = 0;
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(x->getRFactorDomain()).size();
   const int64_t kChannelsDim = channels_last ? kNumberOfDims - 1 : 1;
 
   std::vector<int64_t> x_reduction_axes;
@@ -910,8 +909,7 @@ BackwardNormResult instance_norm_backward(
   // N = reduction = B * H * W * D
   // weight = bias = (C) tensor
   const int64_t kNumberOfDims =
-      (int64_t)TensorDomain::noReductions(input->getMaybeRFactorDomain())
-          .size();
+      (int64_t)TensorDomain::noReductions(input->getRFactorDomain()).size();
   // channels last format means C dimension is at axis kNumberOfDims-1 at x /
   // grad_out
   const int64_t b_axis = 0; // for clarity

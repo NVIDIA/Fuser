@@ -938,7 +938,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
     size_t axis_count = 0;
     auto reduction_root_size = [](TensorView* red_tv) {
       size_t count = 0;
-      for (auto id : red_tv->getRootDomain()) {
+      for (auto id : red_tv->getMaybeRootDomain()) {
         if (!id->isBroadcast()) {
           count++;
         }
