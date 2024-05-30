@@ -272,7 +272,7 @@ class TestScheduleOps(TestCase):
                 assert len(fd.sched.to_string(self.t1)) > 0
                 assert len(fd.sched.to_string(self.t2)) > 0
 
-                user_ir = fd.user_schedule_ir()
+                user_ir = fd.sched.user_schedule_ir()
                 assert len(user_ir) > 0
                 assert user_ir != "User schedule is not defined."
 

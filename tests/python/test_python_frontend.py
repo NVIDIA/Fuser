@@ -1802,7 +1802,7 @@ class TestNvFuserFrontend(TestCase):
 
             _ = fd.execute(inputs)
 
-            code_len = len(fd.user_schedule_ir())
+            code_len = len(fd.sched.user_schedule_ir())
             self.assertTrue(code_len > 0, "User schedule is not defined.")
             code_len = len(fd.last_cuda_code())
             self.assertTrue(code_len > 0, "Cuda Code was not produced!")

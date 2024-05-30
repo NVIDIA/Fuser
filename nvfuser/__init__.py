@@ -252,15 +252,6 @@ class FusionDefinition(_C._FusionDefinition):
         """
         return self._fusion_ir()
 
-    def user_schedule_ir(self):
-        """
-        Returns the scheduled Fusion IR for the given definition.
-
-        Returns:
-            String
-        """
-        return self._user_schedule_ir()
-
     def last_cuda_code(self, intrinsic_code=False, **kwargs):
         """
         Returns the Cuda Code for the last executed set of inputs
