@@ -484,7 +484,7 @@ class VectorizationCalculator {
          i >= 0;
          --i) {
       IterDomain* id = tv->getMaybeAllocationDomain()[i];
-      if (id->isReduction() || id->isBroadcast()) {
+      if (id->isDeviceDim() || id->isReduction() || id->isBroadcast()) {
         continue;
       }
 

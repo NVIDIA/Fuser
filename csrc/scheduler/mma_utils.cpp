@@ -1590,13 +1590,13 @@ std::vector<ValGroup> canonicalDimOrdering(
       continue;
     }
     for (TensorView* tv : it->second) {
-      // We iterate in reverse through the leaf domain of tv so that we can find
-      // the inner-most dimensions
+      // We iterate in reverse through the allocation domain of tv so that we
+      // can find the inner-most dimensions
       for (auto id_it = tv->getMaybeAllocationDomain().rbegin();
            id_it != tv->getMaybeAllocationDomain().rend();
            id_it++) {
         IterDomain* id = *id_it;
-        if (id->isBroadcast() || id->isReduction()) {
+        if (id->isDeviceDim() || id->isBroadcast() || id->isReduction()) {
           continue;
         }
         const ValGroup& g = exact_graph.toGroup(id);
