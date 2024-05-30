@@ -322,6 +322,8 @@ Val* getNumThreadsInTensorView(TensorView* tv);
 //! Get the unit dimensions of A and B for the given MmaOp.
 std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr);
 
+bool isReductionInitExpr(const Expr* expr);
+
 } // namespace lower_utils
 
 } // namespace nvfuser
