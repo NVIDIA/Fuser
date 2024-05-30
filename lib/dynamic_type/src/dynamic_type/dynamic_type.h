@@ -649,40 +649,28 @@ DEFINE_BINARY_OP(ge, >=, ge);
 // here. https://en.cppreference.com/w/cpp/utility/variant/monostate
 #define DEFINE_COMPARE_OP(opname, op)                                        \
   template <                                                                 \
-      typename DT,                                                           \
+      typename LHS,                                                          \
       typename RHS,                                                          \
-      typename = std::enable_if_t<is_dynamic_type_v<std::decay_t<DT>>>>      \
-  inline constexpr bool operator op(DT&& x, RHS&& y) {                       \
+      typename = std::enable_if_t<                                           \
+          is_dynamic_type_v<std::decay_t<LHS>> ||                            \
+          is_dynamic_type_v<std::decay_t<RHS>>>>                             \
+  inline constexpr bool operator op(LHS&& x, RHS&& y) {                      \
+    constexpr bool lhs_is_dt = is_dynamic_type_v<std::decay_t<LHS>>;         \
+    constexpr bool rhs_is_dt = is_dynamic_type_v<std::decay_t<RHS>>;         \
+    using DT =                                                               \
+        std::conditional_t<lhs_is_dt, std::decay_t<LHS>, std::decay_t<RHS>>; \
     if constexpr (                                                           \
-        !is_dynamic_type_v<std::decay_t<RHS>> &&                             \
+        lhs_is_dt && !rhs_is_dt &&                                           \
         opcheck<std::decay_t<RHS>>.hasExplicitCastTo(                        \
-            opcheck<std::decay_t<DT>>)) {                                    \
-      return x op(std::decay_t<DT>) y;                                       \
+            opcheck<std::decay_t<LHS>>)) {                                   \
+      return x op(DT) y;                                                     \
+    } else if constexpr (                                                    \
+        !lhs_is_dt && rhs_is_dt &&                                           \
+        opcheck<std::decay_t<LHS>>.hasExplicitCastTo(                        \
+            opcheck<std::decay_t<RHS>>)) {                                   \
+      return (DT)x op y;                                                     \
     } else {                                                                 \
-      return std::decay_t<DT>::dispatch(                                     \
-          [](auto&& x, auto&& y) -> decltype(auto) {                         \
-            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
-              if constexpr (std::is_convertible_v<decltype(x op y), bool>) { \
-                return std::forward<decltype(x)>(x)                          \
-                    op std::forward<decltype(y)>(y);                         \
-              }                                                              \
-            }                                                                \
-          },                                                                 \
-          std::forward<DT>(x),                                               \
-          std::forward<RHS>(y));                                             \
-    }                                                                        \
-  }                                                                          \
-  template <typename LHS, typename DT>                                       \
-  inline constexpr std::enable_if_t<                                         \
-      is_dynamic_type_v<std::decay_t<DT>> &&                                 \
-          !is_dynamic_type_v<std::decay_t<LHS>>,                             \
-      bool>                                                                  \
-  operator op(LHS&& x, DT&& y) {                                             \
-    if constexpr (opcheck<std::decay_t<LHS>>.hasExplicitCastTo(              \
-                      opcheck<std::decay_t<DT>>)) {                          \
-      return (std::decay_t<DT>)x op y;                                       \
-    } else {                                                                 \
-      return std::decay_t<DT>::dispatch(                                     \
+      return DT::dispatch(                                                   \
           [](auto&& x, auto&& y) -> decltype(auto) {                         \
             if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
               if constexpr (std::is_convertible_v<decltype(x op y), bool>) { \
@@ -692,7 +680,7 @@ DEFINE_BINARY_OP(ge, >=, ge);
             }                                                                \
           },                                                                 \
           std::forward<LHS>(x),                                              \
-          std::forward<DT>(y));                                              \
+          std::forward<RHS>(y));                                             \
     }                                                                        \
   }
 
