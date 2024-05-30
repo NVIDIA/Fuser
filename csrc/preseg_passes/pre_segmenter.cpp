@@ -21,17 +21,34 @@ namespace nvfuser::preseg_passes {
 
 /*static*/ void PreSegmenter::runPass(Fusion* fusion) {
   FUSER_PERF_SCOPE("PreSegmenter::runPass");
+  using PassFunction = std::function<void(Fusion*)>;
+  using TaggedPass = std::pair<PassFunction, std::string>;
+  std::vector<TaggedPass> passes = {
+      {&OptimizationPass<RemoveEmptyPass>::runPass, "RemoveEmptyPass"},
+      {&OptimizationPass<ConsecutiveCastPass>::runPass, "ConsecutiveCastPass"},
+      {&OptimizationPass<AddAxiomsPass>::runPass, "AddAxiomsPass"},
+      {&OptimizationPass<MoveSplitCatPass>::runPass, "MoveSplitCatPass"},
+      {&OptimizationPass<MarkAliasesPreparePass>::runPass,
+       "MarkAliasesPreparePass"},
+      {&OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass,
+       "ExactMappedExtentSubstitutionPass"},
+      {&OptimizationPass<AllocationDomainPass>::runPass,
+       "AllocationDomainPass"},
+      {&OptimizationPass<RemoveBcastSqueeze>::runPass, "RemoveBcastSqueeze"}};
 
-  // Replace TensorViews with zero extent. Outputs and inputs may still be empty
-  OptimizationPass<RemoveEmptyPass>::runPass(fusion);
-  // removes consecutive cast operations
-  OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
-  OptimizationPass<AddAxiomsPass>::runPass(fusion);
-  OptimizationPass<MoveSplitCatPass>::runPass(fusion);
-  OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
-  OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
-  OptimizationPass<AllocationDomainPass>::runPass(fusion);
-  OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
+  bool is_log_enabled =
+      isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging);
+  if (is_log_enabled) {
+    debug() << "Fusion before PreSegmenter:" << std::endl;
+    fusion->printMath();
+  }
+  for (auto [pass_fun, pass_tag] : passes) {
+    pass_fun(fusion);
+    if (is_log_enabled) {
+      debug() << "Fusion after pre-segmenter pass: " << pass_tag << std::endl;
+      fusion->printMath();
+    }
+  }
 }
 
 } // namespace nvfuser::preseg_passes
