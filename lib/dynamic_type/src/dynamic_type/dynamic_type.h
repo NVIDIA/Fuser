@@ -527,25 +527,6 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     }                                                                          \
     return false;                                                              \
   };                                                                           \
-  template <typename DT>                                                       \
-  inline constexpr std::enable_if_t<                                           \
-      is_dynamic_type_v<DT> &&                                                 \
-          any_check(                                                           \
-              opname##_defined_checker<typename DT::VariantType>,              \
-              DT::type_identities_as_tuple,                                    \
-              DT::type_identities_as_tuple),                                   \
-      DT>                                                                      \
-  func_name(const DT& x, const std::type_identity_t<DT>& y) {                  \
-    return DT::dispatch(                                                       \
-        [](auto&& x, auto&& y) -> decltype(auto) {                             \
-          if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {        \
-            return std::forward<decltype(x)>(x)                                \
-                op std::forward<decltype(y)>(y);                               \
-          }                                                                    \
-        },                                                                     \
-        x,                                                                     \
-        y);                                                                    \
-  }                                                                            \
   /*TODO: we should inline the definition of lambdas into enable_if,*/         \
   /*but I can only do this in C++20 */                                         \
   template <typename RHS, typename DTVariantType>                              \
@@ -560,23 +541,33 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
   };                                                                           \
   template <typename DT, typename RHS>                                         \
   inline constexpr std::enable_if_t<                                           \
-      is_dynamic_type_v<DT> && !is_dynamic_type_v<std::decay_t<RHS>> &&        \
-          any_check(                                                           \
-              opname##_rdefined_checker<                                       \
-                  std::decay_t<RHS>,                                           \
-                  typename DT::VariantType>,                                   \
-              DT::type_identities_as_tuple),                                   \
+      is_dynamic_type_v<DT> &&                                                 \
+          (is_dynamic_type_v<std::decay_t<RHS>>                                \
+               ? any_check(                                                    \
+                     opname##_defined_checker<typename DT::VariantType>,       \
+                     DT::type_identities_as_tuple,                             \
+                     DT::type_identities_as_tuple)                             \
+               : (opcheck<std::decay_t<RHS>>.hasExplicitCastTo(opcheck<DT>) || \
+                  any_check(                                                   \
+                      opname##_rdefined_checker<                               \
+                          std::decay_t<RHS>,                                   \
+                          typename DT::VariantType>,                           \
+                      DT::type_identities_as_tuple))),                         \
       DT>                                                                      \
-  func_name(const DT& x, RHS&& y) {                                            \
-    return DT::dispatch(                                                       \
-        [](auto&& x, auto&& y) -> decltype(auto) {                             \
-          if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {        \
-            return std::forward<decltype(x)>(x)                                \
-                op std::forward<decltype(y)>(y);                               \
-          }                                                                    \
-        },                                                                     \
-        x,                                                                     \
-        std::forward<RHS>(y));                                                 \
+  func_name(const DT& x, const RHS& y) {                                       \
+    if constexpr (opcheck<std::decay_t<RHS>>.hasExplicitCastTo(opcheck<DT>)) { \
+      return x op(DT) y;                                                       \
+    } else {                                                                   \
+      return DT::dispatch(                                                     \
+          [](auto&& x, auto&& y) -> decltype(auto) {                           \
+            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {      \
+              return std::forward<decltype(x)>(x)                              \
+                  op std::forward<decltype(y)>(y);                             \
+            }                                                                  \
+          },                                                                   \
+          x,                                                                   \
+          y);                                                                  \
+    }                                                                          \
   }                                                                            \
   /*TODO: we should inline the definition of lambdas into enable_if,*/         \
   /*but I can only do this in C++20 */                                         \
