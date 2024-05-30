@@ -1280,9 +1280,7 @@ TEST_F(IndexingTest, Normalization) {
     auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   } else {
-
-    auto persistent_params =
-        getInnerPersistentHeuristics(&fusion, aten_inputs);
+    auto persistent_params = getInnerPersistentHeuristics(&fusion, aten_inputs);
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
     scheduleInnerPersistentKernel(&fusion, *persistent_params);
 
@@ -1323,7 +1321,6 @@ TEST_F(IndexingTest, Reshape1) {
 
   fusion.addOutput(tv5);
 
-
   TransformPropagator propagator(tv5);
   MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
 
@@ -1331,8 +1328,7 @@ TEST_F(IndexingTest, Reshape1) {
 
   fusion.print();
 
-  //IdModel id_model(&fusion, true, false, false);
-
+  // IdModel id_model(&fusion, true, false, false);
 }
 
 // Not a DAG due to a residual-like reshape path
@@ -1378,18 +1374,18 @@ TEST_F(IndexingTest, Reshape2) {
   // {tv2, tv3, tv7}
   // {tv4, tv5, tv6}
 
-  for (auto tv: {tv2, tv3, tv7}) {
+  for (auto tv : {tv2, tv3, tv7}) {
     tv->merge(0);
     tv->split(0, 4);
     tv->split(0, 32);
   }
 
-  for (auto tv: {tv4, tv5}) {
+  for (auto tv : {tv4, tv5}) {
     tv->merge(0);
     tv->merge(0);
     tv->split(0, shape2[0], false);
   }
-  for (auto tv: {tv4, tv5, tv6}) {
+  for (auto tv : {tv4, tv5, tv6}) {
     tv->split(1, 4);
     tv->merge(0, 1);
     tv->split(0, 32);
@@ -1403,7 +1399,6 @@ TEST_F(IndexingTest, Reshape2) {
   fusion.print();
 
   IdModel id_model(&fusion, true, false, false);
-
 }
 
 TEST_F(IndexingTest, Simple1) {
@@ -1547,7 +1542,7 @@ TEST_F(IndexingTest, Unswitch2) {
   tv1->split(0, 5);
 
   tv1->axis(1)->parallelize(ParallelType::Unswitch);
-  tv1->axis(2)->parallelize(ParallelType::Unswitch);  
+  tv1->axis(2)->parallelize(ParallelType::Unswitch);
 
   inlineMost();
 
@@ -1586,7 +1581,11 @@ TEST_F(IndexingTest, ContigIndexing2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = TensorViewBuilder().ndims(3).dtype(DataType::Float).contiguity({true, true, false}).build();
+  auto tv0 = TensorViewBuilder()
+                 .ndims(3)
+                 .dtype(DataType::Float)
+                 .contiguity({true, true, false})
+                 .build();
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
