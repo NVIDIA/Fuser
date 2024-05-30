@@ -707,12 +707,8 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 } // namespace
 
 bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
-  const auto consumer = ldst->out()->isA<TensorView>()
-      ? ldst->out()->as<TensorView>()
-      : ldst->out()->as<kir::TensorIndex>()->view();
-  const auto producer = ldst->in()->isA<TensorView>()
-      ? ldst->in()->as<TensorView>()
-      : ldst->in()->as<kir::TensorIndex>()->view();
+  const auto consumer = ir_utils::getTvOutput(ldst);
+  const auto producer = ir_utils::getTvInput(ldst);
 
   // Get all the IDs from the innermost ID of the allocation domain of
   // the consumer to the root domain of the consumer.
@@ -724,14 +720,12 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   const auto ids = ir_utils::filterByType<IterDomain>(vals);
   const auto ids_on_path = std::vector<IterDomain*>(ids.begin(), ids.end());
   NVF_CHECK(!ids_on_path.empty());
+  const auto id_in_consumer_root = ids_on_path.front();
   // This gives us the ID in the consumer root domain.
   // We'll later map this ID to one in the producer.
-  const auto idInConsumerRoot = ids_on_path.front();
-
-  const PairwiseRootDomainMap mapAccrossLdStOp(producer, consumer);
-
-  const auto c2p_map = mapAccrossLdStOp.mapConsumerToProducer();
-  const auto prod_ID = c2p_map.at(idInConsumerRoot);
+  const PairwiseRootDomainMap map_across_ldst(producer, consumer);
+  const auto c2p_map = map_across_ldst.mapConsumerToProducer();
+  const auto prod_ID = c2p_map.at(id_in_consumer_root);
 
   // If the innermost ID of the (maybe)Allocation domain
   // is not the same as the mapped ID in the producer, then
