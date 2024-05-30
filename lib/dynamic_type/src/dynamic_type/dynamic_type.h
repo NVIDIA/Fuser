@@ -560,12 +560,14 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
   };                                                                       \
   template <typename DT, typename RHS>                                     \
   inline constexpr std::enable_if_t<                                       \
-      is_dynamic_type_v<DT> && !is_dynamic_type_v<RHS> &&                  \
+      is_dynamic_type_v<DT> && !is_dynamic_type_v<std::decay_t<RHS>> &&    \
           any_check(                                                       \
-              opname##_rdefined_checker<RHS, typename DT::VariantType>,    \
+              opname##_rdefined_checker<                                   \
+                  std::decay_t<RHS>,                                       \
+                  typename DT::VariantType>,                               \
               DT::type_identities_as_tuple),                               \
       DT>                                                                  \
-  func_name(const DT& x, const RHS& y) {                                   \
+  func_name(const DT& x, RHS&& y) {                                        \
     return DT::dispatch(                                                   \
         [](auto&& x, auto&& y) -> decltype(auto) {                         \
           if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {    \
@@ -574,7 +576,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           }                                                                \
         },                                                                 \
         x,                                                                 \
-        y);                                                                \
+        std::forward<RHS>(y));                                             \
   }                                                                        \
   /*TODO: we should inline the definition of lambdas into enable_if,*/     \
   /*but I can only do this in C++20 */                                     \
