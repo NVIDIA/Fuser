@@ -647,62 +647,63 @@ DEFINE_BINARY_OP(ge, >=, ge);
 // std::monostate has definitions on compare operators, so DynamicType should
 // always define them as well. There is no need for any SFINAE about member type
 // here. https://en.cppreference.com/w/cpp/utility/variant/monostate
-#define DEFINE_COMPARE_OP(opname, op)                                         \
-  template <typename DT, typename = std::enable_if_t<is_dynamic_type_v<DT>>>  \
-  inline constexpr bool operator op(const DT& x, const DT& y) {               \
-    return DT::dispatch(                                                      \
-        [](auto&& x, auto&& y) -> decltype(auto) {                            \
-          if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {       \
-            if constexpr (std::is_convertible_v<decltype(x op y), bool>) {    \
-              return std::forward<decltype(x)>(x)                             \
-                  op std::forward<decltype(y)>(y);                            \
-            }                                                                 \
-          }                                                                   \
-        },                                                                    \
-        x,                                                                    \
-        y);                                                                   \
-  }                                                                           \
-  template <                                                                  \
-      typename DT,                                                            \
-      typename RHS,                                                           \
-      typename =                                                              \
-          std::enable_if_t<is_dynamic_type_v<DT> && !is_dynamic_type_v<RHS>>> \
-  inline constexpr bool operator op(const DT& x, const RHS& y) {              \
-    if constexpr (opcheck<RHS>.hasExplicitCastTo(opcheck<DT>)) {              \
-      return x op(DT) y;                                                      \
-    } else {                                                                  \
-      return DT::dispatch(                                                    \
-          [](auto&& x, auto&& y) -> decltype(auto) {                          \
-            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {     \
-              if constexpr (std::is_convertible_v<decltype(x op y), bool>) {  \
-                return std::forward<decltype(x)>(x)                           \
-                    op std::forward<decltype(y)>(y);                          \
-              }                                                               \
-            }                                                                 \
-          },                                                                  \
-          x,                                                                  \
-          y);                                                                 \
-    }                                                                         \
-  }                                                                           \
-  template <typename LHS, typename DT>                                        \
-  inline constexpr std::                                                      \
-      enable_if_t<is_dynamic_type_v<DT> && !is_dynamic_type_v<LHS>, bool>     \
-      operator op(const LHS& x, const DT& y) {                                \
-    if constexpr (opcheck<LHS>.hasExplicitCastTo(opcheck<DT>)) {              \
-      return (DT)x op y;                                                      \
-    } else {                                                                  \
-      return DT::dispatch(                                                    \
-          [](auto&& x, auto&& y) -> decltype(auto) {                          \
-            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {     \
-              if constexpr (std::is_convertible_v<decltype(x op y), bool>) {  \
-                return std::forward<decltype(x)>(x)                           \
-                    op std::forward<decltype(y)>(y);                          \
-              }                                                               \
-            }                                                                 \
-          },                                                                  \
-          x,                                                                  \
-          y);                                                                 \
-    }                                                                         \
+#define DEFINE_COMPARE_OP(opname, op)                                          \
+  template <typename DT, typename = std::enable_if_t<is_dynamic_type_v<DT>>>   \
+  inline constexpr bool operator op(const DT& x, const DT& y) {                \
+    return DT::dispatch(                                                       \
+        [](auto&& x, auto&& y) -> decltype(auto) {                             \
+          if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {        \
+            if constexpr (std::is_convertible_v<decltype(x op y), bool>) {     \
+              return std::forward<decltype(x)>(x)                              \
+                  op std::forward<decltype(y)>(y);                             \
+            }                                                                  \
+          }                                                                    \
+        },                                                                     \
+        x,                                                                     \
+        y);                                                                    \
+  }                                                                            \
+  template <                                                                   \
+      typename DT,                                                             \
+      typename RHS,                                                            \
+      typename = std::enable_if_t<                                             \
+          is_dynamic_type_v<DT> && !is_dynamic_type_v<std::decay_t<RHS>>>>     \
+  inline constexpr bool operator op(const DT& x, RHS&& y) {                    \
+    if constexpr (opcheck<std::decay_t<RHS>>.hasExplicitCastTo(opcheck<DT>)) { \
+      return x op(DT) y;                                                       \
+    } else {                                                                   \
+      return DT::dispatch(                                                     \
+          [](auto&& x, auto&& y) -> decltype(auto) {                           \
+            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {      \
+              if constexpr (std::is_convertible_v<decltype(x op y), bool>) {   \
+                return std::forward<decltype(x)>(x)                            \
+                    op std::forward<decltype(y)>(y);                           \
+              }                                                                \
+            }                                                                  \
+          },                                                                   \
+          x,                                                                   \
+          std::forward<RHS>(y));                                               \
+    }                                                                          \
+  }                                                                            \
+  template <typename LHS, typename DT>                                         \
+  inline constexpr std::enable_if_t<                                           \
+      is_dynamic_type_v<DT> && !is_dynamic_type_v<std::decay_t<LHS>>,          \
+      bool>                                                                    \
+  operator op(LHS&& x, const DT& y) {                                          \
+    if constexpr (opcheck<std::decay_t<LHS>>.hasExplicitCastTo(opcheck<DT>)) { \
+      return (DT)x op y;                                                       \
+    } else {                                                                   \
+      return DT::dispatch(                                                     \
+          [](auto&& x, auto&& y) -> decltype(auto) {                           \
+            if constexpr (opcheck<decltype(x)> op opcheck<decltype(y)>) {      \
+              if constexpr (std::is_convertible_v<decltype(x op y), bool>) {   \
+                return std::forward<decltype(x)>(x)                            \
+                    op std::forward<decltype(y)>(y);                           \
+              }                                                                \
+            }                                                                  \
+          },                                                                   \
+          std::forward<LHS>(x),                                                \
+          y);                                                                  \
+    }                                                                          \
   }
 
 DEFINE_COMPARE_OP(eq, ==);
