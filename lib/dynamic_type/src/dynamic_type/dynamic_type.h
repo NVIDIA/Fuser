@@ -8,6 +8,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <optional>
 #include <ostream>
 #include <type_traits>
@@ -92,6 +93,9 @@ struct DynamicType {
       typename Containers::template TypeIdentitiesAsTuple<DynamicType, Ts...>;
   static constexpr TypeIdentitiesAsTuple type_identities_as_tuple{};
 
+  static constexpr std::size_t num_types =
+      std::tuple_size_v<TypeIdentitiesAsTuple>;
+
   using ForAllTypes =
       typename Containers::template ForAllTypes<DynamicType, Ts...>;
   static constexpr ForAllTypes for_all_types{};
@@ -107,6 +111,100 @@ struct DynamicType {
         return opcheck<typename decltype(t)::type>.canCastTo(opcheck<T>);
       },
       type_identities_as_tuple);
+
+  template <typename FuncT, typename FirstArg, typename... OtherArgs>
+  static inline constexpr decltype(auto) dispatch(
+      FuncT&& f,
+      FirstArg&& arg0,
+      OtherArgs&&... args) {
+    // Recursively dispatch on `args`, only leaving arg0 as undispatched
+    // argument
+    auto f0 = [&](auto&& a0) -> decltype(auto) {
+      if constexpr (sizeof...(OtherArgs) == 0) {
+        return std::forward<FuncT>(f)(std::forward<decltype(a0)>(a0));
+      } else {
+        auto f_others = [&](auto&&... others) -> decltype(auto) {
+          return std::forward<FuncT>(f)(
+              std::forward<decltype(a0)>(a0),
+              std::forward<decltype(others)>(others)...);
+        };
+        return dispatch(f_others, std::forward<OtherArgs>(args)...);
+      }
+    };
+    // Does arg0 need dispatch?
+    if constexpr (std::is_same_v<std::decay_t<FirstArg>, DynamicType>) {
+      // Infer return result: if f always returns the same type, then we return
+      // the same type as well. Otherwise, we return DynamicType assuming that
+      // DynamicType is the common holder of these types. Void is treated
+      // specially here: if for some case the function returns some type, and
+      // for other cases the function returns void, then we ignore void and use
+      // the cases with return value for inference. We decide to do this because
+      // non-void return values can be ignored, but void returning can never
+      // pass any information. There is no single best inference strategy that
+      // fits all cases, ignoring void seems to be good tradeoff.
+      auto get_single_result_type = [](auto t) {
+        using T = typename decltype(t)::type;
+        using RetT = decltype(f0(std::declval<T>()));
+        if constexpr (!std::is_void_v<RetT>) {
+          return std::type_identity<RetT>{};
+        } else {
+          // return void instead of std::type_identity<void> so that we can use
+          // remove_void_from_tuple to remove it.
+          return;
+        }
+      };
+      using result_types = decltype(remove_void_from_tuple(
+          DynamicType::for_all_types(get_single_result_type)));
+      constexpr bool returns_void = (std::tuple_size_v<result_types> == 0);
+      if constexpr (returns_void) {
+        DynamicType::for_all_types([&](auto t) -> decltype(auto) {
+          using T = typename decltype(t)::type;
+          if (arg0.template is<T>()) {
+            f0(arg0.template as<T>());
+          }
+        });
+        return;
+      } else {
+        constexpr bool has_single_return_type =
+            are_all_same<result_types>::value;
+        using result_type = std::conditional_t<
+            has_single_return_type,
+            typename std::tuple_element_t<0, result_types>::type,
+            DynamicType>;
+        // Needs to wrap reference as optional<reference_wrapper<T>> because
+        // C++ does not allow rebinding a reference.
+        constexpr bool is_reference = std::is_reference_v<result_type>;
+        using ret_storage_t = std::conditional_t<
+            is_reference,
+            std::optional<
+                std::reference_wrapper<std::remove_reference_t<result_type>>>,
+            result_type>;
+        ret_storage_t ret{};
+        DynamicType::for_all_types([&](auto t) -> decltype(auto) {
+          using T = typename decltype(t)::type;
+          if (arg0.template is<T>()) {
+            const T& a0 = arg0.template as<T>();
+            if constexpr (std::
+                              is_convertible_v<decltype(f0(a0)), result_type>) {
+              ret = f0(a0);
+            } else {
+              DYNAMIC_TYPE_CHECK(
+                  false,
+                  "Result is dynamic but not convertible to result type");
+            }
+          }
+        });
+        if constexpr (is_reference) {
+          return ret->get();
+        } else {
+          return ret;
+        }
+      }
+    } else {
+      // No need to dispatch arg0, just perfectly forwarding it.
+      return f0(std::forward<FirstArg>(arg0));
+    }
+  }
 
   constexpr DynamicType() = default;
 
@@ -185,23 +283,14 @@ struct DynamicType {
 
   template <typename T, typename = std::enable_if_t<can_cast_to<T>>>
   explicit constexpr operator T() const {
-    std::optional<T> ret = std::nullopt;
-    for_all_types([this, &ret](auto from) {
-      using From = typename decltype(from)::type;
-      if constexpr (opcheck<From>.canCastTo(opcheck<T>)) {
-        if (is<From>()) {
-          ret = (T)as<From>();
-        }
-      }
-    });
-    DYNAMIC_TYPE_CHECK(
-        ret.has_value(),
-        "Cannot cast from ",
-        type().name(),
-        " to ",
-        typeid(T).name(),
-        " : incompatible type");
-    return ret.value();
+    return dispatch(
+        [](auto x) -> decltype(auto) {
+          using X = decltype(x);
+          if constexpr (opcheck<X>.canCastTo(opcheck<T>)) {
+            return (T)x;
+          }
+        },
+        *this);
   }
 
   template <
