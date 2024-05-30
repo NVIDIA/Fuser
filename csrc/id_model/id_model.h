@@ -153,6 +153,15 @@ class IdModel : public PolymorphicBase {
 
   std::string toString() const;
 
+  bool empty() const {
+    return tvs_.empty();
+  }
+
+  Fusion* fusion() const {
+    NVF_ERROR(!tvs_.empty());
+    return tvs_.at(0)->fusion();
+  }
+
   // Build all graphs, i.e., Exact, AlmostExact, Permissive and
   // LOOP. This is by default called from the constructor
   void buildAllGraphs();
