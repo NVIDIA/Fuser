@@ -88,9 +88,9 @@ static const PrecisionsDesc TSS = std::make_tuple(
 
 void checkUnsegmentedVectorization(
     const FusionExecutorCache& executor_cache,
-    const int64_t expected_vec_a,
-    const int64_t expected_vec_b,
-    const int64_t expected_vec_epilogue) {
+    int64_t expected_vec_A,
+    int64_t expected_vec_B,
+    int64_t expected_vec_epilogue) {
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();
 
@@ -105,8 +105,8 @@ void checkUnsegmentedVectorization(
   const MatmulParams& params =
       runtime->schedulerHeuristics()->heuristicsList().front()->matmulParams();
 
-  EXPECT_EQ(params.supported_vec_size.a, expected_vec_a);
-  EXPECT_EQ(params.supported_vec_size.b, expected_vec_b);
+  EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
+  EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
   EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
 }
 
@@ -400,7 +400,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
       executor_cache,
       16l / dataTypeSize(in_type),
       16l / dataTypeSize(in_type),
-      std::min(16l / dataTypeSize(out_type), 16l / dataTypeSize(in_type)));
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -605,7 +605,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
       executor_cache,
       16l / dataTypeSize(in_type),
       16l / dataTypeSize(in_type),
-      std::min(16l / dataTypeSize(out_type), 16l / dataTypeSize(in_type)));
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -1049,7 +1049,7 @@ TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
 
   auto out_tensors = executor_cache.runFusionWithInputs({x_ref, y_ref});
 
-  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
+  checkUnsegmentedVectorization(executor_cache, 8l, 8l, 4l);
 
   testValidate(
       executor_cache.fusion(),
@@ -2118,9 +2118,9 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
                        int align_A,
                        int align_B,
                        int align_bias,
-                       const int64_t expected_vec_a,
-                       const int64_t expected_vec_b,
-                       const int64_t expected_vec_epilogue) {
+                       int expected_vec_A,
+                       int expected_vec_B,
+                       int expected_vec_epilogue) {
           const auto maybeUnalign = [](const at::Tensor& t, int offset) {
             if (offset == 16 / t.element_size()) {
               // Already fully aligned
@@ -2172,20 +2172,20 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
                                            .front()
                                            ->matmulParams();
 
-          EXPECT_EQ(params.supported_vec_size.a, expected_vec_a);
-          EXPECT_EQ(params.supported_vec_size.b, expected_vec_b);
+          EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
+          EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
           EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
 
           EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
         };
 
-        const bool contig_K_A =
+        [[maybe_unused]] bool contig_K_A =
             layout == MmaLayout::TT || layout == MmaLayout::TN;
-        const bool contig_K_B =
+        [[maybe_unused]] bool contig_K_B =
             layout == MmaLayout::TN || layout == MmaLayout::NN;
 
         // When not downcasting, outputs are Float
-        const int64_t max_vec_epi = downcast_output ? 8 : 4;
+        [[maybe_unused]] int max_vec_epi = downcast_output ? 8 : 4;
 
         // all fully vectorizable in all layouts
         run(504, 136, 248, 8, 8, 8, 8, 8, max_vec_epi);
@@ -2244,12 +2244,9 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
                        int pad_A,
                        int pad_B,
                        int pad_bias,
-                       int64_t expected_vec_a,
-                       int64_t expected_vec_b,
-                       const int64_t expected_vec_epilogue) {
-          const std::vector<int64_t>& expected_vec_operands{
-              expected_vec_a, expected_vec_b};
-
+                       int expected_vec_A,
+                       int expected_vec_B,
+                       int expected_vec_epilogue) {
           auto fusion = std::make_unique<Fusion>();
           FusionGuard fg(fusion.get());
 
@@ -2376,20 +2373,20 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
                                            .front()
                                            ->matmulParams();
 
-          EXPECT_EQ(params.supported_vec_size.a, expected_vec_a);
-          EXPECT_EQ(params.supported_vec_size.b, expected_vec_b);
+          EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
+          EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
           EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
 
           EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
         };
 
-        // When not downcasting, outputs are Float
-        const int64_t max_vec_epi = downcast_output ? 8 : 4;
-
-        const bool contig_K_A =
+        [[maybe_unused]] bool contig_K_A =
             layout == MmaLayout::TT || layout == MmaLayout::TN;
-        const bool contig_K_B =
+        [[maybe_unused]] bool contig_K_B =
             layout == MmaLayout::TN || layout == MmaLayout::NN;
+
+        // When not downcasting, outputs are Float
+        [[maybe_unused]] int max_vec_epi = downcast_output ? 8 : 4;
 
         // Pad outer stride of A by 1. M and K are even, so no vectorization of
         // A is possible despite compatible sizes.
