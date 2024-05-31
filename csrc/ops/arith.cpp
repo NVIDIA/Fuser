@@ -1553,12 +1553,12 @@ std::vector<size_t> findInnerFoldDimensions(
     const std::vector<TensorView*>& combined_tvs) {
   std::vector<size_t> fold_axis_positions;
   std::unordered_set<Expr*> visited_expr_outputs;
-  std::stack<TensorView*> to_visit;
+  std::queue<TensorView*> to_visit;
   for (auto c : combined_tvs) {
     to_visit.push(c);
   }
   while (!to_visit.empty()) {
-    TensorView* tv = to_visit.top();
+    TensorView* tv = to_visit.front();
     to_visit.pop();
     if (!std::any_of(
             tv->getMaybeRFactorDomain().begin(),
@@ -1576,8 +1576,6 @@ std::vector<size_t> findInnerFoldDimensions(
       continue;
     }
     if (auto bfop = dynamic_cast<BeginFoldOp*>(tv->definition())) {
-      std::cout << bfop->toString() << std::endl;
-      std::cout << "fold_axis_positions: " << fold_axis_positions << std::endl;
       NVF_ERROR(bfop->numTensors() > 0);
       // Determine which fold axes were introduced by this op.
       std::vector<size_t> this_fold_axis_positions;
@@ -1588,8 +1586,6 @@ std::vector<size_t> findInnerFoldDimensions(
           this_fold_axis_positions.push_back(i);
         }
       }
-      std::cout << "this_fold_axis_positions: " << fold_axis_positions
-                << std::endl;
 
       // Ensure that either fold_axis_positions is empty, or that it matches the
       // fold axes we found in bfop.
