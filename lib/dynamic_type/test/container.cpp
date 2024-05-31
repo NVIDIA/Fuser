@@ -203,3 +203,8 @@ TEST_F(DynamicTypeTest, SetTheoreticNaturalNumbers) {
 }
 
 #undef insert
+
+TEST_F(DynamicTypeTest, InitializerList) {
+  using IntOrVec = DynamicType<Containers<std::vector>, int>;
+  IntOrVec x({{1, 2}, {3, {4, 5, {6}}}});
+}
