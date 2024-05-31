@@ -693,6 +693,13 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
       // Don't overwrite initialized cases due to rfactor markings.
       if (covered_ids.find(output_group) == covered_ids.end()) {
         covered_ids[output_group] = covered;
+      } else {
+        // An exact group may have multiple exact expr groups and may
+        // have different coverage groups depending on the expr
+        // groups. For example, this can happen with reshape or
+        // resize. See test LoopPromotionCoverage for a concrete
+        // example.
+        covered_ids[output_group].pushBack(covered);
       }
     }
   }
