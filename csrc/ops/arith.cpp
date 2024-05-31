@@ -1543,7 +1543,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
 
     // If the expanded size is -1, let the input extent be propagated
     // as is
-    if (expanded_size_int.hasValue() && expanded_size_int == -1) {
+    if (expanded_size_int.hasValue() && expanded_size_int.as<int64_t>() == -1) {
       // This is just done for clarity. It isn't necessary as it's
       // already done when constructing out_id_builder.
       out_id_builder.extent(inp_id->extent());
@@ -1551,8 +1551,10 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
         // special patch for Symbolic IterDomain with a static size-1 extent
         // since we know it will become broadcast at concretization
         // See Issue: https://github.com/NVIDIA/Fuser/pull/1393
-        (inp_id->extent()->isConstInt() && inp_id->extent()->evaluate() == 1) &&
-        (!expanded_size_int.hasValue() || expanded_size_int != 1)) {
+        (inp_id->extent()->isConstInt() &&
+         inp_id->extent()->evaluate().as<int64_t>() == 1) &&
+        (!expanded_size_int.hasValue() ||
+         expanded_size_int.as<int64_t>() != 1)) {
       // When input id is a broadcast, expand the extent to the given
       // size, which can be concrete or symbolic.
       expanded = true;

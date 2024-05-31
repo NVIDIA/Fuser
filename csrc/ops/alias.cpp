@@ -125,7 +125,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   bool found_neg_one = false;
   for (const auto i : c10::irange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
-    if (new_size->isConstScalar() && new_size->evaluate() == -1) {
+    if (new_size->isConstScalar() && new_size->evaluate().as<int64_t>() == -1) {
       // It is usually safe to use the provided scalars as the output shapes.
       // However, if -1 is provided for some position, it will not correspond to
       // the actual extent in that position.
@@ -264,7 +264,8 @@ TensorView* squeeze(
             id->toString(),
             ". To force removal of this axis, use squeeze_expanded=true.");
         NVF_CHECK(
-            id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
+            id->extent()->isConstScalar() &&
+                id->extent()->evaluate().as<int64_t>() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
