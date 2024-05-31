@@ -2518,6 +2518,8 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  // Two reshape paths, tv0 and tv2, are joined and broadcast, and
+  // then joined with tv3.
   auto tv0 = makeConcreteTensor({3, 4});
   fusion.addInput(tv0);
   auto tv1 = makeConcreteTensor({2});
@@ -2538,10 +2540,11 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
   auto tv10 = add(tv9, tv3);
   fusion.addOutput(tv10);
 
-  tv10->merge(0);
+  // All tensors are flattened and inlined, thus
+  // there is only one loop group.
+  tv10->flatten();
   TransformPropagatorWithCheck propagator(tv10);
   MaxRootDomainInfoSpanningTree(tv10).traverse(&propagator);
-
   inlineMost();
 
   IdModel id_model(&fusion);
@@ -2566,6 +2569,9 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
 
     auto promotion_it =
         loop_promotion_map.find(loop_graph.toGroup(tv->axis(0)));
+
+    // Without the fix of PR #2322, this assertion would fail as the
+    // loop group fails to find any promotion.
     ASSERT_NE(promotion_it, loop_promotion_map.end())
         << "No promotion found for " << tv->axis(0)->toString();
 
