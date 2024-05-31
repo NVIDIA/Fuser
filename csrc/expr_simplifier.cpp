@@ -1513,7 +1513,7 @@ bool isPositiveHelper(Val* value, const Context& context) {
 
 bool isNonZero(Val* value, const Context& context) {
   value = foldConstants(value);
-  if (value->value().hasValue() && (value->value() != 0).as<bool>()) {
+  if (value->value().hasValue() && (bool)(value->value() != 0)) {
     return true;
   }
   if (isPositive(value, context)) {

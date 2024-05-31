@@ -218,7 +218,7 @@ PolymorphicValue Val::evaluate() {
 }
 
 bool Val::isZero() const {
-  return value().hasValue() && (value() == 0).as<bool>();
+  return value().hasValue() && (bool)(value() == 0);
 }
 
 bool Val::isZeroInt() const {
@@ -227,7 +227,7 @@ bool Val::isZeroInt() const {
 }
 
 bool Val::isOne() const {
-  return value().hasValue() && (value() == 1).as<bool>();
+  return value().hasValue() && (bool)(value() == 1);
 }
 
 bool Val::isOneInt() const {
