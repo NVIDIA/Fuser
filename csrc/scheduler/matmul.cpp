@@ -882,16 +882,17 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(acw_smem->uses().size() == 1);
   NVF_ERROR(bcw_smem->uses().size() == 1);
 
-  // We add two set operators to the inputs of our fusions. The first set
-  // operator is for a read from global memory and the second one (below) is for
+  // We add two LoadStore operators to the inputs of our fusions. The first one
+  // is for a read from global memory and the second one (below) is for
   // a cache read. As an optimizaton, we avoid adding an operator if there's an
-  // existing LoadStoreOp present already.
+  // existing LoadStoreOp present.
   auto addSetForCacheRead = [](TensorView* tv_smem, TensorView** tv_r) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
       *tv_r = ldst->out()->as<TensorView>();
+      ldst->setOpType(LoadStoreOpType::LdMatrix);
     } else {
       *tv_r = tv_smem->cacheAfter(
-          LoadStoreOpType::Set,
+          LoadStoreOpType::LdMatrix,
           CacheOp::Unspecified,
           /*propagate_allocation_domain=*/false);
     }
