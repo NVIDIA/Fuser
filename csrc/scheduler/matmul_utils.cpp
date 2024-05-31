@@ -405,13 +405,13 @@ class VectorizationCalculator {
     for (int64_t i = (int64_t)tv->getMaybeAllocationDomain().size() - 1; i >= 0;
          --i) {
       IterDomain* id = tv->getMaybeAllocationDomain()[i];
-      if (id->isReduction() || id->isBroadcast()) {
+      if (id->isDeviceDim() || id->isReduction() || id->isBroadcast()) {
         continue;
       }
 
       ValGroup g = exact_graph_.toGroup(id);
       // Exit when this does not match the given ordered inner dimension
-      if (g != remaining_inner_dims.back()) {
+      if (remaining_inner_dims.empty() || g != remaining_inner_dims.back()) {
         break;
       }
       remaining_inner_dims.pop_back();
@@ -451,12 +451,12 @@ class VectorizationCalculator {
 
     // Account for misaligned rows due to outer strides
     for (size_t i : c10::irange(inner_dim_pos)) {
-      if (sizes[i] == 1) {
+      if (sizes.at(i) == 1) {
         // outer size-1 dimensions don't affect vectorizability
         continue;
       }
       vec_size = std::min(
-          vec_size, scheduler_utils::maxVectorizationWidth(strides[i]));
+          vec_size, scheduler_utils::maxVectorizationWidth(strides.at(i)));
     }
 
     return vec_size;
