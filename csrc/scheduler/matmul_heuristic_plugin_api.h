@@ -63,9 +63,9 @@ struct KernelConfig {
 
     //! Supported vectorization of operands and epilogue inputs (bias)
     struct SupportedVectorization {
-      uint8_t a;
-      uint8_t b;
-      uint8_t epilogue;
+      uint8_t a = 16;
+      uint8_t b = 16;
+      uint8_t epilogue = 16;
     } supported_vec_size;
   } problem;
 
