@@ -330,7 +330,9 @@ class VectorizationCalculator {
   }
 
   MatmulParams::SupportedVectorization compute() {
-    return {operandVectorizations(), epilogueVectorization()};
+    const std::vector<int64_t> op_vecs = operandVectorizations();
+    NVF_ERROR(op_vecs.size() == 2, "Expected exactly two operands");
+    return {op_vecs[0], op_vecs[1], epilogueVectorization()};
   }
 
  private:
@@ -730,13 +732,9 @@ bool isCpAsyncOperandLoadSupported(
     int64_t cp_bytes = dtype_size * vec_size;
     return cp_bytes == 16 || cp_bytes == 8 || cp_bytes == 4;
   };
-  NVF_ERROR(
-      params->supported_vec_size.operands.size() == 2,
-      "Only two operands supported");
   return params->double_buffer_options.smem_double_buffer_stage > 1 &&
-      validCpAsyncVecSize(
-             dtype_size_a, params->supported_vec_size.operands[0]) &&
-      validCpAsyncVecSize(dtype_size_b, params->supported_vec_size.operands[1]);
+      validCpAsyncVecSize(dtype_size_a, params->supported_vec_size.a) &&
+      validCpAsyncVecSize(dtype_size_b, params->supported_vec_size.b);
 }
 
 std::shared_ptr<MatmulParams> getMatmulHeuristics(

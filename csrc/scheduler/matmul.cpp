@@ -766,11 +766,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const auto& tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
 
-  // TODO: generalize to more than two operands
-  NVF_ERROR(params.supported_vec_size.operands.size() == 2);
-  int64_t vec_a = params.supported_vec_size.operands[0];
-  int64_t vec_b = params.supported_vec_size.operands[1];
-
   // NOTE: the contents of tensor_roles have been already validated during
   //  compute-time checks
   NVF_ERROR(tensor_roles_opt.isValid(), tensor_roles_opt.getErrorMsg());
@@ -870,8 +865,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
           "MatmulParams::async_gmem_load_operands should be set to false in this case.");
       return vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
     };
-    cache_op_a = getCacheOp(vec_a, a);
-    cache_op_b = getCacheOp(vec_b, b);
+    cache_op_a = getCacheOp(params.supported_vec_size.a, a);
+    cache_op_b = getCacheOp(params.supported_vec_size.b, b);
   }
 
   NVF_ERROR(a->uses().size() == 1);
@@ -1032,8 +1027,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Schedule prolog:
   //   TODO: this section needs more configurability.
   // ------------------------------------------------------------------
-  scheduleProlog(acw_smem, vec_a, params);
-  scheduleProlog(bcw_smem, vec_b, params);
+  scheduleProlog(acw_smem, params.supported_vec_size.a, params);
+  scheduleProlog(bcw_smem, params.supported_vec_size.b, params);
 
   // Get the input to the mma op.
   mma = mma_result->definition()->as<MmaOp>();

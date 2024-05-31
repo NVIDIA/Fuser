@@ -76,10 +76,8 @@ class MatmulParams : public HeuristicParams {
     // multiple K dimensions, then we can only vectorize those inner dimensions
     // that are consistent with the canonical dimension ordering shared by all
     // tensors in the Fusion.
-    //
-    // Here we list the vectorization for each operand, listing all A operands
-    // then all B operands.
-    std::vector<int64_t> operands;
+    int64_t a;
+    int64_t b;
 
     // The epilogue is handled in a separate loop from the main loop/operand
     // loads. We inline the epilogue expressions as much as possible, and we
@@ -118,24 +116,23 @@ class MatmulParams : public HeuristicParams {
     int64_t epilogue = 1;
 
     bool operator==(const SupportedVectorization& other) const {
-      return other.operands == operands && other.epilogue == epilogue;
+      return other.a == a && other.b == b && other.epilogue == epilogue;
     }
 
     std::string toString() const {
       std::stringstream ss;
       ss << "SupportedVectorization:\n"
-         << "  operands: " << operands << "\n"
+         << "  a: " << a << "\n"
+         << "  b: " << b << "\n"
          << "  epilogue: " << epilogue;
       return ss.str();
     }
 
     size_t hash() const {
-      size_t h = 0l;
-      for (int64_t v : operands) {
-        hashCombine(h, (size_t)v);
-      }
-      hashCombine(h, epilogue);
-      return h;
+      return std::hash<size_t>{}(
+                 (static_cast<size_t>(a) << 8) |
+                 (static_cast<size_t>(b)) << 4) |
+          (static_cast<size_t>(epilogue));
     }
   } supported_vec_size;
 

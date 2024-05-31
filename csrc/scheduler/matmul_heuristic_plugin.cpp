@@ -135,18 +135,8 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
       params.double_buffer_options.double_buffer_smem_read;
   config->rotate_ldmatrix_out_of_main_loop =
       params.rotate_ldmatrix_out_of_main_loop;
-
-  const auto setUCharVec = [](std::vector<uint8_t>& out,
-                              const std::vector<int64_t>& in) {
-    out.clear();
-    out.reserve(in.size());
-    for (size_t i : c10::irange(in.size())) {
-      out.push_back((uint8_t)in[i]);
-    }
-  };
-  setUCharVec(
-      config->problem.supported_vec_size.operands,
-      params.supported_vec_size.operands);
+  config->problem.supported_vec_size.a = (uint8_t)params.supported_vec_size.a;
+  config->problem.supported_vec_size.b = (uint8_t)params.supported_vec_size.b;
   config->problem.supported_vec_size.epilogue =
       (uint8_t)params.supported_vec_size.epilogue;
 }
