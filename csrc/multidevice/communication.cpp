@@ -294,8 +294,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
         input_tensors.front().push_back(output_tensor);
         continue;
       }
-      input_tensors.front().push_back(
-          input_tensor.slice(0, j, j + 1).contiguous());
+      input_tensors.front().push_back(input_tensor.slice(0, j, j + 1));
       j++;
     }
 

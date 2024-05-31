@@ -27,6 +27,8 @@
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <options.h>
+#include <preseg_passes/allocation_order_inference.h>
+#include <preseg_passes/optimization_pass.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
@@ -268,6 +270,351 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
         executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
   }
 }
+
+using MatmulNodeTranslationTestParams =
+    std::tuple<int64_t, int64_t, bool, bool, bool, ScheduleHeuristic>;
+using MatmulNodeTranslationTest =
+    NVFuserFixtureParamTest<MatmulNodeTranslationTestParams>;
+
+// Test that a simple matmul op fusion is picked up by the appropriate scheduler
+// and the translation to MmaOp is performed properly.
+TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  const int64_t A_dim = std::get<0>(GetParam());
+  const int64_t B_dim = std::get<1>(GetParam());
+  const bool enable_fusion = std::get<2>(GetParam());
+  const bool transpose_a_alloc = std::get<3>(GetParam());
+  const bool expect_segmented = std::get<4>(GetParam());
+  const ScheduleHeuristic expected_heuristic = std::get<5>(GetParam());
+
+  // CombineMulSumAsMmaTest disabled MatmulExprEval, but we need it enabled
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
+
+  EnableOptionsGuard eog;
+  if (enable_fusion) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::FuseMatmul);
+  }
+
+  // The allocation domain propagation pass sets the output allocation domain,
+  // which sometimes causes the matmul scheduler to decline the whole fusion
+  // when it could compile it otherwise.
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      alloc_pass_guard(false);
+
+  int batch_size = 3, M = 504, N = 136, K = 248;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(A_dim, DataType::Half);
+  auto tv1 = makeContigTensor(B_dim, DataType::Half);
+
+  if (transpose_a_alloc && A_dim > 1) {
+    std::vector<IterDomain*> alloc = tv0->getMaybeAllocationDomain();
+    alloc[alloc.size() - 1] = tv0->axis(-2);
+    alloc[alloc.size() - 2] = tv0->axis(-1);
+    tv0->setAllocationDomain(alloc, true);
+  }
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+
+  // add an epilogue
+  auto tv3 = sin(tv2);
+  auto tv4 = castOp(DataType::Half, tv3);
+
+  fusion->addOutput(tv4);
+
+  // Verify that we no longer set up MmaOp in matmul()
+  ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  std::vector<int64_t> A_shape(A_dim, batch_size);
+  A_shape[A_dim - 1] = K;
+  if (A_dim > 1) {
+    A_shape[A_dim - 2] = M;
+  }
+  at::Tensor t0 = at::randn(A_shape, options);
+  std::vector<int64_t> B_shape(B_dim, batch_size);
+  if (B_dim > 1) {
+    B_shape[B_dim - 2] = K;
+    B_shape[B_dim - 1] = N;
+  } else {
+    B_shape[B_dim - 1] = K;
+  }
+  auto t1 = at::randn(B_shape, options);
+  if (transpose_a_alloc) {
+    t0 = t0.as_strided({M, K}, {1, M});
+  }
+  auto tref = at::matmul(t0, t1).sin().to(at::kHalf);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  const FusionKernelRuntime* runtime =
+      executor_cache.getMostRecentKernelRuntime();
+  ASSERT_NE(runtime, nullptr);
+
+  if (expect_segmented) {
+    EXPECT_TRUE(runtime->isSegmented());
+  } else {
+    EXPECT_FALSE(runtime->isSegmented());
+  }
+
+  ScheduleHeuristic heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().front()->heuristic();
+  EXPECT_EQ(heuristic, expected_heuristic);
+
+  if (heuristic == ScheduleHeuristic::Matmul) {
+    // Ensure there's an MmaOp.
+    EXPECT_FALSE(
+        ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
+            .empty());
+  }
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    MatmulNodeTranslationTest,
+    ::testing::Values(
+        // Tests without fusion enabled
+        std::
+            make_tuple(2l, 2l, false, false, true, ScheduleHeuristic::ExprEval),
+        std::make_tuple(2l, 2l, false, true, true, ScheduleHeuristic::ExprEval),
+        // Tests with fusion enabled
+        std::make_tuple(2l, 2l, true, false, false, ScheduleHeuristic::Matmul),
+        // We cannot yet handle allocation domain in matmul scheduler
+        std::make_tuple(2l, 2l, true, true, true, ScheduleHeuristic::ExprEval),
+        // Size-1 input combinations
+        std::make_tuple(1l, 2l, true, false, true, ScheduleHeuristic::ExprEval),
+        std::make_tuple(2l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
+        // We fuse this case using the Reduction scheduler
+        std::make_tuple(
+            1l,
+            1l,
+            true,
+            false,
+            false,
+            ScheduleHeuristic::Reduction),
+        // Batch dims
+        std::make_tuple(3l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
+        std::make_tuple(3l, 3l, true, false, false, ScheduleHeuristic::Matmul),
+        // TODO: mixed length inputs via broadcasted batch dims
+        // We currently reject differently-sized inputs since these translate to
+        // multiple M or N dims
+        std::make_tuple(3l, 2l, true, false, true, ScheduleHeuristic::ExprEval),
+        std::make_tuple(2l, 3l, true, false, true, ScheduleHeuristic::ExprEval),
+        // TODO: More than one batch dimension is not yet supported in Matmul
+        // scheduler
+        std::
+            make_tuple(4l, 4l, true, false, true, ScheduleHeuristic::ExprEval)),
+    [](const testing::TestParamInfo<MatmulNodeTranslationTestParams>& info) {
+      std::ostringstream os;
+      os << std::get<0>(info.param) << "dA";
+      os << "_" << std::get<1>(info.param) << "dB";
+      if (!std::get<2>(info.param)) {
+        os << "_nofuse";
+      }
+      if (std::get<3>(info.param)) {
+        os << "_transposeA";
+      }
+      return os.str();
+    });
+
+using LinearNodeTranslationTestParams =
+    std::tuple<int64_t, int64_t, int64_t, bool, bool, bool>;
+using LinearNodeTranslationTest =
+    NVFuserFixtureParamTest<LinearNodeTranslationTestParams>;
+
+// Test that a simple linear op fusion is picked up by the appropriate scheduler
+// and the translation to MmaOp is performed properly.
+TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  // The allocation domain propagation pass sets the output allocation domain,
+  // which sometimes causes the matmul scheduler to decline the whole fusion
+  // when it could compile it otherwise.
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      alloc_pass_guard(false);
+  const int64_t A_dim = std::get<0>(GetParam());
+  const int64_t B_dim = std::get<1>(GetParam());
+  const int64_t bias_dim = std::get<2>(GetParam());
+  const bool enable_fusion = std::get<3>(GetParam());
+  const bool transpose_a_alloc = std::get<4>(GetParam());
+  const bool expect_aten_eval = std::get<5>(GetParam());
+
+  // CombineMulSumAsMmaTest disabled MatmulExprEval, but we need it
+  // enabled
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::MatmulExprEval);
+
+  EnableOptionsGuard eog;
+  if (enable_fusion) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+  } else {
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::FuseMatmul);
+  }
+
+  int batch_size = 3, M = 504, N = 136, K = 248;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(A_dim, DataType::Half);
+  auto tv1 = makeContigTensor(B_dim, DataType::Half);
+
+  if (transpose_a_alloc && A_dim > 1) {
+    std::vector<IterDomain*> alloc = tv0->getMaybeAllocationDomain();
+    alloc[alloc.size() - 1] = tv0->axis(-2);
+    alloc[alloc.size() - 2] = tv0->axis(-1);
+    tv0->setAllocationDomain(alloc, true);
+  }
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  TensorView* tv2 = nullptr;
+  if (bias_dim >= 0) {
+    // bias_dim = -1 indicates we should not use any bias argument
+    auto bias = makeContigTensor(bias_dim, DataType::Half);
+    fusion->addInput(bias);
+    tv2 = linear(tv0, tv1, bias);
+  } else {
+    tv2 = linear(tv0, tv1);
+  }
+
+  // add an epilogue
+  auto tv3 = sin(tv2);
+  auto tv4 = castOp(DataType::Half, tv3);
+
+  fusion->addOutput(tv4);
+
+  // Verify that we no longer set up MmaOp in matmul()
+  ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  std::vector<int64_t> A_shape(A_dim, batch_size);
+  A_shape[A_dim - 1] = K;
+  if (A_dim > 1) {
+    A_shape[A_dim - 2] = M;
+  }
+  at::Tensor t0 = at::randn(A_shape, options);
+  std::vector<int64_t> B_shape(B_dim, batch_size);
+  B_shape[B_dim - 1] = K;
+  if (B_dim > 1) {
+    B_shape[B_dim - 2] = N;
+  }
+  auto t1 = at::randn(B_shape, options);
+  if (transpose_a_alloc) {
+    t0 = t0.as_strided({M, K}, {1, M});
+  }
+  std::vector<c10::IValue> inputs{t0, t1};
+  at::Tensor tref;
+  if (bias_dim >= 0) {
+    at::Tensor bias;
+    if (bias_dim == 0) {
+      bias = at::randn({}, options);
+    } else if (bias_dim == 1) {
+      bias = at::randn({N}, options);
+    } else {
+      NVF_ERROR(false, "Invalid bias dimension given:", bias_dim);
+    }
+    inputs.emplace_back(bias);
+    tref = at::linear(t0, t1, bias);
+  } else {
+    tref = at::linear(t0, t1);
+  }
+  tref = tref.sin().to(at::kHalf);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  const FusionKernelRuntime* runtime =
+      executor_cache.getMostRecentKernelRuntime();
+  ASSERT_NE(runtime, nullptr);
+
+  if (expect_aten_eval) {
+    EXPECT_TRUE(runtime->isSegmented());
+  } else {
+    EXPECT_FALSE(runtime->isSegmented());
+  }
+
+  ScheduleHeuristic heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().front()->heuristic();
+  if (expect_aten_eval) {
+    EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
+  } else {
+    // Ensure that the Matmul scheduler ran.
+    // Assert here since we will inspect the kernel next, which we can't
+    // do if ExprEval accepts the segment.
+    ASSERT_EQ(heuristic, ScheduleHeuristic::Matmul);
+    // Ensure there's an MmaOp.
+    EXPECT_FALSE(
+        ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
+            .empty());
+  }
+
+  testValidate(
+      executor_cache.fusion(), outputs, inputs, {tref}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    LinearNodeTranslationTest,
+    ::testing::Values(
+        // Tests without fusion enabled
+        std::make_tuple(2l, 2l, -1l, false, false, true),
+        std::make_tuple(2l, 2l, -1l, false, true, true),
+        std::make_tuple(1l, 2l, -1l, false, false, true),
+        std::make_tuple(2l, 1l, -1l, false, false, true),
+        std::make_tuple(2l, 2l, 1l, false, false, true),
+        std::make_tuple(1l, 1l, -1l, false, false, true),
+        std::make_tuple(3l, 2l, 1l, false, false, true),
+        std::make_tuple(4l, 2l, 1l, false, false, true),
+        // Enable fusion
+        std::make_tuple(2l, 2l, -1l, true, false, false),
+        // We cannot yet handle allocation domain in matmul scheduler
+        std::make_tuple(2l, 2l, -1l, true, true, true),
+        // We don't fuse 1D inputs
+        std::make_tuple(1l, 2l, -1l, true, false, true),
+        std::make_tuple(2l, 1l, -1l, true, false, true),
+        // Check that zero-dim output fusion is not claimed by NoOp scheduler
+        std::make_tuple(1l, 1l, -1l, true, false, true),
+        // Batch dims in input
+        // TODO: mixed length inputs via broadcasted batch dims
+        // We currently reject differently-sized inputs since these translate to
+        // multiple M or N dims
+        std::make_tuple(3l, 2l, -1l, true, false, true),
+        // TODO: We don't yet support multiple batch dims in matmul scheduler
+        std::make_tuple(4l, 2l, -1l, true, false, true),
+        // Bias cases
+        std::make_tuple(2l, 2l, 0l, true, false, false),
+        std::make_tuple(2l, 2l, 1l, true, false, false),
+        // TODO: Mixed-length inputs are rejected with bias also
+        std::make_tuple(3l, 2l, 1l, true, false, true),
+        // TODO: We don't yet support multiple batch dims in matmul scheduler
+        std::make_tuple(4l, 2l, 1l, true, false, true)),
+    [](const testing::TestParamInfo<LinearNodeTranslationTestParams>& info) {
+      std::ostringstream os;
+      os << std::get<0>(info.param) << "dA";
+      os << "_" << std::get<1>(info.param) << "dB";
+      int64_t bias_dim = std::get<2>(info.param);
+      if (bias_dim >= 0) {
+        os << "_" << bias_dim << "dBias";
+      }
+      if (!std::get<3>(info.param)) {
+        os << "_nofuse";
+      }
+      if (std::get<4>(info.param)) {
+        os << "_transposeA";
+      }
+      return os.str();
+    });
 
 // Check that we determine A and B properly when they are swapped as inputs to
 // mul

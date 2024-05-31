@@ -26,10 +26,10 @@ namespace mma_utils {
 //! A wrapper to get MMA Tensor data types
 //!   The order of returned types: INPUT_A, INPUT_B, OUTPUT_D
 inline mma_utils::MmaDataTypes getMmaDataTypes(
-    const TensorRolesMap& tensor_roles) {
+    const std::map<MatmulRole, std::vector<TensorView*>>& roles_map) {
   auto getMMADataType = [&](MatmulRole role) {
-    auto entry = tensor_roles.find(role);
-    if (entry != tensor_roles.end() && !entry->second.empty()) {
+    auto entry = roles_map.find(role);
+    if (entry != roles_map.end() && !entry->second.empty()) {
       return entry->second.front()->dtype();
     }
     NVF_ERROR(false, "Get MMA Tensor data type failed!");
@@ -1612,10 +1612,13 @@ MmaOp* MatmulPattern::translateToMmaOp() {
   return mma_op;
 }
 
+<<<<<<< HEAD
+DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
+=======
 namespace {
 // Determine dim roles for either a MatmulOp or a LinearOp, given IterDomain
 // mappings
-DimRolesMap matmulOrLinearOpDimRoles(
+std::unordered_map<ValGroup, MatmulDomain> matmulOrLinearOpDimRoles(
     const ValGraph& exact_graph,
     const std::vector<IterDomain*>& out_logical,
     const std::vector<IterDomain*>& mapping_a,
@@ -1650,7 +1653,9 @@ DimRolesMap matmulOrLinearOpDimRoles(
 }
 } // namespace
 
-DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
+std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
+    IdModel& id_model) const {
+>>>>>>> origin/main
   id_model.maybeBuildGraph(IdMappingMode::EXACT);
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
@@ -1687,6 +1692,8 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 
   // The code below handles MmaOp or mul-sum patterns
 
+  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
+
   // Indicates whether a ValGroup is present in A (bit 0), B (bit 1), or output
   // (bit 2)
   using DimPresence = std::bitset<3>;
@@ -1708,7 +1715,10 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   recordPresence(B, 1);
   recordPresence(output, 2);
 
+<<<<<<< HEAD
   DimRolesMap dim_roles;
+=======
+>>>>>>> origin/main
   for (const auto& [g, flags] : present_flags) {
     if (flags.all()) {
       dim_roles[g] = MatmulDomain::Batch;

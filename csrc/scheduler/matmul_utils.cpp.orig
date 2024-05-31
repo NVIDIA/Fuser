@@ -236,6 +236,14 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
+<<<<<<< HEAD
+    auto entry = tensor_roles.find(MatmulRole::INPUT_A);
+    std::set<TensorView*> tvs_with_roles;
+
+    if (entry != tensor_roles.end()) {
+      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+=======
     // We will check that all operands have same dimension
     int64_t operand_dim = -1;
 
@@ -244,8 +252,8 @@ std::string isMatmulFusionDefinitionSupported(
     std::set<TensorView*> tvs_with_roles;
 
     for (MatmulRole role : {MatmulRole::INPUT_A, MatmulRole::INPUT_B}) {
-      auto entry = tensor_roles.find(role);
-      if (entry != tensor_roles.end()) {
+      auto entry = roles_map.find(role);
+      if (entry != roles_map.end()) {
         if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
           tvs_with_roles.insert(entry->second.begin(), entry->second.end());
           for (TensorView* tv : entry->second) {
@@ -271,13 +279,30 @@ std::string isMatmulFusionDefinitionSupported(
         } else {
           return "There is more than a single fusion input that can be MMA operand ";
         }
+>>>>>>> origin/main
       } else {
         return "No candidate in fusion inputs for MMA operand";
       }
     }
 
-    auto entry = tensor_roles.find(MatmulRole::OUTPUT_D);
+<<<<<<< HEAD
+    entry = tensor_roles.find(MatmulRole::INPUT_B);
     if (entry != tensor_roles.end()) {
+      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+      } else {
+        return "There is more than a single fusion input that can be MMA second input";
+      }
+    } else {
+      return "No candidate in fusion inputs for MMA second input";
+    }
+
+    entry = tensor_roles.find(MatmulRole::OUTPUT_D);
+    if (entry != tensor_roles.end()) {
+=======
+    auto entry = roles_map.find(MatmulRole::OUTPUT_D);
+    if (entry != roles_map.end()) {
+>>>>>>> origin/main
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     } else {
       return "No candidate in fusion outputs MMA output";
@@ -699,6 +724,16 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   mma_utils::TensorRolesMap tensor_roles = tensor_roles_opt.getData();
 
   // #4
+<<<<<<< HEAD
+  const auto input_layout_opt =
+      mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
+  if (!input_layout_opt.isValid()) {
+    return input_layout_opt.getErrorMsg();
+  }
+
+  // #5
+=======
+>>>>>>> origin/main
   {
     auto support_status = isMatmulFusionDefinitionSupported(
         fusion, patterns.front(), tensor_roles, id_roles);
@@ -709,7 +744,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
   // #5
   const auto input_layout_opt =
-      mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
+      mma_utils::getProblemLayout(id_model, id_roles, roles_map);
   if (!input_layout_opt.isValid()) {
     return input_layout_opt.getErrorMsg();
   }

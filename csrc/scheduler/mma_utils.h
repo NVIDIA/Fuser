@@ -210,12 +210,12 @@ using ProblemIterDomains = std::array<IterDomain*, 3>;
 
 //! A mapping from ValGroup pointers to MatmulDomain. The ValGroups should
 //! correspond to IterDomain groups from an IdModel's exact graph. This
-using DimRolesMap = std::map<ValGroup, MatmulDomain>;
+using DimRolesMap = std::unordered_map<ValGroup, MatmulDomain>;
 
 //! An alias for mapping between TensorView instance and its role in
 //!  matmul fusion definition, some roles can be assigned to more than
 //!  a single tv, for example input for beta scaling in epilogue
-using TensorRolesMap = std::map<MatmulRole, std::vector<TensorView*>>;
+using TensorRolesMap = std::unordered_map<MatmulRole, std::vector<TensorView*>>;
 
 //! An alias for storing data types of the tensors in the mma op
 //!  the order is INPUT_A, INPUT_B, OUTPUT_D
