@@ -1219,17 +1219,20 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   reference1->reorder({{inner_most_pos2_in_ref1 + 1, -1}});
   // [..., I1/tile1, .., I2/tile2, ..., tile1, tile2]
 
-  // Merge remaining dimensions
-  int64_t lhs_i = -1;
-  for (int64_t i = reference1->nDims() - 2; i > 0; i--) {
-    auto axis_i = i - 1;
-    if (lhs_i == -1) {
-      lhs_i = axis_i;
-    } else {
-      reference1->merge(axis_i, lhs_i);
-      lhs_i = axis_i;
+  // Merge remaining dimensions ignoring reduction axes.
+  int64_t rhs_i = reference1->nDims() - 3;
+  for (int64_t lhs_i = reference1->nDims() - 4; lhs_i >= 0; lhs_i--) {
+    if (reference1->axis(lhs_i)->isReduction()){
+      continue;
     }
+    if (reference1->axis(rhs_i)->isReduction()){
+      rhs_i = lhs_i;
+      continue;
+    }
+    reference1->merge(lhs_i, rhs_i);
+    rhs_i = lhs_i;
   }
+
   reference1->split(0, 1);
   // [merged_dim, 1, tile1, tile2]
 

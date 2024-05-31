@@ -4017,6 +4017,21 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T101)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+    
+    # See https://github.com/NVIDIA/Fuser/issues/2317
+    def test_reduction_transpose_sched_issue2317(self):
+        inputs = [
+            torch.randn((1600,), dtype=torch.bfloat16, device='cuda:0').as_strided((1600,), (1,)),
+            torch.randn((2560000,), dtype=torch.bfloat16, device='cuda:0').as_strided((1600, 1600), (1600, 1)),
+            torch.randn((1600,), dtype=torch.bfloat16, device='cuda:0').as_strided((1600,), (1,)),
+            torch.randn((1600,), dtype=torch.bfloat16, device='cuda:0').as_strided((1600,), (1,)),
+            torch.randn((6400,), dtype=torch.bfloat16, device='cuda:0').as_strided((6400,), (1,)),
+            torch.randn((10240000,), dtype=torch.bfloat16, device='cuda:0').as_strided((6400, 1600), (1600, 1)),
+            torch.randn((1600,), dtype=torch.bfloat16, device='cuda:0').as_strided((1600,), (1,)),
+            torch.randn((10240000,), dtype=torch.bfloat16, device='cuda:0').as_strided((1600, 6400), (6400, 1)),
+            torch.randn((3276800,), dtype=torch.bfloat16, device='cuda:0').as_strided((16, 128, 1600), (204800, 1600, 1)),
+            torch.randn((3276800,), dtype=torch.bfloat16, device='cuda:0').as_strided((16, 25, 128, 64), (204800, 8192, 64, 1)),
+        ]
 
     def test_fusion_profiler(self):
         inputs = [
