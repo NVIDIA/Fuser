@@ -713,8 +713,7 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 // -> Merge -> () -> Split -> (K, M) -> Reorder -> (M , K) -> Split -> M, K_o,
 // K_in. If we start with K_in we can end up with M.
 IterDomain* getIDinConsumerRoot(IterDomain* id) {
-  while (id->definition()) {
-    auto expr = id->definition();
+  while (Expr* expr = id->definition()) {
     NVF_CHECK(expr->isA<Merge>() || expr->isA<Split>());
     if (expr->isA<Split>()) {
       NVF_CHECK(
