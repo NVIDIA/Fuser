@@ -20,7 +20,7 @@
 // IterDomainLikeObjectView, or IDLOView in short, is a convenient helper class
 // for scheduling IterDomain-like objects (IDLO), where IDLO can be either an
 // IterDomain or a ValGroup of IterDomains. The interface of IDLOView is similar
-// to that of TesorViews, that is, it has, merge, split, etc. However, it only
+// to that of TesorViews, that is, it has merge, split, etc. However, it only
 // has a single "domain", instead of having multiple domains like "logical
 // domain", "loop domain", etc. IDLOView is typically used as follows:
 //

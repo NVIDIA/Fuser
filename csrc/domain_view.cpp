@@ -40,7 +40,7 @@ struct DispatchMerge {
       return {};
     } else if constexpr (
         std::is_same_v<L, IterDomain*> && std::is_same_v<R, IterDomain*>) {
-      return IterDomain::merge(lhs, rhs);
+      return IterDomain::merge(std::forward<LHS>(lhs), std::forward<RHS>(rhs));
     } else if constexpr (
         std::is_same_v<L, ValGroupAndItsGraph> &&
         std::is_same_v<R, ValGroupAndItsGraph>) {
@@ -76,12 +76,14 @@ struct DispatchMerge {
         std::is_same_v<L, IterDomain*> &&
         std::is_same_v<R, ValGroupAndItsGraph>) {
       return (*this)(
-          ValGroupAndItsGraph{rhs.graph->toGroup(lhs), rhs.graph}, rhs);
+          ValGroupAndItsGraph{rhs.graph->toGroup(lhs), rhs.graph},
+          std::forward<RHS>(rhs));
     } else if constexpr (
         std::is_same_v<L, ValGroupAndItsGraph> &&
         std::is_same_v<R, IterDomain*>) {
       return (*this)(
-          lhs, ValGroupAndItsGraph{lhs.graph->toGroup(rhs), lhs.graph});
+          std::forward<LHS>(lhs),
+          ValGroupAndItsGraph{lhs.graph->toGroup(rhs), lhs.graph});
     } else if constexpr (
         std::is_same_v<L, std::vector<IDLO>> &&
         std::is_same_v<R, std::vector<IDLO>>) {
@@ -98,14 +100,16 @@ struct DispatchMerge {
       std::vector<IDLO> result;
       result.reserve(lhs.size());
       for (auto i : c10::irange(lhs.size())) {
-        result.emplace_back(IDLO::dispatch((*this), lhs[i], rhs));
+        result.emplace_back(
+            IDLO::dispatch((*this), lhs[i], std::forward<RHS>(rhs)));
       }
       return result;
     } else if constexpr (std::is_same_v<R, std::vector<IDLO>>) {
       std::vector<IDLO> result;
       result.reserve(rhs.size());
       for (auto i : c10::irange(rhs.size())) {
-        result.emplace_back(IDLO::dispatch((*this), lhs, rhs[i]));
+        result.emplace_back(
+            IDLO::dispatch((*this), std::forward<LHS>(lhs), rhs[i]));
       }
       return result;
     } else {
