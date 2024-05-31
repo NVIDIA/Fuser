@@ -1591,8 +1591,8 @@ std::vector<size_t> findInnerFoldDimensions(
       std::cout << "this_fold_axis_positions: " << fold_axis_positions
                 << std::endl;
 
-      ure that either fold_axis_positions is empty, or that it matches the fold 
-      // xes we found in bfop.
+      // Ensure that either fold_axis_positions is empty, or that it matches the
+      // fold axes we found in bfop.
       if (fold_axis_positions.empty()) {
         fold_axis_positions.insert(
             fold_axis_positions.end(),
