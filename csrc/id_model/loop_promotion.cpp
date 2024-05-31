@@ -768,25 +768,12 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
       if (covered_ids.find(output_group) == covered_ids.end()) {
         covered_ids[output_group] = covered;
       } else {
-        // TODO:
-        if (!getenv("DISABLE_COMBINE")) {
-          if (covered.vector() != covered_ids[output_group].vector()) {
-            // This can happen with reshape and resize. If disabled,
-            // ReshapeConcreteDomain3 failed.
-            std::cerr << "Combining coverage of "
-                      << nvfuser::toString(output_group) << ". Existing: "
-                      << nvfuser::toString(covered_ids[output_group])
-                      << ". New: " << nvfuser::toString(covered) << std::endl;
-            covered_ids[output_group].pushBack(covered);
-          }
-        } else {
-          VERBOSE() << "Avoid overwriting covered group of "
-                    << nvfuser::toString(output_group) << ". Existing: "
-                    << nvfuser::toString(covered_ids[output_group])
-                    << ". New: " << nvfuser::toString(covered)
-                    << ", expr: " << exact_expr->front()->toString()
-                    << std::endl;
-        }
+        // An exact group may have multiple exact expr groups and may
+        // have different coverage groups depending on the expr
+        // groups. For example, this can happen with reshape or
+        // resize. See test LoopPromotionCoverage for a concrete
+        // example.
+        covered_ids[output_group].pushBack(covered);
       }
     }
   }
