@@ -2093,7 +2093,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
   std::string vector_open = numTensors() == 1 ? "" : "{ ";
   std::string vector_close = numTensors() == 1 ? "" : " }";
   std::stringstream ss;
-  indent(ss, indent_size) << "{ acc=" << vector_open;
+  indent(ss, indent_size) << vector_open;
   bool first = true;
   for (size_t i : c10::irange(numTensors())) {
     if (!first) {
@@ -2102,8 +2102,8 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << prevFoldTensor((int64_t)i)->toString();
   }
-  ss << vector_close << ",\n";
-  indent(ss, indent_size) << " next=" << vector_open;
+  ss << vector_close << " (accum)\n";
+  indent(ss, indent_size) << vector_open;
   first = true;
   for (size_t i : c10::irange(numTensors())) {
     if (!first) {
@@ -2112,7 +2112,7 @@ std::string BeginFoldOp::toString(int indent_size) const {
     first = false;
     ss << nextElementTensor((int64_t)i)->toString();
   }
-  ss << vector_close << " }\n";
+  ss << vector_close << " (next)\n";
   indent(ss, indent_size) << "   = beginFold( " << vector_open;
   first = true;
   for (size_t i : c10::irange(numTensors())) {
