@@ -341,6 +341,16 @@ Scalar FusionDefinition::defineScalar() {
   return out;
 }
 
+Tensor FusionDefinition::addTensor(TensorView* tv) {
+  FUSER_PERF_SCOPE("FusionDefinition::addTensor");
+  Tensor output = defineTensor(tv->nDims());
+  NVF_CHECK(
+      output.index == numFusionStates(),
+      "Fusion State index does not match the size!");
+  addFusionState(tv);
+  return output;
+}
+
 Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
   Tensor out(recording_state_.size(), dims, this);
