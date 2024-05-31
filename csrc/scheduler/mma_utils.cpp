@@ -704,21 +704,21 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
   return {mma_domains.begin(), mma_domains.end()};
 }
 
-// Function to travel up the DAG (from the inner-most ID of allocation domain).
-// Assumption: There are only splits and merges from the root to the allocation.
-// We only handle going up splits when the producer is the inner output of a
-// split. If this was not a case, then given merges, splits and reorders, we
-// could have a case that we start from a ID derived from K, but while going
-// back up the DAG we end up with a non-K ID. Eg: (K, M) -> Merge -> () -> Split
-// -> (M , K) -> Split -> M, K_o, K_in. If we start with K_in we can end up with
-// M.
+// Function to travel up the DAG along the innermost path from the inner-most ID
+// of allocation domain. Assumption: There are only splits and merges from the
+// root to the allocation. We only handle going up splits when the producer is
+// the inner output of a split. If this was not a case, then given merges,
+// splits and reorders, we could have a case that we start from a ID derived
+// from K, but while going back up the DAG we end up with a non-K ID. Eg: (K, M)
+// -> Merge -> () -> Split -> (K, K) -> Reorder -> (M , K) -> Split -> M, K_o,
+// K_in. If we start with K_in we can end up with M.
 IterDomain* getIDinConsumerRoot(IterDomain* id) {
   while (id->definition()) {
     auto expr = id->definition();
     NVF_CHECK(expr->isA<Merge>() || expr->isA<Split>());
     if (expr->isA<Split>()) {
       NVF_CHECK(
-          id = expr->as<Split>()->outer(),
+          id == expr->as<Split>()->inner(),
           "We only handle cases where the inner-most ID"
           "of the allocation domain was the inner output of a split");
       id = expr->as<Split>()->in();
@@ -736,12 +736,13 @@ IterDomain* getIDinConsumerRoot(IterDomain* id) {
 // consumer (register) is derived from a series of scheduling operations on the
 // 'k' ID (for now only splits, but there could be merges in the future).
 // So starting from the inner-most ID of the consumer's allocation we go up the
-// DAG to ID this came from in the root domain.  We then map this ID in the root
-// domain to producer's (shared memory) logical domain. Once we have the ID in
-// the producer's logical domain, we check if that's the innermost dimension in
-// its allocation domain. Here, the other assumption we have is that the
-// producer's allocation domain is a permutation of the logical domain. If the
-// ID is the innermost of the allocation no transpose is needed.
+// DAG (along the innermost path) to ID this came from in the root domain.  We
+// then map this ID in the root domain to producer's (shared memory) logical
+// domain. Once we have the ID in the producer's logical domain, we check if
+// that's the innermost dimension in its allocation domain. Here, the other
+// assumption we have is that the producer's allocation domain is a permutation
+// of the logical domain. If the ID is the innermost of the allocation no
+// transpose is needed.
 bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   const auto consumer = ir_utils::getTvOutput(ldst);
   const auto producer = ir_utils::getTvInput(ldst);
