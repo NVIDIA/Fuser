@@ -374,9 +374,10 @@ int64_t computeExpectedSharedMemoryUsage(
 //!  Z = complex<double>
 char dtypeToChar(const DataType& dtype);
 
-//! Get a total ordering of dimensions for known tensors. To do this, we visit
-//! each leaf domain for every tensor role. All dims of a particular DimRole are
-//! adjacent in the output. We then set the order as follows:
+//! Get a total ordering of dimensions for known tensors. To do this, we loop
+//! over the logical domain for every tensor in each role. All dims of a
+//! particular DimRole are adjacent in the output. We then set the order as
+//! follows:
 //! 1. Batch dimensions go first
 //! 2. K dimensions are innermost
 //! 3. M or N can be innermost, depending on the first output's allocation

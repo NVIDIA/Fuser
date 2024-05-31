@@ -1171,7 +1171,7 @@ TensorRolesMapOpt getTensorRoles(
 
   const auto findDims = [&dim_roles, &exact_graph](TensorView* tv) {
     DimPresence has;
-    for (IterDomain* id : TensorDomain::noReductions(tv->getLeafDomain())) {
+    for (IterDomain* id : TensorDomain::noReductions(tv->getRFactorDomain())) {
       if (id->isBroadcast() || id->isDeviceDim()) {
         // Broadcast and device domains won't exact map to concrete domains so
         // skip them
@@ -1434,9 +1434,9 @@ class MatmulPatternMatcher : IterVisitor {
       rtv = getTensorviewPriorToCast(rtv);
 
       std::vector<IterDomain*> lrf = TensorDomain::noDevices(
-          TensorDomain::noReductions(ltv->getLeafDomain()));
+          TensorDomain::noReductions(ltv->getRFactorDomain()));
       std::vector<IterDomain*> rrf = TensorDomain::noDevices(
-          TensorDomain::noReductions(rtv->getLeafDomain()));
+          TensorDomain::noReductions(rtv->getRFactorDomain()));
 
       // These sizes should match since ops::maybeBroadcast places BroadcastOps
       // for implicit broadcasting.
@@ -1694,7 +1694,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   std::unordered_map<ValGroup, DimPresence> present_flags;
   const auto recordPresence = [&exact_graph, &present_flags](
                                   TensorView* tv, size_t tensor_num) {
-    for (IterDomain* id : tv->getLeafDomain()) {
+    for (IterDomain* id : tv->getRFactorDomain()) {
       if (id->isReduction() || id->isBroadcast() || id->isDeviceDim()) {
         // ignore device, reductions, and broadcasts since they don't exact map
         // to problem dims in the generated kernel
