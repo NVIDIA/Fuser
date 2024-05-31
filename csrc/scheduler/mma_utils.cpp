@@ -710,7 +710,7 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 // the inner output of a split. If this was not a case, then given merges,
 // splits and reorders, we could have a case that we start from a ID derived
 // from K, but while going back up the DAG we end up with a non-K ID. Eg: (K, M)
-// -> Merge -> () -> Split -> (K, K) -> Reorder -> (M , K) -> Split -> M, K_o,
+// -> Merge -> () -> Split -> (K, M) -> Reorder -> (M , K) -> Split -> M, K_o,
 // K_in. If we start with K_in we can end up with M.
 IterDomain* getIDinConsumerRoot(IterDomain* id) {
   while (id->definition()) {
