@@ -430,7 +430,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   //! CacheOp used for scheduling
   py::enum_<CacheOp>(nvfuser, "CacheOp")
-      .value("none", CacheOp::Unspecified)
+      .value("unspecified", CacheOp::Unspecified)
       .value("all_levels", CacheOp::AllLevels)
       .value("streaming", CacheOp::Streaming)
       .value("global", CacheOp::Global);
