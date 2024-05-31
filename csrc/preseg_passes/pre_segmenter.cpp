@@ -6,15 +6,17 @@
  */
 // clang-format on
 #include <debug.h>
-#include <instrumentation.h>
 #include <options.h>
+
+#include <preseg_passes/pre_segmenter.h>
+
+#include <instrumentation.h>
 #include <preseg_passes/add_axioms.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/move_split_cat.h>
-#include <preseg_passes/pre_segmenter.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
 #include <preseg_passes/remove_empty.h>
 
@@ -23,35 +25,21 @@ namespace nvfuser::preseg_passes {
 /*static*/ void PreSegmenter::runPass(Fusion* fusion) {
   FUSER_PERF_SCOPE("PreSegmenter::runPass");
 
-  // Put passes into a vector to run them in order
-  using PassFunction = std::function<void(Fusion*)>;
-  using TaggedPass = std::pair<PassFunction, std::string>;
-  std::vector<TaggedPass> passes = {
-      {OptimizationPass<RemoveEmptyPass>::runPass, "RemoveEmptyPass"},
-      {OptimizationPass<ConsecutiveCastPass>::runPass, "ConsecutiveCastPass"},
-      {OptimizationPass<AddAxiomsPass>::runPass, "AddAxiomsPass"},
-      {OptimizationPass<MoveSplitCatPass>::runPass, "MoveSplitCatPass"},
-      {OptimizationPass<MarkAliasesPreparePass>::runPass,
-       "MarkAliasesPreparePass"},
-      {OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass,
-       "ExactMappedExtentSubstitutionPass"},
-      {OptimizationPass<AllocationDomainPass>::runPass, "AllocationDomainPass"},
-      {OptimizationPass<RemoveBcastSqueeze>::runPass, "RemoveBcastSqueeze"}};
-
-  bool is_log_enabled =
-      isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging);
-  if (is_log_enabled) {
-    debug() << "Fusion before PreSegmenter:" << std::endl;
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << "Fusion before PreSegmenter optimizations:" << std::endl;
     fusion->printMath();
+    debug() << "========================================" << std::endl;
   }
-  for (auto [pass_fun, pass_tag] : passes) {
-    pass_fun(fusion);
-    // TODO: skip the logging of the pass where the fusion has not been changed.
-    if (is_log_enabled) {
-      debug() << "Fusion after pre-segmenter pass: " << pass_tag << std::endl;
-      fusion->printMath();
-    }
-  }
+  // Replace TensorViews with zero extent. Outputs and inputs may still be empty
+  OptimizationPass<RemoveEmptyPass>::runPass(fusion);
+  // removes consecutive cast operations
+  OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
+  OptimizationPass<AddAxiomsPass>::runPass(fusion);
+  OptimizationPass<MoveSplitCatPass>::runPass(fusion);
+  OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
+  OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
+  OptimizationPass<AllocationDomainPass>::runPass(fusion);
+  OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

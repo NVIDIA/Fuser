@@ -16,6 +16,9 @@ class AddAxiomsPass : public OptimizationPass<AddAxiomsPass> {
 
  protected:
   NVF_API static void runPass(Fusion* fusion);
+  NVF_API static std::string name() {
+    return "AddAxiomsPass";
+  }
 };
 
 } // namespace nvfuser::preseg_passes

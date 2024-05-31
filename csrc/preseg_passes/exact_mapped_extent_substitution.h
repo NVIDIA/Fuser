@@ -22,6 +22,9 @@ class ExactMappedExtentSubstitutionPass
 
  protected:
   static void runPass(Fusion* fusion);
+  static std::string name() {
+    return "ExactMappedExtentSubstitutionPass";
+  }
 };
 
 } // namespace nvfuser::preseg_passes
