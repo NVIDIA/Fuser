@@ -425,7 +425,6 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
       .value("set", LoadStoreOpType::Set)
       .value("load_matrix", LoadStoreOpType::LdMatrix)
-      .value("load_matrix_transpose", LoadStoreOpType::LdMatrixTranspose)
       .value("cp_async", LoadStoreOpType::CpAsync)
       .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
 
