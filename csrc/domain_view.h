@@ -102,11 +102,6 @@
 
 namespace nvfuser {
 
-struct ValGroupAndItsGraph {
-  ValGroup group;
-  ValGraph* graph;
-};
-
 using IterDomainLikeObject = dynamic_type::DynamicType<
     dynamic_type::Containers<std::vector>,
     IterDomain*,

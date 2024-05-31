@@ -51,6 +51,9 @@ struct DispatchMerge {
       // If there is already an existing merge in the ValGraph, just use it.
       auto lhs_uses = graph->getUses(lhs.group);
       for (const ExprGroup& use : lhs_uses) {
+        if (!use->front()->isA<Merge>()) {
+          continue;
+        }
         auto input_groups = graph->inputGroups(use);
         NVF_ERROR(input_groups.size() == 2);
         if (input_groups == std::vector<ValGroup>{lhs.group, rhs.group}) {
