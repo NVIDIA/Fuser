@@ -113,7 +113,7 @@ class MatmulParams : public HeuristicParams {
     //    across all epilogue input and output tensors that were not skipped.
     //    That is the value below. If no vectorization is possible, this will be
     //    set to 1.
-    int64_t epilogue = 1;
+    int64_t epilogue;
 
     bool operator==(const SupportedVectorization& other) const {
       return other.a == a && other.b == b && other.epilogue == epilogue;
