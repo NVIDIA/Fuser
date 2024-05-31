@@ -137,20 +137,6 @@ Communication::Communication(const Communication* src, IrCloner* ir_cloner)
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
 
-const Team& Communication::team() {
-  if (team_.empty()) {
-    // I could instead compute `team_` in the constructor. But I chose to
-    // compute and cache it in team() so I can remove the customized cloning
-    // constructor (the one that takes IrCloner*) in favor of `Expr::Expr(const
-    // Expr*, IrCloner*)` in an upcoming PR.
-    team_ = params_.mesh.vector();
-    if (hasRoot(params_.type) && !isRootInMesh()) {
-      team_.push_back(params_.root);
-    }
-  }
-  return team_;
-}
-
 std::string Communication::toString(const int indent_size) const {
   std::stringstream ss;
 
@@ -160,6 +146,7 @@ std::string Communication::toString(const int indent_size) const {
     indent(ss, indent_size + 1) << "root: " << params_.root << "," << std::endl;
   }
   indent(ss, indent_size + 1) << "mesh: " << params_.mesh << "," << std::endl;
+  indent(ss, indent_size + 1) << "team: " << params_.team << "," << std::endl;
   indent(ss, indent_size) << "}";
 
   return ss.str();

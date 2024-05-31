@@ -39,6 +39,9 @@ struct CommParams {
   CommunicationType type;
   DeviceIdxType root = -1;
   DeviceMesh mesh; // Might not contain `root`.
+  Team team; // All devices involved in this communication. It must include
+             // `root`. It can be a subset of `root`+`mesh` in case of 2D
+             // sharding.
   c10d::ReduceOp::RedOpType redOp = c10d::ReduceOp::RedOpType::UNUSED;
   // reduced_axis is always outermost.
   int64_t scattered_axis = -1;
@@ -148,15 +151,13 @@ class Communication : public Expr {
     return params_.mesh.has(params_.root);
   }
 
-  const Team& team();
+  const Team& team() const {
+    return params_.team;
+  }
 
  private:
   // Stores the arguments used to construct the communication.
   CommParams params_;
-  // This can be computed from params_, but given how frequently this is used
-  // in the hot path, I'm currently storing it as a field that'll be computed by
-  // Communication::team().
-  Team team_;
 };
 
 // Triggers the execution of the communication. This is a non-blocking call.

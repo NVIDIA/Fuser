@@ -74,6 +74,10 @@ CommParams createParamsForGatherScatter(
       is_scatter ? CommunicationType::Scatter : CommunicationType::Gather;
   params.root = root;
   params.mesh = mesh;
+  params.team = mesh.vector();
+  if (!mesh.has(root)) {
+    params.team.push_back(root);
+  }
   return params;
 }
 
@@ -131,6 +135,7 @@ void lowerToAllgather(
   CommParams params;
   params.type = CommunicationType::Allgather;
   params.mesh = mesh;
+  params.team = mesh.vector();
   comms.push_back(IrBuilder::create<Communication>(std::move(params)));
 }
 
@@ -144,6 +149,10 @@ CommParams createParamsForBroadcastOrP2P(
   params.type = CommunicationType::Broadcast;
   params.root = root;
   params.mesh = mesh;
+  params.team = mesh.vector();
+  if (!mesh.has(root)) {
+    params.team.push_back(root);
+  }
   return params;
 }
 
@@ -204,6 +213,10 @@ CommParams createParamsForReduce(
   params.root = root;
   params.redOp = getC10dReduceOpType(op_type);
   params.mesh = mesh;
+  params.team = mesh.vector();
+  if (!mesh.has(root)) {
+    params.team.push_back(root);
+  }
   return params;
 }
 
@@ -241,6 +254,7 @@ void lowerToAllreduce(
   params.type = CommunicationType::Allreduce;
   params.redOp = getC10dReduceOpType(op_type);
   params.mesh = mesh;
+  params.team = mesh.vector();
   comms.push_back(IrBuilder::create<Communication>(params));
 }
 
@@ -255,10 +269,6 @@ void lowerToReduceScatter(
     return;
   }
 
-  CommParams params;
-  params.type = CommunicationType::ReduceScatter;
-  params.redOp = getC10dReduceOpType(op_type);
-  params.mesh = mesh;
   auto reduction_axis = output_tv->getReductionAxis().value();
   auto scattered_axis = getShardedAxis(output_tv);
   // The output tensor is sharded on scattered_axis and needs to be mapped
@@ -268,8 +278,13 @@ void lowerToReduceScatter(
   if (reduction_axis <= scattered_axis) {
     scattered_axis++;
   }
-  params.scattered_axis = scattered_axis;
 
+  CommParams params;
+  params.type = CommunicationType::ReduceScatter;
+  params.redOp = getC10dReduceOpType(op_type);
+  params.mesh = mesh;
+  params.team = mesh.vector();
+  params.scattered_axis = scattered_axis;
   comms.push_back(IrBuilder::create<Communication>(params));
 }
 
