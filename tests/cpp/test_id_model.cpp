@@ -2511,6 +2511,9 @@ TEST_F(IdModelTest, LoopPromotionWithRfactorDomains2) {
   ASSERT_EQ(promotion, tv8->axis(0)) << "Invalid promotion";
 }
 
+// Repro where an exact group has multiple exact expr groups. This
+// would fail if computeCoveredGroups merged all exact input
+// groups. See also #2322.
 TEST_F(IdModelTest, LoopPromotionCoverage) {
   Fusion fusion;
   FusionGuard fg(&fusion);
