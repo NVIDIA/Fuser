@@ -12,6 +12,7 @@
 #include <id_model/id_model.h>
 #include <ir/printer.h>
 #include <ops/all_ops.h>
+#include <ops/utils.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
@@ -1375,6 +1376,24 @@ class MatmulPatternMatcher : IterVisitor {
   // there is a transpose operation in the epilogue, then this assumption will
   // be violated. In such cases we should actually swap and transpose A and B.
 
+  // Match all LinearOps and MatmulOps as MatmulPatterns. This includes ops
+  // whose inputs are not 2D, i.e. matrix-vector products. The matmul scheduler
+  // will decide whether or not it can fuse a given pattern based on the
+  // dimensionality of its inputs.
+  void handle(LinearOp* lop) override {
+    MatmulPattern& pattern = patterns_.emplace_back();
+    pattern.A = lop->inA()->as<TensorView>();
+    pattern.B = lop->inB()->as<TensorView>();
+    pattern.output = lop->out()->as<TensorView>();
+  }
+
+  void handle(MatmulOp* mop) override {
+    MatmulPattern& pattern = patterns_.emplace_back();
+    pattern.A = mop->inA()->as<TensorView>();
+    pattern.B = mop->inB()->as<TensorView>();
+    pattern.output = mop->out()->as<TensorView>();
+  }
+
   // Handle the case when no translation is needed.
   void handle(MmaOp* mop) override {
     MatmulPattern& pattern = patterns_.emplace_back();
@@ -1508,12 +1527,128 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     // This replaces the mul and sum by overwriting output->definition()
     return IrBuilder::create<MmaOp>(output, A, B, init);
   }
-  NVF_ERROR(
-      false,
-      "Could not translate matmul pattern with output ",
-      output->toString(),
-      " to MmaOp");
+
+  // This will hold the translated output from MatmulOp or LinearOp
+  TensorView* fms = nullptr;
+  MmaOp* mma_op = nullptr;
+  if (auto lop = dynamic_cast<LinearOp*>(output->definition())) {
+    // Linear takes inputs input, weight(, bias)
+    //   - input can be any dimension > 0. We assert that it must be at least 2
+    //   and refuse to translate if dimension is 1.
+    //   - weight can be one or two dimensional. We refuse to translate if
+    //   dimension is 1.
+    //   - bias, if present, can be zero or one dimensional. Bias can only be
+    //   present if weight is 2D
+    //
+    // We translate by broadcasting input, weight, and bias such that the
+    // contracted dimension K is in the last position (this is true of the
+    // rfactor domains in input and weight already). Then we form an MmaOp and
+    // optionally add the bias tensor followed by a cast back to the input
+    // dtype.
+    NVF_ERROR(
+        A->nDims() > 1 && B->nDims() > 1,
+        "Cannot translate LinearOp with 1D input");
+    std::vector<bool> bcast_dim((size_t)A->nDims() + 1, false);
+    bcast_dim[bcast_dim.size() - 2] = true; // N
+    A = broadcast(A, bcast_dim);
+
+    bcast_dim[bcast_dim.size() - 2] = false; // reset N
+    std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
+    B = broadcast(B, bcast_dim);
+
+    fms = fusedMultiplySum(A, B, {-1});
+    mma_op = fms->definition()->as<MmaOp>();
+
+    auto* bias = dynamic_cast<TensorView*>(lop->bias());
+    if (bias != nullptr) {
+      fms = add(fms, bias);
+    }
+  } else if (output->definition()->isA<MatmulOp>()) {
+    // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so we
+    // must transpose B then broadcast both operands before creating the final
+    // op.
+    //
+    // Also note that the output of MatmulOp is a tensor of shape [..., M, N]
+    // whose dtype matches that of the inputs. We will most commonly then also
+    // need to cast the output of the MmaOp to produce the output TensorView.
+    NVF_ERROR(
+        A->nDims() > 1 && B->nDims() > 1,
+        "Cannot translate MatmulOp with 1D input");
+    TensorView* Btrans = transpose(B, -2, -1);
+    A = unsqueeze(A, -2);
+    B = unsqueeze(Btrans, -3);
+    // A and B might have different dimensions. If so, broadcast the smaller one
+    // up to the size of the larger.
+    int64_t out_dims = std::max(A->nDims(), B->nDims());
+    // Add new outer broadcast dimensions if necessary
+    A = ops::maybe_broadcast_inner_to_rank(A, out_dims);
+    B = ops::maybe_broadcast_inner_to_rank(B, out_dims);
+    fms = fusedMultiplySum(A, B, {-1});
+    mma_op = fms->definition()->as<MmaOp>();
+  } else {
+    NVF_ERROR(
+        false,
+        "Could not translate matmul pattern with output ",
+        output->toString(),
+        " to MmaOp");
+  }
+  NVF_ERROR(fms != nullptr);
+  NVF_ERROR(mma_op != nullptr);
+
+  // The following is common to both MatmulOp and LinearOp translation
+
+  // TODO: skip downcasting if the only uses of `output` are casts back to
+  // higher precision in order avoid the round trip cast in defining an
+  // epilogue that starts with MatmulOp.
+  if (output->dtype() != fms->dtype()) {
+    // Redefine output as cast of MmaOp->out()
+    IrBuilder::create<UnaryOp>(UnaryOpType::Cast, output, fms);
+    // Update output so that cast is part of the epilogue
+    output = fms;
+  } else {
+    // No cast needed, for example the inputs might be Float
+    ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
+  }
+  return mma_op;
 }
+
+namespace {
+// Determine dim roles for either a MatmulOp or a LinearOp, given IterDomain
+// mappings
+std::unordered_map<ValGroup, MatmulDomain> matmulOrLinearOpDimRoles(
+    const ValGraph& exact_graph,
+    const std::vector<IterDomain*>& out_logical,
+    const std::vector<IterDomain*>& mapping_a,
+    const std::vector<IterDomain*>& mapping_b) {
+  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
+  NVF_ERROR(mapping_a.size() == out_logical.size());
+  NVF_ERROR(mapping_a.size() == mapping_b.size());
+  for (size_t i : c10::irange(out_logical.size())) {
+    IterDomain* id_out = out_logical[i];
+    const ValGroup& g = exact_graph.toGroup(id_out);
+
+    if (id_out->isReduction()) {
+      dim_roles[g] = MatmulDomain::K;
+      continue;
+    }
+
+    bool has_a = mapping_a[i] != nullptr && mapping_a[i]->isIteration();
+    bool has_b = mapping_b[i] != nullptr && mapping_b[i]->isIteration();
+
+    NVF_ERROR(has_a || has_b);
+    // If both operand IterDomains are Broadcast, treat as Batch dimension
+    // If they mismatch, then one must be broadcast which determines M or N
+    if (has_a == has_b) {
+      dim_roles[g] = MatmulDomain::Batch;
+    } else if (has_a) {
+      dim_roles[g] = MatmulDomain::M;
+    } else if (has_b) {
+      dim_roles[g] = MatmulDomain::N;
+    }
+  }
+  return dim_roles;
+}
+} // namespace
 
 std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
     IdModel& id_model) const {
@@ -1529,6 +1664,31 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   //   Batch: present in all A, B, and output
   // If there are other patterns, for example a ValGroup present in only A, then
   // we should raise an exception here.
+
+  if (output->definition()->isA<MatmulOp>()) {
+    const std::vector<IterDomain*>& out_logical = output->getRFactorDomain();
+    return matmulOrLinearOpDimRoles(
+        exact_graph,
+        out_logical,
+        ops::mapMatmulOpIterDomains(
+            A->getRFactorDomain(), MatmulRole::INPUT_A, out_logical.size()),
+        ops::mapMatmulOpIterDomains(
+            B->getRFactorDomain(), MatmulRole::INPUT_B, out_logical.size()));
+
+  } else if (output->definition()->isA<LinearOp>()) {
+    const std::vector<IterDomain*>& out_logical = output->getRFactorDomain();
+    return matmulOrLinearOpDimRoles(
+        exact_graph,
+        out_logical,
+        ops::mapLinearOpIterDomains(
+            A->getRFactorDomain(), MatmulRole::INPUT_A, out_logical.size()),
+        ops::mapLinearOpIterDomains(
+            B->getRFactorDomain(), MatmulRole::INPUT_B, out_logical.size()));
+  }
+
+  // The code below handles MmaOp or mul-sum patterns
+
+  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
 
   // Indicates whether a ValGroup is present in A (bit 0), B (bit 1), or output
   // (bit 2)
@@ -1551,15 +1711,14 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   recordPresence(B, 1);
   recordPresence(output, 2);
 
-  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
   for (const auto& [g, flags] : present_flags) {
     if (flags.all()) {
       dim_roles[g] = MatmulDomain::Batch;
     } else if (flags.test(0) && flags.test(1)) {
       dim_roles[g] = MatmulDomain::K;
-    } else if (flags.test(0) && flags.test(2)) {
+    } else if (flags.test(0) && !flags.test(1) && flags.test(2)) {
       dim_roles[g] = MatmulDomain::M;
-    } else if (flags.test(1) && flags.test(2)) {
+    } else if (!flags.test(0) && flags.test(1) && flags.test(2)) {
       dim_roles[g] = MatmulDomain::N;
     } else {
       NVF_ERROR(

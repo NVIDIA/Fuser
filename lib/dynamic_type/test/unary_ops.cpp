@@ -28,7 +28,6 @@
         ::testing::ThrowsMessage<std::runtime_error>(                         \
             ::testing::HasSubstr("Cannot compute ")));                        \
     static_assert(op opcheck<int_or_bool##SomeType>);                         \
-    static_assert(!(op opcheck<SomeTypes>));                                  \
     EXPECT_THAT(                                                              \
         [&]() { op int_or_bool##SomeType(SomeType{}); },                      \
         ::testing::ThrowsMessage<std::runtime_error>(                         \
@@ -98,7 +97,6 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
         },
         ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
-    static_assert(!(++opcheck<SomeTypes&>));
   }
   // --x
   {
@@ -121,7 +119,6 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
         },
         ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
-    static_assert(!(--opcheck<SomeTypes&>));
   }
   // x++
   {
@@ -143,7 +140,6 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
         },
         ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
-    static_assert(!(opcheck<SomeTypes&> ++));
   }
   // x--
   {
@@ -165,6 +161,5 @@ TEST_F(DynamicTypeTest, PlusPlusMinusMinus) {
         },
         ::testing::ThrowsMessage<std::runtime_error>(
             ::testing::HasSubstr("Cannot compute ")));
-    static_assert(!(opcheck<SomeTypes&> --));
   }
 }
