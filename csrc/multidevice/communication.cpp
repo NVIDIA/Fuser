@@ -167,9 +167,10 @@ bool Communication::sameAs(const Statement* other) const {
   const auto& p1 = this->params();
   const auto& p2 = other->as<Communication>()->params();
 
-  return (
-      p1.type == p2.type && (!hasRoot(p1.type) || p1.root == p2.root) &&
-      p1.mesh == p2.mesh && (!isReduction(p1.type) || p1.redOp == p2.redOp));
+  return (p1.type == p2.type && (!hasRoot(p1.type) || p1.root == p2.root) &&
+          p1.mesh == p2.mesh &&
+          (!isReduction(p1.type) || p1.redOp == p2.redOp)) &&
+      p1.team == p2.team;
 }
 
 namespace {

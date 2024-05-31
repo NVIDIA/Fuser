@@ -10,6 +10,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/communicator.h>
+#include <multidevice/device_mesh.h>
 #include <multidevice/multidevice.h>
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Types.hpp>
