@@ -45,12 +45,12 @@ TEST_F(Examples, Example2) {
   static_assert(f + f == 5.0f);
   EXPECT_THAT(
       [&]() { i + null; },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Cannot compute ")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
   EXPECT_THAT(
       [&]() { i + c; },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Cannot compute ")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
 }
 
 namespace example_3 {
@@ -80,8 +80,8 @@ TEST_F(Examples, Example4) {
         BFloatOrHalfZeroOrInt(half_zero{}) +
             BFloatOrHalfZeroOrInt(bfloat16_zero{});
       },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Cannot compute ")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
 }
 
 namespace example_5 {

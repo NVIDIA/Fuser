@@ -2604,12 +2604,11 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 // TODO: Once we can control the ExprEval and Matmul schedulers via options, run
 // this test with all three combinations (with and without each scheduler, but
 // at least one enabled).
-TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
+TEST_F(MatmulSchedulerTest, SegmentMatmulOpPrologue) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // A - tv0, B - tv1, C - tv2
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
   fusion->addInput(tv0);
@@ -2625,7 +2624,7 @@ TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
 
   NVF_CHECK(
       ir_utils::getOpsOfType<MatmulOp>(fusion.get()).size() == 1,
-      "matmul fusion must have at least one MmaOp");
+      "matmul fusion must have at least one MatmulOp");
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
@@ -2645,12 +2644,11 @@ TEST_F(NVFuserTest, SegmentMatmulOpPrologue) {
 }
 
 // This is just like the above test but with LinearOp instead of MatmulOp
-TEST_F(NVFuserTest, SegmentLinearOpPrologue) {
+TEST_F(MatmulSchedulerTest, SegmentLinearOpPrologue) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // A - tv0, B - tv1, C - tv2
   auto tv0 = makeContigTensor(2, DataType::Half);
   auto tv1 = makeContigTensor(2, DataType::Half);
   fusion->addInput(tv0);
@@ -2684,6 +2682,121 @@ TEST_F(NVFuserTest, SegmentLinearOpPrologue) {
 
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
+// Test that the matmul scheduler refuses to translate a matmul that is not
+// Half or BFloat16
+TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Float);
+  auto tv1 = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Prologue prevents ExprEval scheduler from accepting. If Matmul scheduler
+  // rejects, then Pointwise must not accept this unsegmented fusion.
+  tv1 = castOp(DataType::Float, sin(tv1));
+
+  auto tv2 = matmul(tv0, tv1);
+
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options);
+
+  // Enable MatmulOp fusion, which should reject because float operands are not
+  // supported.
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  const FusionKernelRuntime* runtime =
+      executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_TRUE(runtime->isSegmented());
+
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+class MatmulFusionTest : public MatmulSchedulerTest,
+                         public ::testing::WithParamInterface<bool> {
+ protected:
+  void SetUp() override {
+    if (fusion_enabled) {
+      EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+    }
+  }
+
+  EnableOptionsGuard eog_;
+  bool fusion_enabled = GetParam();
+};
+
+// Test that we can segment a Fusion containing two matmuls
+TEST_P(MatmulFusionTest, Llama2FFN) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  auto tv2 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = matmul(tv0, tv1);
+  auto tv4 = matmul(tv0, tv2);
+
+  // silu
+  auto tv5 = mul(sigmoid(tv3), tv3);
+
+  auto tv6 = mul(tv5, tv4);
+
+  fusion->addOutput(tv6);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options);
+  auto t2 = at::randn({K, N}, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2};
+
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  const FusionKernelRuntime* runtime =
+      executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_TRUE(runtime->isSegmented());
+
+  if (fusion_enabled) {
+    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
+  } else {
+    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 3);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    MatmulFusionTest,
+    ::testing::Bool(),
+    [](const testing::TestParamInfo<bool>& info) {
+      return info.param ? "fuse" : "dontfuse";
+    });
 
 // This test can be used to check that an external plugin has been loaded. It
 // is DISABLED_ so that the test suite will pass even if the user has not

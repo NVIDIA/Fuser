@@ -1022,22 +1022,20 @@ TEST_F(IdModelTest, LoopPromotion4) {
   checkStep3Results(tester, s3_reference_map);
 
   ASSERT_EQ(id10->name(), 10);
-  auto id34 = getChildIdByName(id10, 34);
-  auto id35 = getChildIdByName(id10, 35);
+  auto id27 = getChildIdByName(id10, 27);
+  auto id28 = getChildIdByName(id10, 28);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
-      s4_reference_map = {// 19 -> 10
-                          {std::unordered_set<Val*>{id19}, id10},
-                          // 20 -> 34
-                          {std::unordered_set<Val*>{tv2->axis(0)}, id34},
-                          // 21 -> 35
-                          {std::unordered_set<Val*>{tv2->axis(1)}, id35}};
+      s4_reference_map = {// 20 -> 27
+                          {std::unordered_set<Val*>{tv2->axis(0)}, id27},
+                          // 21 -> 28
+                          {std::unordered_set<Val*>{tv2->axis(1)}, id28}};
 
   checkStep4Results(tester, s4_reference_map);
 
   // Check Step 5 results. See the design doc for the expected results
   std::unordered_map<TensorView*, std::vector<IterDomain*>> s5_reference_map = {
-      {tv2, {id11, id35}},
+      {tv2, {id11, id28}},
       {tv3, {id11, id15}},
       {tv4, {id11, id12}},
   };
@@ -1182,49 +1180,41 @@ TEST_F(IdModelTest, LoopPromotion5) {
 
   checkStep3Results(tester, s3_reference_map);
 
+  auto id42 = getChildIdByName(id20, 42);
+  auto id43 = getChildIdByName(id20, 43);
+  auto id48 = getChildIdByName(id42, 48);
+  auto id49 = getChildIdByName(id42, 49);
+
   auto id44 = getChildIdByName(id20, 44);
   auto id45 = getChildIdByName(id20, 45);
   auto id50 = getChildIdByName(id44, 50);
   auto id51 = getChildIdByName(id44, 51);
 
-  auto id46 = getChildIdByName(id20, 46);
-  auto id47 = getChildIdByName(id20, 47);
-  auto id52 = getChildIdByName(id46, 52);
-  auto id53 = getChildIdByName(id46, 53);
-
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s4_reference_map = {
-          // 32 -> 19
-          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 3)}, id19},
-          // 33 -> 20
-          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 2)}, id20},
-          // 34 -> 44
-          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 1)}, id44},
-          // 35 -> 45
-          {std::unordered_set<Val*>{tv2->axis(2)}, id45},
-          // 36 -> 50
-          {std::unordered_set<Val*>{tv2->axis(0)}, id50},
-          // 37 -> 41
-          {std::unordered_set<Val*>{tv2->axis(1)}, id51},
-          // 26 -> 19
-          {std::unordered_set<Val*>{getParentId(tv3->axis(0), 3)}, id19},
-          // 27 -> 20
-          {std::unordered_set<Val*>{getParentId(tv3->axis(0), 2)}, id20},
-          // 28 -> 46
-          {std::unordered_set<Val*>{getParentId(tv3->axis(0), 1)}, id46},
-          // 29 -> 47
-          {std::unordered_set<Val*>{tv3->axis(2)}, id47},
-          // 30 -> 52
-          {std::unordered_set<Val*>{tv3->axis(0)}, id52},
-          // 31 -> 53
-          {std::unordered_set<Val*>{tv3->axis(1)}, id53}};
+          // 34 -> 42
+          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 1)}, id42},
+          // 35 -> 43
+          {std::unordered_set<Val*>{tv2->axis(2)}, id43},
+          // 36 -> 48
+          {std::unordered_set<Val*>{tv2->axis(0)}, id48},
+          // 37 -> 49
+          {std::unordered_set<Val*>{tv2->axis(1)}, id49},
+          // 28 -> 44
+          {std::unordered_set<Val*>{getParentId(tv3->axis(0), 1)}, id44},
+          // 29 -> 45
+          {std::unordered_set<Val*>{tv3->axis(2)}, id45},
+          // 30 -> 50
+          {std::unordered_set<Val*>{tv3->axis(0)}, id50},
+          // 31 -> 51
+          {std::unordered_set<Val*>{tv3->axis(1)}, id51}};
 
   checkStep4Results(tester, s4_reference_map);
 
   // Check Step 5 results. See the design doc for the expected results
   std::unordered_map<TensorView*, std::vector<IterDomain*>> s5_reference_map = {
-      {tv2, {id23, id51, id45}},
-      {tv3, {id23, id53, id47}},
+      {tv2, {id23, id49, id43}},
+      {tv3, {id23, id51, id45}},
       {tv4, {id23, id24, id22}},
   };
 
@@ -1427,117 +1417,117 @@ TEST_F(IdModelTest, LoopPromotion6) {
   checkStep3Results(tester, s3_reference_map);
 
   // For tv1
-  auto id102 = getChildIdByName(id84, 102);
-  auto id103 = getChildIdByName(id84, 103);
-  auto id117 = getChildIdByName(id102, 117);
-  auto id118 = getChildIdByName(id102, 118);
+  auto id97 = getChildIdByName(id84, 97);
+  auto id98 = getChildIdByName(id84, 98);
+  auto id105 = getChildIdByName(id97, 105);
+  auto id106 = getChildIdByName(id97, 106);
 
   // For tv2
-  auto id106 = getChildIdByName(id84, 106);
-  auto id107 = getChildIdByName(id84, 107);
-  auto id121 = getChildIdByName(id106, 121);
-  auto id122 = getChildIdByName(id106, 122);
+  auto id99 = getChildIdByName(id84, 99);
+  auto id100 = getChildIdByName(id84, 100);
+  auto id109 = getChildIdByName(id99, 109);
+  auto id110 = getChildIdByName(id99, 110);
 
   // For tv6
-  auto id110 = getChildIdByName(id84, 110);
-  auto id111 = getChildIdByName(id84, 111);
-  auto id125 = getChildIdByName(id110, 125);
-  auto id126 = getChildIdByName(id110, 126);
+  auto id101 = getChildIdByName(id84, 101);
+  auto id102 = getChildIdByName(id84, 102);
+  auto id111 = getChildIdByName(id101, 111);
+  auto id112 = getChildIdByName(id101, 112);
 
   // For tv4
-  auto id119 = getChildIdByName(id84, 119);
-  auto id120 = getChildIdByName(id84, 120);
-  auto id137 = getChildIdByName(id119, 137);
-  auto id138 = getChildIdByName(id119, 138);
+  auto id107 = getChildIdByName(id84, 107);
+  auto id108 = getChildIdByName(id84, 108);
+  auto id119 = getChildIdByName(id107, 119);
+  auto id120 = getChildIdByName(id107, 120);
 
   // For tv5
-  auto id135 = getChildIdByName(id84, 135);
-  auto id136 = getChildIdByName(id84, 136);
-  auto id143 = getChildIdByName(id135, 143);
-  auto id144 = getChildIdByName(id135, 144);
+  auto id117 = getChildIdByName(id84, 117);
+  auto id118 = getChildIdByName(id84, 118);
+  auto id123 = getChildIdByName(id117, 123);
+  auto id124 = getChildIdByName(id117, 124);
 
   // For tv8
-  auto id115 = getChildIdByName(id84, 115);
-  auto id116 = getChildIdByName(id84, 116);
-  auto id133 = getChildIdByName(id115, 133);
-  auto id134 = getChildIdByName(id115, 134);
+  auto id103 = getChildIdByName(id84, 103);
+  auto id104 = getChildIdByName(id84, 104);
+  auto id115 = getChildIdByName(id103, 115);
+  auto id116 = getChildIdByName(id103, 116);
 
   // For tv9
-  auto id129 = getChildIdByName(id84, 129);
-  auto id130 = getChildIdByName(id84, 130);
-  auto id139 = getChildIdByName(id129, 139);
-  auto id140 = getChildIdByName(id129, 140);
+  auto id113 = getChildIdByName(id84, 113);
+  auto id114 = getChildIdByName(id84, 114);
+  auto id121 = getChildIdByName(id113, 121);
+  auto id122 = getChildIdByName(id113, 122);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s4_reference_map = {
-          // tv1: 71 -> 102
-          {std::unordered_set<Val*>{getParentId(tv1->axis(0), 1)}, id102},
-          // tv1: 72 -> 103
-          {std::unordered_set<Val*>{tv1->axis(2)}, id103},
-          // tv1: 73 -> 117
-          {std::unordered_set<Val*>{tv1->axis(0)}, id117},
-          // tv1: 74 -> 118
-          {std::unordered_set<Val*>{tv1->axis(1)}, id118},
-          // tv2: 47 -> 106
-          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 1)}, id106},
-          // tv2: 48 -> 107
-          {std::unordered_set<Val*>{tv2->axis(2)}, id107},
-          // tv2: 49 -> 121
-          {std::unordered_set<Val*>{tv2->axis(0)}, id121},
-          // tv2: 50 -> 122
-          {std::unordered_set<Val*>{tv2->axis(1)}, id122},
-          // tv4: 42 -> 119
-          {std::unordered_set<Val*>{getParentId(tv4->axis(0), 1)}, id119},
-          // tv4: 43 -> 120
-          {std::unordered_set<Val*>{tv4->axis(2)}, id120},
-          // tv4: 44 -> 137
-          {std::unordered_set<Val*>{tv4->axis(0)}, id137},
-          // tv4: 45 -> 138
-          {std::unordered_set<Val*>{tv4->axis(1)}, id138},
-          // tv5: 37 -> 135
-          {std::unordered_set<Val*>{getParentId(tv5->axis(0), 1)}, id135},
-          // tv5: 38 -> 136
-          {std::unordered_set<Val*>{tv5->axis(2)}, id136},
-          // tv5: 39 -> 143
-          {std::unordered_set<Val*>{tv5->axis(0)}, id143},
-          // tv5: 40 -> 144
-          {std::unordered_set<Val*>{tv5->axis(1)}, id144},
-          // tv6: 62 -> 110
-          {std::unordered_set<Val*>{getParentId(tv6->axis(0), 1)}, id110},
-          // tv6: 63 -> 111
-          {std::unordered_set<Val*>{tv6->axis(2)}, id111},
-          // tv6: 64 -> 125
-          {std::unordered_set<Val*>{tv6->axis(0)}, id125},
-          // tv6: 65 -> 126
-          {std::unordered_set<Val*>{tv6->axis(1)}, id126},
-          // tv8: 57 -> 115
-          {std::unordered_set<Val*>{getParentId(tv8->axis(0), 1)}, id115},
-          // tv8: 58 -> 116
-          {std::unordered_set<Val*>{tv8->axis(2)}, id116},
-          // tv8: 59 -> 133
-          {std::unordered_set<Val*>{tv8->axis(0)}, id133},
-          // tv8: 60 -> 134
-          {std::unordered_set<Val*>{tv8->axis(1)}, id134},
-          // tv9: 31 -> 129
-          {std::unordered_set<Val*>{getParentId(tv9->axis(0), 1)}, id129},
-          // tv9: 32 -> 130
-          {std::unordered_set<Val*>{tv9->axis(2)}, id130},
-          // tv9: 33 -> 139
-          {std::unordered_set<Val*>{tv9->axis(0)}, id139},
-          // tv9: 34 -> 140
-          {std::unordered_set<Val*>{tv9->axis(1)}, id140}};
+          // tv1: 71 -> 97
+          {std::unordered_set<Val*>{getParentId(tv1->axis(0), 1)}, id97},
+          // tv1: 72 -> 98
+          {std::unordered_set<Val*>{tv1->axis(2)}, id98},
+          // tv1: 73 -> 105
+          {std::unordered_set<Val*>{tv1->axis(0)}, id105},
+          // tv1: 74 -> 106
+          {std::unordered_set<Val*>{tv1->axis(1)}, id106},
+          // tv2: 47 -> 99
+          {std::unordered_set<Val*>{getParentId(tv2->axis(0), 1)}, id99},
+          // tv2: 48 -> 100
+          {std::unordered_set<Val*>{tv2->axis(2)}, id100},
+          // tv2: 49 -> 109
+          {std::unordered_set<Val*>{tv2->axis(0)}, id109},
+          // tv2: 50 -> 110
+          {std::unordered_set<Val*>{tv2->axis(1)}, id110},
+          // tv4: 42 -> 107
+          {std::unordered_set<Val*>{getParentId(tv4->axis(0), 1)}, id107},
+          // tv4: 43 -> 108
+          {std::unordered_set<Val*>{tv4->axis(2)}, id108},
+          // tv4: 44 -> 119
+          {std::unordered_set<Val*>{tv4->axis(0)}, id119},
+          // tv4: 45 -> 120
+          {std::unordered_set<Val*>{tv4->axis(1)}, id120},
+          // tv5: 37 -> 117
+          {std::unordered_set<Val*>{getParentId(tv5->axis(0), 1)}, id117},
+          // tv5: 38 -> 118
+          {std::unordered_set<Val*>{tv5->axis(2)}, id118},
+          // tv5: 39 -> 123
+          {std::unordered_set<Val*>{tv5->axis(0)}, id123},
+          // tv5: 40 -> 124
+          {std::unordered_set<Val*>{tv5->axis(1)}, id124},
+          // tv6: 62 -> 101
+          {std::unordered_set<Val*>{getParentId(tv6->axis(0), 1)}, id101},
+          // tv6: 63 -> 102
+          {std::unordered_set<Val*>{tv6->axis(2)}, id102},
+          // tv6: 64 -> 111
+          {std::unordered_set<Val*>{tv6->axis(0)}, id111},
+          // tv6: 65 -> 112
+          {std::unordered_set<Val*>{tv6->axis(1)}, id112},
+          // tv8: 57 -> 103
+          {std::unordered_set<Val*>{getParentId(tv8->axis(0), 1)}, id103},
+          // tv8: 58 -> 104
+          {std::unordered_set<Val*>{tv8->axis(2)}, id104},
+          // tv8: 59 -> 115
+          {std::unordered_set<Val*>{tv8->axis(0)}, id115},
+          // tv8: 60 -> 116
+          {std::unordered_set<Val*>{tv8->axis(1)}, id116},
+          // tv9: 31 -> 113
+          {std::unordered_set<Val*>{getParentId(tv9->axis(0), 1)}, id113},
+          // tv9: 32 -> 114
+          {std::unordered_set<Val*>{tv9->axis(2)}, id114},
+          // tv9: 33 -> 121
+          {std::unordered_set<Val*>{tv9->axis(0)}, id121},
+          // tv9: 34 -> 122
+          {std::unordered_set<Val*>{tv9->axis(1)}, id122}};
 
   checkStep4Results(tester, s4_reference_map);
 
   // Check Step 5 results. See the design doc for the expected results
   std::unordered_map<TensorView*, std::vector<IterDomain*>> s5_reference_map = {
-      {tv1, {id143, id118, id103}},
-      {tv2, {id143, id122, id107}},
-      {tv4, {id143, id138, id120}},
-      {tv5, {id143, id144, id136}},
-      {tv6, {id143, id126, id111}},
-      {tv8, {id143, id134, id116}},
-      {tv9, {id143, id140, id130}},
+      {tv1, {id123, id106, id98}},
+      {tv2, {id123, id110, id100}},
+      {tv4, {id123, id120, id108}},
+      {tv5, {id123, id124, id118}},
+      {tv6, {id123, id112, id102}},
+      {tv8, {id123, id116, id104}},
+      {tv9, {id123, id122, id114}},
   };
 
   checkStep5Results(tester, s5_reference_map);
@@ -1628,37 +1618,37 @@ TEST_F(IdModelTest, LoopPromotion7) {
   checkStep3Results(tester, s3_reference_map);
 
   // For tv2
-  auto id28 = getChildIdByName(id8, 28);
-  auto id29 = getChildIdByName(id8, 29);
-  auto id36 = getChildIdByName(id29, 36);
-  auto id37 = getChildIdByName(id29, 37);
+  auto id25 = getChildIdByName(id8, 25);
+  auto id26 = getChildIdByName(id8, 26);
+  auto id31 = getChildIdByName(id26, 31);
+  auto id32 = getChildIdByName(id26, 32);
 
   // For tv3
-  auto id32 = getChildIdByName(id8, 32);
-  auto id33 = getChildIdByName(id8, 33);
+  auto id27 = getChildIdByName(id8, 27);
+  auto id28 = getChildIdByName(id8, 28);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s4_reference_map = {
-          // tv2: 17 -> 28
-          {std::unordered_set<Val*>{tv2->axis(0)}, id28},
-          // tv2: 18 -> 29
-          {std::unordered_set<Val*>{getParentId(tv2->axis(1), 1)}, id29},
-          // tv2: 21 -> 36
-          {std::unordered_set<Val*>{tv2->axis(1)}, id36},
-          // tv2: 22 -> 37
-          {std::unordered_set<Val*>{tv2->axis(2)}, id37},
-          // tv3: 15 -> 32
-          {std::unordered_set<Val*>{tv3->axis(0)}, id32},
-          // tv3: 16 -> 33
-          {std::unordered_set<Val*>{tv3->axis(1)}, id33},
+          // tv2: 17 -> 25
+          {std::unordered_set<Val*>{tv2->axis(0)}, id25},
+          // tv2: 18 -> 26
+          {std::unordered_set<Val*>{getParentId(tv2->axis(1), 1)}, id26},
+          // tv2: 21 -> 31
+          {std::unordered_set<Val*>{tv2->axis(1)}, id31},
+          // tv2: 22 -> 32
+          {std::unordered_set<Val*>{tv2->axis(2)}, id32},
+          // tv3: 15 -> 27
+          {std::unordered_set<Val*>{tv3->axis(0)}, id27},
+          // tv3: 16 -> 28
+          {std::unordered_set<Val*>{tv3->axis(1)}, id28},
       };
 
   checkStep4Results(tester, s4_reference_map);
 
   // Check Step 5 results. See the design doc for the expected results
   std::unordered_map<TensorView*, std::vector<IterDomain*>> s5_reference_map = {
-      {tv2, {id9, id36, id37}},
-      {tv3, {id9, id33}},
+      {tv2, {id9, id31, id32}},
+      {tv3, {id9, id28}},
       {tv4, {id9, id10}},
   };
 
@@ -1828,48 +1818,48 @@ TEST_F(IdModelTest, LoopPromotion8) {
   checkStep3Results(tester, s3_reference_map);
 
   // tv1
-  auto id53 = getChildIdByName(id29, 53);
-  auto id54 = getChildIdByName(id29, 54);
+  auto id49 = getChildIdByName(id29, 49);
+  auto id50 = getChildIdByName(id29, 50);
 
   // tv2
-  auto id55 = getChildIdByName(id29, 55);
-  auto id56 = getChildIdByName(id29, 56);
+  auto id51 = getChildIdByName(id29, 51);
+  auto id52 = getChildIdByName(id29, 52);
 
   // tv5
-  auto id67 = getChildIdByName(id42, 67);
-  auto id68 = getChildIdByName(id42, 68);
+  auto id59 = getChildIdByName(id42, 59);
+  auto id60 = getChildIdByName(id42, 60);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s4_reference_map = {
-          // tv1: 35 -> 53
-          {std::unordered_set<Val*>{id35}, id53},
-          // tv1: 36 -> 54
-          {std::unordered_set<Val*>{id36}, id54},
-          // tv2: 21 -> 55
-          {std::unordered_set<Val*>{id21}, id55},
-          // tv2: 22 -> 56
-          {std::unordered_set<Val*>{id22}, id56},
-          // tv5: 40 -> 67
-          {std::unordered_set<Val*>{id40}, id67},
-          // tv5: 41 -> 68
-          {std::unordered_set<Val*>{id41}, id68},
+          // tv1: 35 -> 49
+          {std::unordered_set<Val*>{id35}, id49},
+          // tv1: 36 -> 50
+          {std::unordered_set<Val*>{id36}, id50},
+          // tv2: 21 -> 51
+          {std::unordered_set<Val*>{id21}, id51},
+          // tv2: 22 -> 52
+          {std::unordered_set<Val*>{id22}, id52},
+          // tv5: 40 -> 59
+          {std::unordered_set<Val*>{id40}, id59},
+          // tv5: 41 -> 60
+          {std::unordered_set<Val*>{id41}, id60},
       };
 
   checkStep4Results(tester, s4_reference_map);
 
   // Check Step 5 results. See the design doc for the expected results
   std::unordered_map<TensorView*, std::vector<IterDomain*>> s5_reference_map = {
-      {tv1, {id30, id54}},
-      {tv2, {id30, id56}},
+      {tv1, {id30, id50}},
+      {tv2, {id30, id52}},
       {tv4, {id30, id19}},
-      {tv5, {id30, id43, id68}},
+      {tv5, {id30, id43, id60}},
       {tv7, {id30, id43, id44}},
   };
 
   checkStep5Results(tester, s5_reference_map);
 }
 
-// A case to illustrate the effect of the below issue and RR.
+// A case to illustrate the effect of the below issue and PR.
 // https://github.com/NVIDIA/Fuser/issues/2027
 // https://github.com/NVIDIA/Fuser/pull/2059
 TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
@@ -1958,28 +1948,71 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
 
   checkStep3Results(tester, s3_reference_map);
 
-  auto id45 = getChildIdByName(id7, 45);
-  auto id46 = getChildIdByName(id7, 46);
-  auto id59 = getChildIdByName(id45, 59);
-  auto id60 = getChildIdByName(id46, 60);
+  auto id39 = getChildIdByName(id7, 39);
+  auto id40 = getChildIdByName(id7, 40);
+  auto id45 = getChildIdByName(id39, 45);
+  auto id46 = getChildIdByName(id40, 46);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
       s4_reference_map = {
-          {std::unordered_set<Val*>{id27}, id45},
-          {std::unordered_set<Val*>{id28}, id46},
-          {std::unordered_set<Val*>{id31}, id59},
-          {std::unordered_set<Val*>{id32}, id60}};
+          {std::unordered_set<Val*>{id27}, id39},
+          {std::unordered_set<Val*>{id28}, id40},
+          {std::unordered_set<Val*>{id31}, id45},
+          {std::unordered_set<Val*>{id32}, id46}};
 
   checkStep4Results(tester, s4_reference_map);
 
   // Check Step 5 results. See the design doc for the expected results
   std::unordered_map<TensorView*, std::vector<IterDomain*>> s5_reference_map = {
-      {tv2, {id13, id60}},
+      {tv2, {id13, id46}},
       {tv3, {id13, id20}},
       {tv4, {id13, id14}},
   };
 
   checkStep5Results(tester, s5_reference_map);
+}
+
+// A repro for issue #2261
+TEST_F(IdModelTest, LoopPromotionTwoStepFailureReproSimple) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto t0 = makeSymbolicTensor(3);
+  fusion.addInput(t0);
+  auto t1 = makeSymbolicTensor(5);
+  fusion.addInput(t1);
+
+  auto t2 = set(t0);
+  auto t3 = broadcast(t2, {true, false, false, false, true});
+  auto t4 = add(t3, t1);
+  fusion.addOutput(t4);
+
+  t4->merge(-2, -1)->merge(-2, -1)->merge(-2, -1)->merge(-2, -1)->split(0, 4);
+
+  TransformPropagatorWithCheck propagator(t4);
+  MaxRootDomainInfoSpanningTree(t4).traverse(&propagator);
+
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    tv->inlineAt(1);
+  }
+
+  IdModelTester tester(&fusion);
+
+  auto id38 = t2->axis(1);
+  auto id38_promotion_it =
+      tester.s5_loop_promotion_map.find(tester.s5_loop_graph.toGroup(id38));
+  ASSERT_NE(id38_promotion_it, tester.s5_loop_promotion_map.end())
+      << "No loop promotion found";
+
+  auto id38_promotion = id38_promotion_it->second;
+
+  auto reference_loop_promotion = t4->axis(1);
+
+  ASSERT_TRUE(tester.id_model->idGraph(IdMappingMode::EXACT)
+                  .disjointValSets()
+                  .strictAreMapped(id38_promotion, reference_loop_promotion))
+      << "Invalid loop promotion: " << id38_promotion->toString()
+      << ", expected: " << reference_loop_promotion->toString();
 }
 
 // A repro that produces an invalid loop graph due to the compliment
