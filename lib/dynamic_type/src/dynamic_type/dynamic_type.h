@@ -12,6 +12,7 @@
 #include <initializer_list>
 #include <optional>
 #include <ostream>
+#include <tuple>
 #include <type_traits>
 #include <typeinfo>
 #include <variant>
