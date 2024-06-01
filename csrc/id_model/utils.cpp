@@ -11,8 +11,7 @@
 namespace nvfuser {
 
 ValGroup merge(ValGraph* graph, const ValGroup& g0, const ValGroup& g1) {
-  NVF_ERROR(g0->size() > 0, "ValGroup can not be empty");
-  NVF_ERROR(g1->size() > 0, "ValGroup can not be empty");
+  NVF_ERROR(!g0->empty() && !g1->empty(), "ValGroup can not be empty");
   auto g0_id = g0->front()->as<IterDomain>();
   auto g1_id = g1->front()->as<IterDomain>();
   NVF_ERROR(
