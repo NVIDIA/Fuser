@@ -551,9 +551,10 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,
-             bool override_user_schedule,
              std::optional<int64_t> device,
-             bool capture_debug_output) {
+             bool override_user_schedule,
+             bool capture_debug_output,
+             bool profile) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
@@ -575,15 +576,17 @@ void initNvFuserPythonBindings(PyObject* module) {
             }
             return self.execute(
                 inputs,
+                int8_device,
                 override_user_schedule,
                 capture_debug_output,
-                int8_device);
+                profile);
           },
           py::arg("inputs"),
-          py::arg("override_user_schedule") = false,
           py::kw_only(),
           py::arg("device") = py::none(),
+          py::arg("override_user_schedule") = false,
           py::arg("capture_debug_output") = false,
+          py::arg("profile") = false,
           py::return_value_policy::reference)
       .def(
           "_debug_output",

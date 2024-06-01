@@ -599,7 +599,6 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
 
 FusionProfiler::FusionProfiler()
     : cupti_disabled_(false),
-      cpp_printing_enabled_(true),
       cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
       state_(ProfilerState::Ready),
       fusion_id_(-1),
@@ -644,14 +643,6 @@ void FusionProfiler::reset() {
 
 ProfilerState FusionProfiler::state() {
   return get()->state_;
-}
-
-void FusionProfiler::setCppPrinting(bool enable) {
-  get()->cpp_printing_enabled_ = enable;
-}
-
-bool FusionProfiler::cppPrintingEnabled() {
-  return get()->cpp_printing_enabled_;
 }
 
 void FusionProfiler::createSegments(size_t num) {
