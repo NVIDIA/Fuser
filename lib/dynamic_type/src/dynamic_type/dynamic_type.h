@@ -98,6 +98,11 @@ struct Containers {
       }
     }));
   }
+
+  template <typename ItemT>
+  using AllContainerTypeIdentitiesConstructibleFromInitializerList =
+      decltype(all_container_type_identities_constructible_from_initializer_list<
+               ItemT>());
 };
 
 using NoContainers = Containers<>;
@@ -132,11 +137,17 @@ struct DynamicType {
       type_identities_as_tuple);
 
   template <typename ItemT>
+  using AllContainerTypeIdentitiesConstructibleFromInitializerList =
+      typename Containers::
+          template AllContainerTypeIdentitiesConstructibleFromInitializerList<
+              ItemT>;
+
+  template <typename ItemT>
   static constexpr auto
-      all_container_type_identities_constructible_from_initializer_list =
-          Containers::
-              template all_container_type_identities_constructible_from_initializer_list<
-                  ItemT>();
+      num_container_types_constructible_from_initializer_list =
+          std::tuple_size_v<
+              AllContainerTypeIdentitiesConstructibleFromInitializerList<
+                  ItemT>>;
 
   template <typename FuncT, typename FirstArg, typename... OtherArgs>
   static inline constexpr decltype(auto) dispatch(
@@ -261,14 +272,12 @@ struct DynamicType {
           // enable this ctor only when there is only one container supporting
           // initializer_list, otherwise it is ambiguous to tell which container
           // to use.
-          std::tuple_size_v<
-              decltype(all_container_type_identities_constructible_from_initializer_list<
-                       ItemT>)> == 1>>
+          num_container_types_constructible_from_initializer_list<ItemT> == 1>>
   constexpr DynamicType(std::initializer_list<DynamicType> list)
-      : DynamicType(
-            typename std::decay_t<decltype(std::get<0>(
-                all_container_type_identities_constructible_from_initializer_list<
-                    DynamicType>))>::type(list)) {}
+      : DynamicType(typename std::tuple_element_t<
+                    0,
+                    AllContainerTypeIdentitiesConstructibleFromInitializerList<
+                        DynamicType>>::type(list)) {}
 
   // Returns the type_info of the actual type of the variant value. For
   // example, if value holds an int, then this will return typeid(int).
