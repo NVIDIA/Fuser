@@ -7,7 +7,7 @@
 // clang-format on
 
 #include <domain_view.h>
-
+#include <id_model/utils.h>
 #include <utility>
 
 namespace nvfuser {
@@ -48,33 +48,7 @@ struct DispatchMerge {
           lhs.graph == rhs.graph,
           "Can not merge ValGroups of different graph.");
       auto graph = lhs.graph;
-      // If there is already an existing merge in the ValGraph, just use it.
-      auto lhs_uses = graph->getUses(lhs.group);
-      for (const ExprGroup& use : lhs_uses) {
-        if (!use->front()->isA<Merge>()) {
-          continue;
-        }
-        auto input_groups = graph->inputGroups(use);
-        NVF_ERROR(input_groups.size() == 2);
-        if (input_groups == std::vector<ValGroup>{lhs.group, rhs.group}) {
-          auto output_groups = graph->outputGroups(use);
-          NVF_ERROR(output_groups.size() == 1);
-          return ValGroupAndItsGraph{output_groups[0], graph};
-        }
-      }
-      // There is no such merge, then create one
-      auto lhs_id =
-          lhs.group->front()->template as<IterDomain>()->cloneWithoutRFactor();
-      auto rhs_id =
-          rhs.group->front()->template as<IterDomain>()->cloneWithoutRFactor();
-      auto output_id = IterDomain::merge(lhs_id, rhs_id);
-      graph->initializeVal(lhs_id, {}, {});
-      graph->initializeVal(rhs_id, {}, {});
-      graph->mapVals(lhs.group->front(), lhs_id);
-      graph->mapVals(rhs.group->front(), rhs_id);
-      graph->initializeVal(output_id, {}, {});
-      graph->registerExpr(output_id->definition());
-      return ValGroupAndItsGraph{graph->toGroup(output_id), graph};
+      return ValGroupAndItsGraph{merge(graph, lhs.group, rhs.group), graph};
     } else if constexpr (
         std::is_same_v<L, IterDomain*> &&
         std::is_same_v<R, ValGroupAndItsGraph>) {
