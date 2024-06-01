@@ -97,9 +97,6 @@ struct Containers {
       }
     }));
   }
-
-  decltype(all_container_type_identities_constructible_from_initializer_list<
-           int>()) a = nullptr;
 };
 
 using NoContainers = Containers<>;
