@@ -1597,8 +1597,6 @@ class NVF_API LoadStoreOp : public Expr {
     return attribute<CacheOp>(1);
   }
 
-  bool hasInnerTranspose() const;
-
   void setOpType(LoadStoreOpType op) {
     attribute<LoadStoreOpType>(0) = op;
     if (op != LoadStoreOpType::Set && op != LoadStoreOpType::CpAsync) {
