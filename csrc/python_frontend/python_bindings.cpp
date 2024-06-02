@@ -426,13 +426,12 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
       .value("set", LoadStoreOpType::Set)
       .value("load_matrix", LoadStoreOpType::LdMatrix)
-      .value("load_matrix_transpose", LoadStoreOpType::LdMatrixTranspose)
       .value("cp_async", LoadStoreOpType::CpAsync)
       .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
 
   //! CacheOp used for scheduling
   py::enum_<CacheOp>(nvfuser, "CacheOp")
-      .value("none", CacheOp::Unspecified)
+      .value("unspecified", CacheOp::Unspecified)
       .value("all_levels", CacheOp::AllLevels)
       .value("streaming", CacheOp::Streaming)
       .value("global", CacheOp::Global);
@@ -2828,6 +2827,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         return tv->toString();
       },
       py::arg("tensor"));
+  nvf_sched.def(
+      "user_schedule_ir",
+      [](FusionDefinition::SchedOperators& self) {
+        return self.fusion_definition->userScheduleIr();
+      },
+      py::return_value_policy::reference);
   //! experimental API for multidevice support
   nvf_sched.def(
       "_create_device_mesh",
@@ -2889,14 +2894,10 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.validUse(),
         "Attempting to use a SchedOperators Op prior to definition!");
     FusionDefinition* fd = self.fusion_definition;
-    auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
-    auto output_tv = input_tv->rFactor(dims);
-    Tensor output = fd->defineTensor(arg.dims);
-    NVF_CHECK(
-        output.index == fd->numFusionStates(),
-        "Fusion State index does not match the size!");
-    fd->addFusionState(output_tv);
-    return output;
+    TensorView* input_tv =
+        fd->getFusionState(arg.index)->template as<TensorView>();
+    TensorView* output_tv = input_tv->rFactor(dims);
+    return fd->addTensor(output_tv);
   };
   nvf_sched.def(
       "reduction_factor",
@@ -2956,12 +2957,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         TensorView* input_tv =
             fd->getFusionState(tensor.index)->template as<TensorView>();
         TensorView* output_tv = input_tv->cacheAfter(op_type, cache_op);
-        Tensor output = fd->defineTensor(tensor.dims);
-        NVF_CHECK(
-            output.index == fd->numFusionStates(),
-            "Fusion State index does not match the size!");
-        fd->addFusionState(output_tv);
-        return output;
+        return fd->addTensor(output_tv);
       },
       py::arg("tensor"),
       py::arg("op_type") = LoadStoreOpType::Set,
@@ -2978,12 +2974,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         TensorView* input_tv =
             fd->getFusionState(tensor.index)->template as<TensorView>();
         TensorView* output_tv = input_tv->cacheBefore(op_type);
-        Tensor output = fd->defineTensor(tensor.dims);
-        NVF_CHECK(
-            output.index == fd->numFusionStates(),
-            "Fusion State index does not match the size!");
-        fd->addFusionState(output_tv);
-        return output;
+        return fd->addTensor(output_tv);
       },
       py::arg("tensor"),
       py::arg("op_type") = LoadStoreOpType::Set);

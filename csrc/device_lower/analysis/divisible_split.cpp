@@ -29,7 +29,7 @@ std::unordered_set<Split*> getAllDivisibleSplits(
   // Find all tensor views with a view like rfactor. Splits used in view
   // transformations must be divisible by definition.
   for (auto tv : all_tvs) {
-    auto rfactor_dom = tv->getMaybeRFactorDomain();
+    auto rfactor_dom = tv->getRFactorDomain();
     // Not view if there's no rfactor axis
     if (!tv->domain()->hasViewLikeRFactor()) {
       continue;

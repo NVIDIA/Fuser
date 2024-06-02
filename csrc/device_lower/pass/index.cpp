@@ -1553,7 +1553,7 @@ static Val* constructMatrixDescriptor(
 }
 
 static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  const auto& alloc_domain = tv->getRootDomain();
+  const auto& alloc_domain = tv->getMaybeRootDomain();
   const auto& leaf_domain = tv->getLeafDomain();
   auto exprs = StmtSort::getExprsBetween(
       {alloc_domain.begin(), alloc_domain.end()},
@@ -1864,7 +1864,7 @@ void IndexLowering::handle(const PadOp* pad) {
   auto producer_tv = pad->in()->as<TensorView>();
   auto consumer_tv = pad->out()->as<TensorView>();
   auto producer_doms =
-      TensorDomain::noReductions(producer_tv->getMaybeRFactorDomain());
+      TensorDomain::noReductions(producer_tv->getRFactorDomain());
 
   const auto in = lowerSrcIndex(pad->in(), pad->out());
   const auto out = lowerDstIndex(pad->out());
