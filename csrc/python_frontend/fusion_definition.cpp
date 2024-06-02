@@ -230,7 +230,11 @@ std::string FusionDefinition::fusionIr() {
 
 std::string FusionDefinition::userScheduleIr() {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
-  NVF_CHECK(user_sched_ != nullptr, "UserSchedule is not valid!");
+
+  if (user_sched_ == nullptr) {
+    return "User schedule is not defined.";
+  }
+
   std::stringstream ss;
   user_sched_->schedule->print(ss, false);
   return ss.str();
