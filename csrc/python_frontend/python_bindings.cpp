@@ -406,9 +406,20 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Null", DataType::Null);
 
   //! ParallelType used for scheduling
-  //! Note that we are only using this for multidevice at this point
   py::enum_<ParallelType>(nvfuser, "ParallelType")
-      .value("mesh_x", ParallelType::DIDx);
+      .value("mesh_x", ParallelType::DIDx)
+      .value("grid_x", ParallelType::BIDx)
+      .value("grid_y", ParallelType::BIDy)
+      .value("grid_z", ParallelType::BIDz)
+      .value("block_x", ParallelType::TIDx)
+      .value("block_y", ParallelType::TIDy)
+      .value("block_z", ParallelType::TIDz)
+      .value("mma", ParallelType::Mma)
+      .value("serial", ParallelType::Serial)
+      .value("tma", ParallelType::Bulk)
+      .value("unroll", ParallelType::Unroll)
+      .value("unswitch", ParallelType::Unswitch)
+      .value("vectorize", ParallelType::Vectorize);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -592,6 +603,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "_fusion_ir",
           [](FusionDefinition& self) { return self.fusionIr(); },
+          py::return_value_policy::reference)
+      .def(
+          "_user_schedule_ir",
+          [](FusionDefinition& self) { return self.userScheduleIr(); },
           py::return_value_policy::reference)
       .def(
           "_last_cuda_code",
@@ -2821,7 +2836,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("mesh"));
   //! experimental API for multidevice support
   nvf_sched.def(
-      "_parallelize",
+      "parallelize",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
          int axis,
