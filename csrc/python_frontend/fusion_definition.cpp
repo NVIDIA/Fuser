@@ -228,6 +228,18 @@ std::string FusionDefinition::fusionIr() {
   return ss.str();
 }
 
+std::string FusionDefinition::userScheduleIr() {
+  NVF_CHECK(id().has_value(), "Invalid fusion definition!");
+
+  if (user_sched_ == nullptr) {
+    return "User schedule is not defined.";
+  }
+
+  std::stringstream ss;
+  user_sched_->schedule->print(ss, false);
+  return ss.str();
+}
+
 std::string FusionDefinition::lastCudaCode(
     bool intrinsic_code,
     bool override_user_schedule) const {
