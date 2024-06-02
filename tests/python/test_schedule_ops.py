@@ -348,6 +348,85 @@ class TestScheduleOps(TestCase):
         eager_out = inputs[0] + inputs[1]
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_pointwise_partial_transform_user_schedule(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses the following schedule operations:
+         * merge, split, parallelize, cache_after, cache_before, set_memory_type
+         * transform_like, parallelize_like
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                # NOTE Manual broadcast is required so reduction TensorView is
+                # available in python frontend.
+                self.t2 = self.ops.max(self.t0, dims=[-1], keepdim=False)
+                self.t3 = self.ops.broadcast(self.t2, is_broadcast_dim=[False, True])
+                self.t4 = self.ops.sub(self.t0, self.t3)
+                self.t5 = self.ops.add(self.t4, self.t1)
+                self.add_output(self.t5)
+
+            def schedule(self):
+                # Initial selected nodes is all original fusion TensorViews
+                selected_nodes = [self.t2, self.t3, self.t4, self.t5]
+
+                # Create cache tensors
+                cache_after_t0 = fd.sched.cache_after(self.t0)
+                cache_after_t1 = fd.sched.cache_after(self.t1)
+                cache_before_t5 = fd.sched.cache_before(self.t5)
+
+                # Place all intermediate tensors in shared memory because
+                # we are not using computeAt
+                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
+                fd.sched.set_memory_type(cache_after_t1, MemoryType.shared)
+                fd.sched.set_memory_type(cache_before_t5, MemoryType.shared)
+                fd.sched.set_memory_type(self.t4, MemoryType.shared)
+
+                # Schedule all TensorViews except cache_after_t0 in the same way.
+                selected_nodes.extend([cache_after_t1, cache_before_t5])
+                fd.sched.split(self.t5, dim=1, factor=128)
+                fd.sched.transform_like(self.t5, selected_nodes)
+
+                # NOTE T2 was not transformed despite being a selected node,
+                # so we manually schedule it.
+                # TODO Improve error message to show warning if some selected
+                # tensors are not transformed.
+                fd.sched.split(self.t2, dim=1, factor=128)
+                fd.sched.transform_like(self.t2, selected_nodes)
+
+                # Create rfactor and add to selected nodes
+                rfactor_t2 = fd.sched.reduction_factor(self.t2, dims=[1])
+                selected_nodes.append(rfactor_t2)
+
+                fd.sched.parallelize(self.t5, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(self.t5, axis := -1, ParallelType.block_x)
+                fd.sched.parallelize_like(self.t5, pos := -1, selected_nodes)
+
+                # NOTE Parallelize T2 and rfactor_t2 separately
+                fd.sched.parallelize(self.t2, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(self.t2, axis := -1, ParallelType.block_x)
+                fd.sched.parallelize_like(self.t2, pos := -1, selected_nodes)
+
+                # Vectorize load t0 into shared memory
+                fd.sched.split(cache_after_t0, dim=1, factor=4)
+                fd.sched.parallelize(cache_after_t0, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(cache_after_t0, axis := 1, ParallelType.block_x)
+                fd.sched.parallelize(cache_after_t0, axis := 2, ParallelType.vectorize)
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        max_input0_values, max_input0_indices = torch.max(
+            inputs[0], dim=-1, keepdim=True
+        )
+        eager_out = (inputs[0] - max_input0_values) + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
     def test_pointwise_transform_user_schedule(self):
         """
         Implement a simple pointwise kernel with user defined schedule
