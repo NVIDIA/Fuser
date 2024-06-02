@@ -2806,6 +2806,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         return tv->toString();
       },
       py::arg("tensor"));
+  nvf_sched.def(
+      "user_schedule_ir",
+      [](FusionDefinition::SchedOperators& self) {
+        return self.fusion_definition->userScheduleIr();
+      },
+      py::return_value_policy::reference);
   //! experimental API for multidevice support
   nvf_sched.def(
       "_create_device_mesh",

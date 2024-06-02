@@ -171,7 +171,7 @@ namespace {
 MATCHER(IsPermute, "") {
   if (auto* set = dynamic_cast<LoadStoreOp*>(arg)) {
     if (auto* set_out = dynamic_cast<TensorView*>(set->out())) {
-      return set_out->hasRFactor();
+      return set_out->hasRoot();
     }
   }
   return false;

@@ -579,7 +579,7 @@ TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
   ASSERT_TRUE(outer->isA<BinaryOp>());
   auto bop = outer->as<BinaryOp>();
   EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::CeilDiv);
-  ASSERT_TRUE(bop->lhs()->sameAs(tv->getRootDomain()[2]->extent()));
+  ASSERT_TRUE(bop->lhs()->sameAs(tv->getRFactorDomain()[2]->extent()));
   ASSERT_TRUE(bop->rhs()->sameAs(IrBuilder::create<Val>(2L, DataType::Index)));
 
   IterDomain* inner = static_cast<IterDomain*>(tv->axis(3));
@@ -601,9 +601,9 @@ TEST_F(NVFuserTest, FusionTVMerge_CUDA) {
       tv->nDims() == 2 && axisOp->isA<BinaryOp>() &&
       static_cast<BinaryOp*>(axisOp)->getBinaryOpType() == BinaryOpType::Mul &&
       static_cast<BinaryOp*>(axisOp)->lhs() ==
-          tv->getRootDomain()[1]->extent() &&
+          tv->getRFactorDomain()[1]->extent() &&
       static_cast<BinaryOp*>(axisOp)->rhs() ==
-          tv->getRootDomain()[2]->extent());
+          tv->getRFactorDomain()[2]->extent());
 }
 
 TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
