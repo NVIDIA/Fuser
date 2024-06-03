@@ -44,8 +44,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
 
 void HostIrExecutor::handle(Stream* stream) {
   if (streams_.find(stream) == streams_.end()) {
-    auto i =
-        (communicator_ != nullptr && communicator_->is_available())
+    auto i = (communicator_ != nullptr && communicator_->is_available())
         ? communicator_->deviceId()
         : 0;
     streams_.insert(
