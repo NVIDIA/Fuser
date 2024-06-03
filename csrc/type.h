@@ -752,7 +752,6 @@ enum class LoadStoreOpType {
   Set,
   SegmenterSet,
   LdMatrix,
-  LdMatrixTranspose,
   CpAsync,
   CpAsyncBulkTensorTile
 };

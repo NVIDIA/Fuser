@@ -838,8 +838,6 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "Set";
     case LoadStoreOpType::LdMatrix:
       return "LdMatrix";
-    case LoadStoreOpType::LdMatrixTranspose:
-      return "LdMatrixTranspose";
     case LoadStoreOpType::CpAsync:
       return "CpAsync";
     case LoadStoreOpType::CpAsyncBulkTensorTile:
