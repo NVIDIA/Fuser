@@ -65,9 +65,6 @@ TEST(SDPATest, NonCausalAttnConcrete) {
       scale);
   ;
 
-  // FusionExecutorCache fec(std::move(fusion));
-  // auto out = fec.runFusionWithInputs({q, k, v});
-
   FusionExecutor fe;
   fusion->aliasOutputToInput(
       fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
@@ -122,9 +119,6 @@ TEST(SDPATest, NonCausalAttnSymbolic) {
       /*return_debug_mask=*/false,
       scale);
   ;
-
-  // FusionExecutorCache fec(std::move(fusion));
-  // auto out = fec.runFusionWithInputs({q, k, v});
 
   FusionExecutor fe;
   fusion->aliasOutputToInput(

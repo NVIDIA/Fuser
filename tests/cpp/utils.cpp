@@ -750,7 +750,7 @@ int64_t getNumSMs() {
   return num_SMs[dev_idx];
 }
 
-const bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y) {
+bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y) {
   if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
     return false;
   }

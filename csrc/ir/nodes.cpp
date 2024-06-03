@@ -4329,14 +4329,14 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   auto key = inputs.at(1).as<at::Tensor>();
   auto value = inputs.at(2).as<at::Tensor>();
 
-  nst auto dropout_p = inputs.at(3).as<double>();
+  const auto dropout_p = inputs.at(3).as<double>();
   const auto is_causal = inputs.at(4).as<bool>();
 
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
   const auto last_dim_size = query.sizes()[3];
-  auto pad_last_dim = [last_dim_size](at
-                          ::Tensor inp, int alignment_size) -> at::Tensor {
+  auto pad_last_dim = [last_dim_size](
+                          at::Tensor inp, int alignment_size) -> at::Tensor {
     if (last_dim_size % alignment_size == 0) {
       return inp;
     }
@@ -4349,68 +4349,48 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   key = pad_last_dim(key, 8);
   value = pad_last_dim(value, 8);
 
+  // Conmpute scale using original size of last dimension
+  double scale = inputs.size() > 5 ? inputs.back().as<double>()
+                                   : 1.0 / std::sqrt(last_dim_size);
 
-
-  onmpute scale using original size of last dimension
-  double scale = inputs.size() > 5 ? inputs.back().as<double>() : 1
-                                   0 / std::sqrt(last_dim_size);
-
-  // ATen reference: htt
-  // s://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
-  auto [ou
-      put,
-   
-       sumexp,
-   
-       seq_q,
-   
-       seq_k,
-   
-       y_seq_len,
-   
-       seq_len,
-   
-       ox_seed,
-   
-       ox_offset,
-   
-       g_attn_mask] = at:
-          _scaled_dot_product_flash_attention(
-   
-              y, key
-               val
-              e, dro
-              out_p, is_
-              ausal, /*r
-              turn_debug_mask=*/false, sca
-              e);
+  // ATen reference:
+  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
+  auto
+      [output,
+       log_sumexp,
+       cum_seq_q,
+       cum_seq_k,
+       query_seq_len,
+       key_seq_len,
+       philox_seed,
+       philox_offset,
+       debug_attn_mask] =
+          at::_scaled_dot_product_flash_attention(
+              query,
+              key,
+              value,
+              dropout_p,
+              is_causal,
+              /*return_debug_mask=*/false,
+              scale);
 
   // If the inputs were padded, slice the output to restore the original size
-  if (output.sizes()[3] != last_dim_size){
-     output = output.slice(-1, 0, last_dim_size);
+  if (output.sizes()[3] != last_dim_size) {
+    output = output.slice(-1, 0, last_dim_size);
   }
 
-  // Query and key seq len are of type c10::SymInt -> convert them to int for Pol
-  // morphic Value
-  return {outp
-      ut,
-   
-      sumexp,
-   
-      seq_q,
-   
-      seq_k,
-   
-      ry_seq_len.maybe_as_int(),
-   
-      _seq_len.maybe_as_int(),
-   
-      ox_seed,
-   
-      ox_offset,
-   
-      g_attn_mask};
+  // Query and key seq len are of type c10::SymInt -> convert them to int for
+  // Polymorphic Value
+  return {
+      output,
+      log_sumexp,
+      cum_seq_q,
+      cum_seq_k,
+      *query_seq_len.maybe_as_int(),
+      *key_seq_len.maybe_as_int(),
+      philox_seed,
+      philox_offset,
+      debug_attn_mask};
 }
 
 } // namespace nvfuser
-    

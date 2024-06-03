@@ -2230,10 +2230,10 @@ class SdpaFwdOp : public Expr {
     return "SdpaFwdOp";
   }
 
-  // std::string toString(int indent_size = 0) const override;
+  std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val** attn_out() const {
+  Val* attn_out() const {
     return output(0);
   }
 
@@ -2258,7 +2258,7 @@ class SdpaFwdOp : public Expr {
   }
 
   Val* scale() const {
-    if (inputs().size > 5) {
+    if (inputs().size() > 5) {
       return input(5);
     }
     return nullptr;

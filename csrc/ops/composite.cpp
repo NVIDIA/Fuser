@@ -470,9 +470,9 @@ SdpfaFwdResult sdpfa_fwd(
         {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
   out_domain[ndims_out - 2] =
-      ops::newOutputDomain(query_domain.at(ndims_out - 2));
+      ops::newOutputIterDomain({query_domain.at(ndims_out - 2)});
   out_domain[ndims_out - 1] =
-      ops::newOutputDomain(value_domain.at(ndims_out - 1));
+      ops::newOutputIterDomain({value_domain.at(ndims_out - 1)});
 
   TensorDomain* attn_td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -485,16 +485,15 @@ SdpfaFwdResult sdpfa_fwd(
         {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
   log_sumexp_dom[ndims_out - 2] =
-      ops::newOutputDomain(query_domain.at(ndims_out - 2));
+      ops::newOutputIterDomain({query_domain.at(ndims_out - 2)});
   TensorDomain* log_sumexp_td = IrBuilder::create<TensorDomain>(
       log_sumexp_dom,
       TensorDomain::getContiguityFilledWith(log_sumexp_dom, true));
   TensorView* log_sumexp =
       IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
-  // Create a new Tensorview for cum_seq_q, cum_seq_k which is of shape (N + 1,
-  // )
-  auto newForCumulativeSeq = [&]() -> TensorDomain* {
+  // Create a new Tensorview for cum_seq_q, cum_seq_k of shape (N + 1)
+  auto newForCumulativeSeq = [&]() -> TensorView* {
     IterDomain* batch_id = ops::newOutputIterDomain({query_domain.front()});
     batch_id = IterDomain::resize(
         batch_id,
