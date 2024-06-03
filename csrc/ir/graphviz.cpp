@@ -290,7 +290,7 @@ void IrGraphGenerator::generateScheduleGraph() {
       // Maybe not the best way to handle the root domain, but should be okay
       addArc(
           tv,
-          IrBuilder::create<TensorDomain>(tv->getRFactorDomain()),
+          IrBuilder::create<TensorDomain>(tv->getLogicalDomain()),
           "[style=dashed, color=green, arrowhead=none]");
 
       if (tv->domain()->hasRoot()) {
@@ -400,7 +400,7 @@ class TransformToDot {
   void handle(TensorView*);
   void handle(Expr*);
   void handle(IterDomain*);
-  void markRfactor(TensorView* tv);
+  void markLogical(TensorView* tv);
 
   // Make sure the root domains are ordered correctly
   // TODO: ordering of allocation domain
@@ -444,7 +444,7 @@ void TransformToDot::handle(TensorView* tv) {
   indent() << "graph [style=dotted];\n";
 
   // TODO: Mark allocation domains too?
-  markRfactor(tv);
+  markLogical(tv);
 
   // Note this won't print allocation domains if not in the path
   // between the root and leaf domains
@@ -464,8 +464,8 @@ void TransformToDot::handle(TensorView* tv) {
   indent() << "}\n";
 }
 
-void TransformToDot::markRfactor(TensorView* tv) {
-  for (auto id : tv->getRFactorDomain()) {
+void TransformToDot::markLogical(TensorView* tv) {
+  for (auto id : tv->getLogicalDomain()) {
     indent() << id->name() << " [shape=circle];\n";
   }
 }
@@ -477,7 +477,7 @@ void TransformToDot::enforceRootOrder(TensorView* tv) {
   indent() << "edge [style=invis];\n";
   bool first = true;
   std::stringstream ss;
-  for (auto id : tv->getRFactorDomain()) {
+  for (auto id : tv->getLogicalDomain()) {
     if (!first) {
       ss << " -> ";
     }

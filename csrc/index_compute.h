@@ -485,7 +485,7 @@ class Index {
       bool generate_pointer = false,
       DataType as_type = DataType::Null);
 
-  //! Returns a vector of strided indices mapped onto the (rfactor)
+  //! Returns a vector of strided indices mapped onto the
   //! allocation domain of a producer tensor. The size of the returned
   //! vector is guaranteed to be equal to the number of axes of the
   //! indexing allocation domain.
@@ -497,7 +497,7 @@ class Index {
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false);
 
-  //! Returns a vector of strided indices mapped onto the (rfactor)
+  //! Returns a vector of strided indices mapped onto the
   //! allocation domain of a consumer tensor. The size of the returned
   //! vector is guaranteed to be equal to the number of axes of the
   //! indexing allocation domain.
@@ -517,8 +517,8 @@ class Index {
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops);
 
-  //! Returns a vector of logical indices mapped onto the (rfactor)
-  //! root domain of a consumer tensor. The returned index is intended
+  //! Returns a vector of logical indices mapped onto the logical
+  //! domain of a consumer tensor. The returned index is intended
   //! to be used for the computation of some tensor factories, such as:
   //! eye
   static std::vector<Val*> getConsumerPerDimLogicalIndex(
@@ -526,8 +526,8 @@ class Index {
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops);
 
-  //! Returns a vector of logical indices mapped onto the (rfactor)
-  //! root domain of a producer tensor.
+  //! Returns a vector of logical indices mapped onto the logical
+  //! domain of a producer tensor.
   static std::vector<Val*> getProducerPerDimLogicalIndex(
       TensorView* producer_tv,
       const TensorView* consumer_tv,

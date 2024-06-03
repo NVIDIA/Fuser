@@ -30,9 +30,9 @@ namespace {
 // Return if ref and other are transformed in the same way.
 bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
   std::unordered_map<IterDomain*, IterDomain*> ref_2_other;
-  for (const auto i : c10::irange(ref->getRFactorDomain().size())) {
+  for (const auto i : c10::irange(ref->getLogicalDomain().size())) {
     ref_2_other.emplace(
-        ref->getRFactorDomain().at(i), other->getRFactorDomain().at(i));
+        ref->getLogicalDomain().at(i), other->getLogicalDomain().at(i));
   }
 
   auto replay = BestEffortReplay(
@@ -65,8 +65,8 @@ bool validateReductionGrouping(
   // Pick the first output TV as a reference and compare it with the
   // rest. Do not allow grouping if any mismatch is detected.
   auto ref_tv = outputs[0]->as<TensorView>();
-  const auto ref_domain = ref_tv->getRFactorDomain();
-  const auto num_root_dims = ref_domain.size();
+  const auto ref_domain = ref_tv->getLogicalDomain();
+  const auto num_logical_dims = ref_domain.size();
   const auto num_dims = ref_tv->nDims();
   const auto ref_ca_pos = ref_tv->getComputeAtPosition();
   const auto ref_cw_pos = ref_tv->getComputeWithPosition();
@@ -78,16 +78,16 @@ bool validateReductionGrouping(
       ref_tv->hasComputeWith() ? ref_tv->uses() : std::vector<Expr*>();
   for (const auto i : c10::irange(inputs.size())) {
     auto output_tv = outputs.at(i)->as<TensorView>();
-    const auto& output_domain = output_tv->getRFactorDomain();
+    const auto& output_domain = output_tv->getLogicalDomain();
     if (ref_tv == output_tv) {
       continue;
     }
     GROUP_REDUCTION_CHECK(
         error_on_failure,
-        output_domain.size() == num_root_dims,
+        output_domain.size() == num_logical_dims,
         "Invalid grouped reduction due to mismatched number of root dimensions. "
         "Expected: ",
-        num_root_dims,
+        num_logical_dims,
         ". Detected: ",
         output_domain.size(),
         ". Invalid output tensor: ",
@@ -102,7 +102,7 @@ bool validateReductionGrouping(
         output_tv->nDims(),
         ". Invalid output tensor: ",
         output_tv->toString());
-    for (const auto i : c10::irange(num_root_dims)) {
+    for (const auto i : c10::irange(num_logical_dims)) {
       auto ref_id = ref_domain.at(i);
       auto output_id = output_domain.at(i);
       // If an IterDomain is broadcast, require the other

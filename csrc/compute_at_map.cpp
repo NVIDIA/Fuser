@@ -99,7 +99,7 @@ bool IterDomainGraph::exprsMap(
 
   NVF_ERROR(
       first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>(),
-      "Merge, split and resize are the only expressions supported through rfactor operations in compute at map, but found:\n",
+      "Merge, split and resize are the only expressions supported through root to logical operations in compute at map, but found:\n",
       first->toString());
 
   auto first_ids = ir_utils::filterByType<IterDomain>(
@@ -291,20 +291,20 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
 std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
 findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
   for (auto tv : ir_utils::allTvs(fusion)) {
-    // For each tensor, make sure root, rfactor and leaf domains
+    // For each tensor, make sure root, logical and leaf domains
     // should not include domains that are mapped with another domain
     // in the same set of domains. This may be overly conservative,
     // and it maybe enough to check the root domains.
 
-    // rfactor domains
+    // logical domains
     auto self_mappped_root_pair = detectMappablePair(
-        tv->getRFactorDomain(), id_graph, IdMappingMode::EXACT);
+        tv->getLogicalDomain(), id_graph, IdMappingMode::EXACT);
     if (self_mappped_root_pair.has_value()) {
       return std::make_tuple(
           tv,
           self_mappped_root_pair->first,
           self_mappped_root_pair->second,
-          "RFactor");
+          "Logical");
     }
 
     // root domains
@@ -345,12 +345,12 @@ void IterDomainGraph::build(Fusion* fusion) {
     auto all_ids = ir_utils::allIDsOf(tv);
 
     for (auto id : all_ids) {
-      // Check if this id is an rfactor id in the rfactor domain
+      // Check if this id is an logical id in the logical domain
       bool is_rfactor_domain_id = id->isRFactorProduct() &&
           std::find(
-              tv->getRFactorDomain().begin(),
-              tv->getRFactorDomain().end(),
-              id) != tv->getRFactorDomain().end();
+              tv->getLogicalDomain().begin(),
+              tv->getLogicalDomain().end(),
+              id) != tv->getLogicalDomain().end();
       bool is_leaf_id =
           std::find(domain.begin(), domain.end(), id) != domain.end();
       initializeId(id, is_rfactor_domain_id, is_leaf_id);
@@ -553,28 +553,30 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
-  // Explicitly map through rfactor transformations, if we have an op like:
+  // Explicitly map through root to logical transformations, if we have an op
+  // like:
   //
   // T1[x, y*z] = view(T0[x*y, z])
   // T3[x, y*z] = view(T2[x*y, z])
   // T4 = T0 + T2
   //
-  // We want to map T1 and T3's rfactor transformations together by playing the
-  // transformations forward since their root domains map. If instead we have:
+  // We want to map T1 and T3's root to logical transformations together by
+  // playing the transformations forward since their root domains map. If
+  // instead we have:
   //
   // T1[x, y*z] = view(T0[x*y, z])
   // T3[x, y*z] = view(T2[x*y, z])
   // T4 = T1 + T3
   //
   // Then we wouldn't have a mapping of T1 and T3's root domain, we'd have a
-  // mapping of their rfactor domain, so we would want to map T1 and T3's
-  // rfactor transformations starting at their rfactor domains.
+  // mapping of their logical domain, so we would want to map T1 and T3's
+  // root to logical transformations starting at their logical domains.
   //
-  // Therefore we'll explicitly map rfactor transformation iteration domains
-  // forward and backwards. Something similar could happen with rfactor of root
-  // domains, though it seems mapping rfactor reduction domains aren't that
-  // important. Mapping view transformations is more important since view is
-  // part of the compute definition so having the map through the
+  // Therefore we'll explicitly map root to logical transformation iteration
+  // domains forward and backwards. Something similar could happen with root of
+  // logical domains, though it seems mapping rfactor reduction domains aren't
+  // that important. Mapping view transformations is more important since view
+  // is part of the compute definition so having the map through the
   // transformations makes it easy to check if different view operations are
   // consistent with eachother.
 
@@ -590,46 +592,46 @@ void IterDomainGraph::build(Fusion* fusion) {
   // transformations were redefined (more than one transform propagation pass
   // was run and retransformed sections of the graph). We're going to make a new
   // uses map so we can easily process the actual uses of IterDomains. We
-  // actually only need rfactor uses for this section of mapping, so we'll limit
-  // this map to only rfactor transformations.
-  std::unordered_map<IterDomain*, Expr*> rfactor_id_uses;
+  // actually only need logical uses for this section of mapping, so we'll limit
+  // this map to only root to logical transformations.
+  std::unordered_map<IterDomain*, Expr*> logical_id_uses;
 
-  // Order of traversal is important for processing all the rfactor ids as the
+  // Order of traversal is important for processing all the logical ids as the
   // first pass will go forward through expressions and the second pass will
   // traverse backwards through them. ID's will be unique in this vector,
-  // enforced when building it since it's built with rfactor_id_uses.
-  std::vector<IterDomain*> rfactor_id_order;
+  // enforced when building it since it's built with logical_id_uses.
+  std::vector<IterDomain*> logical_id_order;
 
-  // Grab all the rfactor ids.
+  // Grab all the logical ids.
   for (auto consumer_tv : all_consumer_tvs) {
     auto exprs = StmtSort::getExprsTo(
-        {consumer_tv->getRFactorDomain().begin(),
-         consumer_tv->getRFactorDomain().end()});
+        {consumer_tv->getLogicalDomain().begin(),
+         consumer_tv->getLogicalDomain().end()});
     for (auto expr : exprs) {
-      auto rfactor_inp_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
+      auto logical_inp_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
       NVF_ERROR(
           expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>() ||
               expr->isA<Swizzle>(),
           "Wasn't expecting the expression type of:\n",
           expr->toString(),
-          "\nto be an expression defined in an rfactor transformation.");
-      for (auto rfactor_inp_id : rfactor_inp_ids) {
+          "\nto be an expression defined in an root to logical transformation.");
+      for (auto logical_inp_id : logical_inp_ids) {
         NVF_ERROR(
-            rfactor_id_uses.find(rfactor_inp_id) == rfactor_id_uses.end(),
+            logical_id_uses.find(logical_inp_id) == logical_id_uses.end(),
             "Was expecting iter domains to only have one active transformation but found id ",
-            rfactor_inp_id->toString(),
+            logical_inp_id->toString(),
             " used in\n",
-            rfactor_id_uses.at(rfactor_inp_id),
+            logical_id_uses.at(logical_inp_id),
             "\nand\n",
             expr->toString());
-        rfactor_id_uses.emplace(rfactor_inp_id, expr);
-        rfactor_id_order.push_back(rfactor_inp_id);
+        logical_id_uses.emplace(logical_inp_id, expr);
+        logical_id_order.push_back(logical_inp_id);
       }
     }
-    for (auto rfactor_id : consumer_tv->getRFactorDomain()) {
-      if (rfactor_id->isRFactorProduct()) {
-        rfactor_id_uses.emplace(rfactor_id, nullptr);
-        rfactor_id_order.push_back(rfactor_id);
+    for (auto logical_id : consumer_tv->getLogicalDomain()) {
+      if (logical_id->isRFactorProduct()) {
+        logical_id_uses.emplace(logical_id, nullptr);
+        logical_id_order.push_back(logical_id);
       }
     }
   }
@@ -641,15 +643,15 @@ void IterDomainGraph::build(Fusion* fusion) {
   for (auto prop_forward : {true, false}) {
     std::unordered_set<Expr*> visited_exprs;
 
-    for (auto rfactor_id_i : c10::irange(rfactor_id_order.size())) {
-      auto first_rfactor_id = prop_forward
-          ? rfactor_id_order[rfactor_id_i]
-          : rfactor_id_order[rfactor_id_order.size() - 1 - rfactor_id_i];
+    for (auto logical_id_i : c10::irange(logical_id_order.size())) {
+      auto first_logical_id = prop_forward
+          ? logical_id_order[logical_id_i]
+          : logical_id_order[logical_id_order.size() - 1 - logical_id_i];
 
-      // At should be safe since we made rfactor_id_order and rfactor_id_uses at
+      // At should be safe since we made logical_id_order and logical_id_uses at
       // the same time so they should have the same exact entries.
-      auto first_expr = prop_forward ? rfactor_id_uses.at(first_rfactor_id)
-                                     : first_rfactor_id->definition();
+      auto first_expr = prop_forward ? logical_id_uses.at(first_logical_id)
+                                     : first_logical_id->definition();
 
       if (first_expr == nullptr) {
         continue;
@@ -660,9 +662,9 @@ void IterDomainGraph::build(Fusion* fusion) {
       }
       visited_exprs.emplace(first_expr);
 
-      // Only need to be concerned here with mapping across rfactor iter
+      // Only need to be concerned here with mapping across root iter
       // domains, so isolate out those.
-      auto all_exact_map_ids = exact_nodes_.getDisjointSetOf(first_rfactor_id);
+      auto all_exact_map_ids = exact_nodes_.getDisjointSetOf(first_logical_id);
       std::vector<IterDomain*> exact_map_rf_ids;
       std::copy_if(
           all_exact_map_ids.vector().begin(),
@@ -671,16 +673,16 @@ void IterDomainGraph::build(Fusion* fusion) {
           [](IterDomain* id) { return id->isRFactorProduct(); });
 
       for (auto exact_map_rf_id : exact_map_rf_ids) {
-        if (exact_map_rf_id == first_rfactor_id) {
+        if (exact_map_rf_id == first_logical_id) {
           continue;
         }
-        // If there's an input with an rfactor domain we could have an exact
-        // mapped rfactor id that's on the input meaning it wouldn't have an
-        // entry in rfactor_id_uses
+        // If there's an input with an logical domain we could have an exact
+        // mapped logical id that's on the input meaning it wouldn't have an
+        // entry in logical_id_uses
         auto other_use =
-            rfactor_id_uses.find(exact_map_rf_id) == rfactor_id_uses.end()
+            logical_id_uses.find(exact_map_rf_id) == logical_id_uses.end()
             ? nullptr
-            : rfactor_id_uses.at(exact_map_rf_id);
+            : logical_id_uses.at(exact_map_rf_id);
         auto other_expr =
             prop_forward ? other_use : exact_map_rf_id->definition();
 
@@ -954,9 +956,9 @@ IterDomain* ComputeAtMap::computeConcreteId(
   }
 
   // Broadcast resolution is what we have to figure out here. So if we traverse
-  // back from leaves to rfactor inputs through the exact map, if there's an
+  // back from leaves to logical inputs through the exact map, if there's an
   // operation with a broadcast input that's resolved within the history all of
-  // the domains in all of the maybe_rfactor_ids, then the concrete ID must
+  // the domains in all of the logical_ids, then the concrete ID must
   // resolve that broadcast.
   //
   // (1) Compute "traversed IDs" which is every exact disjoint set starting at
@@ -966,7 +968,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
   // that has its broadcast resolved ID within "traversed IDs", and all
   // IterDomains dependant on that broadcast.
   //
-  // (3) Start at all "traversed IDs" set that has an rfactor domain, traverse
+  // (3) Start at all "traversed IDs" set that has an logical domain, traverse
   // backwards to inputs and remove every exact ID set from "traversed IDs".
   //
   // Remove (2) and (3) from (1) and we have the iteration domains we must
@@ -1049,11 +1051,11 @@ IterDomain* ComputeAtMap::computeConcreteId(
 
   // Remove all domains in the history of sets marked as rfactor.
   {
-    // All exact sets in the history of an rfactored domain
+    // All exact sets in the history of an logical domain
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-        produces_rfactor_dom;
+        produces_logical_dom;
     for (const auto& exact_set : all_exact_sets_covered) {
-      if (produces_rfactor_dom.has(exact_set)) {
+      if (produces_logical_dom.has(exact_set)) {
         // Already processed
         continue;
       }
@@ -1064,23 +1066,23 @@ IterDomain* ComputeAtMap::computeConcreteId(
         continue;
       }
       VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-          rfactor_history = getAllDisjointSetProducers({exact_set});
-      for (const auto& entry : rfactor_history) {
-        // Leave rfactor exact set, unless it's in the history of another
-        // rfactor domain.
+          root_to_logical_history = getAllDisjointSetProducers({exact_set});
+      for (const auto& entry : root_to_logical_history) {
+        // Leave logical exact set, unless it's in the history of another
+        // logical domain.
         if (entry != exact_set) {
-          produces_rfactor_dom.pushBack(entry);
+          produces_logical_dom.pushBack(entry);
         }
       }
     }
 
-    // Remove all sets in rfactor history from all_exact_sets_covered by
+    // Remove all sets in root to logical history from all_exact_sets_covered by
     // effectively doing an inplace copy_if
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         tmp_all_exact_sets_covered;
     std::swap(tmp_all_exact_sets_covered, all_exact_sets_covered);
     for (const auto& entry : tmp_all_exact_sets_covered) {
-      if (produces_rfactor_dom.has(entry)) {
+      if (produces_logical_dom.has(entry)) {
         continue;
       }
       all_exact_sets_covered.pushBack(entry);
@@ -1463,18 +1465,18 @@ bool ComputeAtMap::isRfactor(IterDomain* ref_id) const {
   return id_graph_.rfactorIds().find(ref_id) != id_graph_.rfactorIds().end();
 }
 
-std::vector<IterDomain*> ComputeAtMap::getRfactorDomainsOfIdGroup(
+std::vector<IterDomain*> ComputeAtMap::getLogicalDomainsOfIdGroup(
     IterDomain* ref_id,
     IdMappingMode mode) const {
   auto disjoint_set = disjointSetOf(ref_id, mode);
-  std::vector<IterDomain*> rfactor_ids;
+  std::vector<IterDomain*> logical_ids;
   for (auto disjoint_id : disjoint_set->vector()) {
     if (id_graph_.rfactorIds().find(disjoint_id) !=
         id_graph_.rfactorIds().end()) {
-      rfactor_ids.push_back(disjoint_id);
+      logical_ids.push_back(disjoint_id);
     }
   }
-  return rfactor_ids;
+  return logical_ids;
 }
 
 const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>& ComputeAtMap::
@@ -1511,7 +1513,7 @@ bool ComputeAtMap::idExistsInMap(IterDomain* id) const {
 }
 
 VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor) {
+ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_logical) {
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       input_disjoint_sets;
 
@@ -1539,7 +1541,7 @@ ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor) {
       continue;
     }
 
-    if (stop_at_rfactor &&
+    if (stop_at_logical &&
         std::any_of(
             currently_visiting->vector().begin(),
             currently_visiting->vector().end(),

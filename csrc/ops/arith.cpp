@@ -1101,7 +1101,7 @@ static TensorView* newForReduction(
     TensorView* tv,
     const std::vector<unsigned int>& axes,
     DataType data_type = DataType::Null) {
-  auto orig_domain = TensorDomain::noReductions(tv->getRFactorDomain());
+  auto orig_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   std::set<unsigned int> axes_set(axes.begin(), axes.end());
 
   std::vector<IterDomain*> new_domain;
@@ -1180,10 +1180,10 @@ TensorView* reductionOpRaw(
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getRFactorDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
-      tv->getRFactorDomain(),
+      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
 
@@ -1212,8 +1212,8 @@ TensorView* reductionOpRaw(
   IrBuilder::create<ReductionOp>(reduction_op_type, init, out, tv);
 
   if (keep_dim) {
-    auto tv_root = TensorDomain::noReductions(tv->getRFactorDomain());
-    std::vector<bool> is_broadcast(tv_root.size(), false);
+    auto tv_logical = TensorDomain::noReductions(tv->getLogicalDomain());
+    std::vector<bool> is_broadcast(tv_logical.size(), false);
     for (auto axis : uint_axes) {
       is_broadcast.at(axis) = true;
     }
@@ -1230,10 +1230,10 @@ TensorView* maybeFullInsteadOfReduction(
     TensorView* tv,
     bool keep_dim,
     DataType dtype) {
-  auto tv_root = TensorDomain::noReductions(tv->getRFactorDomain());
-  const auto ndims = tv_root.size();
+  auto tv_logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  const auto ndims = tv_logical.size();
   for (auto i : axes) {
-    if (tv_root.at(i)->extent()->isZeroInt()) {
+    if (tv_logical.at(i)->extent()->isZeroInt()) {
       std::vector<IterDomain*> new_root;
       new_root.reserve(keep_dim ? ndims : ndims - axes.size());
       int cur_pos = 0;
@@ -1249,7 +1249,7 @@ TensorView* maybeFullInsteadOfReduction(
             new_root.push_back(id);
           }
         } else {
-          new_root.push_back(tv_root.at(j)->cloneWithoutRFactor());
+          new_root.push_back(tv_logical.at(j)->cloneWithoutRFactor());
         }
       }
 
@@ -1280,17 +1280,17 @@ TensorView* reductionOp(
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getRFactorDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
-      tv->getRFactorDomain(),
+      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
 
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
-  auto tv_root = TensorDomain::noReductions(tv->getRFactorDomain());
-  const auto ndims = (int64_t)tv_root.size();
+  auto tv_logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  const auto ndims = (int64_t)tv_logical.size();
 
   // PyTorch allows reduction of 0-dim tensors
   if (ndims == 0) {
@@ -1332,7 +1332,7 @@ TensorView* reductionOp(
       reduction_op_type != BinaryOpType::BitwiseXor;
   int64_t offset = 0;
   for (unsigned int axis : uint_axes) {
-    auto id = tv_root[axis];
+    auto id = tv_logical[axis];
     if (id->isBroadcast()) {
       is_squeeze[axis] = true;
       offset--;
@@ -1356,7 +1356,7 @@ TensorView* reductionOp(
   if (!expand_reductions_are_trivial) {
     Val* factor = nullptr;
     for (auto axis : uint_axes) {
-      IterDomain* id = tv_root[axis];
+      IterDomain* id = tv_logical[axis];
       if (id->isBroadcast() && id->hasExpandedExtent()) {
         factor =
             SimplifyingIrBuilder::mulExpr(factor, id->getMaybeExpandedExtent());
@@ -1472,9 +1472,9 @@ TensorView* broadcast(
 
   NVF_CHECK(
       nBCastDims - n_broadcasts ==
-          TensorDomain::noReductions(inp->getRFactorDomain()).size(),
+          TensorDomain::noReductions(inp->getLogicalDomain()).size(),
       "Invalid broadcast, number of false entries in is_broadcast_dim expected to be ",
-      TensorDomain::noReductions(inp->getRFactorDomain()).size(),
+      TensorDomain::noReductions(inp->getLogicalDomain()).size(),
       " but received ",
       nBCastDims - n_broadcasts);
 
@@ -1488,7 +1488,7 @@ TensorView* broadcast(
 
   std::vector<IterDomain*> out_domain;
   // Don't propagate reduction IDs through arith ops.
-  auto inp_domain = TensorDomain::noReductions(inp->getRFactorDomain());
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
   size_t iinp = 0, ibdim = 0;
   while (ibdim < is_broadcast_dim.size()) {
     if (is_broadcast_dim[ibdim]) {
@@ -1514,7 +1514,7 @@ TensorView* broadcast(
 }
 
 TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
-  auto inp_domain = TensorDomain::noReductions(inp->getRFactorDomain());
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
 
   NVF_CHECK(
       expanded_sizes.size() >= inp_domain.size(),
@@ -1524,7 +1524,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       expanded_sizes.size());
 
   inp = ops::maybe_broadcast_inner_to_rank(inp, expanded_sizes.size());
-  inp_domain = TensorDomain::noReductions(inp->getRFactorDomain());
+  inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
 
   std::vector<Val*> maybe_expanded_sizes;
   maybe_expanded_sizes.resize(inp_domain.size(), nullptr);
@@ -1612,8 +1612,8 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
 }
 
 TensorView* expand_as(TensorView* inp, TensorView* other) {
-  auto inp_domain = TensorDomain::noReductions(inp->getRFactorDomain());
-  auto other_domain = TensorDomain::noReductions(other->getRFactorDomain());
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+  auto other_domain = TensorDomain::noReductions(other->getLogicalDomain());
 
   NVF_CHECK(
       inp_domain.size() <= other_domain.size(),
@@ -1623,7 +1623,7 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
       other_domain.size());
 
   inp = ops::maybe_broadcast_inner_to_rank(inp, other_domain.size());
-  inp_domain = TensorDomain::noReductions(inp->getRFactorDomain());
+  inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
 
   std::vector<IterDomain*> out_domain;
   std::vector<Val*> maybe_expanded_sizes;
@@ -1671,7 +1671,7 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
 }
 
 std::vector<Val*> tensor_sizes(TensorView* inp) {
-  auto iter_domains = TensorDomain::noReductions(inp->getRFactorDomain());
+  auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
   std::vector<Val*> sizes(iter_domains.size(), nullptr);
 
   for (auto idx : c10::irange(iter_domains.size())) {
@@ -1682,7 +1682,7 @@ std::vector<Val*> tensor_sizes(TensorView* inp) {
 }
 
 std::vector<Val*> shape(TensorView* inp) {
-  auto iter_domains = TensorDomain::noReductions(inp->getRFactorDomain());
+  auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
   std::vector<Val*> shape;
 
   shape.reserve(iter_domains.size());
@@ -1694,7 +1694,7 @@ std::vector<Val*> shape(TensorView* inp) {
 }
 
 Val* size(TensorView* inp, int64_t dim) {
-  auto iter_domains = TensorDomain::noReductions(inp->getRFactorDomain());
+  auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
   int64_t ndims = static_cast<int64_t>(iter_domains.size());
   return iter_domains.at(wrapDim(dim, ndims))->getMaybeExpandedExtent();
 }
@@ -1711,10 +1711,10 @@ WelfordResult WelfordRaw(
     TensorView* init_var,
     Val* init_N) {
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getRFactorDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
-      tv->getRFactorDomain(),
+      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
 
@@ -1735,12 +1735,12 @@ WelfordResult WelfordRaw(
         init_avg != nullptr && init_var != nullptr && init_N != nullptr,
         "welford op: all init values need to be provided");
     NVF_CHECK(
-        (axes.size() + init_avg->getRFactorDomain().size()) ==
-            tv->getRFactorDomain().size(),
+        (axes.size() + init_avg->getLogicalDomain().size()) ==
+            tv->getLogicalDomain().size(),
         "welford op: initial tensor mismatch");
     NVF_CHECK(
-        (axes.size() + init_var->getRFactorDomain().size()) ==
-            tv->getRFactorDomain().size(),
+        (axes.size() + init_var->getLogicalDomain().size()) ==
+            tv->getLogicalDomain().size(),
         "welford op: initial tensor mismatch");
     init_avg_val = init_avg;
     init_var_val = init_var;
@@ -1777,10 +1777,10 @@ WelfordResult Welford(
     TensorView* init_var,
     Val* init_N) {
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getRFactorDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  RFactor: ",
-      tv->getRFactorDomain(),
+      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
 
@@ -1848,8 +1848,8 @@ WelfordResult Welford(
         init_var != nullptr,
         "welford op: init variance value need to be provided");
     NVF_CHECK(
-        squeezed->getRFactorDomain().size() ==
-            init_var->getRFactorDomain().size(),
+        squeezed->getLogicalDomain().size() ==
+            init_var->getLogicalDomain().size(),
         "welford op: initial tensor mismatch");
     return WelfordResult(squeezed, init_var, out_N, false);
   } else {
@@ -2120,10 +2120,10 @@ TensorView* clamp(TensorView* in, Val* min_val, Val* max_val) {
 // sum_to operator
 
 TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
-  const auto& root = TensorDomain::noReductions(in->getRFactorDomain());
+  const auto& logical = TensorDomain::noReductions(in->getLogicalDomain());
 
   NVF_CHECK(
-      root.size() >= sum_to_size.size(),
+      logical.size() >= sum_to_size.size(),
       "sum_to: Error trying to reduce",
       in,
       "into a shape of size",
@@ -2133,7 +2133,7 @@ TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
   TensorView* out = in;
 
   const int64_t leading_dims =
-      (int64_t)root.size() - (int64_t)sum_to_size.size();
+      (int64_t)logical.size() - (int64_t)sum_to_size.size();
 
   // Generate reduction axes for leading dims
   std::vector<int64_t> reduce_dims(leading_dims);
@@ -2144,9 +2144,9 @@ TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
-  for (const auto i : c10::irange(leading_dims, (int64_t)root.size())) {
+  for (const auto i : c10::irange(leading_dims, (int64_t)logical.size())) {
     if (sum_to_size[i - leading_dims]->isOneInt() &&
-        !root[i]->extent()->isOneInt()) {
+        !logical[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
       reduce_dims.push_back(i);
       reduction_within_shape = true;
@@ -2167,10 +2167,10 @@ TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
 }
 
 TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
-  const auto& root = TensorDomain::noReductions(in->getRFactorDomain());
+  const auto& logical = TensorDomain::noReductions(in->getLogicalDomain());
 
   NVF_CHECK(
-      root.size() >= sum_to_size.size(),
+      logical.size() >= sum_to_size.size(),
       "sum_to: Error trying to reduce",
       in,
       "into a shape of size",
@@ -2180,7 +2180,7 @@ TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
   TensorView* out = in;
 
   const int64_t leading_dims =
-      (int64_t)root.size() - (int64_t)sum_to_size.size();
+      (int64_t)logical.size() - (int64_t)sum_to_size.size();
 
   // Generate reduction axes for leading dims
   std::vector<int64_t> reduce_dims(leading_dims);
@@ -2191,8 +2191,9 @@ TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
-  for (const auto i : c10::irange(leading_dims, (int64_t)root.size())) {
-    if (sum_to_size[i - leading_dims] == 1 && !root[i]->extent()->isOneInt()) {
+  for (const auto i : c10::irange(leading_dims, (int64_t)logical.size())) {
+    if (sum_to_size[i - leading_dims] == 1 &&
+        !logical[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
       reduce_dims.push_back(i);
       reduction_within_shape = true;
@@ -2218,7 +2219,7 @@ TensorView* viewAsScalar(TensorView* inp) {
   auto out_type = *std::get<ArrayType>(inp_type.type).type;
 
   std::vector<IterDomain*> out_domain;
-  auto inp_domain = TensorDomain::noReductions(inp->getRFactorDomain());
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
   out_domain.reserve(inp_domain.size());
   for (auto d : inp_domain) {
     out_domain.push_back(d->cloneWithoutRFactor());
@@ -2251,8 +2252,8 @@ static TensorView* newForMma(
     TensorView* tv_b,
     const std::vector<unsigned int>& axes,
     DataType data_type = DataType::Float) {
-  auto orig_domain_a = TensorDomain::noReductions(tv_a->getRFactorDomain());
-  auto orig_domain_b = TensorDomain::noReductions(tv_b->getRFactorDomain());
+  auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
+  auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 
   NVF_ERROR(
       orig_domain_a.size() == orig_domain_b.size(),

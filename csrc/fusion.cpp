@@ -344,10 +344,10 @@ bool Fusion::isNoOp() {
   }
 
   for (auto out_tv : ir_utils::filterByType<TensorView>(outputs())) {
-    const std::vector<IterDomain*>& root_dom =
-        TensorDomain::noReductions(out_tv->getRFactorDomain());
+    const std::vector<IterDomain*>& logical_dom =
+        TensorDomain::noReductions(out_tv->getLogicalDomain());
     const bool size_zero =
-        std::any_of(root_dom.begin(), root_dom.end(), [](IterDomain* id) {
+        std::any_of(logical_dom.begin(), logical_dom.end(), [](IterDomain* id) {
           return id->extent()->isConstScalar() && id->extent()->evaluate() == 0;
         });
     if (!size_zero) {
@@ -373,7 +373,7 @@ void Fusion::validateInputs() {
   std::unordered_set<Val*> input_dims;
   auto inp_tvs = ir_utils::filterByType<TensorView>(inputs());
   for (auto tv : inp_tvs) {
-    for (auto id : tv->getRFactorDomain()) {
+    for (auto id : tv->getLogicalDomain()) {
       input_dims.emplace(id->extent());
     }
   }

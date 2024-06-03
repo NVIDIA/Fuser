@@ -232,7 +232,7 @@ void checkContiguity(
   NVF_ERROR(producer->getMemoryType() == MemoryType::Global);
 
   // TODO: we should use BestEffortReplay to find the correct c2p map for
-  // allocation domain when it is different from rFactor domain.
+  // allocation domain when it is different from logical domain.
   NVF_ERROR(
       !consumer->hasAllocation() && !producer->hasAllocation(),
       "Misaligned vectorization for allocation domain is not supported.");
@@ -366,7 +366,7 @@ class VectorizeValidator : public OptInDispatch {
 
     NVF_ERROR(validator.vectorized_id_ != nullptr);
 
-    // Contiguity is based on rfactor domain.
+    // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
     for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
@@ -887,12 +887,12 @@ void validateSwizzle(Fusion* fusion) {
 
       // Make sure no swizzle op is inlined:
       auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getRFactorDomain(),
+          tv->getLogicalDomain(),
           {tv->getLeafDomain().begin(),
            tv->getLeafDomain().begin() + tv->getMaxComputePosition()});
 
       auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getRFactorDomain(),
+          tv->getLogicalDomain(),
           {tv->getLeafDomain().begin() + tv->getMaxComputePosition(),
            tv->getLeafDomain().end()});
 
@@ -1086,9 +1086,9 @@ void validateLookupTV(Fusion* fusion) {
 void validateResize(Fusion* fusion) {
   auto fusion_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
-    // Make sure resize is only used as part of rfactor transformations
+    // Make sure resize is only used as part of root to logical transformations
     auto rf_to_leaf_exprs = StmtSort::getExprsBetween(
-        {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()},
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
         {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
 
     NVF_ERROR(
@@ -1098,7 +1098,7 @@ void validateResize(Fusion* fusion) {
             [](Expr* expr) { return expr->isA<Resize>(); }),
         "Invalid use of resize detected with ",
         tv->toString(),
-        ". Resize may only be used as part of rfactor transformations.");
+        ". Resize may only be used as part of root to logical transformations.");
   }
 }
 
