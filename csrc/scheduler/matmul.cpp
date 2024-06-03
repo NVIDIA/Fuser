@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <id_model/id_model.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <multidevice/utils.h>
