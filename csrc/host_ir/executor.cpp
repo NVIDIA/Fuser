@@ -48,7 +48,9 @@ void HostIrExecutor::handle(Stream* stream) {
         ? communicator_->deviceId()
         : 0;
     streams_.insert(
-        {stream, c10::cuda::getStreamFromPool(/* high priority */ true, i)});
+        {stream,
+         c10::cuda::getStreamFromPool(
+             /* high priority */ true, static_cast<c10::DeviceIndex>(i))});
   }
   setCurrentCUDAStream(streams_.at(stream));
 }
