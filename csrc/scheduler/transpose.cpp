@@ -1222,10 +1222,10 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // Merge remaining dimensions ignoring reduction axes.
   int64_t rhs_i = reference1->nDims() - 3;
   for (int64_t lhs_i = reference1->nDims() - 4; lhs_i >= 0; lhs_i--) {
-    if (reference1->axis(lhs_i)->isReduction()){
+    if (reference1->axis(lhs_i)->isReduction()) {
       continue;
     }
-    if (reference1->axis(rhs_i)->isReduction()){
+    if (reference1->axis(rhs_i)->isReduction()) {
       rhs_i = lhs_i;
       continue;
     }
