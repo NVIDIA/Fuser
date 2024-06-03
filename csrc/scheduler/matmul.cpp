@@ -882,21 +882,13 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(bcw_smem->uses().size() == 1);
   if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
     acr = ldst->out()->as<TensorView>();
-    if (ldst->hasInnerTranspose()) {
-      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
-    } else {
-      ldst->setOpType(LoadStoreOpType::LdMatrix);
-    }
+    ldst->setOpType(LoadStoreOpType::LdMatrix);
   } else {
     acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
   }
   if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0))) {
     bcr = ldst->out()->as<TensorView>();
-    if (ldst->hasInnerTranspose()) {
-      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
-    } else {
-      ldst->setOpType(LoadStoreOpType::LdMatrix);
-    }
+    ldst->setOpType(LoadStoreOpType::LdMatrix);
   } else {
     bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
   }

@@ -2270,14 +2270,6 @@ std::string LoadStoreOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-bool LoadStoreOp::hasInnerTranspose() const {
-  if (auto out_tv = dynamic_cast<TensorView*>(out())) {
-    return out_tv->hasRoot() &&
-        out_tv->getRootDomain().back() != out_tv->getRFactorDomain().back();
-  }
-  return false;
-}
-
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
 
 IterDomainBuilder::IterDomainBuilder(Val* _start, Val* _extent)
