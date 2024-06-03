@@ -4330,7 +4330,7 @@ std::vector<PolymorphicValue> SdpaOp::evaluate(
   const auto dropout_p = inputs.at(3).as<double>();
   const auto is_causal = inputs.at(4).as<bool>();
 
-  const auto last_dim_size = query.sizes()[-1];
+  const auto last_dim_size = query.sizes()[3];
   auto pad_last_dim = [last_dim_size](at::Tensor inp, int alignment_size) -> at::Tensor {
     if (last_dim_size % alignment_size == 0) {
       return inp;
@@ -4357,7 +4357,7 @@ std::vector<PolymorphicValue> SdpaOp::evaluate(
     debug_attn_mask] = at::_scaled_dot_product_flash_attention(
       query, key, value, dropout_p, is_causal, /*return_debug_mask=*/false, scale);
 
-  if (output.sizes()[-1] != last_dim_size){
+  if (output.sizes()[3] != last_dim_size){
     output = output.slice(-1, 0, last_dim_size);
   }
 
