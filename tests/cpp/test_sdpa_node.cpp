@@ -56,7 +56,14 @@ TEST(SDPATest, NonCausalAttnConcrete) {
 
   double scale = 1.0 / std::sqrt(e);
   auto aten_outputs = at::_scaled_dot_product_flash_attention(
-      q, k, v, /*dropout_p=*/0.0, /*is_causal=*/false, /*return_debug_mask=*/false, scale);;
+      q,
+      k,
+      v,
+      /*dropout_p=*/0.0,
+      /*is_causal=*/false,
+      /*return_debug_mask=*/false,
+      scale);
+  ;
 
   // FusionExecutorCache fec(std::move(fusion));
   // auto out = fec.runFusionWithInputs({q, k, v});
@@ -67,7 +74,13 @@ TEST(SDPATest, NonCausalAttnConcrete) {
   fe.compileFusion(fusion.get(), {q, k, v});
   auto out = fe.runFusion({q, k, v});
 
-  testValidate(fusion.get(), out, {q, k, v}, {std::get<0>(aten_outputs)}, __LINE__, __FILE__);
+  testValidate(
+      fusion.get(),
+      out,
+      {q, k, v},
+      {std::get<0>(aten_outputs)},
+      __LINE__,
+      __FILE__);
 }
 
 TEST(SDPATest, NonCausalAttnSymbolic) {
@@ -101,7 +114,14 @@ TEST(SDPATest, NonCausalAttnSymbolic) {
 
   double scale = 1.0 / std::sqrt(e);
   auto aten_outputs = at::_scaled_dot_product_flash_attention(
-      q, k, v, /*dropout_p=*/0.0, /*is_causal=*/false, /*return_debug_mask=*/false, scale);;
+      q,
+      k,
+      v,
+      /*dropout_p=*/0.0,
+      /*is_causal=*/false,
+      /*return_debug_mask=*/false,
+      scale);
+  ;
 
   // FusionExecutorCache fec(std::move(fusion));
   // auto out = fec.runFusionWithInputs({q, k, v});
@@ -112,7 +132,13 @@ TEST(SDPATest, NonCausalAttnSymbolic) {
   fe.compileFusion(fusion.get(), {q, k, v});
   auto out = fe.runFusion({q, k, v});
 
-  testValidate(fusion.get(), out, {q, k, v}, {std::get<0>(aten_outputs)}, __LINE__, __FILE__);
+  testValidate(
+      fusion.get(),
+      out,
+      {q, k, v},
+      {std::get<0>(aten_outputs)},
+      __LINE__,
+      __FILE__);
 }
 
 TEST(SDPATest, CausalAttn) {
@@ -145,7 +171,14 @@ TEST(SDPATest, CausalAttn) {
   at::Tensor v = at::randn(v_shape, options);
 
   auto aten_outputs = at::_scaled_dot_product_flash_attention(
-      q, k, v, /*dropout_p=*/0.0, /*is_causal=*/true, /*return_debug_mask=*/false, /*scale=*/1e-3);;
+      q,
+      k,
+      v,
+      /*dropout_p=*/0.0,
+      /*is_causal=*/true,
+      /*return_debug_mask=*/false,
+      /*scale=*/1e-3);
+  ;
 
   FusionExecutor fe;
   fusion->aliasOutputToInput(
@@ -153,6 +186,12 @@ TEST(SDPATest, CausalAttn) {
   fe.compileFusion(fusion.get(), {q, k, v});
   auto out = fe.runFusion({q, k, v});
 
-  testValidate(fusion.get(), out, {q, k, v}, {std::get<0>(aten_outputs)}, __LINE__, __FILE__);
+  testValidate(
+      fusion.get(),
+      out,
+      {q, k, v},
+      {std::get<0>(aten_outputs)},
+      __LINE__,
+      __FILE__);
 }
 } // namespace nvfuser

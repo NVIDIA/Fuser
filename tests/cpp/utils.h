@@ -684,6 +684,6 @@ at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
 // Get the number of SMs on the current device
 int64_t getNumSMs();
 
-const bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y);
+bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y);
 
 } // namespace nvfuser

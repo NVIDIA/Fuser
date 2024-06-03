@@ -433,7 +433,6 @@ SdpfaFwdResult sdpfa_fwd(
     Val* dropout_p,
     Val* is_causal,
     Val* scale) {
-
   NVF_CHECK(
       query->dtype() == key->dtype() && query->dtype() == value->dtype(),
       "Expected query, key, and value to have the same dtype but got: ",
@@ -446,9 +445,10 @@ SdpfaFwdResult sdpfa_fwd(
   auto query_domain = TensorDomain::noReductions(query->getRFactorDomain());
   auto key_domain = TensorDomain::noReductions(key->getRFactorDomain());
   auto value_domain = TensorDomain::noReductions(value->getRFactorDomain());
-  
+
   NVF_CHECK(
-      query_domain.size() == 4 && key_domain.size() == 4 && value_domain.size() == 4,
+      query_domain.size() == 4 && key_domain.size() == 4 &&
+          value_domain.size() == 4,
       "Expected query, key, and value to be 4D but got: ",
       query_domain.size(),
       " ",
@@ -457,46 +457,53 @@ SdpfaFwdResult sdpfa_fwd(
       value_domain.size());
 
   // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
-  // N, H are mapped for all inputs to outputs. L is mapped from query to output. Ev is mapped from
-  // value to output. Note: There is no mapping for S, E. This may change in the
-  // future if we add additional reduction ids to the output.
+  // N, H are mapped for all inputs to outputs. L is mapped from query to
+  // output. Ev is mapped from value to output. Note: There is no mapping for S,
+  // E. This may change in the future if we add additional reduction ids to the
+  // output.
   auto ndims_out = query_domain.size();
 
   // TensorView for attention output
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
   for (auto idx : c10::irange(ndims_out - 2)) {
     out_domain[idx] = ops::newOutputIterDomain(
-        {query_domain.at(idx),
-         key_domain.at(idx),
-         value_domain.at(idx)});
+        {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
-  out_domain[ndims_out - 2] = ops::newOutputDomain(query_domain.at(ndims_out - 2));
-  out_domain[ndims_out - 1] = ops::newOutputDomain(value_domain.at(ndims_out - 1));
+  out_domain[ndims_out - 2] =
+      ops::newOutputDomain(query_domain.at(ndims_out - 2));
+  out_domain[ndims_out - 1] =
+      ops::newOutputDomain(value_domain.at(ndims_out - 1));
 
   TensorDomain* attn_td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
   TensorView* output = IrBuilder::create<TensorView>(attn_td, query->dtype());
 
   // TensorView for log_sumexp [N, H, L]
-  std::vector<IterDomain*> log_sumexp_dom (ndims_out - 1, nullptr);
-  for (auto idx : c10::irange(ndims_out - 2)){
+  std::vector<IterDomain*> log_sumexp_dom(ndims_out - 1, nullptr);
+  for (auto idx : c10::irange(ndims_out - 2)) {
     log_sumexp_dom[idx] = ops::newOutputIterDomain(
-        {query_domain.at(idx),
-         key_domain.at(idx),
-         value_domain.at(idx)});
+        {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
-  log_sumexp_dom[ndims_out - 2] = ops::newOutputDomain(query_domain.at(ndims_out - 2));
+  log_sumexp_dom[ndims_out - 2] =
+      ops::newOutputDomain(query_domain.at(ndims_out - 2));
   TensorDomain* log_sumexp_td = IrBuilder::create<TensorDomain>(
-      log_sumexp_dom, TensorDomain::getContiguityFilledWith(log_sumexp_dom, true));
-  TensorView* log_sumexp = IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
+      log_sumexp_dom,
+      TensorDomain::getContiguityFilledWith(log_sumexp_dom, true));
+  TensorView* log_sumexp =
+      IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
-  // Create a new Tensorview for cum_seq_q, cum_seq_k which is of shape (N + 1, )
+  // Create a new Tensorview for cum_seq_q, cum_seq_k which is of shape (N + 1,
+  // )
   auto newForCumulativeSeq = [&]() -> TensorDomain* {
     IterDomain* batch_id = ops::newOutputIterDomain({query_domain.front()});
-    batch_id = IterDomain::resize(batch_id, IrBuilder::create<Val>(0, DataType::Index), IrBuilder::create<Val>(1, DataType::Index));
+    batch_id = IterDomain::resize(
+        batch_id,
+        IrBuilder::create<Val>(0, DataType::Index),
+        IrBuilder::create<Val>(1, DataType::Index));
 
     TensorDomain* batch_dom = IrBuilder::create<TensorDomain>(
-      std::vector({batch_id}), TensorDomain::getContiguityFilledWith(std::vector({batch_id}), true));
+        std::vector({batch_id}),
+        TensorDomain::getContiguityFilledWith(std::vector({batch_id}), true));
     return IrBuilder::create<TensorView>(batch_dom, DataType::Int);
   };
 
@@ -509,7 +516,8 @@ SdpfaFwdResult sdpfa_fwd(
   // Scalar tensors of int64_t dtype.
   TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
-  TensorView* debug_attn_mask = TensorViewBuilder().dtype(DataType::Int).build();
+  TensorView* debug_attn_mask =
+      TensorViewBuilder().dtype(DataType::Int).build();
 
   // Set default values for dropout_p (0.0), is_causal(false)
   if (dropout_p == nullptr) {
@@ -521,31 +529,31 @@ SdpfaFwdResult sdpfa_fwd(
   }
 
   IrBuilder::create<SdpaFwdOp>(
-    output,
-    log_sumexp,
-    cum_seq_q,
-    cum_seq_k,
-    query_seq_len,
-    key_seq_len,
-    philox_seed,
-    philox_offset,
-    debug_attn_mask, 
-    query, 
-    key,
-    value,
-    dropout_p,
-    is_causal,
-    scale
-  );
-  return {output,
-    log_sumexp,
-    cum_seq_q,
-    cum_seq_k,
-    query_seq_len,
-    key_seq_len,
-    philox_seed,
-    philox_offset,
-    debug_attn_mask};
+      output,
+      log_sumexp,
+      cum_seq_q,
+      cum_seq_k,
+      query_seq_len,
+      key_seq_len,
+      philox_seed,
+      philox_offset,
+      debug_attn_mask,
+      query,
+      key,
+      value,
+      dropout_p,
+      is_causal,
+      scale);
+  return {
+      output,
+      log_sumexp,
+      cum_seq_q,
+      cum_seq_k,
+      query_seq_len,
+      key_seq_len,
+      philox_seed,
+      philox_offset,
+      debug_attn_mask};
 }
 
 } // namespace nvfuser
