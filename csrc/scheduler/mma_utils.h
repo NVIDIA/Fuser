@@ -370,6 +370,9 @@ int64_t computeExpectedSharedMemoryUsage(
 //!  Z = complex<double>
 char dtypeToChar(const DataType& dtype);
 
+//! This function helps determine if ldmatrix requires a transpose.
+bool isLdMatrixTranspose(const LoadStoreOp* ldst);
+
 } // namespace mma_utils
 
 } // namespace nvfuser

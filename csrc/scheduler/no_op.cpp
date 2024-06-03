@@ -50,6 +50,12 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
     return true;
   }
 
+  if (ir_utils::hasAnyMatmulOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "matmul ops are not supported");
+    return false;
+  }
+
   // Check there're no non-trivial reduction ops.
   for (auto reduction : ir_utils::getAllTypesOfReductionOps(fusion)) {
     for (auto output :
