@@ -612,9 +612,7 @@ BestEffortReplay::BestEffortReplay(
       auto r_split = replay_expr->as<Split>();
       auto t_split = target_expr->as<Split>();
       if (!r_split->factor()->sameAs(t_split->factor()) ||
-          r_split->innerSplit() != t_split->innerSplit() ||
-          !r_split->startOffset()->sameAs(t_split->startOffset()) ||
-          !r_split->stopOffset()->sameAs(t_split->stopOffset())) {
+          r_split->innerSplit() != t_split->innerSplit()) {
         NVF_ERROR(!replay_has_rfactor_inp, err_str);
         continue;
       }
