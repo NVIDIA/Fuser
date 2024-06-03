@@ -127,8 +127,8 @@ int64_t getRootRelativeIndex(const CommParams& params) {
 
 } // namespace
 
-Communication::Communication(IrBuilderPasskey passkey, CommParams params)
-    : Expr(passkey), params_(std::move(params)) {
+Communication::Communication(IrBuilderPasskey passkey, CommParams params, TensorView* input_tv, TensorView* output_tv)
+    : Expr(passkey, {input_tv}, {output_tv}, {}), params_(std::move(params)) {
   NVF_ERROR(params_.mesh.size() > 0, "The mesh size must be greater than 0.");
 }
 

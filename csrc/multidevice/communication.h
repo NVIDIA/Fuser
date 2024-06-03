@@ -124,7 +124,7 @@ struct CommParams {
 class Communication : public Expr {
  public:
   using Expr::Expr;
-  Communication(IrBuilderPasskey passkey, CommParams params);
+  Communication(IrBuilderPasskey passkey, CommParams params, TensorView* input_tv = nullptr, TensorView* output_tv = nullptr);
   Communication(const Communication* src, IrCloner* ir_cloner);
 
   Communication(const Communication& other) = delete;

@@ -57,7 +57,7 @@ PostOnStream::PostOnStream(
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
-      (host_op->isOneOf<HostUnit, Communication>()), "wrong host op type");
+      (host_op->isA<HostUnit>()), "wrong host op type");
   if (host_op->isA<HostUnit>()) {
     NVF_ERROR(
         this->inputs().size() ==
@@ -72,13 +72,6 @@ PostOnStream::PostOnStream(
     // for (int i : c10::irange(outputs.size())) {
     //     NVF_ERROR(outputs.at(i)->sameAs(executable_fusion->outputs().at(i)));
     // }
-  } else if (host_op->isA<Communication>()) {
-    NVF_ERROR(
-        this->inputs().size() == 1,
-        "Communication must have exactly one input");
-    NVF_ERROR(
-        this->outputs().size() == 1,
-        "Communication must have exactly one output");
   }
 }
 
