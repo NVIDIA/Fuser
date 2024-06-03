@@ -556,7 +556,8 @@ void propagateParallelization(
         std::back_inserter(allreduce_tvs),
         [&](auto tv) {
           return reduction_tv != tv &&
-              reduction_scheduler_utils::isGridAllreduce(tv);
+              (reduction_scheduler_utils::isGridAllreduce(tv) ||
+               use_grouped_reduction);
         });
     if (!allreduce_tvs.empty()) {
       scheduler_utils::parallelizeAllLike(
