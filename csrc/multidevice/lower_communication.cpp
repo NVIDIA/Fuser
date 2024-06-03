@@ -72,11 +72,8 @@ void lowerToScatter(
   if (!receiver_mesh.has(root)) {
     team.push_back(root);
   }
-  comms.push_back(IrBuilder::create<Communication>(CommParams{
-      .type = CommunicationType::Scatter,
-      .root = root,
-      .mesh = receiver_mesh,
-      .team = team}));
+  comms.push_back(IrBuilder::create<Communication>(
+      CommunicationType::Scatter, receiver_mesh, team, root));
 }
 
 /*
@@ -100,11 +97,8 @@ void lowerToGather(
     if (!sender_mesh.has(root)) {
       team.push_back(root);
     }
-    comms.push_back(IrBuilder::create<Communication>(CommParams{
-        .type = CommunicationType::Gather,
-        .root = root,
-        .mesh = sender_mesh,
-        .team = team}));
+    comms.push_back(IrBuilder::create<Communication>(
+        CommunicationType::Gather, sender_mesh, team, root));
   }
 }
 
@@ -119,10 +113,8 @@ void lowerToAllgather(
     return;
   }
 
-  comms.push_back(IrBuilder::create<Communication>(CommParams{
-      .type = CommunicationType::Allgather,
-      .mesh = mesh,
-      .team = mesh.vector()}));
+  comms.push_back(IrBuilder::create<Communication>(
+      CommunicationType::Allgather, mesh, mesh.vector()));
 }
 
 // Adds one or zero Broadcast or Send/Recv communication to the vector 'comms'
@@ -138,11 +130,8 @@ void lowerToBroadcastOrP2P(
   if (!mesh.has(root)) {
     team.push_back(root);
   }
-  comms.push_back(IrBuilder::create<Communication>(CommParams{
-      .type = CommunicationType::Broadcast,
-      .root = root,
-      .mesh = mesh,
-      .team = team}));
+  comms.push_back(IrBuilder::create<Communication>(
+      CommunicationType::Broadcast, mesh, team, root));
 }
 
 // Adds several Broadcast or Send/Recv communications to the vector 'comms'
@@ -195,12 +184,8 @@ void lowerToReduce(
     if (!sender_mesh.has(root)) {
       team.push_back(root);
     }
-    comms.push_back(IrBuilder::create<Communication>(CommParams{
-        .type = CommunicationType::Reduce,
-        .root = root,
-        .mesh = sender_mesh,
-        .team = team,
-        .redOp = reduce_op_type}));
+    comms.push_back(IrBuilder::create<Communication>(
+        CommunicationType::Reduce, sender_mesh, team, root, reduce_op_type));
   }
 }
 
@@ -215,11 +200,12 @@ void lowerToAllreduce(
     return;
   }
 
-  comms.push_back(IrBuilder::create<Communication>(CommParams{
-      .type = CommunicationType::Allreduce,
-      .mesh = mesh,
-      .team = mesh.vector(),
-      .redOp = getC10dReduceOpType(op_type)}));
+  comms.push_back(IrBuilder::create<Communication>(
+      CommunicationType::Allreduce,
+      mesh,
+      mesh.vector(),
+      /*root=*/-1,
+      getC10dReduceOpType(op_type)));
 }
 
 void lowerToReduceScatter(
@@ -243,12 +229,13 @@ void lowerToReduceScatter(
     scattered_axis++;
   }
 
-  comms.push_back(IrBuilder::create<Communication>(CommParams{
-      .type = CommunicationType::ReduceScatter,
-      .mesh = mesh,
-      .team = mesh.vector(),
-      .redOp = getC10dReduceOpType(op_type),
-      .scattered_axis = scattered_axis}));
+  comms.push_back(IrBuilder::create<Communication>(
+      CommunicationType::ReduceScatter,
+      mesh,
+      mesh.vector(),
+      /*root=*/-1,
+      getC10dReduceOpType(op_type),
+      scattered_axis));
 }
 
 } // namespace
