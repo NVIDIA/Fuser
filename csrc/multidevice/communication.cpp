@@ -130,6 +130,12 @@ int64_t getRootRelativeIndex(const CommParams& params) {
 Communication::Communication(IrBuilderPasskey passkey, CommParams params)
     : Expr(passkey), params_(std::move(params)) {
   NVF_ERROR(params_.mesh.size() > 0, "The mesh size must be greater than 0.");
+  NVF_ERROR(
+      hasRoot(params_.type) == (params_.root >= 0),
+      "Root ",
+      params_.root,
+      " is not expected by CommunicationType ",
+      params_.type);
 }
 
 Communication::Communication(const Communication* src, IrCloner* ir_cloner)
