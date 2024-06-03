@@ -197,7 +197,7 @@ TEST_P(CommunicationTest, SendRecv) {
       &container,
       CommunicationType::SendRecv,
       DeviceMesh({receiver}),
-      /*team=*/{sender, receiver},
+      /*team=*/Team({sender, receiver}),
       /*root=*/sender);
 
   at::Tensor input_tensor;
@@ -240,7 +240,7 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
       &container,
       CommunicationType::SendRecv,
       DeviceMesh({sender}),
-      /*team=*/{sender},
+      /*team=*/Team({sender}),
       /*root=*/sender);
 
   at::Tensor input_tensor = at::empty({kTensorSize}, tensor_options);
