@@ -34,9 +34,7 @@ void ReplayTransform::handle(const Split* split) {
   replayed_expr_ = IterDomain::split(
                        input_ids_[0],
                        split->factor(),
-                       split->innerSplit(),
-                       split->startOffset(),
-                       split->stopOffset())
+                       split->innerSplit())
                        .first->definition();
 }
 

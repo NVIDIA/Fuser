@@ -286,14 +286,10 @@ class NVF_API TensorView : public Val {
   //! tv[id{extent}] -> tv[id{ceilDiv(extent, factor)}, id{factor}]
   //! e.g. split(0, 4, inner_split = false) will result in:
   //! tv[id{extent}] -> tv[id{factor}, id{ceilDiv(extent, factor)}]
-  //!
-  //! When trim_out_of_bounds is true, only the inner domain defined by the
-  //! start and stop positions is split.
   TensorView* split(
       int64_t axis,
       int64_t factor,
-      bool inner_split = true,
-      bool trim_out_of_bounds = false);
+      bool inner_split = true);
 
   // Split "axis" into 2 axes where the inner axes is size of "factor"
   // and outer axis is size axis.size() / factor. Factor can be a symbolic
@@ -302,8 +298,7 @@ class NVF_API TensorView : public Val {
   TensorView* split(
       int64_t axis,
       Val* factor,
-      bool inner_split = true,
-      bool trim_out_of_bounds = false);
+      bool inner_split = true);
 
   // Merge axis_o and axis_i into 1 IterDomain
   TensorView* merge(int64_t axis_o, int64_t axis_i);

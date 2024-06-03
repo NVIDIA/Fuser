@@ -2622,18 +2622,17 @@ IterDomain* IterDomain::merge(
   return merged_id;
 }
 
-// Both outer and inner domains do not inherit start and stop
-// values as they can't be split. The access range is enforced by
-// predicates.
 std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
     Val* factor,
     bool inner_split,
-    Val* start_offset,
-    Val* stop_offset,
     bool rfactor_domain) {
   NVF_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
+
+  // TODO
+  Val* start_offset = nullptr;
+  Val* stop_offset = nullptr;  
 
   // outer loop size
   Val* remainder =
@@ -2684,18 +2683,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
       start_offset,
       stop_offset);
   return {ido, idi};
-}
-
-std::pair<IterDomain*, IterDomain*> IterDomain::split(
-    IterDomain* in,
-    Val* factor,
-    bool inner_split,
-    bool trim_out_of_bounds,
-    bool rfactor_domain) {
-  auto start_offset = trim_out_of_bounds ? in->start() : nullptr;
-  auto stop_offset = trim_out_of_bounds ? in->stopOffset() : nullptr;
-  return IterDomain::split(
-      in, factor, inner_split, start_offset, stop_offset, rfactor_domain);
 }
 
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
@@ -3402,26 +3389,18 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
 void TensorDomain::split(
     int64_t axis,
     Val* factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
+    bool inner_split) {
   NVF_ERROR(nDims() > 0, "Tried to do split on a 0-dim domain");
   axis = wrapDim(axis);
 
   IterDomain* id = this->axis(axis);
-
-  // partial split is only allowed with root domains
-  if (trim_out_of_bounds) {
-    NVF_ERROR(
-        std::find(maybeRoot().begin(), maybeRoot().end(), id) != root().end(),
-        "Partial split is only allowed with root domains");
-  }
 
   NVF_ERROR(
       !id->isMmaSwizzled(),
       "Further transformation on warp mapped id's not allowed.");
 
   auto split_ids =
-      IterDomain::split(id, factor, inner_split, trim_out_of_bounds);
+      IterDomain::split(id, factor, inner_split);
   leaf_domain_.erase(leaf_domain_.begin() + axis);
   leaf_domain_.insert(leaf_domain_.begin() + axis, split_ids.second);
   leaf_domain_.insert(leaf_domain_.begin() + axis, split_ids.first);

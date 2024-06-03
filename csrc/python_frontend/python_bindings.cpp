@@ -2927,8 +2927,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          int64_t dim,
          int64_t factor,
-         bool inner_split,
-         bool trim_out_of_bounds) {
+         bool inner_split) {
         FUSER_PERF_SCOPE("SchedOperators.split");
         NVF_CHECK(
             self.validUse(),
@@ -2936,13 +2935,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         auto input_tv =
             fd->getFusionState(arg.index)->template as<TensorView>();
-        input_tv->split(dim, factor, inner_split, trim_out_of_bounds);
+        input_tv->split(dim, factor, inner_split);
       },
       py::arg("arg"),
       py::arg("dim"),
       py::arg("factor"),
-      py::arg("inner_split") = true,
-      py::arg("trim_out_of_bounds") = false);
+      py::arg("inner_split") = true);
   nvf_sched.def(
       "cache_after",
       [](FusionDefinition::SchedOperators& self,

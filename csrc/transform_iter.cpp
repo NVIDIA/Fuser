@@ -55,8 +55,6 @@ void ReplayTransformations::handle(Split* s) {
       mapped,
       s->factor(),
       s->innerSplit(),
-      s->startOffset(),
-      s->stopOffset(),
       replay_rfactor_ && s->outer()->isRFactorProduct());
   // Remove mapped from the leaf IDs
   leaf_ids_.erase(mapped);
