@@ -229,27 +229,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     return dom_map;
   }
 
-  if (SdpaOp* op = dynamic_cast<SdpaOp*>(consumer_tv_->definition())) {
-    auto out_size = consumer_root.size();
-
-    // Check if the producer is Q, K, V, Attn Mask
-    std::optional<AttnRole> input_role = std::nullopt;
-    if (producer_tv_->sameAs(op->query())) {
-      input_role = AttnRole::Q;
-    } else if (producer_tv_->sameAs(op->key())) {
-      input_role = AttnRole::K;
-    } else if (producer_tv_->sameAs(op->value())) {
-      input_role = AttnRole::V;
-    } else {
-      NVF_ERROR(false, "Producer did not match any SdpaOp input.")
-    }
-
-    const std::vector<IterDomain*>& aligned_producer_ids =
-        ops::mapSdpaOpIterDomains(producer_root, input_role.value(), out_size);
-    pairwiseMapAllIds(aligned_producer_ids, consumer_root);
-    return dom_map;
-  }
-
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_logical.size()) {
     IterDomain* producer_id = producer_logical.at(itp);
