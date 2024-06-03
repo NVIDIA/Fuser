@@ -134,8 +134,15 @@ void lowerToBroadcastOrP2P(
   if (!isDeviceInvolved(my_device_index, root, mesh)) {
     return;
   }
+  Team team = mesh.vector();
+  if (!mesh.has(root)) {
+    team.push_back(root);
+  }
   comms.push_back(IrBuilder::create<Communication>(CommParams{
-      .type = CommunicationType::Broadcast, .root = root, .mesh = mesh}));
+      .type = CommunicationType::Broadcast,
+      .root = root,
+      .mesh = mesh,
+      .team = team}));
 }
 
 // Adds several Broadcast or Send/Recv communications to the vector 'comms'
