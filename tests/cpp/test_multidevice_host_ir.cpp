@@ -99,7 +99,10 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
       .mesh = mesh,
       .team = mesh.vector()};
   auto communication = IrBuilder::create<Communication>(
-      static_cast<IrContainer*>(hic.get()), comm_params, communication_inputs, communication_outputs);
+      static_cast<IrContainer*>(hic.get()),
+      comm_params,
+      communication_inputs,
+      communication_outputs);
 
   // [Step 6)] Define the Host program
   hic->pushBackTopLevelExprs(post_compute);

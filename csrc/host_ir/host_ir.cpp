@@ -56,8 +56,7 @@ PostOnStream::PostOnStream(
       passkey.ir_container_->isA<hir::HostIrContainer>(), // NOLINT
       this,
       "must be registered in a HostIrContainer");
-  NVF_ERROR(
-      (host_op->isA<HostUnit>()), "wrong host op type");
+  NVF_ERROR((host_op->isA<HostUnit>()), "wrong host op type");
   if (host_op->isA<HostUnit>()) {
     NVF_ERROR(
         this->inputs().size() ==
