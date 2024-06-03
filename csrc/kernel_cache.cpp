@@ -926,34 +926,36 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
   }
 
-  // TODO: Hide this output behind a dump option
-  const int total_inputs = id_to_kernel_runtime_.size() + (reusing ? 0 : 1);
-  const float successful_segmented_pct =
-      100.0 * (float)successful_reuse_segmented_ / (float)total_inputs;
-  const float successful_unsegmented_pct =
-      100.0 * (float)successful_reuse_unsegmented_ / (float)total_inputs;
-  const float unsuccessful_segmented_pct =
-      100.0 * (float)unsuccessful_reuse_segmented_ / (float)total_inputs;
-  const float unsuccessful_unsegmented_pct =
-      100.0 * (float)unsuccessful_reuse_unsegmented_ / (float)total_inputs;
-  debug() << "FusionExecutorCache Reuse stats:" << std::endl;
-  debug() << "  Unique inputs seen: " << total_inputs << std::endl;
-  debug() << "  Successfully reused runtimes: "
-          << successful_reuse_segmented_ + successful_reuse_unsegmented_ << " ("
-          << successful_segmented_pct + successful_unsegmented_pct << "%)"
-          << std::endl;
-  debug() << "    segmented: " << successful_reuse_segmented_ << " ("
-          << successful_segmented_pct << "% of total)" << std::endl;
-  debug() << "    unsegmented: " << successful_reuse_unsegmented_ << " ("
-          << successful_unsegmented_pct << "% of total)" << std::endl;
-  debug() << "  Failed to reuse runtimes: "
-          << unsuccessful_reuse_segmented_ + unsuccessful_reuse_unsegmented_
-          << " (" << unsuccessful_segmented_pct + unsuccessful_unsegmented_pct
-          << "%)" << std::endl;
-  debug() << "    segmented: " << unsuccessful_reuse_segmented_ << " ("
-          << unsuccessful_segmented_pct << "% of total)" << std::endl;
-  debug() << "    unsegmented: " << unsuccessful_reuse_unsegmented_ << " ("
-          << unsuccessful_unsegmented_pct << "% of total)" << std::endl;
+  if (isDebugDumpEnabled(DebugDumpOption::KernelReuse)) {
+    const int total_inputs = id_to_kernel_runtime_.size() + (reusing ? 0 : 1);
+    const float successful_segmented_pct =
+        100.0 * (float)successful_reuse_segmented_ / (float)total_inputs;
+    const float successful_unsegmented_pct =
+        100.0 * (float)successful_reuse_unsegmented_ / (float)total_inputs;
+    const float unsuccessful_segmented_pct =
+        100.0 * (float)unsuccessful_reuse_segmented_ / (float)total_inputs;
+    const float unsuccessful_unsegmented_pct =
+        100.0 * (float)unsuccessful_reuse_unsegmented_ / (float)total_inputs;
+    debug() << "FusionExecutorCache Reuse stats:" << std::endl;
+    debug() << "  Unique inputs seen: " << total_inputs << std::endl;
+    debug() << "  Reused runtimes: "
+            << successful_reuse_segmented_ + successful_reuse_unsegmented_
+            << " (" << successful_segmented_pct + successful_unsegmented_pct
+            << "%)" << std::endl;
+    debug() << "    segmented: " << successful_reuse_segmented_ << " ("
+            << successful_segmented_pct << "% of total)" << std::endl;
+    debug() << "    unsegmented: " << successful_reuse_unsegmented_ << " ("
+            << successful_unsegmented_pct << "% of total)" << std::endl;
+    debug()
+        << "  Runtimes that could not be reused due to mismatched heuristics: "
+        << unsuccessful_reuse_segmented_ + unsuccessful_reuse_unsegmented_
+        << " (" << unsuccessful_segmented_pct + unsuccessful_unsegmented_pct
+        << "%)" << std::endl;
+    debug() << "    segmented: " << unsuccessful_reuse_segmented_ << " ("
+            << unsuccessful_segmented_pct << "% of total)" << std::endl;
+    debug() << "    unsegmented: " << unsuccessful_reuse_unsegmented_ << " ("
+            << unsuccessful_unsegmented_pct << "% of total)" << std::endl;
+  }
 
   if (!reusing) {
     // cache miss, need to re-build an optimized graph for this case
