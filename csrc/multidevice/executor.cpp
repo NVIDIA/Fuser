@@ -50,9 +50,12 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     Communicator& comm,
     MultiDeviceExecutorParams params)
     : comm_(comm), params_(params) {
+  // Sharding PreSegmenter passes.
+  // Note: passes run before PreSegmenter optimization passes.
   propagateShardings(fusion.get());
   insertReshardings(fusion.get());
   insertShardedAxisReordering(fusion.get());
+  setShardedAllocationDomain(fusion.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
       .run_combine_reductions = false,
@@ -178,7 +181,7 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   // post and wait communications
   for (Communication* communication : communications) {
     c10::intrusive_ptr<c10d::Backend> backend =
-        comm_.getBackendForTeam(communication->params().team, std::nullopt);
+        comm_.getBackendForTeam(communication->team(), std::nullopt);
     c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
         communication, comm_.deviceId(), backend, input_tensor, output_tensor);
     if (work != nullptr) {
