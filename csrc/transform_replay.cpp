@@ -70,12 +70,7 @@ class ReplaySelf : public ReplayTransformations {
 
     // Generate the split node
     IrBuilder::create<Split>(
-        s->container(),
-        ido,
-        idi,
-        mapped,
-        s->factor(),
-        s->innerSplit());
+        s->container(), ido, idi, mapped, s->factor(), s->innerSplit());
 
     // Remove mapped id from leaf IDs
     leaf_ids_.erase(mapped);
