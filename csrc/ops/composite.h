@@ -89,6 +89,8 @@ struct SdpfaFwdResult {
   TensorView* debug_attn_mask = nullptr;
 };
 
+// Scaled Dot Product Flash Attention Forward API.
+// Returns the same output as at::_scaled_dot_product_flash_attention
 SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,

@@ -2201,8 +2201,7 @@ class LinearOp : public Expr {
   }
 };
 
-// SDPA node with same functionality as F.scaled_dot_product_attention
-// https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
+// SDPA node with same functionality at::_scaled_dot_product_flash_attention
 class SdpaFwdOp : public Expr {
  public:
   using Expr::Expr;
@@ -2234,10 +2233,10 @@ class SdpaFwdOp : public Expr {
   // std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  // Val* out() const {
-  //   return output(0);
-  // }
-
+  Val** attn_out() const {
+    return output(0);
+  }
+  
   Val* query() const {
     return input(0);
   }
@@ -2250,19 +2249,20 @@ class SdpaFwdOp : public Expr {
     return input(2);
   }
 
-  // double dropout_p() const {
-  //   return attribute<double>(0);
-  // }
+  Val* dropout_p() const {
+    return input(3);
+  }
 
-  // bool is_causal() const {
-  //   return attribute<bool>(1);
-  // }
-  // std::optional<double> scale() const {
-  //   if (attributes().size() == 3) {
-  //     return attribute<double>(2);
-  //   }
-  //   return std::nullopt;
-  // }
+  Val* is_causal() const {
+    return input(4);
+  }
+
+  Val* scale() const {
+    if (inputs().size > 5){
+      return input(5);
+    }
+    return nullptr;
+  }
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,

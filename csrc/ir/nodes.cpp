@@ -4289,6 +4289,7 @@ SdpaFwdOp::SdpaFwdOp(
   addOutput(philox_seed);
   addOutput(philox_offset);
   addOutput(debug_attn_mask);
+
   addInput(query);
   addInput(key);
   addInput(value);
@@ -4301,20 +4302,20 @@ SdpaFwdOp::SdpaFwdOp(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
 
-// std::string SdpaFwdOp::toString(int indent_size) const {
-//   std::stringstream ss;
-//   indent(ss, indent_size) << out()->toString() << "\n";
-//   indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
-//   indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
-//   indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
-//   indent(ss, indent_size + 1) << "          dropout_p = " << dropout_p() << ",\n";
-//   indent(ss, indent_size + 1) << "          is_causal = " << is_causal();
-//   // if (scale() != nullptr){
-//   //   indent(ss, indent_size + 1) << ",\n          scale = " << scale().value();
-//   // }
-//   indent(ss, indent_size + 1) << ")\n";
-//   return ss.str();
-// }
+std::string SdpaFwdOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << attn_out()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          dropout_p = " << dropout_p() << ",\n";
+  indent(ss, indent_size + 1) << "          is_causal = " << is_causal();
+  if (scale() != nullptr){
+    indent(ss, indent_size + 1) << ",\n          scale = " << scale();
+  }
+  indent(ss, indent_size + 1) << ")\n";
+  return ss.str();
+}
 
 std::string SdpaFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
@@ -4330,6 +4331,8 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   const auto dropout_p = inputs.at(3).as<double>();
   const auto is_causal = inputs.at(4).as<bool>();
 
+  // Flash attention requires the last dimension to be padded to 8.
+  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
   const auto last_dim_size = query.sizes()[3];
   auto pad_last_dim = [last_dim_size](at::Tensor inp, int alignment_size) -> at::Tensor {
     if (last_dim_size % alignment_size == 0) {
@@ -4344,8 +4347,10 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   key = pad_last_dim(key, 8);
   value = pad_last_dim(value, 8);
   
+  // Conmpute scale using original size of last dimension
   double scale = inputs.size() > 5 ? inputs.back().as<double>() : 1.0 / std::sqrt(last_dim_size);
 
+  // ATen reference: https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
   auto [output,
     log_sumexp,
     cum_seq_q,
@@ -4357,10 +4362,12 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     debug_attn_mask] = at::_scaled_dot_product_flash_attention(
       query, key, value, dropout_p, is_causal, /*return_debug_mask=*/false, scale);
 
+  // If the inputs were padded, slice the output to restore the original size
   if (output.sizes()[3] != last_dim_size){
     output = output.slice(-1, 0, last_dim_size);
   }
 
+  // Query and key seq len are of type c10::SymInt -> convert them to int for Polymorphic Value
   return {output,
     log_sumexp,
     cum_seq_q,
