@@ -591,7 +591,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   if (params.use_compute_with) {
     // Only apply computeWith to the main 4D tensors
     for (auto input_cache : input_caches) {
-      if (input_cache->getRootDomain().size() == 4) {
+      if (input_cache->getRFactorDomain().size() == 4) {
         input_cache->computeWith(-1, true);
       }
     }

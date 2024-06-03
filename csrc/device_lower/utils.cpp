@@ -83,7 +83,7 @@ ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
           tv->getRFactorDomain(),
           tv->getLeafDomain(),
           TensorDomain::getContiguityFilledWith(
-              tv->getMaybeRFactorDomain(), contiguity));
+              tv->getRFactorDomain(), contiguity));
 
   return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
 }
@@ -173,8 +173,7 @@ bool isTvOp(const Expr* expr) {
 
 bool isLdMatrixOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::LdMatrix ||
-        ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+    return ldst->opType() == LoadStoreOpType::LdMatrix;
   }
   return false;
 }
@@ -892,7 +891,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getRootDomain()) {
+  for (auto id : out_tv->getRFactorDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;

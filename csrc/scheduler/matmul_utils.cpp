@@ -205,9 +205,9 @@ std::string isMatmulFusionDefinitionSupported(
 
   constexpr size_t minimal_number_of_inputs = 2;
 
-  // Quick checks - MmaOp
+  // Quick checks
   {
-    // Check if MmaOp represents gemm (requires M/N/K == 1, B == 0)
+    // Check if matmul pattern represents gemm (requires M/N/K == 1, B == 0)
     //  or bgemm (requires M/N/K/B == 1)
     std::array<int64_t, 4> num_axes{};
     for (const auto& [g, dom] : id_roles) {
@@ -218,7 +218,7 @@ std::string isMatmulFusionDefinitionSupported(
         num_axes[(size_t)MatmulDomain::N] != expected_axes_numbers ||
         num_axes[(size_t)MatmulDomain::K] != expected_axes_numbers ||
         num_axes[(size_t)MatmulDomain::Batch] > expected_axes_numbers) {
-      return "MmaOp has unsupported number of one of M/N/K/Batch axes";
+      return "Matmul pattern has unsupported number of one of M/N/K/Batch axes";
     }
 
     if (!mma_output->hasReduction()) {
@@ -236,31 +236,47 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
-    auto entry = roles_map.find(MatmulRole::INPUT_A);
+    // We will check that all operands have same dimension
+    int64_t operand_dim = -1;
+
+    // Track TensorViews with assigned roles so we can check that all inputs and
+    // outputs have recognized roles
     std::set<TensorView*> tvs_with_roles;
 
-    if (entry != roles_map.end()) {
-      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
-        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+    for (MatmulRole role : {MatmulRole::INPUT_A, MatmulRole::INPUT_B}) {
+      auto entry = roles_map.find(role);
+      if (entry != roles_map.end()) {
+        if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+          tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+          for (TensorView* tv : entry->second) {
+            const std::vector<IterDomain*>& leaf = tv->getLeafDomain();
+            int64_t ndims = (int64_t)std::count_if(
+                leaf.begin(), leaf.end(), [](IterDomain* id) {
+                  return !id->isReduction() && !id->isDeviceDim();
+                });
+            if (operand_dim == -1) {
+              operand_dim = ndims;
+            } else if (ndims != operand_dim) {
+              // We cannot always handle differently sized inputs, such as those
+              // we encounter when translating MatmulOp and LinearOp. This is
+              // because in those cases one of the operands will have new
+              // Broadcast dimensions where the other operand has Iteration
+              // batch dimensions, meaning these new dims are actually M or N
+              // dimensions. Multiple M and N dimension support is planned but
+              // for now we must reject these patterns before attempting to
+              // translate them.
+              return "All operands must have the same no-devices dimension.";
+            }
+          }
+        } else {
+          return "There is more than a single fusion input that can be MMA operand ";
+        }
       } else {
-        return "There is more than a single fusion input that can be MMA first input";
+        return "No candidate in fusion inputs for MMA operand";
       }
-    } else {
-      return "No candidate in fusion inputs for MMA first input";
     }
 
-    entry = roles_map.find(MatmulRole::INPUT_B);
-    if (entry != roles_map.end()) {
-      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
-        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-      } else {
-        return "There is more than a single fusion input that can be MMA second input";
-      }
-    } else {
-      return "No candidate in fusion inputs for MMA second input";
-    }
-
-    entry = roles_map.find(MatmulRole::OUTPUT_D);
+    auto entry = roles_map.find(MatmulRole::OUTPUT_D);
     if (entry != roles_map.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     } else {
@@ -416,7 +432,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   for (TensorView* tv : d_it->second) {
     const int64_t N =
         runtime_info.expressionEvaluator()
-            .evaluate(TensorDomain::noReductions(tv->getRootDomain())
+            .evaluate(TensorDomain::noReductions(tv->getRFactorDomain())
                           .back()
                           ->extent())
             .as<int64_t>();
@@ -458,8 +474,11 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // The plan:
   // 0. Check if the current CUDA device is supported
   // 1. Check if there is exactly one matmul pattern defined in the fusion.
-  // 2. Check if the input layout for the matmul pattern can be determined
-  // 3. Check if fusion represents expressions that are recognized by matmul
+  // 2. Check if fusion of MatmulOp and LinearOp is enabled, if applicable
+  // 3. Check if inputs to the matmul pattern match any of
+  // supported inputs layout
+  // 4. Check if fusion represents expressions that are recognized by matmul
+  // 5. Check if the input layout for the matmul pattern can be determined
   // scheduler.
 
   // #0
@@ -475,13 +494,39 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   }
 
   // #1
-  // Initializing the machinery to check if there's a Mul-Sum pair
-  // can be replaced by a Mma Op.
+  // Find matmul patterns
   std::vector<mma_utils::MatmulPattern> patterns =
       mma_utils::findMatmulPatterns(fusion);
   if (patterns.empty()) {
     return "No matmul patterns were found";
   }
+
+  // #2
+  {
+    for (const mma_utils::MatmulPattern& pattern : patterns) {
+      Expr* op = pattern.output->definition();
+      if (op->isA<MatmulOp>() || op->isA<LinearOp>()) {
+        if (!isOptionEnabled(EnableOption::FuseMatmul)) {
+          // Check for MatmulOp or LinearOp. If found, then only fuse if option
+          // is specified
+          return "MatmulOp and LinearOp fusion is disabled by default. "
+                 "Enable it using NVFUSER_ENABLE=fuse_matmul";
+        }
+        // Refuse patterns containing 1D inputs since these are mat-vec as
+        // opposed to mat-mat products.
+        if (pattern.A->nDims() < 2 || pattern.B->nDims() < 2) {
+          return "Cannot fuse matrix-vector products";
+        }
+        for (TensorView* operand : {pattern.A, pattern.B}) {
+          if (operand->dtype() != DataType::Half &&
+              operand->dtype() != DataType::BFloat16) {
+            return "Unsupported operand type. Operands must be fp16 or bf16";
+          }
+        }
+      }
+    }
+  }
+
   if (patterns.size() > 1) {
     return "Only a single matmul pattern can currently be fused";
   }
@@ -498,19 +543,19 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   mma_utils::RolesMap roles_map = roles_map_opt.getData();
 
   // #4
-  const auto input_layout_opt =
-      mma_utils::getProblemLayout(id_model, id_roles, roles_map);
-  if (!input_layout_opt.isValid()) {
-    return input_layout_opt.getErrorMsg();
-  }
-
-  // #5
   {
     auto support_status = isMatmulFusionDefinitionSupported(
         fusion, patterns.front(), roles_map, id_roles);
     if (!support_status.empty()) {
       return support_status;
     }
+  }
+
+  // #5
+  const auto input_layout_opt =
+      mma_utils::getProblemLayout(id_model, id_roles, roles_map);
+  if (!input_layout_opt.isValid()) {
+    return input_layout_opt.getErrorMsg();
   }
 
   return "";

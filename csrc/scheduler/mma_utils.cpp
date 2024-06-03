@@ -12,6 +12,7 @@
 #include <id_model/id_model.h>
 #include <ir/printer.h>
 #include <ops/all_ops.h>
+#include <ops/utils.h>
 #include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
@@ -434,7 +435,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
 
   // Pull the root id's of the given tv.
   std::unordered_set<IterDomain*> maybe_rfactor_id_set{
-      tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
+      tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()};
 
   // Keep track of leaf positions that is either a reduction
   //  or a broadcast.
@@ -507,7 +508,7 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  domain ordering by iterating on the root domain and
   //  find their corresponding inner tile iterdomains from
   //  the populated root_id_to_inner_leaf_pos.
-  for (auto root_id : tv->getMaybeRFactorDomain()) {
+  for (auto root_id : tv->getRFactorDomain()) {
     auto leaf_id_pos_it = root_id_to_inner_leaf_pos.find(root_id);
     if (leaf_id_pos_it != root_id_to_inner_leaf_pos.end()) {
       reorder_map_old_to_new[leaf_id_pos_it->second] = current_pos++;
@@ -640,11 +641,11 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
   //  This matching pattern should support most common matmul applications,
   //   but in follow ups we may need to extend RFactor matching if there
   //   are more complex scheduling patterns that we want to support.
-  auto accumulator_domain = mma->out()->as<TensorView>()->getRootDomain();
+  auto accumulator_domain = mma->out()->as<TensorView>()->getMaybeRootDomain();
   auto a_domain = TensorDomain::noReductions(
-      mma->inA()->as<TensorView>()->getMaybeRFactorDomain());
+      mma->inA()->as<TensorView>()->getRFactorDomain());
   auto b_domain = TensorDomain::noReductions(
-      mma->inB()->as<TensorView>()->getMaybeRFactorDomain());
+      mma->inB()->as<TensorView>()->getRFactorDomain());
   NVF_CHECK(
       a_domain.size() == b_domain.size() &&
           a_domain.size() == accumulator_domain.size(),
@@ -703,11 +704,67 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
   return {mma_domains.begin(), mma_domains.end()};
 }
 
+// Function to travel up the DAG along the innermost path from the inner-most ID
+// of allocation domain. Assumption: There are only splits and merges from the
+// root to the allocation. We only handle going up splits when the producer is
+// the inner output of a split. If this was not a case, then given merges,
+// splits and reorders, we could have a case that we start from a ID derived
+// from K, but while going back up the DAG we end up with a non-K ID. Eg: (K, M)
+// -> Merge -> () -> Split -> (K, M) -> Reorder -> (M , K) -> Split -> M, K_o,
+// K_in. If we start with K_in we can end up with M.
+IterDomain* getIDinConsumerRoot(IterDomain* id) {
+  while (Expr* expr = id->definition()) {
+    NVF_CHECK(expr->isA<Merge>() || expr->isA<Split>());
+    if (expr->isA<Split>()) {
+      NVF_CHECK(
+          id == expr->as<Split>()->inner(),
+          "We only handle cases where the inner-most ID"
+          "of the allocation domain was the inner output of a split");
+      id = expr->as<Split>()->in();
+    } else {
+      id = expr->as<Merge>()->inner();
+    }
+  }
+  return id;
+}
+
 } // namespace
 
+// The assumption made in this function is that we have set the allocation in
+// the register (acr/bb). The inner-most ID in the allocation domain of the
+// consumer (register) is derived from a series of scheduling operations on the
+// 'k' ID (for now only splits, but there could be merges in the future).
+// So starting from the inner-most ID of the consumer's allocation we go up the
+// DAG (along the innermost path) to ID this came from in the root domain.  We
+// then map this ID in the root domain to producer's (shared memory) logical
+// domain. Once we have the ID in the producer's logical domain, we check if
+// that's the innermost dimension in its allocation domain. Here, the other
+// assumption we have is that the producer's allocation domain is a permutation
+// of the logical domain. If the ID is the innermost of the allocation no
+// transpose is needed.
+bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
+  const auto consumer = ir_utils::getTvOutput(ldst);
+  const auto producer = ir_utils::getTvInput(ldst);
+
+  // Get the innermost ID and go back up the DAG to the root domain.
+  auto corresponding_id_in_consumer_root =
+      getIDinConsumerRoot(consumer->getMaybeAllocationDomain().back());
+
+  // This gives us the ID in the consumer root domain.
+  // We'll later map this ID to one in the producer.
+  const PairwiseRootDomainMap map_across_ldst(producer, consumer);
+  const auto c2p_map = map_across_ldst.mapConsumerToProducer();
+  const auto id_in_proc_rfactor = c2p_map.at(corresponding_id_in_consumer_root);
+
+  // If the innermost ID of the (maybe)Allocation domain
+  // is not the same as the mapped ID in the producer, then
+  // we need to transpose.
+  return producer->getMaybeAllocationDomain().back() != id_in_proc_rfactor;
+}
+
 void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
-  bool transpose = tv->definition()->as<LoadStoreOp>()->opType() ==
-      LoadStoreOpType::LdMatrixTranspose;
+  NVF_CHECK(tv->definition()->isA<LoadStoreOp>());
+  bool transpose = isLdMatrixTranspose(tv->definition()->as<LoadStoreOp>());
   // For A, we have an extra outer dim (-6), which is the "warp group". For
   // Hopper, mma instructions executes on warp group level. For Turing/Ampere,
   // this dim will just have extent 1.
@@ -949,7 +1006,7 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
 
 void canonicalizeMmaTvOrdering(TensorView* tv) {
   std::unordered_set<IterDomain*> root_id_set{
-      tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()};
+      tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()};
 
   auto mma = dynamic_cast<MmaOp*>(tv->definition());
   NVF_CHECK(
@@ -1375,6 +1432,24 @@ class MatmulPatternMatcher : IterVisitor {
   // there is a transpose operation in the epilogue, then this assumption will
   // be violated. In such cases we should actually swap and transpose A and B.
 
+  // Match all LinearOps and MatmulOps as MatmulPatterns. This includes ops
+  // whose inputs are not 2D, i.e. matrix-vector products. The matmul scheduler
+  // will decide whether or not it can fuse a given pattern based on the
+  // dimensionality of its inputs.
+  void handle(LinearOp* lop) override {
+    MatmulPattern& pattern = patterns_.emplace_back();
+    pattern.A = lop->inA()->as<TensorView>();
+    pattern.B = lop->inB()->as<TensorView>();
+    pattern.output = lop->out()->as<TensorView>();
+  }
+
+  void handle(MatmulOp* mop) override {
+    MatmulPattern& pattern = patterns_.emplace_back();
+    pattern.A = mop->inA()->as<TensorView>();
+    pattern.B = mop->inB()->as<TensorView>();
+    pattern.output = mop->out()->as<TensorView>();
+  }
+
   // Handle the case when no translation is needed.
   void handle(MmaOp* mop) override {
     MatmulPattern& pattern = patterns_.emplace_back();
@@ -1423,7 +1498,7 @@ class MatmulPatternMatcher : IterVisitor {
       // for implicit broadcasting.
       NVF_ERROR(lrf.size() == rrf.size());
       const std::vector<IterDomain*>& red_root = TensorDomain::noDevices(
-          rop->out()->as<TensorView>()->getRootDomain());
+          rop->out()->as<TensorView>()->getMaybeRootDomain());
       NVF_ERROR(red_root.size() == lrf.size());
       // Find innermost M or N dimension in output
       // We will assume for now that the output rfactor domain matches the
@@ -1508,12 +1583,128 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     // This replaces the mul and sum by overwriting output->definition()
     return IrBuilder::create<MmaOp>(output, A, B, init);
   }
-  NVF_ERROR(
-      false,
-      "Could not translate matmul pattern with output ",
-      output->toString(),
-      " to MmaOp");
+
+  // This will hold the translated output from MatmulOp or LinearOp
+  TensorView* fms = nullptr;
+  MmaOp* mma_op = nullptr;
+  if (auto lop = dynamic_cast<LinearOp*>(output->definition())) {
+    // Linear takes inputs input, weight(, bias)
+    //   - input can be any dimension > 0. We assert that it must be at least 2
+    //   and refuse to translate if dimension is 1.
+    //   - weight can be one or two dimensional. We refuse to translate if
+    //   dimension is 1.
+    //   - bias, if present, can be zero or one dimensional. Bias can only be
+    //   present if weight is 2D
+    //
+    // We translate by broadcasting input, weight, and bias such that the
+    // contracted dimension K is in the last position (this is true of the
+    // rfactor domains in input and weight already). Then we form an MmaOp and
+    // optionally add the bias tensor followed by a cast back to the input
+    // dtype.
+    NVF_ERROR(
+        A->nDims() > 1 && B->nDims() > 1,
+        "Cannot translate LinearOp with 1D input");
+    std::vector<bool> bcast_dim((size_t)A->nDims() + 1, false);
+    bcast_dim[bcast_dim.size() - 2] = true; // N
+    A = broadcast(A, bcast_dim);
+
+    bcast_dim[bcast_dim.size() - 2] = false; // reset N
+    std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
+    B = broadcast(B, bcast_dim);
+
+    fms = fusedMultiplySum(A, B, {-1});
+    mma_op = fms->definition()->as<MmaOp>();
+
+    auto* bias = dynamic_cast<TensorView*>(lop->bias());
+    if (bias != nullptr) {
+      fms = add(fms, bias);
+    }
+  } else if (output->definition()->isA<MatmulOp>()) {
+    // MatmulOp takes inputs whose sizes are [..., M, K] and [..., K, N], so we
+    // must transpose B then broadcast both operands before creating the final
+    // op.
+    //
+    // Also note that the output of MatmulOp is a tensor of shape [..., M, N]
+    // whose dtype matches that of the inputs. We will most commonly then also
+    // need to cast the output of the MmaOp to produce the output TensorView.
+    NVF_ERROR(
+        A->nDims() > 1 && B->nDims() > 1,
+        "Cannot translate MatmulOp with 1D input");
+    TensorView* Btrans = transpose(B, -2, -1);
+    A = unsqueeze(A, -2);
+    B = unsqueeze(Btrans, -3);
+    // A and B might have different dimensions. If so, broadcast the smaller one
+    // up to the size of the larger.
+    int64_t out_dims = std::max(A->nDims(), B->nDims());
+    // Add new outer broadcast dimensions if necessary
+    A = ops::maybe_broadcast_inner_to_rank(A, out_dims);
+    B = ops::maybe_broadcast_inner_to_rank(B, out_dims);
+    fms = fusedMultiplySum(A, B, {-1});
+    mma_op = fms->definition()->as<MmaOp>();
+  } else {
+    NVF_ERROR(
+        false,
+        "Could not translate matmul pattern with output ",
+        output->toString(),
+        " to MmaOp");
+  }
+  NVF_ERROR(fms != nullptr);
+  NVF_ERROR(mma_op != nullptr);
+
+  // The following is common to both MatmulOp and LinearOp translation
+
+  // TODO: skip downcasting if the only uses of `output` are casts back to
+  // higher precision in order avoid the round trip cast in defining an
+  // epilogue that starts with MatmulOp.
+  if (output->dtype() != fms->dtype()) {
+    // Redefine output as cast of MmaOp->out()
+    IrBuilder::create<UnaryOp>(UnaryOpType::Cast, output, fms);
+    // Update output so that cast is part of the epilogue
+    output = fms;
+  } else {
+    // No cast needed, for example the inputs might be Float
+    ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
+  }
+  return mma_op;
 }
+
+namespace {
+// Determine dim roles for either a MatmulOp or a LinearOp, given IterDomain
+// mappings
+std::unordered_map<ValGroup, MatmulDomain> matmulOrLinearOpDimRoles(
+    const ValGraph& exact_graph,
+    const std::vector<IterDomain*>& out_logical,
+    const std::vector<IterDomain*>& mapping_a,
+    const std::vector<IterDomain*>& mapping_b) {
+  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
+  NVF_ERROR(mapping_a.size() == out_logical.size());
+  NVF_ERROR(mapping_a.size() == mapping_b.size());
+  for (size_t i : c10::irange(out_logical.size())) {
+    IterDomain* id_out = out_logical[i];
+    const ValGroup& g = exact_graph.toGroup(id_out);
+
+    if (id_out->isReduction()) {
+      dim_roles[g] = MatmulDomain::K;
+      continue;
+    }
+
+    bool has_a = mapping_a[i] != nullptr && mapping_a[i]->isIteration();
+    bool has_b = mapping_b[i] != nullptr && mapping_b[i]->isIteration();
+
+    NVF_ERROR(has_a || has_b);
+    // If both operand IterDomains are Broadcast, treat as Batch dimension
+    // If they mismatch, then one must be broadcast which determines M or N
+    if (has_a == has_b) {
+      dim_roles[g] = MatmulDomain::Batch;
+    } else if (has_a) {
+      dim_roles[g] = MatmulDomain::M;
+    } else if (has_b) {
+      dim_roles[g] = MatmulDomain::N;
+    }
+  }
+  return dim_roles;
+}
+} // namespace
 
 std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
     IdModel& id_model) const {
@@ -1529,6 +1720,31 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   //   Batch: present in all A, B, and output
   // If there are other patterns, for example a ValGroup present in only A, then
   // we should raise an exception here.
+
+  if (output->definition()->isA<MatmulOp>()) {
+    const std::vector<IterDomain*>& out_logical = output->getRFactorDomain();
+    return matmulOrLinearOpDimRoles(
+        exact_graph,
+        out_logical,
+        ops::mapMatmulOpIterDomains(
+            A->getRFactorDomain(), MatmulRole::INPUT_A, out_logical.size()),
+        ops::mapMatmulOpIterDomains(
+            B->getRFactorDomain(), MatmulRole::INPUT_B, out_logical.size()));
+
+  } else if (output->definition()->isA<LinearOp>()) {
+    const std::vector<IterDomain*>& out_logical = output->getRFactorDomain();
+    return matmulOrLinearOpDimRoles(
+        exact_graph,
+        out_logical,
+        ops::mapLinearOpIterDomains(
+            A->getRFactorDomain(), MatmulRole::INPUT_A, out_logical.size()),
+        ops::mapLinearOpIterDomains(
+            B->getRFactorDomain(), MatmulRole::INPUT_B, out_logical.size()));
+  }
+
+  // The code below handles MmaOp or mul-sum patterns
+
+  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
 
   // Indicates whether a ValGroup is present in A (bit 0), B (bit 1), or output
   // (bit 2)
@@ -1551,15 +1767,14 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   recordPresence(B, 1);
   recordPresence(output, 2);
 
-  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
   for (const auto& [g, flags] : present_flags) {
     if (flags.all()) {
       dim_roles[g] = MatmulDomain::Batch;
     } else if (flags.test(0) && flags.test(1)) {
       dim_roles[g] = MatmulDomain::K;
-    } else if (flags.test(0) && flags.test(2)) {
+    } else if (flags.test(0) && !flags.test(1) && flags.test(2)) {
       dim_roles[g] = MatmulDomain::M;
-    } else if (flags.test(1) && flags.test(2)) {
+    } else if (!flags.test(0) && flags.test(1) && flags.test(2)) {
       dim_roles[g] = MatmulDomain::N;
     } else {
       NVF_ERROR(

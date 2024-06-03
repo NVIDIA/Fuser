@@ -50,12 +50,18 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
     return true;
   }
 
+  if (ir_utils::hasAnyMatmulOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristicType(), "matmul ops are not supported");
+    return false;
+  }
+
   // Check there're no non-trivial reduction ops.
   for (auto reduction : ir_utils::getAllTypesOfReductionOps(fusion)) {
     for (auto output :
          ir_utils::filterByType<TensorView>(reduction->outputs())) {
       auto concrete_dimension =
-          TensorDomain::noReductions(output->getRootDomain());
+          TensorDomain::noReductions(output->getRFactorDomain());
       auto all_nonzero = std::none_of(
           concrete_dimension.begin(),
           concrete_dimension.end(),
