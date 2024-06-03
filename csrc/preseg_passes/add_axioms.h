@@ -15,8 +15,8 @@ class AddAxiomsPass : public OptimizationPass<AddAxiomsPass> {
   friend class OptimizationPass<AddAxiomsPass>;
 
  protected:
-  NVF_API static void runPass(Fusion* fusion);
-  NVF_API static std::string name() {
+  static void runPass(Fusion* fusion);
+  static std::string name() {
     return "AddAxiomsPass";
   }
 };

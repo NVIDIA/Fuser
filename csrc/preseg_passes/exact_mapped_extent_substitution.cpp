@@ -77,8 +77,7 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
 
 void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "ExactRootDomainMap before exactMappedExtentSubstitutionPass:"
-            << std::endl;
+    debug() << "ExactRootDomainMap before " << name() << ":" << std::endl;
     const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
     debug() << mapped_sets.toString() << std::endl;
   }
@@ -86,8 +85,7 @@ void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
   exactMappedExtentSubstitution(fusion);
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "ExactRootDomainMap after exactMappedExtentSubstitutionPass:"
-            << std::endl;
+    debug() << "ExactRootDomainMap after " << name() << ":" << std::endl;
     const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
     debug() << mapped_sets.toString() << std::endl;
   }

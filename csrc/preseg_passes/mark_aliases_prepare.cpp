@@ -105,7 +105,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "Fusion Transforms after MarkAliasesPreparePass:" << std::endl;
+    debug() << "Fusion Transforms after " << name() << ":" << std::endl;
     fusion->printTransforms();
   }
 }

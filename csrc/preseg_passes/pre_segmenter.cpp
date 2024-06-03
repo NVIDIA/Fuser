@@ -26,7 +26,7 @@ namespace nvfuser::preseg_passes {
   FUSER_PERF_SCOPE("PreSegmenter::runPass");
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "Fusion before PreSegmenter optimizations:" << std::endl;
+    debug() << "Fusion before " << name() << ":" << std::endl;
     fusion->printMath();
     debug() << "========================================" << std::endl;
   }
