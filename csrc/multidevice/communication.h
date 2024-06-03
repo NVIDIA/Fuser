@@ -10,6 +10,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/communicator.h>
+#include <multidevice/device_mesh.h>
 #include <multidevice/multidevice.h>
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Types.hpp>
@@ -38,10 +39,12 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type);
 struct CommParams {
   CommunicationType type;
   DeviceIdxType root = -1;
-  bool is_root_in_mesh = true;
-  Team team; // should not have duplicates and should contain both the root and
-             // the mesh
+  DeviceMesh mesh; // Might not contain `root`.
+  Team team; // All devices involved in this communication. It must include
+             // `root`. It can be a subset of `root`+`mesh` in case of 2D
+             // sharding.
   c10d::ReduceOp::RedOpType redOp = c10d::ReduceOp::RedOpType::UNUSED;
+  // reduced_axis is always outermost.
   int64_t scattered_axis = -1;
 };
 
@@ -141,13 +144,20 @@ class Communication : public Expr {
   // the constructor that takes IrCloner aren't needed.
   bool sameAs(const Statement* other) const override;
 
-  // TODO: const CommParams&.
-  auto params() const {
+  const CommParams& params() const {
     return params_;
   }
 
+  bool isRootInMesh() const {
+    return params_.mesh.has(params_.root);
+  }
+
+  const Team& team() const {
+    return params_.team;
+  }
+
  private:
-  // store the arguments of the communication
+  // Stores the arguments used to construct the communication.
   CommParams params_;
 };
 
