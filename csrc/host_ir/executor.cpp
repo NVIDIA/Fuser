@@ -44,9 +44,9 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
 
 void HostIrExecutor::handle(Stream* stream) {
   if (streams_.find(stream) == streams_.end()) {
-    c10::DeviceIndex i =
+    auto i =
         (communicator_ != nullptr && communicator_->is_available())
-        ? static_cast<c10::DeviceIndex>(communicator_->deviceId())
+        ? communicator_->deviceId()
         : 0;
     streams_.insert(
         {stream, c10::cuda::getStreamFromPool(/* high priority */ true, i)});
