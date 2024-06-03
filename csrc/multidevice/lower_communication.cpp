@@ -125,8 +125,8 @@ void lowerToAllgather(
       .team = mesh.vector()}));
 }
 
-// Adds one or zero Broadcast or Send/Recv communication to the vector 'comms'
-void lowerToBroadcastOrP2P(
+// Adds one or zero Broadcast communication to the vector 'comms'
+void lowerToBroadcast(
     DeviceIdxType my_device_index,
     DeviceIdxType root,
     const DeviceMesh& mesh, // receiver devices
@@ -145,35 +145,41 @@ void lowerToBroadcastOrP2P(
       .team = team}));
 }
 
-// Adds several Broadcast or Send/Recv communications to the vector 'comms'
+// Adds several Broadcast communications to the vector 'comms'
 // For now, we assume that this function is called only if
 // the input and output have the same sharding. Later we could support more
 // general cases.
-void lowerToBroadcastOrP2P(
+void lowerToBroadcast(
     DeviceIdxType my_device_index,
     TensorView* input_tv,
     TensorView* output_tv,
-    bool is_sharded,
     std::vector<Communication*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
-  if (is_sharded) {
+  if (isSharded(input_tv) && sender_mesh.size() > 1) {
     // if the inputs and ouputs are parallelized,
     // we create as many Broadcast as that will be handled in parallel
+    NVF_ERROR(
+        sender_mesh.size() == receiver_mesh.size(),
+        "the receiver and sender meshes have different sizes: ",
+        sender_mesh.size(),
+        " vs ",
+        receiver_mesh.size());
     for (auto i : c10::irange(sender_mesh.size())) {
-      NVF_ERROR(
-          sender_mesh.size() == receiver_mesh.size(),
-          "the receiver and sender meshes have different sizes");
-      lowerToBroadcastOrP2P(
+      lowerToBroadcast(
           my_device_index,
           sender_mesh.at(i),
           DeviceMesh({receiver_mesh.at(i)}),
           comms);
     }
   } else {
-    // we arbitrarily choose the first device of the sender mesh to be the root
-    lowerToBroadcastOrP2P(
-        my_device_index, sender_mesh.at(0), receiver_mesh, comms);
+    // Either of the following two cases is happening.
+    // 1. `sender_mesh` contains only one device. In this case, we broadcast
+    // from that device.
+    // 2. `sender_mesh` contains multiple devices but the input is not sharded.
+    // In this case, we arbitrarily choose the first device of the sender mesh
+    // to be the root.
+    lowerToBroadcast(my_device_index, sender_mesh.at(0), receiver_mesh, comms);
   }
 }
 
@@ -326,8 +332,7 @@ std::vector<Communication*> lowerCommunication(
         lowerToGather(my_device_index, input_tv, output_tv, comms);
       }
     } else {
-      lowerToBroadcastOrP2P(
-          my_device_index, input_tv, output_tv, is_input_sharded, comms);
+      lowerToBroadcast(my_device_index, input_tv, output_tv, comms);
     }
   }
   return comms;
