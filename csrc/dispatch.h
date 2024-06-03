@@ -193,6 +193,7 @@ class OptOutConstDispatch : public PolymorphicBase {
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
 #define M(e) virtual void handle(const hir::e* stmt);
+  DISPATCH_FOR_ALL_HIR_VALS(M)
   DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 };
@@ -218,6 +219,7 @@ class NVF_API OptOutDispatch : public PolymorphicBase {
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
 #undef M
 #define M(e) virtual void handle(hir::e* stmt);
+  DISPATCH_FOR_ALL_HIR_VALS(M)
   DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 };
