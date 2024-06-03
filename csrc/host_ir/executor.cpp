@@ -19,7 +19,7 @@ HostIrExecutor::HostIrExecutor(
     HostIrExecutorParams params)
     : container_(std::move(container)),
       communicator_(communicator),
-      params_(params) {};
+      params_(params) {}
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
