@@ -2631,8 +2631,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
   // outer loop size
-  Val* remainder =
-      ceilDiv(in->extent(), factor);
+  Val* remainder = ceilDiv(in->extent(), factor);
   Val* expanded_remainder = nullptr;
   if (in->hasExpandedExtent()) {
     expanded_remainder = ceilDiv(in->expandedExtent(), factor);
@@ -2662,13 +2661,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
           .is_rfactor_domain(rfactor_domain)
           .build();
 
-  IrBuilder::create<Split>(
-      in->container(),
-      ido,
-      idi,
-      in,
-      factor,
-      inner_split);
+  IrBuilder::create<Split>(in->container(), ido, idi, in, factor, inner_split);
   return {ido, idi};
 }
 
@@ -3373,10 +3366,7 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   return std::distance(maybeRoot().begin(), it);
 }
 
-void TensorDomain::split(
-    int64_t axis,
-    Val* factor,
-    bool inner_split) {
+void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
   NVF_ERROR(nDims() > 0, "Tried to do split on a 0-dim domain");
   axis = wrapDim(axis);
 
@@ -3386,8 +3376,7 @@ void TensorDomain::split(
       !id->isMmaSwizzled(),
       "Further transformation on warp mapped id's not allowed.");
 
-  auto split_ids =
-      IterDomain::split(id, factor, inner_split);
+  auto split_ids = IterDomain::split(id, factor, inner_split);
   leaf_domain_.erase(leaf_domain_.begin() + axis);
   leaf_domain_.insert(leaf_domain_.begin() + axis, split_ids.second);
   leaf_domain_.insert(leaf_domain_.begin() + axis, split_ids.first);

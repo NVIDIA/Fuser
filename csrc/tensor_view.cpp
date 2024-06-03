@@ -463,10 +463,7 @@ void TensorView::clearComputeWith() {
   NVF_ERROR(compute_with_consumers_.empty());
 }
 
-TensorView* TensorView::split(
-    int64_t axis,
-    Val* factor,
-    bool inner_split) {
+TensorView* TensorView::split(int64_t axis, Val* factor, bool inner_split) {
   // Only check things associated with axis, factor will be validated in
   // IterDomain
   NVF_ERROR(
@@ -510,19 +507,13 @@ TensorView* TensorView::split(
   return this;
 }
 
-TensorView* TensorView::split(
-    int64_t axis,
-    int64_t factor,
-    bool inner_split) {
+TensorView* TensorView::split(int64_t axis, int64_t factor, bool inner_split) {
   // NOTE: safe cast to int64_t, factor (unsigned int) is within int64_t range
   NVF_CHECK(
       factor > 0,
       "Invalid factor for split. Factor must be greater than 0. Factor = ",
       factor);
-  split(
-      axis,
-      IrBuilder::create<Val>(factor, DataType::Index),
-      inner_split);
+  split(axis, IrBuilder::create<Val>(factor, DataType::Index), inner_split);
   return this;
 }
 
