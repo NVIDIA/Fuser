@@ -421,6 +421,26 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("unswitch", ParallelType::Unswitch)
       .value("vectorize", ParallelType::Vectorize);
 
+  //! LoadStoreOpType used for scheduling
+  py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
+      .value("set", LoadStoreOpType::Set)
+      .value("load_matrix", LoadStoreOpType::LdMatrix)
+      .value("cp_async", LoadStoreOpType::CpAsync)
+      .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  //! CacheOp used for scheduling
+  py::enum_<CacheOp>(nvfuser, "CacheOp")
+      .value("unspecified", CacheOp::Unspecified)
+      .value("all_levels", CacheOp::AllLevels)
+      .value("streaming", CacheOp::Streaming)
+      .value("global", CacheOp::Global);
+
+  //! MemoryType used for scheduling
+  py::enum_<MemoryType>(nvfuser, "MemoryType")
+      .value("local", MemoryType::Local)
+      .value("shared", MemoryType::Shared)
+      .value("global", MemoryType::Global);
+
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
   nvfuser.def("serialize", serialize);
@@ -2873,14 +2893,10 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.validUse(),
         "Attempting to use a SchedOperators Op prior to definition!");
     FusionDefinition* fd = self.fusion_definition;
-    auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
-    auto output_tv = input_tv->rFactor(dims);
-    Tensor output = fd->defineTensor(arg.dims);
-    NVF_CHECK(
-        output.index == fd->numFusionStates(),
-        "Fusion State index does not match the size!");
-    fd->addFusionState(output_tv);
-    return output;
+    TensorView* input_tv =
+        fd->getFusionState(arg.index)->template as<TensorView>();
+    TensorView* output_tv = input_tv->rFactor(dims);
+    return fd->addTensor(output_tv);
   };
   nvf_sched.def(
       "reduction_factor",
@@ -2927,6 +2943,55 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("factor"),
       py::arg("inner_split") = true,
       py::arg("trim_out_of_bounds") = false);
+  nvf_sched.def(
+      "cache_after",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const LoadStoreOpType& op_type,
+         const CacheOp& cache_op) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->cacheAfter(op_type, cache_op);
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"),
+      py::arg("op_type") = LoadStoreOpType::Set,
+      py::arg("cache_op") = CacheOp::Unspecified);
+  nvf_sched.def(
+      "cache_before",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const LoadStoreOpType& op_type) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->cacheBefore(op_type);
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"),
+      py::arg("op_type") = LoadStoreOpType::Set);
+  nvf_sched.def(
+      "set_memory_type",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const MemoryType& memory_type) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        tv->setMemoryType(memory_type);
+      },
+      py::arg("tensor"),
+      py::arg("memory_type"));
 }
 
 } // namespace nvfuser::python_frontend
