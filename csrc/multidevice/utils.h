@@ -105,6 +105,13 @@ void insertReshardings(Fusion* fusion);
 // to the front so that communication operations are contiguous.
 void insertShardedAxisReordering(Fusion* fusion);
 
+// Resharding expressions are mapped to collective libraries which expect
+// contiguous tensors and output contiguous buffers. This pass checks that
+// inputs are contiguous and sets the allocation domain of inputs and outputs of
+// all resharding expressions. This pass should run after all passes that add or
+// update resharding expressions.
+void setShardedAllocationDomain(Fusion* fusion);
+
 // Returns the index of the a sharded axis if none return -1.
 // TODO: Assumes no merges/splits on sharded axis.
 int64_t getShardedAxis(TensorView*);

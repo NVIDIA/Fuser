@@ -36,16 +36,16 @@ class CommunicationTest
   static constexpr c10d::ReduceOp::RedOpType red_op =
       c10d::ReduceOp::RedOpType::SUM;
   CommParams params;
-  std::vector<DeviceIdxType> all_ranks;
+  const DeviceMesh full_mesh;
+  const Team all_ranks;
   c10::intrusive_ptr<c10d::Backend> backend;
   IrContainer container;
 };
 
-CommunicationTest::CommunicationTest() {
-  all_ranks = std::vector<DeviceIdxType>(communicator->size());
-  std::iota(all_ranks.begin(), all_ranks.end(), 0);
-  backend = communicator->getBackendForTeam(all_ranks, GetParam());
-}
+CommunicationTest::CommunicationTest()
+    : full_mesh(DeviceMesh::createForNumDevices(communicator->size())),
+      all_ranks(full_mesh.vector()),
+      backend(communicator->getBackendForTeam(all_ranks, GetParam())) {}
 
 void CommunicationTest::SetUp() {
   MultiDeviceTest::SetUp();
@@ -65,6 +65,7 @@ void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
 TEST_P(CommunicationTest, Gather) {
   params.type = CommunicationType::Gather;
   params.root = root;
+  params.mesh = full_mesh;
   params.team = all_ranks;
   auto communication = IrBuilder::create<Communication>(&container, params);
 
@@ -94,6 +95,7 @@ TEST_P(CommunicationTest, Gather) {
 
 TEST_P(CommunicationTest, Allgather) {
   params.type = CommunicationType::Allgather;
+  params.mesh = full_mesh;
   params.team = all_ranks;
   auto communication = IrBuilder::create<Communication>(&container, params);
 
@@ -123,6 +125,7 @@ TEST_P(CommunicationTest, Allgather) {
 TEST_P(CommunicationTest, Scatter) {
   params.type = CommunicationType::Scatter;
   params.root = root;
+  params.mesh = full_mesh;
   params.team = all_ranks;
   auto communication = IrBuilder::create<Communication>(&container, params);
 
@@ -158,6 +161,7 @@ TEST_P(CommunicationTest, Scatter) {
 TEST_P(CommunicationTest, Broadcast) {
   params.type = CommunicationType::Broadcast;
   params.root = root;
+  params.mesh = full_mesh;
   params.team = all_ranks;
   auto communication = IrBuilder::create<Communication>(&container, params);
 
@@ -203,7 +207,8 @@ TEST_P(CommunicationTest, SendRecv) {
 
   params.type = CommunicationType::SendRecv;
   params.root = sender;
-  params.team = {0, 1};
+  params.mesh = {receiver};
+  params.team = {sender, receiver};
   auto communication = IrBuilder::create<Communication>(&container, params);
 
   at::Tensor input_tensor;
@@ -244,7 +249,8 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
 
   params.type = CommunicationType::SendRecv;
   params.root = sender;
-  params.team = {0};
+  params.mesh = {sender};
+  params.team = {sender};
   auto communication = IrBuilder::create<Communication>(&container, params);
 
   at::Tensor input_tensor = at::empty({tensor_size}, tensor_options);
@@ -269,6 +275,7 @@ TEST_P(CommunicationTest, Reduce) {
   params.type = CommunicationType::Reduce;
   params.redOp = red_op;
   params.root = root;
+  params.mesh = full_mesh;
   params.team = all_ranks;
   auto communication = IrBuilder::create<Communication>(&container, params);
 
@@ -300,6 +307,7 @@ TEST_P(CommunicationTest, Reduce) {
 TEST_P(CommunicationTest, Allreduce) {
   params.type = CommunicationType::Allreduce;
   params.redOp = red_op;
+  params.mesh = full_mesh;
   params.team = all_ranks;
   auto communication = IrBuilder::create<Communication>(&container, params);
 
@@ -329,6 +337,7 @@ TEST_P(CommunicationTest, ReduceScatter) {
   params.type = CommunicationType::ReduceScatter;
   params.redOp = red_op;
   params.root = root;
+  params.mesh = full_mesh;
   params.team = all_ranks;
   params.scattered_axis = 1;
   auto communication = IrBuilder::create<Communication>(&container, params);
