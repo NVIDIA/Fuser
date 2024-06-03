@@ -2866,7 +2866,7 @@ class AllocationDomainTest
     return {t0, t1};
   }
 
-  static MatmulParams params;
+  MatmulParams params;
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
@@ -2899,7 +2899,7 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
   fusion->addOutput(tv2);
 
-  scheduleMatmul(fusion.get(), AllocationDomainTest::params);
+  scheduleMatmul(fusion.get(), params);
 
   auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
   FusionExecutor fe;

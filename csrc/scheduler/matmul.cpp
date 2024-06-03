@@ -884,7 +884,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // We add two LoadStore operators to the inputs of our fusions. The first one
   // is for a read from global memory and the second one (below) is for
   // a cache read. As an optimizaton, we avoid adding an operator if there's an
-  // existing LoadStoreOp present.
+  // existing LoadStoreOp present. Please note that for the second LoadStore we
+  // don't propagte the allocation domain, since the scheduler sets the
+  // allocation domain in the registers.
   auto addSetForCacheRead = [](TensorView* tv_smem, TensorView** tv_r) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
       *tv_r = ldst->out()->as<TensorView>();
