@@ -391,7 +391,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_F(NVFuserTest, HostIrSetStream) {
   auto hic = std::make_unique<HostIrContainer>();
   auto stream =
-      IrBuilder::create<StreamIr>(static_cast<IrContainer*>(hic.get()));
+      IrBuilder::create<Stream>(static_cast<IrContainer*>(hic.get()));
   auto set_stream = IrBuilder::create<SetCurrentStream>(
       static_cast<IrContainer*>(hic.get()), stream);
   hic->pushBackTopLevelExprs(set_stream);
@@ -430,10 +430,10 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
   FusionGuard::setCurFusion(hic.get());
 
   // Create N different Streams
-  std::vector<StreamIr*> streams;
+  std::vector<Stream*> streams;
   for (int i = 0; i < n_streams; i++) {
     streams.push_back(
-        IrBuilder::create<StreamIr>(static_cast<IrContainer*>(hic.get())));
+        IrBuilder::create<Stream>(static_cast<IrContainer*>(hic.get())));
   }
 
   // [Step 3)] Create a HostUnit Ir holding the created fusion

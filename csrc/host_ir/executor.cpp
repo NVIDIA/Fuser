@@ -43,7 +43,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
 }
 
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
-  StreamIr* stream = set_current_stream->stream();
+  Stream* stream = set_current_stream->stream();
   if (streams_.find(stream) == streams_.end()) {
     c10::DeviceIndex i =
         (communicator_ != nullptr && communicator_->is_available())

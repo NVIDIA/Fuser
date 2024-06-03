@@ -106,30 +106,30 @@ bool PostOnStream::sameAs(const Statement* other) const {
   return false;
 }
 
-int StreamIr::running_counter_ = 0;
+int Stream::running_counter_ = 0;
 
-StreamIr::StreamIr(IrBuilderPasskey passkey)
-    : Val(passkey, ValType::StreamIr), idx_(running_counter_++){};
+Stream::Stream(IrBuilderPasskey passkey)
+    : Val(passkey, ValType::Stream), idx_(running_counter_++){};
 
-StreamIr::StreamIr(const StreamIr* src, IrCloner* ir_cloner)
+Stream::Stream(const Stream* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner), idx_(src->idx_){};
-NVFUSER_DEFINE_CLONE(StreamIr)
+NVFUSER_DEFINE_CLONE(Stream)
 
-std::string StreamIr::toString(int indent_size) const {
+std::string Stream::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Stream " << idx_;
   return ss.str();
 }
 
-std::string StreamIr::toInlineString(int indent_size) const {
+std::string Stream::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
-bool StreamIr::sameAs(const Statement* other) const {
+bool Stream::sameAs(const Statement* other) const {
   return false;
 }
 
-SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, StreamIr* stream)
+SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
     : Expr(passkey, {stream}, {}, {stream}) {
   NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
 }

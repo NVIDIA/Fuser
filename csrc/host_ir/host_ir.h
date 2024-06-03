@@ -114,10 +114,10 @@ class PostOnStream : public Expr {
   }
 };
 
-class StreamIr : public Val {
+class Stream : public Val {
  public:
-  StreamIr(IrBuilderPasskey passkey);
-  StreamIr(const StreamIr* src, IrCloner* ir_cloner);
+  Stream(IrBuilderPasskey passkey);
+  Stream(const Stream* src, IrCloner* ir_cloner);
   bool sameAs(const Statement* other) const override;
 
   NVFUSER_DECLARE_CLONE
@@ -134,7 +134,7 @@ class StreamIr : public Val {
 class SetCurrentStream : public Expr {
  public:
   using Expr::Expr;
-  SetCurrentStream(IrBuilderPasskey passkey, StreamIr* stream);
+  SetCurrentStream(IrBuilderPasskey passkey, Stream* stream);
 
   SetCurrentStream(const SetCurrentStream& other) = delete;
   SetCurrentStream& operator=(const SetCurrentStream& other) = delete;
@@ -151,8 +151,8 @@ class SetCurrentStream : public Expr {
 
   bool sameAs(const Statement* other) const override;
 
-  StreamIr* stream() const {
-    return attributes_.at(0)->as<StreamIr>();
+  Stream* stream() const {
+    return attributes_.at(0)->as<Stream>();
   }
 };
 

@@ -70,7 +70,7 @@ class HostIrExecutor final : public OptInDispatch {
   // Cache Fusions, FusionExecutors
   std::unordered_map<HostUnit*, FusionExecutor> fe_;
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
-  std::unordered_map<StreamIr*, c10::cuda::CUDAStream> streams_;
+  std::unordered_map<Stream*, c10::cuda::CUDAStream> streams_;
 };
 
 } // namespace hir
