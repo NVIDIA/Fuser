@@ -2203,16 +2203,16 @@ class LinearOp : public Expr {
 
 // SDPA node with same functionality as F.scaled_dot_product_attention
 // https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
-class SdpaOp : public Expr {
+class SdpaFwdOp : public Expr {
  public:
   using Expr::Expr;
 
-  SdpaOp(
+  SdpaFwdOp(
       IrBuilderPasskey,
       TensorView* output,
       TensorView* log_sumexp,
-      // TensorView* cum_seq_q,
-      // TensorView* cum_seq_k,
+      TensorView* cum_seq_q,
+      TensorView* cum_seq_k,
       Val* query_seq_len,
       Val* key_seq_len,
       TensorView* philox_seed,
@@ -2228,7 +2228,7 @@ class SdpaOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "SdpaOp";
+    return "SdpaFwdOp";
   }
 
   // std::string toString(int indent_size = 0) const override;

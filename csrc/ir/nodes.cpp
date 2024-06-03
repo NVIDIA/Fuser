@@ -4262,12 +4262,12 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   return {at::linear(a, b)};
 }
 
-SdpaOp::SdpaOp(
+SdpaFwdOp::SdpaFwdOp(
     IrBuilderPasskey passkey,
     TensorView* output,
     TensorView* log_sumexp,
-    // TensorView* cum_seq_q,
-    // TensorView* cum_seq_k,
+    TensorView* cum_seq_q,
+    TensorView* cum_seq_k,
     Val* query_seq_len,
     Val* key_seq_len,
     TensorView* philox_seed,
@@ -4282,8 +4282,8 @@ SdpaOp::SdpaOp(
     : Expr(passkey) {
   addOutput(output);
   addOutput(log_sumexp);
-  // addOutput(cum_seq_q);
-  // addOutput(cum_seq_k);
+  addOutput(cum_seq_q);
+  addOutput(cum_seq_k);
   addOutput(query_seq_len);
   addOutput(key_seq_len);
   addOutput(philox_seed);
@@ -4299,9 +4299,9 @@ SdpaOp::SdpaOp(
   }
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
 
-// std::string SdpaOp::toString(int indent_size) const {
+// std::string SdpaFwdOp::toString(int indent_size) const {
 //   std::stringstream ss;
 //   indent(ss, indent_size) << out()->toString() << "\n";
 //   indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
@@ -4316,11 +4316,11 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaOp)
 //   return ss.str();
 // }
 
-std::string SdpaOp::toInlineString(int indent_size) const {
+std::string SdpaFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-std::vector<PolymorphicValue> SdpaOp::evaluate(
+std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   auto query = inputs.at(0).as<at::Tensor>();
@@ -4363,8 +4363,8 @@ std::vector<PolymorphicValue> SdpaOp::evaluate(
 
   return {output,
     log_sumexp,
-    // cum_seq_q,
-    // cum_seq_k,
+    cum_seq_q,
+    cum_seq_k,
     *query_seq_len.maybe_as_int(),
     *key_seq_len.maybe_as_int(),
     philox_seed,

@@ -443,9 +443,9 @@ SdpfaFwdResult sdpfa_fwd(
       " ,and ",
       value->dtype());
 
-  auto query_domain = TensorDomain::noReductions(query->getMaybeRFactorDomain());
-  auto key_domain = TensorDomain::noReductions(key->getMaybeRFactorDomain());
-  auto value_domain = TensorDomain::noReductions(value->getMaybeRFactorDomain());
+  auto query_domain = TensorDomain::noReductions(query->getRFactorDomain());
+  auto key_domain = TensorDomain::noReductions(key->getRFactorDomain());
+  auto value_domain = TensorDomain::noReductions(value->getRFactorDomain());
   
   NVF_CHECK(
       query_domain.size() == 4 && key_domain.size() == 4 && value_domain.size() == 4,
@@ -457,54 +457,56 @@ SdpfaFwdResult sdpfa_fwd(
       value_domain.size());
 
   // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
+  // N, H are mapped for all inputs to outputs. L is mapped from query to output. Ev is mapped from
+  // value to output. Note: There is no mapping for S, E. This may change in the
+  // future if we add additional reduction ids to the output.
   auto ndims_out = query_domain.size();
-
-  const std::vector<IterDomain*>& mapping_q =
-      ops::mapSdpaOpIterDomains(query_domain, AttnRole::Q, ndims_out);
-  const std::vector<IterDomain*>& mapping_k =
-      ops::mapSdpaOpIterDomains(key_domain, AttnRole::K, ndims_out);
-  const std::vector<IterDomain*>& mapping_v =
-      ops::mapSdpaOpIterDomains(value_domain, AttnRole::V, ndims_out);
 
   // TensorView for attention output
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
-  for (auto idx : c10::irange(ndims_out)) {
+  for (auto idx : c10::irange(ndims_out - 2)) {
     out_domain[idx] = ops::newOutputIterDomain(
-        {mapping_q.at(idx),
-         mapping_k.at(idx),
-         mapping_v.at(idx)});
+        {query_domain.at(idx),
+         key_domain.at(idx),
+         value_domain.at(idx)});
   }
+  out_domain[ndims_out - 2] = ops::newOutputDomain(query_domain.at(ndims_out - 2));
+  out_domain[ndims_out - 1] = ops::newOutputDomain(value_domain.at(ndims_out - 1));
 
-  TensorDomain* td = IrBuilder::create<TensorDomain>(
+  TensorDomain* attn_td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
-  TensorView* output = IrBuilder::create<TensorView>(td, query->dtype());
+  TensorView* output = IrBuilder::create<TensorView>(attn_td, query->dtype());
 
-  // TensorView for logsumexp
+  // TensorView for log_sumexp [N, H, L]
   std::vector<IterDomain*> log_sumexp_dom (ndims_out - 1, nullptr);
   for (auto idx : c10::irange(ndims_out - 2)){
-    log_sumexp_dom[idx] = ops::newOutputIterDomain({mapping_q.at(idx),
-         mapping_k.at(idx),
-         mapping_v.at(idx)});
+    log_sumexp_dom[idx] = ops::newOutputIterDomain(
+        {query_domain.at(idx),
+         key_domain.at(idx),
+         value_domain.at(idx)});
   }
-  log_sumexp_dom[ndims_out - 2] = ops::newOutputIterDomain({mapping_q[ndims_out - 2]});
+  log_sumexp_dom[ndims_out - 2] = ops::newOutputDomain(query_domain.at(ndims_out - 2));
   TensorDomain* log_sumexp_td = IrBuilder::create<TensorDomain>(
       log_sumexp_dom, TensorDomain::getContiguityFilledWith(log_sumexp_dom, true));
   TensorView* log_sumexp = IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
-  // Create a new ID for cum_seq_q, cum_seq_k which is of shape (batch_size + 1, )
-  // auto newForSeq = [&]() -> TensorDomain* {
-  //   IterDomain* seq_dom = ops::newOutputIterDomain({query_domain.front()});
-  //   seq_dom = IterDomain::resize(seq_dom, IrBuilder::create<Val>(0), IrBuilder::create<Val>(1));
+  // Create a new Tensorview for cum_seq_q, cum_seq_k which is of shape (N + 1, )
+  auto newForCumulativeSeq = [&]() -> TensorDomain* {
+    IterDomain* batch_id = ops::newOutputIterDomain({query_domain.front()});
+    batch_id = IterDomain::resize(batch_id, IrBuilder::create<Val>(0, DataType::Index), IrBuilder::create<Val>(1, DataType::Index));
 
-  //   return IrBuilder::create<TensorDomain>(
-  //     std::vector({seq_dom}), TensorDomain::getContiguityFilledWith(std::vector({seq_dom}), true));
-  // };
+    TensorDomain* batch_dom = IrBuilder::create<TensorDomain>(
+      std::vector({batch_id}), TensorDomain::getContiguityFilledWith(std::vector({batch_id}), true));
+    return IrBuilder::create<TensorView>(batch_dom, DataType::Int);
+  };
 
-  // TensorView* cum_seq_q = IrBuilder::create<TensorView>(newForSeq(), DataType::Int);
-  // TensorView* cum_seq_k = IrBuilder::create<TensorView>(newForSeq(), DataType::Int);
+  TensorView* cum_seq_q = newForCumulativeSeq();
+  TensorView* cum_seq_k = newForCumulativeSeq();
+
   Val* query_seq_len = IrBuilder::create<Val>(DataType::Int);
   Val* key_seq_len = IrBuilder::create<Val>(DataType::Int);
 
+  // Scalar tensors of int64_t dtype.
   TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* debug_attn_mask = TensorViewBuilder().dtype(DataType::Int).build();
@@ -518,11 +520,11 @@ SdpfaFwdResult sdpfa_fwd(
     is_causal = IrBuilder::create<Val>(false, DataType::Bool);
   }
 
-  IrBuilder::create<SdpaOp>(
+  IrBuilder::create<SdpaFwdOp>(
     output,
     log_sumexp,
-    // cum_seq_q,
-    // cum_seq_k,
+    cum_seq_q,
+    cum_seq_k,
     query_seq_len,
     key_seq_len,
     philox_seed,
@@ -537,8 +539,8 @@ SdpfaFwdResult sdpfa_fwd(
   );
   return {output,
     log_sumexp,
-    // cum_seq_q,
-    // cum_seq_k,
+    cum_seq_q,
+    cum_seq_k,
     query_seq_len,
     key_seq_len,
     philox_seed,

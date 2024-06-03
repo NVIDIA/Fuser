@@ -107,7 +107,7 @@ class Val;
   f(Resize);                      \
   f(MatmulOp);                    \
   f(LinearOp);                    \
-  f(SdpaOp);                      \
+  f(SdpaFwdOp);                      \
   f(Communication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
