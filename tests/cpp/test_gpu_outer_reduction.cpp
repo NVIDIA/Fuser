@@ -2337,11 +2337,13 @@ TEST_F(OuterReductionTest, KernelReuse) {
 
   auto grad_input = softmax_backward(grad_output, output, reduction_axis);
 
+  auto neg_output = neg(segment_set(grad_input));
+
   if (dtype == DataType::Half) {
-    grad_input = castOp(DataType::Half, grad_input);
+    neg_output = castOp(DataType::Half, neg_output);
   }
 
-  fusion->addOutput(grad_input);
+  fusion->addOutput(neg_output);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -2371,20 +2373,36 @@ TEST_F(OuterReductionTest, KernelReuse) {
     int64_t reduction_size = 2048;
     int64_t iter_size = 16384;
     run(reduction_size, iter_size);
+
+    const auto& runtime_cache = executor_cache.getKernelRuntimes();
+    // Ensure there's only one concretization
+    EXPECT_EQ(runtime_cache.size(), 1);
+    // Ensure there's only a single FusionKernelRuntime for this concretization
+    EXPECT_EQ(runtime_cache.begin()->second.size(), 1);
+
+    // Segmented into three groups
     auto runtime = executor_cache.getMostRecentKernelRuntime();
     ASSERT_NE(runtime, nullptr);
     EXPECT_TRUE(runtime->isSegmented());
-    EXPECT_EQ(executor_cache.getKernelRuntimes().begin()->second.size(), 1);
+    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 3);
   }
 
   {
     int64_t reduction_size = 512;
     int64_t iter_size = 16384;
     run(reduction_size, iter_size);
+
+    const auto& runtime_cache = executor_cache.getKernelRuntimes();
+    // Ensure there's only one concretization
+    EXPECT_EQ(runtime_cache.size(), 1);
+    // Ensure there are now two FusionKernelRuntimes for this concretization
+    EXPECT_EQ(runtime_cache.begin()->second.size(), 2);
+
+    // Segmented into three groups
     auto runtime = executor_cache.getMostRecentKernelRuntime();
     ASSERT_NE(runtime, nullptr);
-    EXPECT_FALSE(runtime->isSegmented());
-    EXPECT_EQ(executor_cache.getKernelRuntimes().begin()->second.size(), 2);
+    EXPECT_TRUE(runtime->isSegmented());
+    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
   }
 }
 
