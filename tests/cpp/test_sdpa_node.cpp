@@ -213,9 +213,9 @@ TEST(SDPATest, CausalAttn) {
       tvq,
       tvk,
       tvv,
-      /*dropout_p=*/0.0,
-      /*is_causal=*/true,
-      /*scale=*/1e-3);
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(true),
+      /*scale=*/IrBuilder::create<Val>(1e-3));
   fusion->addOutput(tvattn.output);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
