@@ -143,6 +143,8 @@ class NVF_API FusionDefinition : public FusionState {
 
   //! Return the unscheduled Fusion IR
   NVF_API std::string fusionIr();
+  //! Return the user scheduled FusionIR;
+  NVF_API std::string userScheduleIr();
   //! Return the Cuda code for the last executed set of inputs
   NVF_API std::string lastCudaCode(
       bool intrinsic_code,
@@ -172,6 +174,8 @@ class NVF_API FusionDefinition : public FusionState {
 
   //! These methods are used to record the FusionDefinition for cache lookup
 
+  //! Defines a Tensor State Record
+  NVF_API Tensor addTensor(TensorView* tv);
   //! Defines a Scalar State Record
   NVF_API Scalar defineScalar();
   //! Defines a Tensor State Record
