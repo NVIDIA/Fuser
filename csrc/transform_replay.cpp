@@ -152,13 +152,13 @@ class ReplaySelf : public ReplayTransformations {
 
     // When the original output is an rfactor, make the replayed
     // output domain also an rfactor
-    const auto resize_out_rfactor = resize->out()->isRFactorProduct();
+    const auto resize_out_logical = resize->out()->isRFactorProduct();
 
     auto replayed_out = IterDomain::resize(
         mapped,
         resize->leftExpand(),
         resize->rightExpand(),
-        resize_out_rfactor);
+        resize_out_logical);
 
     leaf_ids_.erase(mapped);
 
@@ -221,20 +221,20 @@ TensorDomain* TransformReplay::fullSelfReplay(
     }
 
     if (self->hasRoot()) {
-      std::vector<IterDomain*> new_rfactor_domain(
-          self->rfactor().size(), nullptr);
+      std::vector<IterDomain*> new_logical_domain(
+          self->logical().size(), nullptr);
       int64_t i = 0;
-      for (auto id : self->rfactor()) {
+      for (auto id : self->logical()) {
         auto it = replay.getReplay().find(id);
         NVF_ERROR(
             it != replay.getReplay().end(),
             "Error during replay, didn't replay an axis.");
-        new_rfactor_domain[i++] = it->second;
+        new_logical_domain[i++] = it->second;
       }
       return IrBuilder::createInContainer<TensorDomain>(
           self->container(),
           new_self_root->root(),
-          new_rfactor_domain,
+          new_logical_domain,
           new_domain,
           self->contiguity());
     }
@@ -242,7 +242,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
 
   return IrBuilder::createInContainer<TensorDomain>(
       self->container(),
-      new_self_root->rfactor(),
+      new_self_root->logical(),
       new_domain,
       new_self_root->contiguity());
 }
@@ -260,7 +260,7 @@ std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
   std::unordered_set<Val*> unmapped_root_ids;
 
   const auto& root_domain =
-      is_producer ? tv->getRFactorDomain() : tv->getMaybeRootDomain();
+      is_producer ? tv->getLogicalDomain() : tv->getMaybeRootDomain();
 
   for (auto root_id : root_domain) {
     if (root_id_map.count(root_id) == 0) {
@@ -395,15 +395,15 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
     }
   }
 
-  auto producer_root = producer->getRFactorDomain();
+  auto producer_logical = producer->getLogicalDomain();
 
   // Figure out all id's that have been processed to generate the
   // unordered_non_root_leaf_vals. This needs to be done because we want to
-  // match on producer's rfactor domain, not root domain.
+  // match on producer's logical domain, not root domain.
   std::unordered_set<IterDomain*> all_processed_ids;
   {
     auto all_processed_vals_vec = DependencyCheck::getAllValsBetween(
-        {producer_root.begin(), producer_root.end()},
+        {producer_logical.begin(), producer_logical.end()},
         unordered_non_root_leaf_vals);
     auto all_processed_ids_vec =
         ir_utils::filterByType<IterDomain>(all_processed_vals_vec);
@@ -413,13 +413,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
 
   // Any root domain that was not used to generate computeIDs we can also put in
   // the map to forward their transformations.
-  for (auto producer_root_id : producer_root) {
-    if (all_processed_ids.find(producer_root_id) == all_processed_ids.end() &&
+  for (auto producer_logical_id : producer_logical) {
+    if (all_processed_ids.find(producer_logical_id) ==
+            all_processed_ids.end() &&
         std::find(
             dims_mapped2target.begin(),
             dims_mapped2target.end(),
-            producer_root_id) == dims_mapped2target.end()) {
-      producer_self_replay_map[producer_root_id] = producer_root_id;
+            producer_logical_id) == dims_mapped2target.end()) {
+      producer_self_replay_map[producer_logical_id] = producer_logical_id;
     }
   }
 
@@ -513,7 +514,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
       producer->container(),
       producer->getRootDomain(),
-      producer->getRFactorDomain(),
+      producer->getLogicalDomain(),
       producer->getAllocationDomain(),
       new_IDs,
       producer->domain()->contiguity());
@@ -742,7 +743,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
         consumer->container(),
         consumer->getRootDomain(),
-        consumer->getRFactorDomain(),
+        consumer->getLogicalDomain(),
         consumer->getAllocationDomain(),
         new_IDs,
         consumer->domain()->contiguity());
@@ -759,7 +760,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
       consumer->container(),
       consumer->getRootDomain(),
-      consumer->getRFactorDomain(),
+      consumer->getLogicalDomain(),
       /*allocation=*/std::vector<IterDomain*>{},
       /*leaf=*/new_IDs,
       consumer->domain()->contiguity());
@@ -1260,20 +1261,20 @@ TensorDomain* fullReplay(
         old_domain->container(), new_root, new_leaf, old_domain->contiguity());
   }
 
-  std::vector<IterDomain*> new_rfactor;
-  new_rfactor.reserve(old_domain->rfactor().size());
+  std::vector<IterDomain*> new_logical;
+  new_logical.reserve(old_domain->logical().size());
   std::transform(
-      old_domain->rfactor().begin(),
-      old_domain->rfactor().end(),
-      std::back_inserter(new_rfactor),
-      [&](IterDomain* old_rfactor_id) {
-        return replay.getReplay().at(old_rfactor_id);
+      old_domain->logical().begin(),
+      old_domain->logical().end(),
+      std::back_inserter(new_logical),
+      [&](IterDomain* old_logical_id) {
+        return replay.getReplay().at(old_logical_id);
       });
 
   return IrBuilder::createInContainer<TensorDomain>(
       old_domain->container(),
       new_root,
-      new_rfactor,
+      new_logical,
       new_leaf,
       old_domain->contiguity());
 }
@@ -1301,12 +1302,12 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
     std::vector<IterDomain*> new_out_root;
     new_out_root.reserve(old_domain->maybeRoot().size());
     int64_t i = 0;
-    for (IterDomain* in_rfactor_id :
-         TensorDomain::noReductions(new_in_tv->getRFactorDomain())) {
+    for (IterDomain* in_logical_id :
+         TensorDomain::noReductions(new_in_tv->getLogicalDomain())) {
       // Copy the `rf` flag from `old_domain` and everything else from
-      // `in_rfactor_id`.
+      // `in_logical_id`.
       new_out_root.push_back(
-          IterDomainBuilder(in_rfactor_id)
+          IterDomainBuilder(in_logical_id)
               .is_rfactor_domain(old_domain->maybeRoot()[i]->isRFactorProduct())
               .build());
       i++;

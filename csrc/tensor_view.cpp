@@ -841,13 +841,13 @@ TensorView* TensorView::multiOutputRFactorHelper(
   // output TV that got the rfactor call is force replayed towards the other two
 
   if (this != tv) {
-    auto root = tv->getRFactorDomain();
-    auto this_root = getRFactorDomain();
+    auto logical = tv->getLogicalDomain();
+    auto this_logical = getLogicalDomain();
 
-    // construct a trivial root domain map
+    // construct a trivial logical domain map
     std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (const auto i : c10::irange(root.size())) {
-      id_map[this_root[i]] = root[i];
+    for (const auto i : c10::irange(logical.size())) {
+      id_map[this_logical[i]] = logical[i];
     }
 
     // replay on the target tv
@@ -864,7 +864,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
     std::vector<std::optional<bool>> new_contig(tv->domain()->contiguity());
     // replace tensor domain of target tv
     tv->setDomain(IrBuilder::create<TensorDomain>(
-        tv->getRFactorDomain(), new_id, new_contig));
+        tv->getLogicalDomain(), new_id, new_contig));
   }
 
   // Split tensor view into 2 parts
@@ -1021,7 +1021,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       IrBuilder::createInContainer<TensorDomain>(
           container(),
           getRootDomain(),
-          getRFactorDomain(),
+          getLogicalDomain(),
           getAllocationDomain(),
           getLeafDomain(),
           getContiguity()),
@@ -1031,19 +1031,20 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   TensorView* consumer = this;
 
   size_t i = 0;
-  auto no_reduction_root_domain =
-      TensorDomain::noReductions(getRFactorDomain());
-  std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
-  for (const auto& dom : no_reduction_root_domain) {
-    new_root_domain[i++] = dom->cloneWithoutRFactor();
+  auto no_reduction_logical_domain =
+      TensorDomain::noReductions(getLogicalDomain());
+  std::vector<IterDomain*> new_logical_domain(
+      no_reduction_logical_domain.size());
+  for (const auto& dom : no_reduction_logical_domain) {
+    new_logical_domain[i++] = dom->cloneWithoutRFactor();
   }
 
   // Warning: allocation domain is temporarily discarded. It will be recovered
   // later.
   consumer->setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
-      new_root_domain,
-      TensorDomain::getContiguityFilledWith(new_root_domain, true)));
+      new_logical_domain,
+      TensorDomain::getContiguityFilledWith(new_logical_domain, true)));
 
   // Insert producer - Cache_Before (CB) - before this TV.
   // Before: Prev TV -> [Definition Op] -> This TV
@@ -1093,14 +1094,14 @@ TensorView* TensorView::cacheFork() {
       "Caching computed-at tensors is not allowed. Apply caching before computeAt");
 
   // This domain will be the producer, so create the consumer
-  auto root_domain = TensorDomain::noReductions(getRFactorDomain());
+  auto logical_domain = TensorDomain::noReductions(getLogicalDomain());
 
   TensorView* new_output = IrBuilder::createInContainer<TensorView>(
       container(),
       IrBuilder::createInContainer<TensorDomain>(
           container(),
-          IterDomain::clone(root_domain),
-          TensorDomain::getContiguityFilledWith(root_domain, true)),
+          IterDomain::clone(logical_domain),
+          TensorDomain::getContiguityFilledWith(logical_domain, true)),
       getDataType().value());
 
   // Create write operation from this TV to new output
@@ -1167,11 +1168,12 @@ TensorView* TensorView::cacheAfter(
   // Keep Broadcast Axis (Permanent)
   // Remove Reduction Axis
   size_t i = 0;
-  auto no_reduction_root_domain =
-      TensorDomain::noReductions(getRFactorDomain());
-  std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
-  for (const auto& dom : no_reduction_root_domain) {
-    new_root_domain[i++] = dom->cloneWithoutRFactor();
+  auto no_reduction_logical_domain =
+      TensorDomain::noReductions(getLogicalDomain());
+  std::vector<IterDomain*> new_logical_domain(
+      no_reduction_logical_domain.size());
+  for (const auto& dom : no_reduction_logical_domain) {
+    new_logical_domain[i++] = dom->cloneWithoutRFactor();
   }
 
   // This domain will be the producer, so create the consumer
@@ -1179,8 +1181,8 @@ TensorView* TensorView::cacheAfter(
       container(),
       IrBuilder::createInContainer<TensorDomain>(
           container(),
-          new_root_domain,
-          TensorDomain::getContiguityFilledWith(new_root_domain, true)),
+          new_logical_domain,
+          TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
       getDataType().value());
 
   // Set domain of producer - No Change
@@ -1224,23 +1226,24 @@ void TensorView::clearReductionIterDomains() {
       "should not call clearReductionIterDomains on rfactor tv");
 
   NVF_ERROR(
-      getLeafDomain() == getRFactorDomain(),
+      getLeafDomain() == getLogicalDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
-  const std::vector<IterDomain*>& root = getRFactorDomain();
+  const std::vector<IterDomain*>& logical = getLogicalDomain();
   const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
 
   NVF_ERROR(
-      std::is_permutation(root.begin(), root.end(), alloc.begin(), alloc.end()),
+      std::is_permutation(
+          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
       "should not call clearReductionIterDomains on transformed allocation domain");
 
-  std::vector<IterDomain*> new_root;
+  std::vector<IterDomain*> new_logical;
   std::vector<IterDomain*> new_alloc;
   std::vector<std::optional<bool>> new_contig;
-  for (const auto i : c10::irange(root.size())) {
-    auto root_i = root.at(i);
+  for (const auto i : c10::irange(logical.size())) {
+    auto root_i = logical.at(i);
     if (!root_i->isReduction()) {
-      new_root.push_back(root_i);
+      new_logical.push_back(root_i);
     }
     // contig flag is specified for on allocation domain
     auto alloc_i = alloc.at(i);
@@ -1250,18 +1253,18 @@ void TensorView::clearReductionIterDomains() {
     }
   }
 
-  if (new_alloc == new_root) {
-    // if new allocation domain is identical to new root domain, we don't need
-    // to specify allocation domain
+  if (new_alloc == new_logical) {
+    // if new allocation domain is identical to new logical domain, we don't
+    // need to specify allocation domain
     setDomain(IrBuilder::createInContainer<TensorDomain>(
-        container(), new_root, new_contig));
+        container(), new_logical, new_contig));
   } else {
     setDomain(IrBuilder::createInContainer<TensorDomain>(
         container(),
         std::vector<IterDomain*>(),
-        new_root,
+        new_logical,
         new_alloc,
-        new_root,
+        new_logical,
         new_contig));
   }
 }
@@ -1290,9 +1293,9 @@ void TensorView::circularBuffer(int64_t stage) {
 }
 
 bool TensorView::isEmptyTensor() const {
-  auto& root_domain = getRFactorDomain();
+  auto& logical_domain = getLogicalDomain();
   return std::all_of(
-      root_domain.begin(), root_domain.end(), [](IterDomain* id) {
+      logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
         return id->extent()->isZeroInt();
       });
 }
@@ -1326,17 +1329,17 @@ void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
   mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, swizzle);
 }
 
-void TensorView::commitLeafToRFactor() {
+void TensorView::commitLeafToLogical() {
   NVF_CHECK(
       ir_utils::consumerTvsOf(this).empty(),
-      "Changing the rFactor domain of an intermediate tensor is not supported yet");
+      "Changing the logical domain of an intermediate tensor is not supported yet");
   setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
       domain_->maybeRoot(),
       domain_->leaf(),
       domain_->allocation(),
       domain_->leaf(),
-      // TODO: If needed, we can let commitLeafToRFactor to take a parameter to
+      // TODO: If needed, we can let commitLeafToLogical to take a parameter to
       // allow customizing contiguity. But there is no such need now, so I will
       // just fill the contiguity with true.
       TensorDomain::getContiguityFilledWith(

@@ -301,7 +301,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << var_name_ss.str();
         } else {
           code_ << "Tensor<" << param->dtype() << ", "
-                << TensorDomain::noReductions(tv->getRFactorDomain()).size()
+                << TensorDomain::noReductions(tv->getLogicalDomain()).size()
                 << ", "
                 << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
                        .size()

@@ -113,7 +113,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
 bool isSharded(TensorView* tv) {
   bool is_sharded = false;
-  auto rids = TensorDomain::noReductions(tv->getRFactorDomain());
+  auto rids = TensorDomain::noReductions(tv->getLogicalDomain());
   auto ids = TensorDomain::noReductions(tv->getLeafDomain());
   for (auto i : c10::irange(ids.size())) {
     // Only one axis can be sharded on DIDx.
@@ -155,7 +155,7 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
   // iterdomain
   const auto p2c_map =
       PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
-  for (auto p_id : TensorDomain::noReductions(producer->getRFactorDomain())) {
+  for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
     auto p2c_map_it = p2c_map.find(p_id);
     NVF_ERROR(
         p2c_map_it != p2c_map.end(),
@@ -535,7 +535,7 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
 }
 
 int64_t getShardedAxis(TensorView* tv) {
-  auto ids = TensorDomain::noReductions(tv->getRFactorDomain());
+  auto ids = TensorDomain::noReductions(tv->getLogicalDomain());
   for (size_t i = 0; i < ids.size(); ++i) {
     if (ids[i]->getParallelType() == ParallelType::DIDx) {
       return static_cast<int64_t>(i);

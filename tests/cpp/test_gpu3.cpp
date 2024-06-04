@@ -2054,17 +2054,17 @@ TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
 
   // They must not be mapped with anything else.
   for (auto tv : ir_utils::allTvs(&fusion)) {
-    for (auto root_id : tv->getRFactorDomain()) {
-      if (root_id == tv2_bc || root_id == tv3_bc) {
+    for (auto logical_id : tv->getLogicalDomain()) {
+      if (logical_id == tv2_bc || logical_id == tv3_bc) {
         continue;
       }
       NVF_CHECK(
-          !exact_map.areMapped(root_id, tv2_bc),
-          "Invalid exact root domain map: ",
+          !exact_map.areMapped(logical_id, tv2_bc),
+          "Invalid exact logical domain map: ",
           exact_map.toString());
       NVF_CHECK(
-          !exact_map.areMapped(root_id, tv3_bc),
-          "Invalid exact root domain map: ",
+          !exact_map.areMapped(logical_id, tv3_bc),
+          "Invalid exact logical domain map: ",
           exact_map.toString());
     }
   }
@@ -6261,10 +6261,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
     if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+          thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
           predicted,
-          "Tv15 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+          "Tv15 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
       break;
     }
   }
@@ -6318,10 +6318,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
       if (tv && tv->name() == 8 && tv->getMemoryType() == MemoryType::Global) {
         const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
         bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-            thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+            thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
         NVF_CHECK(
             predicted,
-            "Tv8 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+            "Tv8 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
         break;
       }
     }
@@ -6470,10 +6470,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
     if (tv->name() == 5 || tv->name() == 6) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+          thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
           predicted,
-          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
     }
   }
 
@@ -6535,10 +6535,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
     if (tv->name() == 5 || tv->name() == 6) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+          thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
           predicted,
-          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
     }
   }
 
@@ -6561,14 +6561,14 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->split(0, 4);
   // [I0/4, 4, I1]
 
-  // Initial domain: rfactor domain
+  // Initial domain: logical domain
   // Derived domain: [4, I1]
   // Should fail as the derived domain only partially covers the
-  // rfactor domain
+  // logical domain
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv1->getRFactorDomain(), {tv1->axis(1), tv1->axis(2)});
+            tv1->getLogicalDomain(), {tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
@@ -6576,24 +6576,24 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->merge(0);
   // [I0/4*4, I1]
 
-  // Initial domain: rfactor domain
+  // Initial domain: logical domain
   // Derived domain: leaf domain
   // Should succeed.
   ir_utils::validateDomainEquivalence(
-      tv1->getRFactorDomain(), tv1->getLeafDomain());
+      tv1->getLogicalDomain(), tv1->getLeafDomain());
 
   auto tv1_intermediate_id = tv1->axis(0);
 
   tv1->split(0, 3);
   // [I0/4*4/3, 3, I1]
 
-  // Initial domain: rfactor domain
+  // Initial domain: logical domain
   // Derived domain: leaf + tv1_intermediate_id
   // Should fail as the intermediate ID and the first two leaves are redundant
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv1->getRFactorDomain(),
+            tv1->getLogicalDomain(),
             {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
@@ -6617,7 +6617,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // [S0, B0/4, 4]
 
   ir_utils::validateDomainEquivalence(
-      tv4->getRFactorDomain(), tv4->getLeafDomain());
+      tv4->getLogicalDomain(), tv4->getLeafDomain());
 
   // Initial domain: root domain
   // Derived domain: [S0, B0/4]
@@ -6626,7 +6626,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv4->getRFactorDomain(), {tv4->axis(0), tv4->axis(1)});
+            tv4->getLogicalDomain(), {tv4->axis(0), tv4->axis(1)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
@@ -6680,14 +6680,14 @@ TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
   tv1->split(1, 4);
   // [I0, I1/4, 4]
 
-  const auto& rfactor_domain = tv1->getRFactorDomain();
+  const auto& logical_domain = tv1->getLogicalDomain();
 
   // legal, as I0 is also a leaf domain
-  rfactor_domain[0]->parallelize(ParallelType::BIDx);
+  logical_domain[0]->parallelize(ParallelType::BIDx);
 
   // llegal, as I1 is not a leaf domain
   EXPECT_THAT(
-      [&]() { rfactor_domain[1]->parallelize(ParallelType::BIDy); },
+      [&]() { logical_domain[1]->parallelize(ParallelType::BIDy); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Only allowed to parallelize a leaf domain")));
 }
@@ -8191,8 +8191,8 @@ TEST_F(NVFuserTest, ReverseMerge) {
   ASSERT_EQ(tv1->nDims(), 1);
   auto merge = dynamic_cast<Merge*>(tv1->axis(0)->definition());
   ASSERT_NE(merge, nullptr);
-  ASSERT_EQ(merge->outer(), tv1->getRFactorDomain().at(1));
-  ASSERT_EQ(merge->inner(), tv1->getRFactorDomain().at(0));
+  ASSERT_EQ(merge->outer(), tv1->getLogicalDomain().at(1));
+  ASSERT_EQ(merge->inner(), tv1->getLogicalDomain().at(0));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({11, 12}, options);

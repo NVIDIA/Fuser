@@ -389,7 +389,7 @@ struct ValGroupAndItsGraph {
 // Note, however, that the above example is not detectable at this
 // moment as the self mapping is partial through reshape. The analysis
 // below would need to be extended to consider producer and consumers
-// of domains as well rather than just root, rfactor and leaf domains.
+// of domains as well rather than just root, logical and leaf domains.
 std::optional<std::pair<IterDomain*, IterDomain*>> detectSelfMapping(
     const std::vector<IterDomain*>& ids,
     const ValGraph& id_graph);
@@ -398,7 +398,7 @@ struct SelfMapping {
   IterDomain* id1;
   IterDomain* id2;
   // For debugging, records which domain `id1` and `id2` belong to. This value
-  // is either "Root", "RFactor", or "Leaf". Consider making it an enum.
+  // is either "Root", "Logical", or "Leaf". Consider making it an enum.
   std::string where;
 };
 
