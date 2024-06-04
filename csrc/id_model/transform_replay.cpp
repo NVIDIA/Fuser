@@ -31,13 +31,9 @@ void ReplayTransform::handle(const Split* split) {
       input_ids_.size() == 1,
       "Expected one input to match split: ",
       split->toString());
-  replayed_expr_ = IterDomain::split(
-                       input_ids_[0],
-                       split->factor(),
-                       split->innerSplit(),
-                       split->startOffset(),
-                       split->stopOffset())
-                       .first->definition();
+  replayed_expr_ =
+      IterDomain::split(input_ids_[0], split->factor(), split->innerSplit())
+          .first->definition();
 }
 
 // We're going to replay this merge operation on the corresponding IDs

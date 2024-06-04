@@ -532,8 +532,7 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
-    if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-        split->stopOffset()->isZeroInt()) {
+    if (split->factor()->isOneInt()) {
       if (split->innerSplit()) {
         mapped_ids.push_back({split->in(), split->outer()});
       } else {

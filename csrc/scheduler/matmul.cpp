@@ -550,7 +550,7 @@ void scheduleProlog(
     shared_mem_tv->promoteReuse();
   }
 
-  mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
+  mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(shared_mem_tv);
 
   // Swizzle the shared memory data layout
   swizzleSharedMemory(shared_mem_tv);
@@ -880,26 +880,27 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   bcw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op_b);
   NVF_ERROR(acw_smem->uses().size() == 1);
   NVF_ERROR(bcw_smem->uses().size() == 1);
-  if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
-    acr = ldst->out()->as<TensorView>();
-    if (ldst->hasInnerTranspose()) {
-      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
-    } else {
+
+  // We add two LoadStore operators to the inputs of our fusions. The first one
+  // is for a read from global memory and the second one (below) is for
+  // a cache read. As an optimizaton, we avoid adding an operator if there's an
+  // existing LoadStoreOp present. Please note that for the second LoadStore we
+  // don't propagte the allocation domain, since the scheduler sets the
+  // allocation domain in the registers.
+  auto addSetForCacheRead = [](TensorView* tv_smem, TensorView** tv_r) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
+      *tv_r = ldst->out()->as<TensorView>();
       ldst->setOpType(LoadStoreOpType::LdMatrix);
-    }
-  } else {
-    acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
-  }
-  if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0))) {
-    bcr = ldst->out()->as<TensorView>();
-    if (ldst->hasInnerTranspose()) {
-      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
     } else {
-      ldst->setOpType(LoadStoreOpType::LdMatrix);
+      *tv_r = tv_smem->cacheAfter(
+          LoadStoreOpType::LdMatrix,
+          CacheOp::Unspecified,
+          /*propagate_allocation_domain=*/false);
     }
-  } else {
-    bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
-  }
+  };
+
+  addSetForCacheRead(acw_smem, &acr);
+  addSetForCacheRead(bcw_smem, &bcr);
 
   // Make a CTA tile
   // ------------------------------------------------------------------

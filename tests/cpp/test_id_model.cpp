@@ -2512,4 +2512,77 @@ TEST_F(IdModelTest, LoopPromotionWithRfactorDomains2) {
   ASSERT_EQ(promotion, tv8->axis(0)) << "Invalid promotion";
 }
 
+// Repro where an exact group has multiple exact expr groups. This
+// would fail if computeCoveredGroups merged all exact input
+// groups. See also #2322.
+TEST_F(IdModelTest, LoopPromotionCoverage) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Two reshape paths, tv0 and tv2, are joined and broadcast, and
+  // then joined with tv3.
+  auto tv0 = makeConcreteTensor({3, 4});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({2});
+  fusion.addInput(tv1);
+  auto tv2 = makeConcreteTensor({2, 6});
+  fusion.addInput(tv2);
+  auto tv3 = makeConcreteTensor({12, 3});
+  fusion.addInput(tv3);
+
+  auto tv4 = reshape(tv0, {3, 4}, {12});
+
+  auto tv5 = broadcast(tv1, {false, true});
+  auto tv6 = add(tv5, tv2);
+  auto tv7 = reshape(tv6, {2, 6}, {12});
+
+  auto tv8 = add(tv4, tv7);
+  auto tv9 = broadcast(tv8, {false, true});
+  auto tv10 = add(tv9, tv3);
+  fusion.addOutput(tv10);
+
+  // All tensors are flattened and inlined, thus
+  // there is only one loop group.
+  tv10->flatten();
+  TransformPropagatorWithCheck propagator(tv10);
+  MaxRootDomainInfoSpanningTree(tv10).traverse(&propagator);
+  inlineMost();
+
+  IdModel id_model(&fusion);
+
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+
+  // Reference promotion domain
+  auto reference_promotion = tv10->axis(0);
+
+  // All tvs except for inptus should be just a 1D tensor and be
+  // promoted to a domain that is exactly mappd with the leaf domain
+  // of tv10.
+  for (const auto tv : ir_utils::allTvs(&fusion)) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    ASSERT_EQ(tv->nDims(), 1);
+    ASSERT_EQ(tv->getComputeAtPosition(), 1);
+
+    auto promotion_it =
+        loop_promotion_map.find(loop_graph.toGroup(tv->axis(0)));
+
+    // Without the fix of PR #2322, this assertion would fail as the
+    // loop group fails to find any promotion.
+    ASSERT_NE(promotion_it, loop_promotion_map.end())
+        << "No promotion found for " << tv->axis(0)->toString();
+
+    auto promotion_id = promotion_it->second;
+    ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
+        promotion_id, reference_promotion))
+        << "Invalid promotion of " << tv->axis(0)->toString()
+        << ". Expected: " << reference_promotion->toString()
+        << ". Actual: " << promotion_id->toString();
+  }
+}
+
 } // namespace nvfuser
