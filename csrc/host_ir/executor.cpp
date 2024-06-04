@@ -129,7 +129,7 @@ void HostIrExecutor::postCommunication(PostOnStream* post_ir) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
   }
 
-  c10::intrusive_ptr<c10d::Backend> backend =
+  c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), std::nullopt);
   c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
       communication,
