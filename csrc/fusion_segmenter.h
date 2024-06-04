@@ -334,7 +334,7 @@ class SegmentedFusion {
 
   //! Is the fusion segmented?
   bool isSegmented() const {
-    return !groups_.empty();
+    return groups_.size() > 1;
   }
 
   std::vector<SegmentedGroup*>& groups() {
