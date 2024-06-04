@@ -74,13 +74,11 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
       static_cast<IrContainer*>(hic.get()), std::move(fusion));
 
   // [Step 3b)] Create a Communication Ir
-  CommParams comm_params{
-      .type = CommunicationType::Allgather,
-      .root = 0,
-      .mesh = mesh,
-      .team = mesh.vector()};
   auto communication = IrBuilder::create<Communication>(
-      static_cast<IrContainer*>(hic.get()), comm_params);
+      static_cast<IrContainer*>(hic.get()),
+      CommunicationType::Allgather,
+      mesh,
+      mesh.vector());
 
   // [Step 4)] Create TensorViews at the Host level
   IrCloner ir_cloner(hic.get());
