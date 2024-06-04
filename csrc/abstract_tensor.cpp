@@ -7,7 +7,7 @@
 // clang-format on
 
 #include <abstract_tensor.h>
-#include <id_model/utils.h>
+#include <id_model/schedule.h>
 #include <utility>
 
 namespace nvfuser {
