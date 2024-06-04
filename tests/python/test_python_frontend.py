@@ -4019,6 +4019,7 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2317
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
     def test_reduction_transpose_sched_issue2317(self):
         inputs = [
             torch.randn((1600,), dtype=torch.bfloat16, device="cuda:0").as_strided(
