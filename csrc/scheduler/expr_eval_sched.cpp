@@ -17,7 +17,7 @@ namespace nvfuser {
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto exprs = fusion->exprs();
   if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    if (exprs.size() == 1 && (exprs.front()->isOneOf<LinearOp, MatmulOp>())) {
+    if (exprs.size() == 1 && (exprs.front()->isOneOf<LinearOp, MatmulOp, SdpaFwdOp>())) {
       return true;
     }
     scheduler_debug_utils::canScheduleRejectReason(
@@ -32,8 +32,12 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
 }
 
 void ExprEvalScheduler::schedule(Fusion* fusion) {
-  fusion->aliasOutputToInput(
-      fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
+  std::for_each(
+    fusion->outputs().begin(), 
+    fusion->outputs().end(), 
+    [&](Val* out){
+      fusion->aliasOutputToInput(out, /*input=*/nullptr, AllocationType::Evaluate);
+  });  
 }
 
 } // namespace nvfuser

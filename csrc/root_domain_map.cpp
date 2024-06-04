@@ -229,6 +229,23 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     return dom_map;
   }
 
+  if (SdpaFwdOp* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())){
+    // Map N, H from any input (query/key/value)
+    for (auto idx: c10::irange(consumer_root.size())){
+      if (idx < 2) {
+        updatePairwiseRootDomainMap(producer_root.at(idx), consumer_root.at(idx));
+      }
+      // Map L, E from query and value respectively
+      if (idx == 2 && producer_tv_->sameAs(op->query())){
+       updatePairwiseRootDomainMap(producer_root.at(2), consumer_root.at(2));
+      }
+      if (idx == 3 && producer_tv_->sameAs(op->value())){
+        updatePairwiseRootDomainMap(producer_root.at(3), consumer_root.at(3));
+      }
+    }
+    return dom_map;
+  }
+
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_logical.size()) {
     IterDomain* producer_id = producer_logical.at(itp);
