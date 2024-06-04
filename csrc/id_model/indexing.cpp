@@ -25,43 +25,6 @@ namespace nvfuser {
 
 namespace {
 
-class IndexingTraversal : public ValGraphBFS {
- public:
-  IndexingTraversal(
-      const ValGraph& graph,
-      std::vector<GroupType> from_groups,
-      std::vector<GroupType> to_groups)
-      : ValGraphBFS(graph, from_groups, to_groups) {}
-
-  virtual ~IndexingTraversal() = default;
-
-  static ExprPath getExprsBetween(
-      const std::vector<IterDomain*>& from_domains,
-      const std::vector<IterDomain*>& to_domains,
-      const ValGraph& graph) {
-    const ValGroups from_groups = graph.toGroups(from_domains);
-    const ValGroups to_groups = graph.toGroups(to_domains);
-
-    IndexingTraversal traversal(
-        graph,
-        {from_groups.vector().begin(), from_groups.vector().end()},
-        {to_groups.vector().begin(), to_groups.vector().end()});
-    traversal.traverse();
-    return traversal.getShortestExprPath();
-  }
-
-  using ValGraphBFS::isVisited;
-
-  bool isDependencySatisfied(const GroupType& group) const override {
-    if (const ValGroup* vg = std::get_if<ValGroup>(&group);
-        vg != nullptr && (*vg)->front()->as<IterDomain>()->isBroadcast()) {
-      VERBOSE() << "Dependency satisfied as it's broadcast" << std::endl;
-      return true;
-    }
-    return ValGraphBFS::isDependencySatisfied(group);
-  }
-};
-
 // Get the promotion domain of a given loop domain.
 IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
@@ -138,7 +101,7 @@ bool isAllocationBasedOnLeaf(TensorView* tv) {
 }
 
 // Get the allocation domains of a given tensor. Also returns its
-// strides as well as
+// strides.
 std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     TensorView* tv,
     const IdModel& id_model) {
@@ -197,78 +160,6 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     }
   }
 
-  // TODO: Fix alloation domains with vectorization
-  // This is an ugly workaround, but the allocation domain of a tensor
-  // with vectorized domains may not be the same as the leaf fomain
-  // since the vectorized domain must be at the innermost position in
-  // the allocation domain, but it's allowed to be located anywhwere
-  // in the leaf domain.
-  // This shouldn't be necessary for global memory tensors as their
-  // allocation domains are rfactor domains
-  {
-    if (tv->getMemoryType() != MemoryType::Global) {
-      IterDomain* id_to_move_back = nullptr;
-      // Vectorized load
-      if (tv->definition() != nullptr && tv->definition()->isA<LoadStoreOp>() &&
-          tv->definition()->as<LoadStoreOp>()->opType() ==
-              LoadStoreOpType::Set) {
-        auto vec_it = std::find_if(
-            allocation_domains.begin(),
-            allocation_domains.end(),
-            [](auto index_domain) -> bool {
-              return isParallelTypeVectorize(index_domain->getParallelType());
-            });
-        if (vec_it != allocation_domains.end() &&
-            *vec_it != allocation_domains.back()) {
-          id_to_move_back = *vec_it;
-        }
-      } else {
-        for (const auto ls_use :
-             ir_utils::filterByType<LoadStoreOp>(tv->uses())) {
-          if (ls_use->opType() != LoadStoreOpType::Set) {
-            continue;
-          }
-          auto consumer_tv = ls_use->out()->as<TensorView>();
-          auto vec_it = std::find_if(
-              consumer_tv->getLeafDomain().begin(),
-              consumer_tv->getLeafDomain().end(),
-              [](auto consumer_leaf_id) -> bool {
-                return isParallelTypeVectorize(
-                    consumer_leaf_id->getParallelType());
-              });
-          if (vec_it == consumer_tv->getLeafDomain().end()) {
-            continue;
-          }
-          const auto& vec_group =
-              id_model.idGraph(IdMappingMode::EXACT).toGroup(*vec_it);
-          auto index_it = std::find_if(
-              allocation_domains.begin(),
-              allocation_domains.end(),
-              [&](auto index_id) -> bool { return vec_group->has(index_id); });
-          if (index_it == allocation_domains.end() ||
-              *index_it == allocation_domains.back()) {
-            continue;
-          }
-
-          id_to_move_back = *index_it;
-        }
-      }
-
-      if (id_to_move_back != nullptr) {
-        // reorder the vec domain to the end of the index domains
-        std::vector<IterDomain*> reordered_index_domains;
-        reordered_index_domains.reserve(allocation_domains.size());
-        for (const auto id : allocation_domains) {
-          if (id != id_to_move_back) {
-            reordered_index_domains.push_back(id);
-          }
-        }
-        reordered_index_domains.push_back(id_to_move_back);
-        allocation_domains = reordered_index_domains;
-      }
-    }
-  }
-
   auto tv_for_promotion = tv;
 
   std::vector<Val*> strides(allocation_domains.size(), nullptr);
@@ -320,34 +211,26 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   return {actual_index_domains, actual_strides};
 }
 
-ExprPath getIndexingTraversalPath(
-    const Expr* expr,
-    const std::vector<IterDomain*>& from_domains,
-    const std::vector<IterDomain*>& to_domains,
-    const ValGraph& traversal_graph) {
-  VERBOSE() << "getIndexingTraversalPath: " << toDelimitedString(from_domains)
-            << " -> " << toDelimitedString(to_domains) << std::endl;
-
-  auto indexing_path = IndexingTraversal::getExprsBetween(
-      from_domains, to_domains, traversal_graph);
-
-  VERBOSE() << "Indexing path:\n";
-  for (const auto& [expr_group, direction] : indexing_path) {
-    Expr* expr = expr_group->front();
-    VERBOSE() << direction << " " << expr->toString();
-  }
-  VERBOSE() << "--- path done ---\n";
-
-  return indexing_path;
-}
-
+// Similar to IndexCompute but adapted for the graph-based indexing
 class IdGraphIndexCompute : public OptOutDispatch {
  public:
   IdGraphIndexCompute(
-      const ValGraph& exact_graph,
+      const ValGraph& traversal_graph,
       const std::unordered_map<ValGroup, Val*>& initial_index_map)
-      : traversal_graph_(exact_graph), index_map_(initial_index_map) {}
+      : traversal_graph_(traversal_graph), index_map_(initial_index_map) {}
 
+  // Propagate the index map through a given expr of a specified
+  // direction.
+  void propagate(const ExprGroup& expr_group, Direction direction) {
+    NVF_ERROR(!expr_group->empty());
+    dispatch(expr_group->front());
+  }
+
+  const std::unordered_map<ValGroup, Val*> indexMap() const {
+    return index_map_;
+  }
+
+ private:
   using OptOutDispatch::handle;
 
   void handle(Split* split) override;
@@ -356,20 +239,30 @@ class IdGraphIndexCompute : public OptOutDispatch {
 
   bool isForward(Expr* expr) const;
 
-  bool hasIndex(IterDomain* id) const;
-
-  Val* getIndex(IterDomain* id) const;
-
-  void setIndex(IterDomain* id, Val* idx);
-
-  std::unordered_map<ValGroup, Val*> indexMap() const {
-    return index_map_;
+  bool hasIndex(IterDomain* id) const {
+    // If it's a broadcast, its index is always zero.
+    if (id->isBroadcast()) {
+      return true;
+    }
+    return indexMap().find(toGroup(id)) != indexMap().end();
   }
 
-  void propagate(const ExprGroup& expr_group, Direction direction) {
-    NVF_ERROR(!expr_group->empty());
+  Val* getIndex(IterDomain* id) const {
+    // If it's a broadcast, its index is always zero.
+    if (id->isBroadcast()) {
+      return id->fusion()->zeroVal();
+    }
+    auto it = index_map_.find(toGroup(id));
+    NVF_ERROR(it != index_map_.end(), "Index not found: ", id->toString());
+    return it->second;
+  }
 
-    dispatch(expr_group->front());
+  void setIndex(IterDomain* id, Val* idx) {
+    index_map_.emplace(toGroup(id), idx);
+  }
+
+  const ValGroup& toGroup(IterDomain* id) const {
+    return traversal_graph_.toGroup(id);
   }
 
  private:
@@ -377,33 +270,7 @@ class IdGraphIndexCompute : public OptOutDispatch {
   std::unordered_map<ValGroup, Val*> index_map_;
 };
 
-bool IdGraphIndexCompute::hasIndex(IterDomain* id) const {
-  // If it's a broadcast, its index is always zero.
-  if (id->isBroadcast()) {
-    return true;
-  }
-  const ValGroup& id_group = traversal_graph_.toGroup(id);
-  return index_map_.find(id_group) != index_map_.end();
-}
-
-Val* IdGraphIndexCompute::getIndex(IterDomain* id) const {
-  // If it's a broadcast, its index is always zero.
-  if (id->isBroadcast()) {
-    return id->fusion()->zeroVal();
-  }
-  const ValGroup& id_group = traversal_graph_.toGroup(id);
-  auto it = index_map_.find(id_group);
-  NVF_ERROR(it != index_map_.end(), "Index not found: ", id->toString());
-  return it->second;
-}
-
-void IdGraphIndexCompute::setIndex(IterDomain* id, Val* idx) {
-  VERBOSE() << "setIndex: " << id->name() << " -> " << idx->toInlineString()
-            << std::endl;
-  const ValGroup& id_group = traversal_graph_.toGroup(id);
-  index_map_.emplace(id_group, idx);
-}
-
+// TODO: Should use the explicit direction
 bool IdGraphIndexCompute::isForward(Expr* expr) const {
   bool ready = true;
   for (const auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
@@ -456,7 +323,6 @@ void IdGraphIndexCompute::handle(Merge* merge) {
   VERBOSE() << "IdGraphIndexCompute handle (" << (is_forward ? "fwd" : "bwd")
             << "): " << merge->toString();
 
-  // TODO: use getMaybeExpandedExtent?
   auto inner_ext = merge->inner()->extent();
 
   if (is_forward) {
@@ -474,6 +340,13 @@ void IdGraphIndexCompute::handle(Merge* merge) {
   }
 }
 
+} // namespace
+
+TensorIndexer::TensorIndexer(const IdModel& id_model) : id_model_(id_model) {
+  buildLoopIndexMap();
+}
+
+namespace {
 ParallelType getParallelType(const ValGroup& loop_group) {
   ParallelType common_pt = ParallelType::Serial;
   for (const auto val : *loop_group) {
@@ -496,29 +369,7 @@ ParallelType getParallelType(const ValGroup& loop_group) {
 
   return common_pt;
 }
-
-kir::ForLoop* getForLoop(
-    IterDomain* loop_id,
-    const std::vector<kir::ForLoop*>& for_loops,
-    const ValGraph& loop_graph) {
-  auto it = std::find_if(
-      for_loops.begin(), for_loops.end(), [&](kir::ForLoop* for_loop) -> bool {
-        IterDomain* for_loop_id = for_loop->iter_domain();
-        return loop_graph.disjointValSets().strictAreMapped(
-            loop_id, for_loop_id);
-      });
-  if (it != for_loops.end()) {
-    return *it;
-  } else {
-    return nullptr;
-  }
-}
-
 } // namespace
-
-TensorIndexer::TensorIndexer(const IdModel& id_model) : id_model_(id_model) {
-  buildLoopIndexMap();
-}
 
 void TensorIndexer::buildLoopIndexMap() {
   if (id_model_.empty()) {
@@ -526,41 +377,6 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 
   Fusion* fusion = id_model_.fusion();
-  FusionGuard fg(fusion);
-
-  auto shouldUseZeroIndex = [&](const ValGroup& loop_group) -> bool {
-    ParallelType ptype = getParallelType(loop_group);
-    if (isParallelTypeThread(ptype)) {
-      return false;
-    }
-
-    // The device paralle type is not included in "isThread". We don't
-    // allocate any index variable for device-parallel domains.
-    if (isParallelTypeDeviceDim(ptype)) {
-      return true;
-    }
-
-    // All loops in this set are non-parallel, non-concretized broadcast
-    //  iterdomains, their "index variable" should be zero.
-    if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
-          return val->as<IterDomain>()->isBroadcast();
-        })) {
-      VERBOSE() << "All domains are broadcast: "
-                << nvfuser::toString(loop_group) << std::endl;
-      return true;
-    }
-
-    // Trivial loop
-    // TODO: consider expanded extent?
-    auto leaf_id =
-        getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
-    if (!leaf_id->maybePartial() &&
-        simplifyExpr(leaf_id->extent())->isOneInt()) {
-      return true;
-    }
-
-    return false;
-  };
 
   for (auto expr : fusion->exprs()) {
     if (!ir_utils::isTvOp(expr)) {
@@ -576,9 +392,6 @@ void TensorIndexer::buildLoopIndexMap() {
         continue;
       }
 
-      // TODO: halo loop not considered
-      // TODO: double buffering not considered
-
       Val* loop_index = nullptr;
 
       // First allocate thread and grid parallel indices:
@@ -589,8 +402,6 @@ void TensorIndexer::buildLoopIndexMap() {
       if (isParallelTypeThread(ptype)) {
         loop_index = NamedScalar::getParallelIndex(ptype);
       } else if (shouldUseZeroIndex(loop_group)) {
-        VERBOSE() << "Use zero for " << nvfuser::toString(loop_group)
-                  << std::endl;
         loop_index = fusion->zeroVal();
       } else {
         // Everything now should be serial concrete loops. For the mean
@@ -603,24 +414,61 @@ void TensorIndexer::buildLoopIndexMap() {
             if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
               continue;
             }
-            VERBOSE() << "Trying to find index val for " << id->toString()
-                      << std::endl;
             loop_index = ca_map->getIndexVariable(id);
             break;
           }
-          if (loop_index == nullptr) {
-            VERBOSE() << "No existing index found for "
-                      << nvfuser::toString(loop_group) << std::endl;
-          }
+          NVF_ERROR(loop_index != nullptr,
+                    "No existing index found for ",
+                    nvfuser::toString(loop_group));
         } else {
+          // Not reusing the ComputeATMap index assignments
           loop_index = IrBuilder::create<Val>(DataType::Index);
         }
       }
+
+      NVF_ERROR(loop_index != nullptr);
       loop_index_map_[loop_group] = loop_index;
-      VERBOSE() << "Loop index map: " << nvfuser::toString(loop_group) << " -> "
-                << loop_index->toInlineString() << std::endl;
     }
   }
+}
+
+bool TensorIndexer::shouldUseZeroIndex(const ValGroup& loop_group) const {
+  // For parallelized domains that have index NamedScalar's such as
+  // threadIdx.x, just use the NamedScalar. It doesn't automatically
+  // mean such parallel indices are actually used in the final index
+  // expr. For example, TID-parallelized Local tensors won't have
+  // TID-parallelized iter domains as allocation domains, so threadIdx
+  // won't appear in the final index expr.
+  ParallelType ptype = getParallelType(loop_group);
+  if (isParallelTypeThread(ptype)) {
+    return false;
+  }
+
+  // Note that the device paralle type is not included in
+  // "isThread". This is necessary because we don't have a NamedScalar
+  // for DID. Since it's always partitioned in any memory space
+  // currently supported, it's guaranteed to be zero.
+  if (isParallelTypeDeviceDim(ptype)) {
+    return true;
+  }
+
+  // All loops in this set are non-parallel, non-concretized broadcast
+  //  iterdomains, their "index variable" should be zero.
+  if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
+    return val->as<IterDomain>()->isBroadcast();
+  })) {
+    return true;
+  }
+
+  // Trivial loop
+  auto leaf_id =
+      getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
+  if (!leaf_id->maybePartial() &&
+      simplifyExpr(leaf_id->extent())->isOneInt()) {
+    return true;
+  }
+
+  return false;
 }
 
 Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
@@ -638,29 +486,23 @@ Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
 }
 
 std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
-    const Expr* expr,
     const std::vector<IterDomain*>& loop_domains) const {
-  // loop_index_map_ is a map on the loop graph. For index
-  // propagation, need a map for the exact graph
-
   std::unordered_map<ValGroup, Val*> initial_index_map;
 
+  // For a given list of the loop domains, assign its corresponding
+  // index Val.
   for (IterDomain* loop_id : loop_domains) {
     Val* loop_index = getLoopIndex(loop_id);
-    const auto& exact_group = traversalGraph().toGroup(loop_id);
-    VERBOSE() << "Setting initial index. " << loop_id->toString() << ", "
-              << nvfuser::toString(exact_group) << ", "
-              << loop_index->toInlineString() << std::endl;
+    const auto& almost_exact_group = traversalGraph().toGroup(loop_id);
 
-    if (initial_index_map.find(exact_group) != initial_index_map.end()) {
-      // Initial index already set. This can happen as exact_group is
-      // actually an almost-exact group. It should be just size-1
-      // domain.
+    if (initial_index_map.find(almost_exact_group) != initial_index_map.end()) {
+      // Initial index already set. This can happen as this is an
+      // almost exact group. It should be just size-1 domain.
       NVF_ERROR(
           loop_index->isZeroInt(),
           "Unexpected initial index: ",
           loop_index->toInlineString());
-      auto existing_index = initial_index_map.at(exact_group);
+      auto existing_index = initial_index_map.at(almost_exact_group);
       NVF_ERROR(
           existing_index->isZeroInt(),
           "Unexpected initial index: ",
@@ -668,23 +510,15 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
       continue;
     }
 
-    NVF_ERROR(
-        initial_index_map.emplace(exact_group, loop_index).second,
-        "Initial index already set for ",
-        nvfuser::toString(exact_group),
-        ". Existing: ",
-        initial_index_map.at(exact_group)->toInlineString(),
-        ". New: ",
-        loop_index->toInlineString());
+    initial_index_map.emplace(almost_exact_group, loop_index);
   }
 
   return initial_index_map;
 }
 
-Val* TensorIndexer::getTensorIndex(
+Val* TensorIndexer::getLinearIndex(
     TensorView* tv,
-    const Expr* expr,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
+    const Expr* expr) {
   VERBOSE() << "getIndex of " << tv->toString() << " in " << expr->toString();
 
   const auto [allocation_domains, strides] =
@@ -693,7 +527,7 @@ Val* TensorIndexer::getTensorIndex(
   VERBOSE() << "Allocation domains: " << toDelimitedString(allocation_domains)
             << std::endl;
 
-  const auto& index_info = getIndex(expr, allocation_domains);
+  const auto& index_info = computeIndex(expr, allocation_domains);
   const auto& index_map = index_info.index_map;
 
   // Linearize the indices with strides.
@@ -725,7 +559,7 @@ Val* TensorIndexer::getTensorIndex(
   return index;
 }
 
-IndexingInfo TensorIndexer::getIndex(
+IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const std::vector<IterDomain*>& index_domains) const {
   const auto loop_domains = getLoopDomains(expr, id_model_);
@@ -734,11 +568,13 @@ IndexingInfo TensorIndexer::getIndex(
   VERBOSE() << "Index domains: " << toDelimitedString(index_domains)
             << std::endl;
 
-  const ExprPath traversal_path = getIndexingTraversalPath(
-      expr, loop_domains, index_domains, traversalGraph());
+  const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
+  const ValGroups index_groups = traversalGraph().toGroups(index_domains);  
+  const ExprPath traversal_path = ValGraphBFS::getExprsBetween(
+      traversalGraph(), loop_groups, index_groups);
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
-      getInitialIndexMap(expr, loop_domains);
+      getInitialIndexMap(loop_domains);
 
   IdGraphIndexCompute index_compute(traversalGraph(), initial_index_map);
 

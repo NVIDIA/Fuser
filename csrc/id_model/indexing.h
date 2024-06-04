@@ -22,7 +22,9 @@
 namespace nvfuser {
 
 struct IndexingInfo {
+  // Indexing traversal path from loop domains
   ExprPath traversal_path;
+  // Index mappings of ID groups along the traversal path
   std::unordered_map<ValGroup, Val*> index_map;
 };
 
@@ -31,41 +33,53 @@ struct IndexingInfo {
 // 1. Find the loop domains
 // 2. Find the allocation domains
 // 3. Find the path from the loop domains to the allocation domains
-// 4. Set the initial index vals
+// 4. Set the initial index vals for the loop domains
 // 5. Propagate the initial indices of the loop domains to the allocation
 // domains
+//
+// The indexing traversal is done on the AlmostExact graph augmented
+// with the loop promotion map since both the loop and allocations
+// domains may be promoted.
 class TensorIndexer {
  public:
   TensorIndexer(const IdModel& id_model);
 
-  // The actual ForLoop's are required to support double buffering as
-  // that affects indexing. If the loops parameter is empty, it's
-  // simply ignored. That may be useful if (preliminary) indeices are
-  // needed before the double buffering pass
-  Val* getTensorIndex(
-      TensorView* tv,
-      const Expr* expr,
-      const std::optional<std::vector<kir::ForLoop*>>& loops);
+  // Get a linear index of a given tensor appearing in a given expr, either
+  // as a consumer or a producer. The predicate indexing will have a
+  // separate interface.
+  Val* getLinearIndex(TensorView* tv, const Expr* expr);
 
  private:
+  // The AlmostExact graph is used since size-1 splits and merges
+  // should not affect actual index exprs.
   const ValGraph& traversalGraph() const {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
 
-  // Build the map of loop groups to their index Vals.
+  // Build a map of loop groups to their index Vals. See the comment
+  // on loop_index_map_.
   void buildLoopIndexMap();
 
   // Get the index of a loop domain.
   Val* getLoopIndex(IterDomain* loop_id) const;
 
-  //
+  // Propagate the loop indices of a given list of loop domains to the
+  // traversal graph (i.e., the AlmostExact graph). Uses the loop
+  // index map, which is built for the Loop graph.
   std::unordered_map<ValGroup, Val*> getInitialIndexMap(
-      const Expr* expr,
       const std::vector<IterDomain*>& loop_domains) const;
 
-  IndexingInfo getIndex(
+  // Returns the index map as well as its traversal path of given
+  // index domains appearing in a given expr. Used by
+  // getLinearIndex.
+  IndexingInfo computeIndex(
       const Expr* expr,
       const std::vector<IterDomain*>& index_domains) const;
+
+  // Check if the loop index of a a loop group should be always
+  // just zero. For example, a loop group with an extent of one, i.e.,
+  // a broadcast-only loop group, should just use zero.
+  bool shouldUseZeroIndex(const ValGroup& loop_group) const;
 
  private:
   const IdModel& id_model_;

@@ -41,10 +41,10 @@ TEST_F(IndexingTest, Simple1) {
   IdModel id_model(&fusion);
   TensorIndexer indexer(id_model);
 
-  std::cerr << indexer.getTensorIndex(tv1, tv1->definition(), std::nullopt)
+  std::cerr << indexer.getLinearIndex(tv1, tv1->definition())
                    ->toInlineString()
             << std::endl;
-  std::cerr << indexer.getTensorIndex(tv0, tv1->definition(), std::nullopt)
+  std::cerr << indexer.getLinearIndex(tv0, tv1->definition())
                    ->toInlineString()
             << std::endl;
 }
