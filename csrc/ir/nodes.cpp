@@ -2662,7 +2662,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
           .is_rfactor_domain(rfactor_domain)
           .build();
 
-  IrBuilder::createInContainer<Split>(in->container(), ido, idi, in, factor, inner_split);
+  IrBuilder::createInContainer<Split>(
+      in->container(), ido, idi, in, factor, inner_split);
   return {ido, idi};
 }
 

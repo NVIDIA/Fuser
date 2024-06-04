@@ -260,7 +260,7 @@ class NVF_API Val : public Statement {
       : Statement(src, ir_cloner),
         vtype_(src->vtype_),
         dtype_(src->dtype_),
-        value_(src->value_) {};
+        value_(src->value_) {}
 
   std::string toString(int indent_size = 0) const override;
 
