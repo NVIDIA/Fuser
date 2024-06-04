@@ -35,7 +35,7 @@ TensorView* transposeMaybeInplace(
     return transpose(inp, dim1, dim2);
   } else {
     inp->reorder({{dim1, dim2}, {dim2, dim1}});
-    inp->commitLeafToRFactor();
+    inp->commitLeafToLogical();
     return inp;
   }
 }

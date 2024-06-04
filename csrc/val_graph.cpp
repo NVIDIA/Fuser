@@ -670,14 +670,14 @@ std::optional<SelfMapping> hasSelfMapping(
     const TensorView* tv,
     const ValGraph& id_graph) {
   std::optional<std::pair<IterDomain*, IterDomain*>> mapped =
-      detectSelfMapping(tv->getRFactorDomain(), id_graph);
+      detectSelfMapping(tv->getLogicalDomain(), id_graph);
   // Logical domains.
   if (mapped.has_value()) {
     return SelfMapping{
         .id1 = mapped->first, .id2 = mapped->second, .where = "Logical"};
   }
 
-  // Rfactor domains
+  // Root domains
   if (tv->hasRoot()) {
     mapped = detectSelfMapping(tv->getRootDomain(), id_graph);
     if (mapped.has_value()) {

@@ -61,8 +61,8 @@ static TensorView* newForLinear(
     TensorView* input,
     TensorView* weight,
     TensorView* bias) {
-  auto input_domain = TensorDomain::noReductions(input->getRFactorDomain());
-  auto weight_domain = TensorDomain::noReductions(weight->getRFactorDomain());
+  auto input_domain = TensorDomain::noReductions(input->getLogicalDomain());
+  auto weight_domain = TensorDomain::noReductions(weight->getLogicalDomain());
 
   // Linear: a = {*, in_features}, b = {out_features, in_features} /
   // {in_features}.The linear output is {*, (out_features), rK}.
@@ -76,7 +76,7 @@ static TensorView* newForLinear(
       weight_domain, MatmulRole::INPUT_B, ndims_out);
   std::vector<IterDomain*> mapping_bias(ndims_out, nullptr);
   if (bias != nullptr) {
-    auto bias_domain = TensorDomain::noReductions(bias->getRFactorDomain());
+    auto bias_domain = TensorDomain::noReductions(bias->getLogicalDomain());
     mapping_bias = ops::mapLinearOpIterDomains(
         bias_domain, MatmulRole::INPUT_C, ndims_out);
   }
@@ -102,11 +102,11 @@ static TensorView* newForLinear(
 
 TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
   auto input_ndims =
-      TensorDomain::noReductions(input->getRFactorDomain()).size();
+      TensorDomain::noReductions(input->getLogicalDomain()).size();
   NVF_CHECK(input_ndims > 0, "Input A must be atleast 1D.");
 
   auto weight_ndims =
-      TensorDomain::noReductions(weight->getRFactorDomain()).size();
+      TensorDomain::noReductions(weight->getLogicalDomain()).size();
   NVF_CHECK(
       weight_ndims == 1 || weight_ndims == 2,
       "Input B must be a 1D / 2D tensor.");
@@ -330,8 +330,8 @@ namespace {
 
 //! Create new output for matmul
 static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
-  auto orig_domain_a = TensorDomain::noReductions(tv_a->getRFactorDomain());
-  auto orig_domain_b = TensorDomain::noReductions(tv_b->getRFactorDomain());
+  auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
+  auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 
   auto ndims_a = orig_domain_a.size();
   auto ndims_b = orig_domain_b.size();

@@ -43,7 +43,7 @@ namespace nvfuser {
 //!
 //! Post-view Domain:
 //!   This domain is the original domain after the squeeze and all
-//!   transformations. This domain holds the rfactor domains determined by
+//!   transformations. This domain holds the logical domains determined by
 //!   merge/split operations of the find transformations pass. It is the final
 //!   domain without all the broadcast operations (can have some that were
 //!   preserved through the transformations).
@@ -78,7 +78,7 @@ namespace nvfuser {
 //!        Gets forwarded to transformView(TensorDomain, view_analysis)
 //!        Gets forwarded to createViewDomain(TensorDomain, view_analysis)
 //!        createViewDomain creates the new root domain, and calls
-//!        createRfactorDomain on view_analysis.transforms().
+//!        createLogicalDomain on view_analysis.transforms().
 //!   5) brooadcast will be called with view_analysis.broadcast_axes
 //!
 //! TODO: Caching assumes that all size-1 inputs are correctly marked as a
@@ -117,8 +117,8 @@ class ViewTransform : public Transform {
   // Function to apply the transformation. Transformation is applied on
   // current_transformed_domain. root_domain is required here to replace
   // IterDomains so we can flip the rfactor flag on the root domain if it's
-  // involved in merge/split trasnforms to produce the rfactor domain.
-  virtual void createRfactorDomain(
+  // involved in merge/split trasnforms to produce the logical domain.
+  virtual void createLogicalDomain(
       std::vector<IterDomain*>& root_domain,
       std::vector<IterDomain*>& current_transformed_domain) = 0;
 
@@ -185,7 +185,7 @@ class MergeTransform final : public ViewTransform {
     return ss.str();
   }
 
-  void createRfactorDomain(
+  void createLogicalDomain(
       std::vector<IterDomain*>& root_domain,
       std::vector<IterDomain*>& current_transformed_domain) override {
     NVF_ERROR(
@@ -212,7 +212,7 @@ class MergeTransform final : public ViewTransform {
         " starting at a non-zero position.");
 
     auto new_merged_id =
-        IterDomain::merge(outer_id, inner_id, /*rfactor_domain*/ true);
+        IterDomain::merge(outer_id, inner_id, /*logical_domain*/ true);
 
     current_transformed_domain.erase(
         current_transformed_domain.begin() + index_);
@@ -249,7 +249,7 @@ class SplitTransform final : public ViewTransform {
     return ss.str();
   }
 
-  void createRfactorDomain(
+  void createLogicalDomain(
       std::vector<IterDomain*>& root_domain,
       std::vector<IterDomain*>& current_transformed_domain) override {
     NVF_ERROR(
@@ -670,7 +670,7 @@ class AnalyzeViewTransformation {
   const std::vector<int64_t>& new_view_;
 };
 
-//! Create new TensorDomain with a new root domain and modified rfactor domains
+//! Create new TensorDomain with a new root domain and modified logical domains
 //! using the specified view transformations. Original domain should already be
 //! without reduction axes.
 TensorDomain* createViewDomain(
@@ -680,31 +680,31 @@ TensorDomain* createViewDomain(
   NVF_ERROR(!view_analysis.transforms.empty());
 
   std::vector<IterDomain*> new_root_domain;
-  auto orig_root_domain =
-      TensorDomain::noReductions(original_domain->rfactor());
+  auto orig_logical_domain =
+      TensorDomain::noReductions(original_domain->logical());
 
   // Apply squeeze.
-  for (auto id_i : c10::irange(orig_root_domain.size())) {
+  for (auto id_i : c10::irange(orig_logical_domain.size())) {
     if (!view_analysis.squeeze_axes.at(id_i)) {
-      auto id = orig_root_domain.at(id_i);
+      auto id = orig_logical_domain.at(id_i);
       new_root_domain.push_back(id->cloneWithoutRFactor());
       continue;
     }
   }
 
-  std::vector<IterDomain*> new_rfactor_domain(
+  std::vector<IterDomain*> new_logical_domain(
       new_root_domain.begin(), new_root_domain.end());
 
-  // Apply rfactor transformations.
+  // Apply root to logical transformations.
   for (auto& t : view_analysis.transforms) {
-    t->createRfactorDomain(new_root_domain, new_rfactor_domain);
+    t->createLogicalDomain(new_root_domain, new_logical_domain);
   }
 
   return IrBuilder::create<TensorDomain>(
       new_root_domain,
-      new_rfactor_domain,
-      new_rfactor_domain,
-      TensorDomain::getContiguityFilledWith(new_rfactor_domain, true));
+      new_logical_domain,
+      new_logical_domain,
+      TensorDomain::getContiguityFilledWith(new_logical_domain, true));
 }
 
 } // namespace
@@ -770,7 +770,7 @@ AnalyzeViewResult analyzeView(
   }
 
   NVF_ERROR(
-      TensorDomain::noReductions(original_view_tv->getRFactorDomain()).size() ==
+      TensorDomain::noReductions(original_view_tv->getLogicalDomain()).size() ==
       original_sizes.size());
 
   // Fill -1 dimension in new_std::vector<int64_t> with size infered from all
@@ -782,7 +782,7 @@ AnalyzeViewResult analyzeView(
   AnalyzeViewTransformation analyzer(
       sizes.first /* original_view */,
       sizes.second /* new_view */,
-      TensorDomain::noReductions(original_view_tv->getRFactorDomain()));
+      TensorDomain::noReductions(original_view_tv->getLogicalDomain()));
   return analyzer.run();
 }
 
@@ -796,7 +796,7 @@ AnalyzeViewConstraint analyzeViewConstraint(
   return analyzer.constraint();
 }
 
-//! Create new TensorDomain with a modified rfactor domain using the specified
+//! Create new TensorDomain with a modified logical domain using the specified
 //! view transformations
 TensorDomain* transformView(
     TensorDomain* original_domain,
@@ -930,7 +930,7 @@ TensorView* applyViewTransforms(
   NVF_ERROR(post_reduce_tv != nullptr, "Input is invalid.");
   NVF_ERROR(
       !post_reduce_tv->hasComputeAt(),
-      "Cannot modify rfactor domain after compute at has been set.");
+      "Cannot modify logical domain after compute at has been set.");
 
   NVF_ERROR(post_reduce_tv->nDims() > 0, "Tried to view a 0-dim TensorView");
 

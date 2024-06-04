@@ -559,7 +559,7 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
       info.toString());
 }
 
-// Make sure inherited symbolic IDs are concretized through rfactor exprs
+// Make sure inherited symbolic IDs are concretized through producer projection
 TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -578,7 +578,7 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
         sub(tv1->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
   fusion.addOutput(tv2);
 
-  // tv2 has an rfactor expr (i.e., resize). The input to the expr is
+  // tv2 has an producer projection (i.e., resize). The input to the expr is
   // symbolic, so is the output. When concretized, both of the input
   // and output must be concretized.
 
@@ -981,7 +981,7 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
   reductionDynamicPadAddFusion(invocations);
 }
 
-// Test that a Symbolic root/Broadcast rfactor is not  concretized to
+// Test that a Symbolic root/Broadcast logical is not concretized to
 // Iteration/Iteration
 TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -992,15 +992,15 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   // tv0[:2] introduces symbolic IterDomain
   auto tv1 = slice(
       tv0, {{fusion.zeroVal(), IrBuilder::create<Val>(2L), fusion.oneVal()}});
-  // tv1 has Broadcast rfactor, Iteration root
+  // tv1 has Broadcast logical, Iteration root
   auto tv2 = slice(tv1, {{fusion.zeroVal(), fusion.oneVal(), fusion.oneVal()}});
-  // tv2 has a Symbolic root related to a Broadcast rfactor through a Resize op
+  // tv2 has a Symbolic root related to a Broadcast logical through a Resize op
   fusion.addOutput(tv2);
 
-  // At concretization, tv1's rfactor will be set to Iteration, which will
+  // At concretization, tv1's logical will be set to Iteration, which will
   // propagate to tv2s root. This test will test that when tv2 root is
   // concretized to Iteration, it does not wind up overwriting the Broadcast
-  // rfactor.
+  // logical.
 
   FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

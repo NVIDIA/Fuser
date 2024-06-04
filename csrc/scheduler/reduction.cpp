@@ -1181,7 +1181,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
     reduction_tv->reorder(
-        scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
+        scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
 
   NVF_ERROR(
