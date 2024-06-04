@@ -40,7 +40,7 @@ TEST_F(AbstractTensorTest, MergeSingleIterDomains) {
   auto id2 = newID();
   auto id3 = newID();
   auto id4 = newID();
-  AbstractTensor v{{id0, id1, id2, id3, id4}};
+  AbstractTensor v({id0, id1, id2, id3, id4});
   v.merge(2);
   // [0, 1, 2*3, 4]
   v.merge(0, 3);
@@ -70,9 +70,7 @@ TEST_F(AbstractTensorTest, MergeIterDomainsLeftBroadcasting) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
-  // TODO: I need to update DynamicType so that I can just write:
-  //   AbstractTensor v{{id0, {id1, id2}}};
-  AbstractTensor v{{id0, std::vector<AbstractId>({id1, id2})}};
+  AbstractTensor v({id0, {id1, id2}});
   v.merge(0);
   // [{0*1, 0*2}]
   auto result = v.as<std::vector<IterDomain*>>();
@@ -96,7 +94,7 @@ TEST_F(AbstractTensorTest, MergeIterDomainsRightBroadcasting) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
-  AbstractTensor v{{std::vector<AbstractId>({id0, id1}), id2}};
+  AbstractTensor v({{id0, id1}, id2});
   v.merge(0);
   // [{0*2, 1*2}]
   auto result = v.as<std::vector<IterDomain*>>();
@@ -121,9 +119,7 @@ TEST_F(AbstractTensorTest, MergeIterDomainsBatch) {
   auto id1 = newID();
   auto id2 = newID();
   auto id3 = newID();
-  AbstractTensor v{
-      {std::vector<AbstractId>({id0, id1}),
-       std::vector<AbstractId>({id2, id3})}};
+  AbstractTensor v({{id0, id1}, {id2, id3}});
   v.merge(0);
   // [{0*2, 1*3}]
   auto result = v.as<std::vector<IterDomain*>>();
@@ -151,7 +147,7 @@ TEST_F(AbstractTensorTest, MergeValGroups) {
   g.initializeVal(id1);
   ValGroupAndItsGraph g0{g.toGroup(id0), &g};
   ValGroupAndItsGraph g1{g.toGroup(id1), &g};
-  AbstractTensor v{{g0, g1}};
+  AbstractTensor v({g0, g1});
   v.merge(0);
   // [0*1]
   EXPECT_EQ(g.disjointValSets().size(), 3);
@@ -178,7 +174,7 @@ TEST_F(AbstractTensorTest, MergeValGroups) {
   // Test reusing of existing merge
   ValGroupAndItsGraph g0_{g.toGroup(id0), &g};
   ValGroupAndItsGraph g1_{g.toGroup(id1), &g};
-  AbstractTensor vv{{g0_, g1_}};
+  AbstractTensor vv({g0_, g1_});
   vv.merge(0);
   EXPECT_EQ(g.disjointValSets().size(), 3);
   EXPECT_EQ(g.disjointExprSets().size(), 1);
@@ -195,7 +191,7 @@ TEST_F(AbstractTensorTest, MergeIterDomainWithValGroup) {
   g.initializeVal(id0);
   g.initializeVal(id1);
   ValGroupAndItsGraph g1{g.toGroup(id1), &g};
-  AbstractTensor v{{id0, g1}};
+  AbstractTensor v({id0, g1});
   v.merge(0);
   // [0*1]
   EXPECT_EQ(g.disjointValSets().size(), 3);
@@ -227,7 +223,7 @@ TEST_F(AbstractTensorTest, MergeValGroupWithIterDomain) {
   g.initializeVal(id0);
   g.initializeVal(id1);
   ValGroupAndItsGraph g0{g.toGroup(id0), &g};
-  AbstractTensor v{{g0, id1}};
+  AbstractTensor v({g0, id1});
   v.merge(0);
   // [0*1]
   EXPECT_EQ(g.disjointValSets().size(), 3);

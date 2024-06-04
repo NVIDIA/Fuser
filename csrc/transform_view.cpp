@@ -936,12 +936,13 @@ TensorView* applyViewTransforms(
 
   NVF_ERROR(!view_analysis.transforms.empty());
 
-  TensorView* consumer = IrBuilder::create<TensorView>(
+  TensorView* consumer = IrBuilder::createInContainer<TensorView>(
       orig_tv->container(),
       orig_tv->domain()->view(view_analysis),
       orig_tv->getDataType().value());
 
-  IrBuilder::create<ViewOp>(orig_tv->container(), consumer, post_reduce_tv);
+  IrBuilder::createInContainer<ViewOp>(
+      orig_tv->container(), consumer, post_reduce_tv);
 
   return consumer;
 }

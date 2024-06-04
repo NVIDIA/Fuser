@@ -1317,7 +1317,8 @@ SqueezeOp::SqueezeOp(
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
         NVF_ERROR(
-            id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
+            id->extent()->isConstScalar() &&
+                id->extent()->evaluate().as<int64_t>() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
@@ -2363,7 +2364,7 @@ IterDomain* IterDomainBuilder::build() const {
   NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
       "Start and extent are required to build an iter domain.");
-  return IrBuilder::create<IterDomain>(start_->container(), *this);
+  return IrBuilder::createInContainer<IterDomain>(start_->container(), *this);
 }
 
 IterDomain::IterDomain(
@@ -2617,7 +2618,8 @@ IterDomain* IterDomain::merge(
           .is_rfactor_domain(rfactor_domain)
           .build();
 
-  IrBuilder::create<Merge>(outer->container(), merged_id, outer, inner);
+  IrBuilder::createInContainer<Merge>(
+      outer->container(), merged_id, outer, inner);
 
   return merged_id;
 }
@@ -2661,7 +2663,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
           .is_rfactor_domain(rfactor_domain)
           .build();
 
-  IrBuilder::create<Split>(in->container(), ido, idi, in, factor, inner_split);
+  IrBuilder::createInContainer<Split>(
+      in->container(), ido, idi, in, factor, inner_split);
   return {ido, idi};
 }
 
@@ -2669,7 +2672,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
       this,
-      IrBuilder::create<Val>(container(), factor, DataType::Index),
+      IrBuilder::createInContainer<Val>(container(), factor, DataType::Index),
       true,
       true);
 
@@ -2707,7 +2710,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
 
   IterDomain* out_y = IterDomainBuilder(in_y).build();
 
-  IrBuilder::create<Swizzle>(
+  IrBuilder::createInContainer<Swizzle>(
       in_x->container(), out_x, out_y, in_x, in_y, swizzle_type);
 
   return std::make_pair(out_x, out_y);
@@ -2742,7 +2745,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
 
   IterDomain* out_y = IterDomainBuilder(in_y).build();
 
-  IrBuilder::create<Swizzle2D>(
+  IrBuilder::createInContainer<Swizzle2D>(
       in_x->container(), out_x, out_y, in_x, in_y, swizzle_type, swizzle_mode);
 
   return std::make_pair(out_x, out_y);
@@ -2864,7 +2867,7 @@ IterDomain* IterDomain::resize(
           .iter_type(iter_type)
           .build();
 
-  IrBuilder::create<Resize>(
+  IrBuilder::createInContainer<Resize>(
       in->container(), resized_id, in, left_expansion, right_expansion);
 
   return resized_id;

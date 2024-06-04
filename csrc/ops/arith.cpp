@@ -1038,11 +1038,11 @@ typename std::conditional<
 logical_right_shift_helper(LHS x, RHS shift) {
   auto sizeof_int_dtype = (x->dtype() == PrimDataType::Int) ? 64L : 32L;
 
-  auto neg_one = IrBuilder::create<Val>(x->container(), -1L);
-  auto one = IrBuilder::create<Val>(x->container(), 1L);
-  auto two = IrBuilder::create<Val>(x->container(), 2L);
+  auto neg_one = IrBuilder::createInContainer<Val>(x->container(), -1L);
+  auto one = IrBuilder::createInContainer<Val>(x->container(), 1L);
+  auto two = IrBuilder::createInContainer<Val>(x->container(), 2L);
   auto num_bits_scalar =
-      IrBuilder::create<Val>(x->container(), sizeof_int_dtype);
+      IrBuilder::createInContainer<Val>(x->container(), sizeof_int_dtype);
 
   auto mask =
       where(ge(shift, num_bits_scalar), neg_one, sub(pow(two, shift), one));
@@ -1543,7 +1543,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
 
     // If the expanded size is -1, let the input extent be propagated
     // as is
-    if (expanded_size_int.hasValue() && expanded_size_int == -1) {
+    if (expanded_size_int.hasValue() && expanded_size_int.as<int64_t>() == -1) {
       // This is just done for clarity. It isn't necessary as it's
       // already done when constructing out_id_builder.
       out_id_builder.extent(inp_id->extent());
@@ -1551,8 +1551,10 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
         // special patch for Symbolic IterDomain with a static size-1 extent
         // since we know it will become broadcast at concretization
         // See Issue: https://github.com/NVIDIA/Fuser/pull/1393
-        (inp_id->extent()->isConstInt() && inp_id->extent()->evaluate() == 1) &&
-        (!expanded_size_int.hasValue() || expanded_size_int != 1)) {
+        (inp_id->extent()->isConstInt() &&
+         inp_id->extent()->evaluate().as<int64_t>() == 1) &&
+        (!expanded_size_int.hasValue() ||
+         expanded_size_int.as<int64_t>() != 1)) {
       // When input id is a broadcast, expand the extent to the given
       // size, which can be concrete or symbolic.
       expanded = true;
@@ -2233,13 +2235,13 @@ TensorView* viewAsScalar(TensorView* inp) {
           .build();
   out_domain.push_back(id);
 
-  auto out = IrBuilder::create<TensorView>(
+  auto out = IrBuilder::createInContainer<TensorView>(
       inp->container(),
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       out_type);
 
-  IrBuilder::create<ViewAsScalar>(inp->container(), out, inp, id);
+  IrBuilder::createInContainer<ViewAsScalar>(inp->container(), out, inp, id);
 
   return out;
 }
@@ -2384,13 +2386,13 @@ TensorView* tensor(Val* val) {
     out_domain.push_back(id);
   }
 
-  auto out = IrBuilder::create<TensorView>(
+  auto out = IrBuilder::createInContainer<TensorView>(
       val->container(),
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       dtype);
 
-  IrBuilder::create<TensorConstruct>(val->container(), out, val);
+  IrBuilder::createInContainer<TensorConstruct>(val->container(), out, val);
   return out;
 }
 

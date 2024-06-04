@@ -143,7 +143,7 @@ class ReplayRFactor : public ReplayTransformations {
             .build();
 
     // Generate the split node
-    IrBuilder::create<Split>(
+    IrBuilder::createInContainer<Split>(
         s->container(), ido, idi, mapped, s->factor(), s->innerSplit());
 
     // Remove mapped id from leaf IDs
@@ -193,7 +193,7 @@ class ReplayRFactor : public ReplayTransformations {
             .is_rfactor_domain(static_logical_ids_.count(m->out()))
             .build();
 
-    IrBuilder::create<Merge>(
+    IrBuilder::createInContainer<Merge>(
         m->container(), merged_id, id_outer_mapped, id_inner_mapped);
 
     // Remove inputs from the leaf IDs
@@ -421,7 +421,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
         return replayed_id_it->second;
       });
 
-  TensorDomain* producer_domain = IrBuilder::create<TensorDomain>(
+  TensorDomain* producer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),
       new_producer_root,
       new_producer_logical_domain,
@@ -481,7 +481,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
     }
   }
 
-  auto consumer_domain = IrBuilder::create<TensorDomain>(
+  auto consumer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),
       new_consumer_root_domain,
       new_consumer_domain,

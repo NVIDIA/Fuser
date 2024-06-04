@@ -5036,7 +5036,8 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
             std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
               auto int_val = inp->value();
               return int_val.hasValue() &&
-                  (int_val == vec_factor - 1 || int_val == -(vec_factor - 1));
+                  (int_val.as<int64_t>() == vec_factor - 1 ||
+                   int_val.as<int64_t>() == -(vec_factor - 1));
             });
         // If vectorized, the predicate should use (vec_factor - 1) or
         // -(vec_factor - 1) rather than the loop index.

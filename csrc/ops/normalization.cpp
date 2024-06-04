@@ -16,7 +16,7 @@ Val* numFeatures(
     TensorView* x,
     const std::vector<int64_t>& dims,
     int64_t ndims) {
-  Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
+  Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
   for (const auto dim : dims) {
     const int64_t axis = wrapDim(dim, ndims);
     num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
@@ -70,8 +70,9 @@ TensorView* variance(
   // NOTE PyTorch returns 'inf' for the variance if correction is greater than
   // the number of elements. Reference: 'std_var_all_cpu' function in
   // aten/src/ATen/native/ReduceOps.cpp.
-  auto correction_val = IrBuilder::create<Val>(x->container(), correction);
-  auto zero_val = IrBuilder::create<Val>(x->container(), 0);
+  auto correction_val =
+      IrBuilder::createInContainer<Val>(x->container(), correction);
+  auto zero_val = IrBuilder::createInContainer<Val>(x->container(), 0);
   auto denom = sub(num_features, correction_val);
   denom = where(ge(denom, zero_val), denom, zero_val);
 
@@ -117,8 +118,9 @@ VarMeanResult variance_mean(
   // NOTE PyTorch returns 'inf' for the variance if correction is greater than
   // the number of elements. Reference: 'std_var_all_cpu' function in
   // aten/src/ATen/native/ReduceOps.cpp.
-  auto correction_val = IrBuilder::create<Val>(x->container(), correction);
-  auto zero_val = IrBuilder::create<Val>(x->container(), 0);
+  auto correction_val =
+      IrBuilder::createInContainer<Val>(x->container(), correction);
+  auto zero_val = IrBuilder::createInContainer<Val>(x->container(), 0);
   auto denom = sub(num_features, correction_val);
   denom = where(ge(denom, zero_val), denom, zero_val);
 
@@ -260,7 +262,7 @@ auto norm_properties_from_num_dims(
     outer_broadcast_mask[idx] = true;
   }
 
-  Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
+  Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
   for (const auto idx : c10::irange(kNormShapeNumDims)) {
     const int64_t axis = kNumberOfDims - 1 - idx;
     inner_reduction_axes[idx] = axis;
@@ -506,7 +508,7 @@ ForwardNormResult batch_norm(
 
   std::vector<int64_t> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
-  Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
+  Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
 
   for (const auto axis : c10::irange(kNumberOfDims)) {
     if (axis != c_axis) {
@@ -531,7 +533,7 @@ ForwardNormResult batch_norm(
           "When running stats are provided, batch stats should only be computed during training");
 
       auto rev_momentum =
-          sub(IrBuilder::create<Val>(x->container(), 1.0), momentum);
+          sub(IrBuilder::createInContainer<Val>(x->container(), 1.0), momentum);
       auto current_mean_hat = mul(welford_out.avg, momentum);
       auto mean_hat = mul(running_mean, rev_momentum);
       auto new_mean_hat = add(mean_hat, current_mean_hat);
@@ -694,7 +696,7 @@ BackwardNormResult batch_norm_backward(
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Val>(input->container(), 1.0));
+            IrBuilder::createInContainer<Val>(input->container(), 1.0));
   } else {
     grad_scale = mul(
         broadcast(invstd, broadcast_mask), broadcast(weight, broadcast_mask));
@@ -760,7 +762,7 @@ ForwardNormResult instance_norm(
 
   std::vector<int64_t> x_reduction_axes;
   std::vector<bool> x_broadcast_mask(kNumberOfDims, false);
-  Val* N = IrBuilder::create<Val>(x->container(), 1.0);
+  Val* N = IrBuilder::createInContainer<Val>(x->container(), 1.0);
   for (const auto axis : c10::irange(kNumberOfDims)) {
     if (axis != kBatchDim && axis != kChannelsDim) {
       x_reduction_axes.push_back(axis);
@@ -768,7 +770,7 @@ ForwardNormResult instance_norm(
       N = mul(N, x->getLeafDomain()[axis]->extent());
     }
   }
-  Val* B = IrBuilder::create<Val>(x->container(), 1.0);
+  Val* B = IrBuilder::createInContainer<Val>(x->container(), 1.0);
   B = mul(B, x->getLeafDomain()[kBatchDim]->extent());
 
   std::vector<bool> channels_only_broadcast_mask(kNumberOfDims, false);
@@ -802,7 +804,7 @@ ForwardNormResult instance_norm(
         _running_var = castOp(DataType::Float, running_var);
       }
       auto rev_momentum =
-          sub(IrBuilder::create<Val>(x->container(), 1.0), momentum);
+          sub(IrBuilder::createInContainer<Val>(x->container(), 1.0), momentum);
       auto current_mean_hat = mul(welford_out.avg, momentum);
       auto mean_hat = mul(_running_mean, rev_momentum);
       auto new_mean_hat = add(mean_hat, current_mean_hat);
@@ -965,7 +967,7 @@ BackwardNormResult instance_norm_backward(
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Val>(input->container(), 1.0));
+            IrBuilder::createInContainer<Val>(input->container(), 1.0));
   } else {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),

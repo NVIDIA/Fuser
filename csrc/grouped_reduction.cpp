@@ -245,7 +245,7 @@ bool groupReductions(
     return false;
   }
 
-  IrBuilder::create<GroupedReductionOp>(
+  IrBuilder::createInContainer<GroupedReductionOp>(
       container, op_types, init_vals, outputs, inputs);
 
   for (auto output : ir_utils::filterByType<TensorView>(outputs)) {

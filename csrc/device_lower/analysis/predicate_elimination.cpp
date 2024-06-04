@@ -172,7 +172,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     auto in_extent = split->in()->extent();
 
-    if (!in_extent->isConstInt() || ((in_extent->evaluate() % factor) != 0)) {
+    if (!in_extent->isConstInt() ||
+        ((in_extent->evaluate().as<int64_t>() % factor.as<int64_t>()) != 0)) {
       needs_predicate_ = true;
       return;
     }

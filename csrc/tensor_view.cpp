@@ -1016,9 +1016,9 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // This domain will be the consumer which needs a new domain, so replace the
   // producers domain with this domain.
 
-  TensorView* producer = IrBuilder::create<TensorView>(
+  TensorView* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
           getRootDomain(),
           getLogicalDomain(),
@@ -1041,7 +1041,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   // Warning: allocation domain is temporarily discarded. It will be recovered
   // later.
-  consumer->setDomain(IrBuilder::create<TensorDomain>(
+  consumer->setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
       new_logical_domain,
       TensorDomain::getContiguityFilledWith(new_logical_domain, true)));
@@ -1057,7 +1057,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   }
   ir_utils::transferDefinitionToNewOutputs(definition(), replaced_siblings);
 
-  IrBuilder::create<LoadStoreOp>(container(), op_type, consumer, producer);
+  IrBuilder::createInContainer<LoadStoreOp>(
+      container(), op_type, consumer, producer);
 
   // definition_ is no longer valid
   // setDefinition(nullptr);
@@ -1095,16 +1096,16 @@ TensorView* TensorView::cacheFork() {
   // This domain will be the producer, so create the consumer
   auto logical_domain = TensorDomain::noReductions(getLogicalDomain());
 
-  TensorView* new_output = IrBuilder::create<TensorView>(
+  TensorView* new_output = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
           IterDomain::clone(logical_domain),
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
       getDataType().value());
 
   // Create write operation from this TV to new output
-  IrBuilder::create<LoadStoreOp>(
+  IrBuilder::createInContainer<LoadStoreOp>(
       container(), LoadStoreOpType::Set, new_output, this);
 
   // The new TV becomes an output.
@@ -1176,9 +1177,9 @@ TensorView* TensorView::cacheAfter(
   }
 
   // This domain will be the producer, so create the consumer
-  TensorView* consumer = IrBuilder::create<TensorView>(
+  TensorView* consumer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
           new_logical_domain,
           TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
@@ -1197,7 +1198,7 @@ TensorView* TensorView::cacheAfter(
   }
 
   // Expr* consumer_definition =
-  IrBuilder::create<LoadStoreOp>(
+  IrBuilder::createInContainer<LoadStoreOp>(
       container(), op_type, consumer, producer, cache_op);
 
   if (propagate_allocation_domain) {
@@ -1252,13 +1253,13 @@ void TensorView::clearReductionIterDomains() {
     }
   }
 
-  if (new_alloc == new_logical) {
-    // if new allocation domain is identical to new logical domain, we don't
-    // need to specify allocation domain
-    setDomain(
-        IrBuilder::create<TensorDomain>(container(), new_logical, new_contig));
+  if (new_alloc == new_root) {
+    // if new allocation domain is identical to new logical domain, we don't need
+    // to specify allocation domain
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
+        container(), new_logical, new_contig));
   } else {
-    setDomain(IrBuilder::create<TensorDomain>(
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
         container(),
         std::vector<IterDomain*>(),
         new_logical,
@@ -1332,7 +1333,7 @@ void TensorView::commitLeafToLogical() {
   NVF_CHECK(
       ir_utils::consumerTvsOf(this).empty(),
       "Changing the logical domain of an intermediate tensor is not supported yet");
-  setDomain(IrBuilder::create<TensorDomain>(
+  setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
       domain_->maybeRoot(),
       domain_->leaf(),
@@ -1477,7 +1478,7 @@ TensorView* TensorViewBuilder::build() const {
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
-    if (extent->isConstScalar() && extent->evaluate() == 1) {
+    if (extent->isConstScalar() && extent->evaluate().as<int64_t>() == 1) {
       builder.iter_type(IterType::Broadcast);
     }
     if (expanded_extent != nullptr) {

@@ -348,7 +348,8 @@ bool Fusion::isNoOp() {
         TensorDomain::noReductions(out_tv->getLogicalDomain());
     const bool size_zero =
         std::any_of(logical_dom.begin(), logical_dom.end(), [](IterDomain* id) {
-          return id->extent()->isConstScalar() && id->extent()->evaluate() == 0;
+          return id->extent()->isConstScalar() &&
+              id->extent()->evaluate().as<int64_t>() == 0;
         });
     if (!size_zero) {
       return false;
