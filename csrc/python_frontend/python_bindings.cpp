@@ -3165,7 +3165,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("pos") = -1,
       py::arg("best_effort") = false,
       py::arg("selected_tensors") = std::vector<Tensor>());
-  nvf_sched.def("get_all_tensors", [](FusionDefinition::SchedOperators& self) {
+  nvf_sched.def("tensors", [](FusionDefinition::SchedOperators& self) {
     NVF_CHECK(
         self.validUse(),
         "Attempting to use a SchedOperators Op prior to definition!");

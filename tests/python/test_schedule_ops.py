@@ -492,9 +492,7 @@ class TestScheduleOps(TestCase):
                 fd.sched.transform_like(reference_tv)
 
                 # Add rfactor
-                reduction_tvs = list(
-                    filter(fd.sched.is_reduction, fd.sched.get_all_tensors())
-                )
+                reduction_tvs = list(filter(fd.sched.is_reduction, fd.sched.tensors()))
                 assert len(reduction_tvs) == 2
                 rfactor_tvs = [fd.sched.rfactor(tv, dims=[-1]) for tv in reduction_tvs]
 
