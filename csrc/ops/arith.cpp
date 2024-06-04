@@ -1458,6 +1458,224 @@ TensorView* min(
   return reductionOp(BinaryOpType::Min, axes, init, v1, keep_dim);
 }
 
+NVF_API std::vector<std::pair<TensorView*, TensorView*>> beginFold(
+    const std::vector<TensorView*>& input_tvs,
+    const std::vector<Val*>& init_vals,
+    const std::vector<int64_t>& axes) {
+  NVF_CHECK(!input_tvs.empty());
+  NVF_CHECK(!axes.empty(), "No fold axes provided");
+  NVF_CHECK(input_tvs.size() == init_vals.size());
+
+  // create outputs, both with the same domain
+  std::vector<std::pair<TensorView*, TensorView*>> prev_next_tensors;
+  prev_next_tensors.reserve(input_tvs.size());
+  for (TensorView* tv : input_tvs) {
+    auto orig_domain = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    std::set<int64_t> axes_set(axes.begin(), axes.end());
+
+    std::vector<IterDomain*> new_root;
+    new_root.reserve(orig_domain.size());
+
+    NVF_ERROR(
+        (*(axes_set.rbegin())) < orig_domain.size(),
+        "Error setting up fold, fold axis (",
+        *(axes_set.rbegin()),
+        ") is outside nDims (",
+        orig_domain.size(),
+        "). Keep in mind fold are relative to r-factor domains, ",
+        "not leaf domains.");
+
+    auto axis_iter = axes_set.begin();
+    for (const auto dim : c10::irange(orig_domain.size())) {
+      bool isFold = false;
+      if (axis_iter != axes_set.end() && *axis_iter == dim) {
+        isFold = true;
+        axis_iter++;
+      }
+
+      const IterDomain* id = orig_domain[dim];
+
+      NVF_CHECK(
+          !(isFold && id->isBroadcast() && !id->isImplicitBroadcast()),
+          "Cannot fold an axis that is marked as broadcasted ",
+          "as it has an undetermined size. Tried to fold ID = ",
+          id,
+          " of tensor ",
+          tv);
+
+      new_root.push_back(
+          IterDomainBuilder(id)
+              // If the domain is being reduced, but it's coming in as an
+              // expanded extent, we need to realize the expand.
+              .extent(isFold ? id->getMaybeExpandedExtent() : id->extent())
+              .expanded_extent(
+                  !isFold && id->hasExpandedExtent() ? id->expandedExtent()
+                                                     : nullptr)
+              .resetSchedulingParams()
+              .iter_type(isFold ? IterType::Fold : id->getIterType())
+              .build());
+    }
+
+    auto prev = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(new_root), tv->dtype());
+    // Clone each IterDomain so that there are different IterDomains in each
+    // output TensorView
+    for (auto i : c10::irange(new_root.size())) {
+      new_root[i] = IrBuilder::create<IterDomain>(new_root[i]);
+    }
+    auto next = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(new_root), tv->dtype());
+    prev_next_tensors.emplace_back(prev, next);
+  }
+
+  IrBuilder::create<BeginFoldOp>(prev_next_tensors, input_tvs, init_vals);
+
+  return prev_next_tensors;
+}
+
+namespace {
+// Find the innermost fold group's axis positions in combined_tvs. Note that
+// there should be only one fold group for any particular IterType::Fold axis.
+// For example, the following is disallowed:
+//
+//   auto& [accum1, next1] = beginFoldOp(x, init, {-1});
+//   auto& [accum2, next2] = beginFoldOp(y, init, {-1});
+//   auto combined = mul(next1, next2);
+//   auto reduction_tvs = finalizeReductionFold({combined});
+//
+// This is disallowed since although we can _nest_ fold groups, we cannot
+// overlap them for the same IterType::Fold IterDomains.
+//
+// This function tracks FoldGroups for all the IterType::Fold axes found in
+// combined_tvs to determine the innermost fold group. Then it returns the
+// positions of the IterType::Fold axes introduced by that fold group.
+std::vector<size_t> findInnerFoldDimensions(
+    const std::vector<TensorView*>& combined_tvs) {
+  std::vector<size_t> fold_axis_positions;
+  std::unordered_set<Expr*> visited_expr_outputs;
+  std::queue<TensorView*> to_visit;
+  for (auto c : combined_tvs) {
+    to_visit.push(c);
+  }
+  while (!to_visit.empty()) {
+    TensorView* tv = to_visit.front();
+    to_visit.pop();
+    if (!std::any_of(
+            tv->getMaybeRFactorDomain().begin(),
+            tv->getMaybeRFactorDomain().end(),
+            [](IterDomain* id) -> bool { return id->isFold(); })) {
+      // Skip tensors that do not contain Fold dimensions
+      continue;
+    }
+    NVF_ERROR(
+        tv->definition() != nullptr,
+        "TensorView ",
+        tv->toString(),
+        " has fold dimensions but no definition");
+    if (!(visited_expr_outputs.insert(tv->definition()).second)) {
+      continue;
+    }
+    if (auto bfop = dynamic_cast<BeginFoldOp*>(tv->definition())) {
+      NVF_ERROR(bfop->numTensors() > 0);
+      // Determine which fold axes were introduced by this op.
+      std::vector<size_t> this_fold_axis_positions;
+      TensorView* inp_tensor = bfop->inputTensor(0);
+      TensorView* next_tensor = bfop->nextElementTensor(0);
+      for (size_t i : c10::irange(inp_tensor->nDims())) {
+        if (!inp_tensor->axis(i)->isFold() && next_tensor->axis(i)->isFold()) {
+          this_fold_axis_positions.push_back(i);
+        }
+      }
+
+      // Ensure that either fold_axis_positions is empty, or that it matches the
+      // fold axes we found in bfop.
+      if (fold_axis_positions.empty()) {
+        fold_axis_positions.insert(
+            fold_axis_positions.end(),
+            this_fold_axis_positions.begin(),
+            this_fold_axis_positions.end());
+      } else {
+        for (size_t p : this_fold_axis_positions) {
+          NVF_CHECK(
+              std::find(
+                  fold_axis_positions.begin(), fold_axis_positions.end(), p) ==
+                  fold_axis_positions.end(),
+              "Fold groups can nest but must not overlap.");
+        }
+      }
+
+      continue;
+    }
+    for (Val* inp : tv->definition()->inputs()) {
+      if (auto* inp_tv = dynamic_cast<TensorView*>(inp)) {
+        to_visit.push(inp_tv);
+      }
+    }
+  }
+  return fold_axis_positions;
+}
+} // namespace
+
+std::vector<TensorView*> finalizeReductionFold(
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative,
+    bool commutative) {
+  NVF_CHECK(!combined_tvs.empty(), "combined_tvs must not be empty");
+  std::vector<size_t> fold_dims = findInnerFoldDimensions(combined_tvs);
+  std::vector<TensorView*> out_tvs;
+  out_tvs.reserve(combined_tvs.size());
+  for (TensorView* tv : combined_tvs) {
+    std::vector<IterDomain*> out_root;
+    out_root.reserve(tv->nDims());
+    for (size_t i : c10::irange(tv->nDims())) {
+      IterDomain* id = tv->axis(i);
+      // Convert all IterType::Fold axes to IterType::Reduction
+      // TODO: If there are nested fold groups, this op should only operate on
+      // the inner group.
+      out_root.push_back(
+          IterDomainBuilder(id)
+              .iter_type(
+                  std::find(fold_dims.begin(), fold_dims.end(), i) !=
+                          fold_dims.end()
+                      ? IterType::Reduction
+                      : id->getIterType())
+              .build());
+    }
+
+    out_tvs.push_back(IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(out_root), tv->dtype()));
+  }
+
+  IrBuilder::create<EndFoldOp>(
+      /*scan_outputs=*/std::vector<TensorView*>{},
+      /*reduction_outputs=*/out_tvs,
+      combined_tvs,
+      associative,
+      commutative);
+
+  return out_tvs;
+}
+
+std::vector<TensorView*> finalizeScanFold(
+    BeginFoldOp* fold_op,
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative,
+    bool commutative,
+    bool inclusive) {
+  NVF_ERROR(false, "Scan is not yet implemented");
+  return {};
+}
+
+std::vector<std::pair<TensorView*, TensorView*>> finalizeScanFoldWithReduction(
+    BeginFoldOp* fold_op,
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative,
+    bool commutative,
+    bool inclusive) {
+  NVF_ERROR(false, "Scan is not yet implemented");
+  return {};
+}
+
 TensorView* broadcast(
     TensorView* inp,
     const std::vector<bool>& is_broadcast_dim) {

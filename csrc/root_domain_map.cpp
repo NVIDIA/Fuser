@@ -239,6 +239,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // 2. IDs that may have different extents (e.g., non indexed
     //  domains of torch_gather)
     // 3. Squeeze and unsqueeze
+    // 4. Fold ID with something other than Fold ID
 
     // Condition 1: when the producer ID is the dim of a select-like op
     if (producer_id == indexed_producer_id) {
@@ -279,6 +280,13 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       // Dynamic IterDomains can be squeezed, in which case they must concretize
       // to broadcasts
       NVF_ERROR(producer_id->isBroadcast() || producer_id->isSymbolic());
+      itp++;
+      continue;
+    }
+
+    // Condition 4: Never map fold and non-fold dimensions
+    if (producer_id->isFold() != consumer_id->isFold()) {
+      itc++;
       itp++;
       continue;
     }
@@ -493,6 +501,13 @@ void UnmappableReductionDomains::handle(WelfordOp* op) {
   handleReductionOutput(op->outAvg()->as<TensorView>());
   handleReductionOutput(op->outVar()->as<TensorView>());
   handleReductionOutput(op->outN()->as<TensorView>());
+}
+
+void UnmappableReductionDomains::handle(EndFoldOp* op) {
+  // Builds a map from reduction domains to consumer domains.
+  for (Val* outp : op->outputs()) {
+    handleReductionOutput(outp->as<TensorView>());
+  }
 }
 
 bool UnmappableReductionDomains::isReductionOutputMapped(
@@ -1137,6 +1152,20 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
         " of ",
         out_td);
     root_map_.new_broadcast_domains_.insert(DomainKey(out_td, *out_it));
+  }
+}
+
+void ComputeAtRootDomainMapBuilder::handle(EndFoldOp* op) {
+  for (size_t i : c10::irange(op->numTensors())) {
+    const TensorDomain* in_td = op->input(i)->as<TensorView>()->domain();
+    const TensorDomain* out_td = op->output(i)->as<TensorView>()->domain();
+    const std::vector<IterDomain*>& in_root =
+        op->input(i)->as<TensorView>()->getMaybeRFactorDomain();
+    const std::vector<IterDomain*>& out_root =
+        op->output(i)->as<TensorView>()->getMaybeRFactorDomain();
+    for (size_t j : c10::irange(in_root.size())) {
+      setMaybeMapped(in_td, in_root.at(j), out_td, out_root.at(j));
+    }
   }
 }
 

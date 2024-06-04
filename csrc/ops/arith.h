@@ -609,6 +609,37 @@ NVF_API TensorView* min(
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
+//! Returns a vector of partial sum/next element pairs
+NVF_API std::vector<std::pair<TensorView*, TensorView*>> beginFold(
+    const std::vector<TensorView*>& input_tvs,
+    const std::vector<Val*>& init_vals,
+    const std::vector<int64_t>& axes);
+
+//! Returns a TensorView with IterType::Fold axes replaced with
+//! IterType::Reduction
+NVF_API std::vector<TensorView*> finalizeReductionFold(
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative = false,
+    bool commutative = false);
+
+//! Returns a TensorView with IterType::Fold axes replaced with
+//! IterType::Iteration
+NVF_API std::vector<TensorView*> finalizeScanFold(
+    BeginFoldOp* fold_op,
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative = false,
+    bool commutative = false,
+    bool inclusive = false);
+
+//! Returns a vector of scan/reduction pairs
+NVF_API std::vector<std::pair<TensorView*, TensorView*>>
+finalizeScanFoldWithReduction(
+    BeginFoldOp* fold_op,
+    const std::vector<TensorView*>& combined_tvs,
+    bool associative = false,
+    bool commutative = false,
+    bool inclusive = false);
+
 // COMPOUND OPERATIONS
 // add_alpha
 NVF_API Val* add_alpha(Val* v1, Val* v2, Val* s);

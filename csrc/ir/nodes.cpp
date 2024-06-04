@@ -1972,6 +1972,195 @@ Val* GroupedWelfordOp::getInitValOfOutput(Val* output_val) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
+BeginFoldOp::BeginFoldOp(
+    IrBuilderPasskey passkey,
+    const std::vector<std::pair<TensorView*, TensorView*>>& prev_next_tensors,
+    const std::vector<TensorView*>& inputs,
+    const std::vector<Val*>& inits)
+    : Expr(passkey) {
+  NVF_CHECK(!prev_next_tensors.empty());
+
+  size_t num_tensors = prev_next_tensors.size();
+  NVF_CHECK(inputs.size() == num_tensors);
+  NVF_CHECK(inits.size() == num_tensors);
+
+  int64_t ndims = inputs.front()->nDims();
+
+  std::vector<bool> is_dim_folded(ndims, false);
+  for (int64_t d : c10::irange(ndims)) {
+    is_dim_folded[d] = prev_next_tensors.front().first->axis(d)->isFold();
+  }
+
+  for (size_t i : c10::irange(num_tensors)) {
+    const DataType dtype = inputs.at(i)->dtype();
+    auto& [prev, next] = prev_next_tensors.at(i);
+    NVF_CHECK(prev->dtype() == dtype);
+    NVF_CHECK(next->dtype() == dtype);
+    NVF_CHECK(inits.at(i)->dtype() == dtype);
+
+    NVF_CHECK(prev->nDims() == ndims);
+    NVF_CHECK(next->nDims() == ndims);
+    NVF_CHECK(inputs.at(i)->nDims() == ndims);
+    if (auto init_tv = dynamic_cast<TensorView*>(inits.at(i))) {
+      NVF_CHECK(init_tv->nDims() == ndims);
+    }
+
+    // Fold dims should match in all outputs
+    for (int64_t d : c10::irange(ndims)) {
+      NVF_CHECK(prev->axis(d)->isFold() == is_dim_folded[d]);
+      NVF_CHECK(next->axis(d)->isFold() == is_dim_folded[d]);
+    }
+
+    addOutput(prev);
+    addOutput(next);
+    addInput(inputs.at(i));
+    addInput(inits.at(i));
+  }
+}
+
+std::string BeginFoldOp::toString(int indent_size) const {
+  std::string vector_open = numTensors() == 1 ? "" : "{ ";
+  std::string vector_close = numTensors() == 1 ? "" : " }";
+  std::stringstream ss;
+  indent(ss, indent_size) << vector_open;
+  bool first = true;
+  for (size_t i : c10::irange(numTensors())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << prevFoldTensor((int64_t)i)->toString();
+  }
+  ss << vector_close << " (accum)\n";
+  indent(ss, indent_size) << vector_open;
+  first = true;
+  for (size_t i : c10::irange(numTensors())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << nextElementTensor((int64_t)i)->toString();
+  }
+  ss << vector_close << " (next)\n";
+  indent(ss, indent_size) << "   = beginFold( " << vector_open;
+  first = true;
+  for (size_t i : c10::irange(numTensors())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << inputTensor((int64_t)i)->toString();
+  }
+  ss << vector_close << ", initial values = " << vector_open;
+  first = true;
+  for (size_t i : c10::irange(numTensors())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << initVal((int64_t)i)->toString();
+  }
+  ss << vector_close << " );\n";
+  return ss.str();
+}
+
+std::string BeginFoldOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> BeginFoldOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(false, "BeginFoldOp cannot be evaluated directly.");
+  return {};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BeginFoldOp)
+
+EndFoldOp::EndFoldOp(
+    IrBuilderPasskey passkey,
+    const std::vector<TensorView*>& scan_outputs,
+    const std::vector<TensorView*>& reduction_outputs,
+    const std::vector<TensorView*>& combined_tensors,
+    bool associative,
+    bool commutative)
+    : Expr(passkey) {
+  NVF_CHECK(
+      !combined_tensors.empty(),
+      "Must provided more than zero combined tensors");
+  NVF_CHECK(
+      !scan_outputs.empty() || !reduction_outputs.empty(),
+      "EndFoldOp must have some outputs");
+  size_t num_tensors = combined_tensors.size();
+  NVF_CHECK(
+      scan_outputs.empty() || scan_outputs.size() == num_tensors,
+      "Expected ",
+      num_tensors,
+      " output scan tensors but found ",
+      scan_outputs.size());
+  NVF_CHECK(
+      reduction_outputs.empty() || reduction_outputs.size() == num_tensors,
+      "Expected ",
+      num_tensors,
+      " output reduction tensors but found ",
+      reduction_outputs.size());
+
+  for (size_t i : c10::irange(combined_tensors.size())) {
+    addInput(combined_tensors.at(i));
+  }
+  for (TensorView* v : scan_outputs) {
+    addOutput(v);
+  }
+  for (TensorView* v : reduction_outputs) {
+    addOutput(v);
+  }
+  // Flags indicating whether or not we have scans and reductions
+  addDataAttribute(!scan_outputs.empty());
+  addDataAttribute(!reduction_outputs.empty());
+  addDataAttribute(associative);
+  addDataAttribute(commutative);
+}
+
+std::string EndFoldOp::toString(int indent_size) const {
+  std::string vector_open = numTensors() == 1 ? "" : "{ ";
+  std::string vector_close = numTensors() == 1 ? "" : " }";
+  std::stringstream ss;
+  indent(ss, indent_size) << vector_open;
+  bool first = true;
+  for (size_t i : c10::irange(outputs().size())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << output((int64_t)i)->toString();
+  }
+  ss << vector_close << "\n";
+  indent(ss, indent_size) << "   = endFold( " << vector_open;
+  first = true;
+  for (size_t i : c10::irange(inputs().size())) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << input((int64_t)i)->toString();
+  }
+  ss << vector_close << " );\n";
+  return ss.str();
+}
+
+std::string EndFoldOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> EndFoldOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(false, "EndFoldOp cannot be evaluated directly.");
+  return {};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(EndFoldOp)
+
 //==============================================================================================================================
 
 MmaOp::MmaOp(
@@ -3500,7 +3689,9 @@ std::vector<IterDomain*> TensorDomain::noReductions(
       td.begin(),
       td.end(),
       std::back_inserter(noReductionDomain),
-      [](IterDomain* id) { return !id->isReduction() && !id->isStride(); });
+      [](IterDomain* id) {
+        return !id->isStrictlyReduction() && !id->isStride();
+      });
   return noReductionDomain;
 }
 

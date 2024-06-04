@@ -165,7 +165,16 @@ class NVF_API IterDomain : public Val {
       std::optional<IterType> iter_type = std::nullopt);
 
   bool isReduction() const {
+    return getIterType() == IterType::Reduction ||
+        getIterType() == IterType::Fold;
+  }
+
+  bool isStrictlyReduction() const {
     return getIterType() == IterType::Reduction;
+  }
+
+  bool isFold() const {
+    return getIterType() == IterType::Fold;
   }
 
   bool isIteration() const {

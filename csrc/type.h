@@ -705,6 +705,7 @@ enum class MemoryType { Local, Shared, Global };
 enum class IterType {
   Iteration,
   Reduction,
+  Fold,
   Broadcast,
   Gather,
   Stride,

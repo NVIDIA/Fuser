@@ -1355,6 +1355,108 @@ class GroupedWelfordOp : public Expr {
   }
 };
 
+//! This node represents the beginning of a "fold group".
+class NVF_API BeginFoldOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  BeginFoldOp(
+      IrBuilderPasskey,
+      const std::vector<std::pair<TensorView*, TensorView*>>& prev_next_tensors,
+      const std::vector<TensorView*>& inputs,
+      const std::vector<Val*>& inits);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BeginFoldOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  size_t numTensors() const {
+    return inputs().size() / 2;
+  }
+
+  TensorView* prevFoldTensor(size_t n = 0) const {
+    return output(2 * n)->as<TensorView>();
+  }
+
+  TensorView* nextElementTensor(size_t n = 0) const {
+    return output(2 * n + 1)->as<TensorView>();
+  }
+
+  TensorView* inputTensor(size_t n = 0) const {
+    return input(2 * n)->as<TensorView>();
+  }
+
+  Val* initVal(size_t n = 0) const {
+    return input(2 * n + 1);
+  }
+};
+
+//! This node represents the end of a "fold group". It can output one reduction
+//! tensor, one scan tensor, or both.
+class NVF_API EndFoldOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  EndFoldOp(
+      IrBuilderPasskey passkey,
+      const std::vector<TensorView*>& scan_outputs,
+      const std::vector<TensorView*>& reduction_outputs,
+      const std::vector<TensorView*>& combined_tensors,
+      bool associative,
+      bool commutative);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "EndFoldOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  size_t numTensors() const {
+    return inputs().size();
+  }
+
+  Val* scanTensor(size_t n = 0) const {
+    NVF_CHECK(hasScan(), "Scan tensor requested from non-scan fold");
+    return output(n);
+  }
+
+  Val* reductionTensor(size_t n = 0) const {
+    NVF_CHECK(
+        hasReduction(), "Reduction tensor requested from non-reduction fold");
+    return output(hasScan() ? numTensors() + n : n);
+  }
+
+  bool hasScan() const {
+    return attribute<bool>(0);
+  }
+
+  bool hasReduction() const {
+    return attribute<bool>(1);
+  }
+
+  bool isAssociative() const {
+    return attribute<bool>(2);
+  }
+
+  bool isCommutative() const {
+    return attribute<bool>(3);
+  }
+};
+
 //! Fused Matmul operation
 class NVF_API MmaOp : public Expr {
  public:
