@@ -7,11 +7,11 @@
 // clang-format on
 #pragma once
 
-#include <atomic>
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
+#include <atomic>
 
 namespace nvfuser {
 
