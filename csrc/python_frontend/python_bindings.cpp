@@ -9,6 +9,7 @@
 
 #include <c10/util/ArrayRef.h>
 #include <c10/util/irange.h>
+#include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -18,7 +19,6 @@
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
-#include <complex>
 #include <iostream>
 #include <optional>
 #include <tuple>
@@ -486,6 +486,61 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.stats(ss);
         return ss.str();
       });
+ 
+  //! KernelProfiles are encapsulated in FusionProfiles where each KP
+  //! is associated with a segment.
+  py::class_<KernelProfile> kernel_prof(nvfuser, "KernelProfile");
+  kernel_prof.def_property_readonly(
+      "name", [](KernelProfile& self) { return self.name; });
+  kernel_prof.def_property_readonly(
+      "segment_id", [](KernelProfile& self) { return self.segment_id; });
+  kernel_prof.def_property_readonly(
+      "device", [](KernelProfile& self) { return self.device; });
+  kernel_prof.def_property_readonly(
+      "stream", [](KernelProfile& self) { return self.stream; });
+  kernel_prof.def_property_readonly(
+      "correlation_id", [](KernelProfile& self) { return self.correlation_id; });
+  kernel_prof.def_property_readonly(
+      "grid_str", [](KernelProfile& self) { return self.grid_str; });
+  kernel_prof.def_property_readonly(
+      "block_str", [](KernelProfile& self) { return self.block_str; });
+  kernel_prof.def_property_readonly(
+      "cluster_str", [](KernelProfile& self) { return self.cluster_str; });
+  kernel_prof.def_property_readonly(
+      "shared_mem_str", [](KernelProfile& self) { return self.shared_mem_str; });
+  kernel_prof.def_property_readonly(
+      "registers", [](KernelProfile& self) { return self.registers; });
+  kernel_prof.def_property_readonly(
+      "input_bytes", [](KernelProfile& self) { return self.input_bytes; });
+  kernel_prof.def_property_readonly(
+      "output_bytes", [](KernelProfile& self) { return self.output_bytes; });
+
+  //! A fusion profile is generated for FusionDefinition.
+  py::class_<FusionProfile> fusion_prof(nvfuser, "FusionProfile");
+  fusion_prof.def_property_readonly(
+      "verbose", [](FusionProfile& self) { return self.verbose; });
+  fusion_prof.def_property_readonly(
+      "fusion_id", [](FusionProfile& self) { return self.fusion_id; });
+  fusion_prof.def_property_readonly(
+      "segments", [](FusionProfile& self) { return self.segments; });
+  fusion_prof.def_property_readonly(
+      "cuda_evt_time_ms", [](FusionProfile& self) { return self.cuda_evt_time_ms; });
+  fusion_prof.def_property_readonly(
+      "host_time_ms", [](FusionProfile& self) { return self.host_time_ms; });
+  fusion_prof.def_property_readonly(
+      "compile_time_ms", [](FusionProfile& self) { return self.compile_time_ms; });
+  fusion_prof.def_property_readonly(
+      "kernel_time_ms", [](FusionProfile& self) { return self.kernel_time_ms; });
+  fusion_prof.def_property_readonly(
+      "effective_bandwith_gbs", [](FusionProfile& self) { return self.effective_bandwidth_gbs; });
+  fusion_prof.def_property_readonly(
+      "percentage_peak_bandwith", [](FusionProfile& self) { return self.percentage_peak_bandwidth; });
+  fusion_prof.def_property_readonly(
+      "input_bytes", [](FusionProfile& self) { return self.input_bytes; });
+  fusion_prof.def_property_readonly(
+      "output_bytes", [](FusionProfile& self) { return self.output_bytes; });
+  fusion_prof.def_property_readonly(
+      "kernel_profiles", [](FusionProfile& self) { return self.kernel_profiles; });
 
   //! These are the FusionDefinition supported object types that are either
   //! defined as inputs or the output of an operation.
@@ -618,6 +673,9 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("override_user_schedule") = false,
           py::arg("capture_debug_output") = false,
           py::arg("profile") = false,
+          py::return_value_policy::reference)
+      .def_static(
+          "_profile", &FusionProfiler::profile,
           py::return_value_policy::reference)
       .def(
           "_debug_output",

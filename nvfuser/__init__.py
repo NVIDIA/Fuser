@@ -69,6 +69,7 @@ class FusionDefinition(_C._FusionDefinition):
         device=None,
         override_user_schedule=False,
         capture_debug_output=False,
+        profile=False
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -138,9 +139,10 @@ class FusionDefinition(_C._FusionDefinition):
         try:
             result = self._execute(
                 inputs,
-                override_user_schedule,
                 device=device,
+                override_user_schedule=override_user_schedule,
                 capture_debug_output=capture_debug_output,
+                profile=profile
             )
         except Exception as err:
             msg = (
