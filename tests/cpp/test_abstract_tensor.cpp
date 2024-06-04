@@ -248,4 +248,73 @@ TEST_F(AbstractTensorTest, MergeValGroupWithIterDomain) {
   EXPECT_EQ(uses0.front(), eg01);
 }
 
+TEST_F(AbstractTensorTest, SplitSingleIterDomain) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  AbstractTensor v({id0, id1, id2});
+  v.split(1, 5);
+  // [0, 1/5, 5, 2]
+  v.split(1, 6);
+  // [0, 1/5/6, 6, 5, 2]
+  auto result = v.as<IterDomain*>();
+  ASSERT_EQ(result.size(), 5);
+  EXPECT_EQ(result[0], id0);
+  EXPECT_EQ(result[4], id2);
+  auto id156 = result[1];
+  auto id6 = result[2];
+  auto id5 = result[3];
+  auto split6 = dynamic_cast<Split*>(id6->definition());
+  ASSERT_NE(split6, nullptr);
+  EXPECT_EQ(id156->definition(), split6);
+  EXPECT_EQ(id156, split6->outer());
+  EXPECT_EQ(id6, split6->inner());
+  auto id15 = split6->in();
+  auto split5 = dynamic_cast<Split*>(id5->definition());
+  ASSERT_NE(split5, nullptr);
+  EXPECT_EQ(id15->definition(), split5);
+  EXPECT_EQ(id15, split5->outer());
+  EXPECT_EQ(id5, split5->inner());
+  EXPECT_EQ(id1, split5->in());
+}
+
+TEST_F(AbstractTensorTest, SplitIterDomainBatch) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  AbstractTensor v({id0, {id1, id2}, id3});
+  v.split(1, 5);
+  // [0, {1/5,2/5}, {5, 5}, 3]
+  v.split(1, 6);
+  // [0, {1/5/6,2/5/6}, {6, 6}, {5, 5}, 3]
+  ASSERT_EQ(v.size(), 5);
+  EXPECT_EQ(v[0], id0);
+  EXPECT_EQ(v[4], id3);
+  auto ids1256 = v[1];
+  auto ids6 = v[2];
+  auto ids5 = v[3];
+  ASSERT_EQ(ids1256.as<std::vector>().size(), 2);
+  ASSERT_EQ(ids6.as<std::vector>().size(), 2);
+  ASSERT_EQ(ids5.as<std::vector>().size(), 2);
+  IterDomain* ids12[2] {id1, id2};
+  for (auto i : {0, 1}) {
+    auto id6 = ids6[i].as<IterDomain*>();
+    auto id5 = ids5[i].as<IterDomain*>();
+    auto id1256 = ids1256[i].as<IterDomain*>();
+    auto split6 = dynamic_cast<Split*>(id6->definition());
+    ASSERT_NE(split6, nullptr);
+    EXPECT_EQ(id1256->definition(), split6);
+    EXPECT_EQ(id1256, split6->outer());
+    EXPECT_EQ(id6, split6->inner());
+    auto id125 = split6->in();
+    auto split5 = dynamic_cast<Split*>(id5->definition());
+    ASSERT_NE(split5, nullptr);
+    EXPECT_EQ(id125->definition(), split5);
+    EXPECT_EQ(id125, split5->outer());
+    EXPECT_EQ(id5, split5->inner());
+    EXPECT_EQ(ids12[i], split5->in());
+  }
+}
+
 } // namespace nvfuser
