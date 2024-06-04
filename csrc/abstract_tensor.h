@@ -17,39 +17,52 @@
 
 #include <dynamic_type/dynamic_type.h>
 
-// IterDomainLikeObjectView, or IDLOView in short, is a convenient helper class
-// for scheduling IterDomain-like objects (IDLO), where IDLO can be either an
-// IterDomain or a ValGroup of IterDomains. The interface of IDLOView is similar
-// to that of TesorViews, that is, it has merge, split, etc. However, it only
-// has a single "domain", instead of having multiple domains like "logical
-// domain", "loop domain", etc. IDLOView is typically used as follows:
+namespace nvfuser {
+
+// Abstract IterDomain, or AbstractId in short, refers to objects that behave
+// like a dimension of tensor. These objects can be IterDomains, ValGroups,
+// vector of Abstract IterDomains, etc. See the description of AbstractTensor
+// for more detail.
+using AbstractId = dynamic_type::DynamicType<
+    dynamic_type::Containers<std::vector>,
+    IterDomain*,
+    ValGroupAndItsGraph>;
+
+// AbstractTensor is similar to TensorView, it has multiple dimensions, where
+// each dimension is represented by an Abstract IterDomain. The interface of
+// AbstractTensor is also similar to that of TesorViews, that is, it has merge,
+// split, etc. However, it only has a single "domain", instead of having
+// multiple domains like "logical domain", "loop domain", etc.
+//
+// AbstractTensor is designed to represent a virtual tensor in a developer's
+// mind. AbstractTensor is typically used as follows:
 //
 // Example 1:
 //   IterDomain *id0, *id1;
-//   IDLOView v({id0, id1});
+//   AbstractTensor v({id0, id1});
 //   v.merge(0);
 // The above code will create a new Merge object whose inputs are (id0, id1),
 // and output is a newly created IterDomain, say id01. After the merge, v will
 // become [id01].
 //
-// IDLOView can do transformations in batch, like shown in the following
+// AbstractTensor can do transformations in batch, like shown in the following
 // example:
 //
 // Example 2:
 //   IterDomain *id0, *id1, *id2, *id3;
-//   IDLOView v({{id0, id1}, {id2, id3}});
+//   AbstractTensor v({{id0, id1}, {id2, id3}});
 //   v.merge(0);
 // This is equivalent to say: please merge id0 with id2, and id1 with id3.
 // The above code will create two new Merge objects whose inputs are (id0, id2),
 // and (id1, id3), and outputs are newly created IterDomains, say id02 and id13.
 // After the merge, v will become [{id02, id13}].
 //
-// IDLOView can also do transformations in a "broadcasting" manner, like shown
-// in the following two examples:
+// AbstractTensor can also do transformations in a "broadcasting" manner, like
+// shown in the following two examples:
 //
 // Example 3:
 //   IterDomain *id0, *id1, *id2;
-//   IDLOView v({id0, {id1, id2}});
+//   AbstractTensor v({id0, {id1, id2}});
 //   v.merge(0);
 // This is equivalent to say: please merge id0 with id1, and id0 with id2.
 // The above code will create two new Merge objects whose inputs are (id0, id1),
@@ -58,21 +71,21 @@
 //
 // Example 4:
 //   IterDomain *id0, *id1, *id2;
-//   IDLOView v({{id0, id1}, id2});
+//   AbstractTensor v({{id0, id1}, id2});
 //   v.merge(0);
 // This is equivalent to say: please merge id0 with id2, and id1 with id2.
 // The above code will create two new Merge objects whose inputs are (id0, id2),
 // and (id1, id2), and outputs are newly created IterDomains, say id02 and id12.
 // After the merge, v will become [{id02, id12}].
 //
-// IDLOView also works on ValGraphs of IterDomains. For example:
+// AbstractTensor also works on ValGraphs of IterDomains. For example:
 //
 // Example 5:
 //   ValGraph graph;
 //   IterDomain *id0, *id1;
 //   ValGroup g0{id0}, g1{id1};
-//   IDLOView v({ValGroupAndItsGraph{g0, &g}, ValGroupAndItsGraph{g1, &g}});
-//   v.merge(0);
+//   AbstractTensor v({ValGroupAndItsGraph{g0, &g}, ValGroupAndItsGraph{g1,
+//   &g}}); v.merge(0);
 // If there is already a merge of g0 and g1 in graph that outputs g01, then v
 // will reuse that output ValGroup and becomes [g01]. Otherwise, the above code
 // will create a new ExprGroup containing a Merge of g0 and g1, and the
@@ -81,14 +94,14 @@
 // after the merge will be [g01].
 //
 // Batching and broadcasting as demonstrated in Example 2, 3, 4 works for
-// ValGroups as well. Besides, IDLOView also supports "type promotion" from
-// IterDomain to ValGroup. For example:
+// ValGroups as well. Besides, AbstractTensor also supports "type promotion"
+// from IterDomain to ValGroup. For example:
 //
 // Example 6:
 //   ValGraph graph;
 //   IterDomain *id0, *id1;
 //   ValGroup g0{id0}, g1{id1};
-//   IDLOView v({id0, ValGroupAndItsGraph{g1, &g}});
+//   AbstractTensor v({id0, ValGroupAndItsGraph{g1, &g}});
 //   v.merge(0);
 // This is equivalent to Example 5. You will get [g01].
 //
@@ -96,21 +109,12 @@
 //   ValGraph graph;
 //   IterDomain *id0, *id1;
 //   ValGroup g0{id0}, g1{id1};
-//   IDLOView v({ValGroupAndItsGraph{g0, &g}, id1});
+//   AbstractTensor v({ValGroupAndItsGraph{g0, &g}, id1});
 //   v.merge(0);
 // This is also equivalent to Example 5. You will get [g01].
 
-namespace nvfuser {
-
-using IterDomainLikeObject = dynamic_type::DynamicType<
-    dynamic_type::Containers<std::vector>,
-    IterDomain*,
-    ValGroupAndItsGraph>;
-
-using IDLO = IterDomainLikeObject;
-
-struct IterDomainLikeObjectView {
-  std::vector<IterDomainLikeObject> domain;
+struct AbstractTensor {
+  std::vector<AbstractId> domain;
 
   template <typename T>
   std::vector<T> as() const {
@@ -131,7 +135,5 @@ struct IterDomainLikeObjectView {
     merge(axis, axis + 1);
   }
 };
-
-using IDLOView = IterDomainLikeObjectView;
 
 } // namespace nvfuser

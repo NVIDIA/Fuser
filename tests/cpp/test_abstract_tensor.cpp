@@ -14,7 +14,7 @@
 
 namespace nvfuser {
 
-class DomainViewTest : public NVFuserTest {
+class AbstractTensorTest : public NVFuserTest {
   std::unique_ptr<Fusion> fusion_ptr_;
   std::unique_ptr<FusionGuard> fusion_guard_ptr_;
   std::unique_ptr<IterDomainBuilder> builder_;
@@ -34,13 +34,13 @@ class DomainViewTest : public NVFuserTest {
   }
 };
 
-TEST_F(DomainViewTest, MergeSingleIterDomains) {
+TEST_F(AbstractTensorTest, MergeSingleIterDomains) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
   auto id3 = newID();
   auto id4 = newID();
-  IDLOView v{{id0, id1, id2, id3, id4}};
+  AbstractTensor v{{id0, id1, id2, id3, id4}};
   v.merge(2);
   // [0, 1, 2*3, 4]
   v.merge(0, 3);
@@ -66,13 +66,13 @@ TEST_F(DomainViewTest, MergeSingleIterDomains) {
   EXPECT_EQ(m04->inner(), id4);
 }
 
-TEST_F(DomainViewTest, MergeIterDomainsLeftBroadcasting) {
+TEST_F(AbstractTensorTest, MergeIterDomainsLeftBroadcasting) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
   // TODO: I need to update DynamicType so that I can just write:
-  //   IDLOView v{{id0, {id1, id2}}};
-  IDLOView v{{id0, std::vector<IDLO>({id1, id2})}};
+  //   AbstractTensor v{{id0, {id1, id2}}};
+  AbstractTensor v{{id0, std::vector<AbstractId>({id1, id2})}};
   v.merge(0);
   // [{0*1, 0*2}]
   auto result = v.as<std::vector<IterDomain*>>();
@@ -92,11 +92,11 @@ TEST_F(DomainViewTest, MergeIterDomainsLeftBroadcasting) {
   EXPECT_EQ(m02->inner(), id2);
 }
 
-TEST_F(DomainViewTest, MergeIterDomainsRightBroadcasting) {
+TEST_F(AbstractTensorTest, MergeIterDomainsRightBroadcasting) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
-  IDLOView v{{std::vector<IDLO>({id0, id1}), id2}};
+  AbstractTensor v{{std::vector<AbstractId>({id0, id1}), id2}};
   v.merge(0);
   // [{0*2, 1*2}]
   auto result = v.as<std::vector<IterDomain*>>();
@@ -116,12 +116,12 @@ TEST_F(DomainViewTest, MergeIterDomainsRightBroadcasting) {
   EXPECT_EQ(m12->inner(), id2);
 }
 
-TEST_F(DomainViewTest, MergeIterDomainsBatch) {
+TEST_F(AbstractTensorTest, MergeIterDomainsBatch) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
   auto id3 = newID();
-  IDLOView v{{std::vector<IDLO>({id0, id1}), std::vector<IDLO>({id2, id3})}};
+  AbstractTensor v{{std::vector<AbstractId>({id0, id1}), std::vector<AbstractId>({id2, id3})}};
   v.merge(0);
   // [{0*2, 1*3}]
   auto result = v.as<std::vector<IterDomain*>>();
@@ -141,7 +141,7 @@ TEST_F(DomainViewTest, MergeIterDomainsBatch) {
   EXPECT_EQ(m13->inner(), id3);
 }
 
-TEST_F(DomainViewTest, MergeValGroups) {
+TEST_F(AbstractTensorTest, MergeValGroups) {
   auto id0 = newID();
   auto id1 = newID();
   ValGraph g;
@@ -149,7 +149,7 @@ TEST_F(DomainViewTest, MergeValGroups) {
   g.initializeVal(id1);
   ValGroupAndItsGraph g0{g.toGroup(id0), &g};
   ValGroupAndItsGraph g1{g.toGroup(id1), &g};
-  IDLOView v{{g0, g1}};
+  AbstractTensor v{{g0, g1}};
   v.merge(0);
   // [0*1]
   EXPECT_EQ(g.disjointValSets().size(), 3);
@@ -176,7 +176,7 @@ TEST_F(DomainViewTest, MergeValGroups) {
   // Test reusing of existing merge
   ValGroupAndItsGraph g0_{g.toGroup(id0), &g};
   ValGroupAndItsGraph g1_{g.toGroup(id1), &g};
-  IDLOView vv{{g0_, g1_}};
+  AbstractTensor vv{{g0_, g1_}};
   vv.merge(0);
   EXPECT_EQ(g.disjointValSets().size(), 3);
   EXPECT_EQ(g.disjointExprSets().size(), 1);
@@ -186,14 +186,14 @@ TEST_F(DomainViewTest, MergeValGroups) {
   EXPECT_EQ(result2[0].group, g01);
 }
 
-TEST_F(DomainViewTest, MergeIterDomainWithValGroup) {
+TEST_F(AbstractTensorTest, MergeIterDomainWithValGroup) {
   auto id0 = newID();
   auto id1 = newID();
   ValGraph g;
   g.initializeVal(id0);
   g.initializeVal(id1);
   ValGroupAndItsGraph g1{g.toGroup(id1), &g};
-  IDLOView v{{id0, g1}};
+  AbstractTensor v{{id0, g1}};
   v.merge(0);
   // [0*1]
   EXPECT_EQ(g.disjointValSets().size(), 3);
@@ -218,14 +218,14 @@ TEST_F(DomainViewTest, MergeIterDomainWithValGroup) {
   EXPECT_EQ(uses0.front(), eg01);
 }
 
-TEST_F(DomainViewTest, MergeValGroupWithIterDomain) {
+TEST_F(AbstractTensorTest, MergeValGroupWithIterDomain) {
   auto id0 = newID();
   auto id1 = newID();
   ValGraph g;
   g.initializeVal(id0);
   g.initializeVal(id1);
   ValGroupAndItsGraph g0{g.toGroup(id0), &g};
-  IDLOView v{{g0, id1}};
+  AbstractTensor v{{g0, id1}};
   v.merge(0);
   // [0*1]
   EXPECT_EQ(g.disjointValSets().size(), 3);
