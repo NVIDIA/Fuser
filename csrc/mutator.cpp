@@ -135,7 +135,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return;
   }
 
-  Val* mutated_val = IrBuilder::create<TensorDomain>(
+  Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,
       rfactor_dom,

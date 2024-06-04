@@ -194,7 +194,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     ExpressionEvaluator ee;
     for (auto id : rfd) {
       if (!id->getMaybeExpandedExtent()->isConstScalar() ||
-          id->getMaybeExpandedExtent()->evaluate() == 0) {
+          id->getMaybeExpandedExtent()->evaluate().as<int64_t>() == 0) {
         info_.maybe_zero_extents_set_.insert(id->getMaybeExpandedExtent());
         leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
@@ -1092,7 +1092,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
     }
   }
 
-  Val* mutated_val = IrBuilder::create<TensorDomain>(
+  Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(), root_dom, rfactor_dom, alloc_dom, leaf_domain, contig);
   registerConcretization(td, mutated_val);
 }

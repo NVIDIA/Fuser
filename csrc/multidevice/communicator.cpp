@@ -214,7 +214,7 @@ Communicator::Communicator(
 #endif
 }
 
-c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
+c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend) {
   CommunicatorBackend b = getBackend(backend);
@@ -241,10 +241,10 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
     backends_[team_key] = c10::make_intrusive<c10d::Backend>();
 #endif
   }
-  return backends_.at(team_key);
+  return backends_.at(team_key).get();
 }
 
-c10::intrusive_ptr<c10d::Backend> Communicator::getWorld(
+c10d::Backend* Communicator::getWorld(
     std::optional<CommunicatorBackend> backend) {
   std::vector<RankType> all_ranks(size_);
   std::iota(all_ranks.begin(), all_ranks.end(), 0);

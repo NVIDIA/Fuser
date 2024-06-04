@@ -153,11 +153,13 @@ bool IterDomainGraph::exprsMap(
 
     auto extent_0_match = extent_0o->sameAs(extent_1o) ||
         (extent_0o->isConstInt() && extent_1o->isConstInt() &&
-         extent_0o->evaluate() == extent_1o->evaluate());
+         extent_0o->evaluate().as<int64_t>() ==
+             extent_1o->evaluate().as<int64_t>());
 
     auto extent_1_match = extent_0i->sameAs(extent_1i) ||
         (extent_0i->isConstInt() && extent_1i->isConstInt() &&
-         extent_0i->evaluate() == extent_1i->evaluate());
+         extent_0i->evaluate().as<int64_t>() ==
+             extent_1i->evaluate().as<int64_t>());
 
     if (!(extent_0_match || extent_1_match)) {
       return false;
@@ -168,9 +170,7 @@ bool IterDomainGraph::exprsMap(
     auto first_split = first->as<Split>();
     auto second_split = second->as<Split>();
     if (!first_split->factor()->sameAs(second_split->factor()) ||
-        first_split->innerSplit() != second_split->innerSplit() ||
-        !first_split->startOffset()->sameAs(second_split->startOffset()) ||
-        !first_split->stopOffset()->sameAs(second_split->stopOffset())) {
+        first_split->innerSplit() != second_split->innerSplit()) {
       return false;
     }
   }
@@ -725,8 +725,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         almost_exact_nodes_.mapEntries(merge->inner(), merge->out());
       }
     } else if (auto split = dynamic_cast<Split*>(def)) {
-      if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-          split->stopOffset()->isZeroInt()) {
+      if (split->factor()->isOneInt()) {
         if (split->innerSplit()) {
           almost_exact_nodes_.mapEntries(split->in(), split->outer());
         } else {

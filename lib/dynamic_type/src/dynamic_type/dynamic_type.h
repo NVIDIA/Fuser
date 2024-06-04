@@ -9,8 +9,10 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <initializer_list>
 #include <optional>
 #include <ostream>
+#include <tuple>
 #include <type_traits>
 #include <typeinfo>
 #include <variant>
@@ -79,6 +81,28 @@ struct Containers {
   template <typename T, typename DynamicType, typename... MemberTypes>
   static constexpr auto is_candidate_type = dynamic_type::
       belongs_to<T, std::monostate, MemberTypes..., Templates<DynamicType>...>;
+
+  template <typename ItemT>
+  using ForAllContainerTypes = dynamic_type::ForAllTypes<Templates<ItemT>...>;
+
+  template <typename ItemT>
+  static constexpr auto
+  all_container_type_identities_constructible_from_initializer_list() {
+    return dynamic_type::remove_void_from_tuple(ForAllContainerTypes<
+                                                ItemT>{}([](auto t) {
+      using T = typename decltype(t)::type;
+      if constexpr (std::is_constructible_v<T, std::initializer_list<ItemT>>) {
+        return std::type_identity<T>{};
+      } else {
+        return;
+      }
+    }));
+  }
+
+  template <typename ItemT>
+  using AllContainerTypeIdentitiesConstructibleFromInitializerList =
+      decltype(all_container_type_identities_constructible_from_initializer_list<
+               ItemT>());
 };
 
 using NoContainers = Containers<>;
@@ -111,6 +135,19 @@ struct DynamicType {
         return opcheck<typename decltype(t)::type>.canCastTo(opcheck<T>);
       },
       type_identities_as_tuple);
+
+  template <typename ItemT>
+  using AllContainerTypeIdentitiesConstructibleFromInitializerList =
+      typename Containers::
+          template AllContainerTypeIdentitiesConstructibleFromInitializerList<
+              ItemT>;
+
+  template <typename ItemT>
+  static constexpr auto
+      num_container_types_constructible_from_initializer_list =
+          std::tuple_size_v<
+              AllContainerTypeIdentitiesConstructibleFromInitializerList<
+                  ItemT>>;
 
   template <typename FuncT, typename FirstArg, typename... OtherArgs>
   static inline constexpr decltype(auto) dispatch(
@@ -209,7 +246,7 @@ struct DynamicType {
   constexpr DynamicType() = default;
 
   template <typename T, typename = decltype(VariantType(std::declval<T>()))>
-  constexpr DynamicType(T value) : value(std::move(value)) {}
+  constexpr DynamicType(T&& value) : value(std::forward<T>(value)) {}
 
   template <
       template <typename...>
@@ -228,6 +265,19 @@ struct DynamicType {
               [](auto& item) { return DynamicType(std::move(item)); });
           return result;
         }(std::move(value))) {}
+
+  template <
+      typename ItemT = DynamicType,
+      typename = std::enable_if_t<
+          // enable this ctor only when there is only one container supporting
+          // initializer_list, otherwise it is ambiguous to tell which container
+          // to use.
+          num_container_types_constructible_from_initializer_list<ItemT> == 1>>
+  constexpr DynamicType(std::initializer_list<DynamicType> list)
+      : DynamicType(typename std::tuple_element_t<
+                    0,
+                    AllContainerTypeIdentitiesConstructibleFromInitializerList<
+                        DynamicType>>::type(list)) {}
 
   // Returns the type_info of the actual type of the variant value. For
   // example, if value holds an int, then this will return typeid(int).

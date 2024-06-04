@@ -18,7 +18,9 @@
 
 #include <ATen/ATen.h>
 
+#ifndef DYNAMIC_TYPE_CHECK
 #define DYNAMIC_TYPE_CHECK NVF_ERROR
+#endif
 
 #include <dynamic_type/dynamic_type.h>
 #include <macros.h>
