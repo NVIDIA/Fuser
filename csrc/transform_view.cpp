@@ -275,8 +275,6 @@ class SplitTransform final : public ViewTransform {
         id,
         factor,
         /*inner_split=*/false,
-        /*start_offset=*/nullptr,
-        /*stop_offset=*/nullptr,
         /*rfactor_domain=*/true);
 
     current_transformed_domain.erase(
