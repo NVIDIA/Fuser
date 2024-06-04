@@ -176,17 +176,17 @@ bool checkCanSchedule(
   //  it has to pass all the compile time checks to create a data cache for this
   //  fusion.
   if (!data_cache) {
-    // if (!registry_utils::isConnectedFusionGraph(fusion)) {
-    //   scheduler_debug_utils::canScheduleRejectReason(
-    //       SchedulerType::heuristicType(),
-    //       "Connected fusion graph check failed!");
-    //   return false;
-    // }
-    // if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
-    //   scheduler_debug_utils::canScheduleRejectReason(
-    //       SchedulerType::heuristicType(), "Iter domain graph check failed!");
-    //   return false;
-    // }
+    if (!registry_utils::isConnectedFusionGraph(fusion)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::heuristicType(),
+          "Connected fusion graph check failed!");
+      return false;
+    }
+    if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::heuristicType(), "Iter domain graph check failed!");
+      return false;
+    }
     if (!SchedulerType::canScheduleCompileTime(fusion)) {
       return false;
     }
@@ -228,8 +228,10 @@ bool checkCanSchedule(
       return checkCanSchedule<MatmulScheduler>(
           fusion, runtime_info, data_cache);
     case ScheduleHeuristic::ExprEval:
-      return checkCanSchedule<ExprEvalScheduler>(
-          fusion, runtime_info, data_cache);
+      // `ExprEval` only accepts a single op, so we don't need other checks which build a computeAt map.
+      // Note: `SdpaOp` does not work with `computeAt` since it requires all sibling outputs to have same root domain.
+      // `canSchedulerRuntime` is always true so only compile time check required here.
+      return ExprEvalScheduler::canScheduleCompileTime(fusion);
     default:
       NVF_ERROR(false, "unreachable");
       return false;
