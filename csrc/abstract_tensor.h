@@ -116,6 +116,9 @@ using AbstractId = dynamic_type::DynamicType<
 struct AbstractTensor {
   std::vector<AbstractId> domain;
 
+  AbstractTensor() = default;
+  AbstractTensor(std::vector<AbstractId> domain) : domain(std::move(domain)) {}
+
   template <typename T>
   std::vector<T> as() const {
     std::vector<T> result;
