@@ -42,7 +42,6 @@ enum class DebugDumpOption {
   FusionIrMath, //!< Dump just the compute (math) part of the above `FusionIr`
                 //!< for conciseness
   KernelIr, //!< Dump the compiler Kernel IR
-  KernelReuse, //!< Dump stats about kernel reuse in FusionExecutorCache
   ComputeAtMap, //!< Dump the computeAt map
   CudaKernel, //!< Dump the generated CUDA C++ kernel code
   CudaFull, //!< Dump the complete CUDA C++ code
