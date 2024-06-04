@@ -2996,7 +2996,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "transform_like",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
-         const std::vector<Tensor>& selected_nodes) {
+         const std::vector<Tensor>& selected_tensors) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
@@ -3006,7 +3006,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             fd->getFusionState(tensor.index)->template as<TensorView>();
 
         TransformPropagator propagator(reference_tv);
-        if (selected_nodes.empty()) {
+        if (selected_tensors.empty()) {
           // Propagate scheduler transformations on reference TensorView to the
           // rest of the fusion.
           MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
@@ -3014,10 +3014,10 @@ void initNvFuserPythonBindings(PyObject* module) {
           // Propagate scheduler transformations on reference TensorView to the
           // subset of the fusion.
           std::unordered_set<TensorView*> selected_tv_set;
-          selected_tv_set.reserve(selected_nodes.size());
+          selected_tv_set.reserve(selected_tensors.size());
           std::transform(
-              selected_nodes.begin(),
-              selected_nodes.end(),
+              selected_tensors.begin(),
+              selected_tensors.end(),
               std::inserter(selected_tv_set, selected_tv_set.end()),
               [&fd](const Tensor& t) {
                 return fd->getFusionState(t.index)->template as<TensorView>();
@@ -3029,13 +3029,13 @@ void initNvFuserPythonBindings(PyObject* module) {
         }
       },
       py::arg("tensor"),
-      py::arg("selected_nodes") = std::vector<Tensor>());
+      py::arg("selected_tensors") = std::vector<Tensor>());
   nvf_sched.def(
       "parallelize_like",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
          int64_t pos,
-         std::vector<Tensor> selected_tensors,
+         const std::vector<Tensor>& selected_tensors,
          const std::unordered_set<ParallelType>& selected_parallel_types,
          bool propagate_padding) {
         // Propagate the parallelization from the selected dimensions of the
