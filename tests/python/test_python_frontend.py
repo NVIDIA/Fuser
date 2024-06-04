@@ -4034,7 +4034,7 @@ class TestNvFuserFrontend(TestCase):
 
         with FusionDefinition() as fd:
             fusion_func(fd)
-        
+
         # Testing returning a profile without profiling, expect an error!
         try:
             fd.profile()
@@ -4043,7 +4043,7 @@ class TestNvFuserFrontend(TestCase):
             )
         except ValueError:
             pass
-       
+
         # Testing that the profile returns 2 segments
         try:
             fd.execute(inputs, profile=True)

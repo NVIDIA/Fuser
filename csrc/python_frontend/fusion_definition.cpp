@@ -193,7 +193,8 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // NOTE: queryUserSchedule is broken, see issue:
   // https://github.com/NVIDIA/Fuser/issues/2056
   if (!override_user_schedule) {
-    // NOTE: Profiling is only currently supported for auto generatoed schedules.
+    // NOTE: Profiling is only currently supported for auto generatoed
+    // schedules.
     auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(
         inputs.empty() || device > -1,
@@ -212,7 +213,8 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // already at this point and we would not want to overwrite generated output
   // through user scheduled kernel.
   if (outputs.empty()) {
-    // NOTE: Profiling is only currently supported for auto generatoed schedules.
+    // NOTE: Profiling is only currently supported for auto generatoed
+    // schedules.
     if (profile) {
       ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
     }
