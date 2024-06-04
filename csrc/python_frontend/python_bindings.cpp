@@ -406,9 +406,40 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Null", DataType::Null);
 
   //! ParallelType used for scheduling
-  //! Note that we are only using this for multidevice at this point
   py::enum_<ParallelType>(nvfuser, "ParallelType")
-      .value("mesh_x", ParallelType::DIDx);
+      .value("mesh_x", ParallelType::DIDx)
+      .value("grid_x", ParallelType::BIDx)
+      .value("grid_y", ParallelType::BIDy)
+      .value("grid_z", ParallelType::BIDz)
+      .value("block_x", ParallelType::TIDx)
+      .value("block_y", ParallelType::TIDy)
+      .value("block_z", ParallelType::TIDz)
+      .value("mma", ParallelType::Mma)
+      .value("serial", ParallelType::Serial)
+      .value("tma", ParallelType::Bulk)
+      .value("unroll", ParallelType::Unroll)
+      .value("unswitch", ParallelType::Unswitch)
+      .value("vectorize", ParallelType::Vectorize);
+
+  //! LoadStoreOpType used for scheduling
+  py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
+      .value("set", LoadStoreOpType::Set)
+      .value("load_matrix", LoadStoreOpType::LdMatrix)
+      .value("cp_async", LoadStoreOpType::CpAsync)
+      .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  //! CacheOp used for scheduling
+  py::enum_<CacheOp>(nvfuser, "CacheOp")
+      .value("unspecified", CacheOp::Unspecified)
+      .value("all_levels", CacheOp::AllLevels)
+      .value("streaming", CacheOp::Streaming)
+      .value("global", CacheOp::Global);
+
+  //! MemoryType used for scheduling
+  py::enum_<MemoryType>(nvfuser, "MemoryType")
+      .value("local", MemoryType::Local)
+      .value("shared", MemoryType::Shared)
+      .value("global", MemoryType::Global);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -592,6 +623,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "_fusion_ir",
           [](FusionDefinition& self) { return self.fusionIr(); },
+          py::return_value_policy::reference)
+      .def(
+          "_user_schedule_ir",
+          [](FusionDefinition& self) { return self.userScheduleIr(); },
           py::return_value_policy::reference)
       .def(
           "_last_cuda_code",
@@ -2777,6 +2812,26 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition::SchedOperators> nvf_sched(
       fusion_def, "SchedOperators");
   nvf_sched.def(py::init<FusionDefinition*>());
+  nvf_sched.def(
+      "to_string",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor) {
+        // NOTE: For debugging purposes, print the state of TensorView
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        // Determine if tensor is a result from a reduction operation.
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        return tv->toString();
+      },
+      py::arg("tensor"));
+  nvf_sched.def(
+      "user_schedule_ir",
+      [](FusionDefinition::SchedOperators& self) {
+        return self.fusion_definition->userScheduleIr();
+      },
+      py::return_value_policy::reference);
   //! experimental API for multidevice support
   nvf_sched.def(
       "_create_device_mesh",
@@ -2801,7 +2856,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("mesh"));
   //! experimental API for multidevice support
   nvf_sched.def(
-      "_parallelize",
+      "parallelize",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
          int axis,
@@ -2838,14 +2893,10 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.validUse(),
         "Attempting to use a SchedOperators Op prior to definition!");
     FusionDefinition* fd = self.fusion_definition;
-    auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
-    auto output_tv = input_tv->rFactor(dims);
-    Tensor output = fd->defineTensor(arg.dims);
-    NVF_CHECK(
-        output.index == fd->numFusionStates(),
-        "Fusion State index does not match the size!");
-    fd->addFusionState(output_tv);
-    return output;
+    TensorView* input_tv =
+        fd->getFusionState(arg.index)->template as<TensorView>();
+    TensorView* output_tv = input_tv->rFactor(dims);
+    return fd->addTensor(output_tv);
   };
   nvf_sched.def(
       "reduction_factor",
@@ -2876,8 +2927,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          int64_t dim,
          int64_t factor,
-         bool inner_split,
-         bool trim_out_of_bounds) {
+         bool inner_split) {
         FUSER_PERF_SCOPE("SchedOperators.split");
         NVF_CHECK(
             self.validUse(),
@@ -2885,13 +2935,61 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         auto input_tv =
             fd->getFusionState(arg.index)->template as<TensorView>();
-        input_tv->split(dim, factor, inner_split, trim_out_of_bounds);
+        input_tv->split(dim, factor, inner_split);
       },
       py::arg("arg"),
       py::arg("dim"),
       py::arg("factor"),
-      py::arg("inner_split") = true,
-      py::arg("trim_out_of_bounds") = false);
+      py::arg("inner_split") = true);
+  nvf_sched.def(
+      "cache_after",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const LoadStoreOpType& op_type,
+         const CacheOp& cache_op) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->cacheAfter(op_type, cache_op);
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"),
+      py::arg("op_type") = LoadStoreOpType::Set,
+      py::arg("cache_op") = CacheOp::Unspecified);
+  nvf_sched.def(
+      "cache_before",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const LoadStoreOpType& op_type) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->cacheBefore(op_type);
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"),
+      py::arg("op_type") = LoadStoreOpType::Set);
+  nvf_sched.def(
+      "set_memory_type",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const MemoryType& memory_type) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        tv->setMemoryType(memory_type);
+      },
+      py::arg("tensor"),
+      py::arg("memory_type"));
 }
 
 } // namespace nvfuser::python_frontend

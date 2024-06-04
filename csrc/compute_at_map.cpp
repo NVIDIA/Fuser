@@ -168,9 +168,7 @@ bool IterDomainGraph::exprsMap(
     auto first_split = first->as<Split>();
     auto second_split = second->as<Split>();
     if (!first_split->factor()->sameAs(second_split->factor()) ||
-        first_split->innerSplit() != second_split->innerSplit() ||
-        !first_split->startOffset()->sameAs(second_split->startOffset()) ||
-        !first_split->stopOffset()->sameAs(second_split->stopOffset())) {
+        first_split->innerSplit() != second_split->innerSplit()) {
       return false;
     }
   }
@@ -725,8 +723,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         almost_exact_nodes_.mapEntries(merge->inner(), merge->out());
       }
     } else if (auto split = dynamic_cast<Split*>(def)) {
-      if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-          split->stopOffset()->isZeroInt()) {
+      if (split->factor()->isOneInt()) {
         if (split->innerSplit()) {
           almost_exact_nodes_.mapEntries(split->in(), split->outer());
         } else {

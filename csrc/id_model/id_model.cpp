@@ -334,8 +334,7 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
-    if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-        split->stopOffset()->isZeroInt()) {
+    if (split->factor()->isOneInt()) {
       if (split->innerSplit()) {
         mapped_ids.push_back({split->in(), split->outer()});
       } else {
@@ -557,7 +556,9 @@ StatefulInliningInfo buildStatefulInliningInfo(
             all_consumer_ids, all_consumer_i_ids);
 
         for (const auto& [c_id_1, c_ids] : sibling_map) {
-          NVF_ERROR(c_ids.size() == 1);
+          // Note that c_ids can have multiple domains as this graph
+          // is a Permissive graph and there may be broadcast merged
+          // domains
           info.sibling_maps[c_id_1->as<IterDomain>()].pushBack(c_ids);
         }
       }

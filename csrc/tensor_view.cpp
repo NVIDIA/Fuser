@@ -463,11 +463,7 @@ void TensorView::clearComputeWith() {
   NVF_ERROR(compute_with_consumers_.empty());
 }
 
-TensorView* TensorView::split(
-    int64_t axis,
-    Val* factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
+TensorView* TensorView::split(int64_t axis, Val* factor, bool inner_split) {
   // Only check things associated with axis, factor will be validated in
   // IterDomain
   NVF_ERROR(
@@ -507,25 +503,17 @@ TensorView* TensorView::split(
     factor = castOp(DataType::Index, factor);
   }
 
-  domain()->split(axis, factor, inner_split, trim_out_of_bounds);
+  domain()->split(axis, factor, inner_split);
   return this;
 }
 
-TensorView* TensorView::split(
-    int64_t axis,
-    int64_t factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
+TensorView* TensorView::split(int64_t axis, int64_t factor, bool inner_split) {
   // NOTE: safe cast to int64_t, factor (unsigned int) is within int64_t range
   NVF_CHECK(
       factor > 0,
       "Invalid factor for split. Factor must be greater than 0. Factor = ",
       factor);
-  split(
-      axis,
-      IrBuilder::create<Val>(factor, DataType::Index),
-      inner_split,
-      trim_out_of_bounds);
+  split(axis, IrBuilder::create<Val>(factor, DataType::Index), inner_split);
   return this;
 }
 
@@ -1131,7 +1119,10 @@ TensorView* TensorView::cacheFork() {
   return new_output;
 }
 
-TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
+TensorView* TensorView::cacheAfter(
+    LoadStoreOpType op_type,
+    CacheOp cache_op,
+    bool propagate_allocation_domain) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1207,10 +1198,12 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
   IrBuilder::create<LoadStoreOp>(
       container(), op_type, consumer, producer, cache_op);
 
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+  if (propagate_allocation_domain) {
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
-  consumer->setDomain(replayed_consumer_pair.first);
+    consumer->setDomain(replayed_consumer_pair.first);
+  }
 
   return consumer;
 }

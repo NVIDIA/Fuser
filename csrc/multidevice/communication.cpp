@@ -48,9 +48,7 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
 
 namespace {
 
-inline void assertBufferCount(
-    const std::vector<at::Tensor>& bufs,
-    size_t count) {
+void assertBufferCount(const std::vector<at::Tensor>& bufs, size_t count) {
   NVF_ERROR(
       bufs.size() == count,
       "there must be ",
@@ -60,7 +58,7 @@ inline void assertBufferCount(
       " were given");
 }
 
-inline void assertBuffersHaveSameSize(
+void assertBuffersHaveSameSize(
     const std::vector<at::Tensor>& bufs1,
     const std::vector<at::Tensor>& bufs2) {
   if (bufs1.empty() && bufs2.empty()) {
@@ -76,7 +74,7 @@ inline void assertBuffersHaveSameSize(
   }
 }
 
-inline void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
+void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
   dst.view_as(src).copy_(src, /*non_blocking=*/true);
 }
 
@@ -100,7 +98,7 @@ T getInitialValue(c10d::ReduceOp::RedOpType op) {
 
 bool hasRoot(CommunicationType type) {
   return type == CommunicationType::Gather ||
-      type == CommunicationType::Scatter ||
+      type == CommunicationType::Scatter || type == CommunicationType::Reduce ||
       type == CommunicationType::Broadcast ||
       type == CommunicationType::SendRecv;
 }
@@ -111,53 +109,54 @@ bool isReduction(CommunicationType type) {
       type == CommunicationType::ReduceScatter;
 }
 
-void assertValid(const CommParams& params) {
-  std::unordered_set<DeviceIdxType> team_without_duplicates(
-      params.team.begin(), params.team.end());
-  NVF_ERROR(
-      team_without_duplicates.size() == params.team.size(),
-      "the communication must not involve the same device more than once");
-  NVF_ERROR(!params.team.empty(), "the team size must be greater than 0");
-  if (hasRoot(params.type)) {
-    auto it = std::find(params.team.begin(), params.team.end(), params.root);
-    NVF_ERROR(
-        it != params.team.end(),
-        "root (device ",
-        params.root,
-        ") must be present in the communication's team");
-  }
-}
-
-// pytorch's process group expects the root to be specified
-// as an integer between 0 and world_size-1. We choose it to be
-// the device's relative index within the team
-int64_t getRootRelativeIndex(const CommParams& params) {
-  auto it = std::find(params.team.begin(), params.team.end(), params.root);
-  return std::distance(params.team.begin(), it);
-}
-
 } // namespace
 
-Communication::Communication(IrBuilderPasskey passkey, CommParams params)
-    : Expr(passkey), params_(std::move(params)) {
-  assertValid(params_);
+Communication::Communication(
+    IrBuilderPasskey passkey,
+    CommunicationType type,
+    DeviceMesh mesh,
+    Team team,
+    DeviceIdxType root,
+    RedOpType red_op,
+    int64_t scattered_axis)
+    : Expr(passkey) {
+  NVF_ERROR(mesh.size() > 0, "The mesh size must be greater than 0.");
+  NVF_ERROR(
+      hasRoot(type) == (root >= 0),
+      "Root ",
+      root,
+      " is not expected by CommunicationType ",
+      type);
+  NVF_ERROR(isReduction(type) == (red_op != RedOpType::UNUSED))
+  NVF_ERROR(
+      (type == CommunicationType::ReduceScatter) == (scattered_axis >= 0));
+
+  addDataAttribute(type);
+  addDataAttribute(mesh);
+  addDataAttribute(team);
+  addDataAttribute(root);
+  addDataAttribute(red_op);
+  addDataAttribute(scattered_axis);
 }
 
-Communication::Communication(const Communication* src, IrCloner* ir_cloner)
-    : Expr(src, ir_cloner), params_(src->params()) {}
-
 NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
+
+int64_t Communication::getRootRelativeIndex() {
+  auto i = std::find(team().begin(), team().end(), root());
+  NVF_ERROR(
+      i != team().end(), "Unable to find root ", root(), " in team ", team());
+  return std::distance(team().begin(), i);
+}
 
 std::string Communication::toString(const int indent_size) const {
   std::stringstream ss;
 
-  indent(ss, indent_size) << "Communication " << params_.type << ": {"
-                          << std::endl;
-
-  if (hasRoot(params_.type)) {
-    indent(ss, indent_size + 1) << "root: " << params_.root << "," << std::endl;
+  indent(ss, indent_size) << "Communication " << type() << ": {" << std::endl;
+  if (hasRoot(type())) {
+    indent(ss, indent_size + 1) << "root: " << root() << "," << std::endl;
   }
-  indent(ss, indent_size + 1) << "team: " << params_.team << "," << std::endl;
+  indent(ss, indent_size + 1) << "mesh: " << mesh() << "," << std::endl;
+  indent(ss, indent_size + 1) << "team: " << team() << "," << std::endl;
   indent(ss, indent_size) << "}";
 
   return ss.str();
@@ -167,32 +166,15 @@ std::string Communication::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
-// TODO add checking symbolic representation of src and dst buffers
-bool Communication::sameAs(const Statement* other) const {
-  if (other == this) {
-    return true;
-  }
-  if (!other->isA<Communication>()) {
-    return false;
-  }
-  const auto& p1 = this->params();
-  const auto& p2 = other->as<Communication>()->params();
-
-  return (
-      p1.type == p2.type && (!hasRoot(p1.type) || p1.root == p2.root) &&
-      p1.team == p2.team && (!isReduction(p1.type) || p1.redOp == p2.redOp));
-}
-
 namespace {
 c10::intrusive_ptr<c10d::Work> postBroadcast(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const CommParams& params = communication->params();
-  if (my_device_index == params.root) {
-    if (params.is_root_in_mesh) {
+  if (my_device_index == communication->root()) {
+    if (communication->isRootInMesh()) {
       // Do a local copy and the subsequent broadcast will be in place. Consider
       // ProcessGroupNCCL::_broadcast_oop so ncclBroadcast doesn't wait for the
       // local copy to complete.
@@ -203,23 +185,23 @@ c10::intrusive_ptr<c10d::Work> postBroadcast(
     }
   }
 
-  if (params.team.size() == 1) {
+  if (communication->team().size() == 1) {
     return nullptr;
   }
 
   std::vector<at::Tensor> tensors({output_tensor});
   return backend->broadcast(
-      tensors, {.rootRank = getRootRelativeIndex(params)});
+      tensors, {.rootRank = communication->getRootRelativeIndex()});
 }
 
 c10::intrusive_ptr<c10d::Work> postGather(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const CommParams& params = communication->params();
-  if (my_device_index == params.root && !params.is_root_in_mesh) {
+  if (my_device_index == communication->root() &&
+      !communication->isRootInMesh()) {
     // This is likely a suboptimal way to allocate tensors for nccl. To benefit
     // from zero copy
     // (https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/bufferreg.html),
@@ -230,14 +212,14 @@ c10::intrusive_ptr<c10d::Work> postGather(
   }
   std::vector<at::Tensor> input_tensors({input_tensor});
 
-  auto root_relative_index = getRootRelativeIndex(params);
+  auto root_relative_index = communication->getRootRelativeIndex();
   std::vector<std::vector<at::Tensor>> output_tensors;
-  if (my_device_index == params.root) {
+  if (my_device_index == communication->root()) {
     output_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : c10::irange(params.team.size())) {
+    for (auto i : c10::irange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !params.is_root_in_mesh) {
+          !communication->isRootInMesh()) {
         output_tensors[0].push_back(input_tensor);
         continue;
       }
@@ -245,7 +227,7 @@ c10::intrusive_ptr<c10d::Work> postGather(
       j++;
     }
 
-    assertBufferCount(output_tensors[0], params.team.size());
+    assertBufferCount(output_tensors[0], communication->team().size());
     assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
   }
 
@@ -256,16 +238,14 @@ c10::intrusive_ptr<c10d::Work> postGather(
 c10::intrusive_ptr<c10d::Work> postAllgather(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const CommParams& params = communication->params();
-
   std::vector<at::Tensor> input_tensors({input_tensor});
   std::vector<std::vector<at::Tensor>> output_tensors(1);
   output_tensors[0] = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
 
-  assertBufferCount(output_tensors[0], params.team.size());
+  assertBufferCount(output_tensors[0], communication->team().size());
   assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
   return backend->allgather(output_tensors, input_tensors, {});
 }
@@ -273,33 +253,31 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
 c10::intrusive_ptr<c10d::Work> postScatter(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const CommParams& params = communication->params();
-
-  if (my_device_index == params.root && !params.is_root_in_mesh) {
+  if (my_device_index == communication->root() &&
+      !communication->isRootInMesh()) {
     output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
   }
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  auto root_relative_index = getRootRelativeIndex(params);
+  auto root_relative_index = communication->getRootRelativeIndex();
   std::vector<std::vector<at::Tensor>> input_tensors;
-  if (my_device_index == params.root) {
+  if (my_device_index == communication->root()) {
     input_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : c10::irange(params.team.size())) {
+    for (auto i : c10::irange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !params.is_root_in_mesh) {
+          !communication->isRootInMesh()) {
         input_tensors.front().push_back(output_tensor);
         continue;
       }
-      input_tensors.front().push_back(
-          input_tensor.slice(0, j, j + 1).contiguous());
+      input_tensors.front().push_back(input_tensor.slice(0, j, j + 1));
       j++;
     }
 
-    assertBufferCount(input_tensors[0], params.team.size());
+    assertBufferCount(input_tensors[0], communication->team().size());
     assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   }
 
@@ -310,21 +288,19 @@ c10::intrusive_ptr<c10d::Work> postScatter(
 c10::intrusive_ptr<c10d::Work> postReduce(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const CommParams& params = communication->params();
-
   at::Tensor tensor;
-  if (my_device_index == params.root) {
-    if (params.is_root_in_mesh) {
+  if (my_device_index == communication->root()) {
+    if (communication->isRootInMesh()) {
       doLocalCopy(output_tensor, input_tensor);
       tensor = output_tensor;
     } else {
       NVF_ERROR(
           output_tensor.scalar_type() == at::kFloat,
           "only float tensors are supported");
-      output_tensor.fill_(getInitialValue<float>(params.redOp));
+      output_tensor.fill_(getInitialValue<float>(communication->reduceOp()));
       tensor = output_tensor;
     }
   } else {
@@ -333,7 +309,8 @@ c10::intrusive_ptr<c10d::Work> postReduce(
   std::vector<at::Tensor> tensors({tensor});
 
   c10d::ReduceOptions options = {
-      .reduceOp = params.redOp, .rootRank = getRootRelativeIndex(params)};
+      .reduceOp = communication->reduceOp(),
+      .rootRank = communication->getRootRelativeIndex()};
   // TODO: avoid local copy by using out-of-place reduction.
   return backend->reduce(tensors, options);
 }
@@ -341,60 +318,52 @@ c10::intrusive_ptr<c10d::Work> postReduce(
 c10::intrusive_ptr<c10d::Work> postAllreduce(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const CommParams& params = communication->params();
-
   doLocalCopy(output_tensor, input_tensor);
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  return backend->allreduce(output_tensors, {.reduceOp = params.redOp});
+  return backend->allreduce(
+      output_tensors, {.reduceOp = communication->reduceOp()});
 }
 
 c10::intrusive_ptr<c10d::Work> postReduceScatter(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const CommParams& params = communication->params();
-
   std::vector<std::vector<at::Tensor>> input_tensors(1);
+  const auto scattered_axis = communication->scatteredAxis();
   NVF_ERROR(
-      params.scattered_axis >= 0,
+      scattered_axis >= 0,
       "scattered_axis is expected to be non-negative: ",
-      params.scattered_axis)
-  input_tensors[0] =
-      at::split(input_tensor, /*split_size=*/1, params.scattered_axis);
+      scattered_axis)
+  input_tensors[0] = at::split(input_tensor, /*split_size=*/1, scattered_axis);
 
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  assertBufferCount(input_tensors[0], params.team.size());
+  assertBufferCount(input_tensors[0], communication->team().size());
   return backend->reduce_scatter(
-      output_tensors, input_tensors, {.reduceOp = params.redOp});
+      output_tensors, input_tensors, {.reduceOp = communication->reduceOp()});
 }
 
 c10::intrusive_ptr<c10d::Work> postSendRecv(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const CommParams& params = communication->params();
+  NVF_ERROR(communication->mesh().size() == 1, "The mesh size should be 1.");
 
-  NVF_ERROR(
-      params.team.size() == 1 || params.team.size() == 2,
-      "the team size should be 1 or 2");
-
-  if (params.team.size() == 1) {
+  if (communication->isRootInMesh()) {
     doLocalCopy(output_tensor, input_tensor);
     return nullptr;
   }
 
-  const DeviceIdxType sender = params.root;
-  const DeviceIdxType receiver =
-      params.team.at(0) == sender ? params.team.at(1) : params.team.at(0);
+  const DeviceIdxType sender = communication->root();
+  const DeviceIdxType receiver = communication->mesh().at(0);
 
   std::vector<at::Tensor> tensors;
   if (my_device_index == sender) {
@@ -411,18 +380,17 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const CommParams& params = communication->params();
+  const Team& team = communication->team();
   NVF_ERROR(
-      std::find(params.team.begin(), params.team.end(), my_device_index) !=
-          params.team.end(),
+      std::find(team.begin(), team.end(), my_device_index) != team.end(),
       "current device index ",
       my_device_index,
       " must be present in the communication's team");
 
-  switch (communication->params().type) {
+  switch (communication->type()) {
     case CommunicationType::Gather:
       return postGather(
           communication, my_device_index, backend, input_tensor, output_tensor);
@@ -448,7 +416,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
       return postSendRecv(
           communication, my_device_index, backend, input_tensor, output_tensor);
     default:
-      NVF_ERROR(false, "Wrong communication type: ", params.type);
+      NVF_ERROR(false, "Wrong communication type: ", communication->type());
       return nullptr;
   }
 }

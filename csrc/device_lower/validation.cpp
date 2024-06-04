@@ -14,6 +14,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <scheduler/mma_utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
@@ -396,7 +397,7 @@ class VectorizeValidator : public OptInDispatch {
 
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
     bool is_ldmatrix_trans =
-        ldst != nullptr && ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+        ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
     if (!is_ldmatrix_trans) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
