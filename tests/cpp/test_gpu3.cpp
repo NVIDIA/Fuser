@@ -31,6 +31,7 @@
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <ops/all_ops.h>
+#include <ops/utils.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
@@ -8207,36 +8208,28 @@ TEST_F(NVFuserTest, preallocated_outputs) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* tv0 = makeSymbolicTensor(2);
-  TensorView* tv1 = makeSymbolicTensor(1);
-  TensorView* tv2 = makeSymbolicTensor(2);
+  TensorView* tv0 = makeSymbolicTensor(2); // Group 0
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0)); // Group 0
+  TensorView* tv2 = ops::newValLike(tv1, tv1->getDataType().value())
+                        ->as<TensorView>(); // Group 1
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterSet, tv2, tv1);
+  TensorView* tv3 = add(tv2, IrBuilder::create<Val>(1.0)); // Group 1
 
   fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addInput(tv2);
+  fusion->addOutput(tv3);
 
-  TensorView* tv3 = add(tv0, IrBuilder::create<Val>(1.0)); // Group 0
-  TensorView* tv4 = max(tv3, {0}); // Group 0
-  TensorView* tv5 = add(tv4, tv1); // Group 0
-  TensorView* tv6 = add(tv5, tv2); // Group 1
-
-  fusion->addOutput(tv6);
-
+  std::vector<int64_t> sizes = {8, 5};
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({8, 5}, options);
-  at::Tensor t1 = at::randn({5}, options);
-  at::Tensor t2 = at::randn({8, 5}, options);
-  at::Tensor t6 = at::empty({8, 5}, options);
+  at::Tensor t0 = at::randn(sizes, options);
+  at::Tensor t3 = at::empty(sizes, options);
 
-  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
-  std::vector<at::Tensor> preallocated_output = {t6};
+  std::vector<c10::IValue> aten_inputs = {t0};
+  std::vector<at::Tensor> preallocated_output = {t3};
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs =
       executor_cache.runFusionWithInputs(aten_inputs, preallocated_output);
 
-  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented())
-      << "segmentation didn't happen";
   EXPECT_EQ(
       executor_cache.getMostRecentKernelRuntime()
           ->fusionSegments()
