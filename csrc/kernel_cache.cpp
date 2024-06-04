@@ -780,64 +780,24 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // that whenever we encounter a new set of input shapes we segment and compile
   // a new FusionKernelRuntime.
   if (!isOptionDisabled(DisableOption::KernelReuse)) {
-    // First segment the Fusion in a new FusionKernelRuntime. This requires
-    // concretizing the Fusion first
-    auto conc_fusion = std::make_unique<Fusion>(*fusion_);
-    if (initial_info.isDynamic()) {
-      const auto& conc_initial_info =
-          conc_fusion->getManaged<DynamicTransformInitialInfo>("initial_info");
-      NVF_ERROR(conc_info);
-      conc_info->setInitialInfo(&conc_initial_info);
-
-      DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info);
-      // Initial info is used during concretization and is owned by conc_fusion.
-      // After concretization, we stop managing it so that we won't keep cloning
-      // it for every subsequent Fusion copy.
-      conc_fusion->stopManaging("initial_info");
-    }
-    FusionGuard fg(conc_fusion.get());
-    FusionKernelRuntime desired_fkr(
-        std::move(conc_fusion),
-        args,
-        /*serde_buffer=*/nullptr,
-        forced_index_type,
-        fusion_id_,
-        conc_info_id_map_.at(config),
-        kernel_runtimes.size(),
-        auto_schedule_);
-
-    // This value is filled when looking at the first FusionKernelRuntime when
-    // defining reuse_it below. Using the concretized complete fusion from that
-    // runtime, we check whether we can schedule the unsegmented Fusion. If so,
-    // then we filter out any segmented kernels since we would prefer not to
-    // use a segmented kernel unless we have to.
-    std::optional<bool> should_not_be_segmented = std::nullopt;
     auto reuse_it = std::find_if(
         kernel_runtimes.begin(),
         kernel_runtimes.end(),
-        [&should_not_be_segmented, &args, &new_heuristics, &forced_index_type](
-            auto& kernel_runtime) {
-          if (!should_not_be_segmented.has_value()) {
-            // Use the concretized complete fusion from this runtime to check
-            // whether we can schedule the complete fusion without segmenting.
-            // Reusing this concretized fusion lets us avoid doing a separate
-            // concretization before entering this function.
-            std::unique_ptr<Fusion> conc_fusion = std::make_unique<Fusion>(
-                *(kernel_runtime->fusionSegments()->completeFusion()));
-            SchedulerRuntimeInfo runtime_info(
-                conc_fusion.get(),
-                args,
-                /*precomputed_values=*/nullptr,
-                /*all_tvs=*/{},
-                forced_index_type);
-            should_not_be_segmented = SchedulerEntry::proposeHeuristics(
-                                          conc_fusion.get(), runtime_info)
-                                          .has_value();
-          }
-          if (should_not_be_segmented.value() &&
-              kernel_runtime->isSegmented()) {
+        [&new_heuristics, &args, &forced_index_type](auto& kernel_runtime) {
+          SegmentedFusion* seg_fusion = kernel_runtime->fusionSegments();
+          // Check whether segmentation would result in the same segmented
+          // fusion of this runtime using the new runtime info
+          SchedulerRuntimeInfo runtime_info(
+              seg_fusion->completeFusion(),
+              args,
+              /*precomputed_values=*/nullptr,
+              /*all_tvs=*/{},
+              forced_index_type);
+          if (!seg_fusion->checkSegmentationPath(runtime_info)) {
             return false;
           }
+
+          // Check that heuristic for each segment matches
           auto maybe_heuristics =
               kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
           if (!maybe_heuristics.has_value()) {
@@ -847,56 +807,9 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
           return true;
         });
     if (reuse_it != kernel_runtimes.end()) {
-      kernel_runtime = reuse_it->get();
       reusing = true;
-
-      // Validate that this runtime has the desired heuristics
-      NVF_ERROR(
-          kernel_runtime->executors().size() == desired_fkr.executors().size());
-      auto& these_heuristics =
-          kernel_runtime->schedulerHeuristics()->heuristicsList();
-      bool segmented = these_heuristics.size() != 1;
-      auto& desired_heuristics =
-          desired_fkr.schedulerHeuristics()->heuristicsList();
-      if (these_heuristics.size() != desired_heuristics.size()) {
-        reusing = false;
-      } else {
-        for (size_t i : c10::irange(these_heuristics.size())) {
-          if (!these_heuristics.at(i)->sameAs(desired_heuristics.at(i).get())) {
-            debug() << "Found mismatched parameters! Desired params:"
-                    << std::endl;
-            for (size_t j : c10::irange(desired_heuristics.size())) {
-              debug() << desired_heuristics.at(j)->params()->toString()
-                      << std::endl;
-            }
-            debug()
-                << "Failed reusing params (THESE DON'T MATCH THE ABOVE PARAMS):"
-                << std::endl;
-            for (size_t j : c10::irange(desired_heuristics.size())) {
-              debug() << these_heuristics.at(j)->params()->toString()
-                      << std::endl;
-            }
-            reusing = false;
-            break;
-          }
-        }
-      }
-      if (reusing) {
-        if (segmented) {
-          ++successful_reuse_segmented_;
-        } else {
-          ++successful_reuse_unsegmented_;
-        }
-      } else {
-        if (segmented) {
-          ++unsuccessful_reuse_segmented_;
-        } else {
-          ++unsuccessful_reuse_unsegmented_;
-        }
-      }
+      kernel_runtime = reuse_it->get();
       kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
-    }
-    if (reusing) {
       static int reused_kernel = 1;
       // Print cuda kernels and PTX in order so that we can compare to those
       // created with DisableOption::KernelReuse
@@ -924,37 +837,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         reused_kernel++;
       }
     }
-  }
-
-  if (isDebugDumpEnabled(DebugDumpOption::KernelReuse)) {
-    const int total_inputs = id_to_kernel_runtime_.size() + (reusing ? 0 : 1);
-    const float successful_segmented_pct =
-        100.0 * (float)successful_reuse_segmented_ / (float)total_inputs;
-    const float successful_unsegmented_pct =
-        100.0 * (float)successful_reuse_unsegmented_ / (float)total_inputs;
-    const float unsuccessful_segmented_pct =
-        100.0 * (float)unsuccessful_reuse_segmented_ / (float)total_inputs;
-    const float unsuccessful_unsegmented_pct =
-        100.0 * (float)unsuccessful_reuse_unsegmented_ / (float)total_inputs;
-    debug() << "FusionExecutorCache Reuse stats:" << std::endl;
-    debug() << "  Unique inputs seen: " << total_inputs << std::endl;
-    debug() << "  Reused runtimes: "
-            << successful_reuse_segmented_ + successful_reuse_unsegmented_
-            << " (" << successful_segmented_pct + successful_unsegmented_pct
-            << "%)" << std::endl;
-    debug() << "    segmented: " << successful_reuse_segmented_ << " ("
-            << successful_segmented_pct << "% of total)" << std::endl;
-    debug() << "    unsegmented: " << successful_reuse_unsegmented_ << " ("
-            << successful_unsegmented_pct << "% of total)" << std::endl;
-    debug()
-        << "  Runtimes that could not be reused due to mismatched heuristics: "
-        << unsuccessful_reuse_segmented_ + unsuccessful_reuse_unsegmented_
-        << " (" << unsuccessful_segmented_pct + unsuccessful_unsegmented_pct
-        << "%)" << std::endl;
-    debug() << "    segmented: " << unsuccessful_reuse_segmented_ << " ("
-            << unsuccessful_segmented_pct << "% of total)" << std::endl;
-    debug() << "    unsegmented: " << unsuccessful_reuse_unsegmented_ << " ("
-            << unsuccessful_unsegmented_pct << "% of total)" << std::endl;
   }
 
   if (!reusing) {

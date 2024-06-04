@@ -440,6 +440,18 @@ class SegmentedFusion {
   //! Deserialize SegmentedFusion using flatbuffers
   void deserialize(const serde::SegmentedFusion* buffer);
 
+  //! Record whether a merge can be performed during segmentation
+  void recordMergeResult(
+      const std::vector<SegmentedGroup*>& groups,
+      bool success) {
+    merge_results_.emplace_back(groups, success);
+  }
+
+  //! Check that all the same segments would result if we re-segment with
+  //! runtime_info. This is done by recording all tryMerge results during
+  //! segmentation so that they can be checked later using this function.
+  bool checkSegmentationPath(SchedulerRuntimeInfo& runtime_info);
+
  private:
   void validateDAG() const;
   void validateDisjoint() const;
@@ -505,6 +517,14 @@ class SegmentedFusion {
   //! The number of expressions in fusion after constructing segmented fusion.
   //! Used for checking state during deserialization.
   size_t initial_exprs_size_;
+
+  //! When segmenting, we try merging pairs of groups. This process takes the
+  //! form of a decision tree whose nodes are these merge results. We record the
+  //! path through the decision tree here. Later, when inspecting an unseen
+  //! collection of input shapes, we can test each of these steps (in addition
+  //! to checking the unsegmented fusion) to determine whether re-segmentation
+  //! would give us the same end result.
+  std::vector<std::pair<std::vector<SegmentedGroup*>, bool>> merge_results_;
 
   // TODO: this class needs cleanup
  protected:
