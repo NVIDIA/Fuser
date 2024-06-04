@@ -1119,7 +1119,10 @@ TensorView* TensorView::cacheFork() {
   return new_output;
 }
 
-TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
+TensorView* TensorView::cacheAfter(
+    LoadStoreOpType op_type,
+    CacheOp cache_op,
+    bool propagate_allocation_domain) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1195,10 +1198,12 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
   IrBuilder::create<LoadStoreOp>(
       container(), op_type, consumer, producer, cache_op);
 
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+  if (propagate_allocation_domain) {
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
-  consumer->setDomain(replayed_consumer_pair.first);
+    consumer->setDomain(replayed_consumer_pair.first);
+  }
 
   return consumer;
 }
