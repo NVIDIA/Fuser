@@ -19,7 +19,7 @@ HostIrExecutor::HostIrExecutor(
     HostIrExecutorParams params)
     : container_(std::move(container)),
       communicator_(communicator),
-      params_(params){};
+      params_(params) {}
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
@@ -104,15 +104,15 @@ void HostIrExecutor::handle(Communication* communication) {
       "A valid communicator must be provided");
   NVF_ERROR(
       std::find(
-          communication->params().team.begin(),
-          communication->params().team.end(),
-          communicator_->deviceId()) != communication->params().team.end(),
+          communication->team().begin(),
+          communication->team().end(),
+          communicator_->deviceId()) != communication->team().end(),
       "current device index ",
       communicator_->deviceId(),
       " must be present in the communication's team");
 
-  auto input_val = communication->inputs().at(0);
-  auto output_val = communication->outputs().at(0);
+  Val* input_val = communication->input(0);
+  Val* output_val = communication->output(0);
   at::Tensor input_tensor;
   if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
     input_tensor = val_to_IValue_.at(input_val).toTensor();
@@ -122,8 +122,8 @@ void HostIrExecutor::handle(Communication* communication) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
   }
 
-  c10::intrusive_ptr<c10d::Backend> backend = communicator_->getBackendForTeam(
-      communication->params().team, std::nullopt);
+  c10d::Backend* backend =
+      communicator_->getBackendForTeam(communication->team(), std::nullopt);
   c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
       communication,
       communicator_->deviceId(),

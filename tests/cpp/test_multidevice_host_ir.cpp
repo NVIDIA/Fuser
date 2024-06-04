@@ -91,18 +91,19 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
       compute_inputs,
       compute_outputs);
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
-  TensorView* communication_inputs = tv1->as<TensorView>();
-  TensorView* communication_outputs = tv2->as<TensorView>();
-  CommParams comm_params{
-      .type = CommunicationType::Allgather,
-      .root = 0,
-      .mesh = mesh,
-      .team = mesh.vector()};
+  auto communication_input = tv1->as<TensorView>();
+  auto communication_output = tv2->as<TensorView>();
+
   auto communication = IrBuilder::create<Communication>(
       static_cast<IrContainer*>(hic.get()),
-      comm_params,
-      communication_inputs,
-      communication_outputs);
+      CommunicationType::Allgather,
+      mesh,
+      mesh.vector(),
+      -1,
+      RedOpType::UNUSED,
+      -1,
+      communication_input,
+      communication_output);
 
   // [Step 6)] Define the Host program
   hic->pushBackTopLevelExprs(post_compute);
