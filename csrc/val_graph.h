@@ -348,6 +348,11 @@ class ValGraph {
   std::unordered_map<ValGroup, ExprGroups> unique_uses_;
 };
 
+struct ValGroupAndItsGraph {
+  ValGroup group;
+  ValGraph* graph;
+};
+
 // Returns the first pair of id's in ids detected to match each other on the
 // given ID graph. TODO: what this is really looking for is if
 // there's any overlapping between the iter domains in the provided set.
