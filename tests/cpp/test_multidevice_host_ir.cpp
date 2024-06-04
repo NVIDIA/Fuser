@@ -211,8 +211,6 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   hic->addInput(post_compute->inputs().back());
   hic->addOutput(communication->outputs().back());
 
-  hic->print(debug());
-
   // [Step 8)] Execute the Host program
   HostIrExecutorParams params;
   params.use_fusion_executor_cache = use_fusion_executor_cache;
