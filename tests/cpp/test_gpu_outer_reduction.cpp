@@ -2374,11 +2374,8 @@ TEST_F(OuterReductionTest, KernelReuse) {
     int64_t iter_size = 16384;
     run(reduction_size, iter_size);
 
-    const auto& runtime_cache = executor_cache.getKernelRuntimes();
-    // Ensure there's only one concretization
-    EXPECT_EQ(runtime_cache.size(), 1);
-    // Ensure there's only a single FusionKernelRuntime for this concretization
-    EXPECT_EQ(runtime_cache.begin()->second.size(), 1);
+    EXPECT_EQ(executor_cache.countConcretizations(), 1);
+    EXPECT_EQ(executor_cache.countRuntimes(), 1);
 
     // Segmented into three groups
     auto runtime = executor_cache.getMostRecentKernelRuntime();
@@ -2392,13 +2389,11 @@ TEST_F(OuterReductionTest, KernelReuse) {
     int64_t iter_size = 16384;
     run(reduction_size, iter_size);
 
-    const auto& runtime_cache = executor_cache.getKernelRuntimes();
-    // Ensure there's only one concretization
-    EXPECT_EQ(runtime_cache.size(), 1);
+    EXPECT_EQ(executor_cache.countConcretizations(), 1);
     // Ensure there are now two FusionKernelRuntimes for this concretization
-    EXPECT_EQ(runtime_cache.begin()->second.size(), 2);
+    EXPECT_EQ(executor_cache.countRuntimes(), 2);
 
-    // Segmented into three groups
+    // Segmented into two groups at this size
     auto runtime = executor_cache.getMostRecentKernelRuntime();
     ASSERT_NE(runtime, nullptr);
     EXPECT_TRUE(runtime->isSegmented());
