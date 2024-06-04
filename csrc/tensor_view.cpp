@@ -1016,9 +1016,9 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // This domain will be the consumer which needs a new domain, so replace the
   // producers domain with this domain.
 
-  TensorView* producer = IrBuilder::create<TensorView>(
+  TensorView* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
           getRootDomain(),
           getRFactorDomain(),
@@ -1040,7 +1040,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   // Warning: allocation domain is temporarily discarded. It will be recovered
   // later.
-  consumer->setDomain(IrBuilder::create<TensorDomain>(
+  consumer->setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
       new_root_domain,
       TensorDomain::getContiguityFilledWith(new_root_domain, true)));
@@ -1056,7 +1056,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   }
   ir_utils::transferDefinitionToNewOutputs(definition(), replaced_siblings);
 
-  IrBuilder::create<LoadStoreOp>(container(), op_type, consumer, producer);
+  IrBuilder::createInContainer<LoadStoreOp>(
+      container(), op_type, consumer, producer);
 
   // definition_ is no longer valid
   // setDefinition(nullptr);
@@ -1094,16 +1095,16 @@ TensorView* TensorView::cacheFork() {
   // This domain will be the producer, so create the consumer
   auto root_domain = TensorDomain::noReductions(getRFactorDomain());
 
-  TensorView* new_output = IrBuilder::create<TensorView>(
+  TensorView* new_output = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
           IterDomain::clone(root_domain),
           TensorDomain::getContiguityFilledWith(root_domain, true)),
       getDataType().value());
 
   // Create write operation from this TV to new output
-  IrBuilder::create<LoadStoreOp>(
+  IrBuilder::createInContainer<LoadStoreOp>(
       container(), LoadStoreOpType::Set, new_output, this);
 
   // The new TV becomes an output.
@@ -1174,9 +1175,9 @@ TensorView* TensorView::cacheAfter(
   }
 
   // This domain will be the producer, so create the consumer
-  TensorView* consumer = IrBuilder::create<TensorView>(
+  TensorView* consumer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
           new_root_domain,
           TensorDomain::getContiguityFilledWith(new_root_domain, true)),
@@ -1195,7 +1196,7 @@ TensorView* TensorView::cacheAfter(
   }
 
   // Expr* consumer_definition =
-  IrBuilder::create<LoadStoreOp>(
+  IrBuilder::createInContainer<LoadStoreOp>(
       container(), op_type, consumer, producer, cache_op);
 
   if (propagate_allocation_domain) {
@@ -1252,10 +1253,10 @@ void TensorView::clearReductionIterDomains() {
   if (new_alloc == new_root) {
     // if new allocation domain is identical to new root domain, we don't need
     // to specify allocation domain
-    setDomain(
-        IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
+        container(), new_root, new_contig));
   } else {
-    setDomain(IrBuilder::create<TensorDomain>(
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
         container(),
         std::vector<IterDomain*>(),
         new_root,
@@ -1329,7 +1330,7 @@ void TensorView::commitLeafToRFactor() {
   NVF_CHECK(
       ir_utils::consumerTvsOf(this).empty(),
       "Changing the rFactor domain of an intermediate tensor is not supported yet");
-  setDomain(IrBuilder::create<TensorDomain>(
+  setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
       domain_->maybeRoot(),
       domain_->leaf(),
