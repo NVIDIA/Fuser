@@ -173,8 +173,7 @@ bool isTvOp(const Expr* expr) {
 
 bool isLdMatrixOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::LdMatrix ||
-        ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+    return ldst->opType() == LoadStoreOpType::LdMatrix;
   }
   return false;
 }

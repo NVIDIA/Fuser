@@ -1839,7 +1839,6 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
     } else if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
                loadstore != nullptr &&
                (loadstore->opType() == LoadStoreOpType::LdMatrix ||
-                loadstore->opType() == LoadStoreOpType::LdMatrixTranspose ||
                 loadstore->opType() == LoadStoreOpType::CpAsync ||
                 loadstore->opType() ==
                     LoadStoreOpType::CpAsyncBulkTensorTile)) {

@@ -406,11 +406,11 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
 
 namespace {
 
-std::optional<IterDomain*> getMaybeRootIfInnermostTiled(
+std::optional<IterDomain*> getMaybeAllocationIfInnermostTiled(
     IterDomain* id,
-    const std::unordered_set<IterDomain*>& maybe_rfactor_id_set) {
+    const std::unordered_set<IterDomain*>& maybe_allocation_id_set) {
   // Root id defaults to an "innermost id".
-  while (id->definition() && !maybe_rfactor_id_set.count(id)) {
+  while (id->definition() && !maybe_allocation_id_set.count(id)) {
     if (auto split = dynamic_cast<Split*>(id->definition())) {
       if (id == split->inner()) {
         id = split->in();
@@ -426,16 +426,17 @@ std::optional<IterDomain*> getMaybeRootIfInnermostTiled(
 
 } // namespace
 
-void orderTiledConcreteIdAsRoot(TensorView* tv) {
+void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
   int64_t ndims = tv->nDims();
 
   // Keep track of the left most position where we will
   //  be reordering the axes.
   int64_t leftmost_pos = ndims;
 
-  // Pull the root id's of the given tv.
-  std::unordered_set<IterDomain*> maybe_rfactor_id_set{
-      tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()};
+  // Pull the maybe allocation domain id's of the given tv.
+  std::unordered_set<IterDomain*> id_set{
+      tv->getMaybeAllocationDomain().begin(),
+      tv->getMaybeAllocationDomain().end()};
 
   // Keep track of leaf positions that is either a reduction
   //  or a broadcast.
@@ -444,9 +445,9 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  here for completeness.
   std::deque<int64_t> broadcast_or_reduction_pos;
 
-  // Map the root id's to their innermost concrete id's
+  // Map the id's to their innermost concrete id's
   //  on the leaf.
-  std::unordered_map<IterDomain*, int64_t> root_id_to_inner_leaf_pos;
+  std::unordered_map<IterDomain*, int64_t> id_to_inner_leaf_pos;
 
   // Try to re-order inner iterdomains from the innermost
   //  position backward. This utility only tries to re-order
@@ -470,18 +471,18 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
       leftmost_pos = i;
       continue;
     }
-    auto maybe_root =
-        getMaybeRootIfInnermostTiled(leaf_id, maybe_rfactor_id_set);
+    auto maybe_alloc_domain =
+        getMaybeAllocationIfInnermostTiled(leaf_id, id_set);
 
-    if (maybe_root.has_value()) {
+    if (maybe_alloc_domain.has_value()) {
       // Found an innermost id, add them to the
       //  axes to reorder.
       NVF_ERROR(
-          root_id_to_inner_leaf_pos
-              .insert(std::make_pair(maybe_root.value(), i))
+          id_to_inner_leaf_pos
+              .insert(std::make_pair(maybe_alloc_domain.value(), i))
               .second,
-          "Multiple \"innermost\" id seen for root id :",
-          maybe_root.value()->toString(),
+          "Multiple \"innermost\" id seen for id :",
+          maybe_alloc_domain.value()->toString(),
           " on ",
           tv->toString(),
           " very likely an invariant is broken.");
@@ -508,9 +509,9 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  domain ordering by iterating on the root domain and
   //  find their corresponding inner tile iterdomains from
   //  the populated root_id_to_inner_leaf_pos.
-  for (auto root_id : tv->getRFactorDomain()) {
-    auto leaf_id_pos_it = root_id_to_inner_leaf_pos.find(root_id);
-    if (leaf_id_pos_it != root_id_to_inner_leaf_pos.end()) {
+  for (auto id : tv->getMaybeAllocationDomain()) {
+    auto leaf_id_pos_it = id_to_inner_leaf_pos.find(id);
+    if (leaf_id_pos_it != id_to_inner_leaf_pos.end()) {
       reorder_map_old_to_new[leaf_id_pos_it->second] = current_pos++;
     }
   }
@@ -704,11 +705,67 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
   return {mma_domains.begin(), mma_domains.end()};
 }
 
+// Function to travel up the DAG along the innermost path from the inner-most ID
+// of allocation domain. Assumption: There are only splits and merges from the
+// root to the allocation. We only handle going up splits when the producer is
+// the inner output of a split. If this was not a case, then given merges,
+// splits and reorders, we could have a case that we start from a ID derived
+// from K, but while going back up the DAG we end up with a non-K ID. Eg: (K, M)
+// -> Merge -> () -> Split -> (K, M) -> Reorder -> (M , K) -> Split -> M, K_o,
+// K_in. If we start with K_in we can end up with M.
+IterDomain* getIDinConsumerRoot(IterDomain* id) {
+  while (Expr* expr = id->definition()) {
+    NVF_CHECK(expr->isA<Merge>() || expr->isA<Split>());
+    if (expr->isA<Split>()) {
+      NVF_CHECK(
+          id == expr->as<Split>()->inner(),
+          "We only handle cases where the inner-most ID"
+          "of the allocation domain was the inner output of a split");
+      id = expr->as<Split>()->in();
+    } else {
+      id = expr->as<Merge>()->inner();
+    }
+  }
+  return id;
+}
+
 } // namespace
 
+// The assumption made in this function is that we have set the allocation in
+// the register (acr/bb). The inner-most ID in the allocation domain of the
+// consumer (register) is derived from a series of scheduling operations on the
+// 'k' ID (for now only splits, but there could be merges in the future).
+// So starting from the inner-most ID of the consumer's allocation we go up the
+// DAG (along the innermost path) to ID this came from in the root domain.  We
+// then map this ID in the root domain to producer's (shared memory) logical
+// domain. Once we have the ID in the producer's logical domain, we check if
+// that's the innermost dimension in its allocation domain. Here, the other
+// assumption we have is that the producer's allocation domain is a permutation
+// of the logical domain. If the ID is the innermost of the allocation no
+// transpose is needed.
+bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
+  const auto consumer = ir_utils::getTvOutput(ldst);
+  const auto producer = ir_utils::getTvInput(ldst);
+
+  // Get the innermost ID and go back up the DAG to the root domain.
+  auto corresponding_id_in_consumer_root =
+      getIDinConsumerRoot(consumer->getMaybeAllocationDomain().back());
+
+  // This gives us the ID in the consumer root domain.
+  // We'll later map this ID to one in the producer.
+  const PairwiseRootDomainMap map_across_ldst(producer, consumer);
+  const auto c2p_map = map_across_ldst.mapConsumerToProducer();
+  const auto id_in_proc_rfactor = c2p_map.at(corresponding_id_in_consumer_root);
+
+  // If the innermost ID of the (maybe)Allocation domain
+  // is not the same as the mapped ID in the producer, then
+  // we need to transpose.
+  return producer->getMaybeAllocationDomain().back() != id_in_proc_rfactor;
+}
+
 void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
-  bool transpose = tv->definition()->as<LoadStoreOp>()->opType() ==
-      LoadStoreOpType::LdMatrixTranspose;
+  NVF_CHECK(tv->definition()->isA<LoadStoreOp>());
+  bool transpose = isLdMatrixTranspose(tv->definition()->as<LoadStoreOp>());
   // For A, we have an extra outer dim (-6), which is the "warp group". For
   // Hopper, mma instructions executes on warp group level. For Turing/Ampere,
   // this dim will just have extent 1.

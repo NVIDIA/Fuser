@@ -2270,14 +2270,6 @@ std::string LoadStoreOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-bool LoadStoreOp::hasInnerTranspose() const {
-  if (auto out_tv = dynamic_cast<TensorView*>(out())) {
-    return out_tv->hasRoot() &&
-        out_tv->getRootDomain().back() != out_tv->getRFactorDomain().back();
-  }
-  return false;
-}
-
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
 
 IterDomainBuilder::IterDomainBuilder(Val* _start, Val* _extent)
@@ -2630,34 +2622,21 @@ IterDomain* IterDomain::merge(
   return merged_id;
 }
 
-// Both outer and inner domains do not inherit start and stop
-// values as they can't be split. The access range is enforced by
-// predicates.
 std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
     Val* factor,
     bool inner_split,
-    Val* start_offset,
-    Val* stop_offset,
     bool rfactor_domain) {
   NVF_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
   // outer loop size
-  Val* remainder =
-      ceilDiv(Split::extent(in->extent(), start_offset, stop_offset), factor);
+  Val* remainder = ceilDiv(in->extent(), factor);
   Val* expanded_remainder = nullptr;
   if (in->hasExpandedExtent()) {
-    expanded_remainder = ceilDiv(
-        Split::extent(in->expandedExtent(), start_offset, stop_offset), factor);
+    expanded_remainder = ceilDiv(in->expandedExtent(), factor);
   }
 
-  if ((start_offset != nullptr && !start_offset->isZeroInt()) ||
-      (stop_offset != nullptr && !stop_offset->isZeroInt())) {
-    NVF_ERROR(
-        in->definition() == nullptr,
-        "Partial split is only allowed with root domains");
-  }
   // outer loop IterDomain
   IterDomain* ido =
       IterDomainBuilder(
@@ -2682,28 +2661,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
           .is_rfactor_domain(rfactor_domain)
           .build();
 
-  IrBuilder::create<Split>(
-      in->container(),
-      ido,
-      idi,
-      in,
-      factor,
-      inner_split,
-      start_offset,
-      stop_offset);
+  IrBuilder::create<Split>(in->container(), ido, idi, in, factor, inner_split);
   return {ido, idi};
-}
-
-std::pair<IterDomain*, IterDomain*> IterDomain::split(
-    IterDomain* in,
-    Val* factor,
-    bool inner_split,
-    bool trim_out_of_bounds,
-    bool rfactor_domain) {
-  auto start_offset = trim_out_of_bounds ? in->start() : nullptr;
-  auto stop_offset = trim_out_of_bounds ? in->stopOffset() : nullptr;
-  return IterDomain::split(
-      in, factor, inner_split, start_offset, stop_offset, rfactor_domain);
 }
 
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
@@ -3407,29 +3366,17 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   return std::distance(maybeRoot().begin(), it);
 }
 
-void TensorDomain::split(
-    int64_t axis,
-    Val* factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
+void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
   NVF_ERROR(nDims() > 0, "Tried to do split on a 0-dim domain");
   axis = wrapDim(axis);
 
   IterDomain* id = this->axis(axis);
 
-  // partial split is only allowed with root domains
-  if (trim_out_of_bounds) {
-    NVF_ERROR(
-        std::find(maybeRoot().begin(), maybeRoot().end(), id) != root().end(),
-        "Partial split is only allowed with root domains");
-  }
-
   NVF_ERROR(
       !id->isMmaSwizzled(),
       "Further transformation on warp mapped id's not allowed.");
 
-  auto split_ids =
-      IterDomain::split(id, factor, inner_split, trim_out_of_bounds);
+  auto split_ids = IterDomain::split(id, factor, inner_split);
   leaf_domain_.erase(leaf_domain_.begin() + axis);
   leaf_domain_.insert(leaf_domain_.begin() + axis, split_ids.second);
   leaf_domain_.insert(leaf_domain_.begin() + axis, split_ids.first);
@@ -3712,19 +3659,11 @@ Split::Split(
     IterDomain* inner,
     IterDomain* in,
     Val* factor,
-    bool inner_split,
-    Val* start_offset,
-    Val* stop_offset)
+    bool inner_split)
     : Expr(passkey) {
   NVF_ERROR(
       factor->isIntegralScalar(),
       "Attempted to create a Split node with a non-integer factor.");
-  if (start_offset == nullptr) {
-    start_offset = passkey.ir_container_->zeroVal();
-  }
-  if (stop_offset == nullptr) {
-    stop_offset = passkey.ir_container_->zeroVal();
-  }
   addOutput(outer);
   addOutput(inner);
   addInput(in);
@@ -3732,8 +3671,6 @@ Split::Split(
   // and need to check BestEffortReplay::findFirstMismatchedID addInput(factor);
   addAttribute(factor);
   addDataAttribute(inner_split);
-  addAttribute(start_offset);
-  addAttribute(stop_offset);
 }
 
 std::string Split::toString(int indent_size) const {
@@ -3744,34 +3681,12 @@ std::string Split::toString(int indent_size) const {
   ss << outer()->toString();
   ss << ", ";
   ss << inner()->toString();
-  if (startOffset()) {
-    ss << ", start offset: ";
-    ss << startOffset()->toString();
-  }
-  if (stopOffset()) {
-    ss << ", stop offset: ";
-    ss << stopOffset()->toString();
-  }
   ss << "\n";
   return ss.str();
 }
 
 std::string Split::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Split can not be printed inline");
-}
-
-Val* Split::extent(Val* in_extent, Val* start_offset, Val* stop_offset) {
-  NVF_ERROR(in_extent != nullptr);
-
-  if (start_offset != nullptr && !start_offset->isZeroInt()) {
-    in_extent = sub(in_extent, start_offset);
-  }
-
-  if (stop_offset != nullptr && !stop_offset->isZeroInt()) {
-    in_extent = sub(in_extent, stop_offset);
-  }
-
-  return in_extent;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Split)
