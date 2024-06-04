@@ -238,7 +238,7 @@ class PredicateChcker : public IterVisitor {
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
-    if(ir_utils::isCpAsyncOp(expr)){
+    if (ir_utils::isCpAsyncOp(expr)) {
       std::cout << "needs_predicate_ " << needs_predicate_smem_access
                 << ", expr: " << expr->toString() << std::endl;
     }

@@ -1322,7 +1322,7 @@ void movePersistentBufferToSmem(
     }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
-      if(is_cached_input){
+      if (is_cached_input) {
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);

@@ -1075,7 +1075,7 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterNoOuterBroadcastTv) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  const int dim0 = 1024, dim1 = 32678+1024;
+  const int dim0 = 1024, dim1 = 32678 + 1024;
   auto tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
   auto tv1 = sum(tv0, {1});
