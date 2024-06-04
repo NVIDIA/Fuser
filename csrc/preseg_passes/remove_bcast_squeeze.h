@@ -15,6 +15,9 @@ class RemoveBcastSqueeze : public OptimizationPass<RemoveBcastSqueeze> {
 
  protected:
   static void runPass(Fusion* fusion);
+  static std::string name() {
+    return "RemoveBcastSqueeze";
+  }
 };
 
 } // namespace nvfuser::preseg_passes
