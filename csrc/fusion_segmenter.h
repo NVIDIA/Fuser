@@ -518,7 +518,7 @@ class SegmentedFusion {
   //! Used for checking state during deserialization.
   size_t initial_exprs_size_;
 
-  //! When segmenting, we try merging pairs of groups. This process takes the
+  //! When segmenting, we try merging vectors of groups. This process takes the
   //! form of a decision tree whose nodes are these merge results. We record the
   //! path through the decision tree here. Later, when inspecting an unseen
   //! collection of input shapes, we can test each of these steps (in addition
