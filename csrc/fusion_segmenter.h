@@ -443,8 +443,8 @@ class SegmentedFusion {
   //! Record whether a merge can be performed during segmentation
   void recordMergeResult(
       const std::vector<SegmentedGroup*>& groups,
-      bool success) {
-    merge_results_.emplace_back(groups, success);
+      const std::optional<ScheduleHeuristic>& result) {
+    merge_results_.emplace_back(groups, result);
   }
 
   //! Check that all the same segments would result if we re-segment with
@@ -524,7 +524,9 @@ class SegmentedFusion {
   //! collection of input shapes, we can test each of these steps (in addition
   //! to checking the unsegmented fusion) to determine whether re-segmentation
   //! would give us the same end result.
-  std::vector<std::pair<std::vector<SegmentedGroup*>, bool>> merge_results_;
+  std::vector<
+      std::pair<std::vector<SegmentedGroup*>, std::optional<ScheduleHeuristic>>>
+      merge_results_;
 
   // TODO: this class needs cleanup
  protected:
