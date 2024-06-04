@@ -121,7 +121,9 @@ TEST_F(AbstractTensorTest, MergeIterDomainsBatch) {
   auto id1 = newID();
   auto id2 = newID();
   auto id3 = newID();
-  AbstractTensor v{{std::vector<AbstractId>({id0, id1}), std::vector<AbstractId>({id2, id3})}};
+  AbstractTensor v{
+      {std::vector<AbstractId>({id0, id1}),
+       std::vector<AbstractId>({id2, id3})}};
   v.merge(0);
   // [{0*2, 1*3}]
   auto result = v.as<std::vector<IterDomain*>>();
