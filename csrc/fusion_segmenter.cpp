@@ -693,6 +693,14 @@ void SegmentedFusion::Impl::cleanUnused() {
   std::unordered_set<SegmentedEdge*> e_used(
       owning_fusion_->edges().begin(), owning_fusion_->edges().end());
 
+  for (const auto& [groups, result] : owning_fusion_->merge_results_) {
+    for (auto g : groups) {
+      g_used.insert(g);
+      e_used.insert(g->producer_edges.begin(), g->producer_edges.end());
+      e_used.insert(g->consumer_edges.begin(), g->consumer_edges.end());
+    }
+  }
+
   groups_.erase(
       std::remove_if(
           groups_.begin(),
@@ -1207,12 +1215,7 @@ TensorView* castIntermediateValueInCompleteFusion(
 } // namespace
 
 void SegmentedFusion::finalize() {
-  if (isOptionDisabled(DisableOption::KernelReuse)) {
-    // If kernel reuse is disabled, then it is safe to remove owned
-    // SegmentedGroup and SegmentedEdge objects. However, if not then we might
-    // need to make use of those objects later in checkSegmentationPath.
-    impl_.cleanUnused();
-  }
+  impl_.cleanUnused();
   castInputOutputToLowerPrecision(edges());
 }
 
