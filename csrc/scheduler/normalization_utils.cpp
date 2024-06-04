@@ -1322,7 +1322,8 @@ void movePersistentBufferToSmem(
     }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
-      if (is_cached_input) {
+      auto dev_prop = at::cuda::getCurrentDeviceProperties();
+      if (is_cached_input && dev_prop->major >= 8) {
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
