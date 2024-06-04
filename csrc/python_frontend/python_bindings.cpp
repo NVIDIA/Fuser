@@ -9,6 +9,7 @@
 
 #include <c10/util/ArrayRef.h>
 #include <c10/util/irange.h>
+#include <fusion_profiler.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
@@ -429,13 +430,12 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
       .value("set", LoadStoreOpType::Set)
       .value("load_matrix", LoadStoreOpType::LdMatrix)
-      .value("load_matrix_transpose", LoadStoreOpType::LdMatrixTranspose)
       .value("cp_async", LoadStoreOpType::CpAsync)
       .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
 
   //! CacheOp used for scheduling
   py::enum_<CacheOp>(nvfuser, "CacheOp")
-      .value("none", CacheOp::Unspecified)
+      .value("unspecified", CacheOp::Unspecified)
       .value("all_levels", CacheOp::AllLevels)
       .value("streaming", CacheOp::Streaming)
       .value("global", CacheOp::Global);
@@ -491,6 +491,80 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.stats(ss);
         return ss.str();
       });
+
+  //! KernelProfiles are encapsulated in FusionProfiles where each KP
+  //! is associated with a segment.
+  py::class_<KernelProfile> kernel_prof(nvfuser, "KernelProfile");
+  kernel_prof.def_property_readonly(
+      "name", [](KernelProfile& self) { return self.name; });
+  kernel_prof.def_property_readonly(
+      "segment_id", [](KernelProfile& self) { return self.segment_id; });
+  kernel_prof.def_property_readonly(
+      "device", [](KernelProfile& self) { return self.device; });
+  kernel_prof.def_property_readonly(
+      "stream", [](KernelProfile& self) { return self.stream; });
+  kernel_prof.def_property_readonly("correlation_id", [](KernelProfile& self) {
+    return self.correlation_id;
+  });
+  kernel_prof.def_property_readonly("compile_time_ms", [](KernelProfile& self) {
+    return self.compile_time_ms;
+  });
+  kernel_prof.def_property_readonly(
+      "time_ms", [](KernelProfile& self) { return self.time_ms; });
+  kernel_prof.def_property_readonly(
+      "effective_bandwidth_gbs",
+      [](KernelProfile& self) { return self.effective_bandwidth_gbs; });
+  kernel_prof.def_property_readonly(
+      "percentage_peak_bandwidth",
+      [](KernelProfile& self) { return self.percentage_peak_bandwidth; });
+  kernel_prof.def_property_readonly(
+      "grid_str", [](KernelProfile& self) { return self.grid_str; });
+  kernel_prof.def_property_readonly(
+      "block_str", [](KernelProfile& self) { return self.block_str; });
+  kernel_prof.def_property_readonly(
+      "cluster_str", [](KernelProfile& self) { return self.cluster_str; });
+  kernel_prof.def_property_readonly("shared_mem_str", [](KernelProfile& self) {
+    return self.shared_mem_str;
+  });
+  kernel_prof.def_property_readonly(
+      "registers", [](KernelProfile& self) { return self.registers; });
+  kernel_prof.def_property_readonly(
+      "input_bytes", [](KernelProfile& self) { return self.input_bytes; });
+  kernel_prof.def_property_readonly(
+      "output_bytes", [](KernelProfile& self) { return self.output_bytes; });
+
+  //! A fusion profile is generated for FusionDefinition.
+  py::class_<FusionProfile> fusion_prof(nvfuser, "FusionProfile");
+  fusion_prof.def_property_readonly(
+      "verbose", [](FusionProfile& self) { return self.verbose; });
+  fusion_prof.def_property_readonly(
+      "fusion_id", [](FusionProfile& self) { return self.fusion_id; });
+  fusion_prof.def_property_readonly(
+      "segments", [](FusionProfile& self) { return self.segments; });
+  fusion_prof.def_property_readonly(
+      "cuda_evt_time_ms",
+      [](FusionProfile& self) { return self.cuda_evt_time_ms; });
+  fusion_prof.def_property_readonly(
+      "host_time_ms", [](FusionProfile& self) { return self.host_time_ms; });
+  fusion_prof.def_property_readonly("compile_time_ms", [](FusionProfile& self) {
+    return self.compile_time_ms;
+  });
+  fusion_prof.def_property_readonly("kernel_time_ms", [](FusionProfile& self) {
+    return self.kernel_time_ms;
+  });
+  fusion_prof.def_property_readonly(
+      "effective_bandwith_gbs",
+      [](FusionProfile& self) { return self.effective_bandwidth_gbs; });
+  fusion_prof.def_property_readonly(
+      "percentage_peak_bandwith",
+      [](FusionProfile& self) { return self.percentage_peak_bandwidth; });
+  fusion_prof.def_property_readonly(
+      "input_bytes", [](FusionProfile& self) { return self.input_bytes; });
+  fusion_prof.def_property_readonly(
+      "output_bytes", [](FusionProfile& self) { return self.output_bytes; });
+  fusion_prof.def_property_readonly("kernel_profiles", [](FusionProfile& self) {
+    return self.kernel_profiles;
+  });
 
   //! These are the FusionDefinition supported object types that are either
   //! defined as inputs or the output of an operation.
@@ -592,9 +666,10 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,
-             bool override_user_schedule,
              std::optional<int64_t> device,
-             bool capture_debug_output) {
+             bool override_user_schedule,
+             bool capture_debug_output,
+             bool profile) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
@@ -616,15 +691,21 @@ void initNvFuserPythonBindings(PyObject* module) {
             }
             return self.execute(
                 inputs,
+                int8_device,
                 override_user_schedule,
                 capture_debug_output,
-                int8_device);
+                profile);
           },
           py::arg("inputs"),
-          py::arg("override_user_schedule") = false,
           py::kw_only(),
           py::arg("device") = py::none(),
+          py::arg("override_user_schedule") = false,
           py::arg("capture_debug_output") = false,
+          py::arg("profile") = false,
+          py::return_value_policy::reference)
+      .def_static(
+          "_profile",
+          &FusionProfiler::profile,
           py::return_value_policy::reference)
       .def(
           "_debug_output",
@@ -2836,6 +2917,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         return tv->toString();
       },
       py::arg("tensor"));
+  nvf_sched.def(
+      "user_schedule_ir",
+      [](FusionDefinition::SchedOperators& self) {
+        return self.fusion_definition->userScheduleIr();
+      },
+      py::return_value_policy::reference);
   //! experimental API for multidevice support
   nvf_sched.def(
       "_create_device_mesh",
@@ -2897,14 +2984,10 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.validUse(),
         "Attempting to use a SchedOperators Op prior to definition!");
     FusionDefinition* fd = self.fusion_definition;
-    auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
-    auto output_tv = input_tv->rFactor(dims);
-    Tensor output = fd->defineTensor(arg.dims);
-    NVF_CHECK(
-        output.index == fd->numFusionStates(),
-        "Fusion State index does not match the size!");
-    fd->addFusionState(output_tv);
-    return output;
+    TensorView* input_tv =
+        fd->getFusionState(arg.index)->template as<TensorView>();
+    TensorView* output_tv = input_tv->rFactor(dims);
+    return fd->addTensor(output_tv);
   };
   nvf_sched.def(
       "reduction_factor",
@@ -2964,12 +3047,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         TensorView* input_tv =
             fd->getFusionState(tensor.index)->template as<TensorView>();
         TensorView* output_tv = input_tv->cacheAfter(op_type, cache_op);
-        Tensor output = fd->defineTensor(tensor.dims);
-        NVF_CHECK(
-            output.index == fd->numFusionStates(),
-            "Fusion State index does not match the size!");
-        fd->addFusionState(output_tv);
-        return output;
+        return fd->addTensor(output_tv);
       },
       py::arg("tensor"),
       py::arg("op_type") = LoadStoreOpType::Set,
@@ -2986,12 +3064,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         TensorView* input_tv =
             fd->getFusionState(tensor.index)->template as<TensorView>();
         TensorView* output_tv = input_tv->cacheBefore(op_type);
-        Tensor output = fd->defineTensor(tensor.dims);
-        NVF_CHECK(
-            output.index == fd->numFusionStates(),
-            "Fusion State index does not match the size!");
-        fd->addFusionState(output_tv);
-        return output;
+        return fd->addTensor(output_tv);
       },
       py::arg("tensor"),
       py::arg("op_type") = LoadStoreOpType::Set);

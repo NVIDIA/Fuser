@@ -471,7 +471,7 @@ TensorView* canonicalizeInputToBMNK(
     TensorView* tv,
     MmaLayout layout,
     MmaOperand operand) {
-  auto rfnob = TensorDomain::noBroadcasts(tv->getMaybeRFactorDomain());
+  auto rfnob = TensorDomain::noBroadcasts(tv->getRFactorDomain());
   NVF_ERROR(
       rfnob.size() == 2 || rfnob.size() == 3,
       "Expected 2 or 3 domains, got ",

@@ -82,7 +82,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
   auto rootmap = PairwiseRootDomainMap(input, output).mapBroadcast(false);
   const auto c2p_map = rootmap.mapConsumerToProducer();
 
-  for (IterDomain* out_root : output->getRootDomain()) {
+  for (IterDomain* out_root : output->getMaybeRootDomain()) {
     IterDomain* in_root = c2p_map.at(out_root);
     // Ignore sharded broadcast domains and
     // sharded reductions on the output
@@ -113,7 +113,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
 bool isSharded(TensorView* tv) {
   bool is_sharded = false;
-  auto rids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto rids = TensorDomain::noReductions(tv->getRFactorDomain());
   auto ids = TensorDomain::noReductions(tv->getLeafDomain());
   for (auto i : c10::irange(ids.size())) {
     // Only one axis can be sharded on DIDx.
@@ -155,8 +155,7 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
   // iterdomain
   const auto p2c_map =
       PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
-  for (auto p_id :
-       TensorDomain::noReductions(producer->getMaybeRFactorDomain())) {
+  for (auto p_id : TensorDomain::noReductions(producer->getRFactorDomain())) {
     auto p2c_map_it = p2c_map.find(p_id);
     NVF_ERROR(
         p2c_map_it != p2c_map.end(),
@@ -317,6 +316,12 @@ void insertReshardingsAfter(Fusion* fusion) {
   }
 }
 
+void setShardedAllocationDomain(TensorView* tv) {
+  if (!tv->hasAllocation()) {
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  }
+}
+
 } // namespace
 
 void propagateShardings(Fusion* fusion) {
@@ -325,15 +330,16 @@ void propagateShardings(Fusion* fusion) {
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
     TensorView* input_with_mesh = nullptr;
     for (auto tv : inputs) {
-      if (tv->hasDeviceMesh()) {
+      NVF_CHECK(
+          tv->hasDeviceMesh(),
+          "Tensor ",
+          tv->toString(),
+          " should be assigned a DeviceMesh");
+      if (input_with_mesh == nullptr) {
         input_with_mesh = tv;
-        break;
       }
     }
-    NVF_ERROR(
-        input_with_mesh != nullptr,
-        "At least one input requires a DeviceMesh ",
-        expr->toString());
+
     std::vector<TensorView*> outputs_without_mesh;
     for (auto tv : outputs) {
       if (!tv->hasDeviceMesh()) {
@@ -360,7 +366,7 @@ void insertShardedAxisReordering(Fusion* fusion) {
     }
     NVF_ERROR(
         ir_utils::isTvOp(expr),
-        "Non-tv op is not supported : ",
+        "Non-tv op is not supported:",
         expr->toString());
     NVF_ERROR(
         expr->outputs().size() == 1,
@@ -375,7 +381,8 @@ void insertShardedAxisReordering(Fusion* fusion) {
     auto [shard_additions, shard_deletions] = getShardingChanges(expr);
     NVF_ERROR(
         shard_additions.size() + shard_deletions.size() <= 1,
-        "Resharding expr can only support one axis")
+        "Resharding expr can only support one axis:",
+        expr->toString())
 
     // For gather operations i.e. ID goes from sharded to unsharded
     // this will rematerialize a sharded axis.
@@ -464,6 +471,28 @@ void insertShardedAxisReordering(Fusion* fusion) {
   }
 }
 
+void setShardedAllocationDomain(Fusion* fusion) {
+  for (Expr* expr : fusion->exprs()) {
+    if (!isResharding(expr)) {
+      continue;
+    }
+    for (TensorView* tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      for (auto c : tv->getContiguity()) {
+        if (c.has_value()) {
+          NVF_CHECK(
+              c.value(),
+              "Resharding expression input must be contiguous: ",
+              expr);
+        }
+      }
+      setShardedAllocationDomain(tv);
+    }
+    for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      setShardedAllocationDomain(tv);
+    }
+  }
+}
+
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
   for (auto tv : ir_utils::allTvs(fusion)) {
@@ -506,7 +535,7 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
 }
 
 int64_t getShardedAxis(TensorView* tv) {
-  auto ids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto ids = TensorDomain::noReductions(tv->getRFactorDomain());
   for (size_t i = 0; i < ids.size(); ++i) {
     if (ids[i]->getParallelType() == ParallelType::DIDx) {
       return static_cast<int64_t>(i);

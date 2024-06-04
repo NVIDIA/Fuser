@@ -18,6 +18,9 @@ class NVF_API RemoveEmptyPass : public OptimizationPass<RemoveEmptyPass> {
 
  protected:
   static void runPass(Fusion* fusion);
+  static std::string name() {
+    return "RemoveEmptyPass";
+  }
 };
 
 } // namespace nvfuser::preseg_passes

@@ -126,8 +126,7 @@ bool isSerialBroadcastResolution(
 
   // Collect exact concrete id's in producer's root domain
   std::unordered_set<IterDomain*> producer_exact_concrete_root_ids;
-  auto producer_root =
-      TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+  auto producer_root = TensorDomain::noReductions(producer->getRFactorDomain());
   std::transform(
       producer_root.begin(),
       producer_root.end(),
@@ -1258,7 +1257,6 @@ class ReusableAllocationFinder : private kir::IrVisitor {
   //!  current enforced conditions are:
   //!
   //! 1. The two buffers have producer-consumer relationship
-  //! 2. No halo in the allocated iter domains
   //! 3. Require index equivalence when sharing across broadcast
   bool isValidInnerSharing(
       AllocationInfo* alloc_info,
@@ -1305,12 +1303,6 @@ class ReusableAllocationFinder : private kir::IrVisitor {
       auto to_reuse_it = local_alloc_map.find(to_reuse->alloc_expr);
       if (alloc_it == local_alloc_map.end() ||
           to_reuse_it == local_alloc_map.end()) {
-        return false;
-      }
-
-      // Disable in-place reusing for halo ops, since halo
-      //  can issue pointwise op multiple points at some points.
-      if (alloc_it->second->has_halo || to_reuse_it->second->has_halo) {
         return false;
       }
 

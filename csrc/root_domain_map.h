@@ -491,10 +491,6 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(wop);
   }
 
-  void handle(ShiftOp* op) override {
-    mapPointwiseLikeOp(op);
-  }
-
   void handle(ViewOp* op) override {
     mapPointwiseLikeOp(op);
   }
@@ -508,8 +504,6 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
   void handle(ExpandOp* op) override {
     mapPointwiseLikeOp(op);
   }
-
-  void handle(GatherOp* op) override;
 
   void handle(PadOp* op) override {
     // For compute-at, padded id should be mapped

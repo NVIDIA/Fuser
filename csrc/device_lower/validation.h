@@ -35,14 +35,6 @@ void fillProducerVectorizedContigAllocationDomains(
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder);
 
-//! Validates partial split expressions. Partial split only uses an
-//! inner subdomain specified by start and stop offsets, ignoring the
-//! values outside the range. It's designed to be used with non-padded
-//! shift, which introduces non-zero start and stop smaller than the
-//! extent. This function makes sure all tensors have all values
-//! calculated that are necessary for output values.
-void validatePartialSplit(Fusion* fusion);
-
 //! Validate data format and GPU arch compatibility of scheduled
 //!  mma operators on the fusion.
 void validateMma(Fusion* fusion);

@@ -27,6 +27,73 @@ const ValGraph& LoopPromotionMapBuilder::idGraph(IdMappingMode mode) const {
   return id_model_.idGraph(mode);
 }
 
+std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
+    getProducerPromotionsOfPartiallyInlinedGroups(
+        const std::unordered_map<ValGroup, IterDomain*>&
+            initial_loop_promotion_map,
+        const ValGraph& loop_graph) const {
+  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_to_propagate;
+
+  for (const auto& map_kv : initial_loop_promotion_map) {
+    const auto& loop_group = map_kv.first;
+    const auto& promotion = map_kv.second;
+
+    // If it's promoted to the exactly mapped domain, should not
+    // need further propagation
+    if (std::all_of(
+            loop_group->begin(),
+            loop_group->end(),
+            [&](Val* loop_group_val) -> bool {
+              return idGraph(IdMappingMode::EXACT)
+                  .disjointValSets()
+                  .strictAreMapped(loop_group_val, promotion);
+            })) {
+      continue;
+    }
+
+    const ExprGroups& uses = loop_graph.getUses(loop_group);
+    if (uses.empty()) {
+      continue;
+    }
+
+    // If this expr group has outputs that are partially inlined, the
+    // number of output groups must be larger than the actual number
+    // of outputs of the expr.
+
+    const int expected_num_consumer_loop_group_count_if_fully_inlined =
+        (int)uses.front()->front()->outputs().size();
+
+    // If there's only one output, it should not cause partial
+    // inline.
+    if (expected_num_consumer_loop_group_count_if_fully_inlined == 1) {
+      continue;
+    }
+
+    ValGroups consumer_loop_groups;
+    for (const ExprGroup& use : loop_graph.getUses(loop_group)) {
+      std::vector<ValGroup> output_loop_groups = loop_graph.outputGroups(use);
+      consumer_loop_groups.pushBack(output_loop_groups);
+    }
+
+    // Suppose the outputs are involved in broadcast forwarding, they
+    // could be grouped together, so if that happens, the number of
+    // output loop groups could be just one. However, there should be
+    // no such broadcast forwarding. Assert here just in case.
+    NVF_ERROR(
+        expected_num_consumer_loop_group_count_if_fully_inlined <=
+        consumer_loop_groups.size());
+
+    if (consumer_loop_groups.size() ==
+        expected_num_consumer_loop_group_count_if_fully_inlined) {
+      continue;
+    }
+
+    loop_promotion_map_to_propagate.emplace(loop_group, promotion);
+  }
+
+  return loop_promotion_map_to_propagate;
+}
+
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
@@ -56,6 +123,10 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   const ValGraph iel_graph = id_model_.buildIntersection(
       idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
+  // We'll create mappings from a copy of the current loop graph since
+  // idGraph(IdMappingMode::LOOP) will change with replayed domains.
+  const auto loop_graph = idGraph(IdMappingMode::LOOP);
+
   // Step 1: Build a map of the IEL groups of root broadcast domains
   // to resolving domains.
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
@@ -81,10 +152,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // the dependent input domains of the loop group
   const std::unordered_map<ValGroup, IterDomain*> initial_loop_promotion_map =
       projectIELPromotionToLoopGraph(
-          iel_graph,
-          iel_promotion_map,
-          idGraph(IdMappingMode::LOOP),
-          inlining_info_);
+          iel_graph, iel_promotion_map, loop_graph, inlining_info_);
 
   if (callback_) {
     callback_->postStep3(initial_loop_promotion_map);
@@ -96,17 +164,37 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Indexing19. Its parent ID loop group is promoted, but the loop
   // group of iS50 is not found yet.
 
-  // Step 4: In order to fully propagate the loop graph promotions, first
-  // propagate them to the IEL groups, which are then used to
+  // Step 4: Repeat the IEL propagation in order to fully propagate
+  // the loop graph promotions to partially inlined domains. This time
+  // only the partially inlined domains need to be considered, so we
+  // first find the Step-3 promotions that are producers to partially
+  // inlined consumers. These promotions are propagated down to leaf
+  // domains through the IEL graph, which are then used to
   // propagate back to the loop groups in Step 5. Unlike Step 2, the
   // initial IEL promotion map is empty and is populated with the loop
   // promotion map as we traverse down the IEL graph.
+
+  // Find the loop promotions of loop groups that are producers to
+  // partially inlined groups
+  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_to_propagate =
+      getProducerPromotionsOfPartiallyInlinedGroups(
+          initial_loop_promotion_map, loop_graph);
+
+  // If nothing to propagate again, initial_loop_promotion_map is the
+  // final result
+  if (loop_promotion_map_to_propagate.empty()) {
+    auto final_loop_promotion_map = updateValGroupIdMap(
+        initial_loop_promotion_map, idGraph(IdMappingMode::LOOP));
+    sanityCheckLoopPromotionMap(final_loop_promotion_map);
+    return final_loop_promotion_map;
+  }
+
   std::unordered_map<ValGroup, IterDomain*> final_iel_promotion_map;
   propagatePromotionsInIELGraph(
       iel_graph,
       final_iel_promotion_map,
-      idGraph(IdMappingMode::LOOP),
-      initial_loop_promotion_map);
+      loop_graph,
+      loop_promotion_map_to_propagate);
 
   if (callback_) {
     callback_->postStep4(final_iel_promotion_map, iel_graph);
@@ -115,14 +203,11 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Step 5: Find the final promotion of each loop group based on the
   // final IEL promotion map
   auto final_loop_promotion_map = projectIELPromotionToLoopGraph(
-      iel_graph,
-      final_iel_promotion_map,
-      idGraph(IdMappingMode::LOOP),
-      inlining_info_);
+      iel_graph, final_iel_promotion_map, loop_graph, inlining_info_);
 
   // The promotion map produced in Step 5 only includes those are
   // further propagated at Step 4, so the correct mappings produced at
-  // Step 3 may not be included in the Step-5 results. Any Step-3 mappings
+  // Step 3 are not included in the Step-5 results. Any Step-3 mappings
   // that are not found in the Step-5 results are already valid
   // results, so merge them into the Step-5 results.
   //
@@ -157,15 +242,15 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // but that just means there's no change is necessary from the Step
   // 3 results.
 
-  // Update the Step-3 map to the latest LOOP graph
-  const auto updated_initial_loop_promotion_map = updateValGroupIdMap(
-      initial_loop_promotion_map, idGraph(IdMappingMode::LOOP));
-
   // Insert the updated Step-3 results into the Step-5 resutls. Note
   // that this insertion does not overwrite the existing mappings.
   final_loop_promotion_map.insert(
-      updated_initial_loop_promotion_map.begin(),
-      updated_initial_loop_promotion_map.end());
+      initial_loop_promotion_map.begin(), initial_loop_promotion_map.end());
+
+  // The map is currently for the stale loop graph. Update for the
+  // latest loop graph.
+  final_loop_promotion_map = updateValGroupIdMap(
+      final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
 
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
 
@@ -585,14 +670,6 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
       covered_ids[id_group] = {id_group};
     }
 
-    // Initialize rfactor groups
-    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
-          return view_rfactor_ids.find(id->as<IterDomain>()) !=
-              view_rfactor_ids.end();
-        })) {
-      covered_ids[id_group] = {id_group};
-    }
-
     // Initialize broadcast groups to empty since broadcast domains
     // don't matter for indexing
     if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
@@ -668,9 +745,11 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
   // Grab all the (potentially promoted) terminal iter domains in this group.
   // Save the exact group and the iter domain in this vector.
   std::vector<std::pair<ValGroup, IterDomain*>> exact_promoted_terminal_ids;
-  for (auto loop_id : *loop_group) {
+  for (Val* loop_group_val : *loop_group) {
+    auto loop_id = loop_group_val->as<IterDomain>();
+
     // If not a terminal id in the group skip
-    if (!terminal_loop_ids.has(loop_id->as<IterDomain>())) {
+    if (!terminal_loop_ids.has(loop_id)) {
       continue;
     }
 
@@ -680,6 +759,16 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     // so the new domains can be simply ignored.
     if (!iel_graph.hasGroup(loop_id)) {
       continue;
+    }
+
+    // If this domain is a view rfactor domain and a terminal domain,
+    // it is guaranteed to represent this loop group because all the
+    // domains merged into this loop_id must be non-broadcast
+    // domains. A concrete example can be found in test
+    // LoopPromotionWithRfactorDomains1.
+    if (id_model_.viewRfactorIds().find(loop_id) !=
+        id_model_.viewRfactorIds().end()) {
+      return loop_id;
     }
 
     const ValGroup& iel_group = iel_graph.toGroup(loop_id);

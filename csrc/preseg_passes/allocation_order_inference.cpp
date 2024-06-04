@@ -74,7 +74,7 @@ void mapAllocationDomain(
 
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
   const std::vector<IterDomain*>& target_rfactor_domain =
-      target->getMaybeRFactorDomain();
+      target->getRFactorDomain();
 
   // map target rfactor domain into ref's allocation domain
   nvfuser::VectorOfUniqueEntries<IterDomain*> mapped_ids;
@@ -204,7 +204,7 @@ void mapAllocationDomain(
 // propagation rule:
 //   Given a reference TensorView `ref` and a target TensorView `target`, we try
 //   to map iter domain in `ref->getMaybeAllocationDomain()` to
-//   `target->getMaybeRFactorDomain()`, which would gives `target` to a similar
+//   `target->getRFactorDomain()`, which would gives `target` to a similar
 //   memory layout as `ref`. For details on the propagation rule see Note [
 //   Allocation Order Mapping ]
 void inferenceAllocationOrder(

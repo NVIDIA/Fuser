@@ -76,8 +76,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   // [Step 3b)] Create a Communication Ir
   CommParams comm_params{
       .type = CommunicationType::Allgather,
-      .root = 0,
-      .is_root_in_mesh = true,
+      .mesh = mesh,
       .team = mesh.vector()};
   auto communication = IrBuilder::create<Communication>(
       static_cast<IrContainer*>(hic.get()), comm_params);

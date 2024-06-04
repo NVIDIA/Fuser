@@ -77,7 +77,7 @@ DataType metaDataTypeOf(const Val* v) {
     return PointerType{std::make_shared<DataType>(tv->dtype())};
   }
 
-  size_t dim = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+  size_t dim = TensorDomain::noReductions(tv->getRFactorDomain()).size();
   size_t alloc_dim =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
   return globalTensorMetaData(
@@ -314,10 +314,6 @@ const char* predicate_type2string(PredicateType t) {
       return "Vectorize";
     case PredicateType::Misaligned:
       return "Misaligned";
-    case PredicateType::Shift:
-      return "Shift";
-    case PredicateType::Padding:
-      return "Padding";
     case PredicateType::ReductionWrite:
       return "ReductionWrite";
     case PredicateType::LoopRotation:
@@ -842,8 +838,6 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "Set";
     case LoadStoreOpType::LdMatrix:
       return "LdMatrix";
-    case LoadStoreOpType::LdMatrixTranspose:
-      return "LdMatrixTranspose";
     case LoadStoreOpType::CpAsync:
       return "CpAsync";
     case LoadStoreOpType::CpAsyncBulkTensorTile:

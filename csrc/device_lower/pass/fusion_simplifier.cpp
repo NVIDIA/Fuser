@@ -16,7 +16,7 @@ namespace nvfuser {
 
 namespace {
 
-// Replaces Transpose, Shift, Gather, and View Ops with LoadStoreOps.
+// Replaces Transpose and View Ops with LoadStoreOps.
 class LoadStoreOpInserter : private kir::ExprMutator {
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {
@@ -52,26 +52,6 @@ class LoadStoreOpInserter : private kir::ExprMutator {
     auto container = out->container();
     registerReplaceAndPropagate(
         eop,
-        IrBuilder::create<LoadStoreOp>(
-            container, LoadStoreOpType::Set, out, in));
-  }
-
-  void handle(ShiftOp* sop) final {
-    auto out = sop->out();
-    auto in = sop->in();
-    auto container = out->container();
-    registerReplaceAndPropagate(
-        sop,
-        IrBuilder::create<LoadStoreOp>(
-            container, LoadStoreOpType::Set, out, in));
-  }
-
-  void handle(GatherOp* gop) final {
-    auto out = gop->out();
-    auto in = gop->in();
-    auto container = out->container();
-    registerReplaceAndPropagate(
-        gop,
         IrBuilder::create<LoadStoreOp>(
             container, LoadStoreOpType::Set, out, in));
   }

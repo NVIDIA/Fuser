@@ -178,9 +178,10 @@ void FusionDefinition::print(std::ostream& os) const {
 
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device,
     bool override_user_schedule,
     bool capture_debug_output,
-    std::optional<int8_t> selected_device) const {
+    bool profile) const {
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
@@ -198,6 +199,8 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // NOTE: queryUserSchedule is broken, see issue:
   // https://github.com/NVIDIA/Fuser/issues/2056
   if (!override_user_schedule) {
+    // NOTE: Profiling is only currently supported for auto generatoed
+    // schedules.
     auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(
         inputs.empty() || device > -1,
@@ -216,8 +219,16 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // already at this point and we would not want to overwrite generated output
   // through user scheduled kernel.
   if (outputs.empty()) {
+    // NOTE: Profiling is only currently supported for auto generatoed
+    // schedules.
+    if (profile) {
+      ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+    }
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         inputs, std::nullopt, selected_device);
+    if (profile) {
+      ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+    }
   }
 
   if (capture_debug_output) {
@@ -236,7 +247,11 @@ std::string FusionDefinition::fusionIr() {
 
 std::string FusionDefinition::userScheduleIr() {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
-  NVF_CHECK(user_sched_ != nullptr, "UserSchedule is not valid!");
+
+  if (user_sched_ == nullptr) {
+    return "User schedule is not defined.";
+  }
+
   std::stringstream ss;
   user_sched_->schedule->print(ss, false);
   return ss.str();
@@ -345,6 +360,16 @@ Scalar FusionDefinition::defineScalar() {
   Scalar out(recording_state_.size(), this);
   recording_state_.emplace_back(out(), serde::StateType::Scalar);
   return out;
+}
+
+Tensor FusionDefinition::addTensor(TensorView* tv) {
+  FUSER_PERF_SCOPE("FusionDefinition::addTensor");
+  Tensor output = defineTensor(tv->nDims());
+  NVF_CHECK(
+      output.index == numFusionStates(),
+      "Fusion State index does not match the size!");
+  addFusionState(tv);
+  return output;
 }
 
 Tensor FusionDefinition::defineTensor(size_t dims) {

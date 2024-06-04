@@ -454,20 +454,20 @@ class TensorDomain : public Val {
  public:
   NVF_API explicit TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> rfactor_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   // See notes [ Note stride order and contiguity vector ] in
   // python_bindings.cpp
   TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> rfactor_domain,
       std::vector<int64_t> stride_order,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> rfactor_domain,
       std::vector<IterDomain*> leaf_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
@@ -545,8 +545,8 @@ class TensorDomain : public Val {
     return no_bcast_domain_.size() != leaf_domain_.size();
   }
 
-  bool hasRFactor() const {
-    return !rfactor_domain_.empty();
+  bool hasRoot() const {
+    return !root_domain_.empty();
   }
 
   bool hasAllocation() const {
@@ -576,8 +576,11 @@ class TensorDomain : public Val {
     return root_domain_;
   };
 
-  // The output logical domain. If empty, the same as the root domain.
-  // See also the helper function `maybeRFactor`.
+  const std::vector<IterDomain*>& maybeRoot() const {
+    return root_domain_.empty() ? rfactor_domain_ : root_domain_;
+  };
+
+  // The output logical domain.
   const std::vector<IterDomain*>& rfactor() const {
     return rfactor_domain_;
   };
@@ -593,14 +596,8 @@ class TensorDomain : public Val {
     return leaf_domain_;
   }
 
-  // If rfactor domain exists in domain() return it, otherwise return root
-  // domain.
-  const std::vector<IterDomain*>& maybeRFactor() const {
-    return hasRFactor() ? rfactor() : root();
-  }
-
   const std::vector<IterDomain*>& maybeAllocation() const {
-    return hasAllocation() ? allocation_domain_ : maybeRFactor();
+    return hasAllocation() ? allocation_domain_ : rfactor();
   };
 
   // Set the allocation domain of this TensorDomain. The new allocation domain

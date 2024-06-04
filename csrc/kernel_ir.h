@@ -92,8 +92,7 @@ class Predicate final : public Val {
   Val* thread_pred() const {
     NVF_ERROR(
         ptype_ == PredicateType::Inline ||
-        ptype_ == PredicateType::Misaligned || ptype_ == PredicateType::Shift ||
-        ptype_ == PredicateType::Padding ||
+        ptype_ == PredicateType::Misaligned ||
         ptype_ == PredicateType::ReductionWrite);
     return thread_pred_;
   }

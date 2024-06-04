@@ -29,6 +29,9 @@ class AllocationDomainPass : public OptimizationPass<AllocationDomainPass> {
 
  protected:
   static void runPass(Fusion* fusion);
+  static std::string name() {
+    return "AllocationDomainPass";
+  }
 };
 
 } // namespace nvfuser::preseg_passes

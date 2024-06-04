@@ -37,28 +37,7 @@ LoopNestGenerator::LoopNestGenerator(const std::vector<Expr*>& exprs) {
 namespace {
 
 kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
-  auto extent_with_halo = GpuLower::current()->haloInfo()->getExtent(id);
-  kir::ForLoop* new_scope = nullptr;
-  if (extent_with_halo) {
-    // When an axis is extended with halo, unrolling and vectorization
-    // are assumed to not be used for now.
-    NVF_ERROR(
-        id->getParallelType() != ParallelType::Unroll &&
-        !isParallelTypeVectorize(id->getParallelType()));
-    // Use the extent that's extended by halo
-    new_scope = IrBuilder::create<kir::ForLoop>(
-        id,
-        GpuLower::current()->caMap()->getIndexVariable(id),
-        nullptr,
-        extent_with_halo,
-        nullptr,
-        false,
-        nullptr,
-        false,
-        DoubleBufferLoopStage::NotApplicable);
-  } else {
-    new_scope = IrBuilder::create<kir::ForLoop>(id);
-  }
+  kir::ForLoop* new_scope = IrBuilder::create<kir::ForLoop>(id);
   if (scope != nullptr) {
     scope->body().insert(0, new_scope);
   }

@@ -95,8 +95,6 @@ class Val;
   f(BroadcastOp);                 \
   f(SqueezeOp);                   \
   f(ExpandOp);                    \
-  f(ShiftOp);                     \
-  f(GatherOp);                    \
   f(ViewAsScalar);                \
   f(ViewOp);                      \
   f(CatOp);                       \

@@ -13,28 +13,27 @@
 
 #include "utils.h"
 
-#define TEST_ASSIGN_OP(op, assign_op, name)                \
-  TEST_F(DynamicTypeTest, name) {                          \
-    IntSomeType x(299792458);                              \
-    auto& y = (x += 2);                                    \
-    EXPECT_EQ(x.as<int>(), 299792458 + 2);                 \
-    EXPECT_EQ(y.as<int>(), 299792458 + 2);                 \
-    EXPECT_EQ(&x, &y);                                     \
-    EXPECT_THAT(                                           \
-        []() {                                             \
-          IntSomeType x;                                   \
-          x += 1;                                          \
-        },                                                 \
-        ::testing::ThrowsMessage<std::runtime_error>(      \
-            ::testing::HasSubstr("Cannot compute ")));     \
-    EXPECT_THAT(                                           \
-        []() {                                             \
-          IntSomeType x(SomeType{});                       \
-          x += 1;                                          \
-        },                                                 \
-        ::testing::ThrowsMessage<std::runtime_error>(      \
-            ::testing::HasSubstr("Cannot compute ")));     \
-    static_assert(!(opcheck<SomeTypes&> += opcheck<int>)); \
+#define TEST_ASSIGN_OP(op, assign_op, name)                                \
+  TEST_F(DynamicTypeTest, name) {                                          \
+    IntSomeType x(299792458);                                              \
+    auto& y = (x += 2);                                                    \
+    EXPECT_EQ(x.as<int>(), 299792458 + 2);                                 \
+    EXPECT_EQ(y.as<int>(), 299792458 + 2);                                 \
+    EXPECT_EQ(&x, &y);                                                     \
+    EXPECT_THAT(                                                           \
+        []() {                                                             \
+          IntSomeType x;                                                   \
+          x += 1;                                                          \
+        },                                                                 \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr( \
+            "Result is dynamic but not convertible to result type")));     \
+    EXPECT_THAT(                                                           \
+        []() {                                                             \
+          IntSomeType x(SomeType{});                                       \
+          x += 1;                                                          \
+        },                                                                 \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr( \
+            "Result is dynamic but not convertible to result type")));     \
   }
 
 TEST_ASSIGN_OP(+, +=, AddAssign)

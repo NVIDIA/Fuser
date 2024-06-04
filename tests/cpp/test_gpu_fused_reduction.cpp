@@ -1300,7 +1300,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   const bool channels_last = false;
 
   const int64_t kNumberOfDims =
-      TensorDomain::noReductions(input->getMaybeRFactorDomain()).size();
+      TensorDomain::noReductions(input->getRFactorDomain()).size();
   int64_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
 
   std::vector<int64_t> reduction_axes;

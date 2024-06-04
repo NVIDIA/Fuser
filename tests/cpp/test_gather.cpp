@@ -541,7 +541,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
         tv->axis(-1)->definition() &&
             tv->axis(-1)->definition()->isA<Split>() &&
             tv->axis(-1)->definition()->as<Split>()->in() ==
-                tv->getMaybeRFactorDomain().at(1),
+                tv->getRFactorDomain().at(1),
         "Unexpected tensor: ",
         tv->toString());
   }
@@ -1037,7 +1037,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
   fusion.addOutput(tv5);
   // specify output allocation domain to avoid allocation order pass changing
   // this to a pointwise kernel
-  tv5->setAllocationDomain(tv5->getMaybeRFactorDomain(), true);
+  tv5->setAllocationDomain(tv5->getRFactorDomain(), true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);

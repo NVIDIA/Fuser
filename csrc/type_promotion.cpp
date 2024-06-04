@@ -176,7 +176,7 @@ OperandType getValueType(Val* type) {
     return {
         ValueType::Tensor,
         tensor_view->getDataType().value(),
-        tensor_view->getMaybeRFactorDomain().size()};
+        tensor_view->getRFactorDomain().size()};
   } else if (type->getDataType().has_value()) {
     return {ValueType::Scalar, type->getDataType().value()};
   } else {

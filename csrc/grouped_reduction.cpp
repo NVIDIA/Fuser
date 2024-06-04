@@ -30,9 +30,9 @@ namespace {
 // Return if ref and other are transformed in the same way.
 bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
   std::unordered_map<IterDomain*, IterDomain*> ref_2_other;
-  for (const auto i : c10::irange(ref->getRootDomain().size())) {
+  for (const auto i : c10::irange(ref->getRFactorDomain().size())) {
     ref_2_other.emplace(
-        ref->getRootDomain().at(i), other->getRootDomain().at(i));
+        ref->getRFactorDomain().at(i), other->getRFactorDomain().at(i));
   }
 
   auto replay = BestEffortReplay(
@@ -65,7 +65,7 @@ bool validateReductionGrouping(
   // Pick the first output TV as a reference and compare it with the
   // rest. Do not allow grouping if any mismatch is detected.
   auto ref_tv = outputs[0]->as<TensorView>();
-  const auto ref_domain = ref_tv->getRootDomain();
+  const auto ref_domain = ref_tv->getRFactorDomain();
   const auto num_root_dims = ref_domain.size();
   const auto num_dims = ref_tv->nDims();
   const auto ref_ca_pos = ref_tv->getComputeAtPosition();
@@ -78,7 +78,7 @@ bool validateReductionGrouping(
       ref_tv->hasComputeWith() ? ref_tv->uses() : std::vector<Expr*>();
   for (const auto i : c10::irange(inputs.size())) {
     auto output_tv = outputs.at(i)->as<TensorView>();
-    const auto& output_domain = output_tv->getRootDomain();
+    const auto& output_domain = output_tv->getRFactorDomain();
     if (ref_tv == output_tv) {
       continue;
     }

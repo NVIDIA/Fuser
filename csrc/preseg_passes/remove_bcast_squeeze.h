@@ -6,20 +6,17 @@
  */
 // clang-format on
 #include <preseg_passes/optimization_pass.h>
-#include <visibility.h>
 
 namespace nvfuser::preseg_passes {
 
-// Prepares the input fusion for marking aliases. It currently updates layouts
-// to enable aliases, and inserts `SegmenterSet`s so segmentation will separate
-// out alias-only regions.
-class MarkAliasesPreparePass : public OptimizationPass<MarkAliasesPreparePass> {
-  friend class OptimizationPass<MarkAliasesPreparePass>;
+// Remove broadcast + squeeze pattern
+class RemoveBcastSqueeze : public OptimizationPass<RemoveBcastSqueeze> {
+  friend class OptimizationPass<RemoveBcastSqueeze>;
 
  protected:
   static void runPass(Fusion* fusion);
   static std::string name() {
-    return "MarkAliasesPreparePass";
+    return "RemoveBcastSqueeze";
   }
 };
 

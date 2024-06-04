@@ -1678,7 +1678,7 @@ TEST_F(ResizeTest, PadToEmptyTensor) {
           IrBuilder::create<Val>(2.0));
   fusion->addOutput(tv1);
   // set allocation domain to trigger validation check on size/stride
-  tv1->setAllocationDomain(tv1->getMaybeRFactorDomain(), true);
+  tv1->setAllocationDomain(tv1->getRFactorDomain(), true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 

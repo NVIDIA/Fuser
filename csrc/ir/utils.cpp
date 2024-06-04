@@ -594,8 +594,7 @@ bool isPointwiseTvOp(const Expr* expr) {
   // considered pointwise
   return isTvOp(expr) &&
       (expr->isOneOf<UnaryOp, BinaryOp, TernaryOp>() ||
-       (expr->isA<LoadStoreOp>() &&
-        !ir_utils::getTvOutput(expr)->hasRFactor()));
+       (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasRoot()));
 }
 
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
@@ -615,7 +614,7 @@ std::vector<ViewOp*> getViewOps(Fusion* fusion) {
               if (!v->isA<TensorView>()) {
                 return false;
               }
-              return v->as<TensorView>()->hasRFactor();
+              return v->as<TensorView>()->hasRoot();
             });
       });
 
@@ -683,7 +682,7 @@ bool isSqueezeInput(const TensorView* tv) {
 }
 
 bool isSqueezedID(const TensorView* tv, const IterDomain* id) {
-  auto root_dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto root_dom = TensorDomain::noReductions(tv->getRFactorDomain());
   auto squeezes = ir_utils::filterByType<SqueezeOp>(tv->uses());
   for (auto i : c10::irange(root_dom.size())) {
     if (root_dom[i] != id) {
@@ -736,7 +735,7 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
 }
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
-  const auto& root_domain = tv->getRootDomain();
+  const auto& root_domain = tv->getMaybeRootDomain();
   const auto& domain = tv->getLeafDomain();
   // Grab all values in the history of the tensor view's domain
   auto all_vals = DependencyCheck::getAllValsBetween(
@@ -798,7 +797,7 @@ std::string varName(const Val* val) {
 }
 
 bool hasResizedRfactor(const TensorView* tv) {
-  if (!tv->hasRFactor()) {
+  if (!tv->hasRoot()) {
     return false;
   }
   auto root_to_rf_exprs = StmtSort::getExprsBetween(
@@ -1103,6 +1102,16 @@ int64_t getVectorizeSize(const TensorView* tv) {
   return 1;
 }
 
+bool hasTrivialAllocationDomain(const TensorView* tv) {
+  if (!tv->hasAllocation()) {
+    return true;
+  }
+  const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+  const std::vector<IterDomain*>& rf = tv->getRFactorDomain();
+  return TensorDomain::noBroadcasts(TensorDomain::noReductions(rf)) ==
+      TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
+}
+
 } // namespace nvfuser::ir_utils
 
 namespace nvfuser::MmaOpUtils {
@@ -1177,11 +1186,11 @@ MmaOpDetails getMmaOpDetails(
     TensorView* in_a,
     TensorView* in_b) {
   const auto in_a_details =
-      getDetailsFor(TensorDomain::noDevices(in_a->getMaybeRFactorDomain()));
+      getDetailsFor(TensorDomain::noDevices(in_a->getRFactorDomain()));
   const auto in_b_details =
-      getDetailsFor(TensorDomain::noDevices(in_b->getMaybeRFactorDomain()));
+      getDetailsFor(TensorDomain::noDevices(in_b->getRFactorDomain()));
   const auto out_details =
-      getDetailsFor(TensorDomain::noDevices(out->getRootDomain()));
+      getDetailsFor(TensorDomain::noDevices(out->getMaybeRootDomain()));
 
   using AxesData = MmaOp::AxesData;
 
@@ -1269,7 +1278,6 @@ MmaOpDetails getMmaOpDetails(
   const auto validateOutputDetails = [](const TensorViewDetails& details,
                                         const std::string& desc) {
     // TODO: revise rules when add support for batch gemms
-    NVF_ERROR(details.bcasts.empty(), desc, ": has broadcast domains.");
     NVF_ERROR(!details.rdomains.empty(), desc, ": has no reduction domains.");
     NVF_ERROR(
         (details.cdomains.size() >= expected_gemm_cdomains),

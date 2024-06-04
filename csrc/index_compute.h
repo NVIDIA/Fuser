@@ -128,8 +128,8 @@ class IndexCompute : public BackwardVisitor {
 
   // Map we update as we propagate backward, containing all IDs in the
   // propagation. Initial indices are mapped with this map at tv->domain()
-  // and are back propagated to tv->getRootDomain(). This index_map_ keeps the
-  // indices at intermediate IterDomain's in that back propagation.
+  // and are back propagated to tv->getMaybeAllocationDomain(). This index_map_
+  // keeps the indices at intermediate IterDomain's in that back propagation.
   std::unordered_map<IterDomain*, Val*> index_map_; // NOLINT
 
   // Map from IterDomain to their broadcasted extent. If a TV has I0*I1 but its
@@ -155,9 +155,6 @@ class IndexCompute : public BackwardVisitor {
   // Mentions if we should propagate an index down a particular IterDomain path
   // if there's an option
   std::unordered_set<IterDomain*> preferred_paths_;
-
-  // Map from IterDomains to halo-extended extents
-  std::unordered_map<IterDomain*, Val*> halo_extent_map_;
 
   // Temporary flag which tells IndexCompute to use concrete id's from the exact
   // map rather than the actual IDs used in the ID expressions.
@@ -293,8 +290,7 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_map<IterDomain*, Val*> _extent_map,
       std::unordered_set<IterDomain*> zero_domains,
       std::unordered_set<IterDomain*> _zero_merged_in,
-      std::unordered_set<IterDomain*> preferred_paths = {},
-      std::unordered_map<IterDomain*, Val*> halo_extent_map = {});
+      std::unordered_set<IterDomain*> preferred_paths = {});
 
   IndexCompute(
       const TensorDomain* _td,
@@ -304,7 +300,6 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_set<IterDomain*> _zero_merged_in,
       const ContigIDs& contig_finder,
       std::unordered_set<IterDomain*> preferred_paths = {},
-      std::unordered_map<IterDomain*, Val*> halo_extent_map = {},
       std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Entry point used for using concrete id based traversal. This traversal is
@@ -313,7 +308,6 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_map<IterDomain*, Val*> initial_index_map,
       std::unordered_set<IterDomain*> zero_domains,
       std::unordered_set<IterDomain*> preferred_paths,
-      std::unordered_map<IterDomain*, Val*> concrete_halo_extent_map,
       std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Updates index_map, extent_map, and zero_merged_in based on id_map and
@@ -567,8 +561,7 @@ class Index {
       TensorView* consumer_tv,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
-      kir::ForLoop* unswitch_or_vec_loop,
-      bool padding_predicate);
+      kir::ForLoop* unswitch_or_vec_loop);
 
   //! Compute the result for iota
   static Val* iota(

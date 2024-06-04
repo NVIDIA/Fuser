@@ -127,7 +127,7 @@ std::vector<at::Tensor> scheduleCompileAndRun(
     // between the rfactor domain and allocation domain.
     auto b_permutation =
         ir_utils::computePermutation(
-            tvb->getMaybeRFactorDomain(), tvb->getAllocationDomain())
+            tvb->getRFactorDomain(), tvb->getAllocationDomain())
             .value();
 
     // Reorder the ouput of Mma.

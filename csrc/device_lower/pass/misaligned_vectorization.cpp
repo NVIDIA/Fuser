@@ -487,8 +487,8 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     const auto& consumer_contig = consumer_tv->domain()->contiguity();
     const auto& producer_contig = producer_tv->domain()->contiguity();
 
-    const auto& producer_root_domain = producer_tv->getMaybeRFactorDomain();
-    const auto& consumer_root_domain = consumer_tv->getMaybeRFactorDomain();
+    const auto& producer_root_domain = producer_tv->getRFactorDomain();
+    const auto& consumer_root_domain = consumer_tv->getRFactorDomain();
 
     // Calculate extent of merged root domains
     Val* extent = nullptr;

@@ -118,7 +118,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   size_t axis_count = 0;
   auto reduction_root_size = [](TensorView* red_tv) {
     size_t count = 0;
-    for (auto id : red_tv->getRootDomain()) {
+    for (auto id : red_tv->getMaybeRootDomain()) {
       if (!id->isBroadcast()) {
         count++;
       }
@@ -226,7 +226,7 @@ std::vector<TensorView*> getOuterBroadcastTvs(
   std::vector<bool> ref_broadcast_mask;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
-      const auto& root = tv->getMaybeRFactorDomain();
+      const auto& root = tv->getRFactorDomain();
       ref_broadcast_mask.reserve(root.size());
       for (const auto i : c10::irange(root.size())) {
         ref_broadcast_mask.push_back(!root.at(i)->isReduction());
@@ -264,7 +264,7 @@ int64_t partialOuterReductionBufferSize(
       continue;
     }
     int64_t buffer_size = -1;
-    for (auto id : buffer->getMaybeRFactorDomain()) {
+    for (auto id : buffer->getRFactorDomain()) {
       if (id->isReduction() || id->isBroadcast()) {
         continue;
       }

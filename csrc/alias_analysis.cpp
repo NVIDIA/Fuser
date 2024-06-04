@@ -134,7 +134,7 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
     TensorView* in,
     TensorView* out) {
   if (!ir_utils::computePermutation(
-           in->getMaybeRFactorDomain(), preferred_in_layout.allocation_domain)
+           in->getRFactorDomain(), preferred_in_layout.allocation_domain)
            .has_value()) {
     // Give up when `in`'s allocation domain is not an rfactor permutation. As
     // an extension, we could map in_alloc to in_rfactor and apply the inverse
@@ -191,7 +191,7 @@ void AliasFinder::handle(const ViewOp* view) {
   // otherwise generate the allocation order of `out_rfactor` and the
   // corresponding contiguity flags.
   const std::vector<IterDomain*>& out_root = out->getRootDomain();
-  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& out_rfactor = out->getRFactorDomain();
   for (Expr* transform : DependencyCheck::getAllExprsBetween(
            {out_root.begin(), out_root.end()},
            {out_rfactor.begin(), out_rfactor.end()})) {
@@ -282,7 +282,7 @@ void AliasFinder::handle(const SliceOp* slice) {
   const std::vector<IterDomain*>& out_root = out->getRootDomain();
   std::unordered_map<IterDomain*, IterDomain*> out_root_to_rfactor;
   {
-    const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+    const std::vector<IterDomain*>& out_rfactor = out->getRFactorDomain();
     const auto out_rank = out_root.size();
     NVF_ERROR(out_rfactor.size() == out_rank);
     out_root_to_rfactor.reserve(out_rank);
@@ -345,7 +345,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   }
 
   // Put new, broadcast dimensions to the end.
-  const std::vector<IterDomain*> out_rfactor = out->getMaybeRFactorDomain();
+  const std::vector<IterDomain*> out_rfactor = out->getRFactorDomain();
   for (const auto i : c10::irange(out_rfactor.size())) {
     if (bcast->isBroadcastDim(i)) {
       out_layout->allocation_domain.push_back(out_rfactor[i]);
@@ -461,7 +461,7 @@ std::string AliasAnalysisResult::toString(const int indent_size) const {
         << ir_utils::varName(alias) << " of allocation domain ["
         << toDelimitedString(alias->getAllocationDomain())
         << "] and rfactor domain ["
-        << toDelimitedString(alias->getMaybeRFactorDomain())
+        << toDelimitedString(alias->getRFactorDomain())
         << "] is a transitive alias of " << ir_utils::varName(root)
         << std::endl;
   }

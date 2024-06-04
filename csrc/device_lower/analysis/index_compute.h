@@ -67,8 +67,6 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
 //! LoopIndexingAnalysis. LoopIndexingAnalysis though has to communicate to:
 //!   1) index_compute.cpp::IndexCompute to tell IndexCompute which expressions
 //!   it needs to traverse to compute the indexing math.
-//!   2) lower_shift.cpp::HaloInfo::buildConcreteHaloExtentMap to build the halo
-//!   extent map used in indexing.
 //!
 //! LoopIndexing is nothing but a mechanism for this communication.
 //!

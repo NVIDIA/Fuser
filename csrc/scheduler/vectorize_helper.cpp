@@ -71,7 +71,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   // can result in incorrect ordering
   // NOTE: this is necessary to enable vectorization in
   // NVFuserTest.FusionSegmentReduceSoftmax_CUDA
-  auto rfactor_domain = reference->getMaybeRFactorDomain();
+  auto rfactor_domain = reference->getRFactorDomain();
   auto filtered_ids = ids;
   if (reference->isFusionInput()) {
     rfactor_domain = TensorDomain::noReductions(rfactor_domain);
@@ -95,9 +95,9 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   auto projected_rfactor = projectId(filtered_ids, rfactor_domain);
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
-      projectId(projected_rfactor, reference->getRootDomain()),
+      projectId(projected_rfactor, reference->getMaybeRootDomain()),
       projected_rfactor,
-      reference->hasRFactor() /*shouldn't matter how we initialize this*/);
+      reference->hasRoot() /*shouldn't matter how we initialize this*/);
 
   // Stop recording before traversal
   recording_ = false;
@@ -500,7 +500,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     }
   }
   return MappedDomain::build(
-      projectId(producer_rfactor_ids, to->getRootDomain()),
+      projectId(producer_rfactor_ids, to->getMaybeRootDomain()),
       producer_rfactor_ids,
       true);
 }
@@ -540,16 +540,16 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   if (!from->isFusionInput() && from->hasReduction()) {
     // Find the last reduction dimension in the rfactor domain.
     int64_t clear_pos = -1;
-    for (auto i : c10::irange((int64_t)from->getMaybeRFactorDomain().size())) {
-      if (from->getMaybeRFactorDomain()[i]->isReduction()) {
+    for (auto i : c10::irange((int64_t)from->getRFactorDomain().size())) {
+      if (from->getRFactorDomain()[i]->isReduction()) {
         clear_pos = i;
       }
     }
     // Clear everything to the left of the inner most reduction dimension.
     if (clear_pos >= 0) {
       producer_ids_to_clear.insert(
-          from->getMaybeRFactorDomain().begin(),
-          from->getMaybeRFactorDomain().begin() + clear_pos + 1);
+          from->getRFactorDomain().begin(),
+          from->getRFactorDomain().begin() + clear_pos + 1);
     }
   }
 
@@ -566,7 +566,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   }
   return MappedDomain::build(
       consumer_root_ids,
-      projectId(consumer_root_ids, to->getMaybeRFactorDomain()),
+      projectId(consumer_root_ids, to->getRFactorDomain()),
       false);
 }
 
@@ -576,15 +576,15 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
   NVF_ERROR(
-      from->getRootDomain().size() == to->getRootDomain().size(),
+      from->getMaybeRootDomain().size() == to->getMaybeRootDomain().size(),
       "Siblings of different root sizes not supported, but found:\n  ",
       from->toString(),
       "\n  and\n  ",
       to->toString(),
       "\nhave root sizes of ",
-      from->getRootDomain().size(),
+      from->getMaybeRootDomain().size(),
       " and ",
-      to->getRootDomain().size());
+      to->getMaybeRootDomain().size());
 
   auto from_root_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
                            ->mapped_root_ids_;
@@ -592,25 +592,25 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
 
   for (auto from_root_id : from_root_ids) {
     auto from_it = std::find(
-        from->getRootDomain().begin(),
-        from->getRootDomain().end(),
+        from->getMaybeRootDomain().begin(),
+        from->getMaybeRootDomain().end(),
         from_root_id);
     NVF_ERROR(
-        from_it != from->getRootDomain().end(),
+        from_it != from->getMaybeRootDomain().end(),
         "Expected ",
         from_root_id->toString(),
         " to be in the root of ",
         from->toString());
-    auto pos = std::distance(from->getRootDomain().begin(), from_it);
-    sibling_root_ids.push_back(to->getRootDomain()[pos]);
+    auto pos = std::distance(from->getMaybeRootDomain().begin(), from_it);
+    sibling_root_ids.push_back(to->getMaybeRootDomain()[pos]);
     if (recording_) {
       addProjectedExtent(
-          to->getRootDomain()[pos],
-          getProjectedExtent(from->getRootDomain()[pos]));
+          to->getMaybeRootDomain()[pos],
+          getProjectedExtent(from->getMaybeRootDomain()[pos]));
     }
   }
 
-  if (!from->hasRFactor()) {
+  if (!from->hasRoot()) {
     return MappedDomain::build(
         sibling_root_ids,
         sibling_root_ids,
@@ -781,7 +781,7 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     TensorView* ref,
     const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map) {
   std::vector<std::unordered_map<TensorView*, Val*>> mappers;
-  auto root_dom = ref->getMaybeRFactorDomain();
+  auto root_dom = ref->getRFactorDomain();
   if (!rfactor_reorder_map.empty()) {
     root_dom = TensorDomain::orderedAs(root_dom, rfactor_reorder_map);
   }
@@ -886,7 +886,7 @@ int64_t getVectorizationFactorTransposeGroup(
         virtual_innermost_dim.begin(), reference->axis(static_cast<int>(dim)));
   }
   virtual_innermost_dim.push_back(
-      reference->getMaybeRFactorDomain()[inner_most_dim]);
+      reference->getRFactorDomain()[inner_most_dim]);
 
   // NOTE: do I need to consider stride here?! sounds like
   // ContiguousInnerDimensionsMapper::map requires reference to be
@@ -944,9 +944,9 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs
   std::unordered_set<IterDomain*> producer_innermost_ids;
-  for (auto it = reduction_consumer->getRootDomain().begin() +
+  for (auto it = reduction_consumer->getMaybeRootDomain().begin() +
            ((int64_t)reduction_consumer->nDims() - consumer_innermost_ndims);
-       it != reduction_consumer->getRootDomain().end();
+       it != reduction_consumer->getMaybeRootDomain().end();
        ++it) {
     auto consumer_id = *it;
     auto c2p_it = c2p.find(consumer_id);
@@ -958,8 +958,8 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   }
 
   int num_detected_producer_innermost_ids = 0;
-  for (auto it = reduction_producer->getMaybeRFactorDomain().rbegin();
-       it != reduction_producer->getMaybeRFactorDomain().rend();
+  for (auto it = reduction_producer->getRFactorDomain().rbegin();
+       it != reduction_producer->getRFactorDomain().rend();
        ++it) {
     auto producer_rf_id = *it;
 

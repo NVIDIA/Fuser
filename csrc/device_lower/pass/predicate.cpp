@@ -173,9 +173,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     switch (pred->predicate_type()) {
       case PredicateType::Inline:
       case PredicateType::ReductionWrite:
-      case PredicateType::Misaligned:
-      case PredicateType::Shift:
-      case PredicateType::Padding: {
+      case PredicateType::Misaligned: {
         return PredicateCompute::getInlinePredicate(
             pred->expr(),
             for_loops_,

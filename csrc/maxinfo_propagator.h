@@ -161,7 +161,7 @@ class MaxInfoSpanningTree {
 //*
 // During the path-finding, we explicitly keep track of the information about
 // which reference tensor's root ID's information is preserved, and to which
-// level. This information is stored as a vector of `RootIDInfo`, where each
+// level. This information is stored as a vector of `IDInfo`, where each
 // item in the vector corresponds to one ID in the reference tensor's root
 // domain.
 class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
@@ -171,13 +171,13 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
   // we reached a tensor called the "current" tensor, we are interested in the
   // following information:
   // - Which reference tensor's root ID's information does the current tensor
-  //   contains? Each RootIDInfo object should correspond to one reference
+  //   contains? Each IDInfo object should correspond to one reference
   //   tensor's root ID, but we don't need to store this ID explicitly.
   // - For this reference tensor's root ID, what are its corresponding IDs in
   //   the current tensor's root/rfactor domain?
   // - Is the current tensor's information about this reference tensor's root ID
   //   complete?
-  struct RootIDInfo {
+  struct IDInfo {
     // Each object of this class correspond to one root ID in the reference
     // tensor, but we do not need to explicitly store this ID.
 
@@ -209,8 +209,8 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
     bool is_rfactor;
   };
 
-  struct RootDomainInfo : public Information {
-    std::vector<RootIDInfo> info;
+  struct DomainInfo : public Information {
+    std::vector<IDInfo> info;
     operator bool() const override;
     bool operator<(const Information& r) const override;
   };
@@ -229,8 +229,8 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
       std::shared_ptr<Information> from_info) override;
 
  private:
-  static std::shared_ptr<RootDomainInfo> getReferenceRootIDInfo(TensorView* tv);
-  static std::shared_ptr<RootDomainInfo> getReferenceRootIDInfo(
+  static std::shared_ptr<DomainInfo> getReferenceIDInfo(TensorView* tv);
+  static std::shared_ptr<DomainInfo> getReferenceIDInfo(
       TensorView* tv,
       int64_t leaf_pos);
 
@@ -245,7 +245,7 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
       Selector* selector = nullptr)
       : MaxRootDomainInfoSpanningTree(
             reference,
-            getReferenceRootIDInfo(reference),
+            getReferenceIDInfo(reference),
             selector) {}
   MaxRootDomainInfoSpanningTree(
       TensorView* reference,
@@ -253,7 +253,7 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
       Selector* selector = nullptr)
       : MaxRootDomainInfoSpanningTree(
             reference,
-            getReferenceRootIDInfo(reference, leaf_pos),
+            getReferenceIDInfo(reference, leaf_pos),
             selector) {}
 };
 

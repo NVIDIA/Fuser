@@ -194,8 +194,9 @@ ParallelizedDomainPredicate::getPredicateMap(
       // If it's a root domain, it should be covered by the root
       // predicates, so no extra predicate is required.
       if (std::find(
-              tv->getRootDomain().begin(), tv->getRootDomain().end(), tv_id) !=
-          tv->getRootDomain().end()) {
+              tv->getMaybeRootDomain().begin(),
+              tv->getMaybeRootDomain().end(),
+              tv_id) != tv->getMaybeRootDomain().end()) {
         continue;
       }
 
@@ -381,12 +382,8 @@ Val* PredicateCompute::getInlinePredicate(
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
-  auto pred_info_vec = Index::getReferenceRootPredicates(
-      out_tv,
-      loops,
-      rotated_loops,
-      nullptr,
-      pred_type == PredicateType::Padding);
+  auto pred_info_vec =
+      Index::getReferenceRootPredicates(out_tv, loops, rotated_loops, nullptr);
 
   std::vector<Val*> preds;
 
@@ -478,7 +475,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   auto ref_pred_info = Index::getReferenceRootPredicates(
-      out_tv, for_loops_, rotated_loop_, unrolled_loop_, false);
+      out_tv, for_loops_, rotated_loop_, unrolled_loop_);
 
   // If RootPredicateInfo has a static predicate that is more
   // restrictive than the current one, replace the current with the

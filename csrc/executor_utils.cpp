@@ -427,7 +427,7 @@ getTensorOffsets(
   std::unordered_set<size_t> offsets;
   std::unordered_set<IterDomain*> sliced_domains;
 
-  const auto root_ids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  const auto root_ids = TensorDomain::noReductions(tv->getRFactorDomain());
 
   for (auto use : tv->uses()) {
     auto slice = dynamic_cast<SliceOp*>(use);
@@ -482,7 +482,7 @@ void validateAlignedVectorizedFusionInputOutput(
   const bool is_sliced = !sliced_domains.empty();
 
   const auto& domain_to_validate =
-      is_sliced ? tv->getMaybeRFactorDomain() : tv->getMaybeAllocationDomain();
+      is_sliced ? tv->getRFactorDomain() : tv->getMaybeAllocationDomain();
 
   std::vector<int64_t> no_reduction_to_full;
   for (int64_t i : c10::irange((int64_t)domain_to_validate.size())) {

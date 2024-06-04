@@ -140,6 +140,16 @@ class LoopPromotionMapBuilder {
   VectorOfUniqueEntries<IterDomain*> computeTerminalLoopIds(
       const StatefulInliningInfo& info) const;
 
+  // Given the Step-3 promotion results, returns only promotions of
+  // groups that are producers to partially inlined groups. Those
+  // partially inlined groups may not have correct promotions as of
+  // Step 3 and need another propagation pass.
+  std::unordered_map<ValGroup, IterDomain*>
+  getProducerPromotionsOfPartiallyInlinedGroups(
+      const std::unordered_map<ValGroup, IterDomain*>&
+          initial_loop_promotion_map,
+      const ValGraph& loop_graph) const;
+
   // Basic consistency check of the given loop promotion map
   void sanityCheckLoopPromotionMap(
       const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map)
