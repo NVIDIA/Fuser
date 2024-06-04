@@ -1092,7 +1092,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
     }
   }
 
-  Val* mutated_val = IrBuilder::create<TensorDomain>(
+  Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(), root_dom, rfactor_dom, alloc_dom, leaf_domain, contig);
   registerConcretization(td, mutated_val);
 }

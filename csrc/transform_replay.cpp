@@ -69,7 +69,7 @@ class ReplaySelf : public ReplayTransformations {
                           .build();
 
     // Generate the split node
-    IrBuilder::create<Split>(
+    IrBuilder::createInContainer<Split>(
         s->container(), ido, idi, mapped, s->factor(), s->innerSplit());
 
     // Remove mapped id from leaf IDs
@@ -115,7 +115,7 @@ class ReplaySelf : public ReplayTransformations {
                                 .extent(merged_id_size)
                                 .build();
 
-    IrBuilder::create<Merge>(
+    IrBuilder::createInContainer<Merge>(
         m->container(), merged_id, id_outer_mapped, id_inner_mapped);
 
     // Remove inputs from the leaf IDs
@@ -231,7 +231,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
             "Error during replay, didn't replay an axis.");
         new_rfactor_domain[i++] = it->second;
       }
-      return IrBuilder::create<TensorDomain>(
+      return IrBuilder::createInContainer<TensorDomain>(
           self->container(),
           new_self_root->root(),
           new_rfactor_domain,
@@ -240,7 +240,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
     }
   }
 
-  return IrBuilder::create<TensorDomain>(
+  return IrBuilder::createInContainer<TensorDomain>(
       self->container(),
       new_self_root->rfactor(),
       new_domain,
@@ -510,7 +510,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
       !opt.replay_allocation,
       "replayAllocation is not implemented yet for TransformReplay::replayPasC");
 
-  TensorDomain* replayed = IrBuilder::create<TensorDomain>(
+  TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
       producer->container(),
       producer->getRootDomain(),
       producer->getRFactorDomain(),
@@ -739,7 +739,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   }
 
   if (!opt.replay_allocation) {
-    TensorDomain* replayed = IrBuilder::create<TensorDomain>(
+    TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
         consumer->container(),
         consumer->getRootDomain(),
         consumer->getRFactorDomain(),
@@ -756,7 +756,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       "Other ops (e.g. `consumer = broadcast(producer)`) can break. "
       "See https://github.com/NVIDIA/Fuser/pull/1291#discussion_r1391999007 for details.");
 
-  TensorDomain* replayed = IrBuilder::create<TensorDomain>(
+  TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
       consumer->container(),
       consumer->getRootDomain(),
       consumer->getRFactorDomain(),
@@ -1256,7 +1256,7 @@ TensorDomain* fullReplay(
       });
 
   if (!old_domain->hasRoot()) {
-    return IrBuilder::create<TensorDomain>(
+    return IrBuilder::createInContainer<TensorDomain>(
         old_domain->container(), new_root, new_leaf, old_domain->contiguity());
   }
 
@@ -1270,7 +1270,7 @@ TensorDomain* fullReplay(
         return replay.getReplay().at(old_rfactor_id);
       });
 
-  return IrBuilder::create<TensorDomain>(
+  return IrBuilder::createInContainer<TensorDomain>(
       old_domain->container(),
       new_root,
       new_rfactor,

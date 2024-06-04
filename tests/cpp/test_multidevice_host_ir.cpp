@@ -70,11 +70,11 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   FusionGuard::setCurFusion(hic.get());
 
   // [Step 3a)] Create a HostUnit Ir holding the fusions
-  auto hu = IrBuilder::create<HostUnit>(
-      static_cast<IrContainer*>(hic.get()), std::move(fusion));
+  auto hu =
+      IrBuilder::createInContainer<HostUnit>(hic.get(), std::move(fusion));
 
   // [Step 3b)] Create a Communication Ir
-  auto communication = IrBuilder::create<Communication>(
+  auto communication = IrBuilder::createInContainer<Communication>(
       static_cast<IrContainer*>(hic.get()),
       CommunicationType::Allgather,
       mesh,
@@ -93,18 +93,12 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   // the Communication
   std::vector<Val*> compute_inputs = {tv0};
   std::vector<Val*> compute_outputs = {tv1};
-  auto post_compute = IrBuilder::create<PostOnStream>(
-      static_cast<IrContainer*>(hic.get()),
-      hu,
-      compute_inputs,
-      compute_outputs);
+  auto post_compute = IrBuilder::createInContainer<PostOnStream>(
+      hic.get(), hu, compute_inputs, compute_outputs);
   std::vector<Val*> communication_inputs = {tv1};
   std::vector<Val*> communication_outputs = {tv2};
-  auto post_communication = IrBuilder::create<PostOnStream>(
-      static_cast<IrContainer*>(hic.get()),
-      communication,
-      communication_inputs,
-      communication_outputs);
+  auto post_communication = IrBuilder::createInContainer<PostOnStream>(
+      hic.get(), communication, communication_inputs, communication_outputs);
 
   // [Step 6)] Define the Host program
   hic->pushBackTopLevelExprs(post_compute);
