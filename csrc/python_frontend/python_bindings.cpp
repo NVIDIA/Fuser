@@ -3170,7 +3170,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.validUse(),
         "Attempting to use a SchedOperators Op prior to definition!");
     // Return all Tensors in FusionDefinition
-    return self.fusion_definition->getAllTensors();
+    return self.fusion_definition->tensors();
   });
   nvf_sched.def(
       "is_reduction",

@@ -226,7 +226,7 @@ class NVF_API FusionDefinition : public FusionState {
   //! Gets a Record State object
   NVF_API State recordingState(size_t index) const;
   //! Get all Tensors in FusionState.
-  NVF_API const std::vector<Tensor>& getAllTensors() const;
+  NVF_API std::vector<Tensor> tensors();
 
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
@@ -252,9 +252,6 @@ class NVF_API FusionDefinition : public FusionState {
   Fusion* prev_fusion_;
   //! Data member for holding the current user schedule object
   UserSchedule* user_sched_;
-  //! A vector of all Tensors in FusionState. It is a subset of
-  //! recording_state_.
-  std::vector<Tensor> all_tensors_;
 
  public:
   //! The Operators are not directly defined in this header.  They are defined

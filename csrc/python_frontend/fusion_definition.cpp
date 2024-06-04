@@ -345,7 +345,6 @@ Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
   Tensor out(recording_state_.size(), dims, this);
   recording_state_.emplace_back(out(), serde::StateType::Tensor);
-  all_tensors_.emplace_back(out);
   return out;
 }
 
@@ -404,8 +403,16 @@ State FusionDefinition::recordingState(size_t index) const {
   return recording_state_.at(index);
 }
 
-const std::vector<Tensor>& FusionDefinition::getAllTensors() const {
-  return all_tensors_;
+std::vector<Tensor> FusionDefinition::tensors() {
+  std::vector<Tensor> all_tensors;
+  for (const State& s : recording_state_) {
+    Val* v = getFusionState(s.index);
+    if (v->isA<TensorView>()) {
+      TensorView* tv = getFusionState(s.index)->as<TensorView>();
+      all_tensors.emplace_back(s.index, tv->nDims(), this);
+    }
+  }
+  return all_tensors;
 }
 
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
