@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <atomic>
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
@@ -128,7 +129,7 @@ class Stream : public Val {
   // the class contains a unique ID counter accross instances that is mainly
   // useful for debug print
   const int idx_;
-  static int running_counter_;
+  static std::atomic<int64_t> running_counter_;
 };
 
 } // namespace hir

@@ -506,8 +506,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    MultipleStreams,
-    StreamHostIrTest,
+    , StreamHostIrTest,
     testing::Combine(
         testing::Values(true),
         testing::Values(1, 4),

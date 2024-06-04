@@ -106,7 +106,7 @@ bool PostOnStream::sameAs(const Statement* other) const {
   return false;
 }
 
-int Stream::running_counter_ = 0;
+std::atomic<int64_t> Stream::running_counter_ = 0;
 
 Stream::Stream(IrBuilderPasskey passkey)
     : Val(passkey, ValType::Stream), idx_(running_counter_++){};
