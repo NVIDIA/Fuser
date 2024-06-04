@@ -434,8 +434,8 @@ void IndexCompute::handle(Resize* resize) {
   if (isZero(out_id) || hasZeroMerged(out_id)) {
     // When the out ID is (partially) zero, the in ID is not indexable. Don't
     // add any new mapping to the index and extent maps. This is fine since when
-    // a resize shows up as part of rfactor transformations, the input to the
-    // resize is not indexed as the indexing is done using the rfactor root
+    // a resize shows up as part of root to logical transformations, the input
+    // to the resize is not indexed as the indexing is done using the logical
     // domain. This could be an issue when a resize is shows up outside of
     // rfactor transfomations, but currently that only can happen when a
     // producer tensor is transformed to look like a consumer. Since inlining is
@@ -1413,7 +1413,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
       mapAllProducerDomainsToConsumer(producer_tv, consumer_tv);
 
   // Map everything we can from reference to producer using compute at index
-  // map. All producer id's don't exist in the compute at map. The rfactor axes
+  // map. All producer id's don't exist in the compute at map. The logical axes
   // all may be, but since I haven't proven that to be the case, going to do a
   // more conservative approach, which is to use the consumer as a proxy between
   // producer to reference.
@@ -1600,7 +1600,7 @@ Val* Index::getLinearLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::allocateToRFactorDomainGuard(consumer_tv, true);
+  auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, true);
   return sumVals(
       getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
 }
@@ -1609,7 +1609,7 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::allocateToRFactorDomainGuard(consumer_tv, false);
+  auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
   IndexFromIdGraph index_from_id_graph =
       getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
   return getConsumerAllocationIndices(consumer_tv, loops, index_from_id_graph);
@@ -1621,7 +1621,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  auto guard = ir_utils::allocateToRFactorDomainGuard(producer_tv, false);
+  auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
   return getProducerAllocationIndices(
       producer_tv, consumer_tv, loops, rotated_loops, override_index);
 }
@@ -2207,13 +2207,13 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
     const std::unordered_map<IterDomain*, Val*>& consumer_index_map) {
   const auto gpu_lower = GpuLower::current();
 
-  // When there's a resize expr between the root and the rfactor
-  // domains, predicate the rfactor domain. Otherwise, predicate the
+  // When there's a resize expr between the root and the logical
+  // domains, predicate the logical domain. Otherwise, predicate the
   // root domain. The actual size of an IterDomain after resize
   // changes, and the output IterDomain needs to be used to generate
   // its predicate.
   const auto& consumer_root_domain = ir_utils::hasResizedRfactor(consumer_tv)
-      ? consumer_tv->getRFactorDomain()
+      ? consumer_tv->getLogicalDomain()
       : consumer_tv->getMaybeRootDomain();
 
   if (consumer_root_domain.empty()) {
@@ -2553,7 +2553,7 @@ namespace {
 
 int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
   auto exprs = DependencyCheck::getAllExprsBetween(
-      {smem_tv->getRFactorDomain().begin(), smem_tv->getRFactorDomain().end()},
+      {smem_tv->getLogicalDomain().begin(), smem_tv->getLogicalDomain().end()},
       {smem_tv->getMaybeAllocationDomain().begin(),
        smem_tv->getMaybeAllocationDomain().end()});
   for (auto expr : exprs) {

@@ -179,9 +179,9 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         // If the tensor domain is a view like domain, and the iteration
         // domain is marked as an rfactor product and is in the rfactor
         // domain, it's a view like rfactor iteration domain
-        const auto& rfactor_domain = tv->domain()->rfactor();
-        if (std::find(rfactor_domain.begin(), rfactor_domain.end(), id) !=
-            rfactor_domain.end()) {
+        const auto& logical_domain = tv->domain()->logical();
+        if (std::find(logical_domain.begin(), logical_domain.end(), id) !=
+            logical_domain.end()) {
           view_rfactor_ids_.emplace(id);
         }
       }
@@ -500,13 +500,13 @@ StatefulInliningInfo buildStatefulInliningInfo(
   for (auto expr : exprs) {
     for (auto producer_tv :
          ir_utils::filterByType<TensorView>(expr->inputs())) {
-      const auto& producer_root = producer_tv->getRFactorDomain();
+      const auto& producer_logical = producer_tv->getLogicalDomain();
       const auto& producer_domain = producer_tv->domain()->leaf();
 
       // Grab all iteration domains in producer that its compute at iter domains
       // depend on.
       auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-          {producer_root.begin(), producer_root.end()},
+          {producer_logical.begin(), producer_logical.end()},
           {producer_domain.begin(),
            producer_domain.begin() + producer_tv->getComputeAtPosition()});
       auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);

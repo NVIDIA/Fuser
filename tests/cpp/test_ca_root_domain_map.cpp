@@ -110,42 +110,42 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingBasic_CUDA) {
 
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true, true},
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {false, true, true});
   checkIdMapped(
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, true},
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, false, true});
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {false, true},
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {false, true});
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true, true},
       tv5,
-      tv5->getRFactorDomain(),
+      tv5->getLogicalDomain(),
       {false, true, true});
   checkIdMapped(
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, true},
       tv5,
-      tv5->getRFactorDomain(),
+      tv5->getLogicalDomain(),
       {true, false, true});
-  checkIdMapped(tv3, tv3->getRFactorDomain(), tv4, tv4->getRFactorDomain());
-  checkIdMapped(tv3, tv3->getRFactorDomain(), tv5, tv5->getRFactorDomain());
-  checkIdMapped(tv4, tv4->getRFactorDomain(), tv5, tv5->getRFactorDomain());
+  checkIdMapped(tv3, tv3->getLogicalDomain(), tv4, tv4->getLogicalDomain());
+  checkIdMapped(tv3, tv3->getLogicalDomain(), tv5, tv5->getLogicalDomain());
+  checkIdMapped(tv4, tv4->getLogicalDomain(), tv5, tv5->getLogicalDomain());
 }
 
 TEST_F(CaRootDomainMapTest, FusionRootMappingRfactor_CUDA) {
@@ -175,7 +175,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingRfactor_CUDA) {
   checkIdMapped(tv1, tv1->getMaybeRootDomain(), tv4, tv4->getMaybeRootDomain());
   checkIdMapped(
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, true, true, false},
       tv2,
       tv2->getMaybeRootDomain(),
@@ -221,7 +221,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingRfactor_CUDA) {
       tv0->getMaybeRootDomain(),
       {true, true},
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, true, false, false});
   checkIdMapped(
       tv0,
@@ -242,20 +242,20 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency1_CUDA) {
   fusion.addOutput(tv2);
 
   // The second dimension cannot be mapped as it would require recomputation.
-  checkIdMapped(tv0, tv0->getRFactorDomain(), tv1, tv1->getRFactorDomain());
+  checkIdMapped(tv0, tv0->getLogicalDomain(), tv1, tv1->getLogicalDomain());
   checkIdMapped(
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
 }
 
@@ -271,26 +271,26 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency2_CUDA) {
 
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true, false},
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true, false},
       tv3,
-      tv3->getRFactorDomain(),
+      tv3->getLogicalDomain(),
       {true, false});
-  checkIdMapped(tv2, tv2->getRFactorDomain(), tv3, tv3->getRFactorDomain());
+  checkIdMapped(tv2, tv2->getLogicalDomain(), tv3, tv3->getLogicalDomain());
 }
 
 TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency3_CUDA) {
@@ -308,7 +308,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency3_CUDA) {
   checkIdMapped(tv0, tv0->getMaybeRootDomain(), tv3, tv3->getMaybeRootDomain());
   checkIdMapped(
       tv3,
-      tv3->getRFactorDomain(),
+      tv3->getLogicalDomain(),
       {true, false, true},
       tv1,
       tv1->getMaybeRootDomain(),
@@ -344,7 +344,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency4_CUDA) {
       {true, false});
   checkIdMapped(
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, false, true},
       tv1,
       tv1->getMaybeRootDomain(),
@@ -382,45 +382,45 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency5_CUDA_CUDA) {
 
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true, false},
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {true, false},
       tv3,
-      tv3->getRFactorDomain(),
+      tv3->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv3,
-      tv3->getRFactorDomain(),
+      tv3->getLogicalDomain(),
       {true, true},
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, true});
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true, false},
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, true},
       tv5,
-      tv5->getRFactorDomain(),
+      tv5->getLogicalDomain(),
       {true, true});
 }
 
@@ -457,7 +457,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency6_CUDA_CUDA) {
       {true, false});
   checkIdMapped(
       tv6,
-      tv6->getRFactorDomain(),
+      tv6->getLogicalDomain(),
       {true, true, false},
       tv2,
       tv2->getMaybeRootDomain(),
@@ -514,24 +514,24 @@ TEST_F(
   // If there is no common consumer, there is no recomputation constraint.
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {false, true});
   checkIdMapped(
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {false, true});
 }
 
@@ -559,66 +559,66 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingBroadcastNonUniqueSize_CUDA) {
   // to map those domains.
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv3,
-      tv3->getRFactorDomain(),
+      tv3->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv3,
-      tv3->getRFactorDomain(),
+      tv3->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {true, false},
       tv3,
-      tv3->getRFactorDomain(),
+      tv3->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv3,
-      tv3->getRFactorDomain(),
+      tv3->getLogicalDomain(),
       {true, false},
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv3,
-      tv3->getRFactorDomain(),
+      tv3->getLogicalDomain(),
       {true, false},
       tv5,
-      tv5->getRFactorDomain(),
+      tv5->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, false},
       tv5,
-      tv5->getRFactorDomain(),
+      tv5->getLogicalDomain(),
       {true, false});
 }
 
@@ -640,24 +640,24 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingBroadcast_CUDA) {
   // the broadcast of tv1.
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {false, true});
   checkIdMapped(
       tv1,
-      tv1->getRFactorDomain(),
+      tv1->getLogicalDomain(),
       {true, true},
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {false, true, true}); // Not {true, false, true}
   checkIdMapped(
       tv0,
-      tv0->getRFactorDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv2,
-      tv2->getRFactorDomain(),
+      tv2->getLogicalDomain(),
       {false, false, true});
 }
 

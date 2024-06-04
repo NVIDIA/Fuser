@@ -664,7 +664,7 @@ int64_t partialReductionBufferSize(
   int64_t partial_reduction_buffer_size = 0;
   for (auto buffer : outer_reduction_tvs) {
     int64_t buffer_size = -1;
-    for (auto id : buffer->getRFactorDomain()) {
+    for (auto id : buffer->getLogicalDomain()) {
       if (id->isReduction() || id->isBroadcast()) {
         continue;
       }
@@ -1380,7 +1380,7 @@ TensorView* scheduleReductionGeneral(
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
     reduction_tv->reorder(
-        scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
+        scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
 
   if (schedule_heuristic == ScheduleHeuristic::OuterPersistent &&
