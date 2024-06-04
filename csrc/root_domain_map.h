@@ -90,7 +90,6 @@ class NVF_API PairwiseRootDomainMap : public RootDomainMap {
   //!
   //! \param producer The producer tensor of a producer-consumer pair.
   //! \param consumer The consumer tensor of a producer-consumer pair.
-  //! \param is_exact If true, broadcast andnon-broadcast IDs are not mapped
   explicit PairwiseRootDomainMap(
       const TensorView* producer,
       const TensorView* consumer);
@@ -492,10 +491,6 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(wop);
   }
 
-  void handle(ShiftOp* op) override {
-    mapPointwiseLikeOp(op);
-  }
-
   void handle(ViewOp* op) override {
     mapPointwiseLikeOp(op);
   }
@@ -509,8 +504,6 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
   void handle(ExpandOp* op) override {
     mapPointwiseLikeOp(op);
   }
-
-  void handle(GatherOp* op) override;
 
   void handle(PadOp* op) override {
     // For compute-at, padded id should be mapped

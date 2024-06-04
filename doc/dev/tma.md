@@ -484,7 +484,7 @@ Schedule:
 
 ![Example 2: Broadcast + binary Op](tma/example2.svg)
 
-#### Example 3: bank-conflict-free transpose
+#### Example 3: bank-conflict-free transpose of 32bit data
 
 Fusion:
 
@@ -502,3 +502,5 @@ T1[I1, I0] contiguity: T, T
 Schedule:
 
 ![Example 3: Bank-conflict-free transpose](tma/example3.svg)
+
+Please go to [test_tutorial.cpp](../../tests/cpp/test_tutorial.cpp) and search `TEST_F(Tutorial, TMABankConflictFreeTranspose)` for code.

@@ -6,10 +6,11 @@
  */
 // clang-format on
 #pragma once
-
+#include <debug.h>
 #include <exceptions.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
+#include <options.h>
 
 #include <atomic>
 
@@ -51,6 +52,12 @@ class OptimizationPass {
       return;
     }
     DerivedClass::runPass(fusion);
+    // TODO: skip the logging of the pass where the fusion has not been changed.
+    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+      debug() << "Fusion after pass: " << DerivedClass::name() << std::endl;
+      fusion->printMath();
+      debug() << "========================================" << std::endl;
+    }
 #ifndef NDEBUG
     // cycle detection is only enabled on debug run
     NVF_ERROR(

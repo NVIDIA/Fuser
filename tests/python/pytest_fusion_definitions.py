@@ -21,14 +21,18 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
 
     nvf_args = []
 
-    if opinfo.symbolic_parameter_list is None:
-        opinfo.symbolic_parameter_list = [ArgumentType.Symbolic] * len(args)
-    num_symbolic_parameters = len(opinfo.symbolic_parameter_list)
+    symbolic_parameter_list = (
+        opinfo.symbolic_parameter_list
+        if opinfo.symbolic_parameter_list is not None
+        else [ArgumentType.Symbolic] * len(args)
+    )
+
+    num_symbolic_parameters = len(symbolic_parameter_list)
     assert num_symbolic_parameters == len(
         args
     ), f"{num_symbolic_parameters} vs {len(args)}"
 
-    for arg_type, a in zip(opinfo.symbolic_parameter_list, args):
+    for arg_type, a in zip(symbolic_parameter_list, args):
         if arg_type == ArgumentType.Symbolic:
             if isinstance(a, torch.Tensor):
                 nvf_args.append(fd.from_pytorch(a))

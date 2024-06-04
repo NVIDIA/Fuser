@@ -22,17 +22,7 @@
 
 namespace nvfuser {
 
-class MatmulSASSTest : public NVFuserTest {
- protected:
-  MatmulSASSTest() {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
-
- private:
-  // RAII style options guard. This is used to disable
-  // (via set) options in the constructor.
-  DisableOptionsGuard opt_guard_;
-};
+using MatmulSASSTest = NVFuserTest;
 
 // For SASS instruction definitions, see:
 // https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html#instruction-set-reference
@@ -82,6 +72,7 @@ sass::Container getSASSFor(
   gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams params;
+  params.supported_vec_size = {8, 8, 4};
   params.mma_macro = macro;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
@@ -144,6 +135,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams params;
+  params.supported_vec_size = {8, 8, 4};
   params.mma_macro = macro;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;

@@ -7,6 +7,7 @@
 // clang-format on
 #include <inlining.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_utils.h>
@@ -549,7 +550,7 @@ void scheduleProlog(
     shared_mem_tv->promoteReuse();
   }
 
-  mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
+  mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(shared_mem_tv);
 
   // Swizzle the shared memory data layout
   swizzleSharedMemory(shared_mem_tv);
@@ -690,7 +691,7 @@ void scheduleFusionInputsForEpilogue(
 
 void scheduleSplitKSum(
     TensorView* splitk_sum,
-    const int64_t num_batch_dims, // TODO: this should not be needed
+    const int64_t num_device_and_batch_dims, // TODO: this should not be needed
     bool use_smem_epilogue) {
   if (splitk_sum == nullptr) {
     // This indicates no split-K was used
@@ -748,55 +749,45 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Cache and fork outputs
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
-  mma_utils::CombineMulSum combiner(fusion);
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
-  if (combiner.isValid() && mma_ops.empty()) {
-    combiner.replaceWithMmaOp();
-    mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
-  }
-
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion);
+  NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
   NVF_ERROR(
-      mma_ops.size() == 1,
-      "scheduleMatmul supports fusion with single mma op in definition, got ",
-      mma_ops.size());
-
-  // Skip scheduling if Matmul will be expression evaluated.
-  if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    NVF_CHECK(fusion->outputs().size() == 1)
-    fusion->aliasOutputToInput(
-        fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-    scheduler_debug_utils::log(
-        __FILE__,
-        ":",
-        __LINE__,
-        ", Matmul output to be computed through expression evaluator. Skipping codegen.");
-    return;
+      patterns.size() == 1,
+      "Only a single matmul pattern can currently be fused");
+  std::vector<MmaOp*> mma_ops;
+  mma_ops.reserve(patterns.size());
+  for (mma_utils::MatmulPattern& pattern : patterns) {
+    mma_ops.push_back(pattern.translateToMmaOp());
   }
 
-  const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
+  IdModel id_model(fusion);
+  std::unordered_map<ValGroup, MatmulDomain> id_roles =
+      patterns.front().getDimRoles(id_model);
+  const auto& tensor_roles_opt =
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
 
-  // NOTE: the contents of roles_map have been already validated during
+  // NOTE: the contents of tensor_roles have been already validated during
   //  compute-time checks
-  NVF_ERROR(roles_map_opt.isValid(), roles_map_opt.getErrorMsg());
-  const auto roles_map = roles_map_opt.getData();
+  NVF_ERROR(tensor_roles_opt.isValid(), tensor_roles_opt.getErrorMsg());
+  const auto tensor_roles = tensor_roles_opt.getData();
+
+  const mma_utils::MatmulProblemLayoutOpt fusion_layout =
+      mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
+  NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
   // Core roles: there can be only one... TV with assigned core role
-  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
-  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  TensorView* a = tensor_roles.at(MatmulRole::INPUT_A).front();
+  TensorView* b = tensor_roles.at(MatmulRole::INPUT_B).front();
+
+  const auto& gemm_tile = params.tile_sizes;
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
-  const auto mma_layout_opt = mma->layout();
-  NVF_ERROR(
-      mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
-  const auto mma_layout = mma_layout_opt.value();
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion);
-  NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
-
-  const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
-  const bool has_fusion_c_roles = (0 != roles_map.count(MatmulRole::INPUT_C));
+  const bool has_fusion_c_roles =
+      (0 != tensor_roles.count(MatmulRole::INPUT_C));
   const bool has_non_mma_input_tvs = has_epilogue && has_fusion_c_roles;
 
   // Including current tensor naming convention for reference,
@@ -889,41 +880,43 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   bcw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op_b);
   NVF_ERROR(acw_smem->uses().size() == 1);
   NVF_ERROR(bcw_smem->uses().size() == 1);
-  if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
-    acr = ldst->out()->as<TensorView>();
-    if (ldst->hasInnerTranspose()) {
-      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
-    } else {
-      ldst->setOpType(LoadStoreOpType::LdMatrix);
-    }
-  } else {
-    acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
-  }
-  if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0))) {
-    bcr = ldst->out()->as<TensorView>();
-    if (ldst->hasInnerTranspose()) {
-      ldst->setOpType(LoadStoreOpType::LdMatrixTranspose);
-    } else {
-      ldst->setOpType(LoadStoreOpType::LdMatrix);
-    }
-  } else {
-    bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
-  }
 
-  // For Turing and Ampere, the layout of the MmaOp is always TN
-  NVF_ERROR(
-      mma_layout == MmaLayout::TN,
-      "MMAs in Turing and Ampere are TN only, transpose is handled either "
-      "via ldmatrix.trans for fp16 or explicitly for other types.");
+  // We add two LoadStore operators to the inputs of our fusions. The first one
+  // is for a read from global memory and the second one (below) is for
+  // a cache read. As an optimizaton, we avoid adding an operator if there's an
+  // existing LoadStoreOp present. Please note that for the second LoadStore we
+  // don't propagte the allocation domain, since the scheduler sets the
+  // allocation domain in the registers.
+  auto addSetForCacheRead = [](TensorView* tv_smem, TensorView** tv_r) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
+      *tv_r = ldst->out()->as<TensorView>();
+      ldst->setOpType(LoadStoreOpType::LdMatrix);
+    } else {
+      *tv_r = tv_smem->cacheAfter(
+          LoadStoreOpType::LdMatrix,
+          CacheOp::Unspecified,
+          /*propagate_allocation_domain=*/false);
+    }
+  };
+
+  addSetForCacheRead(acw_smem, &acr);
+  addSetForCacheRead(bcw_smem, &bcr);
 
   // Make a CTA tile
   // ------------------------------------------------------------------
+  // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
   mma_utils::canonicalizeMmaTvOrdering(mma_result);
+  const int64_t num_local_dims =
+      (int64_t)TensorDomain::noDevices(mma_result->getLeafDomain()).size();
   NVF_ERROR(
-      mma_result->nDims() == 3 || mma_result->nDims() == 4,
+      num_local_dims == 3 || num_local_dims == 4,
       "Currently, we only support B, M, N and K being a single dimension.",
       " More general tensor contraction is not supported yet.");
-  const int64_t num_batch_dims = mma_result->nDims() - 3;
+  const int64_t num_device_dims = numDeviceDims(mma_result);
+  const int64_t num_local_batch_dims =
+      mma_result->nDims() - num_device_dims - 3;
+  const int64_t num_device_and_batch_dims =
+      num_device_dims + num_local_batch_dims;
 
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
@@ -939,19 +932,21 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (params.grid_swizzle_factor != 1) {
     int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
     if (params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
-      mma_result->split(num_batch_dims + 1, factor);
+      mma_result->split(num_device_and_batch_dims + 1, factor);
       // [I1, I2/factor, factor]
-      mma_result->reorder({{num_batch_dims + 1, num_batch_dims + 2}});
+      mma_result->reorder(
+          {{num_device_and_batch_dims + 1, num_device_and_batch_dims + 2}});
       // [I1, factor, I2/factor]
-      mma_result->merge(num_batch_dims);
+      mma_result->merge(num_device_and_batch_dims);
       // [I1*factor, I2/factor]
     } else if (
         params.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor) {
-      mma_result->split(num_batch_dims, factor);
+      mma_result->split(num_device_and_batch_dims, factor);
       // [I1/factor, factor, I2]
-      mma_result->reorder({{num_batch_dims + 1, num_batch_dims + 2}});
+      mma_result->reorder(
+          {{num_device_and_batch_dims + 1, num_device_and_batch_dims + 2}});
       // [I1/factor, I2, factor]
-      mma_result->merge(num_batch_dims + 1);
+      mma_result->merge(num_device_and_batch_dims + 1);
       // [I1/factor, I2*factor]
     }
   }
@@ -1153,18 +1148,23 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // When we have both batch dims and splitk, parallelize splitk only.
   // If we only have batch dim, parallelize the batch dim.
   if (num_splitk_dims != 0) {
-    mma_result->axis(num_batch_dims + 2)->parallelize(ParallelType::BIDz);
-  } else if (num_batch_dims != 0) {
-    mma_result->axis(0)->parallelize(ParallelType::BIDz);
+    mma_result->axis(num_device_and_batch_dims + 2)
+        ->parallelize(ParallelType::BIDz);
+  } else if (num_local_batch_dims > 0) {
+    mma_result->axis(num_device_dims)->parallelize(ParallelType::BIDz);
   }
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
-      mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDx);
-      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDy);
+      mma_result->axis(num_device_and_batch_dims)
+          ->parallelize(ParallelType::BIDx);
+      mma_result->axis(num_device_and_batch_dims + 1)
+          ->parallelize(ParallelType::BIDy);
       break;
     case MatmulParams::TileRasterizationOrder::ColumnMajor:
-      mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDy);
-      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDx);
+      mma_result->axis(num_device_and_batch_dims)
+          ->parallelize(ParallelType::BIDy);
+      mma_result->axis(num_device_and_batch_dims + 1)
+          ->parallelize(ParallelType::BIDx);
       break;
     default:
       NVF_ERROR(
@@ -1172,9 +1172,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   // parallelize Mwo, Nwo by thread
-  mma_result->axis(num_batch_dims + 4 + num_splitk_dims)
+  mma_result->axis(num_device_and_batch_dims + 4 + num_splitk_dims)
       ->parallelize(ParallelType::TIDz);
-  mma_result->axis(num_batch_dims + 5 + num_splitk_dims)
+  mma_result->axis(num_device_and_batch_dims + 5 + num_splitk_dims)
       ->parallelize(ParallelType::TIDy);
 
   scheduler_utils::parallelizeAllLike(
@@ -1235,17 +1235,20 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  operations, input tvs with non-core roles
   //  core roles: essential for matmul, for example mma inputs' producers
   if (has_non_mma_input_tvs) {
-    scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
+    scheduleFusionInputsForEpilogue(tensor_roles, params.use_smem_epilogue);
   }
 
-  scheduleSplitKSum(splitk_sum, num_batch_dims, params.use_smem_epilogue);
+  scheduleSplitKSum(
+      splitk_sum, num_device_and_batch_dims, params.use_smem_epilogue);
 
   // auto inline for all tensors except register tensors
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
 
   // if auto inline, will inline to position-7, leads to performance regression
   inlineSelectedAt(
-      {acr, bcr, ab, bb}, mma_result, num_batch_dims + 6 + num_splitk_dims);
+      {acr, bcr, ab, bb},
+      mma_result,
+      num_device_and_batch_dims + 6 + num_splitk_dims);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
@@ -1273,7 +1276,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       params.double_buffer_options.double_buffer_smem_write) {
     // rotate Kg loop
     scheduler_utils::rotateLoop(
-        mma_result, num_batch_dims + 2 + num_splitk_dims, {acr, bcr});
+        mma_result,
+        num_device_and_batch_dims + 2 + num_splitk_dims,
+        {acr, bcr});
   }
 
   NVF_ERROR(!cached_outputs.empty());
@@ -1281,7 +1286,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       a->dtype(), b->dtype(), mma_result->dtype()};
   // NOTE: Batch split-K matmuls cannot currently re-use smem due to outer
   // batch loop
-  bool guaranteed_operand_reuse = num_batch_dims == 0 || num_splitk_dims == 0;
+  bool guaranteed_operand_reuse =
+      num_local_batch_dims == 0 || num_splitk_dims == 0;
   int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
       params,
       data_types,

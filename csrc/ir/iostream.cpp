@@ -10,6 +10,7 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
+#include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
@@ -79,6 +80,39 @@ void IrPrinter::handle(kir::Kernel& kernel) {
   handle(&kernel);
 }
 
+void IrPrinter::handle(const hir::HostIrContainer* host_fusion) {
+  NVF_CHECK(host_fusion != nullptr);
+
+  // host_fusion declaration
+  os() << "\nHOST FUSION (";
+  for (auto in : host_fusion->inputs()) {
+    os() << in->toString(indent_size_);
+    if (in != host_fusion->inputs().back()) {
+      os() << ", ";
+    }
+  }
+  os() << ") -> (";
+  for (auto out : host_fusion->outputs()) {
+    os() << out->toString(indent_size_);
+    if (out != host_fusion->outputs().back()) {
+      os() << ", ";
+    }
+  }
+  os() << ") :\n";
+
+  // host_fusion body
+  indent_size_++;
+  for (auto expr : host_fusion->topLevelExprs()) {
+    os() << expr->toString(indent_size_);
+  }
+  indent_size_--;
+  os() << "END.\n\n";
+}
+
+void IrPrinter::handle(hir::HostIrContainer& host_fusion) {
+  handle(&host_fusion);
+}
+
 void IrTransformPrinter::handle(Fusion* f) {
   auto all_vals = f->usedMathVals();
 
@@ -90,18 +124,10 @@ void IrTransformPrinter::handle(Fusion* f) {
 }
 
 void IrTransformPrinter::printTransforms(const TensorView* tv) {
-  const auto& root_domain = tv->getRootDomain();
-  os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
-
-  if (tv->hasAllocation()) {
-    const auto& alloc_domain = tv->getAllocationDomain();
-
-    os() << " allocation domain : (" << toDelimitedString(alloc_domain)
-         << ")\n";
-  }
-
-  if (tv->hasRFactor()) {
-    const auto& rfactor_domain = tv->getRFactorDomain();
+  const auto& rfactor_domain = tv->getRFactorDomain();
+  if (tv->hasRoot()) {
+    const auto& root_domain = tv->getRootDomain();
+    os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
 
     const auto all_exp = DependencyCheck::getAllExprsBetween(
         {root_domain.begin(), root_domain.end()},
@@ -110,13 +136,20 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
     for (const auto exp : all_exp) {
       os() << "  " << exp->toString();
     }
+  }
 
-    os() << " rfactor domain : (" << toDelimitedString(rfactor_domain) << ")\n";
+  os() << " rfactor domain : (" << toDelimitedString(rfactor_domain) << ")\n";
+
+  if (tv->hasAllocation()) {
+    const auto& alloc_domain = tv->getAllocationDomain();
+
+    os() << " allocation domain : (" << toDelimitedString(alloc_domain)
+         << ")\n";
   }
 
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
-  const auto& from = tv->getMaybeRFactorDomain();
+  const auto& from = tv->getRFactorDomain();
   const auto& leaf = tv->getLeafDomain();
   const auto all_exp = DependencyCheck::getAllExprsBetween(
       {from.begin(), from.end()}, {leaf.begin(), leaf.end()});

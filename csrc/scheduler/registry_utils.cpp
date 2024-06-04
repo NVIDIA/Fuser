@@ -20,8 +20,8 @@ bool checkPatternEquivalence(
     TensorView* out_tv0,
     TensorView* out_tv1,
     const ComputeAtRootDomainMap& root_map) {
-  const auto& out_root0 = out_tv0->getRootDomain();
-  const auto& out_root1 = out_tv1->getRootDomain();
+  const auto& out_root0 = out_tv0->getMaybeRootDomain();
+  const auto& out_root1 = out_tv1->getMaybeRootDomain();
   const auto domain0 = out_tv0->domain();
   const auto domain1 = out_tv1->domain();
 
@@ -63,7 +63,7 @@ bool hasNonUniqueBcast(Fusion* fusion) {
   ConcretizedBroadcastDomains concretize_info(fusion);
 
   for (auto tv : ir_utils::allTvs(fusion)) {
-    for (auto id : tv->getRootDomain()) {
+    for (auto id : tv->getMaybeRootDomain()) {
       if (concretize_info.maybeNonUniquelyConcretized(id)) {
         return true;
       }
@@ -128,8 +128,8 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   // assumption about the index type as it may change.
   int64_t stride = 1;
   KernelIndexTypeCompute index_type_helper;
-  for (auto i = tv->getMaybeRFactorDomain().size(); i > 0; --i) {
-    auto id = tv->getMaybeRFactorDomain().at(i - 1);
+  for (auto i = tv->getRFactorDomain().size(); i > 0; --i) {
+    auto id = tv->getRFactorDomain().at(i - 1);
     if (id->isReduction() || id->isStride() || id->isBroadcast()) {
       continue;
     }
@@ -412,7 +412,7 @@ bool reductionInterferingView(
     return dims_removed;
   };
 
-  std::vector<IterDomain*> dims = reduction_reference->getMaybeRFactorDomain();
+  std::vector<IterDomain*> dims = reduction_reference->getRFactorDomain();
 
   // The disjoint groups we need for this scheduler
   std::vector<std::vector<IterDomain*>> groups;
@@ -462,15 +462,15 @@ bool reductionInterferingView(
     std::vector<int64_t> disjoint_id_sets;
     for (auto id : group) {
       auto find_it = std::find(
-          reduction_reference->getMaybeRFactorDomain().begin(),
-          reduction_reference->getMaybeRFactorDomain().end(),
+          reduction_reference->getRFactorDomain().begin(),
+          reduction_reference->getRFactorDomain().end(),
           id);
       NVF_ERROR(
-          find_it != reduction_reference->getMaybeRFactorDomain().end(),
+          find_it != reduction_reference->getRFactorDomain().end(),
           "Issue with view analysis on reduction like schedule, with reference: ",
           reduction_reference->toString());
       auto rfactor_pos = std::distance(
-          reduction_reference->getMaybeRFactorDomain().begin(), find_it);
+          reduction_reference->getRFactorDomain().begin(), find_it);
       NVF_ERROR(
           rfactor_pos <
               (int64_t)disjoint_set_information.disjoint_set_ids.size(),
@@ -581,8 +581,8 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         forward_tv_dep_chain.pop_front();
 
         if (std::none_of(
-                forward_running_producer->getMaybeRFactorDomain().begin(),
-                forward_running_producer->getMaybeRFactorDomain().end(),
+                forward_running_producer->getRFactorDomain().begin(),
+                forward_running_producer->getRFactorDomain().end(),
                 [](IterDomain* id) { return id->isBroadcast(); })) {
           // If there's no broadcast axes in producer it doesn't need to be
           // checked
@@ -774,7 +774,7 @@ bool SchedulerTopologyChecker::supportedPostReductionFusion(
     std::vector<TensorView*> reduction_tvs) {
   NVF_ERROR(!reduction_tvs.empty());
   bool fastest_dim_reduction = true;
-  auto red_root_dom = reduction_tvs[0]->getRootDomain();
+  auto red_root_dom = reduction_tvs[0]->getMaybeRootDomain();
   for (size_t i = red_root_dom.size(); i > 0; i--) {
     if (red_root_dom[i - 1]->isBroadcast()) {
       continue;
@@ -905,8 +905,8 @@ bool SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
         // Check if this broadcast ID has no mapping
         // with the reference TV.
         return std::none_of(
-            ref_tv->getRootDomain().begin(),
-            ref_tv->getRootDomain().end(),
+            ref_tv->getMaybeRootDomain().begin(),
+            ref_tv->getMaybeRootDomain().end(),
             [&](IterDomain* red_tv_root_id) {
               return ca_map.areMapped(
                   broadcast_consumer_id,

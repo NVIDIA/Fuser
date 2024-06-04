@@ -463,11 +463,7 @@ void TensorView::clearComputeWith() {
   NVF_ERROR(compute_with_consumers_.empty());
 }
 
-TensorView* TensorView::split(
-    int64_t axis,
-    Val* factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
+TensorView* TensorView::split(int64_t axis, Val* factor, bool inner_split) {
   // Only check things associated with axis, factor will be validated in
   // IterDomain
   NVF_ERROR(
@@ -507,25 +503,17 @@ TensorView* TensorView::split(
     factor = castOp(DataType::Index, factor);
   }
 
-  domain()->split(axis, factor, inner_split, trim_out_of_bounds);
+  domain()->split(axis, factor, inner_split);
   return this;
 }
 
-TensorView* TensorView::split(
-    int64_t axis,
-    int64_t factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
+TensorView* TensorView::split(int64_t axis, int64_t factor, bool inner_split) {
   // NOTE: safe cast to int64_t, factor (unsigned int) is within int64_t range
   NVF_CHECK(
       factor > 0,
       "Invalid factor for split. Factor must be greater than 0. Factor = ",
       factor);
-  split(
-      axis,
-      IrBuilder::create<Val>(factor, DataType::Index),
-      inner_split,
-      trim_out_of_bounds);
+  split(axis, IrBuilder::create<Val>(factor, DataType::Index), inner_split);
   return this;
 }
 
@@ -562,6 +550,19 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
       " Parallelization strategy must be set after calling split.");
 
   domain()->merge(axis_o, axis_i);
+  return this;
+}
+
+TensorView* TensorView::flatten(int64_t from, int64_t to) {
+  NVF_ERROR(nDims() > 0, "Tried to do flatten on a 0-dim TensorView");
+  from = wrapDim(from);
+  to = wrapDim(to);
+  NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
+  int64_t num_merges = to - from;
+  for (auto _ : c10::irange(num_merges)) {
+    (void)_;
+    merge(from);
+  }
   return this;
 }
 
@@ -611,6 +612,29 @@ TensorView* TensorView::reorder(
 
   domain()->reorder(old2new_);
   return this;
+}
+
+TensorView* TensorView::reorder(
+    const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
+  return reorder(std::unordered_map<int64_t, int64_t>(old2new));
+}
+
+// We have to convert the above permutation to a map of old2new.
+TensorView* TensorView::reorder(const std::vector<int64_t>& permutation) {
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  int64_t idx = 0;
+  std::transform(
+      permutation.begin(),
+      permutation.end(),
+      std::inserter(reorder_map, reorder_map.end()),
+      [&idx](const int64_t v) { return std::make_pair(idx++, v); });
+
+  return reorder(reorder_map);
+}
+
+TensorView* TensorView::reorder(
+    const std::initializer_list<int64_t>& permutation) {
+  return reorder(std::vector<int64_t>(permutation));
 }
 
 TensorView* TensorView::swizzle(
@@ -745,7 +769,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
       this,
       " its definition is either a nullptr or not a reduction.");
   NVF_CHECK(
-      !domain()->hasRFactor(), "Cannot call rfactor on the same view twice.");
+      !domain()->hasRoot(), "Cannot call rfactor on the same view twice.");
 
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
@@ -792,8 +816,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         this_mma->inA(),
         this_mma->inB(),
         this_mma->init(),
-        this_mma->macro(),
-        this_mma->layout());
+        this_mma->macro());
 
     // Remaining reduction that can be scheduled cross
     //  warp or cta.
@@ -818,8 +841,8 @@ TensorView* TensorView::multiOutputRFactorHelper(
   // output TV that got the rfactor call is force replayed towards the other two
 
   if (this != tv) {
-    auto root = tv->getRootDomain();
-    auto this_root = getRootDomain();
+    auto root = tv->getRFactorDomain();
+    auto this_root = getRFactorDomain();
 
     // construct a trivial root domain map
     std::unordered_map<IterDomain*, IterDomain*> id_map;
@@ -841,7 +864,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
     std::vector<std::optional<bool>> new_contig(tv->domain()->contiguity());
     // replace tensor domain of target tv
     tv->setDomain(IrBuilder::create<TensorDomain>(
-        tv->getRootDomain(), new_id, new_contig));
+        tv->getRFactorDomain(), new_id, new_contig));
   }
 
   // Split tensor view into 2 parts
@@ -876,7 +899,7 @@ std::vector<TensorView*> TensorView::rFactor(
       " its definition is either a nullptr or not a GroupedReductionOp or a multi-output reduction op.");
 
   NVF_CHECK(
-      !domain()->hasRFactor(), "Cannot call rfactor on the same view twice.");
+      !domain()->hasRoot(), "Cannot call rfactor on the same view twice.");
 
   NVF_CHECK(
       definition()->outputs().size() == tvs.size(),
@@ -1009,7 +1032,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   size_t i = 0;
   auto no_reduction_root_domain =
-      TensorDomain::noReductions(getMaybeRFactorDomain());
+      TensorDomain::noReductions(getRFactorDomain());
   std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
   for (const auto& dom : no_reduction_root_domain) {
     new_root_domain[i++] = dom->cloneWithoutRFactor();
@@ -1069,7 +1092,7 @@ TensorView* TensorView::cacheFork() {
       "Caching computed-at tensors is not allowed. Apply caching before computeAt");
 
   // This domain will be the producer, so create the consumer
-  auto root_domain = TensorDomain::noReductions(getMaybeRFactorDomain());
+  auto root_domain = TensorDomain::noReductions(getRFactorDomain());
 
   TensorView* new_output = IrBuilder::create<TensorView>(
       container(),
@@ -1096,7 +1119,10 @@ TensorView* TensorView::cacheFork() {
   return new_output;
 }
 
-TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
+TensorView* TensorView::cacheAfter(
+    LoadStoreOpType op_type,
+    CacheOp cache_op,
+    bool propagate_allocation_domain) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1141,7 +1167,7 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
   // Remove Reduction Axis
   size_t i = 0;
   auto no_reduction_root_domain =
-      TensorDomain::noReductions(getMaybeRFactorDomain());
+      TensorDomain::noReductions(getRFactorDomain());
   std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
   for (const auto& dom : no_reduction_root_domain) {
     new_root_domain[i++] = dom->cloneWithoutRFactor();
@@ -1172,10 +1198,12 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
   IrBuilder::create<LoadStoreOp>(
       container(), op_type, consumer, producer, cache_op);
 
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+  if (propagate_allocation_domain) {
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
-  consumer->setDomain(replayed_consumer_pair.first);
+    consumer->setDomain(replayed_consumer_pair.first);
+  }
 
   return consumer;
 }
@@ -1191,24 +1219,50 @@ void TensorView::setMemoryType(MemoryType mt) {
 
 void TensorView::clearReductionIterDomains() {
   NVF_ERROR(
-      !domain()->hasRFactor(),
+      !domain()->hasRoot(),
       "should not call clearReductionIterDomains on rfactor tv");
 
   NVF_ERROR(
-      getLeafDomain() == getRootDomain(),
+      getLeafDomain() == getRFactorDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
+  const std::vector<IterDomain*>& root = getRFactorDomain();
+  const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
+
+  NVF_ERROR(
+      std::is_permutation(root.begin(), root.end(), alloc.begin(), alloc.end()),
+      "should not call clearReductionIterDomains on transformed allocation domain");
+
   std::vector<IterDomain*> new_root;
+  std::vector<IterDomain*> new_alloc;
   std::vector<std::optional<bool>> new_contig;
-  for (const auto i : c10::irange(getRootDomain().size())) {
-    auto root_i = getRootDomain().at(i);
+  for (const auto i : c10::irange(root.size())) {
+    auto root_i = root.at(i);
     if (!root_i->isReduction()) {
       new_root.push_back(root_i);
+    }
+    // contig flag is specified for on allocation domain
+    auto alloc_i = alloc.at(i);
+    if (!alloc_i->isReduction()) {
+      new_alloc.push_back(alloc_i);
       new_contig.push_back(domain()->contiguity().at(i));
     }
   }
 
-  setDomain(IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+  if (new_alloc == new_root) {
+    // if new allocation domain is identical to new root domain, we don't need
+    // to specify allocation domain
+    setDomain(
+        IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+  } else {
+    setDomain(IrBuilder::create<TensorDomain>(
+        container(),
+        std::vector<IterDomain*>(),
+        new_root,
+        new_alloc,
+        new_root,
+        new_contig));
+  }
 }
 
 void TensorView::doubleBuffer() {
@@ -1235,7 +1289,7 @@ void TensorView::circularBuffer(int64_t stage) {
 }
 
 bool TensorView::isEmptyTensor() const {
-  auto& root_domain = getMaybeRFactorDomain();
+  auto& root_domain = getRFactorDomain();
   return std::all_of(
       root_domain.begin(), root_domain.end(), [](IterDomain* id) {
         return id->extent()->isZeroInt();
@@ -1264,15 +1318,11 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
   }
 }
 
-void TensorView::applyMmaSwizzle(
-    MmaInputSmemSwizzle swizzle,
-    bool transpose,
-    bool transpose2) {
+void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
   NVF_ERROR(
       getMemoryType() == MemoryType::Shared,
       "Shared memory swizzle is only supported for shared memory");
-  mma_utils::WarpMmaSwizzler::scheduleOperandRead(
-      this, swizzle, transpose, transpose2);
+  mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, swizzle);
 }
 
 void TensorView::commitLeafToRFactor() {
@@ -1281,7 +1331,7 @@ void TensorView::commitLeafToRFactor() {
       "Changing the rFactor domain of an intermediate tensor is not supported yet");
   setDomain(IrBuilder::create<TensorDomain>(
       container(),
-      domain_->root(),
+      domain_->maybeRoot(),
       domain_->leaf(),
       domain_->allocation(),
       domain_->leaf(),

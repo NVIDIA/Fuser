@@ -300,13 +300,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           code_ << " CpuScalarTensor<" << param->dtype() << "> "
                 << var_name_ss.str();
         } else {
-          code_
-              << "Tensor<" << param->dtype() << ", "
-              << TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()
-              << ", "
-              << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
-                     .size()
-              << "> " << var_name_ss.str();
+          code_ << "Tensor<" << param->dtype() << ", "
+                << TensorDomain::noReductions(tv->getRFactorDomain()).size()
+                << ", "
+                << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
+                       .size()
+                << "> " << var_name_ss.str();
         }
       } else {
         NVF_ERROR(param->isScalar()); // NOLINT (LLVM bug 48525)
@@ -1245,7 +1244,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto optype = ldst->opType();
     NVF_ERROR(
         optype != LoadStoreOpType::LdMatrix &&
-            optype != LoadStoreOpType::LdMatrixTranspose &&
             optype != LoadStoreOpType::CpAsync,
         "ldmatrix and cp.async should be lowered as kir::Asm");
 
@@ -3053,17 +3051,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << "\"{\\n\"\n";
       int64_t boolean_counter = 0;
       int64_t counter = 0;
-      for (auto input : asm_->inputs()) {
-        if (input->dtype() == DataType::Bool) {
-          indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
-          indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %" << counter
-                   << ", 0;\\n\"\n";
-          boolean_counter++;
-        }
-        if (std::holds_alternative<ArrayType>(input->dtype().type)) {
-          counter += (int64_t)std::get<ArrayType>(input->dtype().type).size;
-        } else {
-          counter++;
+      std::array<const std::vector<Val*>*, 2> outputs_and_inputs = {
+          &asm_->outputs(), &asm_->inputs()};
+      for (const auto* io : outputs_and_inputs) {
+        for (auto val : *io) {
+          if (val->dtype() == DataType::Bool) {
+            indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
+            indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %"
+                     << counter << ", 0;\\n\"\n";
+            boolean_counter++;
+          }
+          if (std::holds_alternative<ArrayType>(val->dtype().type)) {
+            counter += (int64_t)std::get<ArrayType>(val->dtype().type).size;
+          } else {
+            counter++;
+          }
         }
       }
       indent() << "\"  " << asm_->code();

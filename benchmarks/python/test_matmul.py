@@ -28,7 +28,7 @@ def load_matmul_problems():
     "config", load_matmul_problems(), ids=lambda val: "_".join(str(v) for v in val)
 )
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_reduction_nvf_benchmark(
+def test_matmul_nvf_benchmark(
     benchmark,
     config: tuple,
     dtype: torch.dtype,

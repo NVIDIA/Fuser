@@ -490,7 +490,7 @@ using newObjectFuncType = Expr*(
 //!      - Constructors need to register with the Fusion after inputs/outputs
 //!         are defined
 //!      - Implementation of bool sameAs(...)
-//!  2) dispatch.h/.cpp must be updated to include dispatch of the new Val
+//!  2) dispatch.h/.cpp must be updated to include dispatch of the new Expr
 //!  3) Default mutator function should be added to mutator.h/.cpp
 //!  4) Printing functions should be added to ir/iostream.h/.cpp
 //!  5) Lower case convenience functions should be added to arith.h/.cpp (If

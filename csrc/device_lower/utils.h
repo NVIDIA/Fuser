@@ -71,7 +71,7 @@ NVF_API ir_utils::TVDomainGuard overrideContiguityGuard(
     bool contiguity);
 
 // Create a TVDomainGuard that temporarily setting allocation domain as
-// getMaybeRFactorDomain() from a TensorView, contiguity are filled all true or
+// getRFactorDomain() from a TensorView, contiguity are filled all true or
 // all false
 ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
     TensorView* tv,
@@ -318,6 +318,9 @@ std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion);
 //! That is, for example, if the tensor view is [TIDx{3}], but the entire
 //! fusion has blockDim.x = 128, this function will return 3 instead of 128.
 Val* getNumThreadsInTensorView(TensorView* tv);
+
+//! Get the unit dimensions of A and B for the given MmaOp.
+std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr);
 
 } // namespace lower_utils
 

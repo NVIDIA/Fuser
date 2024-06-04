@@ -127,29 +127,10 @@ class NVF_API IterDomain : public Val {
       IterDomain* inner,
       bool rfactor_domain = false);
 
-  //! start_offset and stop_offset defines partial split. Only root
-  //! domains are allowed to have non-zero start and stop offsets.
-  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
-  //! both result IterDomains.
   static std::pair<IterDomain*, IterDomain*> split(
       IterDomain* in,
       Val* factor,
       bool inner_split,
-      Val* start_offset = nullptr,
-      Val* stop_offset = nullptr,
-      bool rfactor_domain = false);
-
-  //! trim_out_of_bounds controls how the values outside start and stop
-  //! positions are treated. The option is only valid with root
-  //! domains as non-root domains do not have valid start and stop
-  //! positions.
-  //!
-  //! \param trim_out_of_bounds Trims [0, start_] and [-stop_offset_, extent_]
-  static std::pair<IterDomain*, IterDomain*> split(
-      IterDomain* in,
-      Val* factor,
-      bool inner_split,
-      bool trim_out_of_bounds,
       bool rfactor_domain = false);
 
   //! Resize an IterDomain by expanding both the left and right sides
@@ -454,20 +435,20 @@ class TensorDomain : public Val {
  public:
   NVF_API explicit TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> rfactor_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   // See notes [ Note stride order and contiguity vector ] in
   // python_bindings.cpp
   TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> rfactor_domain,
       std::vector<int64_t> stride_order,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> rfactor_domain,
       std::vector<IterDomain*> leaf_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
@@ -545,8 +526,8 @@ class TensorDomain : public Val {
     return no_bcast_domain_.size() != leaf_domain_.size();
   }
 
-  bool hasRFactor() const {
-    return !rfactor_domain_.empty();
+  bool hasRoot() const {
+    return !root_domain_.empty();
   }
 
   bool hasAllocation() const {
@@ -576,8 +557,11 @@ class TensorDomain : public Val {
     return root_domain_;
   };
 
-  // The output logical domain. If empty, the same as the root domain.
-  // See also the helper function `maybeRFactor`.
+  const std::vector<IterDomain*>& maybeRoot() const {
+    return root_domain_.empty() ? rfactor_domain_ : root_domain_;
+  };
+
+  // The output logical domain.
   const std::vector<IterDomain*>& rfactor() const {
     return rfactor_domain_;
   };
@@ -593,14 +577,8 @@ class TensorDomain : public Val {
     return leaf_domain_;
   }
 
-  // If rfactor domain exists in domain() return it, otherwise return root
-  // domain.
-  const std::vector<IterDomain*>& maybeRFactor() const {
-    return hasRFactor() ? rfactor() : root();
-  }
-
   const std::vector<IterDomain*>& maybeAllocation() const {
-    return hasAllocation() ? allocation_domain_ : maybeRFactor();
+    return hasAllocation() ? allocation_domain_ : rfactor();
   };
 
   // Set the allocation domain of this TensorDomain. The new allocation domain
@@ -645,11 +623,7 @@ class TensorDomain : public Val {
   //! tv[id{extent}] -> tv[id{ceilDiv(extent, factor)}, id{factor}]
   //! e.g. split(0, 4, inner_split = false) will result in:
   //! tv[id{extent}] -> tv[id{factor}, id{ceilDiv(extent, factor)}]
-  void split(
-      int64_t axis_,
-      Val* factor,
-      bool inner_split,
-      bool trim_out_of_bounds = false);
+  void split(int64_t axis_, Val* factor, bool inner_split);
 
   // Merge axis_o and axis_i. axis_i is the fast changing dimension. Resulting
   // axis is by default placed at original position axis_o
@@ -679,6 +653,8 @@ class TensorDomain : public Val {
   NVF_API static std::vector<IterDomain*> noReductions(
       const std::vector<IterDomain*>&);
   NVF_API static std::vector<IterDomain*> noBroadcasts(
+      const std::vector<IterDomain*>&);
+  NVF_API static std::vector<IterDomain*> noDevices(
       const std::vector<IterDomain*>&);
 
   static bool hasBroadcast(const std::vector<IterDomain*>&);

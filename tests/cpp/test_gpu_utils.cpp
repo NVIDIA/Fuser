@@ -107,7 +107,7 @@ TEST_F(NVFuserTest, FusionMergeDims_CUDA) {
   }
   std::vector<int64_t> expect_dims{0, 1, 2, 2, 3, 4, 5, 2, 2, 2, 6};
   EXPECT_EQ(dims, expect_dims);
-  auto root_domain = tv->getRootDomain();
+  auto root_domain = tv->getRFactorDomain();
   auto num_merged_dim = to_merge.size();
   auto inputs = IterVisitor::getInputsTo({tv->axis(2)});
   for (auto index : c10::irange(num_merged_dim)) {
@@ -1062,7 +1062,7 @@ TEST_F(VectorizeHelperTest, SpanningTree_CUDA) {
           if (tv->name() == 0 || tv->name() == 1) {
             continue;
           }
-          for (auto axis : tv->getRootDomain()) {
+          for (auto axis : tv->getRFactorDomain()) {
             EXPECT_EQ(mapper.getProjectedExtent(axis)->evaluate(), 2);
           }
         }

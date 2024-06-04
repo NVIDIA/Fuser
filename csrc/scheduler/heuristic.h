@@ -25,11 +25,20 @@ class HeuristicParams : public PolymorphicBase {
     return "Undefined Heuristic Params";
   }
 
-  virtual size_t hash() const = 0;
+  virtual size_t hash() const {
+    return 0;
+  };
 
-  virtual bool sameAs(const std::shared_ptr<HeuristicParams>& other) const = 0;
+  virtual bool sameAs(const std::shared_ptr<HeuristicParams>& other) const {
+    if (!other->isStrictlyA<HeuristicParams>()) {
+      return false;
+    }
+    return other->cparams == cparams;
+  }
 
-  virtual std::shared_ptr<HeuristicParams> clone() const = 0;
+  virtual std::shared_ptr<HeuristicParams> clone() const {
+    return std::make_shared<HeuristicParams>();
+  }
 
   HeuristicParams() = default;
   HeuristicParams(std::string tag, PrimDataType index_type)

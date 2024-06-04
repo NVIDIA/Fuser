@@ -17,6 +17,7 @@
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <sys_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -125,7 +126,7 @@ TEST_F(AliasAnalysisTest, Set) {
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
-  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& out_rfactor = out->getRFactorDomain();
   EXPECT_THAT(
       alias_analysis.preferredLayout(out).allocation_domain,
       ElementsAre(out_rfactor[1], out_rfactor[2], out_rfactor[0]));
@@ -145,7 +146,7 @@ TEST_F(AliasAnalysisTest, Permute) {
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
-  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& out_rfactor = out->getRFactorDomain();
   EXPECT_THAT(
       alias_analysis.preferredLayout(out).allocation_domain,
       ElementsAre(out_rfactor[2], out_rfactor[0], out_rfactor[1]));
@@ -1109,6 +1110,11 @@ TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
 }
 
 TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
+  if (detectComputeSanitizer()) {
+    GTEST_SKIP()
+        << "Skipped because compute-sanitizer is detected, which conflicts with FusionProfiler";
+  }
+
   ProfilerOptionsGuard options_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   FusionProfiler::start();
@@ -1179,6 +1185,11 @@ TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
 }
 
 TEST_F(AliasTest, NoKernelsAreLaunched) {
+  if (detectComputeSanitizer()) {
+    GTEST_SKIP()
+        << "Skipped because compute-sanitizer is detected, which conflicts with FusionProfiler";
+  }
+
   ProfilerOptionsGuard option_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   FusionProfiler::start();

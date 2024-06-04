@@ -37,5 +37,4 @@ TEST_F(DynamicTypeTest, Printing) {
       [&]() { ss << IntSomeType(SomeType{}); },
       ::testing::ThrowsMessage<std::runtime_error>(
           ::testing::HasSubstr("Can not print")));
-  static_assert(!(opcheck<std::stringstream&> << opcheck<SomeTypes>));
 }

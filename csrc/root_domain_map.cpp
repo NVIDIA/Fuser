@@ -9,6 +9,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <ops/utils.h>
 #include <root_domain_map.h>
 
 #include <sstream>
@@ -28,7 +29,7 @@ std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::
         const TensorDomain* producer,
         const TensorDomain* consumer) const {
   std::unordered_set<IterDomain*> root_dims_to_map(
-      producer->maybeRFactor().begin(), producer->maybeRFactor().end());
+      producer->rfactor().begin(), producer->rfactor().end());
   return mapProducerToConsumer(producer, consumer, root_dims_to_map);
 }
 
@@ -45,7 +46,7 @@ std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::
         const TensorDomain* consumer,
         const TensorDomain* producer) const {
   std::unordered_set<IterDomain*> root_dims_to_map(
-      consumer->root().begin(), consumer->root().end());
+      consumer->maybeRoot().begin(), consumer->maybeRoot().end());
   return mapConsumerToProducer(consumer, producer, root_dims_to_map);
 }
 
@@ -118,9 +119,116 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       getIndexedDomainInfo(producer_tv_, consumer_tv_);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
-  const auto producer_root =
-      TensorDomain::noReductions(producer->maybeRFactor());
-  const auto& consumer_root = consumer->root();
+  const auto producer_root = TensorDomain::noReductions(producer->rfactor());
+  const auto& consumer_root = consumer->maybeRoot();
+
+  // Check following conditions and add key-value iterdomain pair to domain map:
+  // 1. Do not map broadcast ID to non-broadcast ID unless map_broadcast_ =
+  // true.
+  // 2. Do not map Symbolic ID if the extents are not identical unless
+  // map_symbolic_ = true.
+  auto updatePairwiseRootDomainMap = [&](IterDomain* producer_id,
+                                         IterDomain* consumer_id) {
+    if (!map_broadcast_ &&
+        producer_id->isBroadcast() != consumer_id->isBroadcast()) {
+      return;
+    }
+
+    // Condition: At least one ID is symbolic.
+    //
+    // If map_symbolic_ is true:
+    //   Map these IDs regardless of other considerations.
+    //
+    // If map_symbolic_ is false (default):
+    //   Map these only if their extents are identical. IterType::Symbolic
+    //   reflects that the extent might evaluate to 1 for some inputs, in which
+    //   case it may be valid to use those domains in a broadcast op. If the
+    //   extents are exactly the same between two aligned IterDomains, the
+    //   Symbolic one will be concretized to the same IterType as the other, so
+    //   they should be mapped with one another.
+    if (!map_symbolic_ &&
+        (producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
+        (!producer_id->extent()->sameAs(consumer_id->extent()))) {
+      return;
+    }
+
+    IterDomain* map_key_id = producer_id;
+    IterDomain* map_value_id = consumer_id;
+
+    if (!producer_to_consumer) {
+      std::swap(map_key_id, map_value_id);
+    }
+
+    if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
+      dom_map.insert(std::make_pair(map_key_id, map_value_id));
+    }
+  };
+
+  // Assumes producer and consumer IDs to be trivially aligned and adds them to
+  // domain map.
+  auto pairwiseMapAllIds = [&](std::vector<IterDomain*> producer_ids,
+                               std::vector<IterDomain*> consumer_ids) {
+    NVF_ERROR(producer_ids.size() == consumer_ids.size());
+    for (auto idx : c10::irange(consumer_ids.size())) {
+      IterDomain* producer_id = producer_ids.at(idx);
+      IterDomain* consumer_id = consumer_ids.at(idx);
+      if (producer_id == nullptr) {
+        continue;
+      }
+      updatePairwiseRootDomainMap(producer_id, consumer_id);
+    }
+  };
+
+  // For MatmulOp, use the corresponding mapped input iterdomains.
+  if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
+    // Check if the producer is lhs/rhs input
+    MatmulRole input_role = producer_tv_->sameAs(op->inA())
+        ? MatmulRole::INPUT_A
+        : MatmulRole::INPUT_B;
+    auto out_size = consumer_root.size();
+
+    // For MatmulOp, the input iterdomains at a given index do not necessarily
+    // map to the output iterdomain at that index `mapMatmulOpIterDomains`
+    // outputs a vector of the input iterdomains aligned to the output domain
+    // which can be used to create a pairwise map between input-output. For eg:
+    // 1. `[M, K] x [K, N] -> [M, N]`: For input A, there is no mapping between
+    // input and output for index=2
+    // 2. `B, M, K] x [K, N] -> [B, M, N]`: For  input B, the second iterdomain
+    // maps to the third output iterdomain.
+    const std::vector<IterDomain*>& aligned_producer_ids =
+        ops::mapMatmulOpIterDomains(producer_root, input_role, out_size);
+    pairwiseMapAllIds(aligned_producer_ids, consumer_root);
+    return dom_map;
+  }
+
+  if (LinearOp* op = dynamic_cast<LinearOp*>(consumer_tv_->definition())) {
+    auto out_size = consumer_root.size();
+
+    // Check if the producer is A, B or bias.
+    std::optional<MatmulRole> input_role = std::nullopt;
+    if (producer->sameAs(op->inA()->as<TensorView>()->domain())) {
+      input_role = MatmulRole::INPUT_A;
+    } else if (producer->sameAs(op->inB()->as<TensorView>()->domain())) {
+      input_role = MatmulRole::INPUT_B;
+    } else if (producer->sameAs(op->bias()->as<TensorView>()->domain())) {
+      input_role = MatmulRole::INPUT_C;
+    } else {
+      NVF_ERROR(false, "Producer did not match any LinearOp input.")
+    }
+
+    // LinearOp:
+    // inputs (INPUT_A) = {*, in_features}
+    // weight (INPUT_B) = {out_features, in_features} / {in_features}
+    // bias (INPUT_C) = {out_features} / {}
+    // output = {*, out_features} / {*}
+
+    const std::vector<IterDomain*>& aligned_producer_ids =
+        ops::mapLinearOpIterDomains(
+            producer_root, input_role.value(), out_size);
+    pairwiseMapAllIds(aligned_producer_ids, consumer_root);
+    return dom_map;
+  }
+
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_root.size()) {
     IterDomain* producer_id = producer_root.at(itp);
@@ -131,8 +239,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // 2. IDs that may have different extents (e.g., non indexed
     //  domains of torch_gather)
     // 3. Squeeze and unsqueeze
-    // 4. Broadcast and non broadcast
-    // 5. Symbolic ID with different extent from other ID
 
     // Condition 1: when the producer ID is the dim of a select-like op
     if (producer_id == indexed_producer_id) {
@@ -177,44 +283,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       continue;
     }
 
-    // Condition 4
-    if (!map_broadcast_ &&
-        producer_id->isBroadcast() != consumer_id->isBroadcast()) {
-      itc++;
-      itp++;
-      continue;
-    }
+    updatePairwiseRootDomainMap(producer_id, consumer_id);
 
-    // Condition 5
-    // At least one ID is symbolic.
-    //
-    // If map_symbolic_ is true:
-    //   Map these IDs regardless of other considerations.
-    //
-    // If map_symbolic_ is false (default):
-    //   Map these only if their extents are identical. IterType::Symbolic
-    //   reflects that the extent might evaluate to 1 for some inputs, in which
-    //   case it may be valid to use those domains in a broadcast op. If the
-    //   extents are exactly the same between two aligned IterDomains, the
-    //   Symbolic one will be concretized to the same IterType as the other, so
-    //   they should be mapped with one another.
-    if (!map_symbolic_ &&
-        (producer_id->isSymbolic() || consumer_id->isSymbolic()) &&
-        (!producer_id->extent()->sameAs(consumer_id->extent()))) {
-      itc++;
-      itp++;
-      continue;
-    }
-
-    IterDomain* map_key_id = producer_id;
-    IterDomain* map_value_id = consumer_id;
-    if (!producer_to_consumer) {
-      std::swap(map_key_id, map_value_id);
-    }
-
-    if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
-      dom_map.insert(std::make_pair(map_key_id, map_value_id));
-    }
     itc++;
     itp++;
   }
@@ -296,9 +366,9 @@ std::string DomainKey::toString() const {
   if (td()) {
     auto tv = lookUpTv(td());
     NVF_ERROR(tv != nullptr, "No TV found for ", td()->toString());
-    ss << "T" << tv->name() << "[ " << td()->root() << " ]";
-    if (td()->hasRFactor()) {
-      ss << " (Rfactor: [ " << td()->maybeRFactor() << " ])";
+    ss << "T" << tv->name() << "[ " << td()->rfactor() << " ]";
+    if (td()->hasRoot()) {
+      ss << " (root: [ " << td()->root() << " ])";
     }
   } else {
     ss << "null";
@@ -342,7 +412,7 @@ class FindInputDomains : BackwardVisitor {
 
   void propagate(TensorView* in_tv, TensorView* out_tv) {
     auto c2p = PairwiseRootDomainMap(in_tv, out_tv).mapConsumerToProducer();
-    for (auto root_dom : out_tv->getRootDomain()) {
+    for (auto root_dom : out_tv->getMaybeRootDomain()) {
       DomainKey out_key({out_tv->domain(), root_dom});
       if (input_keys_.find(out_key) == input_keys_.end()) {
         continue;
@@ -370,7 +440,7 @@ class FindInputDomains : BackwardVisitor {
 
 void UnmappableReductionDomains::handleReductionOutput(TensorView* out_tv) {
   std::vector<DomainKey> reduction_keys;
-  for (const auto id : out_tv->getRootDomain()) {
+  for (const auto id : out_tv->getMaybeRootDomain()) {
     if (id->isReduction()) {
       DomainKey key(out_tv->domain(), id);
       reduction_keys.push_back(key);
@@ -384,7 +454,7 @@ void UnmappableReductionDomains::handleReductionOutput(TensorView* out_tv) {
       if (tv == out_tv) {
         continue;
       }
-      const auto& root_domain = tv->getRootDomain();
+      const auto& root_domain = tv->getMaybeRootDomain();
       for (const auto& id : root_domain) {
         DomainKey consumer_key(tv->domain(), id);
         for (const auto& reduction_key : reduction_keys) {
@@ -730,9 +800,8 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::map(
     const TensorDomain* consumer,
     const std::unordered_set<IterDomain*>& root_dims_to_map,
     bool producer_to_consumer) const {
-  const auto& producer_root =
-      TensorDomain::noReductions(producer->maybeRFactor());
-  const auto& consumer_root = consumer->root();
+  const auto& producer_root = TensorDomain::noReductions(producer->rfactor());
+  const auto& consumer_root = consumer->maybeRoot();
   const TensorDomain* from_td = producer_to_consumer ? producer : consumer;
   const TensorDomain* to_td = producer_to_consumer ? consumer : producer;
   const auto& from_ids = producer_to_consumer ? producer_root : consumer_root;
@@ -789,8 +858,8 @@ std::unordered_set<IterDomain*> ComputeAtRootDomainMap::getMappableDims(
   //! views. Since we only need to find mappable domains, just
   //! grab any domain that is mapped in a pairwise way.
 
-  const auto& producer_root = producer->maybeRFactor();
-  const auto& consumer_root = consumer->root();
+  const auto& producer_root = producer->rfactor();
+  const auto& consumer_root = consumer->maybeRoot();
 
   std::unordered_set<IterDomain*> mappable_ids;
 
@@ -1027,8 +1096,8 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
 void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
   const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
   const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
-  const auto in_root = TensorDomain::noReductions(in_td->maybeRFactor());
-  const auto& out_root = out_td->root();
+  const auto in_root = TensorDomain::noReductions(in_td->rfactor());
+  const auto& out_root = out_td->maybeRoot();
   const auto& bcast_dim_flags = op->getBroadcastDimFlags();
   NVF_ERROR(
       out_root.size() == bcast_dim_flags.size(),
@@ -1074,8 +1143,8 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
 void ComputeAtRootDomainMapBuilder::handle(SqueezeOp* op) {
   const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
   const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
-  const auto in_root = TensorDomain::noReductions(in_td->maybeRFactor());
-  const auto& out_root = out_td->root();
+  const auto in_root = TensorDomain::noReductions(in_td->rfactor());
+  const auto& out_root = out_td->maybeRoot();
   const auto& squeeze_dim_flags = op->getSqueezeDimFlags();
   NVF_ERROR(
       in_root.size() == squeeze_dim_flags.size(),
@@ -1121,13 +1190,13 @@ void ComputeAtRootDomainMapBuilder::handle(SqueezeOp* op) {
 void ComputeAtRootDomainMapBuilder::handle(ViewAsScalar* op) {
   const TensorView* out_tv = op->output(0)->as<TensorView>();
   const TensorDomain* out_td = out_tv->domain();
-  const auto& out_root = out_td->root();
+  const auto& out_root = out_td->maybeRoot();
 
   const TensorView* in_tv = op->input(0)->as<TensorView>();
   const TensorDomain* in_td = in_tv->domain();
 
   std::vector<IterDomain*> in_root =
-      TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
+      TensorDomain::noReductions(in_tv->getRFactorDomain());
   NVF_ERROR(
       in_root.size() + 1 == out_root.size(),
       "\nExpression: ",
@@ -1146,24 +1215,6 @@ void ComputeAtRootDomainMapBuilder::handle(ViewAsScalar* op) {
   NVF_ERROR(
       (*out_it)->isVectorComponent(),
       "The last dim of ViewDtypeOp's output must be a ViewAsScalar");
-}
-
-void ComputeAtRootDomainMapBuilder::handle(GatherOp* op) {
-  const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
-  const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
-  const auto in_root = TensorDomain::noReductions(in_td->maybeRFactor());
-  const auto& out_root = out_td->root();
-
-  // Only maps the input root axes. Do not map the new window axes.
-  for (const auto it : c10::irange(in_root.size())) {
-    setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
-  }
-
-  // Keep track of window axes so that they can be skipped when
-  // mapping root domains
-  for (const auto it : c10::irange(in_root.size(), out_root.size())) {
-    root_map_.window_axes_.insert(out_root[it]);
-  }
 }
 
 void ComputeAtRootDomainMapBuilder::mapAllPendingMappings(
@@ -1205,7 +1256,7 @@ void ComputeAtRootDomainMapBuilder::handle(RNGOp* rop) {
 
 void ComputeAtRootDomainMapBuilder::handle(TensorView* tv) {
   const TensorDomain* td = tv->domain();
-  const auto rfactor = TensorDomain::noReductions(td->maybeRFactor());
+  const auto rfactor = TensorDomain::noReductions(td->rfactor());
   for (auto id : rfactor) {
     if (id->isBroadcast()) {
       initializeBcastMap(tv, id);
@@ -1238,7 +1289,7 @@ void ComputeAtRootDomainMapBuilder::handle(TensorView* tv) {
     }
     // Once mappings for rfactor axes are propagated to root axes,
     // aggregates them at each root axis
-    for (auto id : tv->getRootDomain()) {
+    for (auto id : tv->getMaybeRootDomain()) {
       if (id->isBroadcast()) {
         // There can be broadcast domains that appear at root domains but
         // are removed at rfactor domains as they are merged into
@@ -1327,9 +1378,8 @@ std::unordered_map<IterDomain*, IterDomain*> ExactRootDomainMap::map(
     const TensorDomain* consumer,
     const std::unordered_set<IterDomain*>& root_dims_to_map,
     bool producer_to_consumer) const {
-  const auto& producer_root =
-      TensorDomain::noReductions(producer->maybeRFactor());
-  const auto& consumer_root = consumer->root();
+  const auto& producer_root = TensorDomain::noReductions(producer->rfactor());
+  const auto& consumer_root = consumer->maybeRoot();
   const auto& from_ids = producer_to_consumer ? producer_root : consumer_root;
   const auto& to_ids = producer_to_consumer ? consumer_root : producer_root;
 

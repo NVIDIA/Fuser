@@ -244,6 +244,7 @@ MatmulParams getMatmulParams(
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams params;
+  params.supported_vec_size = {8, 8, 8};
   params.mma_macro = MmaMacro::Ampere_16_16_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
@@ -398,9 +399,6 @@ static void NvFuserScheduler_Matmul(
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
-
-  DisableOptionsGuard dog;
-  DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
 
   // Run benchmark:
   if (partitionedk) {

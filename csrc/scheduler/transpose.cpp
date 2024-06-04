@@ -34,10 +34,10 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  // Fusions handled by transpose scheduler cannot have MmaOp.
-  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+  // Fusions handled by transpose scheduler cannot have matmul ops.
+  if (ir_utils::hasAnyMatmulOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no support for mma ops.");
+        heuristicType(), "no support for matmul ops.");
     return false;
   }
 
@@ -642,7 +642,7 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     DomainMap& domain_map) {
-  auto ref_root = reference->getMaybeRFactorDomain();
+  auto ref_root = reference->getRFactorDomain();
   std::vector<int64_t> shape_in_ref;
   shape_in_ref.reserve(reference->nDims());
   int64_t n_elems = 1;

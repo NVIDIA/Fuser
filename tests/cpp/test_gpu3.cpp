@@ -2054,7 +2054,7 @@ TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
 
   // They must not be mapped with anything else.
   for (auto tv : ir_utils::allTvs(&fusion)) {
-    for (auto root_id : tv->getRootDomain()) {
+    for (auto root_id : tv->getRFactorDomain()) {
       if (root_id == tv2_bc || root_id == tv3_bc) {
         continue;
       }
@@ -6560,14 +6560,14 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->split(0, 4);
   // [I0/4, 4, I1]
 
-  // Initial domain: root domain
+  // Initial domain: rfactor domain
   // Derived domain: [4, I1]
   // Should fail as the derived domain only partially covers the
-  // root domain
+  // rfactor domain
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv1->getRootDomain(), {tv1->axis(1), tv1->axis(2)});
+            tv1->getRFactorDomain(), {tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
@@ -6575,24 +6575,24 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->merge(0);
   // [I0/4*4, I1]
 
-  // Initial domain: root domain
+  // Initial domain: rfactor domain
   // Derived domain: leaf domain
   // Should succeed.
   ir_utils::validateDomainEquivalence(
-      tv1->getRootDomain(), tv1->getLeafDomain());
+      tv1->getRFactorDomain(), tv1->getLeafDomain());
 
   auto tv1_intermediate_id = tv1->axis(0);
 
   tv1->split(0, 3);
   // [I0/4*4/3, 3, I1]
 
-  // Initial domain: root domain
+  // Initial domain: rfactor domain
   // Derived domain: leaf + tv1_intermediate_id
   // Should fail as the intermediate ID and the first two leaves are redundant
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv1->getRootDomain(),
+            tv1->getRFactorDomain(),
             {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
@@ -6616,7 +6616,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // [S0, B0/4, 4]
 
   ir_utils::validateDomainEquivalence(
-      tv4->getRootDomain(), tv4->getLeafDomain());
+      tv4->getRFactorDomain(), tv4->getLeafDomain());
 
   // Initial domain: root domain
   // Derived domain: [S0, B0/4]
@@ -6625,7 +6625,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv4->getRootDomain(), {tv4->axis(0), tv4->axis(1)});
+            tv4->getRFactorDomain(), {tv4->axis(0), tv4->axis(1)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
@@ -6679,14 +6679,14 @@ TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
   tv1->split(1, 4);
   // [I0, I1/4, 4]
 
-  const auto& root_domain = tv1->getRootDomain();
+  const auto& rfactor_domain = tv1->getRFactorDomain();
 
   // legal, as I0 is also a leaf domain
-  root_domain[0]->parallelize(ParallelType::BIDx);
+  rfactor_domain[0]->parallelize(ParallelType::BIDx);
 
   // llegal, as I1 is not a leaf domain
   EXPECT_THAT(
-      [&]() { root_domain[1]->parallelize(ParallelType::BIDy); },
+      [&]() { rfactor_domain[1]->parallelize(ParallelType::BIDy); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Only allowed to parallelize a leaf domain")));
 }
@@ -7229,11 +7229,11 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
     if (hidden_size * dataTypeSize(dtype) >
         scheduler_utils::register_file_size) {
       NVF_CHECK(
-          persistent_params->shared_mem_persistent_buffer,
+          !persistent_params->smem_persistent_buffers.empty(),
           "Should use shared memory buffer!");
     } else {
       NVF_CHECK(
-          !persistent_params->shared_mem_persistent_buffer,
+          persistent_params->smem_persistent_buffers.empty(),
           "Shouldn't use shared memory buffer!");
     }
 
@@ -8131,6 +8131,77 @@ TEST_F(NVFuserTest, TemplateFunctionTypeMismatch) {
       fusion, args, persistent_params->lparams, persistent_params->cparams);
   auto cg_outputs = fe.runFusion(args, persistent_params->lparams);
 }
+
+// Test block reduction across TIDx and TIDz
+TEST_F(NVFuserTest, BlockReduction3D) {
+  auto test = [](const int tidx, const int tidy, const int tidz) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    std::vector<int64_t> shape({tidz, tidy, tidx});
+
+    auto tv0 = makeConcreteTensor(shape);
+    fusion.addInput(tv0);
+    auto tv1 = sum(tv0, {0, 2});
+    fusion.addOutput(tv1);
+
+    tv1->axis(0)->parallelize(ParallelType::TIDz);
+    tv1->axis(1)->parallelize(ParallelType::TIDy);
+    tv1->axis(2)->parallelize(ParallelType::TIDx);
+
+    scheduler_utils::parallelizeAllLike(tv1);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn(shape, options);
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, {t0});
+    auto cg_outputs = fe.runFusion({t0});
+    auto ref = t0.sum(0).sum(-1);
+    testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  };
+  // tested locally with i,j,k +=2, change to i,j,k *=2 to reduce CI time.
+  auto properties = at::cuda::getDeviceProperties(
+      c10::Device(c10::DeviceType::CUDA, 0).index());
+  int max_threads_per_blk = (int)properties->maxThreadsPerBlock;
+  for (int i = 2; i <= 32; i *= 2) {
+    for (int j = 2; j <= 32; j *= 2) {
+      for (int k = 2; k <= 32; k *= 2) {
+        if (i * j * k <= max_threads_per_blk) {
+          test(i, j, k);
+        }
+      }
+    }
+  }
+}
+
+// Simple test to merge an inner domain as an outer input
+TEST_F(NVFuserTest, ReverseMerge) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->merge(1, 0);
+
+  ASSERT_EQ(tv1->nDims(), 1);
+  auto merge = dynamic_cast<Merge*>(tv1->axis(0)->definition());
+  ASSERT_NE(merge, nullptr);
+  ASSERT_EQ(merge->outer(), tv1->getRFactorDomain().at(1));
+  ASSERT_EQ(merge->inner(), tv1->getRFactorDomain().at(0));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({11, 12}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

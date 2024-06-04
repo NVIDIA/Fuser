@@ -20,6 +20,8 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
+#include <ATen/cuda/CUDAContext.h>
+
 #include <algorithm>
 #include <queue>
 
@@ -584,7 +586,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       auto mappable_roots =
           root_map.getMappableDims(producer->domain(), consumer->domain());
 
-      auto p_root = producer->getMaybeRFactorDomain();
+      auto p_root = producer->getRFactorDomain();
 
       for (auto p_root_id : p_root) {
         if (p_root_id->isReduction() || p_root_id->isBroadcast()) {
@@ -648,7 +650,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   for (auto input : all_inputs) {
     bool has_unmappable_dim = false;
-    for (auto input_id : input->getMaybeRFactorDomain()) {
+    for (auto input_id : input->getRFactorDomain()) {
       auto concrete_input_id =
           ca_map.getConcreteMappedID(input_id, IdMappingMode::EXACT);
       if (unmappable_concrete_ids.find(concrete_input_id) !=
@@ -688,7 +690,7 @@ ReductionTvProperties getReductionProperties(
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getRootDomain();
+  const auto& root_dom = tv->getMaybeRootDomain();
   for (size_t i = root_dom.size(); i > 0; i--) {
     auto id = root_dom[i - 1];
     if (id->isBroadcast()) {
@@ -889,7 +891,7 @@ int64_t getPersistentBufferSizeOfTensor(
           persistent_buffer_info.projectable_buffer_inputs.end(),
           buffer) != persistent_buffer_info.projectable_buffer_inputs.end();
 
-  for (auto id : buffer->getMaybeRFactorDomain()) {
+  for (auto id : buffer->getRFactorDomain()) {
     if (id->isReduction() || id->isBroadcast()) {
       continue;
     }
@@ -1114,10 +1116,10 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion) {
       ir_utils::filterByType<TensorView>(fusion_vals).end(),
       std::back_inserter(tvs_with_rfactor),
       [](TensorView* tv) {
-        return tv->hasRFactor() &&
+        return tv->hasRoot() &&
             std::none_of(
-                   tv->getMaybeRFactorDomain().begin(),
-                   tv->getMaybeRFactorDomain().end(),
+                   tv->getRFactorDomain().begin(),
+                   tv->getRFactorDomain().end(),
                    [](auto id) {
                      return id->isReduction() && id->isRFactorProduct();
                    });
@@ -1205,7 +1207,7 @@ IterDomain* projectIdToRoot(
     return nullptr;
   }
 
-  if (!tv->hasRFactor()) {
+  if (!tv->hasRoot()) {
     return reference_id;
   }
 
@@ -1270,7 +1272,7 @@ IterDomain* projectIdToRFactor(
     return nullptr;
   }
 
-  if (!tv->hasRFactor()) {
+  if (!tv->hasRoot()) {
     return reference_id;
   }
 
@@ -1392,9 +1394,9 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i : c10::irange(from->getRootDomain().size())) {
-      if (from_id == from->getRootDomain()[i]) {
-        mapped_root_ids_[to] = to->getRootDomain()[i];
+    for (auto i : c10::irange(from->getMaybeRootDomain().size())) {
+      if (from_id == from->getMaybeRootDomain()[i]) {
+        mapped_root_ids_[to] = to->getMaybeRootDomain()[i];
         break;
       }
     }
@@ -1403,9 +1405,9 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i : c10::irange(from->getMaybeRFactorDomain().size())) {
-      if (from_id == from->getMaybeRFactorDomain()[i]) {
-        mapped_rfactor_ids_[to] = to->getMaybeRFactorDomain()[i];
+    for (auto i : c10::irange(from->getRFactorDomain().size())) {
+      if (from_id == from->getRFactorDomain()[i]) {
+        mapped_rfactor_ids_[to] = to->getRFactorDomain()[i];
         return;
       }
     }
@@ -1549,7 +1551,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     TensorView* of,
     DisjointSets<IterDomain*>& disjoint_rfactor_set,
     const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map) {
-  auto rfactor_dom = of->getMaybeRFactorDomain();
+  auto rfactor_dom = of->getRFactorDomain();
   if (rfactor_dom.empty()) {
     return {};
   }
@@ -1629,7 +1631,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
   auto ref_root_domain =
-      TensorDomain::noReductions(reference_tv->getMaybeRFactorDomain());
+      TensorDomain::noReductions(reference_tv->getRFactorDomain());
 
   if (!rfactor_reorder_map.empty()) {
     ref_root_domain =
@@ -1662,7 +1664,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
   for (auto in_out_tv : in_out_tvs) {
     std::vector<bool> mapped_axes(ref_root_domain.size(), false);
 
-    auto in_out_tv_domain = in_out_tv->getRootDomain();
+    auto in_out_tv_domain = in_out_tv->getMaybeRootDomain();
     auto in_out_tv_domain_list = std::list<IterDomain*>(
         in_out_tv_domain.begin(), in_out_tv_domain.end());
 
@@ -1984,8 +1986,7 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
     for (auto expr : StmtSort::getExprsTo(
-             {tv->getMaybeRFactorDomain().begin(),
-              tv->getMaybeRFactorDomain().end()})) {
+             {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()})) {
       if (expr->isA<Merge>()) {
         auto merge = expr->as<Merge>();
         disjoint_rfactor_ids.mapEntries(merge->inner(), merge->out());
@@ -2040,7 +2041,7 @@ std::unordered_map<int64_t, int64_t> domainReorderAsRfactorMap(TensorView* tv) {
   // expressions. We'll always insert the result of split in the location of the
   // input, and insert the merge result in the position of the inner dimension.
 
-  auto reordered_ids = tv->getMaybeRFactorDomain();
+  auto reordered_ids = tv->getRFactorDomain();
   for (const auto* expr : transform_exprs) {
     if (const Split* split = dynamic_cast<const Split*>(expr)) {
       auto find_it =
@@ -2117,7 +2118,7 @@ std::unordered_map<int64_t, int64_t> maybeRfactorReorderAsAllocationMap(
     return ret;
   }
   const auto& alloc_dom = tv->getAllocationDomain();
-  const auto& maybe_rfactor_dom = tv->getMaybeRFactorDomain();
+  const auto& maybe_rfactor_dom = tv->getRFactorDomain();
   if (alloc_dom == maybe_rfactor_dom) {
     return ret;
   }
@@ -2145,9 +2146,8 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
     for (auto expr : StmtSort::getExprsBetween(
-             {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-             {tv->getMaybeRFactorDomain().begin(),
-              tv->getMaybeRFactorDomain().end()})) {
+             {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
+             {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()})) {
       for (auto id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
         transformed_disjoint_sets.emplace(
             ca_map.disjointSetOf(id, IdMappingMode::EXACT));
@@ -2182,7 +2182,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   // If iter domains are involved in any transformation from root domains to
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
-    if (!tv->hasRFactor()) {
+    if (!tv->hasRoot()) {
       continue;
     }
 
@@ -2192,7 +2192,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     // improve this so that if there's transformations replayed after the
     // rfactor dims we could try and pull those through the fusion instead of
     // enforcing rfactor dims are in domain.
-    for (auto rfactor_id : tv->getMaybeRFactorDomain()) {
+    for (auto rfactor_id : tv->getRFactorDomain()) {
       if (terminating_reshape_dims.find(rfactor_id) !=
           terminating_reshape_dims.end()) {
         auto find_it = std::find(
@@ -2503,6 +2503,34 @@ std::unordered_set<TensorView*> getAllTvsFrom(
     }
   }
   return tv_group;
+}
+
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    int64_t threads_per_block) {
+  const auto& dev_prop = at::cuda::getCurrentDeviceProperties();
+  // use device max threads per block if threads_per_block is not provided
+  threads_per_block =
+      threads_per_block > 0 ? threads_per_block : dev_prop->maxThreadsPerBlock;
+  // (1) part-1, space for the reduction broadcast.
+  int64_t dtype_size = 1;
+  for (auto tv : reduction_tvs) {
+    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
+  }
+  // for welford, three arrays of type nvfuser_index_t are used to store var,
+  // avg, and n. see FusionExecutor::computeLaunchParams. Here index type is
+  // assumed as int64_t
+  int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
+  if (welford_factor == 3l) {
+    dtype_size = std::max(dtype_size, (int64_t)sizeof(int64_t));
+  }
+  int64_t reduction_broadcast_workspace =
+      threads_per_block * dtype_size * welford_factor;
+
+  // (2) part-2, space reserved by the CUDA driver
+  int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
+  return reduction_broadcast_workspace + smem_overhead_driver;
 }
 
 } // namespace scheduler_utils
