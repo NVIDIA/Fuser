@@ -2995,7 +2995,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "transform_like",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
-         const std::vector<Tensor>& subgraph_nodes) {
+         const std::vector<Tensor>& selected_nodes) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
@@ -3005,30 +3005,30 @@ void initNvFuserPythonBindings(PyObject* module) {
             fd->getFusionState(tensor.index)->template as<TensorView>();
 
         TransformPropagator propagator(reference_tv);
-        if (subgraph_nodes.empty()) {
+        if (selected_nodes.empty()) {
           // Propagate scheduler transformations on reference TensorView to the
           // rest of the fusion.
           MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
         } else {
           // Propagate scheduler transformations on reference TensorView to the
           // subset of the fusion.
-          std::unordered_set<TensorView*> subgraph_tv_set;
-          subgraph_tv_set.reserve(subgraph_nodes.size());
+          std::unordered_set<TensorView*> selected_tv_set;
+          selected_tv_set.reserve(selected_nodes.size());
           std::transform(
-              subgraph_nodes.begin(),
-              subgraph_nodes.end(),
-              std::inserter(subgraph_tv_set, subgraph_tv_set.end()),
+              selected_nodes.begin(),
+              selected_nodes.end(),
+              std::inserter(selected_tv_set, selected_tv_set.end()),
               [&fd](const Tensor& t) {
                 return fd->getFusionState(t.index)->template as<TensorView>();
               });
           SetSelector selector(
-              {subgraph_tv_set.begin(), subgraph_tv_set.end()});
+              {selected_tv_set.begin(), selected_tv_set.end()});
           MaxRootDomainInfoSpanningTree(reference_tv, &selector)
               .traverse(&propagator);
         }
       },
       py::arg("tensor"),
-      py::arg("subgraph_nodes") = std::vector<Tensor>());
+      py::arg("selected_nodes") = std::vector<Tensor>());
   nvf_sched.def(
       "parallelize_like",
       [](FusionDefinition::SchedOperators& self,
