@@ -501,6 +501,14 @@ void initNvFuserPythonBindings(PyObject* module) {
   kernel_prof.def_property_readonly(
       "correlation_id", [](KernelProfile& self) { return self.correlation_id; });
   kernel_prof.def_property_readonly(
+      "compile_time_ms", [](KernelProfile& self) { return self.compile_time_ms; });
+  kernel_prof.def_property_readonly(
+      "time_ms", [](KernelProfile& self) { return self.time_ms; });
+  kernel_prof.def_property_readonly(
+      "effective_bandwidth_gbs", [](KernelProfile& self) { return self.effective_bandwidth_gbs; });
+  kernel_prof.def_property_readonly(
+      "percentage_peak_bandwidth", [](KernelProfile& self) { return self.percentage_peak_bandwidth; });
+  kernel_prof.def_property_readonly(
       "grid_str", [](KernelProfile& self) { return self.grid_str; });
   kernel_prof.def_property_readonly(
       "block_str", [](KernelProfile& self) { return self.block_str; });
