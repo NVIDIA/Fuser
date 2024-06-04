@@ -1253,7 +1253,7 @@ void TensorView::clearReductionIterDomains() {
     }
   }
 
-  if (new_alloc == new_root) {
+  if (new_alloc == new_logical) {
     // if new allocation domain is identical to new logical domain, we don't
     // need to specify allocation domain
     setDomain(IrBuilder::createInContainer<TensorDomain>(
