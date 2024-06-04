@@ -218,19 +218,21 @@ PolymorphicValue Val::evaluate() {
 }
 
 bool Val::isZero() const {
-  return value().hasValue() && value() == 0;
+  return value().hasValue() && (bool)(value() == 0);
 }
 
 bool Val::isZeroInt() const {
-  return value().hasValue() && value().is<int64_t>() && value() == 0;
+  return value().hasValue() && value().is<int64_t>() &&
+      value().as<int64_t>() == 0;
 }
 
 bool Val::isOne() const {
-  return value().hasValue() && value() == 1;
+  return value().hasValue() && (bool)(value() == 1);
 }
 
 bool Val::isOneInt() const {
-  return value().hasValue() && value().is<int64_t>() && value() == 1;
+  return value().hasValue() && value().is<int64_t>() &&
+      value().as<int64_t>() == 1;
 }
 
 bool Val::isTrue() const {
