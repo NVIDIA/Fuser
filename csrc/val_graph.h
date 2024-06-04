@@ -242,7 +242,8 @@ class ValGraph {
     auto extent_match = [](IterDomain* id0, IterDomain* id1) -> bool {
       return id0->extent()->sameAs(id1->extent()) ||
           (id0->extent()->isConstInt() && id1->extent()->isConstInt() &&
-           id0->extent()->evaluate() == id1->extent()->evaluate());
+           id0->extent()->evaluate().as<int64_t>() ==
+               id1->extent()->evaluate().as<int64_t>());
     };
 
     // If one pair of the domains are mapped in the given graph, the

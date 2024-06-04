@@ -29,7 +29,7 @@ std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
   for (auto ax : c10::irange(domain.size())) {
     auto id = domain.at(ax);
     if (id->getMaybeExpandedExtent()->isConst() &&
-        id->getMaybeExpandedExtent()->evaluate() == 0) {
+        id->getMaybeExpandedExtent()->evaluate().as<int64_t>() == 0) {
       empty_axes.push_back((int64_t)ax);
     }
   }
@@ -258,7 +258,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
       auto tv = inp->definition()->as<PadOp>()->in()->as<TensorView>();
       auto cat_id = TensorDomain::noReductions(tv->getRFactorDomain()).at(dim);
       if (cat_id->getMaybeExpandedExtent()->isConst() &&
-          cat_id->getMaybeExpandedExtent()->evaluate() == 0) {
+          cat_id->getMaybeExpandedExtent()->evaluate().as<int64_t>() == 0) {
         continue;
       }
       non_empty_inputs.push_back(tv);

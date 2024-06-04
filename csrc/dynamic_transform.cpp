@@ -194,7 +194,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     ExpressionEvaluator ee;
     for (auto id : rfd) {
       if (!id->getMaybeExpandedExtent()->isConstScalar() ||
-          id->getMaybeExpandedExtent()->evaluate() == 0) {
+          id->getMaybeExpandedExtent()->evaluate().as<int64_t>() == 0) {
         info_.maybe_zero_extents_set_.insert(id->getMaybeExpandedExtent());
         leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
