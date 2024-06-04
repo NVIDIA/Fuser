@@ -168,12 +168,10 @@ class Communication : public Expr {
 // (*) SendRecv
 // Copies the sender's src buffers to the receiver's dst buffer
 // It is equivalent to a Broadcast with a team of size == 2
-//
-// TODO: c10d::Backend* should be sufficient.
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor);
 

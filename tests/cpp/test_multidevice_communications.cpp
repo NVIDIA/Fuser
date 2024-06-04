@@ -37,7 +37,7 @@ class CommunicationTest
       c10d::ReduceOp::RedOpType::SUM;
   const DeviceMesh full_mesh_;
   const Team all_ranks_;
-  c10::intrusive_ptr<c10d::Backend> backend_;
+  c10d::Backend* backend_;
   IrContainer container;
 };
 
