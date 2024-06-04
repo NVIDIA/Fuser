@@ -170,7 +170,7 @@ namespace {
 c10::intrusive_ptr<c10d::Work> postBroadcast(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   if (my_device_index == communication->root()) {
@@ -197,7 +197,7 @@ c10::intrusive_ptr<c10d::Work> postBroadcast(
 c10::intrusive_ptr<c10d::Work> postGather(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   if (my_device_index == communication->root() &&
@@ -238,7 +238,7 @@ c10::intrusive_ptr<c10d::Work> postGather(
 c10::intrusive_ptr<c10d::Work> postAllgather(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   std::vector<at::Tensor> input_tensors({input_tensor});
@@ -253,7 +253,7 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
 c10::intrusive_ptr<c10d::Work> postScatter(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   if (my_device_index == communication->root() &&
@@ -288,7 +288,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
 c10::intrusive_ptr<c10d::Work> postReduce(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   at::Tensor tensor;
@@ -318,7 +318,7 @@ c10::intrusive_ptr<c10d::Work> postReduce(
 c10::intrusive_ptr<c10d::Work> postAllreduce(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   doLocalCopy(output_tensor, input_tensor);
@@ -331,7 +331,7 @@ c10::intrusive_ptr<c10d::Work> postAllreduce(
 c10::intrusive_ptr<c10d::Work> postReduceScatter(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   std::vector<std::vector<at::Tensor>> input_tensors(1);
@@ -352,7 +352,7 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
 c10::intrusive_ptr<c10d::Work> postSendRecv(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   NVF_ERROR(communication->mesh().size() == 1, "The mesh size should be 1.");
@@ -380,7 +380,7 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   const Team& team = communication->team();
