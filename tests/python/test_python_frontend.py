@@ -4018,7 +4018,7 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-    def test_fusion_profiler(self) :
+    def test_fusion_profiler(self):
         inputs = [
             torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
             torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
@@ -4051,7 +4051,10 @@ class TestNvFuserFrontend(TestCase):
             self.assertEqual(prof.segments, 2)
             self.assertEqual(len(prof.kernel_profiles), 2)
         except Exception as e:
-            raise RuntimeError("FusionDefinition's execute() did not run correctly with profile enabled!")
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
+
 
 if __name__ == "__main__":
     run_tests()

@@ -50,7 +50,7 @@ def disable_automatic_serialization():
 
 
 class FusionDefinition(_C._FusionDefinition):
-    def __init__(self) :
+    def __init__(self):
         super(FusionDefinition, self).__init__()
         self.profiled = False
 
@@ -73,7 +73,7 @@ class FusionDefinition(_C._FusionDefinition):
         device=None,
         override_user_schedule=False,
         capture_debug_output=False,
-        profile=False
+        profile=False,
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -147,7 +147,7 @@ class FusionDefinition(_C._FusionDefinition):
                 device=device,
                 override_user_schedule=override_user_schedule,
                 capture_debug_output=capture_debug_output,
-                profile=profile
+                profile=profile,
             )
         except Exception as err:
             msg = (
@@ -327,7 +327,7 @@ class FusionDefinition(_C._FusionDefinition):
             inputs, tensor_transforms, override_user_schedule
         )
 
-    def profile(self) :
+    def profile(self):
         """
         Returns the FusionProfile object from the CUPTI based FusionProfiler
 
@@ -335,14 +335,22 @@ class FusionDefinition(_C._FusionDefinition):
             FusionProfile
         """
         if not self.profiled:
-            raise ValueError("The execute() method was not previously called with profiling enabled!")
+            raise ValueError(
+                "The execute() method was not previously called with profiling enabled!"
+            )
 
         fp = self._profile()
 
-        if fp.fusion_id < 0 :
-            raise ValueError("Something went wrong with Fusion Profiling as an illegal fusion_id was returned! " + str(fp.fusion_id))
+        if fp.fusion_id < 0:
+            raise ValueError(
+                "Something went wrong with Fusion Profiling as an illegal fusion_id was returned! "
+                + str(fp.fusion_id)
+            )
         if fp.segments < 1:
-            raise ValueError("Something went wrong with Fusion Profiling as no kernel segments were profiled!" + str(fp.segments))
+            raise ValueError(
+                "Something went wrong with Fusion Profiling as no kernel segments were profiled!"
+                + str(fp.segments)
+            )
 
         return fp
 
