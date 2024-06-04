@@ -167,7 +167,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
           TensorDomain::getContiguityFilledWith(rfactor_domain, true)),
       inp_tv->dtype());
 
-  IrBuilder::create<ViewOp>(inp_tv->container(), out_tv, inp_tv);
+  IrBuilder::createInContainer<ViewOp>(inp_tv->container(), out_tv, inp_tv);
 
   return out_tv;
 }
@@ -195,7 +195,7 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
     return x;
   }
 
-  auto out = IrBuilder::create<TensorView>(
+  auto out = IrBuilder::createInContainer<TensorView>(
       x->container(),
       x->domain()->flatten(start_dim, end_dim),
       x->getDataType().value());
@@ -282,7 +282,7 @@ TensorView* squeeze(
     // If we did not squeeze any axes, this is just set()
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
   } else {
-    IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
+    IrBuilder::createInContainer<SqueezeOp>(x->container(), out, x, to_squeeze);
   }
 
   return out;

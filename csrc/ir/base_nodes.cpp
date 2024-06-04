@@ -417,7 +417,7 @@ std::vector<PolymorphicValue> Expr::evaluate(
 }
 
 void Expr::addDataAttribute(PolymorphicValue attr) {
-  addAttribute(IrBuilder::create<Val>(container(), std::move(attr)));
+  addAttribute(IrBuilder::createInContainer<Val>(container(), std::move(attr)));
 }
 
 } // namespace nvfuser
