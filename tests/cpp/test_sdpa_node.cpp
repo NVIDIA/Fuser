@@ -22,12 +22,13 @@
 
 namespace nvfuser {
 
-// using SDPATest = NVFuserTest;
-
 class SDPATest : public NVFuserTest {
  protected:
   SDPATest() : optimization_guard_(false), allocation_order_guard_(false) {}
  private:
+  // Note: `MoveSpliCat` and `AllocationDomain` preseg passes use ID model.
+  // `SdpaOp` currently does not work with ID model since it requires all sibling outputs to have the same root domain.
+  //  This will be modified in a future PR.
   preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
       optimization_guard_;
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
@@ -79,24 +80,9 @@ TEST(SDPATest, NonCausalAttnConcrete) {
       scale);
   ;
 
-  // FusionExecutor fe;
-  // fusion->aliasOutputToInput(
-  //     fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-  // fe.compileFusion(fusion.get(), {q, k, v});
-  // auto out = fe.runFusion({q, k, v});
-
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({q, k, v});
-
   EXPECT_TRUE(at::allclose(out[0], std::get<0>(aten_outputs)));
-
-  // testValidate(
-  //     fusion.get(),
-  //     out,
-  //     {q, k, v},
-  //     {std::get<0>(aten_outputs)},
-  //     __LINE__,
-  //     __FILE__);
 }
 
 TEST(SDPATest, NonCausalAttnSymbolic) {
@@ -140,22 +126,8 @@ TEST(SDPATest, NonCausalAttnSymbolic) {
       scale);
   ;
 
-  // FusionExecutor fe;
-  // fusion->aliasOutputToInput(
-  //     fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-  // fe.compileFusion(fusion.get(), {q, k, v});
-  // auto out = fe.runFusion({q, k, v});
-
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({q, k, v});
-
-  // testValidate(
-  //     fusion.get(),
-  //     out,
-  //     {q, k, v},
-  //     {std::get<0>(aten_outputs)},
-  //     __LINE__,
-  //     __FILE__);
   EXPECT_TRUE(at::allclose(out[0], std::get<0>(aten_outputs)));
 }
 
@@ -253,22 +225,8 @@ TEST(SDPATest, CausalAttn) {
       /*scale=*/1e-3);
   ;
 
-  // FusionExecutor fe;
-  // fusion->aliasOutputToInput(
-  //     fusion->outputs()[0], /*input=*/nullptr, AllocationType::Evaluate);
-  // fe.compileFusion(fusion.get(), {q, k, v});
-  // auto out = fe.runFusion({q, k, v});
-
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({q, k, v});
-
-  // testValidate(
-  //     fusion.get(),
-  //     out,
-  //     {q, k, v},
-  //     {std::get<0>(aten_outputs)},
-  //     __LINE__,
-  //     __FILE__);
   EXPECT_TRUE(at::allclose(out[0], std::get<0>(aten_outputs)));
 }
 } // namespace nvfuser
