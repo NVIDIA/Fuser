@@ -55,8 +55,6 @@ void ReplayTransformations::handle(Split* s) {
       mapped,
       s->factor(),
       s->innerSplit(),
-      s->startOffset(),
-      s->stopOffset(),
       replay_rfactor_ && s->outer()->isRFactorProduct());
   // Remove mapped from the leaf IDs
   leaf_ids_.erase(mapped);
@@ -614,9 +612,7 @@ BestEffortReplay::BestEffortReplay(
       auto r_split = replay_expr->as<Split>();
       auto t_split = target_expr->as<Split>();
       if (!r_split->factor()->sameAs(t_split->factor()) ||
-          r_split->innerSplit() != t_split->innerSplit() ||
-          !r_split->startOffset()->sameAs(t_split->startOffset()) ||
-          !r_split->stopOffset()->sameAs(t_split->stopOffset())) {
+          r_split->innerSplit() != t_split->innerSplit()) {
         NVF_ERROR(!replay_has_rfactor_inp, err_str);
         continue;
       }
@@ -692,10 +688,10 @@ int64_t BestEffortReplay::findFirstMismatchedID(
     const TensorDomain* td1,
     const TensorDomain* td2) {
   std::unordered_map<IterDomain*, IterDomain*> id_map;
-  auto rd1 = td1->root();
-  auto rd2 = td2->root();
+  auto rd1 = td1->maybeRoot();
+  auto rd2 = td2->maybeRoot();
   std::unordered_set<IterDomain*> rd2_set(
-      td2->root().begin(), td2->root().end());
+      td2->maybeRoot().begin(), td2->maybeRoot().end());
 
   // Find matching root IterDomains, we could make this O(nlog(n)) if we could
   // sort IterDomains.
@@ -752,14 +748,13 @@ ForwardingInfo::ForwardingInfo(
     active_forwarding_map = &consumer_forwarding_map;
     active_compliment_map = &consumer_compliment_map;
     active_dim_flags = &bop->getBroadcastDimFlags();
-    active_root_dom = consumer->getRootDomain();
+    active_root_dom = consumer->getRFactorDomain();
     active_tv = consumer;
   } else if (auto sop = dynamic_cast<SqueezeOp*>(consumer->definition())) {
     active_forwarding_map = &producer_forwarding_map;
     active_compliment_map = &producer_compliment_map;
     active_dim_flags = &sop->getSqueezeDimFlags();
-    active_root_dom =
-        TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+    active_root_dom = TensorDomain::noReductions(producer->getRFactorDomain());
     active_tv = producer;
   } else {
     NVF_ERROR(false, "Should not be reachable");
@@ -977,12 +972,12 @@ BestEffortReplay BestEffortReplay::replayCasP(
       producer->getLeafDomain().begin() + producer_compute_at_axis);
   producer_CA_ids = TensorDomain::noReductions(producer_CA_ids);
 
-  // If producer has an rfactor root, that's what will match to the consumer
-  std::vector<IterDomain*> producer_root = producer->getMaybeRFactorDomain();
+  // If producer has an rfactor, that's what will match to the consumer
+  std::vector<IterDomain*> producer_root = producer->getRFactorDomain();
 
   // Figure out all inputs required to generate the compute_at dimensions. We
-  // need all deps because inputs on producer may be in getRootDomain, but we
-  // may need in rFactorDomain
+  // need all deps because inputs on producer may be in getRFactorDomain, but
+  // we may need in rFactorDomain
   auto all_CA_id_deps = DependencyCheck::getAllValsBetween(
       {producer_root.begin(), producer_root.end()},
       {producer_CA_ids.begin(), producer_CA_ids.end()});

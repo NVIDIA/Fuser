@@ -123,10 +123,9 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return updated_ids;
   };
 
-  std::vector<IterDomain*> root_dom = updateIdVec(td->root());
-  std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
-      ? updateIdVec(td->rfactor())
-      : std::vector<IterDomain*>();
+  std::vector<IterDomain*> root_dom =
+      td->hasRoot() ? updateIdVec(td->root()) : std::vector<IterDomain*>();
+  std::vector<IterDomain*> rfactor_dom = updateIdVec(td->rfactor());
   std::vector<IterDomain*> allocation_dom = td->hasAllocation()
       ? updateIdVec(td->allocation())
       : std::vector<IterDomain*>();
@@ -136,7 +135,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return;
   }
 
-  Val* mutated_val = IrBuilder::create<TensorDomain>(
+  Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,
       rfactor_dom,

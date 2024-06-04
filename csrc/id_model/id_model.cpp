@@ -166,7 +166,7 @@ ValGraph& IdModel::idGraph(IdMappingMode mode) {
 void IdModel::buildIterDomainDefinitionsAndUses() {
   for (const auto tv : tvs_) {
     VectorOfUniqueEntries<IterDomain*> root_domain_ids{
-        tv->getRootDomain().begin(), tv->getRootDomain().end()};
+        tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()};
 
     std::vector<IterDomain*> all_ids = ir_utils::allIDsOf(tv);
 
@@ -179,7 +179,7 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         // If the tensor domain is a view like domain, and the iteration
         // domain is marked as an rfactor product and is in the rfactor
         // domain, it's a view like rfactor iteration domain
-        const auto& rfactor_domain = tv->domain()->maybeRFactor();
+        const auto& rfactor_domain = tv->domain()->rfactor();
         if (std::find(rfactor_domain.begin(), rfactor_domain.end(), id) !=
             rfactor_domain.end()) {
           view_rfactor_ids_.emplace(id);
@@ -286,13 +286,13 @@ void IdModel::buildExactGraph() {
       // their leaf iter domains.
 
       NVF_ERROR(
-          other_tv_output->getRootDomain().size() ==
-              c_tv->getRootDomain().size(),
+          other_tv_output->getMaybeRootDomain().size() ==
+              c_tv->getMaybeRootDomain().size(),
           "Multiple outputs with mismatched TV domains is not supported.");
 
-      for (auto domain_i : c10::irange(c_tv->getRootDomain().size())) {
-        auto c_id = c_tv->getRootDomain()[domain_i];
-        auto o_id = other_tv_output->getRootDomain()[domain_i];
+      for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
+        auto c_id = c_tv->getMaybeRootDomain()[domain_i];
+        auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
         idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
       }
     }
@@ -334,8 +334,7 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
-    if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-        split->stopOffset()->isZeroInt()) {
+    if (split->factor()->isOneInt()) {
       if (split->innerSplit()) {
         mapped_ids.push_back({split->in(), split->outer()});
       } else {
@@ -496,13 +495,12 @@ std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
 // Grab inlining relationships
 StatefulInliningInfo buildStatefulInliningInfo(
     const std::vector<Expr*>& exprs,
-    const ValGraph& exact_graph,
     const ValGraph& permissive_graph) {
   StatefulInliningInfo info;
   for (auto expr : exprs) {
     for (auto producer_tv :
          ir_utils::filterByType<TensorView>(expr->inputs())) {
-      const auto& producer_root = producer_tv->getMaybeRFactorDomain();
+      const auto& producer_root = producer_tv->getRFactorDomain();
       const auto& producer_domain = producer_tv->domain()->leaf();
 
       // Grab all iteration domains in producer that its compute at iter domains
@@ -554,11 +552,13 @@ StatefulInliningInfo buildStatefulInliningInfo(
         auto consumer_tv_i = consumer_tvs.vector().at(i);
         auto all_consumer_i_ids = ir_utils::allIDsOf(consumer_tv_i);
 
-        auto sibling_map =
-            exact_graph.buildMapBetween(all_consumer_ids, all_consumer_i_ids);
+        auto sibling_map = permissive_graph.buildMapBetween(
+            all_consumer_ids, all_consumer_i_ids);
 
         for (const auto& [c_id_1, c_ids] : sibling_map) {
-          NVF_ERROR(c_ids.size() == 1);
+          // Note that c_ids can have multiple domains as this graph
+          // is a Permissive graph and there may be broadcast merged
+          // domains
           info.sibling_maps[c_id_1->as<IterDomain>()].pushBack(c_ids);
         }
       }
@@ -603,10 +603,8 @@ void IdModel::buildLoopGraph() {
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
-  const StatefulInliningInfo inlining_info = buildStatefulInliningInfo(
-      tv_exprs_,
-      idGraph(IdMappingMode::EXACT),
-      idGraph(IdMappingMode::PERMISSIVE));
+  const StatefulInliningInfo inlining_info =
+      buildStatefulInliningInfo(tv_exprs_, idGraph(IdMappingMode::PERMISSIVE));
 
   initializeLoopGraph(inlining_info);
 

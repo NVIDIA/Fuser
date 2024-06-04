@@ -422,11 +422,11 @@ struct BroadcastMultipleInformation {
   std::vector<BroadcastMultiple> broadcast_multiples;
 };
 
-// Returns a vector of size reference_tv->getMaybeRFactorDomain().size() which
+// Returns a vector of size reference_tv->getRFactorDomain().size() which
 // is a view disjoint set id of each of those iter domains. If entries share the
 // same value, they undergo view transformations in the fusion together.
 // Broadcast multiples are also of size
-// reference_tv->getMaybeRFactorDomain().size(), each entry [i] is the number of
+// reference_tv->getRFactorDomain().size(), each entry [i] is the number of
 // inputs/outputs that have a non-broadcast dimension mapped to the
 // corresponding dimension in reference_tv. Broadcast multiples includes
 // reference_tv if reference_tv is an input or output. Broadcast multiples is
