@@ -50,6 +50,10 @@ def disable_automatic_serialization():
 
 
 class FusionDefinition(_C._FusionDefinition):
+    def __init__(self) :
+        super(FusionDefinition, self).__init__()
+        self.profiled = False
+
     def __enter__(self):
         return self._setup_definition()
 
@@ -113,6 +117,7 @@ class FusionDefinition(_C._FusionDefinition):
             List[Tensor]
         """
         func_based_def = False
+        self.profiled = profile
 
         if device is not None:
             if not isinstance(device, torch.device):
@@ -321,6 +326,25 @@ class FusionDefinition(_C._FusionDefinition):
         return self._scheduled_fusion_ir_for(
             inputs, tensor_transforms, override_user_schedule
         )
+
+    def profile(self) :
+        """
+        Returns the FusionProfile object from the CUPTI based FusionProfiler
+
+        Returns:
+            FusionProfile
+        """
+        if not self.profiled:
+            raise ValueError("The execute() method was not previously called with profiling enabled!")
+
+        fp = self._profile()
+
+        if fp.fusion_id < 0 :
+            raise ValueError("Something went wrong with Fusion Profiling as an illegal fusion_id was returned! " + str(fp.fusion_id))
+        if fp.segments < 1:
+            raise ValueError("Something went wrong with Fusion Profiling as no kernel segments were profiled!" + str(fp.segments))
+
+        return fp
 
     def validate(
         self,
