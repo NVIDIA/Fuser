@@ -29,13 +29,7 @@ class IrBuilder {
   template <class T, class... Args>
   static T* create(Args&&... args) {
     Fusion* fusion = FusionGuard::getCurFusion();
-    // return create<T>(fusion, std::forward<Args>(args)...);
-    NVF_ERROR(fusion != nullptr, "Need an active container to build IR.");
-    T* node = new T(IrBuilderPasskey(fusion), std::forward<Args>(args)...);
-
-    fusion->registerStmt(IrBuilderPasskey(fusion), node);
-
-    return node;
+    return createInContainer<T>(fusion, std::forward<Args>(args)...);
   }
 
   //! Allocate a new IR node, forwarding the arguments to the appropriate
