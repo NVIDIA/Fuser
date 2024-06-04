@@ -53,9 +53,7 @@ class ReplaySelf : public ReplayTransformations {
         "Transform traversal failed, modified a node but it was not a leaf node.");
 
     // outer loop size
-    Val* remainder = ceilDiv(
-        Split::extent(mapped->extent(), s->startOffset(), s->stopOffset()),
-        s->factor());
+    Val* remainder = ceilDiv(mapped->extent(), s->factor());
 
     // Manually replay the split, following the output of the operations.
     // This is so rfactor ops are replayed correctly.
@@ -72,14 +70,7 @@ class ReplaySelf : public ReplayTransformations {
 
     // Generate the split node
     IrBuilder::create<Split>(
-        s->container(),
-        ido,
-        idi,
-        mapped,
-        s->factor(),
-        s->innerSplit(),
-        s->startOffset(),
-        s->stopOffset());
+        s->container(), ido, idi, mapped, s->factor(), s->innerSplit());
 
     // Remove mapped id from leaf IDs
     leaf_ids_.erase(mapped);
