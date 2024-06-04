@@ -1209,8 +1209,8 @@ TensorView* castIntermediateValueInCompleteFusion(
 void SegmentedFusion::finalize() {
   if (isOptionDisabled(DisableOption::KernelReuse)) {
     // If kernel reuse is disabled, then it is safe to remove owned
-    // SegmentedGroup and SegmentedObjects. However, if not then we might need
-    // to make use of those objects later in checkSegmentationPath.
+    // SegmentedGroup and SegmentedEdge objects. However, if not then we might
+    // need to make use of those objects later in checkSegmentationPath.
     impl_.cleanUnused();
   }
   castInputOutputToLowerPrecision(edges());
