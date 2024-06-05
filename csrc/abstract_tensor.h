@@ -129,7 +129,18 @@ struct AbstractTensor {
     return result;
   }
 
-  // TODO: split is not implemented yet
+  decltype(auto) operator[](int64_t i) {
+    return domain[i];
+  }
+
+  decltype(auto) operator[](int64_t i) const {
+    return domain[i];
+  }
+
+  decltype(auto) size() const {
+    return domain.size();
+  }
+
   void split(int64_t axis, Val* factor, bool inner_split = true);
   void split(int64_t axis, int64_t factor, bool inner_split = true);
 

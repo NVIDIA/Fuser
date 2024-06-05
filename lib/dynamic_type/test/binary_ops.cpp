@@ -333,8 +333,7 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
       !(opcheck<DynamicType<NoContainers, Type2, SomeType>> + opcheck<Type2>));
   static_assert(
       !(opcheck<Type2> + opcheck<DynamicType<NoContainers, Type2, SomeType>>));
-  // defined compile time because Type2+Type2 and +Type2 is constructible to
-  // Type3
+  // defined compile time because Type2+Type2 is constructible to Type3
   using Type2Type3 = DynamicType<NoContainers, Type2, Type3>;
   static_assert(opcheck<Type2Type3> + opcheck<Type2Type3>);
   static_assert(Type2Type3(Type2{}) + Type2Type3(Type2{}) == Type3{});
@@ -342,8 +341,6 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   static_assert(Type2Type3(Type2{}) + Type2{} == Type3{});
   static_assert(opcheck<Type2> + opcheck<Type2Type3>);
   static_assert(Type2{} + Type2Type3(Type2{}) == Type3{});
-  static_assert(+opcheck<Type2Type3>);
-  static_assert(+Type2Type3(Type2{}) == Type3{});
   // defined compile time because int+int is in type list
   static_assert(
       opcheck<DynamicType<NoContainers, Type2, int>> +

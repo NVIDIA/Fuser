@@ -807,7 +807,7 @@ __device__ void iterGroupedGridReduceLastBlock(
   for (int i = 0; i < vec_size; i++) {
     inp_tmp[i] = init_val;
   }
-  blockIterGroupedReduce<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned, vec_size>(
+  blockIterGroupedYdimReduce<Aligned, vec_size>(
       inp_tmp, inp, reduction_op, shared_buf, true, init_val);
   const bool should_write = (X_THREAD || threadIdx.x == 0) &&
       (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
@@ -823,7 +823,7 @@ __device__ void iterGroupedGridReduceLastBlock(
 // results to gmem, the last block load from gmem and finalize with a block
 // reduction. Main differences:
 // (1) each thread in the iter dim does [vec_size] reductions instead of 1.
-// (2) using [blockIterGroupedReduce] instead of [blockReduce].
+// (2) using [blockIterGroupedYdimReduce] instead of [blockReduce].
 // (3) ensures vectorized load/store to gmem.
 // Specifically, the new para [vec_size] is the vecotrization factor in the
 // iteration dimension. It is used in outer reduction to reduce calling this
@@ -860,7 +860,7 @@ __device__ void iterGroupedGridReduce(
     for (int i = 0; i < vec_size; i++) {
       block_reduction_val[i] = init_val;
     }
-    blockIterGroupedReduce<X_THREAD, Y_THREAD, Z_THREAD, Aligned, vec_size>(
+    blockIterGroupedYdimReduce<Aligned, vec_size>(
         block_reduction_val,
         inp_val,
         reduction_op,

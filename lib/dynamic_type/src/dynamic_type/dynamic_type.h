@@ -378,9 +378,19 @@ struct DynamicType {
   // we overload based on the underlying type, we will get a runtime error,
   // because it is not possible to assign SomeType{} to an int.
 
-  // Intentionally not overloading operator-> because it only makes sense when
-  // returning pointers, however, if we have a DynamicType that can be either a
-  // Type1 or Type2, then it is ambiguous to return a pointer to Type1 vs Type2
+  constexpr decltype(auto) operator->() {
+    return dispatch(
+        [](auto&& x) -> decltype(auto) {
+          using X = decltype(x);
+          using XD = std::decay_t<X>;
+          if constexpr (std::is_pointer_v<XD>) {
+            return (std::decay_t<X>)(x);
+          } else if constexpr (opcheck<XD>->value()) {
+            return std::forward<X>(x).operator->();
+          }
+        },
+        *this);
+  }
 
   template <typename IndexT>
   static constexpr bool has_square_bracket = any_check(
@@ -701,49 +711,30 @@ DEFINE_BINARY_OP(ge, >=, operator>=, bool, false);
 #define DEFINE_UNARY_OP(opname, op)                                            \
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
   /*but I can only do this in C++20 */                                         \
-  template <typename DTVariantType>                                            \
   constexpr auto opname##_helper = [](auto x) constexpr {                      \
-    using X = typename decltype(x)::type;                                      \
-    if constexpr (op opcheck<X>) {                                             \
-      return std::                                                             \
-          is_constructible_v<DTVariantType, decltype(op std::declval<X>())>;   \
-    }                                                                          \
-    return false;                                                              \
+    return (op opcheck<typename decltype(x)::type>);                           \
   };                                                                           \
-  template <typename DT>                                                       \
-  inline constexpr std::enable_if_t<                                           \
-      is_dynamic_type_v<DT> &&                                                 \
+  template <                                                                   \
+      typename DT,                                                             \
+      typename = std::enable_if_t<                                             \
+          is_dynamic_type_v<std::decay_t<DT>> &&                               \
           any_check(                                                           \
-              opname##_helper<typename DT::VariantType>,                       \
-              DT::type_identities_as_tuple),                                   \
-      DT>                                                                      \
-  operator op(const DT& x) {                                                   \
-    DT ret(std::monostate{});                                                  \
-    DT::for_all_types([&ret, &x](auto _) {                                     \
-      using Type = typename decltype(_)::type;                                 \
-      if constexpr (op opcheck<Type>) {                                        \
-        if constexpr (std::is_constructible_v<                                 \
-                          typename DT::VariantType,                            \
-                          decltype(op std::declval<Type>())>) {                \
-          if (x.template is<Type>()) {                                         \
-            ret = DT(op x.template as<Type>());                                \
+              opname##_helper, std::decay_t<DT>::type_identities_as_tuple)>>   \
+  inline constexpr decltype(auto) operator op(DT&& x) {                        \
+    return std::decay_t<DT>::dispatch(                                         \
+        [](auto&& x) -> decltype(auto) {                                       \
+          if constexpr (op opcheck<std::decay_t<decltype(x)>>) {               \
+            return op std::forward<decltype(x)>(x);                            \
           }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    });                                                                        \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        !ret.template is<std::monostate>(),                                    \
-        "Cannot compute ",                                                     \
-        #op,                                                                   \
-        x.type().name(),                                                       \
-        " : incompatible type");                                               \
-    return ret;                                                                \
+        },                                                                     \
+        std::forward<DT>(x));                                                  \
   }
 
 DEFINE_UNARY_OP(pos, +);
 DEFINE_UNARY_OP(neg, -);
 DEFINE_UNARY_OP(bnot, ~);
 DEFINE_UNARY_OP(lnot, !);
+#undef DEFINE_UNARY_OP
 
 // Intentionally not supporting the following unary ops:
 // DEFINE_UNARY_OP(addr, &);
@@ -781,8 +772,6 @@ DT& operator*(const DT& x) {
   DYNAMIC_TYPE_CHECK(ret.has_value(), "Cannot dereference ", x.type().name());
   return ret.value();
 }
-
-#undef DEFINE_UNARY_OP
 
 // Printing
 // TODO: we should inline the definition of can_print into enable_if, but I can
