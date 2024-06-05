@@ -331,12 +331,12 @@ TEST_F(DynamicTypeTest, ArrowOp) {
   IntSVec x(&s);
   EXPECT_EQ(x->aaa, 12);
 
-  using SmartPointer =
+  using Pointer =
       DynamicType<NoContainers, S*, std::shared_ptr<S>, std::unique_ptr<S>>;
   S s1(34, num_dtor_calls);
   auto s2 = std::make_shared<S>(56, num_dtor_calls);
   auto s3 = std::make_unique<S>(78, num_dtor_calls);
-  SmartPointer ptr;
+  Pointer ptr;
   ptr = &s1;
   EXPECT_EQ(ptr->aaa, 34);
   ptr = s2;
