@@ -8203,6 +8203,39 @@ TEST_F(NVFuserTest, ReverseMerge) {
   ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
 }
 
+// Can't use CpAsync with shared memory predicate.
+// https://github.com/NVIDIA/Fuser/issues/2346
+TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int m = 33, n = 48;
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = exp(tv0);
+  fusion.addOutput(tv1);
+
+  auto tvs = tv0->cacheAfter(LoadStoreOpType::CpAsync);
+  tvs->setMemoryType(MemoryType::Shared);
+
+  tvs->split(-1, 4);
+  tvs->axis(-1)->parallelize(ParallelType::Vectorize);
+  tvs->axis(-2)->parallelize(ParallelType::TIDx);
+  tvs->axis(-3)->parallelize(ParallelType::BIDx);
+
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(-2)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({m, n}, options);
+
+  FusionExecutor fe;
+  EXPECT_THAT(
+      [&]() { fe.compileFusion(&fusion, {t0}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("unsupported use case of cp.async")));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
