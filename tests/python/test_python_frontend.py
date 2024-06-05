@@ -4018,41 +4018,19 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-    # See https://github.com/NVIDIA/Fuser/issues/2317
+            # See https://github.com/NVIDIA/Fuser/issues/2317
     @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
     def test_reduction_transpose_sched_issue2317(self):
         inputs = [
-            torch.randn((1600,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (1600,), (1,)
-            ),
-            torch.randn((2560000,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (1600, 1600), (1600, 1)
-            ),
-            torch.randn((1600,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (1600,), (1,)
-            ),
-            torch.randn((1600,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (1600,), (1,)
-            ),
-            torch.randn((6400,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (6400,), (1,)
-            ),
-            torch.randn((10240000,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (6400, 1600), (1600, 1)
-            ),
-            torch.randn((1600,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (1600,), (1,)
-            ),
-            torch.randn((10240000,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (1600, 6400), (6400, 1)
-            ),
-            torch.randn((3276800,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (16, 128, 1600), (204800, 1600, 1)
-            ),
-            torch.randn((3276800,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (16, 25, 128, 64), (204800, 8192, 64, 1)
-            ),
-        ]
+                torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
+                torch.randn((16, 128, 1600), dtype=torch.bfloat16, device="cuda:0"),
+                torch.randn((1600, 1600), dtype=torch.bfloat16, device="cuda:0"),
+            ]
+  
+        def fusion_func(fd: FusionDefinition, inputs) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.from_pytorch(inputs[2])
 
     def test_fusion_profiler(self):
         inputs = [
