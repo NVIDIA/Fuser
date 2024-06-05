@@ -175,8 +175,9 @@ class IdGraphIndexCompute : public OptOutDispatch {
  public:
   IdGraphIndexCompute(
       const ValGraph& traversal_graph,
-      const std::unordered_map<ValGroup, Val*>& initial_index_map)
-      : traversal_graph_(traversal_graph), index_map_(initial_index_map) {}
+      std::unordered_map<ValGroup, Val*> initial_index_map)
+      : traversal_graph_(traversal_graph),
+        index_map_(std::move(initial_index_map)) {}
 
   // Propagate the index map through a given expr of a specified
   // direction.
