@@ -50,8 +50,8 @@ def disable_automatic_serialization():
 
 
 class FusionDefinition(_C._FusionDefinition):
-    def __init__(self):
-        super(FusionDefinition, self).__init__()
+    def __init__(self, id=None, max_length=1024):
+        super(FusionDefinition, self).__init__(id, max_length)
         self.profiled = False
 
     def __enter__(self):
