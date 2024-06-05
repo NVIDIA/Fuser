@@ -183,7 +183,11 @@ class IdGraphIndexCompute : public OptOutDispatch {
   // direction.
   void propagate(const ExprGroup& expr_group, Direction direction) {
     NVF_ERROR(!expr_group->empty());
+    // This looks a little ugly but the dispatch interface doesn't
+    // have a way to pass arguments
+    current_direction_ = direction;
     dispatch(expr_group->front());
+    current_direction_ = Direction::Undefined;
   }
 
   const std::unordered_map<ValGroup, Val*> indexMap() const {
@@ -220,28 +224,11 @@ class IdGraphIndexCompute : public OptOutDispatch {
  private:
   const ValGraph& traversal_graph_;
   std::unordered_map<ValGroup, Val*> index_map_;
+  Direction current_direction_ = Direction::Undefined;
 };
 
-// TODO: Should use the explicit direction
 bool IdGraphIndexCompute::isForward(Expr* expr) const {
-  bool ready = true;
-  for (const auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-    if (!hasIndex(inp)) {
-      ready = false;
-      break;
-    }
-  }
-  if (ready) {
-    return true;
-  }
-
-  // Can just return false here. Just make sure the outputs are
-  // already processed
-  for (const auto out : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-    NVF_ERROR(hasIndex(out), "Output index not found: ", out->toString());
-  }
-
-  return false;
+  return current_direction_ == Direction::Forward;
 }
 
 void IdGraphIndexCompute::handle(Split* split) {
