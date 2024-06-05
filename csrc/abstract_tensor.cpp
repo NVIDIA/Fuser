@@ -152,4 +152,16 @@ void AbstractTensor::merge(int64_t axis_o, int64_t axis_i) {
   std::swap(domain[domain_outer_pos], output);
 }
 
+void AbstractTensor::flatten(int64_t from, int64_t to) {
+  NVF_ERROR(domain.size() > 0, "Tried to do flatten on a 0-dim domains");
+  from = wrapDim(from, (int64_t)domain.size());
+  to = wrapDim(to, (int64_t)domain.size());
+  NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
+  int64_t num_merges = to - from;
+  for (auto _ : c10::irange(num_merges)) {
+    (void)_;
+    merge(from);
+  }
+}
+
 } // namespace nvfuser
