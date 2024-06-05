@@ -31,6 +31,7 @@
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <ops/all_ops.h>
+#include <ops/utils.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
@@ -8201,6 +8202,45 @@ TEST_F(NVFuserTest, ReverseMerge) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
   ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
+}
+
+TEST_F(NVFuserTest, preallocated_outputs) {
+  // Fusion definition inspired from NVFuserTest.AsyncCompilation_CUDA
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(2); // Group 0
+  TensorView* tv1 = add(tv0, IrBuilder::create<Val>(1.0)); // Group 0
+  TensorView* tv2 = ops::newValLike(tv1, tv1->getDataType().value())
+                        ->as<TensorView>(); // Group 1
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::SegmenterSet, tv2, tv1);
+  TensorView* tv3 = add(tv2, IrBuilder::create<Val>(1.0)); // Group 1
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv3);
+
+  std::vector<int64_t> sizes = {8, 5};
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(sizes, options);
+  at::Tensor t3 = at::empty(sizes, options);
+
+  std::vector<c10::IValue> aten_inputs = {t0};
+  std::vector<at::Tensor> preallocated_output = {t3};
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs =
+      executor_cache.runFusionWithInputs(aten_inputs, preallocated_output);
+
+  EXPECT_EQ(
+      executor_cache.getMostRecentKernelRuntime()
+          ->fusionSegments()
+          ->groups()
+          .size(),
+      2)
+      << "segmentation didn't happen as expected";
+  EXPECT_TRUE(preallocated_output.at(0).equal(outputs.at(0)));
+  testValidate(
+      executor_cache.fusion(), outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

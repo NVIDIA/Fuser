@@ -518,6 +518,7 @@ bool FusionExecutorCache::isCompiled(
 // Bookkeeping and Propagation in Parser ]
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<c10::IValue>& inputs,
+    const std::vector<at::Tensor>& preallocated_outputs,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
@@ -578,7 +579,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
       "run_fused_kernel",
       std::vector<c10::IValue>(inputs.begin(), inputs.end()),
       seq_id);
-  auto outputs = kernel_runtime->runWithInputs(args);
+  auto outputs = kernel_runtime->runWithInputs(args, preallocated_outputs);
   RECORD_OUTPUTS(outputs);
 
   // Kernel time measurement is off by default
@@ -1175,7 +1176,8 @@ void FusionKernelRuntime::deserialize(
 
 std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     KernelArgumentHolder& args,
-    SegmentedGroup* sg) {
+    SegmentedGroup* sg,
+    const std::vector<at::Tensor>& preallocated_outputs) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
   std::lock_guard<std::mutex> guard(mutex_);
   // This function will be called once on un-segmented fusion,
@@ -1205,7 +1207,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     sprof.inputBytesAccessed(executor.inputBytesProcessed(args));
     sprof.startKernel(args.getDeviceIndex());
   }
-  auto outputs = executor.runFusion(args, launch_params, compile_params);
+  auto outputs = executor.runFusion(
+      args, launch_params, compile_params, preallocated_outputs);
   if (isProfilerEnabled()) {
     auto& sprof = FusionProfiler::segment(group_id);
     sprof.stopKernel();
@@ -1402,7 +1405,8 @@ std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
 }
 
 std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
-    KernelArgumentHolder& args) {
+    KernelArgumentHolder& args,
+    const std::vector<at::Tensor>& outputs) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -1411,7 +1415,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   }
 
   c10::Device device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
-  const auto& tensor_map = runSegmentsWithInputs(args);
+  const auto& tensor_map = runSegmentsWithInputs(args, outputs);
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "============= FINISHED RUNNING FUSION SEGMENTS ============"
@@ -1434,13 +1438,26 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 }
 
 std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
-    runSegmentsWithInputs(KernelArgumentHolder& args) {
+    runSegmentsWithInputs(
+        KernelArgumentHolder& args,
+        const std::vector<at::Tensor>& outputs) {
   NVF_ERROR(
       args.size() == segmented_fusion_->inputs().size(),
       "Inputs were not set up correctly, received ",
       args.size(),
       " inputs but expected ",
       segmented_fusion_->inputs().size());
+  NVF_ERROR(
+      outputs.empty() || outputs.size() == segmented_fusion_->outputs().size(),
+      "Outputs were not set up correctly, received ",
+      outputs.size(),
+      " outputs but expected ",
+      segmented_fusion_->outputs().size());
+  std::unordered_map<Val*, at::Tensor> output_tensor_map;
+  for (auto i : c10::irange(outputs.size())) {
+    output_tensor_map.insert(
+        {segmented_fusion_->outputs().at(i), outputs.at(i)});
+  }
 
   bool compute_overall_bw =
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
@@ -1471,9 +1488,16 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     // TODO: currently we are still outputing PyTorch tensors, instead of
     // something abstract. This is quite unsatisfying.
 
+    std::vector<at::Tensor> group_runtime_preallocated_outputs;
+    for (auto output : group_to_run->outputs()) {
+      if (output_tensor_map.count(output)) {
+        group_runtime_preallocated_outputs.push_back(
+            output_tensor_map.at(output));
+      }
+    }
     // Run graph segment
-    std::vector<at::Tensor> group_runtime_outputs =
-        runKernelWithInput(group_runtime_inputs, group_to_run);
+    std::vector<at::Tensor> group_runtime_outputs = runKernelWithInput(
+        group_runtime_inputs, group_to_run, group_runtime_preallocated_outputs);
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
