@@ -37,7 +37,8 @@ struct DispatchSplit {
       outer_result.reserve(in.size());
       inner_result.reserve(in.size());
       for (auto i : c10::irange(in.size())) {
-        auto [outer, inner] = AbstractId::dispatch((*this), in[i], factor, inner_split);
+        auto [outer, inner] =
+            AbstractId::dispatch((*this), in[i], factor, inner_split);
         outer_result.emplace_back(outer);
         inner_result.emplace_back(inner);
       }
@@ -60,7 +61,8 @@ void AbstractTensor::split(int64_t axis, Val* factor, bool inner_split) {
 }
 
 void AbstractTensor::split(int64_t axis, int64_t factor, bool inner_split) {
-  return split(axis, IrBuilder::create<Val>(factor, DataType::Index), inner_split);
+  return split(
+      axis, IrBuilder::create<Val>(factor, DataType::Index), inner_split);
 }
 
 namespace {

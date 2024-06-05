@@ -361,7 +361,9 @@ struct ValGroupAndItsGraph {
   }
 };
 
-inline std::ostream& operator<<(std::ostream&os, const ValGroupAndItsGraph& g) {
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const ValGroupAndItsGraph& g) {
   return os << g.group;
 }
 
