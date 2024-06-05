@@ -382,9 +382,10 @@ struct DynamicType {
     return dispatch(
         [](auto&& x) -> decltype(auto) {
           using X = decltype(x);
-          if constexpr (std::is_pointer_v<std::decay_t<X>>) {
-            return std::forward<X>(x);
-          } else if constexpr (opcheck<X>->value()) {
+          using XD = std::decay_t<X>;
+          if constexpr (std::is_pointer_v<XD>) {
+            return (std::decay_t<X>)(x);
+          } else if constexpr (opcheck<XD>->value()) {
             return std::forward<X>(x).operator->();
           }
         },

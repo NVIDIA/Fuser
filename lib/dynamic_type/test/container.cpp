@@ -232,15 +232,3 @@ TEST_F(DynamicTypeTest, InitializerList) {
   EXPECT_TRUE(x[1][1][2][0].is<int>());
   EXPECT_EQ(x[1][1][2][0], 6);
 }
-
-// TODO: move this to a different file
-TEST_F(DynamicTypeTest, ArrowOp) {
-  struct S {
-    int aaa;
-  } s{123};
-  using IntSVec = DynamicType<Containers<std::vector>, int, S*>;
-  IntSVec x(&s);
-  std::cout << x.type().name() << std::endl;
-  std::cout << typeid(x.operator->()).name() << std::endl;
-  EXPECT_EQ(x->aaa, 123);
-}
