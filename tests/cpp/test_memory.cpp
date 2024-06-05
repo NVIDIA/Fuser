@@ -1067,7 +1067,7 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
 
   // Use a hacky way to get the "raw data" in smem, including valid items and
   // holes, from the smem buffer.
-  tv2->commitLeafToRFactor();
+  tv2->commitLeafToLogical();
   fusion.manage(
       "don't predicate", std::unordered_set<Expr*>{tv2->definition()});
 

@@ -172,7 +172,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     auto in_extent = split->in()->extent();
 
-    if (!in_extent->isConstInt() || ((in_extent->evaluate() % factor) != 0)) {
+    if (!in_extent->isConstInt() ||
+        ((in_extent->evaluate().as<int64_t>() % factor.as<int64_t>()) != 0)) {
       needs_predicate_ = true;
       return;
     }
@@ -299,8 +300,8 @@ class PredicateChcker : public IterVisitor {
     bool found_expand = false;
     for (auto tv_input : tv_inputs) {
       found_expand = found_expand ||
-          std::any_of(tv_input->getRFactorDomain().begin(),
-                      tv_input->getRFactorDomain().end(),
+          std::any_of(tv_input->getLogicalDomain().begin(),
+                      tv_input->getLogicalDomain().end(),
                       [](IterDomain* id) { return id->hasExpandedExtent(); });
     }
 
@@ -533,13 +534,13 @@ class PredicateChcker : public IterVisitor {
     }
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       const auto all_exprs = DependencyCheck::getAllExprsBetween(
-          {output->getRFactorDomain().begin(),
-           output->getRFactorDomain().end()},
+          {output->getLogicalDomain().begin(),
+           output->getLogicalDomain().end()},
           {output->getLeafDomain().begin(), output->getLeafDomain().end()});
       std::unordered_set<Val*> split_root;
       std::copy_if(
-          output->getRFactorDomain().begin(),
-          output->getRFactorDomain().end(),
+          output->getLogicalDomain().begin(),
+          output->getLogicalDomain().end(),
           std::inserter(split_root, split_root.end()),
           [&](auto rf_root) {
             if (rf_root->isBroadcast()) {

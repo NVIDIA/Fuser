@@ -115,35 +115,36 @@ bool isSerialBroadcastResolution(
     }
   }
 
-  // Collect the root id's that the serial loop iterdomain
+  // Collect the logical id's that the serial loop iterdomain
   //  are transformed from.
-  // NOTE: This does not necessarily capture the actual root domains
+  // NOTE: This does not necessarily capture the actual logical domains
   //  as the concrete domains may be post-view domains. We need to
   //  traverse across view boundaries as we do in indexing. This
   //  should not result in false aliasing but may miss safe aliasing
   //  opportunities.
-  auto serial_loop_roots = InputsOf::outputs(serial_loop_concrete_ids);
+  auto serial_loop_logicals = InputsOf::outputs(serial_loop_concrete_ids);
 
-  // Collect exact concrete id's in producer's root domain
-  std::unordered_set<IterDomain*> producer_exact_concrete_root_ids;
-  auto producer_root = TensorDomain::noReductions(producer->getRFactorDomain());
+  // Collect exact concrete id's in producer's logical domain
+  std::unordered_set<IterDomain*> producer_exact_concrete_logical_ids;
+  auto producer_logical =
+      TensorDomain::noReductions(producer->getLogicalDomain());
   std::transform(
-      producer_root.begin(),
-      producer_root.end(),
+      producer_logical.begin(),
+      producer_logical.end(),
       std::inserter(
-          producer_exact_concrete_root_ids,
-          producer_exact_concrete_root_ids.begin()),
+          producer_exact_concrete_logical_ids,
+          producer_exact_concrete_logical_ids.begin()),
       exactConcreteId);
 
-  // Check if serial loop roots indexes any exact root id's that
-  //  is not within the set of producer's root exact id's. These
+  // Check if serial loop logicals indexes any exact logical id's that
+  //  is not within the set of producer's logical exact id's. These
   //  id's will imply that the same producer pixel is accessed
   //  in multiple iterations of the materialized serial loop.
-  for (auto serial_loop_root :
-       ir_utils::filterByType<IterDomain>(serial_loop_roots)) {
-    if (!producer_exact_concrete_root_ids.count(
+  for (auto serial_loop_logical :
+       ir_utils::filterByType<IterDomain>(serial_loop_logicals)) {
+    if (!producer_exact_concrete_logical_ids.count(
             GpuLower::current()->caMap()->getConcreteMappedID(
-                serial_loop_root, IdMappingMode::EXACT))) {
+                serial_loop_logical, IdMappingMode::EXACT))) {
       return true;
     }
   }

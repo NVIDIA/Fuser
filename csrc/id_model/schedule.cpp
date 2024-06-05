@@ -47,4 +47,52 @@ ValGroup merge(ValGraph* graph, const ValGroup& g0, const ValGroup& g1) {
   return graph->toGroup(output_id);
 }
 
+std::pair<ValGroup, ValGroup> split(
+    ValGraph* graph,
+    const ValGroup& g,
+    Val* factor,
+    bool inner_split) {
+  NVF_ERROR(!g->empty(), "ValGroup can not be empty");
+  auto g_id = g->front()->as<IterDomain>();
+  NVF_ERROR(
+      graph->hasGroup(g_id) && graph->toGroup(g_id) == g,
+      "Invalid g given: g is not in the given ValGraph");
+  // If there is already an existing split in the ValGraph, just use it.
+  auto g_uses = graph->getUses(g);
+  for (const ExprGroup& use : g_uses) {
+    if (!use->front()->isA<Split>()) {
+      continue;
+    }
+    auto input_groups = graph->inputGroups(use);
+    NVF_ERROR(input_groups.size() == 1);
+    if (input_groups != std::vector<ValGroup>{g}) {
+      continue;
+    }
+    bool split_match = false;
+    for (auto expr : *use) {
+      if (auto split = dynamic_cast<Split*>(expr); split != nullptr &&
+          split->innerSplit() == inner_split &&
+          split->factor()->sameAs(factor)) {
+        split_match = true;
+        break;
+      }
+    }
+    if (!split_match) {
+      continue;
+    }
+    auto output_groups = graph->outputGroups(use);
+    NVF_ERROR(output_groups.size() == 2);
+    return {output_groups[0], output_groups[1]};
+  }
+  // There is no such split, then create one
+  g_id = g_id->cloneWithoutRFactor();
+  auto [outer_id, inner_id] = IterDomain::split(g_id, factor, inner_split);
+  graph->initializeVal(g_id, {}, {});
+  graph->mapVals(g->front(), g_id);
+  graph->initializeVal(outer_id, {}, {});
+  graph->initializeVal(inner_id, {}, {});
+  graph->registerExpr(inner_id->definition());
+  return {graph->toGroup(outer_id), graph->toGroup(inner_id)};
+}
+
 } // namespace nvfuser

@@ -765,7 +765,7 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     // it is guaranteed to represent this loop group because all the
     // domains merged into this loop_id must be non-broadcast
     // domains. A concrete example can be found in test
-    // LoopPromotionWithRfactorDomains1.
+    // LoopPromotionWithViewRFactor1.
     if (id_model_.viewRfactorIds().find(loop_id) !=
         id_model_.viewRfactorIds().end()) {
       return loop_id;
