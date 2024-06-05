@@ -320,15 +320,19 @@ TEST_F(DynamicTypeTest, ArrowOp) {
   struct S {
     int aaa;
     int& num_dtor_calls;
-    S(int aaa, int& num_dtor_calls): aaa(aaa), num_dtor_calls(num_dtor_calls) {}
-    ~S() { num_dtor_calls++; };
+    S(int aaa, int& num_dtor_calls)
+        : aaa(aaa), num_dtor_calls(num_dtor_calls) {}
+    ~S() {
+      num_dtor_calls++;
+    };
   } s(12, num_dtor_calls);
   EXPECT_EQ(num_dtor_calls, 0);
   using IntSVec = DynamicType<Containers<std::vector>, int, S*>;
   IntSVec x(&s);
   EXPECT_EQ(x->aaa, 12);
 
-  using SmartPointer = DynamicType<NoContainers, S*, std::shared_ptr<S>, std::unique_ptr<S>>;
+  using SmartPointer =
+      DynamicType<NoContainers, S*, std::shared_ptr<S>, std::unique_ptr<S>>;
   S s1(34, num_dtor_calls);
   auto s2 = std::make_shared<S>(56, num_dtor_calls);
   auto s3 = std::make_unique<S>(78, num_dtor_calls);
