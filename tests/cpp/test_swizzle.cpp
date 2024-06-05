@@ -690,4 +690,32 @@ TEST_F(SwizzleTest, SwizzleInRFactor) {
   testValidate(fusion.get(), outputs, {t}, {expect}, __LINE__, __FILE__);
 }
 
+TEST_F(SwizzleTest, CyclicShift) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto in = makeConcreteTensor({32, 32});
+  fusion.addInput(in);
+  auto shared = set(in);
+  auto out = set(shared);
+  fusion.addOutput(out);
+
+  shared->setMemoryType(MemoryType::Shared);
+
+  shared->domain()->swizzle(SwizzleType::XOR, 0, 1);
+
+  for (auto tv : {shared, out}) {
+    tv->axis(0)->parallelize(ParallelType::TIDy);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in_tensor = at::randn({32, 32}, options);
+  auto out_tensor = fe.runFusion({in_tensor})[0];
+  testValidate(&fusion, {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
