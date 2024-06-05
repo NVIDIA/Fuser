@@ -386,12 +386,15 @@ char dtypeToChar(const DataType& dtype);
 //!       the first output
 //!    b. K dimensions are ordered like the allocation domain of the first
 //!       A operand
+//!
+//! NOTE: The permissive graph is used for this so that we map broadcast
+//! dimensions to non-broadcast.
 // TODO: we might want more sophisticated ordering analysis for multi-dim role
 // ordering to maximize vectorization across multiple tensors (rule 4)
 std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& exact_graph);
+    const ValGraph& permissive_graph);
 
 } // namespace mma_utils
 

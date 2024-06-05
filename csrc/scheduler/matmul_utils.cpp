@@ -319,16 +319,16 @@ class VectorizationCalculator {
   VectorizationCalculator(
       const mma_utils::TensorRolesMap& tensor_roles,
       const mma_utils::DimRolesMap& dim_roles,
-      const ValGraph& exact_graph,
+      const ValGraph& permissive_graph,
       SchedulerRuntimeInfo& runtime_info)
       : runtime_info_(runtime_info),
         tensor_roles_(tensor_roles),
         dim_roles_(dim_roles),
-        exact_graph_(exact_graph),
+        permissive_graph_(permissive_graph),
         dim_ordering_(mma_utils::canonicalDimOrdering(
             tensor_roles,
             dim_roles_,
-            exact_graph_)) {}
+            permissive_graph_)) {}
 
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> op_vecs = operandVectorizations();
@@ -460,7 +460,7 @@ class VectorizationCalculator {
         continue;
       }
 
-      ValGroup g = exact_graph_.toGroup(id);
+      ValGroup g = permissive_graph_.toGroup(id);
       // Exit when this does not match the given ordered inner dimension
       if (remaining_inner_dims.empty() || g != remaining_inner_dims.back()) {
         break;
@@ -539,7 +539,7 @@ class VectorizationCalculator {
         continue;
       }
 
-      ValGroup g = exact_graph_.toGroup(id);
+      ValGroup g = permissive_graph_.toGroup(id);
       MatmulDomain dim_role = dimRole(g);
       if (dim_role == MatmulDomain::Batch) {
         // We cannot vectorize in batch dimensions
@@ -632,17 +632,17 @@ class VectorizationCalculator {
   SchedulerRuntimeInfo& runtime_info_;
   const mma_utils::TensorRolesMap& tensor_roles_;
   const mma_utils::DimRolesMap& dim_roles_;
-  const ValGraph& exact_graph_;
+  const ValGraph& permissive_graph_;
   std::vector<ValGroup> dim_ordering_;
 };
 
 MatmulParams::SupportedVectorization getSupportedVectorization(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& exact_graph,
+    const ValGraph& permissive_graph,
     SchedulerRuntimeInfo& runtime_info) {
   VectorizationCalculator calc(
-      tensor_roles, dim_roles, exact_graph, runtime_info);
+      tensor_roles, dim_roles, permissive_graph, runtime_info);
   return calc.compute();
 }
 
@@ -793,7 +793,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   // IdModel is used to analyze problem shape & layout
   IdModel id_model(fusion);
-  id_model.maybeBuildGraph(IdMappingMode::EXACT);
+  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
   const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
 
@@ -815,7 +815,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   params->supported_vec_size = getSupportedVectorization(
       tensor_roles,
       id_roles,
-      id_model.idGraph(IdMappingMode::EXACT),
+      id_model.idGraph(IdMappingMode::PERMISSIVE),
       runtime_info);
 
   if (matmul_heuristic_plugin::hasPlugin()) {

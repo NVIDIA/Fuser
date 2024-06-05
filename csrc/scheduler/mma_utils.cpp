@@ -1732,7 +1732,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& exact_graph) {
+    const ValGraph& permissive_graph) {
   VectorOfUniqueEntries<ValGroup> batch_dims, m_dims, n_dims, k_dims,
       other_dims;
   // This is +1 if N should come before M and -1 otherwise. It is zero until the
@@ -1757,7 +1757,7 @@ std::vector<ValGroup> canonicalDimOrdering(
         if (id->isDeviceDim() || id->isBroadcast() || id->isReduction()) {
           continue;
         }
-        const ValGroup& g = exact_graph.toGroup(id);
+        const ValGroup& g = permissive_graph.toGroup(id);
         const auto it = dim_roles.find(g);
         if (it == dim_roles.end()) {
           other_dims.pushBack(g);
