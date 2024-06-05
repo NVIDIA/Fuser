@@ -59,7 +59,7 @@ TensorView* reshape(
     const std::vector<int64_t>& new_sizes) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   NVF_ERROR(
-      TensorDomain::noReductions(x->getRFactorDomain()).size() ==
+      TensorDomain::noReductions(x->getLogicalDomain()).size() ==
       original_sizes.size());
 
   auto view_analysis = analyzeView(x, original_sizes, new_sizes);
@@ -102,7 +102,7 @@ TensorView* tryStaticReshape(
 } // namespace
 
 TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
-  auto inp_dom = TensorDomain::noReductions(inp_tv->getRFactorDomain());
+  auto inp_dom = TensorDomain::noReductions(inp_tv->getLogicalDomain());
 
   NVF_CHECK(
       std::none_of(
@@ -119,13 +119,13 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
 
   auto root_domain = ops::newOutputDomain({inp_tv});
 
-  // Create placeholder rfactor domain. Note it's not connected with the root
+  // Create placeholder logical domain. Note it's not connected with the root
   // domain.
-  std::vector<IterDomain*> rfactor_domain(new_sizes.size(), nullptr);
+  std::vector<IterDomain*> logical_domain(new_sizes.size(), nullptr);
   bool found_neg_one = false;
   for (const auto i : c10::irange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
-    if (new_size->isConstScalar() && new_size->evaluate() == -1) {
+    if (new_size->isConstScalar() && new_size->evaluate().as<int64_t>() == -1) {
       // It is usually safe to use the provided scalars as the output shapes.
       // However, if -1 is provided for some position, it will not correspond to
       // the actual extent in that position.
@@ -156,25 +156,25 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
             .iter_type(IterType::Symbolic)
             .is_rfactor_domain(true)
             .build();
-    rfactor_domain.at(i) = rf_id;
+    logical_domain.at(i) = rf_id;
   }
 
   auto out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           root_domain,
-          rfactor_domain,
-          rfactor_domain,
-          TensorDomain::getContiguityFilledWith(rfactor_domain, true)),
+          logical_domain,
+          logical_domain,
+          TensorDomain::getContiguityFilledWith(logical_domain, true)),
       inp_tv->dtype());
 
-  IrBuilder::create<ViewOp>(inp_tv->container(), out_tv, inp_tv);
+  IrBuilder::createInContainer<ViewOp>(inp_tv->container(), out_tv, inp_tv);
 
   return out_tv;
 }
 
 TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  auto inp_domain = TensorDomain::noReductions(x->getRFactorDomain());
+  auto inp_domain = TensorDomain::noReductions(x->getLogicalDomain());
   if (start_dim < 0) {
     start_dim += (int64_t)inp_domain.size();
   }
@@ -195,7 +195,7 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
     return x;
   }
 
-  auto out = IrBuilder::create<TensorView>(
+  auto out = IrBuilder::createInContainer<TensorView>(
       x->container(),
       x->domain()->flatten(start_dim, end_dim),
       x->getDataType().value());
@@ -264,7 +264,8 @@ TensorView* squeeze(
             id->toString(),
             ". To force removal of this axis, use squeeze_expanded=true.");
         NVF_CHECK(
-            id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
+            id->extent()->isConstScalar() &&
+                id->extent()->evaluate().as<int64_t>() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
@@ -282,7 +283,7 @@ TensorView* squeeze(
     // If we did not squeeze any axes, this is just set()
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
   } else {
-    IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
+    IrBuilder::createInContainer<SqueezeOp>(x->container(), out, x, to_squeeze);
   }
 
   return out;
@@ -319,7 +320,7 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   if (new2old.empty()) {
     return set(x);
   }
-  auto inp_domain = TensorDomain::noReductions(x->getRFactorDomain());
+  auto inp_domain = TensorDomain::noReductions(x->getLogicalDomain());
 
   NVF_CHECK(
       inp_domain.size() == new2old.size(),
@@ -343,18 +344,18 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
     out_root.emplace_back(id->cloneWithoutRFactor());
   }
 
-  std::vector<IterDomain*> out_rfactor;
-  out_rfactor.reserve(inp_domain.size());
+  std::vector<IterDomain*> out_logical;
+  out_logical.reserve(inp_domain.size());
   for (const auto i : normalized_new2old) {
-    out_rfactor.emplace_back(out_root.at(i));
+    out_logical.emplace_back(out_root.at(i));
   }
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_root,
-          out_rfactor,
-          out_rfactor,
-          TensorDomain::getContiguityFilledWith(out_rfactor, true)),
+          out_logical,
+          out_logical,
+          TensorDomain::getContiguityFilledWith(out_logical, true)),
       x->getDataType().value());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, x);
   return out_tensor;
@@ -371,7 +372,7 @@ TensorView* permute(
     const std::unordered_map<int64_t, int64_t>& old2new) {
   auto y = set(x);
   y->reorder(old2new);
-  y->commitLeafToRFactor();
+  y->commitLeafToLogical();
   return y;
 }
 
@@ -463,7 +464,7 @@ TensorView* pad(
   NVF_CHECK(
       hasSimilarDtype(dt, value->getDataType().value()),
       "Tensor arg and pad value must have the same dtype.");
-  const auto inp_dom = TensorDomain::noReductions(inp->getRFactorDomain());
+  const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
   const auto ndims = inp_dom.size();
 
   NVF_CHECK(
@@ -475,7 +476,7 @@ TensorView* pad(
   const auto num_non_padded_dims = ndims - num_padded_dims;
 
   std::vector<IterDomain*> root_ids(ndims);
-  std::vector<IterDomain*> rfactor_ids(ndims);
+  std::vector<IterDomain*> logical_ids(ndims);
 
   // PadOp requires pad widths for all dimensions, even for non-padded
   // ones.
@@ -514,13 +515,13 @@ TensorView* pad(
     } else {
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
-      // Expand the root domain and mark it as a rfactor domain
+      // Expand the root domain and mark it as a logical domain
       out_rf_id = IterDomain::resize(
           out_root_id, left_pad, right_pad, true, iter_type_opt);
       is_padded_any = true;
     }
     root_ids.at(idx) = out_root_id;
-    rfactor_ids.at(idx) = out_rf_id;
+    logical_ids.at(idx) = out_rf_id;
   }
 
   // If all of the padding widths are just zero, this is just a set op.
@@ -531,9 +532,9 @@ TensorView* pad(
   auto out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           root_ids,
-          rfactor_ids,
-          rfactor_ids,
-          TensorDomain::getContiguityFilledWith(rfactor_ids, true)),
+          logical_ids,
+          logical_ids,
+          TensorDomain::getContiguityFilledWith(logical_ids, true)),
       *inp->getDataType());
 
   IrBuilder::create<PadOp>(out, inp, normalized_pad_widths, value);
@@ -563,7 +564,7 @@ TensorView* cat(
         dtype,
         ", ",
         inp->getDataType().value());
-    inp_doms.emplace_back(TensorDomain::noReductions(inp->getRFactorDomain()));
+    inp_doms.emplace_back(TensorDomain::noReductions(inp->getLogicalDomain()));
     auto i_ndims = static_cast<int64_t>(inp_doms.back().size());
     if (ndims == -1) {
       ndims = i_ndims;
@@ -675,7 +676,7 @@ TensorView* cat(
 }
 
 TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
-  const auto inp_dom = TensorDomain::noReductions(inp->getRFactorDomain());
+  const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
   const int64_t ndims = static_cast<int64_t>(inp_dom.size());
 
   NVF_CHECK(
@@ -741,7 +742,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   }
 
   std::vector<IterDomain*> root_ids(ndims);
-  std::vector<IterDomain*> rfactor_ids(ndims);
+  std::vector<IterDomain*> logical_ids(ndims);
   std::vector<Slice> normalized_ranges(ndims);
 
   bool needs_real_slicing = false;
@@ -768,7 +769,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       needs_real_slicing = true;
     }
     root_ids.at(idx) = out_root_id;
-    rfactor_ids.at(idx) = out_rf_id;
+    logical_ids.at(idx) = out_rf_id;
   }
 
   // If slicing isn't actually needed, just return a copy
@@ -779,9 +780,9 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   auto out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           root_ids,
-          rfactor_ids,
-          rfactor_ids,
-          TensorDomain::getContiguityFilledWith(rfactor_ids, true)),
+          logical_ids,
+          logical_ids,
+          TensorDomain::getContiguityFilledWith(logical_ids, true)),
       *inp->getDataType());
 
   IrBuilder::create<SliceOp>(out, inp, normalized_ranges);

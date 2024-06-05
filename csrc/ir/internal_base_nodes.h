@@ -127,29 +127,10 @@ class NVF_API IterDomain : public Val {
       IterDomain* inner,
       bool rfactor_domain = false);
 
-  //! start_offset and stop_offset defines partial split. Only root
-  //! domains are allowed to have non-zero start and stop offsets.
-  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
-  //! both result IterDomains.
   static std::pair<IterDomain*, IterDomain*> split(
       IterDomain* in,
       Val* factor,
       bool inner_split,
-      Val* start_offset = nullptr,
-      Val* stop_offset = nullptr,
-      bool rfactor_domain = false);
-
-  //! trim_out_of_bounds controls how the values outside start and stop
-  //! positions are treated. The option is only valid with root
-  //! domains as non-root domains do not have valid start and stop
-  //! positions.
-  //!
-  //! \param trim_out_of_bounds Trims [0, start_] and [-stop_offset_, extent_]
-  static std::pair<IterDomain*, IterDomain*> split(
-      IterDomain* in,
-      Val* factor,
-      bool inner_split,
-      bool trim_out_of_bounds,
       bool rfactor_domain = false);
 
   //! Resize an IterDomain by expanding both the left and right sides
@@ -454,34 +435,34 @@ class TensorDomain : public Val {
  public:
   NVF_API explicit TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> rfactor_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   // See notes [ Note stride order and contiguity vector ] in
   // python_bindings.cpp
   TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> rfactor_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<int64_t> stride_order,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> rfactor_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> leaf_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> rfactor_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> leaf_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> rfactor_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> allocation,
       std::vector<IterDomain*> leaf_domain,
       std::vector<std::optional<bool>> contiguity = {});
@@ -507,7 +488,7 @@ class TensorDomain : public Val {
       const std::vector<IterDomain*>& lhs,
       const std::vector<IterDomain*>& rhs);
 
-  // When `leaf_only` is false, prints also the root, rfactor and allocation
+  // When `leaf_only` is false, prints also the root, logical and allocation
   // domain if not empty.
   std::string toString(int indent_size, bool leaf_only) const;
   std::string toString(int indent_size = 0) const override;
@@ -515,7 +496,7 @@ class TensorDomain : public Val {
 
   // Note: [Contiguity]
   // Contiguity is a vector of optional<bool> which has the same number of
-  // elements as rfactor_domain_. The contiguity of a broadcast dimension is
+  // elements as logical_domain_. The contiguity of a broadcast dimension is
   // meaningless, so it has to be nullopt. The contiguity of a non-broadcasting
   // dimension is true if and only if it is memory dense with the next
   // non-broadcasting dimension.
@@ -571,18 +552,18 @@ class TensorDomain : public Val {
   }
 
   // The input logical domain. The root domain of a consumer should equal the
-  // rfactor domain of its producer ignoring reduction dimensions.
+  // logical domain of its producer ignoring reduction dimensions.
   const std::vector<IterDomain*>& root() const {
     return root_domain_;
   };
 
   const std::vector<IterDomain*>& maybeRoot() const {
-    return root_domain_.empty() ? rfactor_domain_ : root_domain_;
+    return root_domain_.empty() ? logical_domain_ : root_domain_;
   };
 
   // The output logical domain.
-  const std::vector<IterDomain*>& rfactor() const {
-    return rfactor_domain_;
+  const std::vector<IterDomain*>& logical() const {
+    return logical_domain_;
   };
 
   // The allocation domain. This describes how data is stored in memory in
@@ -597,7 +578,7 @@ class TensorDomain : public Val {
   }
 
   const std::vector<IterDomain*>& maybeAllocation() const {
-    return hasAllocation() ? allocation_domain_ : rfactor();
+    return hasAllocation() ? allocation_domain_ : logical();
   };
 
   // Set the allocation domain of this TensorDomain. The new allocation domain
@@ -642,11 +623,7 @@ class TensorDomain : public Val {
   //! tv[id{extent}] -> tv[id{ceilDiv(extent, factor)}, id{factor}]
   //! e.g. split(0, 4, inner_split = false) will result in:
   //! tv[id{extent}] -> tv[id{factor}, id{ceilDiv(extent, factor)}]
-  void split(
-      int64_t axis_,
-      Val* factor,
-      bool inner_split,
-      bool trim_out_of_bounds = false);
+  void split(int64_t axis_, Val* factor, bool inner_split);
 
   // Merge axis_o and axis_i. axis_i is the fast changing dimension. Resulting
   // axis is by default placed at original position axis_o
@@ -683,11 +660,11 @@ class TensorDomain : public Val {
   static bool hasBroadcast(const std::vector<IterDomain*>&);
   static bool hasReduction(const std::vector<IterDomain*>&);
 
-  // Get a vector whose size is the number of IDs in the given rfactor_domain
+  // Get a vector whose size is the number of IDs in the given logical_domain
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
   NVF_API static std::vector<std::optional<bool>> getContiguityFilledWith(
-      const std::vector<IterDomain*>& rfactor_domain,
+      const std::vector<IterDomain*>& logical_domain,
       bool fill_value);
 
   // pair is in order where second is the consumer of first
@@ -701,7 +678,7 @@ class TensorDomain : public Val {
 
  private:
   const std::vector<IterDomain*> root_domain_;
-  const std::vector<IterDomain*> rfactor_domain_;
+  const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
   std::vector<IterDomain*> leaf_domain_;
 

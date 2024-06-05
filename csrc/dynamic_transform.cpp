@@ -121,7 +121,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
             })) {
       for (Val* out_val : expr->outputs()) {
         if (TensorView* out_tv = dynamic_cast<TensorView*>(out_val)) {
-          const std::vector<IterDomain*>& out_rf = out_tv->getRFactorDomain();
+          const std::vector<IterDomain*>& out_rf = out_tv->getLogicalDomain();
           if (std::any_of(out_rf.begin(), out_rf.end(), [](IterDomain* id) {
                 return id->isSymbolic();
               })) {
@@ -147,10 +147,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
       // Input and output extent expressions both affect concretization
       for (const auto& id :
-           TensorDomain::noReductions(inp_tv->getRFactorDomain())) {
+           TensorDomain::noReductions(inp_tv->getLogicalDomain())) {
         leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
-      for (const auto& id : out_tv->getRFactorDomain()) {
+      for (const auto& id : out_tv->getLogicalDomain()) {
         leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
     }
@@ -164,16 +164,16 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     // If there's no symbolic axis, this is a static expand op
     bool is_dynamic = false;
     // Loop over all axes, check whether any expansions are undetermined
-    const std::vector<IterDomain*> inp_rfactor =
-        TensorDomain::noReductions(inp_tv->getRFactorDomain());
+    const std::vector<IterDomain*> inp_logical =
+        TensorDomain::noReductions(inp_tv->getLogicalDomain());
     const std::vector<IterDomain*>& out_root = out_tv->getMaybeRootDomain();
-    NVF_ERROR(inp_rfactor.size() == out_root.size());
+    NVF_ERROR(inp_logical.size() == out_root.size());
     for (auto i : c10::irange((int64_t)out_root.size())) {
       IterDomain* out_id = out_root[i];
       if (!out_id->isSymbolic()) {
         continue;
       }
-      Val* in_extent = inp_rfactor[i]->extent();
+      Val* in_extent = inp_logical[i]->extent();
       Val* out_extent = out_id->extent();
       if (out_extent->sameAs(in_extent)) {
         // Not expanding this axis
@@ -190,11 +190,11 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
 
   //! Detect possibly empty TensorViews and dynamic IterDomain transforms
   void handle(TensorView* tv) override {
-    const auto& rfd = tv->getRFactorDomain();
+    const auto& logical_dom = tv->getLogicalDomain();
     ExpressionEvaluator ee;
-    for (auto id : rfd) {
+    for (auto id : logical_dom) {
       if (!id->getMaybeExpandedExtent()->isConstScalar() ||
-          id->getMaybeExpandedExtent()->evaluate() == 0) {
+          id->getMaybeExpandedExtent()->evaluate().as<int64_t>() == 0) {
         info_.maybe_zero_extents_set_.insert(id->getMaybeExpandedExtent());
         leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
@@ -303,7 +303,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
         out_tv->toString());
 
     const auto& inp_dom =
-        TensorDomain::noReductions(inp_tv->getRFactorDomain());
+        TensorDomain::noReductions(inp_tv->getLogicalDomain());
 
     // Determine input shape using expr evaluator
     std::vector<int64_t> inp_shape(inp_dom.size(), 0);
@@ -331,7 +331,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
       inp_shape.at(i) = extent_val.as<int64_t>();
     }
 
-    const auto& out_dom = out_tv->getRFactorDomain();
+    const auto& out_dom = out_tv->getLogicalDomain();
 
     // Determine output shape using expr evaluator. Note there may be
     // one domain of extent -1
@@ -408,14 +408,14 @@ void DynamicTransformConcretizationInfo::analyzeExpands(
     const TensorView* inp_tv = out_tv->definition()->as<ExpandOp>()->in();
 
     const std::vector<IterDomain*>& out_root = out_tv->getMaybeRootDomain();
-    const std::vector<IterDomain*> inp_rfactor =
-        TensorDomain::noReductions(inp_tv->getRFactorDomain());
+    const std::vector<IterDomain*> inp_logical =
+        TensorDomain::noReductions(inp_tv->getLogicalDomain());
 
-    NVF_ERROR(out_root.size() == inp_rfactor.size());
+    NVF_ERROR(out_root.size() == inp_logical.size());
     std::vector<bool> expand_axes;
     expand_axes.reserve(out_root.size());
     for (int64_t i : c10::irange((int64_t)out_root.size())) {
-      const IterDomain* inp_id = inp_rfactor[i];
+      const IterDomain* inp_id = inp_logical[i];
       const IterDomain* out_id = out_root[i];
       if (out_id->isIteration()) {
         expand_axes.push_back(false);
@@ -453,10 +453,10 @@ void DynamicTransformConcretizationInfo::analyzeFactoryOutputs(
   factory_output_itertypes_.reserve(factory_tvs.size());
   for (const auto tv_index : c10::irange((int64_t)factory_tvs.size())) {
     const TensorView* tv = factory_tvs.at(tv_index);
-    const std::vector<IterDomain*>& rf = tv->getRFactorDomain();
+    const std::vector<IterDomain*>& logical_dom = tv->getLogicalDomain();
     std::vector<std::pair<int64_t, IterType>> conc_iter_types;
-    for (int64_t pos : c10::irange((int64_t)rf.size())) {
-      const IterDomain* id = rf[pos];
+    for (int64_t pos : c10::irange((int64_t)logical_dom.size())) {
+      const IterDomain* id = logical_dom[pos];
       if (!id->isSymbolic()) {
         continue;
       }
@@ -584,7 +584,7 @@ std::string DynamicTransformConcretizationInfo::toString() const {
     ss << indent << indent << tv->toString() << std::endl;
     for (const auto& [pos, iter_type] : factory_output_itertypes_.at(i)) {
       ss << indent << indent << indent
-         << tv->getRFactorDomain().at(pos)->toString() << " => " << iter_type
+         << tv->getLogicalDomain().at(pos)->toString() << " => " << iter_type
          << std::endl;
     }
   }
@@ -683,16 +683,16 @@ void DynamicTransformConcretizer::concretize() {
     // the P2C direction. Importantly, this means traversing across TensorView
     // expressions and using exact mapping between producer and consumer TVs to
     // infer IterTypes of consumer root IterDomains from concretized producer
-    // rfactor IterDomains.
+    // logical IterDomains.
     //
     // The order of StmtSort::getStmts guarantees a topological ordering with
     // respect to our IR graph. That IR does not explicitly hold TensorView
     // dependencies for IterDomains; i.e. we rely on TensorView expressions to
-    // infer that one IterDomain is a producer rfactor which another consumer
+    // infer that one IterDomain is a producer logical which another consumer
     // root domain depends on. So we avoid processing IterDomains and
     // TensorDomains until we reach the TensorView that contains them. Otherwise
     // we would not be able to propagate across exact maps before processing
-    // all root->rfactor IterDomains and expressions.
+    // all root->logical IterDomains and expressions.
     if (const auto op = dynamic_cast<Expr*>(stmt); stmt->isA<IterDomain>() ||
         stmt->isA<TensorDomain>() || (op && op->output(0)->isA<IterDomain>())) {
       continue;
@@ -772,15 +772,15 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // We also replace the extent i2 from the dynamic reshape output T2 with i0,
     // which is what the code below implements. Since T1 includes a Reduction
     // IterDomain, we must ignore it in order to match ?S4{i2} with iS2{i0}.
-    auto old_rfactor = incomplete_out_tv->getRFactorDomain();
-    auto new_rfactor =
-        TensorDomain::noReductions(concrete_reshape_out_tv->getRFactorDomain());
+    auto old_logical = incomplete_out_tv->getLogicalDomain();
+    auto new_logical =
+        TensorDomain::noReductions(concrete_reshape_out_tv->getLogicalDomain());
     NVF_ERROR(
-        old_rfactor.size() == new_rfactor.size(),
-        "Concretized reshape rfactor size does not match symbolic rfactor");
-    for (auto idx : c10::irange((int64_t)new_rfactor.size())) {
-      auto old_extent = old_rfactor.at(idx)->extent();
-      auto new_extent = new_rfactor.at(idx)->extent();
+        old_logical.size() == new_logical.size(),
+        "Concretized reshape logical size does not match symbolic logical size");
+    for (auto idx : c10::irange((int64_t)new_logical.size())) {
+      auto old_extent = old_logical.at(idx)->extent();
+      auto new_extent = new_logical.at(idx)->extent();
       // If the old extent did not have a definition, we don't need to replace
       // it, since it will get bound whenever this tensor is a segmentation
       // edge.
@@ -840,10 +840,10 @@ void DynamicTransformConcretizer::concretizeExpand() {
 
     // We do not need to replace the ExpandOp, but we do need to mutate all of
     // the IterDomains in the output based on whether each was expanded
-    std::vector<IterDomain*> out_rfactor =
-        TensorDomain::noReductions(symbolic_out_tv->getRFactorDomain());
-    NVF_ERROR(axis_is_expanded.size() == out_rfactor.size());
-    for (int64_t i : c10::irange((int64_t)out_rfactor.size())) {
+    std::vector<IterDomain*> out_logical =
+        TensorDomain::noReductions(symbolic_out_tv->getLogicalDomain());
+    NVF_ERROR(axis_is_expanded.size() == out_logical.size());
+    for (int64_t i : c10::irange((int64_t)out_logical.size())) {
       if (!axis_is_expanded[i]) {
         // Propagate as usual for non-expanded IterDomains
         continue;
@@ -852,7 +852,7 @@ void DynamicTransformConcretizer::concretizeExpand() {
       // non-null expandedExtent. However, a Symbolic IterDomain will only have
       // an extent. Here we set the IterType to Broadcast and swap the extent to
       // expandedExtent.
-      IterDomain* symbolic_id = out_rfactor[i];
+      IterDomain* symbolic_id = out_logical[i];
       Val* one = FusionGuard::getCurFusion()->oneVal(DataType::Index);
       IterDomain* concretized_id = IterDomainBuilder(symbolic_id)
                                        .iter_type(IterType::Broadcast)
@@ -874,7 +874,7 @@ void DynamicTransformConcretizer::concretizeFactoryOutputs() {
     const std::vector<std::pair<int64_t, IterType>>& pair_vec = pair_vecs[i];
     for (auto& [pos, iter_type] : pair_vec) {
       auto* old_id =
-          maybeMutated(tv->getRFactorDomain().at(pos))->as<IterDomain>();
+          maybeMutated(tv->getLogicalDomain().at(pos))->as<IterDomain>();
       NVF_ERROR(
           old_id->definition() == nullptr,
           "Symbolic factory output has ID definition that would be discarded");
@@ -910,25 +910,25 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   propagateFromProducerToConsumer(tv);
 
   // If no root domain is altered by producer, we don't need to propagate back
-  // up to rfactor. We could return early, but instead we go ahead and check the
-  // root to rfactor transforms to be sure we have concretized any intermediate
-  // IterDomains.
+  // up to logical domain. We could return early, but instead we go ahead and
+  // check the root to logical transforms to be sure we have concretized any
+  // intermediate IterDomains.
 
   // At this point, there should be no expr beyond rfactor root
   NVF_ERROR(
-      tv->getLeafDomain() == tv->getRFactorDomain(),
+      tv->getLeafDomain() == tv->getLogicalDomain(),
       "Invalid tensor: ",
       tv->toString());
 
-  // If it has an rfactor root domain, the IterTypes of the rfactor
+  // If it has an root domain, the IterTypes of the logical
   // IDs may need to be updated as well. Traverse the rfactor exprs
   // and mutate the IterTypes of output IDs if symbolic.
   if (tv->hasRoot()) {
     // Note that it is assumed that theres's no further expression
-    // beyond the rfactor domain as asserted above
+    // beyond the logical domain as asserted above
     auto all_id_exprs = StmtSort::getExprsBetween(
         {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-        {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()});
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
     for (auto expr : all_id_exprs) {
       // Assume outputs of IterDomain exprs are always IterDomains. If
       // the assumption is invalidated, the logic here would need to
@@ -967,7 +967,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
         NVF_CHECK(
             updated_id == inp_id || !updated_id->isSymbolic(),
-            "Mutated IterDomains between root and rfactor should not be symbolic");
+            "Mutated IterDomains between root and logical should not be symbolic");
         if (i == 0) {
           // ops::promoteIterType will favor Symbolic if it encounters it
           // alongside Broadcast. This is preferable at fusion definition, but
@@ -1027,7 +1027,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
     }
   }
 
-  // Root and rfactor domains are updated. First mutate the
+  // Root and logical domains are updated. First mutate the
   // TensorDomain and then TensorView
   mutate(tv->domain());
   OptOutMutator::mutate(tv);
@@ -1054,7 +1054,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 
   std::vector<IterDomain*> root_dom =
       td->hasRoot() ? updateIdVec(td->root()) : std::vector<IterDomain*>();
-  std::vector<IterDomain*> rfactor_dom = updateIdVec(td->rfactor());
+  std::vector<IterDomain*> logical_dom = updateIdVec(td->logical());
   std::vector<IterDomain*> leaf_domain = updateIdVec(td->leaf());
   std::vector<IterDomain*> alloc_dom = td->hasAllocation()
       ? updateIdVec(td->allocation())
@@ -1067,7 +1067,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   // Update the contiguity vector. Drop the contig val if mutated to broadcast
   auto contig = td->contiguity();
 
-  const auto& new_maybe_alloc = td->hasAllocation() ? alloc_dom : rfactor_dom;
+  const auto& new_maybe_alloc = td->hasAllocation() ? alloc_dom : logical_dom;
   const auto& original_alloc = td->maybeAllocation();
   NVF_ERROR(
       new_maybe_alloc.size() == original_alloc.size(),
@@ -1092,8 +1092,8 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
     }
   }
 
-  Val* mutated_val = IrBuilder::create<TensorDomain>(
-      td->container(), root_dom, rfactor_dom, alloc_dom, leaf_domain, contig);
+  Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
+      td->container(), root_dom, logical_dom, alloc_dom, leaf_domain, contig);
   registerConcretization(td, mutated_val);
 }
 
@@ -1110,7 +1110,7 @@ static bool hasTrivialReduction(
   p2c_map.mapBroadcast(true);
   auto p2c = p2c_map.mapProducerToConsumer();
   int64_t pos = -1;
-  for (IterDomain* in_id : TensorDomain::noReductions(in->getRFactorDomain())) {
+  for (IterDomain* in_id : TensorDomain::noReductions(in->getLogicalDomain())) {
     ++pos;
     auto out_it = p2c.find(in_id);
     if (out_it == p2c.end()) {

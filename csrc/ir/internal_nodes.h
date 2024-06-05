@@ -1616,20 +1616,13 @@ class NVF_API Split : public Expr {
  public:
   using Expr::Expr;
 
-  // start_offset and stop_offset are used to express partial
-  // split. Only the partial domain from start_offset to stop_offset
-  // is split and the outer sub-regions are ignored. Note that both
-  // start_offset and stop_offset are distance from the left end and
-  // right ends, respectively.
   Split(
       IrBuilderPasskey,
       IterDomain* outer,
       IterDomain* inner,
       IterDomain* in,
       Val* factor,
-      bool inner_split = true,
-      Val* start_offset = nullptr,
-      Val* stop_offset = nullptr);
+      bool inner_split = true);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1656,23 +1649,6 @@ class NVF_API Split : public Expr {
   bool innerSplit() const {
     return attribute<bool>(1);
   }
-
-  //! Start position of the input domain. Non-zero means partial
-  //! split. Elements until this offset are ignored.
-  Val* startOffset() const {
-    NVF_ERROR(attributeVal(2) != nullptr);
-    return attributeVal(2);
-  }
-
-  //! Offset from extent of the input domain. Non-zero means partial
-  //! split. Elements after this offset are ignored.
-  Val* stopOffset() const {
-    NVF_ERROR(attributeVal(3) != nullptr);
-    return attributeVal(3);
-  }
-
-  //! Utility function to compute the split extent.
-  static Val* extent(Val* in_extent, Val* start_offset, Val* stop_offset);
 };
 
 //! Merge the IterDomains outer and inner into one domain, outer and inner

@@ -406,11 +406,11 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
 
 namespace {
 
-std::optional<IterDomain*> getMaybeRootIfInnermostTiled(
+std::optional<IterDomain*> getMaybeAllocationIfInnermostTiled(
     IterDomain* id,
-    const std::unordered_set<IterDomain*>& maybe_rfactor_id_set) {
+    const std::unordered_set<IterDomain*>& maybe_allocation_id_set) {
   // Root id defaults to an "innermost id".
-  while (id->definition() && !maybe_rfactor_id_set.count(id)) {
+  while (id->definition() && !maybe_allocation_id_set.count(id)) {
     if (auto split = dynamic_cast<Split*>(id->definition())) {
       if (id == split->inner()) {
         id = split->in();
@@ -426,16 +426,17 @@ std::optional<IterDomain*> getMaybeRootIfInnermostTiled(
 
 } // namespace
 
-void orderTiledConcreteIdAsRoot(TensorView* tv) {
+void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
   int64_t ndims = tv->nDims();
 
   // Keep track of the left most position where we will
   //  be reordering the axes.
   int64_t leftmost_pos = ndims;
 
-  // Pull the root id's of the given tv.
-  std::unordered_set<IterDomain*> maybe_rfactor_id_set{
-      tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()};
+  // Pull the maybe allocation domain id's of the given tv.
+  std::unordered_set<IterDomain*> id_set{
+      tv->getMaybeAllocationDomain().begin(),
+      tv->getMaybeAllocationDomain().end()};
 
   // Keep track of leaf positions that is either a reduction
   //  or a broadcast.
@@ -444,9 +445,9 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  here for completeness.
   std::deque<int64_t> broadcast_or_reduction_pos;
 
-  // Map the root id's to their innermost concrete id's
+  // Map the id's to their innermost concrete id's
   //  on the leaf.
-  std::unordered_map<IterDomain*, int64_t> root_id_to_inner_leaf_pos;
+  std::unordered_map<IterDomain*, int64_t> id_to_inner_leaf_pos;
 
   // Try to re-order inner iterdomains from the innermost
   //  position backward. This utility only tries to re-order
@@ -470,18 +471,18 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
       leftmost_pos = i;
       continue;
     }
-    auto maybe_root =
-        getMaybeRootIfInnermostTiled(leaf_id, maybe_rfactor_id_set);
+    auto maybe_alloc_domain =
+        getMaybeAllocationIfInnermostTiled(leaf_id, id_set);
 
-    if (maybe_root.has_value()) {
+    if (maybe_alloc_domain.has_value()) {
       // Found an innermost id, add them to the
       //  axes to reorder.
       NVF_ERROR(
-          root_id_to_inner_leaf_pos
-              .insert(std::make_pair(maybe_root.value(), i))
+          id_to_inner_leaf_pos
+              .insert(std::make_pair(maybe_alloc_domain.value(), i))
               .second,
-          "Multiple \"innermost\" id seen for root id :",
-          maybe_root.value()->toString(),
+          "Multiple \"innermost\" id seen for id :",
+          maybe_alloc_domain.value()->toString(),
           " on ",
           tv->toString(),
           " very likely an invariant is broken.");
@@ -508,9 +509,9 @@ void orderTiledConcreteIdAsRoot(TensorView* tv) {
   //  domain ordering by iterating on the root domain and
   //  find their corresponding inner tile iterdomains from
   //  the populated root_id_to_inner_leaf_pos.
-  for (auto root_id : tv->getRFactorDomain()) {
-    auto leaf_id_pos_it = root_id_to_inner_leaf_pos.find(root_id);
-    if (leaf_id_pos_it != root_id_to_inner_leaf_pos.end()) {
+  for (auto id : tv->getMaybeAllocationDomain()) {
+    auto leaf_id_pos_it = id_to_inner_leaf_pos.find(id);
+    if (leaf_id_pos_it != id_to_inner_leaf_pos.end()) {
       reorder_map_old_to_new[leaf_id_pos_it->second] = current_pos++;
     }
   }
@@ -625,7 +626,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
 
   // Note: [Use Root Domain in Accumulator TV]
   //  Have to use root domain for accumulator tv since the operands do not have
-  //  root/rfactor domains that map to the rfactor domain of output.
+  //  root/logical domains that map to the logical domain of output.
   //  For example:
   //   C[I,I,R,R] = mma (A[I,B,I,I], B[B,I,I,I]),
   //  if we do
@@ -643,9 +644,9 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
   //   are more complex scheduling patterns that we want to support.
   auto accumulator_domain = mma->out()->as<TensorView>()->getMaybeRootDomain();
   auto a_domain = TensorDomain::noReductions(
-      mma->inA()->as<TensorView>()->getRFactorDomain());
+      mma->inA()->as<TensorView>()->getLogicalDomain());
   auto b_domain = TensorDomain::noReductions(
-      mma->inB()->as<TensorView>()->getRFactorDomain());
+      mma->inB()->as<TensorView>()->getLogicalDomain());
   NVF_CHECK(
       a_domain.size() == b_domain.size() &&
           a_domain.size() == accumulator_domain.size(),
@@ -1005,8 +1006,8 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
 }
 
 void canonicalizeMmaTvOrdering(TensorView* tv) {
-  std::unordered_set<IterDomain*> root_id_set{
-      tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()};
+  std::unordered_set<IterDomain*> logical_id_set{
+      tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()};
 
   auto mma = dynamic_cast<MmaOp*>(tv->definition());
   NVF_CHECK(
@@ -1023,7 +1024,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   for (auto idx : c10::irange(ndims)) {
     auto id = tv->axis(idx);
-    NVF_CHECK(root_id_set.count(id), id->toString(), " not a root id.");
+    NVF_CHECK(logical_id_set.count(id), id->toString(), " not a root id.");
 
     // Categorize each original iterdomain position
     if (m_id_set.count(id)) {
@@ -1428,7 +1429,7 @@ class MatmulPatternMatcher : IterVisitor {
   using IterVisitor::handle;
 
   // TODO: These methods currently assume the output will have allocation domain
-  // equal to its rfactor. However, if the rfactor domain is specified, or if
+  // equal to its logical. However, if the logical domain is specified, or if
   // there is a transpose operation in the epilogue, then this assumption will
   // be violated. In such cases we should actually swap and transpose A and B.
 
@@ -1501,7 +1502,7 @@ class MatmulPatternMatcher : IterVisitor {
           rop->out()->as<TensorView>()->getMaybeRootDomain());
       NVF_ERROR(red_root.size() == lrf.size());
       // Find innermost M or N dimension in output
-      // We will assume for now that the output rfactor domain matches the
+      // We will assume for now that the output logical domain matches the
       // fusion output's allocation domain; in particular that the innermost
       // dimension is an N dimension. This allows us to determine which of lhs
       // and rhs is A and B.
@@ -1598,7 +1599,7 @@ MmaOp* MatmulPattern::translateToMmaOp() {
     //
     // We translate by broadcasting input, weight, and bias such that the
     // contracted dimension K is in the last position (this is true of the
-    // rfactor domains in input and weight already). Then we form an MmaOp and
+    // logical domains in input and weight already). Then we form an MmaOp and
     // optionally add the bias tensor followed by a cast back to the input
     // dtype.
     NVF_ERROR(
@@ -1722,24 +1723,24 @@ std::unordered_map<ValGroup, MatmulDomain> MatmulPattern::getDimRoles(
   // we should raise an exception here.
 
   if (output->definition()->isA<MatmulOp>()) {
-    const std::vector<IterDomain*>& out_logical = output->getRFactorDomain();
+    const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
     return matmulOrLinearOpDimRoles(
         exact_graph,
         out_logical,
         ops::mapMatmulOpIterDomains(
-            A->getRFactorDomain(), MatmulRole::INPUT_A, out_logical.size()),
+            A->getLogicalDomain(), MatmulRole::INPUT_A, out_logical.size()),
         ops::mapMatmulOpIterDomains(
-            B->getRFactorDomain(), MatmulRole::INPUT_B, out_logical.size()));
+            B->getLogicalDomain(), MatmulRole::INPUT_B, out_logical.size()));
 
   } else if (output->definition()->isA<LinearOp>()) {
-    const std::vector<IterDomain*>& out_logical = output->getRFactorDomain();
+    const std::vector<IterDomain*>& out_logical = output->getLogicalDomain();
     return matmulOrLinearOpDimRoles(
         exact_graph,
         out_logical,
         ops::mapLinearOpIterDomains(
-            A->getRFactorDomain(), MatmulRole::INPUT_A, out_logical.size()),
+            A->getLogicalDomain(), MatmulRole::INPUT_A, out_logical.size()),
         ops::mapLinearOpIterDomains(
-            B->getRFactorDomain(), MatmulRole::INPUT_B, out_logical.size()));
+            B->getLogicalDomain(), MatmulRole::INPUT_B, out_logical.size()));
   }
 
   // The code below handles MmaOp or mul-sum patterns

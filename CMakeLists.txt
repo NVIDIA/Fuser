@@ -77,6 +77,7 @@ endif()
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
+  ${NVFUSER_SRCS_DIR}/abstract_tensor.cpp
   ${NVFUSER_SRCS_DIR}/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/codegen.cpp
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
@@ -135,6 +136,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
   ${NVFUSER_SRCS_DIR}/id_model/loop_promotion.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/schedule.cpp
   ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
   ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
@@ -486,6 +488,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_double_buffering.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_evaluator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
