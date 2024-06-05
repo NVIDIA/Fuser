@@ -81,15 +81,6 @@ class VectorOfUniqueEntries {
     return false;
   }
 
-  // Returns if a node was actually added
-  bool pushFront(T entry) {
-    if (set_.emplace(entry).second) {
-      vector_.insert(vector_.begin(), entry);
-      return true;
-    }
-    return false;
-  }
-
   // Returns true if any node was added
   bool pushBack(const VectorOfUniqueEntries<T, Hash>& other) {
     return pushBack(other.vector());
@@ -176,14 +167,6 @@ class VectorOfUniqueEntries {
     T v = vector_.back();
     set_.erase(v);
     vector_.pop_back();
-    return v;
-  }
-
-  // Remove and returns the last element in vector
-  T popFront() {
-    T v = vector_.front();
-    set_.erase(v);
-    vector_.erase(vector_.begin());
     return v;
   }
 
@@ -411,9 +394,7 @@ class DisjointSets {
         entry_it != disjointSetMap().end(),
         "Strict mapping failed on element: ",
         abstractToString(entry0),
-        " either an error occurred, or non strict mapping should have been used.",
-        " ",
-        entry0->name());
+        " either an error occurred, or non strict mapping should have been used.");
     return entry_it->second->has(entry1);
   }
 

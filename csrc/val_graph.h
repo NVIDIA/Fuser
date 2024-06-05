@@ -146,11 +146,6 @@ class ValGraph {
 
   bool hasUses(const ValGroup& val_group) const;
 
-  // Return sorted expressions to go from the provided IterDomains in from to
-  // the provided IterDomains in to with provided mode. Minimal expressions to
-  // get from 'from' to 'to' returned.
-  ExprGroups getExprsBetween(const ValGroups& from, const ValGroups& to) const;
-
   // Uses the Valgraph to produce mappings between from and to.
   // Supports one to many mappings. If a single Val in from maps to
   // multiple Vals in to, the order of the Vals in value of
