@@ -326,16 +326,22 @@ TEST_F(AbstractTensorTest, SplitValGroup) {
   g.initializeVal(id1);
   g.initializeVal(id2);
   ValGroupAndItsGraph g0{g.toGroup(id0), &g};
-  ValGroupAndItsGraph g1{g.toGroup(id1), &g};
   ValGroupAndItsGraph g2{g.toGroup(id2), &g};
-  AbstractTensor v1({g0, g1, g2});
-  AbstractTensor v2 = v1;
+  AbstractTensor v1({g0, ValGroupAndItsGraph{g.toGroup(id1), &g}, g2});
   v1.split(1, 5);
   // [0, 1/5, 5, 2]
+  AbstractTensor v2({g0, ValGroupAndItsGraph{g.toGroup(id1), &g}, g2});
   v2.split(1, 6);
   // [0, 1/6, 6, 2]
-  EXPECT_EQ(g.disjointValSets().size(), 6);
+  EXPECT_EQ(g.disjointValSets().size(), 7);
   EXPECT_EQ(g.disjointExprSets().size(), 2);
+
+  EXPECT_NE(v1[1], v2[1]);
+  EXPECT_NE(v1[2], v2[2]);
+  EXPECT_EQ(v1[0], v2[0]);
+  EXPECT_EQ(v1[0], g0);
+  EXPECT_EQ(v1[3], v2[3]);
+  EXPECT_EQ(v1[3], g2);
 
   for (auto v : {v1, v2}) {
     auto result = v.as<ValGroupAndItsGraph>();
@@ -365,39 +371,25 @@ TEST_F(AbstractTensorTest, SplitValGroup) {
     EXPECT_EQ(uses.size(), 2);
     EXPECT_TRUE(uses.has(eg56));
   }
-  EXPECT_NE(v1[1], v2[1]);
-  EXPECT_NE(v1[2], v2[2]);
 
   // Test reusing of existing split
-  ValGroupAndItsGraph g1_{g.toGroup(id1), &g};
+  ValGroupAndItsGraph g1{g.toGroup(id1), &g};
 
-  AbstractTensor vv1({g1_});
+  AbstractTensor vv1({g1});
   vv1.split(0, 5);
-  EXPECT_EQ(g.disjointValSets().size(), 6);
+  EXPECT_EQ(g.disjointValSets().size(), 7);
   EXPECT_EQ(g.disjointExprSets().size(), 2);
   ASSERT_EQ(vv1.size(), 2);
-  EXPECT_EQ(vv1[0].as<ValGroupAndItsGraph>().graph, &g);
-  EXPECT_EQ(
-      vv1[0].as<ValGroupAndItsGraph>().group,
-      v1[1].as<ValGroupAndItsGraph>().group);
-  EXPECT_EQ(vv1[1].as<ValGroupAndItsGraph>().graph, &g);
-  EXPECT_EQ(
-      vv1[1].as<ValGroupAndItsGraph>().group,
-      v1[2].as<ValGroupAndItsGraph>().group);
+  EXPECT_EQ(vv1[0], v1[1]);
+  EXPECT_EQ(vv1[1], v1[2]);
 
-  AbstractTensor vv2({g1_});
+  AbstractTensor vv2({g1});
   vv2.split(0, 6);
-  EXPECT_EQ(g.disjointValSets().size(), 6);
+  EXPECT_EQ(g.disjointValSets().size(), 7);
   EXPECT_EQ(g.disjointExprSets().size(), 2);
   ASSERT_EQ(vv2.size(), 2);
-  EXPECT_EQ(vv2[0].as<ValGroupAndItsGraph>().graph, &g);
-  EXPECT_EQ(
-      vv2[0].as<ValGroupAndItsGraph>().group,
-      v2[1].as<ValGroupAndItsGraph>().group);
-  EXPECT_EQ(vv2[1].as<ValGroupAndItsGraph>().graph, &g);
-  EXPECT_EQ(
-      vv2[1].as<ValGroupAndItsGraph>().group,
-      v2[2].as<ValGroupAndItsGraph>().group);
+  EXPECT_EQ(vv2[0], v2[1]);
+  EXPECT_EQ(vv2[1], v2[2]);
 }
 
 } // namespace nvfuser

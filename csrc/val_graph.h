@@ -10,6 +10,7 @@
 #include <disjoint_set.h>
 #include <ir/all_nodes.h>
 
+#include <iostream>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -352,7 +353,17 @@ class ValGraph {
 struct ValGroupAndItsGraph {
   ValGroup group;
   ValGraph* graph;
+  bool operator==(const ValGroupAndItsGraph& other) const {
+    return group == other.group && graph == other.graph;
+  }
+  bool operator!=(const ValGroupAndItsGraph& other) const {
+    return !operator==(other);
+  }
 };
+
+inline std::ostream& operator<<(std::ostream&os, const ValGroupAndItsGraph& g) {
+  return os << g.group;
+}
 
 // Returns the first pair of id's in ids detected to match each other on the
 // given ID graph. TODO: what this is really looking for is if
