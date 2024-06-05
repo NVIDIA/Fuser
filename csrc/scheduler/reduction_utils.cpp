@@ -323,44 +323,6 @@ std::vector<int64_t> addBackBroadcasts(
   return axes;
 }
 
-// Check if a reduction is effectively an allreduce.
-bool isGridAllreduce(TensorView* reduction_tv) {
-  // Only Local tensor is converted to allreduce
-  if (reduction_tv->getMemoryType() != MemoryType::Local) {
-    return false;
-  }
-
-  // Collect all reduction parallel types
-  ParallelTypeBitmap reduction_parallel_types;
-  std::for_each(
-      reduction_tv->getLeafDomain().begin(),
-      reduction_tv->getLeafDomain().end(),
-      [&](auto id) {
-        if (id->isReduction() &&
-            isParallelTypeBlockDim(id->getParallelType())) {
-          reduction_parallel_types.set(id->getParallelType());
-        }
-      });
-
-  // If any of the reduction parallel types is used to parallelize
-  // the broadcast, it will be converted to an allreduce reduction expr
-  for (auto bcast_expr :
-       ir_utils::filterByType<BroadcastOp>(reduction_tv->uses())) {
-    auto bcast_tv = bcast_expr->out()->as<TensorView>();
-    if (std::any_of(
-            bcast_tv->getLeafDomain().begin(),
-            bcast_tv->getLeafDomain().end(),
-            [&](auto bcast_id) {
-              auto pt = bcast_id->getParallelType();
-              return isParallelTypeBlockDim(pt) &&
-                  reduction_parallel_types.get(pt);
-            })) {
-      return true;
-    }
-  }
-  return false;
-}
-
 void multiReductionInliner(
     Fusion* fusion,
     TensorView* reduction_tv,
@@ -548,20 +510,16 @@ void propagateParallelization(
         }
       }
     }
-
-    std::vector<TensorView*> allreduce_tvs;
-    std::copy_if(
-        reduction_tvs.begin(),
-        reduction_tvs.end(),
-        std::back_inserter(allreduce_tvs),
-        [&](auto tv) {
-          return reduction_tv != tv &&
-              (reduction_scheduler_utils::isGridAllreduce(tv) ||
-               use_grouped_reduction);
-        });
-    if (!allreduce_tvs.empty()) {
+    // Propagate group to other reduction tvs
+    if (use_grouped_reduction && reduction_tvs.size() > 1) {
+      std::vector<TensorView*> other_reduction_tvs;
+      std::copy_if(
+          reduction_tvs.begin(),
+          reduction_tvs.end(),
+          std::back_inserter(other_reduction_tvs),
+          [&](auto tv) { return reduction_tv != tv; });
       scheduler_utils::parallelizeAllLike(
-          reduction_tv, -1, allreduce_tvs, {ParallelType::Group});
+          reduction_tv, -1, other_reduction_tvs, {ParallelType::Group});
     }
   }
 }
