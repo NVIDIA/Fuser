@@ -34,13 +34,20 @@ class AbstractTensorTest : public NVFuserTest {
   }
 };
 
+TEST_F(AbstractTensorTest, UseAbstractIdAsIdPtr) {
+  auto id0 = newID();
+  AbstractTensor v({id0});
+  v[0]->parallelize(ParallelType::TIDx);
+  EXPECT_EQ(id0->getParallelType(), ParallelType::TIDx);
+}
+
 TEST_F(AbstractTensorTest, MergeSingleIterDomains) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
   auto id3 = newID();
   auto id4 = newID();
-  AbstractTensor v{{id0, id1, id2, id3, id4}};
+  AbstractTensor v({id0, id1, id2, id3, id4});
   v.merge(2);
   // [0, 1, 2*3, 4]
   v.merge(0, 3);
@@ -70,9 +77,7 @@ TEST_F(AbstractTensorTest, MergeIterDomainsLeftBroadcasting) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
-  // TODO: I need to update DynamicType so that I can just write:
-  //   AbstractTensor v{{id0, {id1, id2}}};
-  AbstractTensor v{{id0, std::vector<AbstractId>({id1, id2})}};
+  AbstractTensor v({id0, {id1, id2}});
   v.merge(0);
   // [{0*1, 0*2}]
   auto result = v.as<std::vector<IterDomain*>>();
@@ -96,7 +101,7 @@ TEST_F(AbstractTensorTest, MergeIterDomainsRightBroadcasting) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
-  AbstractTensor v{{std::vector<AbstractId>({id0, id1}), id2}};
+  AbstractTensor v({{id0, id1}, id2});
   v.merge(0);
   // [{0*2, 1*2}]
   auto result = v.as<std::vector<IterDomain*>>();
@@ -121,9 +126,7 @@ TEST_F(AbstractTensorTest, MergeIterDomainsBatch) {
   auto id1 = newID();
   auto id2 = newID();
   auto id3 = newID();
-  AbstractTensor v{
-      {std::vector<AbstractId>({id0, id1}),
-       std::vector<AbstractId>({id2, id3})}};
+  AbstractTensor v({{id0, id1}, {id2, id3}});
   v.merge(0);
   // [{0*2, 1*3}]
   auto result = v.as<std::vector<IterDomain*>>();
@@ -151,7 +154,7 @@ TEST_F(AbstractTensorTest, MergeValGroups) {
   g.initializeVal(id1);
   ValGroupAndItsGraph g0{g.toGroup(id0), &g};
   ValGroupAndItsGraph g1{g.toGroup(id1), &g};
-  AbstractTensor v{{g0, g1}};
+  AbstractTensor v({g0, g1});
   v.merge(0);
   // [0*1]
   EXPECT_EQ(g.disjointValSets().size(), 3);
@@ -178,7 +181,7 @@ TEST_F(AbstractTensorTest, MergeValGroups) {
   // Test reusing of existing merge
   ValGroupAndItsGraph g0_{g.toGroup(id0), &g};
   ValGroupAndItsGraph g1_{g.toGroup(id1), &g};
-  AbstractTensor vv{{g0_, g1_}};
+  AbstractTensor vv({g0_, g1_});
   vv.merge(0);
   EXPECT_EQ(g.disjointValSets().size(), 3);
   EXPECT_EQ(g.disjointExprSets().size(), 1);
@@ -195,7 +198,7 @@ TEST_F(AbstractTensorTest, MergeIterDomainWithValGroup) {
   g.initializeVal(id0);
   g.initializeVal(id1);
   ValGroupAndItsGraph g1{g.toGroup(id1), &g};
-  AbstractTensor v{{id0, g1}};
+  AbstractTensor v({id0, g1});
   v.merge(0);
   // [0*1]
   EXPECT_EQ(g.disjointValSets().size(), 3);
@@ -227,7 +230,7 @@ TEST_F(AbstractTensorTest, MergeValGroupWithIterDomain) {
   g.initializeVal(id0);
   g.initializeVal(id1);
   ValGroupAndItsGraph g0{g.toGroup(id0), &g};
-  AbstractTensor v{{g0, id1}};
+  AbstractTensor v({g0, id1});
   v.merge(0);
   // [0*1]
   EXPECT_EQ(g.disjointValSets().size(), 3);
@@ -250,6 +253,150 @@ TEST_F(AbstractTensorTest, MergeValGroupWithIterDomain) {
   EXPECT_EQ(uses1.size(), 1);
   EXPECT_EQ(uses0.vector(), uses1.vector());
   EXPECT_EQ(uses0.front(), eg01);
+}
+
+TEST_F(AbstractTensorTest, SplitSingleIterDomain) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  AbstractTensor v({id0, id1, id2});
+  v.split(1, 5);
+  // [0, 1/5, 5, 2]
+  v.split(1, 6);
+  // [0, 1/5/6, 6, 5, 2]
+  auto result = v.as<IterDomain*>();
+  ASSERT_EQ(result.size(), 5);
+  EXPECT_EQ(result[0], id0);
+  EXPECT_EQ(result[4], id2);
+  auto id156 = result[1];
+  auto id6 = result[2];
+  auto id5 = result[3];
+  auto split6 = dynamic_cast<Split*>(id6->definition());
+  ASSERT_NE(split6, nullptr);
+  EXPECT_EQ(id156->definition(), split6);
+  EXPECT_EQ(id156, split6->outer());
+  EXPECT_EQ(id6, split6->inner());
+  auto id15 = split6->in();
+  auto split5 = dynamic_cast<Split*>(id5->definition());
+  ASSERT_NE(split5, nullptr);
+  EXPECT_EQ(id15->definition(), split5);
+  EXPECT_EQ(id15, split5->outer());
+  EXPECT_EQ(id5, split5->inner());
+  EXPECT_EQ(id1, split5->in());
+}
+
+TEST_F(AbstractTensorTest, SplitIterDomainBatch) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  AbstractTensor v({id0, {id1, id2}, id3});
+  v.split(1, 5);
+  // [0, {1/5,2/5}, {5, 5}, 3]
+  v.split(1, 6);
+  // [0, {1/5/6,2/5/6}, {6, 6}, {5, 5}, 3]
+  ASSERT_EQ(v.size(), 5);
+  EXPECT_EQ(v[0], id0);
+  EXPECT_EQ(v[4], id3);
+  auto ids1256 = v[1];
+  auto ids6 = v[2];
+  auto ids5 = v[3];
+  ASSERT_EQ(ids1256.as<std::vector>().size(), 2);
+  ASSERT_EQ(ids6.as<std::vector>().size(), 2);
+  ASSERT_EQ(ids5.as<std::vector>().size(), 2);
+  IterDomain* ids12[2]{id1, id2};
+  for (auto i : {0, 1}) {
+    auto id6 = ids6[i].as<IterDomain*>();
+    auto id5 = ids5[i].as<IterDomain*>();
+    auto id1256 = ids1256[i].as<IterDomain*>();
+    auto split6 = dynamic_cast<Split*>(id6->definition());
+    ASSERT_NE(split6, nullptr);
+    EXPECT_EQ(id1256->definition(), split6);
+    EXPECT_EQ(id1256, split6->outer());
+    EXPECT_EQ(id6, split6->inner());
+    auto id125 = split6->in();
+    auto split5 = dynamic_cast<Split*>(id5->definition());
+    ASSERT_NE(split5, nullptr);
+    EXPECT_EQ(id125->definition(), split5);
+    EXPECT_EQ(id125, split5->outer());
+    EXPECT_EQ(id5, split5->inner());
+    EXPECT_EQ(ids12[i], split5->in());
+  }
+}
+
+TEST_F(AbstractTensorTest, SplitValGroup) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  ValGraph g;
+  g.initializeVal(id0);
+  g.initializeVal(id1);
+  g.initializeVal(id2);
+  ValGroupAndItsGraph g0{g.toGroup(id0), &g};
+  ValGroupAndItsGraph g2{g.toGroup(id2), &g};
+  AbstractTensor v1({g0, ValGroupAndItsGraph{g.toGroup(id1), &g}, g2});
+  v1.split(1, 5);
+  // [0, 1/5, 5, 2]
+  AbstractTensor v2({g0, ValGroupAndItsGraph{g.toGroup(id1), &g}, g2});
+  v2.split(1, 6);
+  // [0, 1/6, 6, 2]
+  EXPECT_EQ(g.disjointValSets().size(), 7);
+  EXPECT_EQ(g.disjointExprSets().size(), 2);
+
+  EXPECT_NE(v1[1], v2[1]);
+  EXPECT_NE(v1[2], v2[2]);
+  EXPECT_EQ(v1[0], v2[0]);
+  EXPECT_EQ(v1[0], g0);
+  EXPECT_EQ(v1[3], v2[3]);
+  EXPECT_EQ(v1[3], g2);
+
+  for (auto v : {v1, v2}) {
+    auto result = v.as<ValGroupAndItsGraph>();
+    ASSERT_EQ(result.size(), 4);
+    EXPECT_EQ(result[0].graph, &g);
+    EXPECT_EQ(result[1].graph, &g);
+    EXPECT_EQ(result[2].graph, &g);
+    EXPECT_EQ(result[3].graph, &g);
+    EXPECT_EQ(result[0].group, g.toGroup(id0));
+    EXPECT_EQ(result[3].group, g.toGroup(id2));
+    auto g156 = result[1].group;
+    auto g56 = result[2].group;
+    EXPECT_NE(g156, g.toGroup(id0));
+    EXPECT_NE(g156, g.toGroup(id1));
+    EXPECT_NE(g156, g.toGroup(id2));
+    EXPECT_NE(g56, g.toGroup(id0));
+    EXPECT_NE(g56, g.toGroup(id1));
+    EXPECT_NE(g56, g.toGroup(id2));
+    EXPECT_NE(g56, g156);
+    auto defs = g.getDefinitions(g156);
+    ASSERT_EQ(defs.size(), 1);
+    auto eg56 = defs.front();
+    auto expect56 = std::vector<ValGroup>{g156, g56};
+    EXPECT_EQ(g.outputGroups(eg56), expect56);
+    EXPECT_EQ(g.inputGroups(eg56), std::vector<ValGroup>{g.toGroup(id1)});
+    auto uses = g.getUses(g.toGroup(id1));
+    EXPECT_EQ(uses.size(), 2);
+    EXPECT_TRUE(uses.has(eg56));
+  }
+
+  // Test reusing of existing split
+  ValGroupAndItsGraph g1{g.toGroup(id1), &g};
+
+  AbstractTensor vv1({g1});
+  vv1.split(0, 5);
+  EXPECT_EQ(g.disjointValSets().size(), 7);
+  EXPECT_EQ(g.disjointExprSets().size(), 2);
+  ASSERT_EQ(vv1.size(), 2);
+  EXPECT_EQ(vv1[0], v1[1]);
+  EXPECT_EQ(vv1[1], v1[2]);
+
+  AbstractTensor vv2({g1});
+  vv2.split(0, 6);
+  EXPECT_EQ(g.disjointValSets().size(), 7);
+  EXPECT_EQ(g.disjointExprSets().size(), 2);
+  ASSERT_EQ(vv2.size(), 2);
+  EXPECT_EQ(vv2[0], v2[1]);
+  EXPECT_EQ(vv2[1], v2[2]);
 }
 
 } // namespace nvfuser

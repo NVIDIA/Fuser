@@ -260,7 +260,7 @@ class NVF_API Val : public Statement {
       : Statement(src, ir_cloner),
         vtype_(src->vtype_),
         dtype_(src->dtype_),
-        value_(src->value_){};
+        value_(src->value_) {}
 
   std::string toString(int indent_size = 0) const override;
 
@@ -682,7 +682,7 @@ bool Val::isDefinitionType() const {
       std::vector<Val*> inputs,                            \
       std::vector<Val*> outputs,                           \
       std::vector<Statement*> attributes) {                \
-    return IrBuilder::create<ClassName>(                   \
+    return IrBuilder::createInContainer<ClassName>(        \
         container, inputs, outputs, attributes);           \
   }
 

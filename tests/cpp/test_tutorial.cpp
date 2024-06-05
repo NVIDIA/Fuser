@@ -461,8 +461,8 @@ TEST_F(Tutorial, Reshape) {
     fusion.addOutput(tv1);
 
     if (verbose_) {
-      // Notice that tv1 has root and rfactor domains. The root domain
-      // should consist of two IterDomains, whreas the rfactor domain
+      // Notice that tv1 has root and logical domains. The root domain
+      // should consist of two IterDomains, whreas the logical domain
       // consists of a single IterDomain that is an output of a merge
       // operation of the two root IterDomains
       fusion.print();
@@ -470,9 +470,9 @@ TEST_F(Tutorial, Reshape) {
 
     // Check if the tv1 domains are generated as expected
     ASSERT_TRUE(tv1->hasRoot());
-    ASSERT_EQ(tv1->getRFactorDomain().size(), 1);
-    ASSERT_TRUE(tv1->getRFactorDomain().at(0)->definition()->isA<Merge>());
-    Merge* tv1_merge = tv1->getRFactorDomain().at(0)->definition()->as<Merge>();
+    ASSERT_EQ(tv1->getLogicalDomain().size(), 1);
+    ASSERT_TRUE(tv1->getLogicalDomain().at(0)->definition()->isA<Merge>());
+    Merge* tv1_merge = tv1->getLogicalDomain().at(0)->definition()->as<Merge>();
     ASSERT_EQ(tv1_merge->inner(), tv1->getRootDomain().at(1));
     ASSERT_EQ(tv1_merge->outer(), tv1->getRootDomain().at(0));
   }
@@ -505,17 +505,17 @@ TEST_F(Tutorial, Reshape) {
     ASSERT_TRUE(squeeze_output->definition()->isA<SqueezeOp>());
 
     ASSERT_TRUE(reshape_output->hasRoot());
-    ASSERT_EQ(reshape_output->getRFactorDomain().size(), 2);
+    ASSERT_EQ(reshape_output->getLogicalDomain().size(), 2);
     ASSERT_TRUE(
-        reshape_output->getRFactorDomain().at(0)->definition()->isA<Split>());
+        reshape_output->getLogicalDomain().at(0)->definition()->isA<Split>());
     auto reshape_output_split =
-        reshape_output->getRFactorDomain().at(0)->definition()->as<Split>();
+        reshape_output->getLogicalDomain().at(0)->definition()->as<Split>();
     ASSERT_EQ(
         reshape_output_split->outer(),
-        reshape_output->getRFactorDomain().at(0));
+        reshape_output->getLogicalDomain().at(0));
     ASSERT_EQ(
         reshape_output_split->inner(),
-        reshape_output->getRFactorDomain().at(1));
+        reshape_output->getLogicalDomain().at(1));
     ASSERT_TRUE(reshape_output_split->in()->definition()->isA<Merge>());
     auto reshape_output_merge =
         reshape_output_split->in()->definition()->as<Merge>();
@@ -554,7 +554,7 @@ TEST_F(Tutorial, Reshape) {
             ->definition()
             ->as<Merge>()
             ->outer(),
-        reshape_output->getRFactorDomain().at(0));
+        reshape_output->getLogicalDomain().at(0));
     ASSERT_EQ(
         reshape_output->getLeafDomain()
             .at(0)
@@ -564,7 +564,7 @@ TEST_F(Tutorial, Reshape) {
             ->definition()
             ->as<Merge>()
             ->inner(),
-        reshape_output->getRFactorDomain().at(1));
+        reshape_output->getLogicalDomain().at(1));
 
     // Here's how we propagate the transformations of reshape_output
     // to all other tensors in the fusion
@@ -620,10 +620,10 @@ TEST_F(Tutorial, Reshape) {
         squeeze_output_first_split->in()->definition()->as<Merge>();
     ASSERT_EQ(
         squeeze_output_first_merge->outer(),
-        squeeze_output->getRFactorDomain().at(0));
+        squeeze_output->getLogicalDomain().at(0));
     ASSERT_EQ(
         squeeze_output_first_merge->inner(),
-        squeeze_output->getRFactorDomain().at(1));
+        squeeze_output->getLogicalDomain().at(1));
 
     // Note that all the transformations of squeeze_output are scheduling
     // transformations, thus it should not have a root domain
@@ -657,9 +657,9 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // As mentioned above, we don't know any relationship between tv0
   // and tv1, so they should not be mapped.
-  for (const auto i : c10::irange(tv0->getRFactorDomain().size())) {
+  for (const auto i : c10::irange(tv0->getLogicalDomain().size())) {
     ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
-        tv0->getRFactorDomain().at(i), tv1->getRFactorDomain().at(i)));
+        tv0->getLogicalDomain().at(i), tv1->getLogicalDomain().at(i)));
   }
 
   // Thus, the outputs of the reshape ops are not mapped either
@@ -670,9 +670,9 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // Now, suppose we can say the inputs are exactly mapped. We
   // can manually add mappings:
-  for (const auto i : c10::irange(tv0->getRFactorDomain().size())) {
+  for (const auto i : c10::irange(tv0->getLogicalDomain().size())) {
     exact_graph.mapVals(
-        tv0->getRFactorDomain().at(i), tv1->getRFactorDomain().at(i));
+        tv0->getLogicalDomain().at(i), tv1->getLogicalDomain().at(i));
   }
 
   // Now, tv2 and tv3 should be fully mapped, including their root,
@@ -754,7 +754,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain, which is already
+    // By default, the allocation domain is the logical domain, which is already
     // in good shape for this case.
 
     // Step 5: schedule the consumer tensor
@@ -833,7 +833,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain, which is already
+    // By default, the allocation domain is the logical domain, which is already
     // in good shape for this case.
 
     // Step 5: schedule the consumer tensor
@@ -917,7 +917,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain, which is already
+    // By default, the allocation domain is the logical domain, which is already
     // in good shape for this case.
 
     // Step 5: schedule the consumer tensor
@@ -997,7 +997,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain, which is already
+    // By default, the allocation domain is the logical domain, which is already
     // in good shape for this case.
 
     // Step 5: schedule the consumer tensor
@@ -1082,7 +1082,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain. The default
+    // By default, the allocation domain is the logical domain. The default
     // value does not work for this case, because this way, tile will not be
     // contiguous in shared memory.
     // [I0, I1/32, 32, I2/32', 32']
@@ -1185,7 +1185,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain. The default
+    // By default, the allocation domain is the logical domain. The default
     // value does not work for this case, because this way, tile will not be
     // contiguous in shared memory.
     // [I0, I1, I2]

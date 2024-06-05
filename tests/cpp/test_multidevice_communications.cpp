@@ -62,7 +62,7 @@ void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
 }
 
 TEST_P(CommunicationTest, Gather) {
-  auto communication = IrBuilder::create<Communication>(
+  auto communication = IrBuilder::createInContainer<Communication>(
       &container, CommunicationType::Gather, full_mesh_, all_ranks_, kRoot);
 
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
@@ -90,7 +90,7 @@ TEST_P(CommunicationTest, Gather) {
 }
 
 TEST_P(CommunicationTest, Allgather) {
-  auto communication = IrBuilder::create<Communication>(
+  auto communication = IrBuilder::createInContainer<Communication>(
       &container, CommunicationType::Allgather, full_mesh_, all_ranks_);
 
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
@@ -117,7 +117,7 @@ TEST_P(CommunicationTest, Allgather) {
 }
 
 TEST_P(CommunicationTest, Scatter) {
-  auto communication = IrBuilder::create<Communication>(
+  auto communication = IrBuilder::createInContainer<Communication>(
       &container, CommunicationType::Scatter, full_mesh_, all_ranks_, kRoot);
 
   at::Tensor input_tensor;
@@ -150,7 +150,7 @@ TEST_P(CommunicationTest, Scatter) {
 }
 
 TEST_P(CommunicationTest, Broadcast) {
-  auto communication = IrBuilder::create<Communication>(
+  auto communication = IrBuilder::createInContainer<Communication>(
       &container, CommunicationType::Broadcast, full_mesh_, all_ranks_, kRoot);
 
   at::Tensor input_tensor;
@@ -193,7 +193,7 @@ TEST_P(CommunicationTest, SendRecv) {
     return;
   }
 
-  auto communication = IrBuilder::create<Communication>(
+  auto* communication = IrBuilder::createInContainer<Communication>(
       &container,
       CommunicationType::SendRecv,
       DeviceMesh({receiver}),
@@ -236,7 +236,7 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
     return;
   }
 
-  auto communication = IrBuilder::create<Communication>(
+  auto* communication = IrBuilder::createInContainer<Communication>(
       &container,
       CommunicationType::SendRecv,
       DeviceMesh({sender}),
@@ -262,7 +262,7 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
 }
 
 TEST_P(CommunicationTest, Reduce) {
-  auto communication = IrBuilder::create<Communication>(
+  auto* communication = IrBuilder::createInContainer<Communication>(
       &container,
       CommunicationType::Reduce,
       full_mesh_,
@@ -296,7 +296,7 @@ TEST_P(CommunicationTest, Reduce) {
 }
 
 TEST_P(CommunicationTest, Allreduce) {
-  auto communication = IrBuilder::create<Communication>(
+  auto* communication = IrBuilder::createInContainer<Communication>(
       &container,
       CommunicationType::Allreduce,
       full_mesh_,
@@ -327,7 +327,7 @@ TEST_P(CommunicationTest, Allreduce) {
 }
 
 TEST_P(CommunicationTest, ReduceScatter) {
-  auto communication = IrBuilder::create<Communication>(
+  auto* communication = IrBuilder::createInContainer<Communication>(
       &container,
       CommunicationType::ReduceScatter,
       full_mesh_,

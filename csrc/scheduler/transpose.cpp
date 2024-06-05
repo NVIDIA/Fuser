@@ -642,11 +642,11 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     DomainMap& domain_map) {
-  auto ref_root = reference->getRFactorDomain();
+  auto ref_logical = reference->getLogicalDomain();
   std::vector<int64_t> shape_in_ref;
   shape_in_ref.reserve(reference->nDims());
   int64_t n_elems = 1;
-  for (auto id : ref_root) {
+  for (auto id : ref_logical) {
     auto concrete_id = domain_map.getComputeAtMap().getConcreteMappedID(
         id, IdMappingMode::EXACT);
     auto inferred_val =
@@ -974,7 +974,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // and merged i2/2 & 2.
   //
   // TODO: We use ContiguousInnerDimensionsMapper to compute the size of virtual
-  // innermost dimension. The analysis right now is limited on rfactor domain
+  // innermost dimension. The analysis right now is limited on logical domain
   // only, so we can't actually map the `split` iter domains, which limits the
   // vectorization width we can apply. We need to fix that.
   // TODO 2: Small transpose dimensions transformation should also consider the
