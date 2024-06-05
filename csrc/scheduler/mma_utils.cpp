@@ -1793,6 +1793,11 @@ std::vector<ValGroup> canonicalDimOrdering(
   }
   NVF_ERROR(other_dims.empty(), "Found unrecognized dims in matmul tensors");
 
+  // See https://github.com/NVIDIA/Fuser/pull/2303#discussion_r1626587836
+  NVF_ERROR(
+      n_inside_m,
+      "Currently N must be the innermost dimension. This constraint will be lifted in the future");
+
   // Insert the reverse-ordered groups in order
   std::vector<ValGroup> ordering;
   ordering.reserve(
