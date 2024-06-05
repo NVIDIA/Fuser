@@ -1219,7 +1219,11 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   reference1->reorder({{inner_most_pos2_in_ref1 + 1, -1}});
   // [..., I1/tile1, .., I2/tile2, ..., tile1, tile2]
 
-  // Merge remaining dimensions ignoring reduction axes.
+  // Merge remaining dimensions ignoring reduction axes (See Issue #2317)
+  // The reduction axes cannot be at any position.
+  // For example: [i0, r1, i1, r2, i2] after tiling is [i0, r1, i1/tile1, r2,
+  // i2/tile2, tile1, tile2] The following code merges all the outer iterdomains
+  // as: [i0 * i1/tile1 * i2/tile2, r1, r2, tile1, tile2]
   int64_t rhs_i = reference1->nDims() - 3;
   for (int64_t lhs_i = reference1->nDims() - 4; lhs_i >= 0; lhs_i--) {
     if (reference1->axis(lhs_i)->isReduction()) {

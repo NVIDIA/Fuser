@@ -4026,7 +4026,7 @@ class TestNvFuserFrontend(TestCase):
                 torch.randn((16, 128, 1600), dtype=torch.bfloat16, device="cuda:0"),
                 torch.randn((1600, 1600), dtype=torch.bfloat16, device="cuda:0"),
             ]
-  
+
         def fusion_func(fd: FusionDefinition, inputs) -> None:
             T0 = fd.from_pytorch(inputs[0])
             T1 = fd.from_pytorch(inputs[1])
