@@ -359,6 +359,10 @@ class VectorizationCalculator {
   }
 
   int64_t ptrAndDTypeVec(TensorView* tv) const {
+    // TODO: ptrOf returns a fully aligned value of 16 for non-inputs. However,
+    // we might be provided an output tensor. We should verify once preallocated
+    // outputs are fully plumbed in that misaligned pointers are respected in
+    // this calculation.
     const int64_t data_ptr_int = (int64_t)runtime_info_.ptrOf(tv);
     int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
     vec_size = std::min(vec_size, 16l);
