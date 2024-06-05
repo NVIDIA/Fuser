@@ -399,4 +399,28 @@ TEST_F(AbstractTensorTest, SplitValGroup) {
   EXPECT_EQ(vv2[1], v2[2]);
 }
 
+TEST_F(AbstractTensorTest, Reorder) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  using IDs = std::vector<AbstractId>;
+  AbstractTensor v({id0, id1, id2, id3});
+  v.reorder({{0, 1}});
+  IDs expect0 = {id1, id0, id2, id3};
+  EXPECT_EQ(v, expect0);
+  v.reorder({{-1, 1}});
+  IDs expect1 = {id1, id3, id0, id2};
+  EXPECT_EQ(v, expect1);
+  v.reorder({2, 3, 0, 1});
+  IDs expect2 = {id0, id2, id1, id3};
+  EXPECT_EQ(v, expect2);
+  v.reorder({{1, 2}});
+  IDs expect3 = {id0, id1, id2, id3};
+  EXPECT_EQ(v, expect3);
+  v.reorder({{0, 1}, {1, 2}});
+  IDs expect4 = {id2, id0, id1, id3};
+  EXPECT_EQ(v, expect4);
+}
+
 } // namespace nvfuser
