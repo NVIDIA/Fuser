@@ -49,6 +49,9 @@ class TensorIndexer {
   // separate interface.
   Val* getLinearIndex(TensorView* tv, const Expr* expr);
 
+  // Get the index of a loop domain. Intended to be used only for testing.
+  Val* getLoopIndex(IterDomain* loop_id) const;
+
  private:
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
@@ -59,9 +62,6 @@ class TensorIndexer {
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
   void buildLoopIndexMap();
-
-  // Get the index of a loop domain.
-  Val* getLoopIndex(IterDomain* loop_id) const;
 
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
@@ -81,11 +81,6 @@ class TensorIndexer {
   IndexingInfo computeIndex(
       const Expr* expr,
       const std::vector<IterDomain*>& index_domains) const;
-
-  // Check if the loop index of a a loop group should be always
-  // just zero. For example, a loop group with an extent of one, i.e.,
-  // a broadcast-only loop group, should just use zero.
-  bool shouldUseZeroIndex(const ValGroup& loop_group) const;
 
  private:
   const IdModel& id_model_;

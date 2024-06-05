@@ -76,7 +76,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
                   SimplifyingIrBuilder::mulExpr(
                       tv1_loop_indices.at(0), tv1->axis(1)->extent()),
                   tv1_loop_indices.at(1)),
-              tv1->getRFactorDomain().at(1)->extent()),
+              tv1->getLogicalDomain().at(1)->extent()),
           IrBuilder::getItemExpr(
               IrBuilder::getAttrExpr(
                   IrBuilder::metadataExpr(tv0), "alloc_stride"),
@@ -87,7 +87,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
                   SimplifyingIrBuilder::mulExpr(
                       tv1_loop_indices.at(0), tv1->axis(1)->extent()),
                   tv1_loop_indices.at(1)),
-              tv1->getRFactorDomain().at(1)->extent()),
+              tv1->getLogicalDomain().at(1)->extent()),
           IrBuilder::getItemExpr(
               IrBuilder::getAttrExpr(
                   IrBuilder::metadataExpr(tv0), "alloc_stride"),
@@ -102,15 +102,15 @@ TEST_F(IndexingTest, SimplePointwise1) {
               SimplifyingIrBuilder::mulExpr(
                   tv2_loop_indices.at(0), tv2->axis(1)->extent()),
               tv2_loop_indices.at(1)),
-          tv2->getRFactorDomain().at(1)->extent()),
+          tv2->getLogicalDomain().at(1)->extent()),
       SimplifyingIrBuilder::mulExpr(
           SimplifyingIrBuilder::divExpr(
               SimplifyingIrBuilder::addExpr(
                   SimplifyingIrBuilder::mulExpr(
                       tv2_loop_indices.at(0), tv2->axis(1)->extent()),
                   tv2_loop_indices.at(1)),
-              tv2->getRFactorDomain().at(1)->extent()),
-          tv2->getRFactorDomain().at(1)->extent()));
+              tv2->getLogicalDomain().at(1)->extent()),
+          tv2->getLogicalDomain().at(1)->extent()));
 
   EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
       << "Ref: " << tv0_producer_index_ref->toInlineString()
@@ -186,11 +186,11 @@ TEST_F(IndexingTest, SimplePointwise2) {
 
   auto global_ref = SimplifyingIrBuilder::addExpr(
       SimplifyingIrBuilder::modExpr(
-          contig_idx, tv0->getRFactorDomain().at(1)->extent()),
+          contig_idx, tv0->getLogicalDomain().at(1)->extent()),
       SimplifyingIrBuilder::mulExpr(
           SimplifyingIrBuilder::divExpr(
-              contig_idx, tv0->getRFactorDomain().at(1)->extent()),
-          tv0->getRFactorDomain().at(1)->extent()));
+              contig_idx, tv0->getLogicalDomain().at(1)->extent()),
+          tv0->getLogicalDomain().at(1)->extent()));
 
   auto shared_ref = NamedScalar::getParallelIndex(ParallelType::TIDx);
 
@@ -243,7 +243,7 @@ TEST_F(IndexingTest, SimpleReduction) {
   auto tv0_producer_index_ref = SimplifyingIrBuilder::addExpr(
       tv1_loop_indices.at(1),
       SimplifyingIrBuilder::mulExpr(
-          tv1_loop_indices.at(0), tv0->getRFactorDomain().at(1)->extent()));
+          tv1_loop_indices.at(0), tv0->getLogicalDomain().at(1)->extent()));
 
   auto tv1_consumer_index_ref = tv1_loop_indices.at(0);
   auto tv1_producer_index_ref = tv2_loop_indices.at(0);
@@ -286,12 +286,12 @@ TEST_F(IndexingTest, AllocationDomain) {
   auto tv1_consumer_index_ref = SimplifyingIrBuilder::addExpr(
       tv1_loop_indices.at(0),
       SimplifyingIrBuilder::mulExpr(
-          tv1_loop_indices.at(1), tv1->getRFactorDomain().at(0)->extent()));
+          tv1_loop_indices.at(1), tv1->getLogicalDomain().at(0)->extent()));
 
   auto tv1_producer_index_ref = SimplifyingIrBuilder::addExpr(
       tv2_loop_indices.at(0),
       SimplifyingIrBuilder::mulExpr(
-          tv2_loop_indices.at(1), tv1->getRFactorDomain().at(0)->extent()));
+          tv2_loop_indices.at(1), tv1->getLogicalDomain().at(0)->extent()));
 
   EXPECT_TRUE(tv1_consumer_index->sameAs(tv1_consumer_index_ref))
       << "Ref: " << tv1_consumer_index_ref->toInlineString()
@@ -369,12 +369,12 @@ TEST_F(IndexingTest, Reshape) {
       SimplifyingIrBuilder::addExpr(
           tv5_loop_indices.at(2),
           SimplifyingIrBuilder::mulExpr(
-              tv5_loop_indices.at(1), tv5->getRFactorDomain().at(2)->extent())),
+              tv5_loop_indices.at(1), tv5->getLogicalDomain().at(2)->extent())),
       SimplifyingIrBuilder::mulExpr(
           tv5_loop_indices.at(0),
           SimplifyingIrBuilder::mulExpr(
-              tv5->getRFactorDomain().at(1)->extent(),
-              tv5->getRFactorDomain().at(2)->extent())));
+              tv5->getLogicalDomain().at(1)->extent(),
+              tv5->getLogicalDomain().at(2)->extent())));
 
   EXPECT_TRUE(tv5_consumer_index->sameAs(tv5_consumer_index_ref))
       << "Ref: " << tv5_consumer_index_ref->toInlineString()

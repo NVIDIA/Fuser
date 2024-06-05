@@ -93,7 +93,7 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     // - Local/Shared: loop domains to the right of the CA position
     const auto inlining_pos = tv->getComputeAtPosition();
     if (tv->getMemoryType() == MemoryType::Global) {
-      allocation_domains = tv->getRFactorDomain();
+      allocation_domains = tv->getLogicalDomain();
       contiguity = tv->domain()->contiguity();
     } else {
       for (const auto i : c10::irange(tv->nDims())) {
