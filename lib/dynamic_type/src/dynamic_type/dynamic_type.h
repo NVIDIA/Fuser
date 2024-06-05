@@ -378,9 +378,19 @@ struct DynamicType {
   // we overload based on the underlying type, we will get a runtime error,
   // because it is not possible to assign SomeType{} to an int.
 
-  // Intentionally not overloading operator-> because it only makes sense when
-  // returning pointers, however, if we have a DynamicType that can be either a
-  // Type1 or Type2, then it is ambiguous to return a pointer to Type1 vs Type2
+  constexpr decltype(auto) operator->() {
+    return dispatch(
+        [](auto&& x) -> decltype(auto) {
+          using X = decltype(x);
+          using XD = std::decay_t<X>;
+          if constexpr (std::is_pointer_v<XD>) {
+            return (std::decay_t<X>)(x);
+          } else if constexpr (opcheck<XD>->value()) {
+            return std::forward<X>(x).operator->();
+          }
+        },
+        *this);
+  }
 
   template <typename IndexT>
   static constexpr bool has_square_bracket = any_check(
