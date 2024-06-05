@@ -393,4 +393,20 @@ TEST_F(AbstractTensorTest, SplitValGroup) {
   EXPECT_EQ(vv2[1], v2[2]);
 }
 
+TEST_F(AbstractTensorTest, Flatten) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  AbstractTensor v({id0, id1, id2, id3});
+  v.flatten(1, 2);
+  ASSERT_EQ(v.size(), 3);
+  EXPECT_EQ(v[0], id0);
+  EXPECT_EQ(v[2], id3);
+  auto merge = dynamic_cast<Merge*>(v[1]->definition());
+  ASSERT_NE(merge, nullptr);
+  EXPECT_EQ(merge->inner(), id2);
+  EXPECT_EQ(merge->outer(), id1);
+}
+
 } // namespace nvfuser
