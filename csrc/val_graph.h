@@ -186,7 +186,9 @@ class ValGraph {
   std::string toString() const;
 
   // Initializes entries for the provided Val with its definitions and
-  // uses.
+  // uses. The provided Val will have its own new ValGroup, each item in the
+  // definitions and uses will become a new ExprGroup, and these new ExprGroups
+  // will be the definitions and uses of the new ValGroup.
   void initializeVal(
       Val* val,
       const VectorOfUniqueEntries<Expr*>& definitions,
@@ -196,15 +198,17 @@ class ValGraph {
   // used
   void initializeVal(Val* val);
 
+  // Initializes entries for the provided Val. The provided Val will be added to
+  // the provided existing ValGroup. There will be no changes on the definitions
+  // and uses of the provided ValGroup.
+  void initializeVal(Val* v, ValGroup vg) {
+    disjoint_vals_.appendToSet(v, vg);
+  }
+
   // Add expr to the disjoint sets as a sole group. Used for
   // registering replayed domains and exprs. Error if the expr is
   // already registered.
   void registerExpr(Expr* expr);
-
-  // Append a Val into a ValGroup, and add mapping for this Val
-  void appendToGroup(Val* v, ValGroup vg) {
-    disjoint_vals_.appendToSet(v, vg);
-  }
 
   // Returns true if first and second are expressions through which
   // this ValGraph has matching inputs (if forward), or outputs (if not
