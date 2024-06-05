@@ -153,7 +153,7 @@ void AbstractTensor::merge(int64_t axis_o, int64_t axis_i) {
 }
 
 void AbstractTensor::flatten(int64_t from, int64_t to) {
-  NVF_ERROR(domain.size() > 0, "Tried to do flatten on a 0-dim domains");
+  NVF_ERROR(!domain.empty(), "Tried to do flatten on a 0-dim domains");
   from = wrapDim(from, (int64_t)domain.size());
   to = wrapDim(to, (int64_t)domain.size());
   NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
