@@ -20,10 +20,10 @@ ConcretizedBroadcastDomains::ConcretizedBroadcastDomains(Fusion* fusion) {
   auto inputs = fusion->inputsAndCreated();
   for (const auto fusion_input_tv :
        ir_utils::filterByType<TensorView>(inputs)) {
-    for (auto root_id : fusion_input_tv->getRFactorDomain()) {
-      if (root_id->isBroadcast()) {
+    for (auto logical_id : fusion_input_tv->getLogicalDomain()) {
+      if (logical_id->isBroadcast()) {
         broadcast_origin_map_.emplace(
-            root_id, std::unordered_set<IterDomain*>({root_id}));
+            logical_id, std::unordered_set<IterDomain*>({logical_id}));
       }
     }
   }
@@ -54,16 +54,16 @@ std::unordered_set<IterDomain*> ConcretizedBroadcastDomains::
 
 // In some cases an op like pad or slice will introduce a broadcast domain by
 // truncating a longer dimension or expanding an empty dimension to size 1. In
-// these cases tv will have RFactor Broadcast IterDomains that are not present
+// these cases tv will have logical Broadcast IterDomains that are not present
 // in the root domain. Contrast this with BroadcastOp, whose output does not
-// have RFactor domains and instead places new broadcast domains in the output
+// have logical domains and instead places new broadcast domains in the output
 // root domain.
 void ConcretizedBroadcastDomains::handle(TensorView* tv) {
   if (!tv->hasRoot()) {
     return;
   }
-  for (auto id : tv->getRFactorDomain()) {
-    // Register broadcast rfactor domains that are not root domains as new
+  for (auto id : tv->getLogicalDomain()) {
+    // Register broadcast logical domains that are not root domains as new
     // broadcast origins.
     if (id->isBroadcast() &&
         std::find(tv->getRootDomain().begin(), tv->getRootDomain().end(), id) ==
@@ -79,9 +79,9 @@ void ConcretizedBroadcastDomains::handle(TensorView* tv) {
 void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
   // Create a new entry for each of new broadcast domains
   auto out = bop->out()->as<TensorView>();
-  for (const auto i : c10::irange(out->getRFactorDomain().size())) {
+  for (const auto i : c10::irange(out->getLogicalDomain().size())) {
     if (bop->getBroadcastDimFlags().at(i)) {
-      auto new_bcast_id = out->getRFactorDomain().at(i);
+      auto new_bcast_id = out->getLogicalDomain().at(i);
       broadcast_origin_map_.emplace(
           new_bcast_id, std::unordered_set<IterDomain*>({new_bcast_id}));
     }
@@ -97,7 +97,7 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
     // This assumes there's no merged broadcast axes between root and rfactor
     // domains which is not possible at the moment. If this assumption is ever
     // invalidated we would need to manaually propagate root IDs to rfactor IDs.
-    for (auto producer_id : producer->getRFactorDomain()) {
+    for (auto producer_id : producer->getLogicalDomain()) {
       if (producer_id->isBroadcast()) {
         producer_broadcasts.insert(producer_id);
       }

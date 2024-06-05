@@ -432,7 +432,7 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   for (TensorView* tv : d_it->second) {
     const int64_t N =
         runtime_info.expressionEvaluator()
-            .evaluate(TensorDomain::noReductions(tv->getRFactorDomain())
+            .evaluate(TensorDomain::noReductions(tv->getLogicalDomain())
                           .back()
                           ->extent())
             .as<int64_t>();
