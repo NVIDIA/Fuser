@@ -162,33 +162,30 @@ TEST_F(AbstractTensorTest, MergeValGroups) {
   auto result = v.as<ValGroupAndItsGraph>();
   ASSERT_EQ(result.size(), 1);
   EXPECT_EQ(result[0].graph, &g);
-  auto g01 = result[0].group;
-  EXPECT_NE(g01, g.toGroup(id0));
-  EXPECT_NE(g01, g.toGroup(id1));
-  auto defs = g.getDefinitions(g01);
+  auto g01 = result[0];
+  EXPECT_NE(g01, g0);
+  EXPECT_NE(g01, g1);
+  auto defs = g.getDefinitions(g01.group);
   ASSERT_EQ(defs.size(), 1);
   auto eg01 = defs.front();
-  auto expect01 = std::vector<ValGroup>{g.toGroup(id0), g.toGroup(id1)};
+  auto expect01 = std::vector<ValGroup>{g0.group, g1.group};
   EXPECT_EQ(g.inputGroups(eg01), expect01);
-  EXPECT_EQ(g.outputGroups(eg01), std::vector<ValGroup>{g01});
-  auto uses0 = g.getUses(g.toGroup(id0));
-  auto uses1 = g.getUses(g.toGroup(id1));
+  EXPECT_EQ(g.outputGroups(eg01), std::vector<ValGroup>{g01.group});
+  auto uses0 = g.getUses(g0.group);
+  auto uses1 = g.getUses(g1.group);
   EXPECT_EQ(uses0.size(), 1);
   EXPECT_EQ(uses1.size(), 1);
   EXPECT_EQ(uses0.vector(), uses1.vector());
   EXPECT_EQ(uses0.front(), eg01);
 
   // Test reusing of existing merge
-  ValGroupAndItsGraph g0_{g.toGroup(id0), &g};
-  ValGroupAndItsGraph g1_{g.toGroup(id1), &g};
-  AbstractTensor vv({g0_, g1_});
+  AbstractTensor vv({g0, g1});
   vv.merge(0);
   EXPECT_EQ(g.disjointValSets().size(), 3);
   EXPECT_EQ(g.disjointExprSets().size(), 1);
   auto result2 = v.as<ValGroupAndItsGraph>();
   ASSERT_EQ(result2.size(), 1);
-  EXPECT_EQ(result2[0].graph, &g);
-  EXPECT_EQ(result2[0].group, g01);
+  EXPECT_EQ(result2[0], g01);
 }
 
 TEST_F(AbstractTensorTest, MergeIterDomainWithValGroup) {
@@ -206,17 +203,17 @@ TEST_F(AbstractTensorTest, MergeIterDomainWithValGroup) {
   auto result = v.as<ValGroupAndItsGraph>();
   ASSERT_EQ(result.size(), 1);
   EXPECT_EQ(result[0].graph, &g);
-  auto g01 = result[0].group;
-  EXPECT_NE(g01, g.toGroup(id0));
-  EXPECT_NE(g01, g.toGroup(id1));
-  auto defs = g.getDefinitions(g01);
+  auto g01 = result[0];
+  EXPECT_NE(g01.group, g.toGroup(id0));
+  EXPECT_NE(g01, g1);
+  auto defs = g.getDefinitions(g01.group);
   ASSERT_EQ(defs.size(), 1);
   auto eg01 = defs.front();
-  auto expect01 = std::vector<ValGroup>{g.toGroup(id0), g.toGroup(id1)};
+  auto expect01 = std::vector<ValGroup>{g.toGroup(id0), g1.group};
   EXPECT_EQ(g.inputGroups(eg01), expect01);
-  EXPECT_EQ(g.outputGroups(eg01), std::vector<ValGroup>{g01});
+  EXPECT_EQ(g.outputGroups(eg01), std::vector<ValGroup>{g01.group});
   auto uses0 = g.getUses(g.toGroup(id0));
-  auto uses1 = g.getUses(g.toGroup(id1));
+  auto uses1 = g.getUses(g1.group);
   EXPECT_EQ(uses0.size(), 1);
   EXPECT_EQ(uses1.size(), 1);
   EXPECT_EQ(uses0.vector(), uses1.vector());
@@ -238,16 +235,16 @@ TEST_F(AbstractTensorTest, MergeValGroupWithIterDomain) {
   auto result = v.as<ValGroupAndItsGraph>();
   ASSERT_EQ(result.size(), 1);
   EXPECT_EQ(result[0].graph, &g);
-  auto g01 = result[0].group;
-  EXPECT_NE(g01, g.toGroup(id0));
-  EXPECT_NE(g01, g.toGroup(id1));
-  auto defs = g.getDefinitions(g01);
+  auto g01 = result[0];
+  EXPECT_NE(g01, g0);
+  EXPECT_NE(g01.group, g.toGroup(id1));
+  auto defs = g.getDefinitions(g01.group);
   ASSERT_EQ(defs.size(), 1);
   auto eg01 = defs.front();
-  auto expect01 = std::vector<ValGroup>{g.toGroup(id0), g.toGroup(id1)};
+  auto expect01 = std::vector<ValGroup>{g0.group, g.toGroup(id1)};
   EXPECT_EQ(g.inputGroups(eg01), expect01);
-  EXPECT_EQ(g.outputGroups(eg01), std::vector<ValGroup>{g01});
-  auto uses0 = g.getUses(g.toGroup(id0));
+  EXPECT_EQ(g.outputGroups(eg01), std::vector<ValGroup>{g01.group});
+  auto uses0 = g.getUses(g0.group);
   auto uses1 = g.getUses(g.toGroup(id1));
   EXPECT_EQ(uses0.size(), 1);
   EXPECT_EQ(uses1.size(), 1);
@@ -333,11 +330,12 @@ TEST_F(AbstractTensorTest, SplitValGroup) {
   g.initializeVal(id1);
   g.initializeVal(id2);
   ValGroupAndItsGraph g0{g.toGroup(id0), &g};
+  ValGroupAndItsGraph g1{g.toGroup(id1), &g};
   ValGroupAndItsGraph g2{g.toGroup(id2), &g};
-  AbstractTensor v1({g0, ValGroupAndItsGraph{g.toGroup(id1), &g}, g2});
+  AbstractTensor v1({g0, g1, g2});
   v1.split(1, 5);
   // [0, 1/5, 5, 2]
-  AbstractTensor v2({g0, ValGroupAndItsGraph{g.toGroup(id1), &g}, g2});
+  AbstractTensor v2({g0, g1, g2});
   v2.split(1, 6);
   // [0, 1/6, 6, 2]
   EXPECT_EQ(g.disjointValSets().size(), 7);
@@ -353,35 +351,31 @@ TEST_F(AbstractTensorTest, SplitValGroup) {
   for (auto v : {v1, v2}) {
     auto result = v.as<ValGroupAndItsGraph>();
     ASSERT_EQ(result.size(), 4);
-    EXPECT_EQ(result[0].graph, &g);
     EXPECT_EQ(result[1].graph, &g);
     EXPECT_EQ(result[2].graph, &g);
-    EXPECT_EQ(result[3].graph, &g);
-    EXPECT_EQ(result[0].group, g.toGroup(id0));
-    EXPECT_EQ(result[3].group, g.toGroup(id2));
-    auto g156 = result[1].group;
-    auto g56 = result[2].group;
-    EXPECT_NE(g156, g.toGroup(id0));
-    EXPECT_NE(g156, g.toGroup(id1));
-    EXPECT_NE(g156, g.toGroup(id2));
-    EXPECT_NE(g56, g.toGroup(id0));
-    EXPECT_NE(g56, g.toGroup(id1));
-    EXPECT_NE(g56, g.toGroup(id2));
+    EXPECT_EQ(result[0], g0);
+    EXPECT_EQ(result[3], g2);
+    auto g156 = result[1];
+    auto g56 = result[2];
+    EXPECT_NE(g156, g0);
+    EXPECT_NE(g156, g1);
+    EXPECT_NE(g156, g2);
+    EXPECT_NE(g56, g0);
+    EXPECT_NE(g56, g1);
+    EXPECT_NE(g56, g2);
     EXPECT_NE(g56, g156);
-    auto defs = g.getDefinitions(g156);
+    auto defs = g.getDefinitions(g156.group);
     ASSERT_EQ(defs.size(), 1);
     auto eg56 = defs.front();
-    auto expect56 = std::vector<ValGroup>{g156, g56};
+    auto expect56 = std::vector<ValGroup>{g156.group, g56.group};
     EXPECT_EQ(g.outputGroups(eg56), expect56);
-    EXPECT_EQ(g.inputGroups(eg56), std::vector<ValGroup>{g.toGroup(id1)});
-    auto uses = g.getUses(g.toGroup(id1));
+    EXPECT_EQ(g.inputGroups(eg56), std::vector<ValGroup>{g1.group});
+    auto uses = g.getUses(g1.group);
     EXPECT_EQ(uses.size(), 2);
     EXPECT_TRUE(uses.has(eg56));
   }
 
   // Test reusing of existing split
-  ValGroupAndItsGraph g1{g.toGroup(id1), &g};
-
   AbstractTensor vv1({g1});
   vv1.split(0, 5);
   EXPECT_EQ(g.disjointValSets().size(), 7);

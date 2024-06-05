@@ -201,6 +201,11 @@ class ValGraph {
   // already registered.
   void registerExpr(Expr* expr);
 
+  // Append a Val into a ValGroup, and add mapping for this Val
+  void appendToGroup(Val* v, ValGroup vg) {
+    disjoint_vals_.appendToSet(v, vg);
+  }
+
   // Returns true if first and second are expressions through which
   // this ValGraph has matching inputs (if forward), or outputs (if not
   // forward). Returning true means the expressions are "the same", in terms

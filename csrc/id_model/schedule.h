@@ -15,12 +15,14 @@ namespace nvfuser {
 // already a merge of g0 with g1 in graph, return the output ValGroup of that
 // merge. Otherwise create an new ValGroup that is a merge of g0 and g1 in
 // graph, and a new ExprGroup that is the definition of the new ValGroup.
+// After the merge, g0 and g1 will remain valid pointers.
 ValGroup merge(ValGraph* graph, const ValGroup& g0, const ValGroup& g1);
 
 // Given a ValGraph and a ValGroup g in this graph, if there is already a split
 // of g in graph with the same factor, then return the output ValGroups of that
 // split. Otherwise create two new ValGroups that is a split of g in
 // graph, and a new ExprGroup that is the definition of the new ValGroups.
+// After the merge, g will remain valid pointers.
 std::pair<ValGroup, ValGroup> split(
     ValGraph* graph,
     const ValGroup& g,

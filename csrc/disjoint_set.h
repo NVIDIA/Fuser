@@ -282,8 +282,8 @@ class VectorOfUniqueEntries {
 template <typename T, typename Hash = std::hash<T>>
 class DisjointSets {
  public:
-  using DisjointSetMap = std::
-      unordered_map<T, std::shared_ptr<VectorOfUniqueEntries<T, Hash>>, Hash>;
+  using DisjointSet = std::shared_ptr<VectorOfUniqueEntries<T, Hash>>;
+  using DisjointSetMap = std::unordered_map<T, DisjointSet, Hash>;
 
   DisjointSets() = default;
 
@@ -309,8 +309,7 @@ class DisjointSets {
 
   // Warning: returned values should never be modified. This accessor isn't
   // strictly safe as VectorOfUniqueEntries is not returned as a const.
-  const std::vector<std::shared_ptr<VectorOfUniqueEntries<T, Hash>>>&
-  disjointSets() const {
+  const std::vector<DisjointSet>& disjointSets() const {
     return disjoint_sets_;
   }
 
@@ -413,6 +412,17 @@ class DisjointSets {
     return disjoint_set_maps_.find(entry) != disjoint_set_maps_.end();
   }
 
+  // Append a new item into an existing disjoint set, and add mapping for this
+  // item
+  void appendToSet(T item, DisjointSet set) {
+    NVF_CHECK(!mappingExists(item), "Item already exist.");
+    NVF_CHECK(
+        !set->empty() && &getDisjointSetOf(set->front()) == set.get(),
+        "Invalid disjoint set given.");
+    set->pushBack(item);
+    disjoint_set_maps_[item] = set;
+  }
+
   // Erases element if it exists in the disjoint set. Returns true if element
   // found.
   bool erase(T entry) {
@@ -481,13 +491,12 @@ class DisjointSets {
   //
   // TODO: Should this just be a
   // VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries ?
-  std::vector<std::shared_ptr<VectorOfUniqueEntries<T, Hash>>> disjoint_sets_;
+  std::vector<DisjointSet> disjoint_sets_;
 };
 
 template <typename T, typename Hash>
 DisjointSets<T, Hash>::DisjointSets(const DisjointSets<T, Hash>& other) {
-  std::unordered_map<std::shared_ptr<VectorOfUniqueEntries<T, Hash>>, int>
-      ptr_map;
+  std::unordered_map<DisjointSet, int> ptr_map;
 
   // Deep copy the vector of the disjoint sets, keeping the same
   // ordering of the sets.

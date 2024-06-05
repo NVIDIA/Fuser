@@ -38,10 +38,8 @@ ValGroup merge(ValGraph* graph, const ValGroup& g0, const ValGroup& g1) {
   g0_id = g0_id->cloneWithoutRFactor();
   g1_id = g1_id->cloneWithoutRFactor();
   auto output_id = IterDomain::merge(g0_id, g1_id);
-  graph->initializeVal(g0_id, {}, {});
-  graph->initializeVal(g1_id, {}, {});
-  graph->mapVals(g0->front(), g0_id);
-  graph->mapVals(g1->front(), g1_id);
+  graph->appendToGroup(g0_id, g0);
+  graph->appendToGroup(g1_id, g1);
   graph->initializeVal(output_id, {}, {});
   graph->registerExpr(output_id->definition());
   return graph->toGroup(output_id);
@@ -87,8 +85,7 @@ std::pair<ValGroup, ValGroup> split(
   // There is no such split, then create one
   g_id = g_id->cloneWithoutRFactor();
   auto [outer_id, inner_id] = IterDomain::split(g_id, factor, inner_split);
-  graph->initializeVal(g_id, {}, {});
-  graph->mapVals(g->front(), g_id);
+  graph->appendToGroup(g_id, g);
   graph->initializeVal(outer_id, {}, {});
   graph->initializeVal(inner_id, {}, {});
   graph->registerExpr(inner_id->definition());
