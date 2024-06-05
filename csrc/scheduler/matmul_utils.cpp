@@ -547,6 +547,7 @@ class VectorizationCalculator {
       }
       if (!vec_dim_role.has_value()) {
         vec_dim_role = dim_role;
+        break;
       }
     }
     if (!vec_dim_role.has_value()) {
