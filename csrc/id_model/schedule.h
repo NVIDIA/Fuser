@@ -22,7 +22,7 @@ ValGroup merge(ValGraph* graph, const ValGroup& g0, const ValGroup& g1);
 // of g in graph with the same factor, then return the output ValGroups of that
 // split. Otherwise create two new ValGroups that is a split of g in
 // graph, and a new ExprGroup that is the definition of the new ValGroups.
-// After the merge, g will remain valid pointers.
+// After the split, g will remain valid pointers.
 std::pair<ValGroup, ValGroup> split(
     ValGraph* graph,
     const ValGroup& g,
