@@ -1864,20 +1864,27 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicate_CUDA) {
   // Using vectorization so need to keep n multiple of 4.
   int m = 33, n = 48;
 
-  TensorView* tv0 = makeContigConcreteTensor({m, n});
+  TensorView* tv0 = makeContigTensor(2);
 
   fusion.addInput(tv0);
   auto tv1 = sum(tv0, {1});
   fusion.addOutput(tv1);
-
+      // if ((b2 && ((i3 + i8) < T0.logical_size[1LL]))) {
+      //   loadGeneric<float, 4>( &T2[(i1 + i8)],  &T0[(i6 + i8)]);
+      // }
+  // auto tv0_shared = tv0->cacheAfter();
   auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsync);
-  tv0_shared->cacheAfter();
+  auto t2 = tv0_shared->cacheAfter();
   tv0_shared->setMemoryType(MemoryType::Shared);
   tv0->computeAt(tv1, 1);
 
   tv0_shared->split(-1, 32);
   tv0_shared->split(-1, 4);
   tv0_shared->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv0_shared->axis(-2)->parallelize(ParallelType::TIDx);
+  // tv0_shared->axis(-2)->padToMultipleOfWarp(32);
+  t2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({m, n}, options);
@@ -8202,6 +8209,92 @@ TEST_F(NVFuserTest, ReverseMerge) {
   ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
 }
 
+
+// Can't use CpAsync with shared memory predicate.
+TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int m = 33, n = 48;
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = exp(tv0);
+  fusion.addOutput(tv1);
+
+  auto tvs = tv0->cacheAfter(LoadStoreOpType::CpAsync);
+  tvs->setMemoryType(MemoryType::Shared);
+
+  tvs->split(-1, 4);
+  tvs->axis(-1)->parallelize(ParallelType::Vectorize);
+  tvs->axis(-2)->parallelize(ParallelType::TIDx);
+  tvs->axis(-3)->parallelize(ParallelType::BIDx);
+
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(-2)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({m, n}, options);
+
+  FusionExecutor fe;
+  if (!deviceMajorMinorCheck(8)) {
+    ASSERT_THAT(
+        [&]() { fe.compileFusion(&fusion, {t0}); },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  } else {
+    fe.compileFusion(&fusion, {t0});
+  }
+
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  auto ref = t0.exp();
+  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
+// Allow using CpAsync with shared memory predicate if there is unswitch
+// unswitch avoids illedage memory address access.
+TEST_F(NVFuserTest, FusionCpAsyncPredicateUnswitch) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  int m = 33, n = 48;
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = exp(tv0);
+  fusion.addOutput(tv1);
+
+  auto tvs = tv0->cacheAfter(LoadStoreOpType::CpAsync);
+  tvs->setMemoryType(MemoryType::Shared);
+
+  tvs->split(-1, 4);
+  tvs->split(-2, 1);
+  tvs->axis(-1)->parallelize(ParallelType::Vectorize);
+  tvs->axis(-2)->parallelize(ParallelType::Unswitch);
+  tvs->axis(-3)->parallelize(ParallelType::TIDx);
+  tvs->axis(-4)->parallelize(ParallelType::BIDx);
+
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(-2)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({m, n}, options);
+
+  FusionExecutor fe;
+  if (!deviceMajorMinorCheck(8)) {
+    ASSERT_THAT(
+        [&]() { fe.compileFusion(&fusion, {t0}); },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Reason: LoadStoreOpType::CpAsync requires Ampere")));
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  } else {
+    fe.compileFusion(&fusion, {t0});
+  }
+
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+  auto ref = t0.exp();
+  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

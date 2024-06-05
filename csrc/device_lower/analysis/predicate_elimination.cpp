@@ -238,10 +238,7 @@ class PredicateChcker : public IterVisitor {
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
-    if (ir_utils::isCpAsyncOp(expr)) {
-      std::cout << "needs_predicate_ " << needs_predicate_smem_access
-                << ", expr: " << expr->toString() << std::endl;
-    }
+
     // A cp.async op would need a predicate for either the global
     //  input or its shared mem output, or both.
     // Due to the WAR discussed in [Predicate Inversion for CpAsync],
@@ -255,6 +252,31 @@ class PredicateChcker : public IterVisitor {
     // NVF_ERROR(
     //     !(ir_utils::isCpAsyncOp(expr) && needs_predicate_smem_access),
     //     "predicate removal: unsupported use case of cp.async");
+    // Only special cases are allowed when CpAsync is used with shared memory predicate.
+    if (ir_utils::isCpAsyncOp(expr) && needs_predicate_smem_access) {
+      auto consumer = expr->as<LoadStoreOp>()->out()->as<TensorView>();
+      // check consumder is vectorized and has a unswitch dimension.
+      // There is no thread dims to the right side of the unswitch dimension.
+      // [BIDx, TIDx, Unswitch, Vectorize]
+      bool is_vectorized = false;
+      int last_unswitch_dim = (int)consumer->nDims();
+      int last_thread_dim = -1;
+      for(auto i = 0; i < consumer->nDims(); i++) {
+        if(consumer->axis(i)->isThread()) {
+          last_thread_dim = i;
+        }
+        if(consumer->axis(i)->getParallelType() == ParallelType::Unswitch) {
+          last_unswitch_dim = i;
+        }
+        if(consumer->axis(i)->getParallelType() == ParallelType::Vectorize) {
+          is_vectorized = true;
+        }        
+      }
+      NVF_ERROR(is_vectorized && last_unswitch_dim > last_thread_dim,
+                "predicate removal: unsupported use case of cp.async: ", expr->toString());
+      std::cout << "needs_predicate_ " << needs_predicate_smem_access
+                << ", expr: " << expr->toString() << std::endl;
+    }
 
     if (needs_predicate_) {
       return;
@@ -401,6 +423,8 @@ class PredicateChcker : public IterVisitor {
     //  dimensions, need to predicate against out of bound
     //  shared memory access by out of bound threads.
     if (!isExactParallelSharedMemAccess(consumer)) {
+      std::cout << "Not ExactParallelSharedMemAccess " << consumer->toString()
+                << std::endl;
       return true;
     }
 
