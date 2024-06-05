@@ -1077,9 +1077,10 @@ MatmulProblemLayoutOpt getProblemLayout(
     const IdModel& id_model,
     const DimRolesMap& dim_roles,
     const TensorRolesMap& tensor_roles) {
-  // Assumes the exact graph has already been built, since we've been provided
-  // dim_roles
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  // Assumes the permissive graph has already been built, since we've been
+  // provided dim_roles
+  const ValGraph& permissive_graph =
+      id_model.idGraph(IdMappingMode::PERMISSIVE);
 
   // Note: using DataWrapperOpt<MatmulDomain> would be preferable here. However,
   // using DataWrapperOpt<MatmulDomain>(std::move(dom)) leads to a clang-tidy
@@ -1088,8 +1089,8 @@ MatmulProblemLayoutOpt getProblemLayout(
   // this complication I'm using an unwrapped variant for the lambda's result
   // type.
   using UnitDimOpt = std::variant<std::string, UnitDim>;
-  const auto findUnitDim =
-      [&tensor_roles, &dim_roles, &exact_graph](MatmulRole role) -> UnitDimOpt {
+  const auto findUnitDim = [&tensor_roles, &dim_roles, &permissive_graph](
+                               MatmulRole role) -> UnitDimOpt {
     const auto role_it = tensor_roles.find(role);
     if (role_it == tensor_roles.end()) {
       return "Could not find role in tensor_roles";
@@ -1098,7 +1099,7 @@ MatmulProblemLayoutOpt getProblemLayout(
     for (TensorView* tv : role_it->second) {
       IterDomain* inner_id =
           TensorDomain::noReductions(tv->getMaybeAllocationDomain()).back();
-      const ValGroup& g = exact_graph.toGroup(inner_id);
+      const ValGroup& g = permissive_graph.toGroup(inner_id);
       auto g_it = dim_roles.find(g);
       if (g_it == dim_roles.end()) {
         return "Inner domain of tensor was not mapped to a MatmulDomain";
@@ -1158,9 +1159,10 @@ TensorRolesMapOpt getTensorRoles(
 
   TensorRolesMap tensor_roles;
 
-  // Assumes the exact graph has already been built, since we've been provided
-  // dim_roles
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  // Assumes the permissive graph has already been built, since we've been
+  // provided dim_roles
+  const ValGraph& permissive_graph =
+      id_model.idGraph(IdMappingMode::PERMISSIVE);
 
   struct DimPresence {
     bool m = false;
@@ -1169,15 +1171,13 @@ TensorRolesMapOpt getTensorRoles(
     bool unmapped = false;
   };
 
-  const auto findDims = [&dim_roles, &exact_graph](TensorView* tv) {
+  const auto findDims = [&dim_roles, &permissive_graph](TensorView* tv) {
     DimPresence has;
     for (IterDomain* id : TensorDomain::noReductions(tv->getRFactorDomain())) {
       if (id->isBroadcast() || id->isDeviceDim()) {
-        // Broadcast and device domains won't exact map to concrete domains so
-        // skip them
         continue;
       }
-      const ValGroup& g = exact_graph.toGroup(id);
+      const ValGroup& g = permissive_graph.toGroup(id);
       auto it = dim_roles.find(g);
       if (it == dim_roles.end()) {
         // tv has an unmapped non-broadcast and non-reduction dimension
@@ -1616,7 +1616,7 @@ namespace {
 // Determine dim roles for either a MatmulOp or a LinearOp, given IterDomain
 // mappings
 DimRolesMap matmulOrLinearOpDimRoles(
-    const ValGraph& exact_graph,
+    const ValGraph& permissive_graph,
     const std::vector<IterDomain*>& out_logical,
     const std::vector<IterDomain*>& mapping_a,
     const std::vector<IterDomain*>& mapping_b) {
@@ -1625,7 +1625,7 @@ DimRolesMap matmulOrLinearOpDimRoles(
   NVF_ERROR(mapping_a.size() == mapping_b.size());
   for (size_t i : c10::irange(out_logical.size())) {
     IterDomain* id_out = out_logical[i];
-    const ValGroup& g = exact_graph.toGroup(id_out);
+    const ValGroup& g = permissive_graph.toGroup(id_out);
 
     if (id_out->isReduction()) {
       dim_roles[g] = MatmulDomain::K;
@@ -1651,8 +1651,9 @@ DimRolesMap matmulOrLinearOpDimRoles(
 } // namespace
 
 DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
-  id_model.maybeBuildGraph(IdMappingMode::EXACT);
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& permissive_graph =
+      id_model.idGraph(IdMappingMode::PERMISSIVE);
 
   // There are four types of ValGroup involved in a MatmulPattern: M, N, K, and
   // Batch. These are enumerated in the MatmulDomain enum class. They are
@@ -1667,7 +1668,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   if (output->definition()->isA<MatmulOp>()) {
     const std::vector<IterDomain*>& out_logical = output->getRFactorDomain();
     return matmulOrLinearOpDimRoles(
-        exact_graph,
+        permissive_graph,
         out_logical,
         ops::mapMatmulOpIterDomains(
             A->getRFactorDomain(), MatmulRole::INPUT_A, out_logical.size()),
@@ -1677,7 +1678,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   } else if (output->definition()->isA<LinearOp>()) {
     const std::vector<IterDomain*>& out_logical = output->getRFactorDomain();
     return matmulOrLinearOpDimRoles(
-        exact_graph,
+        permissive_graph,
         out_logical,
         ops::mapLinearOpIterDomains(
             A->getRFactorDomain(), MatmulRole::INPUT_A, out_logical.size()),
@@ -1692,15 +1693,13 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
   using DimPresence = std::bitset<3>;
 
   std::unordered_map<ValGroup, DimPresence> present_flags;
-  const auto recordPresence = [&exact_graph, &present_flags](
+  const auto recordPresence = [&permissive_graph, &present_flags](
                                   TensorView* tv, size_t tensor_num) {
     for (IterDomain* id : tv->getRFactorDomain()) {
       if (id->isReduction() || id->isBroadcast() || id->isDeviceDim()) {
-        // ignore device, reductions, and broadcasts since they don't exact map
-        // to problem dims in the generated kernel
         continue;
       }
-      const ValGroup& g = exact_graph.toGroup(id);
+      const ValGroup& g = permissive_graph.toGroup(id);
       present_flags[g].set(tensor_num);
     }
   };

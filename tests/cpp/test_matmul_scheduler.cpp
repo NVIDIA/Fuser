@@ -2100,7 +2100,8 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
         const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
         NVF_CHECK(
             fusion_layout.isValid(),
-            "failed to get decide matmul layout through fusion definition");
+            "failed to get decide matmul layout through fusion definition. Error: ",
+            fusion_layout.getErrorMsg());
         NVF_CHECK(
             fusion_layout.getData() == layout,
             "mismatch between test layout (",
