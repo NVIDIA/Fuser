@@ -325,9 +325,10 @@ class VectorizationCalculator {
         tensor_roles_(tensor_roles),
         dim_roles_(dim_roles),
         exact_graph_(exact_graph),
-    dim_ordering_ (
-        mma_utils::canonicalDimOrdering(tensor_roles, dim_roles_, exact_graph_))
-  {}
+        dim_ordering_(mma_utils::canonicalDimOrdering(
+            tensor_roles,
+            dim_roles_,
+            exact_graph_)) {}
 
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> op_vecs = operandVectorizations();
@@ -374,6 +375,10 @@ class VectorizationCalculator {
           runtime_info_.getInputAllocationSizes(tv),
           runtime_info_.getInputAllocationStrides(tv)};
     }
+    NVF_ERROR(
+        tv->isFusionOutput(),
+        "getSizesAndStrides should only be called with fusion inputs or outputs. Found ",
+        tv->toString());
     // For non-inputs, compute sizes using ExpressionEvaluator, then compute
     // strides based on allocation domain, assuming full contiguity regardless
     // of how it is marked in the TensorView.
