@@ -324,10 +324,10 @@ class VectorizationCalculator {
       : runtime_info_(runtime_info),
         tensor_roles_(tensor_roles),
         dim_roles_(dim_roles),
-        exact_graph_(exact_graph) {
-    dim_ordering_ =
-        mma_utils::canonicalDimOrdering(tensor_roles, dim_roles_, exact_graph_);
-  }
+        exact_graph_(exact_graph),
+    dim_ordering_ (
+        mma_utils::canonicalDimOrdering(tensor_roles, dim_roles_, exact_graph_))
+  {}
 
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> op_vecs = operandVectorizations();
