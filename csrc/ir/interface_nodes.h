@@ -178,8 +178,8 @@ class NVF_API TensorView : public Val {
     return domain()->maybeRoot();
   };
 
-  const std::vector<IterDomain*>& getRFactorDomain() const {
-    return domain()->rfactor();
+  const std::vector<IterDomain*>& getLogicalDomain() const {
+    return domain()->logical();
   };
 
   const std::vector<IterDomain*>& getAllocationDomain() const {
@@ -191,7 +191,7 @@ class NVF_API TensorView : public Val {
   };
 
   // If allocation domain exists in domain() return it, otherwise return
-  // rfactor domain
+  // logical domain
   const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
     return domain()->maybeAllocation();
   };
@@ -286,24 +286,13 @@ class NVF_API TensorView : public Val {
   //! tv[id{extent}] -> tv[id{ceilDiv(extent, factor)}, id{factor}]
   //! e.g. split(0, 4, inner_split = false) will result in:
   //! tv[id{extent}] -> tv[id{factor}, id{ceilDiv(extent, factor)}]
-  //!
-  //! When trim_out_of_bounds is true, only the inner domain defined by the
-  //! start and stop positions is split.
-  TensorView* split(
-      int64_t axis,
-      int64_t factor,
-      bool inner_split = true,
-      bool trim_out_of_bounds = false);
+  TensorView* split(int64_t axis, int64_t factor, bool inner_split = true);
 
   // Split "axis" into 2 axes where the inner axes is size of "factor"
   // and outer axis is size axis.size() / factor. Factor can be a symbolic
   // value instead of constant. This requires setting the symbolic value as an
   // input, or using a parallel dim from NamedScalar::getParallelDim
-  TensorView* split(
-      int64_t axis,
-      Val* factor,
-      bool inner_split = true,
-      bool trim_out_of_bounds = false);
+  TensorView* split(int64_t axis, Val* factor, bool inner_split = true);
 
   // Merge axis_o and axis_i into 1 IterDomain
   TensorView* merge(int64_t axis_o, int64_t axis_i);
@@ -379,7 +368,8 @@ class NVF_API TensorView : public Val {
   //!   the the data tensor and the cache tensor
   TensorView* cacheAfter(
       LoadStoreOpType op_type = LoadStoreOpType::Set,
-      CacheOp cache_op = CacheOp::Unspecified);
+      CacheOp cache_op = CacheOp::Unspecified,
+      bool propagate_allocation_domain = true);
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
@@ -512,7 +502,7 @@ class NVF_API TensorView : public Val {
   // consumers consistently, and there is no reliable way to detect this
   // inconsistency. It is the responsibility of the caller of this function to
   // ensure consistency.
-  void commitLeafToRFactor();
+  void commitLeafToLogical();
 
   //! Request that we reclaim the memory of this tv before any subsequent
   //! tensors are allocated.

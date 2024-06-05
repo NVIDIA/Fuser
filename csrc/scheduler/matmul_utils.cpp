@@ -249,7 +249,7 @@ std::string isMatmulFusionDefinitionSupported(
         if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
           tvs_with_roles.insert(entry->second.begin(), entry->second.end());
           for (TensorView* tv : entry->second) {
-            const std::vector<IterDomain*>& logical = tv->getRFactorDomain();
+            const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
             int64_t ndims = (int64_t)std::count_if(
                 logical.begin(), logical.end(), [](IterDomain* id) {
                   return !id->isReduction() && !id->isDeviceDim();

@@ -301,7 +301,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << var_name_ss.str();
         } else {
           code_ << "Tensor<" << param->dtype() << ", "
-                << TensorDomain::noReductions(tv->getRFactorDomain()).size()
+                << TensorDomain::noReductions(tv->getLogicalDomain()).size()
                 << ", "
                 << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
                        .size()
@@ -1244,7 +1244,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto optype = ldst->opType();
     NVF_ERROR(
         optype != LoadStoreOpType::LdMatrix &&
-            optype != LoadStoreOpType::LdMatrixTranspose &&
             optype != LoadStoreOpType::CpAsync,
         "ldmatrix and cp.async should be lowered as kir::Asm");
 

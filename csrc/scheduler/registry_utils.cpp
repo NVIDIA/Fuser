@@ -128,8 +128,8 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   // assumption about the index type as it may change.
   int64_t stride = 1;
   KernelIndexTypeCompute index_type_helper;
-  for (auto i = tv->getRFactorDomain().size(); i > 0; --i) {
-    auto id = tv->getRFactorDomain().at(i - 1);
+  for (auto i = tv->getLogicalDomain().size(); i > 0; --i) {
+    auto id = tv->getLogicalDomain().at(i - 1);
     if (id->isReduction() || id->isStride() || id->isBroadcast()) {
       continue;
     }
@@ -255,17 +255,17 @@ bool isConnectedFusionGraph(Fusion* fusion) {
 //
 // Returns true if a scenario like above is found in the fusion.
 bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
-  // Track the uses of the rfactor domains in the fusion. If an rfactor domain
+  // Track the uses of the logical domains in the fusion. If an logical domain
   // is used in more than one way it means the above situation is being
   // encountered.
   //
-  // tv1 root: [I0rf, I1rf, I2] -> rfactor [I0*I1rf, I2]
-  // tv1 root: [I0, I1rf, I2rf] -> rfactor [I0, I1*I2rf]
+  // tv1 root: [I0rf, I1rf, I2] -> logical [I0*I1rf, I2]
+  // tv1 root: [I0, I1rf, I2rf] -> logical [I0, I1*I2rf]
   //
   // Here we can see I1rf is used in two view transformations, one to I0*I1rf,
   // and the other to I1*I2rf.
 
-  // Track the transformation each exact disjoint rfactor set is used in. If
+  // Track the transformation each exact disjoint logical set is used in. If
   // more than one is detected we can't support transforming the fusion into a
   // consistent format.
   std::unordered_map<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>, Expr*>
@@ -284,11 +284,11 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   // path.
 
   // Look through all definitions associated with producing rfactor outputs.
-  // Mark those as an active use of the rfactor, if two are detected, return
+  // Mark those as an active use of the logical, if two are detected, return
   // true.
   for (const auto& disjoint_set_shared_ptr :
        ca_map.idGraph().exactNodes().disjointSets()) {
-    // Make sure there's at least one rfactor domain in the set, otherwise we
+    // Make sure there's at least one logical domain in the set, otherwise we
     // don't need to check anything from this set.
     if (!std::any_of(
             disjoint_set_shared_ptr->vector().begin(),
@@ -334,15 +334,15 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
           "If one output is rfactor all should be rfactor.");
 
       // If outputs are rfactor all the inputs should be as well. It doesn't
-      // make sense to have transforms on non-rfactor domains that produce
-      // rfactor domains.
+      // make sense to have transforms on non-logical domains that produce
+      // logical domains.
       auto def_inps = ir_utils::filterByType<IterDomain>(rfactor_def->inputs());
       NVF_ERROR(
           std::all_of(
               def_inps.begin(),
               def_inps.end(),
               [](IterDomain* id) { return id->isRFactorProduct(); }),
-          "Inputs producing an rfactor domain, should be marked as rfactor but found:\n  ",
+          "Inputs producing an logical domain, should be marked as rfactor but found:\n  ",
           rfactor_def->toString());
 
       // Check which definition in the unique exact definition set this
@@ -357,7 +357,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
       for (auto unique_def : unique_defs) {
         if (ca_map.areExactExprs(rfactor_def, unique_def)) {
           // Check if we already have an expression that consumes an
-          // equivalent of any of the input rfactor domains. If so and it's
+          // equivalent of any of the input logical domains. If so and it's
           // not the already registered transformation, return true
           for (auto inp : def_inps) {
             auto inp_disjoint_set =
@@ -412,7 +412,7 @@ bool reductionInterferingView(
     return dims_removed;
   };
 
-  std::vector<IterDomain*> dims = reduction_reference->getRFactorDomain();
+  std::vector<IterDomain*> dims = reduction_reference->getLogicalDomain();
 
   // The disjoint groups we need for this scheduler
   std::vector<std::vector<IterDomain*>> groups;
@@ -451,8 +451,8 @@ bool reductionInterferingView(
 
   // Make sure groups are disjoint based on view
 
-  auto disjoint_rfactor_sets = scheduler_utils::disjointRFactorSets(fusion);
-  auto disjoint_set_information = scheduler_utils::getDisjointRFactorSetsOf(
+  auto disjoint_rfactor_sets = scheduler_utils::disjointLogicalSets(fusion);
+  auto disjoint_set_information = scheduler_utils::getDisjointLogicalSetsOf(
       fusion, reduction_reference, disjoint_rfactor_sets);
 
   // Convert id's in groups to disjoint_set_ids of disjoint_set_information
@@ -462,22 +462,22 @@ bool reductionInterferingView(
     std::vector<int64_t> disjoint_id_sets;
     for (auto id : group) {
       auto find_it = std::find(
-          reduction_reference->getRFactorDomain().begin(),
-          reduction_reference->getRFactorDomain().end(),
+          reduction_reference->getLogicalDomain().begin(),
+          reduction_reference->getLogicalDomain().end(),
           id);
       NVF_ERROR(
-          find_it != reduction_reference->getRFactorDomain().end(),
+          find_it != reduction_reference->getLogicalDomain().end(),
           "Issue with view analysis on reduction like schedule, with reference: ",
           reduction_reference->toString());
-      auto rfactor_pos = std::distance(
-          reduction_reference->getRFactorDomain().begin(), find_it);
+      auto logical_pos = std::distance(
+          reduction_reference->getLogicalDomain().begin(), find_it);
       NVF_ERROR(
-          rfactor_pos <
+          logical_pos <
               (int64_t)disjoint_set_information.disjoint_set_ids.size(),
-          "Error computing disjoint group on the rfactor domain of ",
+          "Error computing disjoint group on the logical domain of ",
           reduction_reference->toString());
       disjoint_id_sets.push_back(
-          disjoint_set_information.disjoint_set_ids[rfactor_pos]);
+          disjoint_set_information.disjoint_set_ids[logical_pos]);
     }
     disjoint_groups.push_back(disjoint_id_sets);
   }
@@ -581,8 +581,8 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         forward_tv_dep_chain.pop_front();
 
         if (std::none_of(
-                forward_running_producer->getRFactorDomain().begin(),
-                forward_running_producer->getRFactorDomain().end(),
+                forward_running_producer->getLogicalDomain().begin(),
+                forward_running_producer->getLogicalDomain().end(),
                 [](IterDomain* id) { return id->isBroadcast(); })) {
           // If there's no broadcast axes in producer it doesn't need to be
           // checked

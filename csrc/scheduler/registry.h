@@ -78,7 +78,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
         isInputTv(tv),
         "TensorView ",
         tv->toString(),
-        " is not an input or its rfactor domain is not a permutation of its ",
+        " is not an input or its logical domain is not a permutation of its ",
         "allocation domain");
     auto sizes_it = input_sizes_.find(tv);
     NVF_ERROR(sizes_it != input_sizes_.end());
@@ -94,7 +94,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
         isInputTv(tv),
         "TensorView ",
         tv->toString(),
-        " is not an input or its rfactor domain is not a permutation of its ",
+        " is not an input or its logical domain is not a permutation of its ",
         "allocation domain");
     auto strides_it = input_strides_elements_.find(tv);
     NVF_ERROR(strides_it != input_strides_elements_.end());

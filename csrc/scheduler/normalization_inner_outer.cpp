@@ -226,10 +226,10 @@ std::vector<TensorView*> getOuterBroadcastTvs(
   std::vector<bool> ref_broadcast_mask;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
-      const auto& root = tv->getRFactorDomain();
-      ref_broadcast_mask.reserve(root.size());
-      for (const auto i : c10::irange(root.size())) {
-        ref_broadcast_mask.push_back(!root.at(i)->isReduction());
+      const auto& logical = tv->getLogicalDomain();
+      ref_broadcast_mask.reserve(logical.size());
+      for (const auto i : c10::irange(logical.size())) {
+        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
       }
       break;
     }
@@ -264,7 +264,7 @@ int64_t partialOuterReductionBufferSize(
       continue;
     }
     int64_t buffer_size = -1;
-    for (auto id : buffer->getRFactorDomain()) {
+    for (auto id : buffer->getLogicalDomain()) {
       if (id->isReduction() || id->isBroadcast()) {
         continue;
       }

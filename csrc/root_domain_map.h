@@ -313,7 +313,7 @@ class NVF_API ComputeAtRootDomainMap : public RootDomainMap {
   //! Unlike the other map functions, two TensorDomains do not need to
   //! be a producer-consumer pair. Since they may not be a
   //! producer-consumer pair, this function requires proper root
-  //! domains, which may be root or rfactor domains. Also, no error
+  //! domains, which may be root or logical domains. Also, no error
   //! check is done as we do not assume producer-consumer
   //! relationship.
   //!

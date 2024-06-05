@@ -255,10 +255,10 @@ class ComputeAtMap {
   // Returns if the provided ID is an rfactor id
   bool isRfactor(IterDomain* ref_id) const;
 
-  // Returns all rfactor domains in rfactor_concrete_count_reset_domains_ that
+  // Returns all logical domains in rfactor_concrete_count_reset_domains_ that
   // are in the disjoint set of the provided IterDomain. This will be every
   // rfactor ID the provided ID "depends" on in the map.
-  std::vector<IterDomain*> getRfactorDomainsOfIdGroup(
+  std::vector<IterDomain*> getLogicalDomainsOfIdGroup(
       IterDomain* ref_id,
       IdMappingMode mode) const;
 

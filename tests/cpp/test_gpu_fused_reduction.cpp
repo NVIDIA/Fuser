@@ -1300,7 +1300,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   const bool channels_last = false;
 
   const int64_t kNumberOfDims =
-      TensorDomain::noReductions(input->getRFactorDomain()).size();
+      TensorDomain::noReductions(input->getLogicalDomain()).size();
   int64_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
 
   std::vector<int64_t> reduction_axes;
@@ -1340,7 +1340,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Val>(input->container(), 1.0));
+            IrBuilder::createInContainer<Val>(input->container(), 1.0));
   } else {
     grad_scale = mul(
         broadcast(invstd, broadcast_mask), broadcast(weight, broadcast_mask));

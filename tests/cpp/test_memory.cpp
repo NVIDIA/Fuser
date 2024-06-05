@@ -1067,7 +1067,7 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
 
   // Use a hacky way to get the "raw data" in smem, including valid items and
   // holes, from the smem buffer.
-  tv2->commitLeafToRFactor();
+  tv2->commitLeafToLogical();
   fusion.manage(
       "don't predicate", std::unordered_set<Expr*>{tv2->definition()});
 
@@ -2282,8 +2282,7 @@ TEST_P(LdMatrixTest, Transpose) {
   auto tv1 = set(tv0);
   tv1->setMemoryType(MemoryType::Shared);
   auto tv2 = transpose(tv1, 0, 1);
-  tv2->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdMatrix);
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
