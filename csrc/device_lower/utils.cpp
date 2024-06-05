@@ -64,7 +64,7 @@ ir_utils::TVDomainGuard overrideContiguityGuard(
   TensorDomain* domain_with_specified_contiguity =
       IrBuilder::create<TensorDomain>(
           tv->getRootDomain(),
-          tv->getRFactorDomain(),
+          tv->getLogicalDomain(),
           tv->getAllocationDomain(),
           tv->getLeafDomain(),
           TensorDomain::getContiguityFilledWith(
@@ -73,17 +73,17 @@ ir_utils::TVDomainGuard overrideContiguityGuard(
   return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
 }
 
-ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
+ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
     TensorView* tv,
     bool contiguity) {
   // Use domain guard to ignore the contiguity of the given tv.
   TensorDomain* domain_with_specified_contiguity =
       IrBuilder::create<TensorDomain>(
           tv->getRootDomain(),
-          tv->getRFactorDomain(),
+          tv->getLogicalDomain(),
           tv->getLeafDomain(),
           TensorDomain::getContiguityFilledWith(
-              tv->getMaybeRFactorDomain(), contiguity));
+              tv->getLogicalDomain(), contiguity));
 
   return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
 }
@@ -155,8 +155,6 @@ bool isTvOp(const Expr* expr) {
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
-          ShiftOp,
-          GatherOp,
           ViewAsScalar,
           ViewOp,
           PadOp,
@@ -175,8 +173,7 @@ bool isTvOp(const Expr* expr) {
 
 bool isLdMatrixOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::LdMatrix ||
-        ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+    return ldst->opType() == LoadStoreOpType::LdMatrix;
   }
   return false;
 }
@@ -894,7 +891,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getRootDomain()) {
+  for (auto id : out_tv->getLogicalDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;

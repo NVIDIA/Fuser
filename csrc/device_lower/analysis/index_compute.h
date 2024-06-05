@@ -67,8 +67,6 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
 //! LoopIndexingAnalysis. LoopIndexingAnalysis though has to communicate to:
 //!   1) index_compute.cpp::IndexCompute to tell IndexCompute which expressions
 //!   it needs to traverse to compute the indexing math.
-//!   2) lower_shift.cpp::HaloInfo::buildConcreteHaloExtentMap to build the halo
-//!   extent map used in indexing.
 //!
 //! LoopIndexing is nothing but a mechanism for this communication.
 //!
@@ -313,11 +311,11 @@ std::unordered_set<IterDomain*> buildLoopIndexingPreferredPath(
     bool use_replay_map = false,
     std::unordered_map<IterDomain*, IterDomain*> p2c_map = {});
 
-// Get an rfactor IterDomain that is mapped with an IterDomain. If
+// Get an logical IterDomain that is mapped with an IterDomain. If
 // multiple such IDs exist, select one whose input IDs are mapped with
 // the consumer IDs. This is to ensure the path from the leaf
 // IterDomains to the root matches with the consumer tensor.
-IterDomain* getRfactorIDToTraverse(
+IterDomain* getLogicalIDToTraverse(
     IterDomain* id,
     const std::vector<Val*>& consumer_all_ids);
 

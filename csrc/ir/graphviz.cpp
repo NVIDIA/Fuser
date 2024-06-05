@@ -290,13 +290,13 @@ void IrGraphGenerator::generateScheduleGraph() {
       // Maybe not the best way to handle the root domain, but should be okay
       addArc(
           tv,
-          IrBuilder::create<TensorDomain>(tv->getRootDomain()),
+          IrBuilder::create<TensorDomain>(tv->getLogicalDomain()),
           "[style=dashed, color=green, arrowhead=none]");
 
-      if (tv->domain()->hasRFactor()) {
+      if (tv->domain()->hasRoot()) {
         addArc(
             tv,
-            IrBuilder::create<TensorDomain>(tv->getRFactorDomain()),
+            IrBuilder::create<TensorDomain>(tv->getRootDomain()),
             "[style=dashed, color=green, arrowhead=none]");
       }
     }
@@ -400,7 +400,7 @@ class TransformToDot {
   void handle(TensorView*);
   void handle(Expr*);
   void handle(IterDomain*);
-  void markRfactor(TensorView* tv);
+  void markLogical(TensorView* tv);
 
   // Make sure the root domains are ordered correctly
   // TODO: ordering of allocation domain
@@ -444,12 +444,12 @@ void TransformToDot::handle(TensorView* tv) {
   indent() << "graph [style=dotted];\n";
 
   // TODO: Mark allocation domains too?
-  markRfactor(tv);
+  markLogical(tv);
 
   // Note this won't print allocation domains if not in the path
   // between the root and leaf domains
   const auto all_exp = DependencyCheck::getAllExprsBetween(
-      {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+      {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
       {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
 
   for (auto exp : all_exp) {
@@ -464,8 +464,8 @@ void TransformToDot::handle(TensorView* tv) {
   indent() << "}\n";
 }
 
-void TransformToDot::markRfactor(TensorView* tv) {
-  for (auto id : tv->getMaybeRFactorDomain()) {
+void TransformToDot::markLogical(TensorView* tv) {
+  for (auto id : tv->getLogicalDomain()) {
     indent() << id->name() << " [shape=circle];\n";
   }
 }
@@ -477,7 +477,7 @@ void TransformToDot::enforceRootOrder(TensorView* tv) {
   indent() << "edge [style=invis];\n";
   bool first = true;
   std::stringstream ss;
-  for (auto id : tv->getRootDomain()) {
+  for (auto id : tv->getLogicalDomain()) {
     if (!first) {
       ss << " -> ";
     }

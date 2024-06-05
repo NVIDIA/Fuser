@@ -19,9 +19,9 @@ void AddAxiomsPass::runPass(Fusion* fusion) {
   std::unordered_set<Val*> assumed_vals;
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     std::vector<const std::vector<nvfuser::IterDomain*>*> interested_domains{
-        &tv->getRootDomain()};
-    if (tv->hasRFactor()) {
-      interested_domains.push_back(&tv->getRFactorDomain());
+        &tv->getLogicalDomain()};
+    if (tv->hasRoot()) {
+      interested_domains.push_back(&tv->getRootDomain());
     }
     if (tv->hasAllocation()) {
       interested_domains.push_back(&tv->getAllocationDomain());

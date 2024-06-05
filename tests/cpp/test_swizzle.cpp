@@ -644,14 +644,14 @@ TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {
   MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
 
   auto exprs = StmtSort::getExprsBetween(
-      {tv1->getRootDomain().begin(), tv1->getRootDomain().end()},
+      {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
       {tv1->getLeafDomain().begin(), tv1->getLeafDomain().end()});
   EXPECT_TRUE(std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
     return expr->isA<Swizzle2D>();
   }));
 }
 
-TEST_F(SwizzleTest, SwizzleInRFactor) {
+TEST_F(SwizzleTest, SwizzleInProducerProjection) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeSymbolicTensor(2);
@@ -664,7 +664,7 @@ TEST_F(SwizzleTest, SwizzleInRFactor) {
   tv1->reorder({{2, 1}});
   tv1->merge(0);
   tv1->merge(1);
-  tv1->commitLeafToRFactor();
+  tv1->commitLeafToLogical();
   fusion->addOutput(tv1);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);

@@ -398,7 +398,7 @@ void validateAlignedVectorizeExtents(
   // it in order to the right of it. Contig merged index simply isn't exactly
   // what we need to validate for vectorization, and we're relying on better
   // vectorization support than that would offer. This validation needs to be
-  // rewritten based on updated indexing logic that traverses loop->rfactor
+  // rewritten based on updated indexing logic that traverses loop->logical
   // domains and tracks partial mappings like scheduler/vectorize_helper.cpp
   //
   // NVF_ERROR(
@@ -427,7 +427,7 @@ getTensorOffsets(
   std::unordered_set<size_t> offsets;
   std::unordered_set<IterDomain*> sliced_domains;
 
-  const auto root_ids = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  const auto logical_ids = TensorDomain::noReductions(tv->getLogicalDomain());
 
   for (auto use : tv->uses()) {
     auto slice = dynamic_cast<SliceOp*>(use);
@@ -437,17 +437,17 @@ getTensorOffsets(
       continue;
     }
 
-    NVF_ERROR(logical_strides.size() == root_ids.size());
+    NVF_ERROR(logical_strides.size() == logical_ids.size());
     const auto slice_info = slice->getRanges();
 
     size_t offset = 0;
-    for (const auto i : c10::irange(root_ids.size())) {
+    for (const auto i : c10::irange(logical_ids.size())) {
       auto slice_start_eval = eval.evaluate(slice_info.at(i).start);
       NVF_ERROR(slice_start_eval.hasValue());
       auto slice_stop_eval = eval.evaluate(slice_info.at(i).stop);
       NVF_ERROR(slice_stop_eval.hasValue());
       auto extent_eval =
-          eval.evaluate(root_ids.at(i)->getMaybeExpandedExtent());
+          eval.evaluate(logical_ids.at(i)->getMaybeExpandedExtent());
       NVF_ERROR(extent_eval.hasValue());
 
       offset += static_cast<size_t>(
@@ -457,7 +457,7 @@ getTensorOffsets(
       // effectively no-op
       if (slice_start_eval.as<int64_t>() != 0 ||
           slice_stop_eval.as<int64_t>() != extent_eval.as<int64_t>()) {
-        sliced_domains.insert(root_ids.at(i));
+        sliced_domains.insert(logical_ids.at(i));
       }
     }
 
@@ -482,7 +482,7 @@ void validateAlignedVectorizedFusionInputOutput(
   const bool is_sliced = !sliced_domains.empty();
 
   const auto& domain_to_validate =
-      is_sliced ? tv->getMaybeRFactorDomain() : tv->getMaybeAllocationDomain();
+      is_sliced ? tv->getLogicalDomain() : tv->getMaybeAllocationDomain();
 
   std::vector<int64_t> no_reduction_to_full;
   for (int64_t i : c10::irange((int64_t)domain_to_validate.size())) {

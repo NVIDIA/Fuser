@@ -487,7 +487,7 @@ bool isTorchGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 
-// Check if a tensor is resized as part of  its root to rfactor transformations
+// Check if a tensor is resized as part of its root to logical transformations
 bool hasResizedRfactor(const TensorView* tv);
 
 // Returns tvs that have symbolic axes
@@ -651,5 +651,7 @@ std::optional<std::vector<int64_t>> computePermutation(
   }
   return permutation;
 }
+
+bool hasTrivialAllocationDomain(const TensorView* tv);
 
 } // namespace nvfuser::ir_utils

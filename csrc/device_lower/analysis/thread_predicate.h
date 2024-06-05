@@ -53,13 +53,13 @@ class ThreadPredicateMap {
     ParallelTypeBitmap redundant_types;
 
     // when a leaf domain of a Tensor stored in global memory
-    // is merged from concretized broadcast root domain, the broadcasted
-    // root domains should be skipped when writing to global memory.
-    // broadcast_rd_indices_map maps a parallel type to a list of indices
-    // of the broadcasted root domains. The write to global memory is needed
+    // is merged from concretized broadcast logical domain, the broadcasted
+    // logical domains should be skipped when writing to global memory.
+    // broadcast_ld_indices_map maps a parallel type to a list of indices
+    // of the broadcasted logical domains. The write to global memory is needed
     // only when the index equals to 0.
     std::unordered_map<ParallelType, std::vector<Val*>>
-        broadcast_rd_indices_map;
+        broadcast_ld_indices_map;
 
     // Tracking use chain of redundant writes:
     //  [Redundant use chain]

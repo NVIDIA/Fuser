@@ -159,22 +159,20 @@ void MaxInfoSpanningTree::traverse(Propagator* propagator) {
   propagator->tearDown();
 }
 
-MaxRootDomainInfoSpanningTree::RootDomainInfo::operator bool() const {
+MaxRootDomainInfoSpanningTree::DomainInfo::operator bool() const {
   return !info.empty();
 }
 
-bool MaxRootDomainInfoSpanningTree::RootDomainInfo::operator<(
+bool MaxRootDomainInfoSpanningTree::DomainInfo::operator<(
     const Information& r) const {
-  auto rr = dynamic_cast<const RootDomainInfo&>(r);
+  auto rr = dynamic_cast<const DomainInfo&>(r);
   if (info.size() != rr.info.size()) {
     return info.size() < rr.info.size();
   }
-  size_t l_complete =
-      std::count_if(info.begin(), info.end(), [](const RootIDInfo& i) {
-        return i.is_complete;
-      });
+  size_t l_complete = std::count_if(
+      info.begin(), info.end(), [](const IDInfo& i) { return i.is_complete; });
   size_t r_complete =
-      std::count_if(rr.info.begin(), rr.info.end(), [](const RootIDInfo& i) {
+      std::count_if(rr.info.begin(), rr.info.end(), [](const IDInfo& i) {
         return i.is_complete;
       });
   return l_complete < r_complete;
@@ -183,40 +181,40 @@ bool MaxRootDomainInfoSpanningTree::RootDomainInfo::operator<(
 namespace {
 
 // Given `root_ids`, a list of IDs in the root domain of `tv`, find their
-// corresponding IDs in the rfactor domain of `tv`.
-std::unordered_set<IterDomain*> mapRootToRFactor(
+// corresponding IDs in the logical domain of `tv`.
+std::unordered_set<IterDomain*> mapRootToLogical(
     TensorView* tv,
     const std::unordered_set<IterDomain*>& root_ids) {
-  std::unordered_set<IterDomain*> mapped_rfactor_ids;
-  const auto& rfactor_dom = tv->getMaybeRFactorDomain();
-  for (auto id : rfactor_dom) {
+  std::unordered_set<IterDomain*> mapped_logical_ids;
+  const auto& logical_dom = tv->getLogicalDomain();
+  for (auto id : logical_dom) {
     if (root_ids.count(id) > 0) {
-      mapped_rfactor_ids.emplace(id);
+      mapped_logical_ids.emplace(id);
       continue;
     }
     for (auto root_id : root_ids) {
       if (id == root_id || DependencyCheck::isDependencyOf(root_id, id)) {
-        mapped_rfactor_ids.emplace(id);
+        mapped_logical_ids.emplace(id);
         break;
       }
     }
   }
-  return mapped_rfactor_ids;
+  return mapped_logical_ids;
 }
 
-// Given `rfactor_ids`, a list of IDs in the rfactor domain of `tv`, find their
+// Given `logical_ids`, a list of IDs in the logical domain of `tv`, find their
 // corresponding IDs in the root domain of `tv`.
-std::unordered_set<IterDomain*> mapRFactorToRoot(
+std::unordered_set<IterDomain*> mapLogicalToRoot(
     TensorView* tv,
-    const std::unordered_set<IterDomain*>& rfactor_ids) {
+    const std::unordered_set<IterDomain*>& logical_ids) {
   std::unordered_set<IterDomain*> mapped_root_ids;
   for (auto id : tv->getRootDomain()) {
-    if (rfactor_ids.count(id) > 0) {
+    if (logical_ids.count(id) > 0) {
       mapped_root_ids.emplace(id);
       continue;
     }
-    for (auto rfactor_id : rfactor_ids) {
-      if (DependencyCheck::isDependencyOf(id, rfactor_id)) {
+    for (auto logical_id : logical_ids) {
+      if (DependencyCheck::isDependencyOf(id, logical_id)) {
         mapped_root_ids.emplace(id);
         break;
       }
@@ -229,11 +227,11 @@ std::unordered_set<IterDomain*> mapRFactorToRoot(
 
 // Given the preserved reference root ID info of a producer, compute
 // the corresponding info in consumer. The given info may be represented by
-// producer's root domain, or rfactor domain, depending on how we reached the
+// producer's root domain, or logical domain, depending on how we reached the
 // producer during path-finding. If the given info is already represented with
-// producer's rfactor domain, then we directly map it to the consumer's root
+// producer's logical domain, then we directly map it to the consumer's root
 // domain. If the given info is represented with producer's root domain, we need
-// to first map it to the rfactor domain of the producer, then we can map it to
+// to first map it to the logical domain of the producer, then we can map it to
 // the consumer's root domain. The computed info will be represented by root
 // domain as root domain contains the raw information.
 std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree::
@@ -241,31 +239,31 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
         TensorView* from,
         TensorView* to,
         std::shared_ptr<Information> from_info) {
-  RootDomainInfo result;
+  DomainInfo result;
 
   TensorView* producer = from;
   TensorView* consumer = to;
   const auto& producer_root_id_info =
-      std::dynamic_pointer_cast<RootDomainInfo>(from_info)->info;
+      std::dynamic_pointer_cast<DomainInfo>(from_info)->info;
 
   auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
   auto p2c_map = pairwise_map.mapProducerToConsumer();
 
   for (auto& info : producer_root_id_info) {
-    RootIDInfo consumer_info;
+    IDInfo consumer_info;
     consumer_info.is_complete = info.is_complete;
-    consumer_info.is_rfactor = false;
+    consumer_info.is_logical = false;
 
-    // mapped root ids in producer -> mapped rfactor ids in producer
-    std::unordered_set<IterDomain*> producer_mapped_rfactor_ids;
-    if (producer->hasRFactor() && !info.is_rfactor) {
-      producer_mapped_rfactor_ids = mapRootToRFactor(producer, info.mapped_ids);
+    // mapped root ids in producer -> mapped logical ids in producer
+    std::unordered_set<IterDomain*> producer_mapped_logical_ids;
+    if (producer->hasRoot() && !info.is_logical) {
+      producer_mapped_logical_ids = mapRootToLogical(producer, info.mapped_ids);
     } else {
-      producer_mapped_rfactor_ids = info.mapped_ids;
+      producer_mapped_logical_ids = info.mapped_ids;
     }
 
-    // mapped rfactor ids in producer -> mapped root ids in consumer
-    for (auto producer_id : producer_mapped_rfactor_ids) {
+    // mapped logical ids in producer -> mapped root ids in consumer
+    for (auto producer_id : producer_mapped_logical_ids) {
       auto it = p2c_map.find(producer_id);
       if (it != p2c_map.end()) {
         consumer_info.mapped_ids.insert(it->second);
@@ -280,47 +278,47 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
       result.info.push_back(consumer_info);
     }
   }
-  return std::make_shared<RootDomainInfo>(std::move(result));
+  return std::make_shared<DomainInfo>(std::move(result));
 }
 
 // Given the preserved reference root ID info of a consumer, compute
 // the corresponding info in producer. The given info may be represented by
-// consumer's root domain, or rfactor domain, depending on how we reached the
+// consumer's root domain, or logical domain, depending on how we reached the
 // consumer during path-finding. If the given info is already represented with
-// consumer's root domain, then we directly map it to the producer's rfactor
-// domain. If the given info is represented with consumer's rfactor domain, we
+// consumer's root domain, then we directly map it to the producer's logical
+// domain. If the given info is represented with consumer's logical domain, we
 // need to first map it to the root domain of the consumer, then we can map it
-// to the producer's rfactor domain. The computed info will be represented by
-// rfactor domain as rfactor domain contains the raw information.
+// to the producer's logical domain. The computed info will be represented by
+// logical domain as logical domain contains the raw information.
 std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree::
     computeInfoC2P(
         TensorView* from,
         TensorView* to,
         std::shared_ptr<Information> from_info) {
-  RootDomainInfo result;
+  DomainInfo result;
 
   TensorView* producer = to;
   TensorView* consumer = from;
   const auto& consumer_root_id_info =
-      std::dynamic_pointer_cast<RootDomainInfo>(from_info)->info;
+      std::dynamic_pointer_cast<DomainInfo>(from_info)->info;
 
   auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
   auto c2p_map = pairwise_map.mapConsumerToProducer();
 
   for (auto& info : consumer_root_id_info) {
-    RootIDInfo producer_info;
+    IDInfo producer_info;
     producer_info.is_complete = info.is_complete;
-    producer_info.is_rfactor = true;
+    producer_info.is_logical = true;
 
-    // mapped rfactor ids in consumer -> mapped root ids in consumer
+    // mapped logical ids in consumer -> mapped root ids in consumer
     std::unordered_set<IterDomain*> consumer_mapped_root_ids;
-    if (info.is_rfactor && consumer->hasRFactor()) {
-      consumer_mapped_root_ids = mapRFactorToRoot(consumer, info.mapped_ids);
+    if (info.is_logical && consumer->hasRoot()) {
+      consumer_mapped_root_ids = mapLogicalToRoot(consumer, info.mapped_ids);
     } else {
       consumer_mapped_root_ids = info.mapped_ids;
     }
 
-    // mapped root ids in consumer -> mapped rfactor ids in producer
+    // mapped root ids in consumer -> mapped logical ids in producer
     for (auto consumer_id : consumer_mapped_root_ids) {
       auto it = c2p_map.find(consumer_id);
       if (it != c2p_map.end()) {
@@ -330,24 +328,24 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
       }
     }
 
-    // We will stop at the rfactor ids in producer, and will not further map
+    // We will stop at the logical ids in producer, and will not further map
     // them into root ids in producer. This means, we only keep the unprocessed
     // raw information of a tensor. This behavior is important to make sure that
     // info is as accurate as possible throughout the path-finding.
     //
     // For example, in a C->P->C' path, we want to do
-    //   C(root) -> P(rfactor) -> C'(root)
+    //   C(root) -> P(logical) -> C'(root)
     // instead of
-    //   C(root) -> P(rfactor) -> P(root) -> P(rfactor) -> C'(root)
+    //   C(root) -> P(logical) -> P(root) -> P(logical) -> C'(root)
     //
     // and the above two paths do lead to different results:
     //
     // For example if you have a producer tensor
     //   root domain: [I1, I2]
-    //   rfactor domain: [I3, I5]
+    //   logical domain: [I3, I5]
     // where I3, I4 = split(I1), I5 = merge(I4, I2)
-    // Then the P(rfactor) -> P(root) -> P(rfactor) could lead to
-    // P(rfactor: {I5}) -> P(root: {I1, I2}) -> P(rfactor: {I3, I5})
+    // Then the P(logical) -> P(root) -> P(logical) could lead to
+    // P(logical: {I5}) -> P(root: {I1, I2}) -> P(logical: {I3, I5})
     // which is not correct
 
     // If at least one root id in the producer contains information
@@ -356,22 +354,22 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
       result.info.push_back(producer_info);
     }
   }
-  return std::make_shared<RootDomainInfo>(std::move(result));
+  return std::make_shared<DomainInfo>(std::move(result));
 }
 
-std::shared_ptr<MaxRootDomainInfoSpanningTree::RootDomainInfo>
-MaxRootDomainInfoSpanningTree::getReferenceRootIDInfo(TensorView* tv) {
-  RootDomainInfo result;
-  const auto& root_domain = tv->getRootDomain();
+std::shared_ptr<MaxRootDomainInfoSpanningTree::DomainInfo>
+MaxRootDomainInfoSpanningTree::getReferenceIDInfo(TensorView* tv) {
+  DomainInfo result;
+  const auto& root_domain = tv->getMaybeRootDomain();
   result.info.reserve(root_domain.size());
   for (auto id : root_domain) {
-    result.info.emplace_back(RootIDInfo{{id}, true, false});
+    result.info.emplace_back(IDInfo{{id}, true, false});
   }
-  return std::make_shared<RootDomainInfo>(std::move(result));
+  return std::make_shared<DomainInfo>(std::move(result));
 }
 
-std::shared_ptr<MaxRootDomainInfoSpanningTree::RootDomainInfo>
-MaxRootDomainInfoSpanningTree::getReferenceRootIDInfo(
+std::shared_ptr<MaxRootDomainInfoSpanningTree::DomainInfo>
+MaxRootDomainInfoSpanningTree::getReferenceIDInfo(
     TensorView* tv,
     int64_t leaf_pos) {
   if (leaf_pos < 0) {
@@ -380,24 +378,24 @@ MaxRootDomainInfoSpanningTree::getReferenceRootIDInfo(
   NVF_CHECK(
       leaf_pos >= 0 && leaf_pos <= int64_t(tv->nDims()),
       "MaxRootDomainInfoSpanningTree called on an leaf_pos outside valid range.");
-  RootDomainInfo result;
-  const auto& root_domain = tv->getMaybeRFactorDomain();
+  DomainInfo result;
+  const auto& logical_domain = tv->getLogicalDomain();
   const auto& leaf_domain = tv->getLeafDomain();
   std::unordered_set<IterDomain*> selected_leaves(
       leaf_domain.begin(), leaf_domain.begin() + leaf_pos);
-  for (auto id : root_domain) {
+  for (auto id : logical_domain) {
     if (selected_leaves.count(id) > 0) {
-      result.info.emplace_back(RootIDInfo{{id}, true, tv->hasRFactor()});
+      result.info.emplace_back(IDInfo{{id}, true, true});
       continue;
     }
     for (auto selected_leaf_id : selected_leaves) {
       if (DependencyCheck::isDependencyOf(id, selected_leaf_id)) {
-        result.info.emplace_back(RootIDInfo{{id}, true, tv->hasRFactor()});
+        result.info.emplace_back(IDInfo{{id}, true, true});
         break;
       }
     }
   }
-  return std::make_shared<RootDomainInfo>(std::move(result));
+  return std::make_shared<DomainInfo>(std::move(result));
 }
 
 // Given the preserved reference root ID info of a tensor, compute
@@ -410,40 +408,40 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
         TensorView* from,
         TensorView* to,
         std::shared_ptr<Information> from_info) {
-  RootDomainInfo result;
+  DomainInfo result;
 
   const auto& from_root_id_info =
-      std::dynamic_pointer_cast<RootDomainInfo>(from_info)->info;
+      std::dynamic_pointer_cast<DomainInfo>(from_info)->info;
 
   const auto& from_root_dom = from->getRootDomain();
   const auto& to_root_dom = to->getRootDomain();
-  const auto& from_rfactor_dom = from->getMaybeRFactorDomain();
-  const auto& to_rfactor_dom = to->getMaybeRFactorDomain();
+  const auto& from_logical_dom = from->getLogicalDomain();
+  const auto& to_logical_dom = to->getLogicalDomain();
 
-  NVF_ERROR(from->hasRFactor() == to->hasRFactor());
+  NVF_ERROR(from->hasRoot() == to->hasRoot());
   NVF_ERROR(from_root_dom.size() == to_root_dom.size());
-  NVF_ERROR(from_rfactor_dom.size() == to_rfactor_dom.size());
+  NVF_ERROR(from_logical_dom.size() == to_logical_dom.size());
 
   std::unordered_map<IterDomain*, IterDomain*> id_map;
-  for (auto i : c10::irange(from_root_dom.size())) {
-    id_map[from_root_dom.at(i)] = to_root_dom.at(i);
+  for (auto i : c10::irange(from_logical_dom.size())) {
+    id_map[from_logical_dom.at(i)] = to_logical_dom.at(i);
   }
-  if (from->hasRFactor()) {
-    for (auto i : c10::irange(from_rfactor_dom.size())) {
-      id_map[from_rfactor_dom.at(i)] = to_rfactor_dom.at(i);
+  if (from->hasRoot()) {
+    for (auto i : c10::irange(from_root_dom.size())) {
+      id_map[from_root_dom.at(i)] = to_root_dom.at(i);
     }
   }
 
   for (auto& from_info : from_root_id_info) {
     result.info.emplace_back();
-    RootIDInfo& to_info = result.info.back();
+    IDInfo& to_info = result.info.back();
     to_info.is_complete = from_info.is_complete;
-    to_info.is_rfactor = from_info.is_rfactor;
+    to_info.is_logical = from_info.is_logical;
     for (auto from_id : from_info.mapped_ids) {
       to_info.mapped_ids.emplace(id_map.at(from_id));
     }
   }
-  return std::make_shared<RootDomainInfo>(std::move(result));
+  return std::make_shared<DomainInfo>(std::move(result));
 }
 
 void SpanningTreePrinter::propagateC2P(TensorView* from, TensorView* to) {

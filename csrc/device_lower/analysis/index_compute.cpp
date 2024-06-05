@@ -81,7 +81,7 @@ std::unordered_map<IterDomain*, IterDomain*> invertOneToOneMap(
 //! A struct to keep track of necessary parameters used in
 //!  configuring index compute pass.
 //! These parameters are needed to propagate the indexing from the leaf nodes of
-//! the TVs and loop nests to the TVs rfactor domain during
+//! the TVs and loop nests to the TVs logical domain during
 //! index_compute.cpp::IndexCompute passes.
 //! TODO:
 //!   Would expect this list to become shorter over time,
@@ -98,9 +98,6 @@ struct IndexingParameters {
   //! (Used in non-global indexing) the preferred path we would
   //!  be propagating contiguously merged indices backward.
   std::unordered_set<IterDomain*> preferred_concrete_ids;
-
-  //! The inferred halo padded extents of the concrete iterdomains.
-  std::unordered_map<IterDomain*, Val*> concrete_id_to_halo_extent;
 
   //! Unswitched concrete domains. Back-traversing through the inner
   //! domain of a merge may need to be replaced with the maximum of
@@ -129,11 +126,6 @@ IndexingParameters getLinearIndexParameters(
           loop_index_map.at(index_domain), loop->step());
     }
   }
-
-  // Derive the halo extents from the loop indexing result.
-  index_parameters.concrete_id_to_halo_extent =
-      GpuLower::current()->haloInfo()->buildConcreteHaloExtentMap(
-          loop_indexing);
 
   protectNonPredicateIndexWithMagicZero(
       loops,
@@ -242,11 +234,6 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   const TensorView* target_tv = index_producer ? producer_tv : consumer_tv;
   index_parameters.preferred_concrete_ids = buildLoopIndexingPreferredPath(
       target_tv, loop_indexing, index_producer, p2c_map);
-
-  // Derive the halo extents from the loop indexing result.
-  index_parameters.concrete_id_to_halo_extent =
-      GpuLower::current()->haloInfo()->buildConcreteHaloExtentMap(
-          loop_indexing);
 
   return index_parameters;
 }
@@ -512,11 +499,6 @@ IndexingParameters getPredicateInitialIndexParameters(
   // not done at this point but is done individually for each indexed
   // domain. See Index::getReferenceRootPredicates.
 
-  // Derive the halo extents from the loop indexing result.
-  index_parameters.concrete_id_to_halo_extent =
-      GpuLower::current()->haloInfo()->buildConcreteHaloExtentMap(
-          loop_indexing);
-
   return index_parameters;
 }
 
@@ -584,8 +566,8 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
 void LoopIndexingAnalysis::run() {
   // Collect consumer id's for view rfactor traversal.
   all_consumer_id_vals_ = DependencyCheck::getAllValsBetween(
-      {consumer_tv_->getRootDomain().begin(),
-       consumer_tv_->getRootDomain().end()},
+      {consumer_tv_->getMaybeRootDomain().begin(),
+       consumer_tv_->getMaybeRootDomain().end()},
       {consumer_tv_->getLeafDomain().begin(),
        consumer_tv_->getLeafDomain().end()});
 
@@ -665,9 +647,9 @@ void LoopIndexingAnalysis::traverseFromDomainVals() {
     }
     auto expr = out_id->definition();
 
-    if (auto rfactor_id =
-            getRfactorIDToTraverse(out_id, all_consumer_id_vals_)) {
-      to_visit.emplace_front(rfactor_id);
+    if (auto logical_id =
+            getLogicalIDToTraverse(out_id, all_consumer_id_vals_)) {
+      to_visit.emplace_front(logical_id);
     }
 
     // ID's will be copied for the reference as we replay transformations. If
@@ -871,15 +853,14 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   IndexCompute indexing(
       index_parameters.initial_concrete_id_index,
       index_parameters.zero_domains,
-      index_parameters.preferred_concrete_ids,
-      index_parameters.concrete_id_to_halo_extent);
+      index_parameters.preferred_concrete_ids);
 
   // Run first backward traversal to generate
   //  loop nest based indexing math.
   indexing.run(loop_indexing);
 
   // Populate indexing through exact map from initial indexing
-  auto consumer_root = index_producer ? consumer_tv->getRootDomain()
+  auto consumer_root = index_producer ? consumer_tv->getMaybeRootDomain()
                                       : consumer_tv->getMaybeAllocationDomain();
 
   // First collect all iterdomains in consumer transform history.
@@ -964,7 +945,6 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       indexing.indexMap(),
       GpuLower::current()->divisibleSplitSet(),
       GpuLower::current()->caMap(),
-      GpuLower::current()->haloInfo(),
       GpuLower::current()->concretizedBroadcastDomains(),
       p2c_map);
 
@@ -1015,7 +995,6 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
       index_parameters.initial_concrete_id_index,
       index_parameters.zero_domains,
       index_parameters.preferred_concrete_ids,
-      index_parameters.concrete_id_to_halo_extent,
       index_parameters.unswitched_domains);
 
   indexing.run(loop_indexing);
@@ -1336,7 +1315,7 @@ bool isPermissivelyMappedWithAny(IterDomain* id, const std::vector<Val*>& ids) {
     // are compatible. This is important when, for example, a tensor
     // is padded two times differently but to the same shape, and the
     // pad outputs are exactly mapped. In such a case, there're two
-    // paths from the post rfactor ID to the original input ID, and
+    // paths from the post logical ID to the original input ID, and
     // the correct path depends on the path where this producer is
     // used as a producer. See the FusionPad8 test for a concrete
     // example.
@@ -1440,42 +1419,42 @@ std::unordered_set<IterDomain*> buildLoopIndexingPreferredPath(
       original_tv, loop_indexing, use_replay_map, p2c_map);
 }
 
-// Get an rfactor IterDomain that is mapped with an IterDomain. If
+// Get an logical IterDomain that is mapped with an IterDomain. If
 // multiple such IDs exist, select one whose input IDs are mapped with
 // the consumer IDs. This is to ensure the path from the leaf
 // IterDomains to the root matches with the consumer tensor.
-IterDomain* getRfactorIDToTraverse(
+IterDomain* getLogicalIDToTraverse(
     IterDomain* id,
     const std::vector<Val*>& consumer_all_ids) {
-  const auto& rfactor_ids =
-      GpuLower::current()->caMap()->getRfactorDomainsOfIdGroup(
+  const auto& logical_ids =
+      GpuLower::current()->caMap()->getLogicalDomainsOfIdGroup(
           id, IdMappingMode::PERMISSIVE);
-  if (rfactor_ids.empty()) {
+  if (logical_ids.empty()) {
     return nullptr;
   }
 
-  for (auto rfactor_id : rfactor_ids) {
-    auto def = rfactor_id->definition();
+  for (auto logical_id : logical_ids) {
+    auto def = logical_id->definition();
     if (def == nullptr) {
       continue;
     }
 
-    auto rfactor_id_inputs = ir_utils::filterByType<IterDomain>(def->inputs());
+    auto logical_id_inputs = ir_utils::filterByType<IterDomain>(def->inputs());
     if (std::all_of(
-            rfactor_id_inputs.begin(),
-            rfactor_id_inputs.end(),
-            [&](IterDomain* rfactor_id_input) {
+            logical_id_inputs.begin(),
+            logical_id_inputs.end(),
+            [&](IterDomain* logical_id_input) {
               return isPermissivelyMappedWithAny(
-                  rfactor_id_input, consumer_all_ids);
+                  logical_id_input, consumer_all_ids);
             })) {
-      return rfactor_id;
+      return logical_id;
     }
   }
 
   // No mapped ID found, which means the consumer is a post-view
   // tensor. In that case, it shouldn't matter which view path to
   // traverse, so just return the first one.
-  return rfactor_ids.at(0);
+  return logical_ids.at(0);
 }
 
 } // namespace nvfuser

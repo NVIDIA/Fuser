@@ -120,7 +120,7 @@ void KernelArgumentHolder::pushTensorProxy(
     const std::vector<int64_t>& strides,
     at::ScalarType dtype) {
   NVF_ERROR(strides.size() == sizes.size());
-  auto meta_tensor = at::detail::empty_strided_meta(
+  auto meta_tensor = at::empty_strided(
       sizes,
       strides,
       dtype,

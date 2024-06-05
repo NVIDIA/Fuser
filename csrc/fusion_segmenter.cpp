@@ -328,7 +328,7 @@ void SegmentedGroup::finalize() {
     if (auto tv = dynamic_cast<TensorView*>(i)) {
       // We do not need to add scalars which are the extents of already-added
       // input TensorViews
-      for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+      for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
         input_set.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -1158,18 +1158,19 @@ TensorView* castIntermediateValueInCompleteFusion(
   auto make_consumer_tv = [&](TensorView* from, DataType data_type) {
     // Keep broadcast axes and remove reduction axes
     size_t i = 0;
-    auto no_reduction_root_domain =
-        TensorDomain::noReductions(original_fp32_tv->getMaybeRFactorDomain());
-    std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
-    for (const auto& dom : no_reduction_root_domain) {
-      new_root_domain[i++] = dom->cloneWithoutRFactor();
+    auto no_reduction_logical_domain =
+        TensorDomain::noReductions(original_fp32_tv->getLogicalDomain());
+    std::vector<IterDomain*> new_logical_domain(
+        no_reduction_logical_domain.size());
+    for (const auto& dom : no_reduction_logical_domain) {
+      new_logical_domain[i++] = dom->cloneWithoutRFactor();
     }
 
     // Create the actual domain and tv.
     return IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
-            new_root_domain,
-            TensorDomain::getContiguityFilledWith(new_root_domain, true)),
+            new_logical_domain,
+            TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
         data_type);
   };
 
@@ -1821,67 +1822,67 @@ std::string toString(const SegmentedFusion* segmented_fusion) {
   return ss.str();
 }
 
-//! Sets the rfactor as root and erases rfactor of all inputs in fusion. Any
+//! Sets the logical as root and erases logical of all inputs in fusion. Any
 //! non-constant expressions in those extents are replaced by new scalars with
 //! no definition. These mutations are performed throughout the Fusion so that
-//! downstream expressions dependent on the original inputs' rfactor extents can
+//! downstream expressions dependent on the original inputs' logical extents can
 //! be computed properly.
-void convertInputRfactorsToRoots(Fusion* fusion) {
+void convertInputLogicalsToRoots(Fusion* fusion) {
   FusionGuard fg(fusion);
 
   // Holds all Val replacements across all inputs
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    // Create a new root domain and replacement TensorDomain.
-    // Given an rfactor domain, create a new IterDomain.
+    // Create a new logical domain and replacement TensorDomain.
+    // Given an logical domain, create a new IterDomain.
     // Otherwise, clone the previous IterDomain
-    std::vector<IterDomain*> new_root_domain;
-    auto rfactor = tv->getMaybeRFactorDomain();
-    new_root_domain.reserve(rfactor.size());
+    std::vector<IterDomain*> new_logical_domain;
+    auto logical = tv->getLogicalDomain();
+    new_logical_domain.reserve(logical.size());
 
-    // Does the domain (root / rfactor) contain all concrete sized extents?
+    // Does the logical domain contain all concrete sized extents?
     bool tv_is_concrete = true;
-    for (auto id : rfactor) {
+    for (auto id : logical) {
       if (!id->extent()->isConstScalar()) {
         tv_is_concrete = false;
         break;
       }
     }
 
-    for (const auto& id : rfactor) {
+    for (const auto& id : logical) {
       if (id->isRFactorProduct()) {
-        // Create new symbolic extents for rfactor iterDomains
+        // Create new symbolic extents for logical iterDomains
         auto domain_extent = (!tv_is_concrete)
             ? IrBuilder::create<Val>(DataType::Index)
             : id->extent();
         replacement_map.emplace(id->extent(), domain_extent);
-        new_root_domain.push_back(IterDomainBuilder(id)
-                                      .extent(domain_extent)
-                                      .resetSchedulingParams()
-                                      .build());
+        new_logical_domain.push_back(IterDomainBuilder(id)
+                                         .extent(domain_extent)
+                                         .resetSchedulingParams()
+                                         .build());
       } else {
-        new_root_domain.push_back(id->cloneWithoutRFactor());
+        new_logical_domain.push_back(id->cloneWithoutRFactor());
       }
     }
 
-    NVF_ERROR(new_root_domain.size() == tv->domain()->contiguity().size());
+    NVF_ERROR(new_logical_domain.size() == tv->domain()->contiguity().size());
     TensorDomain* new_td = nullptr;
 
     if (tv->domain()->hasAllocation()) {
-      // we need to reorder the root domain into allocation domain consistently
-      // with the mapping from the old TensorView rfactor domain to its
-      // allocation domain
+      // we need to reorder the logical domain into allocation domain
+      // consistently with the mapping from the old TensorView logical domain to
+      // its allocation domain
       const auto& alloc = tv->getAllocationDomain();
       NVF_ERROR(
-          alloc.size() == rfactor.size(),
-          "size between rfactor and alloc doesn't match");
+          alloc.size() == logical.size(),
+          "size between logical and alloc doesn't match");
       const auto rank = alloc.size();
       std::vector<int64_t> stride_order(rank, -1);
       for (auto i : c10::irange(rank)) {
         bool found_match = false;
         for (auto j : c10::irange(rank)) {
-          if (alloc[i] == rfactor[j]) {
+          if (alloc[i] == logical[j]) {
             stride_order[j] = static_cast<int64_t>(rank - 1 - i);
             found_match = true;
             break;
@@ -1889,13 +1890,13 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
         }
         NVF_ERROR(
             found_match,
-            "cannot match IterDomain between allocation domain to rfactor domain");
+            "cannot match IterDomain between allocation domain to logical domain");
       }
       new_td = IrBuilder::create<TensorDomain>(
-          new_root_domain, stride_order, tv->domain()->contiguity());
+          new_logical_domain, stride_order, tv->domain()->contiguity());
     } else {
       new_td = IrBuilder::create<TensorDomain>(
-          new_root_domain, tv->domain()->contiguity());
+          new_logical_domain, tv->domain()->contiguity());
     }
     replacement_map.emplace(tv->domain(), new_td);
   }
@@ -1942,9 +1943,9 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
 
-  // Replace all vals that are rfactor extents in fusion_segment->inputs() with
+  // Replace all vals that are logical extents in fusion_segment->inputs() with
   // new Vals so that they can be bound to the segment inputs.
-  convertInputRfactorsToRoots(fusion_segment.get());
+  convertInputLogicalsToRoots(fusion_segment.get());
 
   return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
 }
@@ -2927,28 +2928,28 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   // Create normalization based welford graph
   //  largely taken from batchnorm cpp benchmark
-  const auto& in_root =
-      TensorDomain::noReductions(in_val->getMaybeRFactorDomain());
-  const auto& out_root = out_avg->getRootDomain();
+  const auto& in_logical =
+      TensorDomain::noReductions(in_val->getLogicalDomain());
+  const auto& out_logical = out_avg->getLogicalDomain();
   std::vector<int64_t> red_axes;
 
   NVF_ERROR(
-      in_root.size() == out_root.size(),
+      in_logical.size() == out_logical.size(),
       "Invalid root domains of Welford input and output.",
       " Input: ",
-      ir_utils::toString(in_root),
+      ir_utils::toString(in_logical),
       ". Output: ",
-      ir_utils::toString(out_root));
+      ir_utils::toString(out_logical));
 
   // Create scalar version of the feature element
   //  counting.
   Val* num_features = IrBuilder::create<Val>(1.0);
-  std::vector<bool> broadcast_mask(in_root.size(), false);
-  for (const auto i : c10::irange((int64_t)in_root.size())) {
-    if (out_root.at(i)->isReduction()) {
+  std::vector<bool> broadcast_mask(in_logical.size(), false);
+  for (const auto i : c10::irange((int64_t)in_logical.size())) {
+    if (out_logical.at(i)->isReduction()) {
       red_axes.push_back(i);
       broadcast_mask[i] = true;
-      num_features = mul(num_features, out_root.at(i)->extent());
+      num_features = mul(num_features, out_logical.at(i)->extent());
     }
   }
 
@@ -3458,7 +3459,7 @@ class CombineReductions {
       auto out_tv = rop->out()->template as<TensorView>();
       NVF_ERROR(out_tv != nullptr);
       has_reduction_ = out_tv->hasReduction();
-      auto& root_domain = out_tv->getRootDomain();
+      auto& root_domain = out_tv->getLogicalDomain();
       root_domain_size_ = root_domain.size();
 
       for (const auto i : c10::irange(root_domain_size_)) {
@@ -4108,16 +4109,16 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   std::unordered_set<Val*> visited;
 
   const auto processTV = [&to_visit](TensorView* tv) {
-    for (auto id : TensorDomain::noReductions(tv->getRootDomain())) {
+    for (auto id : TensorDomain::noReductions(tv->getMaybeRootDomain())) {
       to_visit.push_back(id->getMaybeExpandedExtent());
     }
-    if (tv->domain()->hasRFactor()) {
-      // traverse from root to rfactor and inspect all Expr attrs and outputs
+    if (tv->domain()->hasRoot()) {
+      // traverse from root to logical and inspect all Expr attrs and outputs
       std::vector<Val*> all_vals;
       for (const auto id_expr : StmtSort::getExprsBetween(
                {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-               {tv->getMaybeRFactorDomain().begin(),
-                tv->getMaybeRFactorDomain().end()})) {
+               {tv->getLogicalDomain().begin(),
+                tv->getLogicalDomain().end()})) {
         all_vals.insert(
             all_vals.end(), id_expr->inputs().begin(), id_expr->inputs().end());
         all_vals.insert(
@@ -4140,11 +4141,11 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     }
   };
 
-  // Segment TensorView inputs will have their rfactor extents available, so we
+  // Segment TensorView inputs will have their logical extents available, so we
   // avoid adding them as separate scalar inputs.
   for (auto e : group->producer_edges) {
     if (const auto tv = dynamic_cast<TensorView*>(e->val)) {
-      for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+      for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
         visited.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -4161,10 +4162,10 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
                               [&tv](SegmentedEdge* e) {
                                 return e->val == tv;
                               })) {
-        // Intermediate group inputs (producer edges) will have their rfactor
+        // Intermediate group inputs (producer edges) will have their logical
         // domain reassigned as the root domain, so there is no need to process
         // them. Tensors computed inside this group will need processing,
-        // however, as their root->rfactor transforms must be computed in this
+        // however, as their root->logical transforms must be computed in this
         // group.
         processTV(tv);
       }
@@ -4195,7 +4196,7 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     input_set.insert(inp);
     if (auto tv = dynamic_cast<TensorView*>(inp)) {
       for (IterDomain* id :
-           TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+           TensorDomain::noReductions(tv->getLogicalDomain())) {
         // Extents of inputs will already be bound. This prevents adding them
         // as redundant inputs.
         input_set.insert(id->getMaybeExpandedExtent());
