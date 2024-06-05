@@ -125,10 +125,8 @@ std::pair<ValGroup, ValGroup> swizzle(
   g0_id = g0_id->cloneWithoutRFactor();
   g1_id = g1_id->cloneWithoutRFactor();
   auto [out_x, out_y] = IterDomain::swizzle(swizzle_type, g0_id, g1_id);
-  graph->initializeVal(g0_id, {}, {});
-  graph->initializeVal(g1_id, {}, {});
-  graph->mapVals(g0->front(), g0_id);
-  graph->mapVals(g1->front(), g1_id);
+  graph->initializeVal(g0_id, g0);
+  graph->initializeVal(g1_id, g1);
   graph->initializeVal(out_x, {}, {});
   graph->registerExpr(out_x->definition());
   graph->initializeVal(out_y, {}, {});
