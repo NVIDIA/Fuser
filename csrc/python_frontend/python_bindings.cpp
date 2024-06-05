@@ -506,6 +506,7 @@ void initNvFuserPythonBindings(PyObject* module) {
     return self.fusion_definition;
   });
   tensor_class.def(pybind11::self == pybind11::self);
+  tensor_class.def(pybind11::self != pybind11::self);
 
   py::class_<Scalar> scalar_class(nvfuser, "Scalar");
   scalar_class.def("__repr__", [](Scalar& self) {
@@ -514,6 +515,7 @@ void initNvFuserPythonBindings(PyObject* module) {
     return ss.str();
   });
   scalar_class.def(pybind11::self == pybind11::self);
+  scalar_class.def(pybind11::self != pybind11::self);
 
   py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
   device_mesh_class.def("__repr__", [](const DeviceMesh& self) {
@@ -531,6 +533,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   vector_class.def_property_readonly(
       "size", [](Vector& self) { return self.size; });
   vector_class.def(pybind11::self == pybind11::self);
+  vector_class.def(pybind11::self != pybind11::self);
 
   //! The FusionDefinition is a context manager in Python where the user will
   //! define the set the operations and connections between operations for

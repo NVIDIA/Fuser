@@ -60,6 +60,10 @@ struct Tensor {
     return true;
   }
 
+  bool operator!=(const Tensor& other) const {
+    return !(*this == other);
+  }
+
   //! A unique index to identifiy each recorded state item.
   size_t index;
   size_t dims;
@@ -87,6 +91,10 @@ struct Scalar {
       return false;
     }
     return true;
+  }
+
+  bool operator!=(const Scalar& other) const {
+    return !(*this == other);
   }
 
   //! A unique index to identifiy each recorded state item.
@@ -119,6 +127,10 @@ struct Vector {
       return false;
     }
     return true;
+  }
+
+  bool operator!=(const Vector& other) const {
+    return !(*this == other);
   }
 
   //! A unique index to identifiy each recorded state item.
