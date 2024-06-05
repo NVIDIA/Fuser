@@ -49,6 +49,9 @@ class TensorIndexer {
   // separate interface.
   Val* getLinearIndex(TensorView* tv, const Expr* expr);
 
+  // Get the index of a loop domain. Intended to be used only for testing.
+  Val* getLoopIndex(IterDomain* loop_id) const;
+
  private:
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
@@ -60,14 +63,17 @@ class TensorIndexer {
   // on loop_index_map_.
   void buildLoopIndexMap();
 
-  // Get the index of a loop domain.
-  Val* getLoopIndex(IterDomain* loop_id) const;
-
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
   // index map, which is built for the Loop graph.
   std::unordered_map<ValGroup, Val*> getInitialIndexMap(
       const std::vector<IterDomain*>& loop_domains) const;
+
+  // Get the loop domains of a given expr. Currently, they're always
+  // the loop domains of a consumer tensor, but in the future this
+  // function may return the loop domains of a producer for
+  // producer-based indexing.
+  std::vector<IterDomain*> getLoopDomains(const Expr* expr) const;
 
   // Returns the index map as well as its traversal path of given
   // index domains appearing in a given expr. Used by

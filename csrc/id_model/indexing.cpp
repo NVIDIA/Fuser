@@ -42,40 +42,36 @@ IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
   return loop_promotion_map_it->second;
 }
 
-// Get the loop domains of a given expr, which are (potentially
-// promoted) loop domains of the consumer tensor.
-std::vector<IterDomain*> getLoopDomains(
-    const Expr* expr,
-    const IdModel& id_model) {
-  // Assume consumer-based indexing. Needs to revisit for ops like
-  // scatter
-  auto loop_domains = ir_utils::getTvOutput(expr)->getLeafDomain();
-
-  // If this is an expr initializing a buffer for a reduction, there
-  // should be no loops for reduction domains
-  if (lower_utils::isReductionInitExpr(expr)) {
-    loop_domains.erase(
-        std::remove_if(
-            loop_domains.begin(),
-            loop_domains.end(),
-            [](IterDomain* id) -> bool { return id->isReduction(); }),
-        loop_domains.end());
+// True if a given domain is a loop doamin of a given tensor and its
+// loop is partitioned with respect to the memory type of the tensor
+bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
+  // False if id is not a loop ID
+  if (std::find(tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id) ==
+      tv->getLeafDomain().end()) {
+    return false;
   }
 
-  for (auto& loop_id : loop_domains) {
-    loop_id = getLoopPromotion(loop_id, id_model);
-  }
-
-  return loop_domains;
+  // If the memory of this domain is partitioned with respect to the
+  // parallel type of the domain, there's no allocation for the domain
+  return ir_utils::isPartitionedMemory(
+      tv->getMemoryType(), id->getParallelType());
 }
 
-bool isAllocated(IterDomain* id, const TensorView* tv) {
-  // If the extent is 1, it's effectively the same as broadcast.
-  return ir_utils::isShared(tv->getMemoryType(), id->getParallelType()) &&
-      !id->isBroadcast() && !id->isReduction() && !id->extent()->isOneInt();
+bool isSizeOneDomain(IterDomain* id) {
+  return id->isBroadcast() || id->isReduction() || id->extent()->isOneInt();
 }
 
-Val* getAllocationStride(TensorView* tv, int64_t alloc_dim) {
+// True if a given domain of a tensor *may* require allocation
+bool mayRequireAllocation(TensorView* tv, IterDomain* id) {
+  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id);
+}
+
+// Get the allocation stride of a given allocation domain
+Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
+  NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
+
+  // Allocation domains can include reduction domains, but
+  // alloc_stride arraies do not.
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
   int64_t stride_dim = -1;
   for (const auto i : c10::irange(alloc_dim + 1)) {
@@ -84,9 +80,8 @@ Val* getAllocationStride(TensorView* tv, int64_t alloc_dim) {
     }
     ++stride_dim;
   }
-  if (stride_dim == -1) {
-    return nullptr;
-  }
+
+  NVF_ERROR(stride_dim != -1);
 
   return IrBuilder::getItemExpr(
       IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "alloc_stride"),
@@ -102,10 +97,15 @@ bool isAllocationBasedOnLeaf(TensorView* tv) {
 
 // Get the allocation domains of a given tensor. Also returns its
 // strides.
+//
+// TODO: Ideally, all tensors should have their correct allocation
+// domains, but that isn't always the case at this moment. The logic
+// here is duplicated in multiple locations and should be cleaned up.
 std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     TensorView* tv,
     const IdModel& id_model) {
   std::vector<IterDomain*> allocation_domains;
+  std::vector<std::optional<bool>> contiguity;
 
   auto inlining_pos = tv->getComputeAtPosition();
 
@@ -129,6 +129,7 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   if (use_set_allocatin_domain) {
     allocation_domains = tv->getAllocationDomain();
     NVF_ERROR(!tv->isDoubleBuffered());
+    contiguity = tv->domain()->contiguity();
   } else {
     // If allocation domain is not set, assume that:
     // Local/Shared: leaf domains to the right of the CA position
@@ -137,78 +138,83 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
       VERBOSE() << "Tv does not have allocation of " << tv->toString() << ", "
                 << toDelimitedString(tv->getMaybeAllocationDomain())
                 << std::endl;
-      allocation_domains = tv->getRFactorDomain();
+      allocation_domains = tv->getLogicalDomain();
+      contiguity = tv->domain()->contiguity();
       NVF_ERROR(!tv->isDoubleBuffered());
-    } else if (tv->getMemoryType() == MemoryType::Shared) {
-      for (const auto i : c10::irange(tv->nDims())) {
-        auto leaf_id = tv->axis(i);
-        VERBOSE() << "Smem leaf domain: " << leaf_id->toString() << " of "
-                  << tv->toString() << std::endl;
-        auto pt = leaf_id->getParallelType();
-        if (isParallelTypeDeviceDim(pt) || isParallelTypeBlockDim(pt)) {
-          continue;
-        }
-        if (i < inlining_pos && !isParallelTypeThreadDim(pt)) {
-          continue;
-        }
-        allocation_domains.push_back(leaf_id);
-      }
     } else {
-      allocation_domains = {
-          tv->getLeafDomain().begin() + inlining_pos,
-          tv->getLeafDomain().end()};
+      for (const auto i : c10::irange(tv->nDims())) {
+        auto loop_id = tv->getLeafDomain().at(i);
+        auto pt = loop_id->getParallelType();
+        if (!mayRequireAllocation(tv, loop_id)) {
+          continue;
+        }
+
+        // If the position is left of the inlinig position, no need to
+        // alloate the domain unless it's shared. For example, if this
+        // is a Shared tensor and the domain is parallelized with TID,
+        // even if it's outside of the CA position, since the domain
+        // is shared, it must be allocated.
+        if (i < inlining_pos &&
+            !ir_utils::isSharedMemory(tv->getMemoryType(), pt)) {
+          continue;
+        }
+
+        allocation_domains.push_back(loop_id);
+      }
+      // Assume Local and Shared are always fully contiguous
+      contiguity =
+          std::vector<std::optional<bool>>(allocation_domains.size(), true);
     }
   }
 
-  auto tv_for_promotion = tv;
-
+  // Compute the strides from innermost to outermost domains
   std::vector<Val*> strides(allocation_domains.size(), nullptr);
+  Val* cur_contig_stride = tv->fusion()->oneVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
     auto dim = allocation_domains.size() - i - 1;
-    auto index_domain = allocation_domains.at(dim);
+    auto allocation_domain = allocation_domains.at(dim);
 
-    if (index_domain->isReduction() || index_domain->isBroadcast()) {
+    if (!mayRequireAllocation(tv, allocation_domain)) {
       continue;
     }
 
-    strides[dim] = getAllocationStride(tv, (int64_t)dim);
+    const std::optional<bool> contig_flag = contiguity.at(dim);
+    // Broadcast doesn't have contig flag but it must have been
+    // already filtered out
+    NVF_ERROR(contig_flag.has_value());
+
+    if (contig_flag.value()) {
+      strides[dim] = cur_contig_stride;
+      cur_contig_stride = SimplifyingIrBuilder::mulExpr(
+          allocation_domains.at(dim)->extent(), cur_contig_stride);
+    } else {
+      // Assume that the tensor should always be a Global memory
+      // tensor if it has non-contig allocation domains
+      NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
+      strides[dim] = getStrideOfGlobalMemoryTensor(tv, (int64_t)dim);
+      cur_contig_stride = strides[dim];
+    }
   }
 
-  std::vector<IterDomain*> actual_index_domains;
+  // Filter out non-allocated domains. This is already done for Local
+  // and Shared tensors with no set allocation domains, but not for
+  // the other cases. For example, a reduction output tensor that is
+  // also a fusion output may still have reduction domains in their
+  // allocation domains, which aren't relevant for indexing
+  std::vector<IterDomain*> actual_allocation_domains;
   std::vector<Val*> actual_strides;
-  std::vector<bool> actual_contiguity;
   for (const auto i : c10::irange(allocation_domains.size())) {
-    auto index_domain = allocation_domains.at(i);
-    if (!isAllocated(index_domain, tv)) {
+    auto allocation_domain = allocation_domains.at(i);
+    if (!mayRequireAllocation(tv, allocation_domain)) {
       continue;
     }
-
-    // If it's a leaf domain, the promoted domain is the true domain
-    // for allocation and indexing.
-    bool is_leaf = std::find(
-                       tv_for_promotion->getLeafDomain().begin(),
-                       tv_for_promotion->getLeafDomain().end(),
-                       index_domain) != tv->getLeafDomain().end();
-    auto actual_id =
-        is_leaf ? getLoopPromotion(index_domain, id_model) : index_domain;
-    VERBOSE() << "Index domain: " << index_domain->toString()
-              << ", actual domain (promotion domain): " << actual_id->toString()
-              << std::endl;
-
-    actual_index_domains.push_back(actual_id);
-    actual_strides.push_back(strides.at(i));
-    NVF_ERROR(
-        actual_strides.back() != nullptr,
-        "Stride unknown for ",
-        index_domain->toString(),
-        " (promoted to ",
-        actual_id->toString(),
-        ")");
+    auto stride = strides.at(i);
+    NVF_ERROR(stride != nullptr);
+    actual_allocation_domains.push_back(allocation_domain);
+    actual_strides.push_back(stride);
   }
 
-  NVF_ERROR(actual_index_domains.size() == actual_strides.size());
-
-  return {actual_index_domains, actual_strides};
+  return {actual_allocation_domains, actual_strides};
 }
 
 // Similar to IndexCompute but adapted for the graph-based indexing
@@ -216,14 +222,19 @@ class IdGraphIndexCompute : public OptOutDispatch {
  public:
   IdGraphIndexCompute(
       const ValGraph& traversal_graph,
-      const std::unordered_map<ValGroup, Val*>& initial_index_map)
-      : traversal_graph_(traversal_graph), index_map_(initial_index_map) {}
+      std::unordered_map<ValGroup, Val*> initial_index_map)
+      : traversal_graph_(traversal_graph),
+        index_map_(std::move(initial_index_map)) {}
 
   // Propagate the index map through a given expr of a specified
   // direction.
   void propagate(const ExprGroup& expr_group, Direction direction) {
     NVF_ERROR(!expr_group->empty());
+    // This looks a little ugly but the dispatch interface doesn't
+    // have a way to pass arguments
+    current_direction_ = direction;
     dispatch(expr_group->front());
+    current_direction_ = Direction::Undefined;
   }
 
   const std::unordered_map<ValGroup, Val*> indexMap() const {
@@ -260,29 +271,11 @@ class IdGraphIndexCompute : public OptOutDispatch {
  private:
   const ValGraph& traversal_graph_;
   std::unordered_map<ValGroup, Val*> index_map_;
+  Direction current_direction_ = Direction::Undefined;
 };
 
-// TODO: Should use the explicit direction
 bool IdGraphIndexCompute::isForward(Expr* expr) const {
-  bool ready = true;
-  for (const auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-    if (!hasIndex(inp)) {
-      VERBOSE() << "No index for input: " << inp->toString() << std::endl;
-      ready = false;
-      break;
-    }
-  }
-  if (ready) {
-    return true;
-  }
-
-  // Can just return false here. Just make sure the outputs are
-  // already processed
-  for (const auto out : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-    NVF_ERROR(hasIndex(out), "Output index not found: ", out->toString());
-  }
-
-  return false;
+  return current_direction_ == Direction::Forward;
 }
 
 void IdGraphIndexCompute::handle(Split* split) {
@@ -386,10 +379,6 @@ void TensorIndexer::buildLoopIndexMap() {
 
       Val* loop_index = nullptr;
 
-      // First allocate thread and grid parallel indices:
-      //  The validation pass will check that the parallel bindings within the
-      //  loop nodes are consistent so all the loops within this disjoint set
-      //  will be realized implicitly using parallel index variables.
       ParallelType ptype = getParallelType(loop_group);
       if (isParallelTypeThread(ptype)) {
         loop_index = NamedScalar::getParallelIndex(ptype);
@@ -409,9 +398,10 @@ void TensorIndexer::buildLoopIndexMap() {
             loop_index = ca_map->getIndexVariable(id);
             break;
           }
-          NVF_ERROR(loop_index != nullptr,
-                    "No existing index found for ",
-                    nvfuser::toString(loop_group));
+          NVF_ERROR(
+              loop_index != nullptr,
+              "No existing index found for ",
+              nvfuser::toString(loop_group));
         } else {
           // Not reusing the ComputeATMap index assignments
           loop_index = IrBuilder::create<Val>(DataType::Index);
@@ -447,16 +437,15 @@ bool TensorIndexer::shouldUseZeroIndex(const ValGroup& loop_group) const {
   // All loops in this set are non-parallel, non-concretized broadcast
   //  iterdomains, their "index variable" should be zero.
   if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
-    return val->as<IterDomain>()->isBroadcast();
-  })) {
+        return val->as<IterDomain>()->isBroadcast();
+      })) {
     return true;
   }
 
   // Trivial loop
   auto leaf_id =
       getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
-  if (!leaf_id->maybePartial() &&
-      simplifyExpr(leaf_id->extent())->isOneInt()) {
+  if (!leaf_id->maybePartial() && simplifyExpr(leaf_id->extent())->isOneInt()) {
     return true;
   }
 
@@ -508,9 +497,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   return initial_index_map;
 }
 
-Val* TensorIndexer::getLinearIndex(
-    TensorView* tv,
-    const Expr* expr) {
+Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
   VERBOSE() << "getIndex of " << tv->toString() << " in " << expr->toString();
 
   const auto [allocation_domains, strides] =
@@ -524,7 +511,6 @@ Val* TensorIndexer::getLinearIndex(
 
   // Linearize the indices with strides.
   // TODO: Contiguous indexing
-
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
     // Traverse from innermost to outermost
@@ -551,19 +537,44 @@ Val* TensorIndexer::getLinearIndex(
   return index;
 }
 
+// Get the loop domains of a given expr, which are (potentially
+// promoted) loop domains of the consumer tensor.
+std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
+  // Assume consumer-based indexing. Needs to revisit for ops like
+  // scatter
+  auto loop_domains = ir_utils::getTvOutput(expr)->getLeafDomain();
+
+  // If this is an expr initializing a buffer for a reduction, there
+  // should be no loops for reduction domains
+  if (lower_utils::isReductionInitExpr(expr)) {
+    loop_domains.erase(
+        std::remove_if(
+            loop_domains.begin(),
+            loop_domains.end(),
+            [](IterDomain* id) -> bool { return id->isReduction(); }),
+        loop_domains.end());
+  }
+
+  for (auto& loop_id : loop_domains) {
+    loop_id = getLoopPromotion(loop_id, id_model_);
+  }
+
+  return loop_domains;
+}
+
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const std::vector<IterDomain*>& index_domains) const {
-  const auto loop_domains = getLoopDomains(expr, id_model_);
+  const auto loop_domains = getLoopDomains(expr);
   VERBOSE() << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
 
   VERBOSE() << "Index domains: " << toDelimitedString(index_domains)
             << std::endl;
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
-  const ValGroups index_groups = traversalGraph().toGroups(index_domains);  
-  const ExprPath traversal_path = ValGraphBFS::getExprsBetween(
-      traversalGraph(), loop_groups, index_groups);
+  const ValGroups index_groups = traversalGraph().toGroups(index_domains);
+  const ExprPath traversal_path =
+      ValGraphBFS::getExprsBetween(traversalGraph(), loop_groups, index_groups);
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_domains);
