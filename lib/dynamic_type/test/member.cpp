@@ -341,9 +341,9 @@ TEST_F(DynamicTypeTest, ArrowOp) {
   EXPECT_EQ(ptr->aaa, 34);
   ptr = s2;
   EXPECT_EQ(ptr->aaa, 56);
-  ptr = std::move(s3);
-  EXPECT_EQ(num_dtor_calls, 0);
   s2 = nullptr;
+  EXPECT_EQ(num_dtor_calls, 0);
+  ptr = std::move(s3);
   EXPECT_EQ(num_dtor_calls, 1);
   EXPECT_EQ(ptr->aaa, 78);
   EXPECT_EQ(num_dtor_calls, 1);
