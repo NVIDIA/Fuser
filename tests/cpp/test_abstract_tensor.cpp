@@ -34,6 +34,13 @@ class AbstractTensorTest : public NVFuserTest {
   }
 };
 
+TEST_F(AbstractTensorTest, UseAbstractIdAsIdPtr) {
+  auto id0 = newID();
+  AbstractTensor v({id0});
+  v[0]->parallelize(ParallelType::TIDx);
+  EXPECT_EQ(id0->getParallelType(), ParallelType::TIDx);
+}
+
 TEST_F(AbstractTensorTest, MergeSingleIterDomains) {
   auto id0 = newID();
   auto id1 = newID();
