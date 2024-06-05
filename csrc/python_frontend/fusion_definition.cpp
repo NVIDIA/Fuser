@@ -418,23 +418,26 @@ State FusionDefinition::recordingState(size_t index) const {
 }
 
 std::vector<Tensor> FusionDefinition::tensors() {
+  // Filter TensorView states
   std::vector<State> tensor_states;
   std::copy_if(
       recording_state_.begin(),
       recording_state_.end(),
       std::back_inserter(tensor_states),
-      [](const State& s) {
+      [this](const State& s) {
         return getFusionState(s.index)->isA<TensorView>();
       });
 
+  // Reconstruct Tensors
   std::vector<Tensor> all_tensors;
   all_tensors.reserve(tensor_states.size());
   std::transform(
       tensor_states.begin(),
       tensor_states.end(),
       std::back_inserter(all_tensors),
-      [](const State& s) {
-        return Tensor(s.index, s->as<TensorView>()->nDims(), this);
+      [this](const State& s) {
+        return Tensor(
+            s.index, getFusionState(s.index)->as<TensorView>()->nDims(), this);
       });
   return all_tensors;
 }
