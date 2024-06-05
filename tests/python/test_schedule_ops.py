@@ -303,12 +303,12 @@ class TestScheduleOps(TestCase):
                 fd.sched.set_memory_type(cache_after_t1, MemoryType.shared)
                 fd.sched.set_memory_type(cache_before_t2, MemoryType.shared)
 
-                all_tvs = [cache_after_t0, cache_after_t1, cache_before_t2, self.t2]
-                for tv in all_tvs:
-                    fd.sched.merge(tv, dim=0)
-                    fd.sched.split(tv, dim=0, factor=128)
-                    fd.sched.parallelize(tv, axis := 0, ParallelType.grid_x)
-                    fd.sched.parallelize(tv, axis := 1, ParallelType.block_x)
+                all_tensors = [cache_after_t0, cache_after_t1, cache_before_t2, self.t2]
+                for tensor in all_tensors:
+                    fd.sched.merge(tensor, dim=0)
+                    fd.sched.split(tensor, dim=0, factor=128)
+                    fd.sched.parallelize(tensor, axis := 0, ParallelType.grid_x)
+                    fd.sched.parallelize(tensor, axis := 1, ParallelType.block_x)
 
         fd = Pointwise()
         nvf_out = fd.execute(inputs)
@@ -482,24 +482,28 @@ class TestScheduleOps(TestCase):
                 fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
 
                 cache_before_t0_norm = fd.sched.cache_before(self.t0_norm)
-                cache_tvs = [cache_after_t0, cache_before_t0_norm]
+                cache_tensors = [cache_after_t0, cache_before_t0_norm]
 
-                reference_tv = self.mean
+                reference_tensor = self.mean
 
                 # Schedule Reference
-                fd.sched.split(reference_tv, dim=-1, factor=256 * 4)
-                fd.sched.split(reference_tv, dim=-1, factor=4)
-                fd.sched.transform_like(reference_tv)
+                fd.sched.split(reference_tensor, dim=-1, factor=256 * 4)
+                fd.sched.split(reference_tensor, dim=-1, factor=4)
+                fd.sched.transform_like(reference_tensor)
 
                 # Add rfactor
-                reduction_tvs = list(filter(fd.sched.is_reduction, fd.sched.tensors()))
-                assert len(reduction_tvs) == 2
-                rfactor_tvs = [fd.sched.rfactor(tv, dims=[-1]) for tv in reduction_tvs]
+                reduction_tensors = list(
+                    filter(fd.sched.is_reduction, fd.sched.tensors())
+                )
+                assert len(reduction_tensors) == 2
+                rfactor_tensors = [
+                    fd.sched.rfactor(tensor, dims=[-1]) for tensor in reduction_tensors
+                ]
 
                 # Add common parallelization
-                fd.sched.parallelize(reference_tv, axis := 0, ParallelType.grid_x)
-                fd.sched.parallelize(reference_tv, axis := -2, ParallelType.block_x)
-                fd.sched.parallelize_like(reference_tv)
+                fd.sched.parallelize(reference_tensor, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(reference_tensor, axis := -2, ParallelType.block_x)
+                fd.sched.parallelize_like(reference_tensor)
 
                 # Vectorize input load and output store
                 fd.sched.parallelize(cache_after_t0, axis := -1, ParallelType.vectorize)
