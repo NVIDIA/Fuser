@@ -367,7 +367,19 @@ class VectorizationCalculator {
     return vec_size;
   }
 
-  // Note this is non-const because we use runtime_info_.expressionEvaluator()
+  //! To analyze vectorization, we need to know pointer alignment, sizes, and
+  //! strides. SchedulerRuntimeInfo contains all this info about fusion inputs,
+  //! but fusion outputs are allocated by FusionExecutor so they are absent from
+  //! SchedulerRuntimeInfo.
+  //!
+  //! This function just extracts sizes and strides from runtime_info_ when the
+  //! argument is a fusion input. When the input is a fusion output, we respect
+  //! the contiguity marked in the allocation domain. For discontiguous
+  //! dimensions, we return a stride that has been padded to an odd value, which
+  //! is the worst case scenario for vectorization.
+  //!
+  //! Note that this function is non-const because we use
+  //! runtime_info_.expressionEvaluator() which caches intermediate values
   std::pair<std::vector<int64_t>, std::vector<int64_t>> getSizesAndStrides(
       TensorView* tv) {
     if (tv->isFusionInput()) {
@@ -379,11 +391,14 @@ class VectorizationCalculator {
         tv->isFusionOutput(),
         "getSizesAndStrides should only be called with fusion inputs or outputs. Found ",
         tv->toString());
-    // For non-inputs, compute sizes using ExpressionEvaluator, then compute
-    // strides based on allocation domain, assuming full contiguity regardless
-    // of how it is marked in the TensorView.
+    // For outputs, compute sizes using ExpressionEvaluator, then compute
+    // strides based on allocation domain, assuming contiguity as marked in the
+    // TensorView. For discontiguous dimensions, we compute a stride that is
+    // least favorable to vectorization, by padding to an odd value.
     std::vector<int64_t> sizes, strides;
-    for (IterDomain* id : tv->getMaybeAllocationDomain()) {
+    std::vector<bool> concrete_contig;
+    for (size_t i : c10::irange(tv->getMaybeAllocationDomain().size())) {
+      IterDomain* id = tv->getMaybeAllocationDomain().at(i);
       if (id->isBroadcast()) {
         sizes.push_back(1);
         continue;
@@ -391,6 +406,11 @@ class VectorizationCalculator {
       if (id->isReduction()) {
         continue;
       }
+      // Record contiguity of concrete dimensions
+      std::optional<bool> contig_opt = tv->getContiguity().at(i);
+      NVF_ERROR(contig_opt.has_value());
+      concrete_contig.push_back(contig_opt.value());
+
       PolymorphicValue ext =
           runtime_info_.expressionEvaluator().evaluate(id->extent());
       NVF_ERROR(ext.hasValue());
@@ -402,6 +422,10 @@ class VectorizationCalculator {
     for (int64_t i = (int64_t)(sizes.size()) - 1l; i >= 0; --i) {
       strides[(size_t)i] = sizes[(size_t)i] == 1 ? 0 : stride;
       stride *= sizes[(size_t)i];
+      if (!concrete_contig[(size_t)i]) {
+        // pad non-concrete dims to next odd value
+        stride |= 1l;
+      }
     }
     return {sizes, strides};
   }
