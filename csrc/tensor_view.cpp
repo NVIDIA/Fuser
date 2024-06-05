@@ -463,11 +463,7 @@ void TensorView::clearComputeWith() {
   NVF_ERROR(compute_with_consumers_.empty());
 }
 
-TensorView* TensorView::split(
-    int64_t axis,
-    Val* factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
+TensorView* TensorView::split(int64_t axis, Val* factor, bool inner_split) {
   // Only check things associated with axis, factor will be validated in
   // IterDomain
   NVF_ERROR(
@@ -507,25 +503,17 @@ TensorView* TensorView::split(
     factor = castOp(DataType::Index, factor);
   }
 
-  domain()->split(axis, factor, inner_split, trim_out_of_bounds);
+  domain()->split(axis, factor, inner_split);
   return this;
 }
 
-TensorView* TensorView::split(
-    int64_t axis,
-    int64_t factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
+TensorView* TensorView::split(int64_t axis, int64_t factor, bool inner_split) {
   // NOTE: safe cast to int64_t, factor (unsigned int) is within int64_t range
   NVF_CHECK(
       factor > 0,
       "Invalid factor for split. Factor must be greater than 0. Factor = ",
       factor);
-  split(
-      axis,
-      IrBuilder::create<Val>(factor, DataType::Index),
-      inner_split,
-      trim_out_of_bounds);
+  split(axis, IrBuilder::create<Val>(factor, DataType::Index), inner_split);
   return this;
 }
 
@@ -781,7 +769,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
       this,
       " its definition is either a nullptr or not a reduction.");
   NVF_CHECK(
-      !domain()->hasRFactor(), "Cannot call rfactor on the same view twice.");
+      !domain()->hasRoot(), "Cannot call rfactor on the same view twice.");
 
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
@@ -853,8 +841,8 @@ TensorView* TensorView::multiOutputRFactorHelper(
   // output TV that got the rfactor call is force replayed towards the other two
 
   if (this != tv) {
-    auto root = tv->getRootDomain();
-    auto this_root = getRootDomain();
+    auto root = tv->getRFactorDomain();
+    auto this_root = getRFactorDomain();
 
     // construct a trivial root domain map
     std::unordered_map<IterDomain*, IterDomain*> id_map;
@@ -876,7 +864,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
     std::vector<std::optional<bool>> new_contig(tv->domain()->contiguity());
     // replace tensor domain of target tv
     tv->setDomain(IrBuilder::create<TensorDomain>(
-        tv->getRootDomain(), new_id, new_contig));
+        tv->getRFactorDomain(), new_id, new_contig));
   }
 
   // Split tensor view into 2 parts
@@ -911,7 +899,7 @@ std::vector<TensorView*> TensorView::rFactor(
       " its definition is either a nullptr or not a GroupedReductionOp or a multi-output reduction op.");
 
   NVF_CHECK(
-      !domain()->hasRFactor(), "Cannot call rfactor on the same view twice.");
+      !domain()->hasRoot(), "Cannot call rfactor on the same view twice.");
 
   NVF_CHECK(
       definition()->outputs().size() == tvs.size(),
@@ -1028,9 +1016,9 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // This domain will be the consumer which needs a new domain, so replace the
   // producers domain with this domain.
 
-  TensorView* producer = IrBuilder::create<TensorView>(
+  TensorView* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
           getRootDomain(),
           getRFactorDomain(),
@@ -1044,7 +1032,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   size_t i = 0;
   auto no_reduction_root_domain =
-      TensorDomain::noReductions(getMaybeRFactorDomain());
+      TensorDomain::noReductions(getRFactorDomain());
   std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
   for (const auto& dom : no_reduction_root_domain) {
     new_root_domain[i++] = dom->cloneWithoutRFactor();
@@ -1052,7 +1040,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   // Warning: allocation domain is temporarily discarded. It will be recovered
   // later.
-  consumer->setDomain(IrBuilder::create<TensorDomain>(
+  consumer->setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
       new_root_domain,
       TensorDomain::getContiguityFilledWith(new_root_domain, true)));
@@ -1068,7 +1056,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   }
   ir_utils::transferDefinitionToNewOutputs(definition(), replaced_siblings);
 
-  IrBuilder::create<LoadStoreOp>(container(), op_type, consumer, producer);
+  IrBuilder::createInContainer<LoadStoreOp>(
+      container(), op_type, consumer, producer);
 
   // definition_ is no longer valid
   // setDefinition(nullptr);
@@ -1104,18 +1093,18 @@ TensorView* TensorView::cacheFork() {
       "Caching computed-at tensors is not allowed. Apply caching before computeAt");
 
   // This domain will be the producer, so create the consumer
-  auto root_domain = TensorDomain::noReductions(getMaybeRFactorDomain());
+  auto root_domain = TensorDomain::noReductions(getRFactorDomain());
 
-  TensorView* new_output = IrBuilder::create<TensorView>(
+  TensorView* new_output = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
           IterDomain::clone(root_domain),
           TensorDomain::getContiguityFilledWith(root_domain, true)),
       getDataType().value());
 
   // Create write operation from this TV to new output
-  IrBuilder::create<LoadStoreOp>(
+  IrBuilder::createInContainer<LoadStoreOp>(
       container(), LoadStoreOpType::Set, new_output, this);
 
   // The new TV becomes an output.
@@ -1131,7 +1120,10 @@ TensorView* TensorView::cacheFork() {
   return new_output;
 }
 
-TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
+TensorView* TensorView::cacheAfter(
+    LoadStoreOpType op_type,
+    CacheOp cache_op,
+    bool propagate_allocation_domain) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1176,16 +1168,16 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
   // Remove Reduction Axis
   size_t i = 0;
   auto no_reduction_root_domain =
-      TensorDomain::noReductions(getMaybeRFactorDomain());
+      TensorDomain::noReductions(getRFactorDomain());
   std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
   for (const auto& dom : no_reduction_root_domain) {
     new_root_domain[i++] = dom->cloneWithoutRFactor();
   }
 
   // This domain will be the producer, so create the consumer
-  TensorView* consumer = IrBuilder::create<TensorView>(
+  TensorView* consumer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
           new_root_domain,
           TensorDomain::getContiguityFilledWith(new_root_domain, true)),
@@ -1204,13 +1196,15 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
   }
 
   // Expr* consumer_definition =
-  IrBuilder::create<LoadStoreOp>(
+  IrBuilder::createInContainer<LoadStoreOp>(
       container(), op_type, consumer, producer, cache_op);
 
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+  if (propagate_allocation_domain) {
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
-  consumer->setDomain(replayed_consumer_pair.first);
+    consumer->setDomain(replayed_consumer_pair.first);
+  }
 
   return consumer;
 }
@@ -1226,14 +1220,14 @@ void TensorView::setMemoryType(MemoryType mt) {
 
 void TensorView::clearReductionIterDomains() {
   NVF_ERROR(
-      !domain()->hasRFactor(),
+      !domain()->hasRoot(),
       "should not call clearReductionIterDomains on rfactor tv");
 
   NVF_ERROR(
-      getLeafDomain() == getRootDomain(),
+      getLeafDomain() == getRFactorDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
-  const std::vector<IterDomain*>& root = getRootDomain();
+  const std::vector<IterDomain*>& root = getRFactorDomain();
   const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
 
   NVF_ERROR(
@@ -1259,13 +1253,13 @@ void TensorView::clearReductionIterDomains() {
   if (new_alloc == new_root) {
     // if new allocation domain is identical to new root domain, we don't need
     // to specify allocation domain
-    setDomain(
-        IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
+        container(), new_root, new_contig));
   } else {
-    setDomain(IrBuilder::create<TensorDomain>(
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
         container(),
-        new_root,
         std::vector<IterDomain*>(),
+        new_root,
         new_alloc,
         new_root,
         new_contig));
@@ -1296,7 +1290,7 @@ void TensorView::circularBuffer(int64_t stage) {
 }
 
 bool TensorView::isEmptyTensor() const {
-  auto& root_domain = getMaybeRFactorDomain();
+  auto& root_domain = getRFactorDomain();
   return std::all_of(
       root_domain.begin(), root_domain.end(), [](IterDomain* id) {
         return id->extent()->isZeroInt();
@@ -1336,9 +1330,9 @@ void TensorView::commitLeafToRFactor() {
   NVF_CHECK(
       ir_utils::consumerTvsOf(this).empty(),
       "Changing the rFactor domain of an intermediate tensor is not supported yet");
-  setDomain(IrBuilder::create<TensorDomain>(
+  setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
-      domain_->root(),
+      domain_->maybeRoot(),
       domain_->leaf(),
       domain_->allocation(),
       domain_->leaf(),
@@ -1481,7 +1475,7 @@ TensorView* TensorViewBuilder::build() const {
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
-    if (extent->isConstScalar() && extent->evaluate() == 1) {
+    if (extent->isConstScalar() && extent->evaluate().as<int64_t>() == 1) {
       builder.iter_type(IterType::Broadcast);
     }
     if (expanded_extent != nullptr) {

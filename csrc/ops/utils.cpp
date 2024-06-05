@@ -16,7 +16,7 @@ namespace nvfuser {
 namespace ops {
 
 TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank) {
-  size_t t_rank = TensorDomain::noReductions(t->getMaybeRFactorDomain()).size();
+  size_t t_rank = TensorDomain::noReductions(t->getRFactorDomain()).size();
 
   // broadcast inner on inp to match rank with other.
   if (t_rank < rank) {
@@ -30,8 +30,7 @@ TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank) {
 }
 
 TensorView* maybe_broadcast_index_tv(TensorView* t, size_t dim, size_t rank) {
-  size_t ori_rank =
-      TensorDomain::noReductions(t->getMaybeRFactorDomain()).size();
+  size_t ori_rank = TensorDomain::noReductions(t->getRFactorDomain()).size();
   NVF_ERROR(
       ori_rank == 1,
       "The rank of index tensorview in index_select must be 1, but got ",
@@ -372,14 +371,13 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
       "Tried to create new output TensorView but received empty list.");
 
   std::vector<IterDomain*> out_domain(
-      TensorDomain::noReductions(tvs[0]->getMaybeRFactorDomain()).size(),
-      nullptr);
+      TensorDomain::noReductions(tvs[0]->getRFactorDomain()).size(), nullptr);
 
   for (const auto dim_i : c10::irange(out_domain.size())) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(tvs.size());
     for (auto tv : tvs) {
-      auto dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+      auto dom = TensorDomain::noReductions(tv->getRFactorDomain());
       input_ids.emplace_back(dom[dim_i]);
     }
     out_domain[dim_i] = newOutputIterDomain(input_ids);
@@ -402,8 +400,7 @@ std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
     if (val->getValType().value() == ValType::TensorView) {
       n_dims = std::max(
           n_dims,
-          TensorDomain::noReductions(
-              val->as<TensorView>()->getMaybeRFactorDomain())
+          TensorDomain::noReductions(val->as<TensorView>()->getRFactorDomain())
               .size());
     }
   }

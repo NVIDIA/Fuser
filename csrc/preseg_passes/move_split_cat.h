@@ -15,6 +15,9 @@ class MoveSplitCatPass : public OptimizationPass<MoveSplitCatPass> {
 
  protected:
   static void runPass(Fusion* fusion);
+  static std::string name() {
+    return "MoveSplitCatPass";
+  }
 };
 
 } // namespace nvfuser::preseg_passes

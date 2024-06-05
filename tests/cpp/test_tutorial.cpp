@@ -469,7 +469,7 @@ TEST_F(Tutorial, Reshape) {
     }
 
     // Check if the tv1 domains are generated as expected
-    ASSERT_TRUE(tv1->hasRFactor());
+    ASSERT_TRUE(tv1->hasRoot());
     ASSERT_EQ(tv1->getRFactorDomain().size(), 1);
     ASSERT_TRUE(tv1->getRFactorDomain().at(0)->definition()->isA<Merge>());
     Merge* tv1_merge = tv1->getRFactorDomain().at(0)->definition()->as<Merge>();
@@ -504,7 +504,7 @@ TEST_F(Tutorial, Reshape) {
         reshape_output->definition()->input(0)->as<TensorView>();
     ASSERT_TRUE(squeeze_output->definition()->isA<SqueezeOp>());
 
-    ASSERT_TRUE(reshape_output->hasRFactor());
+    ASSERT_TRUE(reshape_output->hasRoot());
     ASSERT_EQ(reshape_output->getRFactorDomain().size(), 2);
     ASSERT_TRUE(
         reshape_output->getRFactorDomain().at(0)->definition()->isA<Split>());
@@ -620,14 +620,14 @@ TEST_F(Tutorial, Reshape) {
         squeeze_output_first_split->in()->definition()->as<Merge>();
     ASSERT_EQ(
         squeeze_output_first_merge->outer(),
-        squeeze_output->getRootDomain().at(0));
+        squeeze_output->getRFactorDomain().at(0));
     ASSERT_EQ(
         squeeze_output_first_merge->inner(),
-        squeeze_output->getRootDomain().at(1));
+        squeeze_output->getRFactorDomain().at(1));
 
     // Note that all the transformations of squeeze_output are scheduling
-    // transformations, thus it should not have a rfactor domain
-    ASSERT_FALSE(squeeze_output->hasRFactor());
+    // transformations, thus it should not have a root domain
+    ASSERT_FALSE(squeeze_output->hasRoot());
   }
 }
 
@@ -657,9 +657,9 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // As mentioned above, we don't know any relationship between tv0
   // and tv1, so they should not be mapped.
-  for (const auto i : c10::irange(tv0->getRootDomain().size())) {
+  for (const auto i : c10::irange(tv0->getRFactorDomain().size())) {
     ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
-        tv0->getRootDomain().at(i), tv1->getRootDomain().at(i)));
+        tv0->getRFactorDomain().at(i), tv1->getRFactorDomain().at(i)));
   }
 
   // Thus, the outputs of the reshape ops are not mapped either
@@ -670,8 +670,9 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // Now, suppose we can say the inputs are exactly mapped. We
   // can manually add mappings:
-  for (const auto i : c10::irange(tv0->getRootDomain().size())) {
-    exact_graph.mapVals(tv0->getRootDomain().at(i), tv1->getRootDomain().at(i));
+  for (const auto i : c10::irange(tv0->getRFactorDomain().size())) {
+    exact_graph.mapVals(
+        tv0->getRFactorDomain().at(i), tv1->getRFactorDomain().at(i));
   }
 
   // Now, tv2 and tv3 should be fully mapped, including their root,

@@ -119,18 +119,6 @@ void UnrollPass::dispatch(Expr* expr) {
 
     Expr* expr_with_predicate = expr;
 
-    // When a predicate needs to account for ShiftOp, it is currently
-    // taken care by its own function.
-    if (GpuLower::current()->haloInfo()->needsShiftPredicate(expr)) {
-      DEBUG_LOG("Shift predicate.");
-      expr_with_predicate = ShiftPredicateInserter::insert(
-          expr, for_loops_, thread_pred, unswitched_loop_);
-      if (expr_with_predicate != expr) {
-        registerReplace(expr, expr_with_predicate);
-      }
-      return;
-    }
-
     // Reduction may need a separate predicate for writes.
     if (!isReductionInitExpr(expr) && out_tv->domain()->hasReduction()) {
       const auto write_pred = unswitched_loop_
@@ -316,7 +304,8 @@ bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
       visit_once = true;
     }
     if (!visit_once) {
-      if (loop->stop()->isConstInt() && loop->stop()->evaluate() == 1) {
+      if (loop->stop()->isConstInt() &&
+          loop->stop()->evaluate().as<int64_t>() == 1) {
         visit_once = true;
       }
     }

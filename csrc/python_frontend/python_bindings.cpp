@@ -429,13 +429,12 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
       .value("set", LoadStoreOpType::Set)
       .value("load_matrix", LoadStoreOpType::LdMatrix)
-      .value("load_matrix_transpose", LoadStoreOpType::LdMatrixTranspose)
       .value("cp_async", LoadStoreOpType::CpAsync)
       .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
 
   //! CacheOp used for scheduling
   py::enum_<CacheOp>(nvfuser, "CacheOp")
-      .value("none", CacheOp::Unspecified)
+      .value("unspecified", CacheOp::Unspecified)
       .value("all_levels", CacheOp::AllLevels)
       .value("streaming", CacheOp::Streaming)
       .value("global", CacheOp::Global);
@@ -2837,6 +2836,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         return tv->toString();
       },
       py::arg("tensor"));
+  nvf_sched.def(
+      "user_schedule_ir",
+      [](FusionDefinition::SchedOperators& self) {
+        return self.fusion_definition->userScheduleIr();
+      },
+      py::return_value_policy::reference);
   //! experimental API for multidevice support
   nvf_sched.def(
       "_create_device_mesh",
@@ -2898,14 +2903,10 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.validUse(),
         "Attempting to use a SchedOperators Op prior to definition!");
     FusionDefinition* fd = self.fusion_definition;
-    auto input_tv = fd->getFusionState(arg.index)->template as<TensorView>();
-    auto output_tv = input_tv->rFactor(dims);
-    Tensor output = fd->defineTensor(arg.dims);
-    NVF_CHECK(
-        output.index == fd->numFusionStates(),
-        "Fusion State index does not match the size!");
-    fd->addFusionState(output_tv);
-    return output;
+    TensorView* input_tv =
+        fd->getFusionState(arg.index)->template as<TensorView>();
+    TensorView* output_tv = input_tv->rFactor(dims);
+    return fd->addTensor(output_tv);
   };
   nvf_sched.def(
       "reduction_factor",
@@ -2936,8 +2937,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor arg,
          int64_t dim,
          int64_t factor,
-         bool inner_split,
-         bool trim_out_of_bounds) {
+         bool inner_split) {
         FUSER_PERF_SCOPE("SchedOperators.split");
         NVF_CHECK(
             self.validUse(),
@@ -2945,13 +2945,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         auto input_tv =
             fd->getFusionState(arg.index)->template as<TensorView>();
-        input_tv->split(dim, factor, inner_split, trim_out_of_bounds);
+        input_tv->split(dim, factor, inner_split);
       },
       py::arg("arg"),
       py::arg("dim"),
       py::arg("factor"),
-      py::arg("inner_split") = true,
-      py::arg("trim_out_of_bounds") = false);
+      py::arg("inner_split") = true);
   nvf_sched.def(
       "cache_after",
       [](FusionDefinition::SchedOperators& self,
@@ -2965,12 +2964,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         TensorView* input_tv =
             fd->getFusionState(tensor.index)->template as<TensorView>();
         TensorView* output_tv = input_tv->cacheAfter(op_type, cache_op);
-        Tensor output = fd->defineTensor(tensor.dims);
-        NVF_CHECK(
-            output.index == fd->numFusionStates(),
-            "Fusion State index does not match the size!");
-        fd->addFusionState(output_tv);
-        return output;
+        return fd->addTensor(output_tv);
       },
       py::arg("tensor"),
       py::arg("op_type") = LoadStoreOpType::Set,
@@ -2987,12 +2981,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         TensorView* input_tv =
             fd->getFusionState(tensor.index)->template as<TensorView>();
         TensorView* output_tv = input_tv->cacheBefore(op_type);
-        Tensor output = fd->defineTensor(tensor.dims);
-        NVF_CHECK(
-            output.index == fd->numFusionStates(),
-            "Fusion State index does not match the size!");
-        fd->addFusionState(output_tv);
-        return output;
+        return fd->addTensor(output_tv);
       },
       py::arg("tensor"),
       py::arg("op_type") = LoadStoreOpType::Set);
@@ -3015,7 +3004,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "transform_like",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
-         const std::vector<Tensor>& subgraph_nodes) {
+         const std::vector<Tensor>& selected_tensors) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
@@ -3025,36 +3014,36 @@ void initNvFuserPythonBindings(PyObject* module) {
             fd->getFusionState(tensor.index)->template as<TensorView>();
 
         TransformPropagator propagator(reference_tv);
-        if (subgraph_nodes.empty()) {
+        if (selected_tensors.empty()) {
           // Propagate scheduler transformations on reference TensorView to the
           // rest of the fusion.
           MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
         } else {
           // Propagate scheduler transformations on reference TensorView to the
           // subset of the fusion.
-          std::unordered_set<TensorView*> subgraph_tv_set;
-          subgraph_tv_set.reserve(subgraph_nodes.size());
+          std::unordered_set<TensorView*> selected_tv_set;
+          selected_tv_set.reserve(selected_tensors.size());
           std::transform(
-              subgraph_nodes.begin(),
-              subgraph_nodes.end(),
-              std::inserter(subgraph_tv_set, subgraph_tv_set.end()),
+              selected_tensors.begin(),
+              selected_tensors.end(),
+              std::inserter(selected_tv_set, selected_tv_set.end()),
               [&fd](const Tensor& t) {
                 return fd->getFusionState(t.index)->template as<TensorView>();
               });
           SetSelector selector(
-              {subgraph_tv_set.begin(), subgraph_tv_set.end()});
+              {selected_tv_set.begin(), selected_tv_set.end()});
           MaxRootDomainInfoSpanningTree(reference_tv, &selector)
               .traverse(&propagator);
         }
       },
       py::arg("tensor"),
-      py::arg("subgraph_nodes") = std::vector<Tensor>());
+      py::arg("selected_tensors") = std::vector<Tensor>());
   nvf_sched.def(
       "parallelize_like",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
          int64_t pos,
-         std::vector<Tensor> selected_tensors,
+         const std::vector<Tensor>& selected_tensors,
          const std::unordered_set<ParallelType>& selected_parallel_types,
          bool propagate_padding) {
         // Propagate the parallelization from the selected dimensions of the

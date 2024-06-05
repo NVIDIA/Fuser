@@ -226,6 +226,8 @@ class NVF_API FusionDefinition : public FusionState {
 
   //! These methods are used to record the FusionDefinition for cache lookup
 
+  //! Defines a Tensor State Record
+  NVF_API Tensor addTensor(TensorView* tv);
   //! Defines a Scalar State Record
   NVF_API Scalar defineScalar();
   //! Defines a Tensor State Record

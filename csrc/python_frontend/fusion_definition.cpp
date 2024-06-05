@@ -230,7 +230,11 @@ std::string FusionDefinition::fusionIr() {
 
 std::string FusionDefinition::userScheduleIr() {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
-  NVF_CHECK(user_sched_ != nullptr, "UserSchedule is not valid!");
+
+  if (user_sched_ == nullptr) {
+    return "User schedule is not defined.";
+  }
+
   std::stringstream ss;
   user_sched_->schedule->print(ss, false);
   return ss.str();
@@ -339,6 +343,16 @@ Scalar FusionDefinition::defineScalar() {
   Scalar out(recording_state_.size(), this);
   recording_state_.emplace_back(out(), serde::StateType::Scalar);
   return out;
+}
+
+Tensor FusionDefinition::addTensor(TensorView* tv) {
+  FUSER_PERF_SCOPE("FusionDefinition::addTensor");
+  Tensor output = defineTensor(tv->nDims());
+  NVF_CHECK(
+      output.index == numFusionStates(),
+      "Fusion State index does not match the size!");
+  addFusionState(tv);
+  return output;
 }
 
 Tensor FusionDefinition::defineTensor(size_t dims) {

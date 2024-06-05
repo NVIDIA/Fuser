@@ -220,6 +220,9 @@ class NVFBenchmark:
             prof_averages = self.prof.key_averages()
             elapsed_cuda_time = self._get_kernel_time(prof_averages)
             self._increment_global_time(elapsed_cuda_time)
+            # Clear the internal profiler object to avoid accumulating function events and then restart the profiler
+            # See PR: https://github.com/pytorch/pytorch/pull/125510
+            self.prof.profiler = None
             self.prof.start()
         except AssertionError:
             self.prof.start()

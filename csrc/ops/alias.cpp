@@ -59,7 +59,7 @@ TensorView* reshape(
     const std::vector<int64_t>& new_sizes) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   NVF_ERROR(
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size() ==
+      TensorDomain::noReductions(x->getRFactorDomain()).size() ==
       original_sizes.size());
 
   auto view_analysis = analyzeView(x, original_sizes, new_sizes);
@@ -102,7 +102,7 @@ TensorView* tryStaticReshape(
 } // namespace
 
 TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
-  auto inp_dom = TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
+  auto inp_dom = TensorDomain::noReductions(inp_tv->getRFactorDomain());
 
   NVF_CHECK(
       std::none_of(
@@ -125,7 +125,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   bool found_neg_one = false;
   for (const auto i : c10::irange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
-    if (new_size->isConstScalar() && new_size->evaluate() == -1) {
+    if (new_size->isConstScalar() && new_size->evaluate().as<int64_t>() == -1) {
       // It is usually safe to use the provided scalars as the output shapes.
       // However, if -1 is provided for some position, it will not correspond to
       // the actual extent in that position.
@@ -167,14 +167,14 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
           TensorDomain::getContiguityFilledWith(rfactor_domain, true)),
       inp_tv->dtype());
 
-  IrBuilder::create<ViewOp>(inp_tv->container(), out_tv, inp_tv);
+  IrBuilder::createInContainer<ViewOp>(inp_tv->container(), out_tv, inp_tv);
 
   return out_tv;
 }
 
 TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
+  auto inp_domain = TensorDomain::noReductions(x->getRFactorDomain());
   if (start_dim < 0) {
     start_dim += (int64_t)inp_domain.size();
   }
@@ -195,7 +195,7 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
     return x;
   }
 
-  auto out = IrBuilder::create<TensorView>(
+  auto out = IrBuilder::createInContainer<TensorView>(
       x->container(),
       x->domain()->flatten(start_dim, end_dim),
       x->getDataType().value());
@@ -264,7 +264,8 @@ TensorView* squeeze(
             id->toString(),
             ". To force removal of this axis, use squeeze_expanded=true.");
         NVF_CHECK(
-            id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
+            id->extent()->isConstScalar() &&
+                id->extent()->evaluate().as<int64_t>() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
@@ -282,7 +283,7 @@ TensorView* squeeze(
     // If we did not squeeze any axes, this is just set()
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
   } else {
-    IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
+    IrBuilder::createInContainer<SqueezeOp>(x->container(), out, x, to_squeeze);
   }
 
   return out;
@@ -319,7 +320,7 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   if (new2old.empty()) {
     return set(x);
   }
-  auto inp_domain = TensorDomain::noReductions(x->getMaybeRFactorDomain());
+  auto inp_domain = TensorDomain::noReductions(x->getRFactorDomain());
 
   NVF_CHECK(
       inp_domain.size() == new2old.size(),
@@ -463,7 +464,7 @@ TensorView* pad(
   NVF_CHECK(
       hasSimilarDtype(dt, value->getDataType().value()),
       "Tensor arg and pad value must have the same dtype.");
-  const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
+  const auto inp_dom = TensorDomain::noReductions(inp->getRFactorDomain());
   const auto ndims = inp_dom.size();
 
   NVF_CHECK(
@@ -563,8 +564,7 @@ TensorView* cat(
         dtype,
         ", ",
         inp->getDataType().value());
-    inp_doms.emplace_back(
-        TensorDomain::noReductions(inp->getMaybeRFactorDomain()));
+    inp_doms.emplace_back(TensorDomain::noReductions(inp->getRFactorDomain()));
     auto i_ndims = static_cast<int64_t>(inp_doms.back().size());
     if (ndims == -1) {
       ndims = i_ndims;
@@ -676,7 +676,7 @@ TensorView* cat(
 }
 
 TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
-  const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
+  const auto inp_dom = TensorDomain::noReductions(inp->getRFactorDomain());
   const int64_t ndims = static_cast<int64_t>(inp_dom.size());
 
   NVF_CHECK(

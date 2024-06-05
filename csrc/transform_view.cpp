@@ -275,8 +275,6 @@ class SplitTransform final : public ViewTransform {
         id,
         factor,
         /*inner_split=*/false,
-        /*start_offset=*/nullptr,
-        /*stop_offset=*/nullptr,
         /*rfactor_domain=*/true);
 
     current_transformed_domain.erase(
@@ -683,7 +681,7 @@ TensorDomain* createViewDomain(
 
   std::vector<IterDomain*> new_root_domain;
   auto orig_root_domain =
-      TensorDomain::noReductions(original_domain->maybeRFactor());
+      TensorDomain::noReductions(original_domain->rfactor());
 
   // Apply squeeze.
   for (auto id_i : c10::irange(orig_root_domain.size())) {
@@ -772,8 +770,8 @@ AnalyzeViewResult analyzeView(
   }
 
   NVF_ERROR(
-      TensorDomain::noReductions(original_view_tv->getMaybeRFactorDomain())
-          .size() == original_sizes.size());
+      TensorDomain::noReductions(original_view_tv->getRFactorDomain()).size() ==
+      original_sizes.size());
 
   // Fill -1 dimension in new_std::vector<int64_t> with size infered from all
   // other values
@@ -784,7 +782,7 @@ AnalyzeViewResult analyzeView(
   AnalyzeViewTransformation analyzer(
       sizes.first /* original_view */,
       sizes.second /* new_view */,
-      TensorDomain::noReductions(original_view_tv->getMaybeRFactorDomain()));
+      TensorDomain::noReductions(original_view_tv->getRFactorDomain()));
   return analyzer.run();
 }
 
@@ -938,12 +936,13 @@ TensorView* applyViewTransforms(
 
   NVF_ERROR(!view_analysis.transforms.empty());
 
-  TensorView* consumer = IrBuilder::create<TensorView>(
+  TensorView* consumer = IrBuilder::createInContainer<TensorView>(
       orig_tv->container(),
       orig_tv->domain()->view(view_analysis),
       orig_tv->getDataType().value());
 
-  IrBuilder::create<ViewOp>(orig_tv->container(), consumer, post_reduce_tv);
+  IrBuilder::createInContainer<ViewOp>(
+      orig_tv->container(), consumer, post_reduce_tv);
 
   return consumer;
 }
