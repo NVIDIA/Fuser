@@ -381,4 +381,117 @@ TEST_F(IndexingTest, Reshape) {
       << ". Actual: " << tv5_consumer_index->toInlineString();
 }
 
+// Simple non-concretized broadcast
+TEST_F(IndexingTest, SimpleBroadcast1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  IdModel id_model(&fusion);
+  TensorIndexer indexer(id_model);
+
+  std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
+
+  EXPECT_TRUE(tv1_loop_indices.at(1)->isZeroInt());
+
+  std::vector<Val*> tv2_loop_indices = getLoopIndices(tv2, indexer);
+
+  EXPECT_TRUE(tv2_loop_indices.at(1)->isZeroInt());
+
+  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv1->definition());
+  auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
+  auto tv1_producer_index = indexer.getLinearIndex(tv1, tv2->definition());
+  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
+
+  EXPECT_EQ(tv0_producer_index, tv1_loop_indices.at(0));
+  EXPECT_EQ(tv1_consumer_index, tv1_loop_indices.at(0));
+  EXPECT_EQ(tv1_producer_index, tv2_loop_indices.at(0));
+  EXPECT_EQ(tv2_consumer_index, tv2_loop_indices.at(0));
+}
+
+// SimpleBroadcast1 + scheduling
+TEST_F(IndexingTest, SimpleBroadcast2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->flatten();
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  IdModel id_model(&fusion);
+  TensorIndexer indexer(id_model);
+
+  // The first merge of the logical domains should be a trivial merge,
+  // i.e., a merge with a extent-one domain. Thus, the indexing
+  // travesal should return "x + y * 4", where x and y are the loop
+  // indices, respecitvely.
+
+  std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
+  std::vector<Val*> tv2_loop_indices = getLoopIndices(tv2, indexer);
+
+  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv1->definition());
+  auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
+  auto tv1_producer_index = indexer.getLinearIndex(tv1, tv2->definition());
+  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
+
+  // tv0 is a global memory tensor, so the indexing is done with its
+  // allocation domain, which is mapped with the merge of the two
+  // logical domains of tv1 on the AlmostExact graph. Traverse back to
+  // the merge output from the loop domains.
+  auto tv0_producer_index_ref = SimplifyingIrBuilder::addExpr(
+      SimplifyingIrBuilder::mulExpr(
+          tv1_loop_indices.at(0), tv1->axis(1)->extent()),
+      tv1_loop_indices.at(1));
+
+  // tv1 is a Local tensor, so its allocation domains are just their
+  // loop domains. This index is mathematically equivalent to the tv0
+  // index, but the order of linearizing the two loop domains is
+  // different from the order of computing the merge input index.
+  auto tv1_consumer_index_ref = SimplifyingIrBuilder::addExpr(
+      tv1_loop_indices.at(1),
+      SimplifyingIrBuilder::mulExpr(
+          tv1_loop_indices.at(0), tv1->axis(1)->extent()));
+
+  auto tv1_producer_index_ref = SimplifyingIrBuilder::addExpr(
+      tv2_loop_indices.at(1),
+      SimplifyingIrBuilder::mulExpr(
+          tv2_loop_indices.at(0), tv2->axis(1)->extent()));
+
+  auto tv2_consumer_index_ref = SimplifyingIrBuilder::addExpr(
+      SimplifyingIrBuilder::mulExpr(
+          tv2_loop_indices.at(0), tv2->axis(1)->extent()),
+      tv2_loop_indices.at(1));
+
+  EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
+      << "Ref: " << tv0_producer_index_ref->toInlineString()
+      << ". Actual: " << tv0_producer_index->toInlineString();
+
+  EXPECT_TRUE(tv1_consumer_index->sameAs(tv1_consumer_index_ref))
+      << "Ref: " << tv1_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv1_consumer_index->toInlineString();
+
+  EXPECT_TRUE(tv1_producer_index->sameAs(tv1_producer_index_ref))
+      << "Ref: " << tv1_producer_index_ref->toInlineString()
+      << ". Actual: " << tv1_producer_index->toInlineString();
+
+  EXPECT_TRUE(tv2_consumer_index->sameAs(tv2_consumer_index_ref))
+      << "Ref: " << tv2_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv2_consumer_index->toInlineString();
+}
+
 } // namespace nvfuser
