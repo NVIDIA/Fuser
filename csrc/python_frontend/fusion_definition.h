@@ -128,9 +128,10 @@ class NVF_API FusionDefinition : public FusionState {
   //! Executes a fusion if a valid definition or cache lookup occurred prior
   NVF_API std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
+      std::optional<int8_t> device,
       bool override_user_schedule,
       bool capture_debug_output,
-      std::optional<int8_t> device) const;
+      bool profile) const;
   //! Return debugging output captured through exeuction with
   //! capture_debug_output=true
   std::optional<std::string> getDebugOutput() const {
