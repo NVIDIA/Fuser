@@ -4107,6 +4107,40 @@ class TestNvFuserFrontend(TestCase):
                     1.0 - x.item(), 3.0 / math.sqrt(12 * num_samples)
                 ), f"{output.dtype} mean generated value: {mu.item()}"
 
+    def test_rng_distinct_values(self):
+        dtypes = [DataType.Double, DataType.Float, DataType.Half]
+        if not is_pre_ampere():
+            dtypes.append(DataType.BFloat16)
+        for dtype in dtypes:
+
+            def fusion_fn(fd: FusionDefinition):
+                # generate 4 values and check that they are all distinct
+                shape = fd.define_vector([2, 2], dtype=DataType.Int)
+                S0 = fd.define_scalar(0.00000, dtype=DataType.Double)
+                S1 = fd.define_scalar(1.00000, dtype=DataType.Double)
+                output = fd.ops.uniform(S0, S1, shape=shape, dtype=dtype)
+                fd.add_output(output)
+
+            with FusionDefinition() as fd:
+                fusion_fn(fd)
+
+            for i in range(1000):
+                output = fd.execute([])[0]
+
+                # Rarely we might have a pair of matching lower precision
+                # samples. However, it is extremely rare that we would have a
+                # set of three matching elements in only 1000 repeats unless we
+                # have a bug.
+
+                match = output.flatten().unsqueeze(0) == output.flatten().unsqueeze(1)
+                match_pairs = (
+                    match ^ torch.eye(4, dtype=torch.bool, device="cuda")
+                ).sum() // 2
+
+                assert (
+                    match_pairs.item() < 3
+                ), f"At least three entries match in {output}"
+
 
 if __name__ == "__main__":
     run_tests()
