@@ -9,6 +9,7 @@
 
 #include <c10/util/ArrayRef.h>
 #include <c10/util/irange.h>
+#include <inlining.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -2995,7 +2996,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "transform_like",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
-         const std::vector<Tensor>& selected_nodes) {
+         const std::vector<Tensor>& selected_tensors) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
@@ -3005,7 +3006,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             fd->getFusionState(tensor.index)->template as<TensorView>();
 
         TransformPropagator propagator(reference_tv);
-        if (selected_nodes.empty()) {
+        if (selected_tensors.empty()) {
           // Propagate scheduler transformations on reference TensorView to the
           // rest of the fusion.
           MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
@@ -3013,10 +3014,10 @@ void initNvFuserPythonBindings(PyObject* module) {
           // Propagate scheduler transformations on reference TensorView to the
           // subset of the fusion.
           std::unordered_set<TensorView*> selected_tv_set;
-          selected_tv_set.reserve(selected_nodes.size());
+          selected_tv_set.reserve(selected_tensors.size());
           std::transform(
-              selected_nodes.begin(),
-              selected_nodes.end(),
+              selected_tensors.begin(),
+              selected_tensors.end(),
               std::inserter(selected_tv_set, selected_tv_set.end()),
               [&fd](const Tensor& t) {
                 return fd->getFusionState(t.index)->template as<TensorView>();
@@ -3028,13 +3029,13 @@ void initNvFuserPythonBindings(PyObject* module) {
         }
       },
       py::arg("tensor"),
-      py::arg("selected_nodes") = std::vector<Tensor>());
+      py::arg("selected_tensors") = std::vector<Tensor>());
   nvf_sched.def(
       "parallelize_like",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
          int64_t pos,
-         std::vector<Tensor> selected_tensors,
+         const std::vector<Tensor>& selected_tensors,
          const std::unordered_set<ParallelType>& selected_parallel_types,
          bool propagate_padding) {
         // Propagate the parallelization from the selected dimensions of the
@@ -3079,6 +3080,75 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("selected_tensors") = std::vector<Tensor>(),
       py::arg("selected_parallel_types") = std::unordered_set<ParallelType>(),
       py::arg("propagate_padding") = true);
+  nvf_sched.def(
+      "inline_most",
+      [](FusionDefinition::SchedOperators& self,
+         const std::vector<Tensor>& selected_tensors) {
+        // Inline to the right most allowed position for the selected tensors in
+        // the current fusion.
+
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        FusionDefinition* fd = self.fusion_definition;
+
+        if (selected_tensors.empty()) {
+          nvfuser::inlineMost();
+        } else {
+          std::vector<TensorView*> selected_tvs;
+          selected_tvs.reserve(selected_tensors.size());
+          std::transform(
+              selected_tensors.begin(),
+              selected_tensors.end(),
+              std::back_inserter(selected_tvs),
+              [&fd](const Tensor& t) {
+                return fd->getFusionState(t.index)->template as<TensorView>();
+              });
+          nvfuser::inlineMost(selected_tvs);
+        }
+      },
+      py::arg("selected_tensors") = std::vector<Tensor>());
+  nvf_sched.def(
+      "inline_at",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         int64_t pos,
+         bool best_effort,
+         const std::vector<Tensor>& selected_tensors) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* reference_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+
+        if (selected_tensors.empty()) {
+          // Inline to the position corresponding to the reference position in
+          // the reference tensor for all tensors in the current fusion.
+          nvfuser::inlineAllAt(reference_tv, pos, best_effort);
+        } else {
+          // Inline to the position corresponding to the reference position in
+          // the reference tensor for selected tensors in the current fusion.
+          std::unordered_set<TensorView*> selected_tvs;
+          selected_tvs.reserve(selected_tensors.size());
+          std::transform(
+              selected_tensors.begin(),
+              selected_tensors.end(),
+              std::inserter(selected_tvs, selected_tvs.end()),
+              [&fd](const Tensor& t) {
+                return fd->getFusionState(t.index)->template as<TensorView>();
+              });
+
+          nvfuser::inlineSelectedAt(
+              selected_tvs, reference_tv, pos, best_effort);
+        }
+      },
+      py::arg("tensor"),
+      py::arg("pos") = -1,
+      py::arg("best_effort") = false,
+      py::arg("selected_tensors") = std::vector<Tensor>());
 }
 
 } // namespace nvfuser::python_frontend
