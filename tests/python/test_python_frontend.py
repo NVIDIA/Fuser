@@ -4088,7 +4088,7 @@ class TestNvFuserFrontend(TestCase):
                 u = fd.execute([])[0]
                 m = torch.minimum(m, u.amin())
                 x = torch.maximum(x, u.amax())
-                mu = mu + (u.type(torch.float64).mean() - mu) / (i + 1)
+                mu = mu + (u.type(torch.float64).mean() - mu) / (i + 2)
 
             print(f"{output.dtype} min={m.item()} max={x.item()} mean={mu.item()}")
 
