@@ -442,9 +442,9 @@ SdpfaFwdResult sdpfa_fwd(
       " ,and ",
       value->dtype());
 
-  auto query_domain = TensorDomain::noReductions(query->getRFactorDomain());
-  auto key_domain = TensorDomain::noReductions(key->getRFactorDomain());
-  auto value_domain = TensorDomain::noReductions(value->getRFactorDomain());
+  auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
+  auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
+  auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
 
   NVF_CHECK(
       query_domain.size() == 4 && key_domain.size() == 4 &&
