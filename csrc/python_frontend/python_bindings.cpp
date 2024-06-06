@@ -3177,8 +3177,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         return (
             !tv->isFusionInput() &&
             std::any_of(
-                tv->getLeafDomain().begin(),
-                tv->getLeafDomain().end(),
+                tv->getMaybeRootDomain().begin(),
+                tv->getMaybeRootDomain().end(),
                 [](IterDomain* id) { return id->isReduction(); }) &&
             !isResharding(tv->definition()));
       },
