@@ -738,7 +738,6 @@ void scheduleSplitKSum(
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   FusionGuard fg(fusion);
-  std::cout << "Matmul scheduler" << std::endl;
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
@@ -922,7 +921,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // ------------------------------------------------------------------
   // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
   mma_utils::canonicalizeMmaTvOrdering(mma_result);
-  std::cout << "canonicalizeMmaTvOrdering " << mma_result->toString() << std::endl;
   const int64_t num_local_dims =
       (int64_t)TensorDomain::noDevices(mma_result->getLeafDomain()).size();
   NVF_ERROR(

@@ -243,7 +243,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     elem_counts[ref_i] = inferred_val.as<int64_t>();
     n_elems *= elem_counts[ref_i];
   }
-  std::cout << "Number of concrete elements " << n_elems << std::endl;
 
   // If zero dimensional or zero size, return default parameters
   if (TensorDomain::noDevices(TensorDomain::noReductions(
@@ -541,7 +540,6 @@ bool hasReferenceTensorView(Fusion* fusion) {
 // input/output caches)
 void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   FusionGuard fg(fusion);
-  std::cout << "SchedulePointwise " << std::endl;
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation

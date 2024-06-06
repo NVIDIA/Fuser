@@ -301,55 +301,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
       __FILE__);
 }
 
-TEST_F(DistributedMatmulTest, GeLU) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
-
-  TensorView* x = makeConcreteTensor({num_devices_, 24, 16/num_devices_}, DataType::BFloat16); // Unsharded (2048, 1600)
-  fusion->addInput(x);
-
-  double kBeta = M_SQRT2 * M_2_SQRTPI * 0.5;
-  double kKappa = 0.044715;
-  TensorView* gelu0 = castOp(DataType::Float, x); // x
-  TensorView* gelu1 = mul(gelu0, gelu0); // x^2
-  TensorView* gelu2 = mul(gelu1, gelu0); // x^3
-  TensorView* gelu3 = mul(gelu0, IrBuilder::create<Val>(0.5)); // x * 0.5
-  TensorView* gelu4 = mul(gelu2, IrBuilder::create<Val>(kKappa)); // x^3 * 0.0447150
-  TensorView* gelu5 = add(gelu0, gelu4); // x + x^3 * 0.0447150
-  TensorView* gelu6 = mul(gelu5, IrBuilder::create<Val>(kBeta)); // (x + x^3 * 0.0447150) * .0.797885
-  TensorView* gelu7 = tanh(gelu6); // tanh((x + x^3 * 0.0447150) * .0.797885)
-  TensorView* gelu8 = add(gelu7, IrBuilder::create<Val>(1.0)); // 1 + tanh((x + x^3 * 0.0447150) * .0.797885)
-  TensorView* gelu = mul(gelu3, gelu8); // x * 0.5 * (1 + tanh((x + x^3 * 0.0447150) * .0.797885))
-
-  fusion->addOutput(gelu);
-
-  auto tvs = {x, gelu0, gelu1, gelu2, gelu3, gelu4, gelu5, gelu6, gelu7, gelu8, gelu};
-  for (auto tv : tvs) {
-    tv->setDeviceMesh(mesh);
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-  }
-
-  const auto options =
-      at::TensorOptions().dtype(c10::ScalarType::BFloat16).device(at::kCUDA, communicator->local_rank());
-  auto x_ = at::randn({24, 16}, options);
-  std::vector<c10::IValue> inputs = {shardTensor(at::transpose(x_.view({24, num_devices_, 16/num_devices_}), 1, 0), x, communicator->deviceId())};
-  auto gelu_aten = shardTensor(at::transpose(at::gelu(x_, "tanh").view({24, num_devices_, 16/num_devices_}), 1, 0), gelu, communicator->deviceId());
-  std::vector<at::Tensor> expected_outputs = {gelu_aten };
-
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
-  testValidate(
-      runtime.completeFusion(),
-      outputs,
-      inputs,
-      expected_outputs,
-      __LINE__,
-      __FILE__);
-}
-
-TEST_F(DistributedMatmulTest, MLPLayer) {
+TEST_F(DistributedMatmulTest, MLP_Layer) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator->size());
@@ -383,8 +335,8 @@ TEST_F(DistributedMatmulTest, MLPLayer) {
 
   // GeLU (taken from tanh_gelu composite.cpp)
   // TODO: use the tanh_gelu node when we are confident with sharding propagation
-  double kBeta = M_SQRT2 * M_2_SQRTPI * 0.5;
-  double kKappa = 0.044715;
+  const double kBeta = M_SQRT2 * M_2_SQRTPI * 0.5;
+  const double kKappa = 0.044715;
   TensorView* gelu0 = castOp(DataType::Float, linear1); // x
   TensorView* gelu1 = mul(gelu0, gelu0); // x^2
   TensorView* gelu2 = mul(gelu1, gelu0); // x^3
@@ -409,36 +361,31 @@ TEST_F(DistributedMatmulTest, MLPLayer) {
   TensorView* linear2_int5 = broadcast(b1, {true, false}); // b, h
   TensorView* linear2 = add(linear2_int4, linear2_int5); // sb, h
 
-  // // Reshape and cast
-  // // std::vector<int64_t> orig_size = {sb, h};
-  // // std::vector<int64_t> new_size = {s, b, h};
-  // // TensorView* linear2_ = reshape(linear2, orig_size, new_size);
-
-  // TensorView* linear2_ = castOp(DataType::Float, linear2);
-  // // TODO: Since mask is replicated on each device it needs to be consistent
+  TensorView* linear2_ = castOp(DataType::Float, linear2);
   // // Dropout (taken from composite.cpp)
   // // TODO use droupout node when we are confident with sharding propagation
-  // double prob = 0.9;
-  // double scale = 1.11111;
-  // TensorView* rand_vals = rand_like(linear2_);
-  // TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(prob));
-  // TensorView* apply_mask = mul(linear2_, mask);
-  // TensorView* dropout = mul(apply_mask, IrBuilder::create<Val>(scale));
+  const double kProb = 0.1;
+  const double kScale = 1.0 / (1.0 - kProb);
+  Val* philox_seed = fusion->zeroVal();
+  Val* philox_offset =fusion->zeroVal();
+  TensorView* rand_vals = rand_like(linear2_, philox_seed, philox_offset);
+  TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(1.0 - kProb));
+  TensorView* apply_mask = mul(linear2_, mask);
+  TensorView* dropout = mul(apply_mask, IrBuilder::create<Val>(kScale));
 
   fusion->addOutput(linear1);
   fusion->addOutput(gelu);
   fusion->addOutput(linear2);
-  // fusion->addOutput(dropout);
+  fusion->addOutput(dropout);
 
-  auto tv_inputs = {x, w1, b1,
-    linear2_int4, linear2_int5, linear2};
-    // linear2_, rand_vals, mask, apply_mask, dropout};
+  auto tv_inputs = {x, b1,
+    linear2_int4, linear2_int5, linear2,
+    linear2_, rand_vals, mask, apply_mask, dropout};
   for (auto tv : tv_inputs) {
     tv->setDeviceMesh(mesh);
   }
-  w1->axis(0)->parallelize(ParallelType::DIDx);
 
-  auto tvs = {w0, b0, linear_int0, linear_int1, linear_int2, linear_int3, linear_int4, linear1,
+  auto tvs = {w0, b0, w1, linear_int0, linear_int1, linear_int2, linear_int3, linear_int4, linear1,
     gelu0, gelu1, gelu2, gelu3, gelu4, gelu5, gelu6, gelu7, gelu8, gelu,
     gelu_, linear2_int0, linear2_int1, linear2_int2, linear2_int3};
   for (auto tv : tvs) {
@@ -460,26 +407,23 @@ TEST_F(DistributedMatmulTest, MLPLayer) {
       shardTensor(b0_.view({num_devices_, h4/num_devices_}), b0, communicator->deviceId()),
       shardTensor(w1_.view({h, num_devices_, h4/num_devices_}).transpose(1, 0), w1, communicator->deviceId()),
       b1_};
+  at::manual_seed(0);
   auto linear1_aten = at::linear(x_.to(at::kFloat), w0_.to(at::kFloat), b0_.to(at::kFloat));
   auto gelu_aten = at::gelu(linear1_aten, "tanh");
   auto linear2_aten = at::linear(gelu_aten.to(at::kBFloat16).to(at::kFloat), w1_.to(at::kFloat), b1_.to(at::kFloat));
-  // auto dropout_aten = at::dropout(linear2_aten.to(at::kFloat), prob, true);
+  auto dropout_aten = at::dropout(linear2_aten.to(at::kFloat), kProb, true);
   std::vector<at::Tensor> expected_outputs = {
     shardTensor(at::transpose(linear1_aten.view({sb, num_devices_, h4/num_devices_}), 1, 0), linear1, communicator->deviceId()),
     shardTensor(at::transpose(gelu_aten.view({sb, num_devices_, h4/num_devices_}), 1, 0), gelu, communicator->deviceId()),
     linear2_aten,
-    // dropout_aten
+    dropout_aten
     };
-
+  at::manual_seed(0);
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator, executor_params_);
   
   auto outputs = runtime.runWithInput(inputs);
 
-  std::cout << "Linear 1 all close " << expected_outputs[0].allclose(outputs[0].to(expected_outputs[0].dtype()), 1.0e-4, 1.0e-4) << std::endl;
-  std::cout << "GELU all close " << expected_outputs[1].allclose(outputs[1].to(expected_outputs[1].dtype()), 1.0e-4, 1.0e-4) << std::endl;
-  std::cout << "Linear 2 all close " << expected_outputs[2].allclose(outputs[2].to(expected_outputs[2].dtype()), 1.0e-4, 1.0e-4) << std::endl;
-  // std::cout << "Dropout all close " << expected_outputs[3].allclose(outputs[3].to(expected_outputs[3].dtype()), 1.0e-4, 1.0e-4) << std::endl;
   testValidate(
       runtime.completeFusion(),
       outputs,
