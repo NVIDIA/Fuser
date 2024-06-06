@@ -141,12 +141,33 @@ struct AbstractTensor {
     return domain.size();
   }
 
+  template <typename T>
+  bool operator==(T&& t) const {
+    return domain == std::forward<T>(t);
+  }
+
+  template <typename T>
+  bool operator!=(T&& t) const {
+    return !operator==(std::forward<T>(t));
+  }
+
   void split(int64_t axis, Val* factor, bool inner_split = true);
   void split(int64_t axis, int64_t factor, bool inner_split = true);
 
   void merge(int64_t axis_o, int64_t axis_i);
   void merge(int64_t axis) {
     merge(axis, axis + 1);
+  }
+
+  void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
+  void reorder(
+      const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
+    return reorder(std::unordered_map<int64_t, int64_t>(old2new));
+  }
+  // old2new[index] = permutation[index]
+  void reorder(const std::vector<int64_t>& permutation);
+  void reorder(const std::initializer_list<int64_t>& permutation) {
+    reorder(std::vector<int64_t>(permutation));
   }
 
   // Both `from` and `to` are inclusive.

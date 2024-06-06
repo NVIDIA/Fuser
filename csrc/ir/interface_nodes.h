@@ -312,7 +312,7 @@ class NVF_API TensorView : public Val {
       const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new);
 
   // Reorder axes based on the vector permutation.
-  // In terms of the function above, this can be seen as ol2new[index] =
+  // In terms of the function above, this can be seen as old2new[index] =
   // permutation[index]
   TensorView* reorder(const std::vector<int64_t>& permutation);
   TensorView* reorder(const std::initializer_list<int64_t>& permutation);

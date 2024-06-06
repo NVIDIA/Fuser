@@ -8,6 +8,7 @@
 
 #include <abstract_tensor.h>
 #include <id_model/schedule.h>
+#include <ir/utils.h>
 #include <utility>
 
 namespace nvfuser {
@@ -150,6 +151,35 @@ void AbstractTensor::merge(int64_t axis_o, int64_t axis_i) {
 
   domain.erase(domain.begin() + domain_inner_pos);
   std::swap(domain[domain_outer_pos], output);
+}
+
+void AbstractTensor::reorder(
+    const std::unordered_map<int64_t, int64_t>& old2new) {
+  NVF_ERROR(
+      !domain.empty() || old2new.empty(), "Tried to reorder a 0-dim domain");
+
+  auto new2old = ir_utils::normalizeOld2New(old2new, (int64_t)domain.size());
+
+  std::vector<AbstractId> reordered_domain;
+  std::transform(
+      new2old.begin(),
+      new2old.end(),
+      std::back_inserter(reordered_domain),
+      [this](int64_t i) { return domain[i]; });
+
+  domain = std::move(reordered_domain);
+}
+
+// old2new[index] = permutation[index]
+void AbstractTensor::reorder(const std::vector<int64_t>& permutation) {
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  int64_t idx = 0;
+  std::transform(
+      permutation.begin(),
+      permutation.end(),
+      std::inserter(reorder_map, reorder_map.end()),
+      [&idx](int64_t v) { return std::make_pair(idx++, v); });
+  return reorder(reorder_map);
 }
 
 void AbstractTensor::flatten(int64_t from, int64_t to) {
