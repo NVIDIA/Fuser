@@ -456,6 +456,15 @@ SdpfaFwdResult sdpfa_fwd(
       " ,and ",
       value_domain.size());
 
+  NVF_CHECK(
+      !dropout_p || dropout_p->isScalar(),
+      "Expected dropout to be a scalar double.");
+  NVF_CHECK(
+      !is_causal || is_causal->isScalar(),
+      "Expected is_causal to be a scalar boolean.");
+  NVF_CHECK(
+      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+
   // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
   // N, H are mapped for all inputs to outputs. L is mapped from query to
   // output. Ev is mapped from value to output. Note: There is no mapping for S,

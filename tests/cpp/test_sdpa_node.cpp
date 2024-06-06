@@ -25,7 +25,10 @@ using SDPATest = NVFuserTest;
 
 constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
+// Note: Flash Attention is only supported on Ampere and above.
+
 TEST(SDPATest, NonCausalAttnConcrete) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
@@ -81,6 +84,7 @@ TEST(SDPATest, NonCausalAttnConcrete) {
 }
 
 TEST(SDPATest, NonCausalAttnSymbolic) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
@@ -136,6 +140,7 @@ TEST(SDPATest, NonCausalAttnSymbolic) {
 }
 
 TEST(SDPATest, CausalAttn) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});

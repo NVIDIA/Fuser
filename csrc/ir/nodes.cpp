@@ -4310,9 +4310,11 @@ std::string SdpaFwdOp::toString(int indent_size) const {
   indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
   indent(ss, indent_size + 1)
       << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
-  indent(ss, indent_size + 1) << "          is_causal = " << is_causal()->toInlineString();
+  indent(ss, indent_size + 1)
+      << "          is_causal = " << is_causal()->toInlineString();
   if (scale() != nullptr) {
-    indent(ss, indent_size + 1) << ",\n          scale = " << scale()->toInlineString();
+    indent(ss, indent_size + 1)
+        << ",\n          scale = " << scale()->toInlineString();
   }
   indent(ss, indent_size + 1) << ")\n";
   return ss.str();

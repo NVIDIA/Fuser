@@ -2201,7 +2201,35 @@ class LinearOp : public Expr {
   }
 };
 
-// SDPA node with same functionality at::_scaled_dot_product_flash_attention
+/*
+SDPA node with same functionality at::_scaled_dot_product_flash_attention
+output = [N, H, L, Ev]
+logsumexp = [N, H, L]
+cum_seq_q = [N + 1,]
+cum_seq_k = [N + 1,]
+query_seq_len = scalar(int)
+key_seq_len = scalar(int)
+philox_seed = scalar tensor
+philox_offset = scalar tensor
+debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by setting `return_debug_mask=False` when invoking flash attention)
+
+query = [N, H, L, E]
+key = [N, H, S, E]
+value = [N, H, S, Ev]
+dropout_p = scalar(double)
+is_causal = scalar(bool)
+scale = scalar(double)
+
+N = number of sequences / batch size
+H = num of heads
+L = query sequence length / target sequence length
+S = key/value sequence length / src sequence length
+E = query/key embd dimension
+Ev = value embd dimension
+
+For flash attention, E = Ev
+*/
+
 class SdpaFwdOp : public Expr {
  public:
   using Expr::Expr;
