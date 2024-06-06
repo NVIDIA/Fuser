@@ -2211,7 +2211,8 @@ query_seq_len = scalar(int)
 key_seq_len = scalar(int)
 philox_seed = scalar tensor
 philox_offset = scalar tensor
-debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by setting `return_debug_mask=False` when invoking flash attention)
+debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
+setting `return_debug_mask=False` when invoking flash attention)
 
 query = [N, H, L, E]
 key = [N, H, S, E]
