@@ -649,21 +649,21 @@ void scheduleOutputTensor(
 //!  producers in the epilogue. Transformations' propagation aims at input tvs
 //!  which are not assigned to core roles, that is, are not MMA inputs.
 void scheduleFusionInputsForEpilogue(
-    const mma_utils::RolesMap& roles_map,
-    const bool with_smem_epilogue) {
+    const mma_utils::TensorRolesMap& tensor_roles,
+    bool with_smem_epilogue) {
   std::vector<TensorView*> cached_tvs;
 
   // Handling transformations in fusion input tvs with assigned INPUT_C role by
   //  propagating fusion output transformations through cached views of INPUT_C
   //  fusion input tvs and by setting vectorization of the inner most iterdomain
   //  of these cached views
-  if (roles_map.count(MatmulRole::INPUT_C)) {
-    auto& c_tvs = roles_map.at(MatmulRole::INPUT_C);
+  if (tensor_roles.count(MatmulRole::INPUT_C)) {
+    auto& c_tvs = tensor_roles.at(MatmulRole::INPUT_C);
 
     // The system supports only scenario where there is only one fusion output
     //  with assigned OUTPUT_D role, this condition is already verified so there
     //  is no need for an additional checks here
-    auto output_d = roles_map.at(MatmulRole::OUTPUT_D).front();
+    auto output_d = tensor_roles.at(MatmulRole::OUTPUT_D).front();
     for (auto* c : c_tvs) {
       cached_tvs.push_back(c->cacheAfter());
     }
@@ -762,8 +762,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   IdModel id_model(fusion);
-  std::unordered_map<ValGroup, MatmulDomain> id_roles =
-      patterns.front().getDimRoles(id_model);
+  mma_utils::DimRolesMap id_roles = patterns.front().getDimRoles(id_model);
   const auto& tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
 
