@@ -809,6 +809,12 @@ void DynamicTransformConcretizer::concretizeResize() {
     NVF_CHECK(
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");
+
+    // Replace the extent expression with 1 everywhere
+    Val* one = FusionGuard::getCurFusion()->oneVal(DataType::Index);
+    registerConcretization(id->extent(), one);
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(id->extent(), one);
+
     auto def = id->definition()->as<Resize>();
     auto new_id = IterDomain::resize(
         def->in(),
