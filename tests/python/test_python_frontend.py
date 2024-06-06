@@ -4059,7 +4059,6 @@ class TestNvFuserFrontend(TestCase):
     # https://github.com/NVIDIA/Fuser/issues/1653
     def test_rng_range(self):
         dtypes = [DataType.Double, DataType.Float, DataType.Half]
-        dtypes = []
         if not is_pre_ampere():
             dtypes.append(DataType.BFloat16)
         for dtype in dtypes:
@@ -4078,7 +4077,6 @@ class TestNvFuserFrontend(TestCase):
 
             output = fd.execute([])[0]
 
-            m = output.amin()
             x = output.amax()
             mu = output.type(torch.float64).mean()
             # Repeat to improve chances of sampling extreme values
@@ -4086,17 +4084,11 @@ class TestNvFuserFrontend(TestCase):
             num_samples = num_runs * samples_per_run
             for i in range(num_runs):
                 u = fd.execute([])[0]
-                m = torch.minimum(m, u.amin())
                 x = torch.maximum(x, u.amax())
                 mu = mu + (u.type(torch.float64).mean() - mu) / (i + 2)
 
-            print(f"{output.dtype} min={m.item()} max={x.item()} mean={mu.item()}")
-
             if dtype != DataType.Double:
                 # Even with repeats, there's no hope of sampling extreme double values
-
-                # TODO: Minimum value 1.1596057447604835e-10 for bfloat16 is failing this check
-                # assert m.item() == 0.0, f'{output.dtype} min generated value: {m.item()}'
 
                 assert (
                     x.item()
