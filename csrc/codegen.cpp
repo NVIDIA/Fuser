@@ -300,13 +300,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           code_ << " CpuScalarTensor<" << param->dtype() << "> "
                 << var_name_ss.str();
         } else {
-          code_
-              << "Tensor<" << param->dtype() << ", "
-              << TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size()
-              << ", "
-              << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
-                     .size()
-              << "> " << var_name_ss.str();
+          code_ << "Tensor<" << param->dtype() << ", "
+                << TensorDomain::noReductions(tv->getLogicalDomain()).size()
+                << ", "
+                << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
+                       .size()
+                << "> " << var_name_ss.str();
         }
       } else {
         NVF_ERROR(param->isScalar()); // NOLINT (LLVM bug 48525)
@@ -1245,7 +1244,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto optype = ldst->opType();
     NVF_ERROR(
         optype != LoadStoreOpType::LdMatrix &&
-            optype != LoadStoreOpType::LdMatrixTranspose &&
             optype != LoadStoreOpType::CpAsync,
         "ldmatrix and cp.async should be lowered as kir::Asm");
 

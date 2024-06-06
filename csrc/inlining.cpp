@@ -38,10 +38,10 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
       // can be inlined based on avoiding trying to inline reduction structures.
       auto mappable_roots =
           root_map.getMappableDims(tv->domain(), consumer->domain());
-      for (auto tv_root_id : tv->getMaybeRFactorDomain()) {
-        if (mappable_roots.find(tv_root_id) == mappable_roots.end() &&
-            !ir_utils::isSqueezedID(tv, tv_root_id)) {
-          unmappable_dims_.emplace(tv_root_id);
+      for (auto tv_logical_id : tv->getLogicalDomain()) {
+        if (mappable_roots.find(tv_logical_id) == mappable_roots.end() &&
+            !ir_utils::isSqueezedID(tv, tv_logical_id)) {
+          unmappable_dims_.emplace(tv_logical_id);
         }
       }
     }
@@ -76,13 +76,14 @@ bool MaxPosCalculator::isAllowedID(
   }
 
   if (!allow_unmappable) {
-    auto root_dom = tv->getMaybeRFactorDomain();
-    std::unordered_set<Val*> root_dom_set(root_dom.begin(), root_dom.end());
-    auto all_vals = DependencyCheck::getAllValsBetween(root_dom_set, {id});
+    auto logical_dom = tv->getLogicalDomain();
+    std::unordered_set<Val*> logical_dom_set(
+        logical_dom.begin(), logical_dom.end());
+    auto all_vals = DependencyCheck::getAllValsBetween(logical_dom_set, {id});
     bool is_unmappable = false;
     for (auto val : all_vals) {
       auto id = val->as<IterDomain>();
-      if (root_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
+      if (logical_dom_set.count(val) > 0 && unmappable_dims_.count(id) > 0) {
         is_unmappable = true;
         break;
       }

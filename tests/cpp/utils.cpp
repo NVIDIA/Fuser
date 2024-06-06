@@ -471,12 +471,12 @@ TensorView* canonicalizeInputToBMNK(
     TensorView* tv,
     MmaLayout layout,
     MmaOperand operand) {
-  auto rfnob = TensorDomain::noBroadcasts(tv->getMaybeRFactorDomain());
+  auto lgnob = TensorDomain::noBroadcasts(tv->getLogicalDomain());
   NVF_ERROR(
-      rfnob.size() == 2 || rfnob.size() == 3,
+      lgnob.size() == 2 || lgnob.size() == 3,
       "Expected 2 or 3 domains, got ",
-      rfnob.size());
-  bool has_batch = rfnob.size() == 3;
+      lgnob.size());
+  bool has_batch = lgnob.size() == 3;
   bool already_broadcasted = tv->hasBroadcast();
 
   // Step 1: insert permute as needed.
@@ -484,7 +484,7 @@ TensorView* canonicalizeInputToBMNK(
     if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
       // [M, (N,) B, K] -> [B, M, (N,) K]
       if (has_batch) {
-        // Using reorder + commitLeafToRFactor instead of permute here because
+        // Using reorder + commitLeafToLogical instead of permute here because
         // the former's API is more convenient here
         tv = permute(tv, {{-2, 0}});
       }

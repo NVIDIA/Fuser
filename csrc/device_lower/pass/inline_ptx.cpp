@@ -10,7 +10,9 @@
 #include <device_lower/utils.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
+#include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <scheduler/mma_utils.h>
 
 #include <sstream>
 
@@ -55,11 +57,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
 
   void handle(LoadStoreOp* ldst) override {
     if (ir_utils::isLdMatrixOp(ldst)) {
-      auto op = ldst->opType();
       std::stringstream ss;
       ss << "ldmatrix.sync.aligned.x"
          << std::get<ArrayType>(ldst->out()->dtype().type).size;
-      if (op == LoadStoreOpType::LdMatrixTranspose) {
+      if (mma_utils::isLdMatrixTranspose(ldst)) {
         ss << ".trans";
       }
       ss << ".m8n8.shared.b16";
