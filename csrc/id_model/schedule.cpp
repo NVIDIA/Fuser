@@ -117,7 +117,7 @@ std::pair<ValGroup, ValGroup> swizzle(
     NVF_ERROR(input_groups.size() == 2);
     if (input_groups == std::vector<ValGroup>{g0, g1}) {
       auto output_groups = graph->outputGroups(use);
-      NVF_ERROR(output_groups.size() == 1);
+      NVF_ERROR(output_groups.size() == 2);
       return {output_groups[0], output_groups[1]};
     }
   }
@@ -128,9 +128,8 @@ std::pair<ValGroup, ValGroup> swizzle(
   graph->initializeVal(g0_id, g0);
   graph->initializeVal(g1_id, g1);
   graph->initializeVal(out_x, {}, {});
-  graph->registerExpr(out_x->definition());
   graph->initializeVal(out_y, {}, {});
-  graph->registerExpr(out_y->definition());
+  graph->registerExpr(out_x->definition());
   return {graph->toGroup(out_x), graph->toGroup(out_y)};
 }
 

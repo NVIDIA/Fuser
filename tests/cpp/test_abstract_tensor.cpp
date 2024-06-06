@@ -23,7 +23,7 @@ class AbstractTensorTest : public NVFuserTest {
     NVFuserTest::SetUp();
     fusion_ptr_ = std::make_unique<Fusion>();
     fusion_guard_ptr_ = std::make_unique<FusionGuard>(fusion_ptr_.get());
-    auto size = IrBuilder::create<Val>(DataType::Index);
+    auto size = IrBuilder::create<Val>(16, DataType::Index);
     builder_ =
         std::make_unique<IterDomainBuilder>(fusion_ptr_->zeroVal(), size);
   }
@@ -407,6 +407,258 @@ TEST_F(AbstractTensorTest, Flatten) {
   ASSERT_NE(merge, nullptr);
   EXPECT_EQ(merge->inner(), id2);
   EXPECT_EQ(merge->outer(), id1);
+}
+
+TEST_F(AbstractTensorTest, SwizzleSingleIterDomains) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  AbstractTensor v({id0, id1, id2, id3});
+  v.swizzle(SwizzleType::XOR, 1, 2);
+  // [0, 1', 2', 3]
+  auto result = v.as<IterDomain*>();
+  ASSERT_EQ(result.size(), 4);
+  EXPECT_EQ(result[0], id0);
+  EXPECT_EQ(result[3], id3);
+  auto s1 = dynamic_cast<Swizzle*>(result[1]->definition());
+  auto s2 = dynamic_cast<Swizzle*>(result[2]->definition());
+  ASSERT_NE(s1, nullptr);
+  EXPECT_EQ(s1, s2);
+  EXPECT_EQ(s1->inX(), id1);
+  EXPECT_EQ(s1->inY(), id2);
+}
+
+TEST_F(AbstractTensorTest, SwizzleIterDomainsLeftBroadcasting) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  AbstractTensor v({id0, {id1, id2}});
+  v.swizzle(SwizzleType::XOR, 0, 1);
+  // [{0', 0"}, {1', 2"}]
+
+  auto result = v.as<std::vector<IterDomain*>>();
+  ASSERT_EQ(result.size(), 2);
+  ASSERT_EQ(result[0].size(), 2);
+  ASSERT_EQ(result[1].size(), 2);
+
+  auto s1 = dynamic_cast<Swizzle*>(result[0][0]->definition());
+  auto s2 = dynamic_cast<Swizzle*>(result[1][0]->definition());
+  ASSERT_NE(s1, nullptr);
+  EXPECT_EQ(s1, s2);
+  EXPECT_EQ(s1->inX(), id0);
+  EXPECT_EQ(s1->inY(), id1);
+
+  s1 = dynamic_cast<Swizzle*>(result[0][1]->definition());
+  s2 = dynamic_cast<Swizzle*>(result[1][1]->definition());
+  ASSERT_NE(s1, nullptr);
+  EXPECT_EQ(s1, s2);
+  EXPECT_EQ(s1->inX(), id0);
+  EXPECT_EQ(s1->inY(), id2);
+}
+
+TEST_F(AbstractTensorTest, SwizzleIterDomainsRightBroadcasting) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  AbstractTensor v({{id0, id1}, id2});
+  v.swizzle(SwizzleType::XOR, 0, 1);
+  // [{0', 1"}, {2', 2"}]
+
+  auto result = v.as<std::vector<IterDomain*>>();
+  ASSERT_EQ(result.size(), 2);
+  ASSERT_EQ(result[0].size(), 2);
+  ASSERT_EQ(result[1].size(), 2);
+
+  auto s1 = dynamic_cast<Swizzle*>(result[0][0]->definition());
+  auto s2 = dynamic_cast<Swizzle*>(result[1][0]->definition());
+  ASSERT_NE(s1, nullptr);
+  EXPECT_EQ(s1, s2);
+  EXPECT_EQ(s1->inX(), id0);
+  EXPECT_EQ(s1->inY(), id2);
+
+  s1 = dynamic_cast<Swizzle*>(result[0][1]->definition());
+  s2 = dynamic_cast<Swizzle*>(result[1][1]->definition());
+  ASSERT_NE(s1, nullptr);
+  EXPECT_EQ(s1, s2);
+  EXPECT_EQ(s1->inX(), id1);
+  EXPECT_EQ(s1->inY(), id2);
+}
+
+TEST_F(AbstractTensorTest, SwizzleIterDomainsBatch) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  AbstractTensor v({{id0, id1}, {id2, id3}});
+  v.swizzle(SwizzleType::XOR, 0, 1);
+  // [{0', 1"}, {2', 3"}]
+
+  auto result = v.as<std::vector<IterDomain*>>();
+  ASSERT_EQ(result.size(), 2);
+  ASSERT_EQ(result[0].size(), 2);
+  ASSERT_EQ(result[1].size(), 2);
+
+  auto s1 = dynamic_cast<Swizzle*>(result[0][0]->definition());
+  auto s2 = dynamic_cast<Swizzle*>(result[1][0]->definition());
+  ASSERT_NE(s1, nullptr);
+  EXPECT_EQ(s1, s2);
+  EXPECT_EQ(s1->inX(), id0);
+  EXPECT_EQ(s1->inY(), id2);
+
+  s1 = dynamic_cast<Swizzle*>(result[0][1]->definition());
+  s2 = dynamic_cast<Swizzle*>(result[1][1]->definition());
+  ASSERT_NE(s1, nullptr);
+  EXPECT_EQ(s1, s2);
+  EXPECT_EQ(s1->inX(), id1);
+  EXPECT_EQ(s1->inY(), id3);
+}
+
+TEST_F(AbstractTensorTest, SwizzleValGroups) {
+  auto id0 = newID();
+  auto id1 = newID();
+  ValGraph g;
+  g.initializeVal(id0);
+  g.initializeVal(id1);
+  ValGroupAndItsGraph g0{g.toGroup(id0), &g};
+  ValGroupAndItsGraph g1{g.toGroup(id1), &g};
+  AbstractTensor v({g0, g1});
+  v.swizzle(SwizzleType::XOR, 0, 1);
+  // [0', 1']
+
+  EXPECT_EQ(g.disjointValSets().size(), 4);
+  EXPECT_EQ(g.disjointExprSets().size(), 1);
+  auto result = v.as<ValGroupAndItsGraph>();
+  ASSERT_EQ(result.size(), 2);
+  EXPECT_EQ(result[0].graph, &g);
+  EXPECT_EQ(result[1].graph, &g);
+
+  EXPECT_NE(result[0], g0);
+  EXPECT_NE(result[1], g0);
+  EXPECT_NE(result[0], g1);
+  EXPECT_NE(result[1], g1);
+  EXPECT_NE(result[0], result[1]);
+
+  auto defs0 = g.getDefinitions(result[0].group);
+  auto defs1 = g.getDefinitions(result[1].group);
+  ASSERT_EQ(defs0, defs1);
+  ASSERT_EQ(defs0.size(), 1);
+
+  auto eg = defs1.front();
+  auto expect_in = std::vector<ValGroup>{g0.group, g1.group};
+  auto expect_out = std::vector<ValGroup>{result[0].group, result[1].group};
+  EXPECT_EQ(g.inputGroups(eg), expect_in);
+  EXPECT_EQ(g.outputGroups(eg), expect_out);
+
+  auto uses0 = g.getUses(g0.group);
+  auto uses1 = g.getUses(g1.group);
+  EXPECT_EQ(uses0, uses1);
+  EXPECT_EQ(uses0.size(), 1);
+  EXPECT_EQ(uses0.front(), eg);
+
+  // Test reusing of existing swizzle
+  AbstractTensor vv({g0, g1});
+  vv.swizzle(SwizzleType::XOR, 0, 1);
+  EXPECT_EQ(g.disjointValSets().size(), 4);
+  EXPECT_EQ(g.disjointExprSets().size(), 1);
+  EXPECT_EQ(v.domain, vv.domain);
+}
+
+TEST_F(AbstractTensorTest, SwizzleIterDomainWithValGroup) {
+  auto id0 = newID();
+  auto id1 = newID();
+  ValGraph g;
+  g.initializeVal(id0);
+  g.initializeVal(id1);
+  ValGroupAndItsGraph g1{g.toGroup(id1), &g};
+  AbstractTensor v({id0, g1});
+  v.swizzle(SwizzleType::XOR, 0, 1);
+  // [0', 1']
+
+  EXPECT_EQ(g.disjointValSets().size(), 4);
+  EXPECT_EQ(g.disjointExprSets().size(), 1);
+  auto result = v.as<ValGroupAndItsGraph>();
+  ASSERT_EQ(result.size(), 2);
+  EXPECT_EQ(result[0].graph, &g);
+  EXPECT_EQ(result[1].graph, &g);
+
+  EXPECT_NE(result[0].group, g.toGroup(id0));
+  EXPECT_NE(result[1].group, g.toGroup(id0));
+  EXPECT_NE(result[0], g1);
+  EXPECT_NE(result[1], g1);
+  EXPECT_NE(result[0], result[1]);
+
+  auto defs0 = g.getDefinitions(result[0].group);
+  auto defs1 = g.getDefinitions(result[1].group);
+  ASSERT_EQ(defs0, defs1);
+  ASSERT_EQ(defs0.size(), 1);
+
+  auto eg = defs1.front();
+  auto expect_in = std::vector<ValGroup>{g.toGroup(id0), g1.group};
+  auto expect_out = std::vector<ValGroup>{result[0].group, result[1].group};
+  EXPECT_EQ(g.inputGroups(eg), expect_in);
+  EXPECT_EQ(g.outputGroups(eg), expect_out);
+
+  auto uses0 = g.getUses(g.toGroup(id0));
+  auto uses1 = g.getUses(g1.group);
+  EXPECT_EQ(uses0, uses1);
+  EXPECT_EQ(uses0.size(), 1);
+  EXPECT_EQ(uses0.front(), eg);
+
+  // Test reusing of existing swizzle
+  AbstractTensor vv({id0, g1});
+  vv.swizzle(SwizzleType::XOR, 0, 1);
+  EXPECT_EQ(g.disjointValSets().size(), 4);
+  EXPECT_EQ(g.disjointExprSets().size(), 1);
+  EXPECT_EQ(v.domain, vv.domain);
+}
+
+TEST_F(AbstractTensorTest, SwizzleValGroupWithIterDomain) {
+  auto id0 = newID();
+  auto id1 = newID();
+  ValGraph g;
+  g.initializeVal(id0);
+  g.initializeVal(id1);
+  ValGroupAndItsGraph g0{g.toGroup(id0), &g};
+  AbstractTensor v({g0, id1});
+  v.swizzle(SwizzleType::XOR, 0, 1);
+  // [0', 1']
+  EXPECT_EQ(g.disjointValSets().size(), 4);
+  EXPECT_EQ(g.disjointExprSets().size(), 1);
+  auto result = v.as<ValGroupAndItsGraph>();
+  ASSERT_EQ(result.size(), 2);
+  EXPECT_EQ(result[0].graph, &g);
+  EXPECT_EQ(result[1].graph, &g);
+
+  EXPECT_NE(result[0], g0);
+  EXPECT_NE(result[1], g0);
+  EXPECT_NE(result[0].group, g.toGroup(id1));
+  EXPECT_NE(result[1].group, g.toGroup(id1));
+  EXPECT_NE(result[0], result[1]);
+
+  auto defs0 = g.getDefinitions(result[0].group);
+  auto defs1 = g.getDefinitions(result[1].group);
+  ASSERT_EQ(defs0, defs1);
+  ASSERT_EQ(defs0.size(), 1);
+
+  auto eg = defs1.front();
+  auto expect_in = std::vector<ValGroup>{g0.group, g.toGroup(id1)};
+  auto expect_out = std::vector<ValGroup>{result[0].group, result[1].group};
+  EXPECT_EQ(g.inputGroups(eg), expect_in);
+  EXPECT_EQ(g.outputGroups(eg), expect_out);
+
+  auto uses0 = g.getUses(g0.group);
+  auto uses1 = g.getUses(g.toGroup(id1));
+  EXPECT_EQ(uses0, uses1);
+  EXPECT_EQ(uses0.size(), 1);
+  EXPECT_EQ(uses0.front(), eg);
+
+  // Test reusing of existing swizzle
+  AbstractTensor vv({g0, id1});
+  vv.swizzle(SwizzleType::XOR, 0, 1);
+  EXPECT_EQ(g.disjointValSets().size(), 4);
+  EXPECT_EQ(g.disjointExprSets().size(), 1);
+  EXPECT_EQ(v.domain, vv.domain);
 }
 
 } // namespace nvfuser
