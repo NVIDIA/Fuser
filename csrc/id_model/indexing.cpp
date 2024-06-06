@@ -266,7 +266,7 @@ void IdGraphIndexCompute::handle(Split* split) {
   const bool is_forward = isForward(split);
 
   auto inner_extent = split->inner()->extent();
-  
+
   if (is_forward) {
     auto in_idx = getIndex(split->in());
     auto outer_idx = SimplifyingIrBuilder::divExpr(in_idx, inner_extent);
@@ -344,7 +344,6 @@ void TensorIndexer::buildLoopIndexMap() {
     if (!ir_utils::isTvOp(expr)) {
       continue;
     }
-
     // It's assumed that all sibling outputs share the same for-loops,
     // thus only one of the outputs is considered.
     auto tv_output = ir_utils::getTvOutput(expr);
