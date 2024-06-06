@@ -104,8 +104,8 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     contiguity = tv->domain()->contiguity();
   } else {
     // If allocation domain is not set, assume that:
-    // Global: logical domains
-    // Local/Shared: loop domains to the right of the CA position
+    // - Global: logical domains
+    // - Local/Shared: loop domains to the right of the CA position
     const auto inlining_pos = tv->getComputeAtPosition();
     if (tv->getMemoryType() == MemoryType::Global) {
       allocation_domains = tv->getLogicalDomain();
@@ -371,27 +371,10 @@ void TensorIndexer::buildLoopIndexMap() {
 }
 
 bool TensorIndexer::shouldUseZeroIndex(const ValGroup& loop_group) const {
-  // For parallelized domains that have index NamedScalar's such as
-  // threadIdx.x, just use the NamedScalar. It doesn't automatically
-  // mean such parallel indices are actually used in the final index
-  // expr. For example, TID-parallelized Local tensors won't have
-  // TID-parallelized iter domains as allocation domains, so threadIdx
-  // won't appear in the final index expr.
-  ParallelType ptype = getParallelType(loop_group);
-  if (isParallelTypeThread(ptype)) {
-    return false;
-  }
-
-  // Note that the device paralle type is not included in
-  // "isThread". This is necessary because we don't have a NamedScalar
-  // for DID. Since it's always partitioned in any memory space
-  // currently supported, it's guaranteed to be zero.
-  if (isParallelTypeDeviceDim(ptype)) {
-    return true;
-  }
-
   // All loops in this set are non-parallel, non-concretized broadcast
-  //  iterdomains, their "index variable" should be zero.
+  //  iterdomains, their "index variable" should be zero. This
+  //  condition should be included in the next triviality check, but
+  //  just checking isBroadcast should be more efficient.
   if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
         return val->as<IterDomain>()->isBroadcast();
       })) {
@@ -491,8 +474,6 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
     index = SimplifyingIrBuilder::addExpr(
         index, SimplifyingIrBuilder::mulExpr(idx, stride));
   }
-
-  VERBOSE() << "Final index: " << index->toInlineString() << std::endl;
 
   return index;
 }
