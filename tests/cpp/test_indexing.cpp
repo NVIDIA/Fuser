@@ -21,6 +21,8 @@
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
 
+#include <functional>
+
 namespace nvfuser {
 
 using IndexingTest = NVFuserTest;
@@ -33,6 +35,26 @@ std::vector<Val*> getLoopIndices(TensorView* tv, const TensorIndexer& indexer) {
     loop_indices.push_back(indexer.getLoopIndex(loop_id));
   }
   return loop_indices;
+}
+
+template <typename... Args>
+Val* addExpr(Args&&... args) {
+  return SimplifyingIrBuilder::addExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* mulExpr(Args&&... args) {
+  return SimplifyingIrBuilder::mulExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* divExpr(Args&&... args) {
+  return SimplifyingIrBuilder::divExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* modExpr(Args&&... args) {
+  return SimplifyingIrBuilder::modExpr(std::forward<Args>(args)...);
 }
 
 } // namespace
@@ -492,6 +514,104 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
   EXPECT_TRUE(tv2_consumer_index->sameAs(tv2_consumer_index_ref))
       << "Ref: " << tv2_consumer_index_ref->toInlineString()
       << ". Actual: " << tv2_consumer_index->toInlineString();
+}
+
+// Concretized broadcast
+TEST_F(IndexingTest, SimpleBroadcast3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  tv3->flatten();
+
+  TransformPropagator propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+  TensorIndexer indexer(id_model);
+
+  std::vector<Val*> tv3_loop_indices = getLoopIndices(tv3, indexer);
+
+  // Start with tv3 index as it's most straightforward
+  auto tv3_consumer_index = indexer.getLinearIndex(tv3, tv3->definition());
+  auto tv3_consumer_index_ref = addExpr(
+      modExpr(tv3_loop_indices.at(0), tv3->getLogicalDomain().at(1)->extent()),
+      mulExpr(
+          divExpr(
+              tv3_loop_indices.at(0), tv3->getLogicalDomain().at(1)->extent()),
+          tv3->getLogicalDomain().at(1)->extent()));
+
+  EXPECT_TRUE(tv3_consumer_index->sameAs(tv3_consumer_index_ref))
+      << "Ref: " << tv3_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv3_consumer_index->toInlineString();
+
+  // Since tv2 is fully inlined, its index should be just zero
+  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
+  auto tv2_producer_index = indexer.getLinearIndex(tv2, tv3->definition());
+
+  EXPECT_TRUE(tv2_consumer_index->isZeroInt());
+  EXPECT_TRUE(tv2_producer_index->isZeroInt());
+
+  // tv0 is a 1D pre-broadcast input tensor, so it only needs the
+  // index that corresponds to the outer dimension of the tv3 (or tv2)
+  // logical domains
+  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv2->definition());
+  auto tv0_producer_index_ref =
+      divExpr(tv3_loop_indices.at(0), tv3->getLogicalDomain().at(1)->extent());
+
+  EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
+      << "Ref: " << tv0_producer_index_ref->toInlineString()
+      << ". Actual: " << tv0_producer_index->toInlineString();
+
+  // tv1 should have the same index as tv3
+  auto tv1_producer_index = indexer.getLinearIndex(tv1, tv3->definition());
+  EXPECT_TRUE(tv1_producer_index->sameAs(tv3_consumer_index_ref))
+      << "Ref: " << tv3_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv1_producer_index->toInlineString();
+}
+
+// Concretized broadcast with partial inlining. Loop promotion is
+// required. Same fusion as IdModelTest.LoopPromotion4. See also
+// Example 1 of the Loop Promotion doc.
+TEST_F(IndexingTest, SimpleBroadcast4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({1, 4});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({3, 4});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  // [i0, i1]
+  tv4->merge(0);
+  // [i0*i1]
+  tv4->split(0, 4, false); // outer split
+  // [4, i0*i1/4]
+
+  TransformPropagator propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    tv->inlineAt(-2);
+  }
+
+  IdModel id_model(&fusion);
+  TensorIndexer indexer(id_model);
 }
 
 } // namespace nvfuser
