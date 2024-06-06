@@ -153,6 +153,14 @@ class IdModel : public PolymorphicBase {
 
   std::string toString() const;
 
+  bool empty() const {
+    return tvs_.empty();
+  }
+
+  Fusion* fusion() const {
+    return fusion_;
+  }
+
   // Build all graphs, i.e., Exact, AlmostExact, Permissive and
   // LOOP. This is by default called from the constructor
   void buildAllGraphs();
@@ -225,6 +233,9 @@ class IdModel : public PolymorphicBase {
   void validateLoopGraphHasNoSelfMappedLeafDomains() const;
 
  protected:
+  // Fusion where iter domains belong
+  Fusion* fusion_ = nullptr;
+
   // All tensor expressions that this model analyzes
   std::vector<Expr*> tv_exprs_;
 
