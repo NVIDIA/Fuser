@@ -587,7 +587,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           // There's a place to put it in the device
           || target_blocks < device_multiprocessor_count * n_waves
           // There's a place to put it in unrolling
-          || target_unroll < int64_t(vectorize_factor))) {
+          || target_unroll < max_unroll)) {
     if (target_threads_in_block <
         ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4)) {
       target_threads_in_block *= 2;
@@ -598,13 +598,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       target_blocks *= 2;
     }
 
-    // Delay increasing unroll until we're at a quarter of the target blocks and
-    // threads
+    // Delay increasing unroll until we more than a wave of blocks
     if (target_blocks > device_multiprocessor_count &&
-        target_threads_in_block >
-            ceilDiv(device_max_threads_per_multiprocessor, (int64_t)16) &&
-        target_unroll < int64_t(vectorize_factor) &&
-        available_parallelism() > 1) {
+        target_unroll < max_unroll && available_parallelism() > 1) {
       target_unroll *= 2;
     }
   }
@@ -662,18 +658,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     }
   }
 
-  // Try to use a vectorization factor large enough to ensure one transaction
-  // reads 128 bytes. For example, when bdimx = 16 with fp16,
-  // transaction_based_vect = 4.
-  constexpr int64_t bytes_per_transaction = 128L;
-  int64_t transaction_based_vect =
-      ceilDiv(bytes_per_transaction, max_input_dtype_size * bdimx);
-  int64_t target_vect = std::max(target_unroll, transaction_based_vect);
   // gradually increased iter_unroll_factor from 1 to 2, 4, 8, ensure the
   // split is divisible. This improves performance when iteration dim is not
   // power of 2, e.g. 1600 and 4800.
   int64_t max_iter_unroll_factor =
-      std::min((int64_t)vectorize_factor, std::min(iDimAvail(), target_vect));
+      std::min((int64_t)vectorize_factor, std::min(iDimAvail(), target_unroll));
   while (total_iteration_numel % (bdimx * iter_unroll_factor * 2) == 0 &&
          iter_unroll_factor * 2 <= max_iter_unroll_factor) {
     iter_unroll_factor *= 2;
