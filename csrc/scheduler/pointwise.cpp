@@ -10,6 +10,7 @@
 #include <debug.h>
 #include <inlining.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
@@ -225,11 +226,14 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   }
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  ref_root = TensorDomain::noReductions(ref_root);
+  ref_root = TensorDomain::noDevices(TensorDomain::noReductions(ref_root));
 
   std::vector<int64_t> elem_counts(ref_root.size(), 1);
   int64_t n_elems = 1;
   for (size_t ref_i = 0; ref_i < ref_root.size(); ref_i++) {
+    if (ref_root[ref_i]->isDeviceDim()) {
+      continue;
+    }
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(ref_root[ref_i]->extent());
     NVF_ERROR(
@@ -239,10 +243,11 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     elem_counts[ref_i] = inferred_val.as<int64_t>();
     n_elems *= elem_counts[ref_i];
   }
+  std::cout << "Number of concrete elements " << n_elems << std::endl;
 
   // If zero dimensional or zero size, return default parameters
-  if (TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(largest_out->getLeafDomain()))
+  if (TensorDomain::noDevices(TensorDomain::noReductions(
+          TensorDomain::noBroadcasts(largest_out->getLeafDomain())))
           .empty() ||
       n_elems == 0) {
     auto vectorizable_inputs_outputs_entry = HeuristicSummaryEntry<
@@ -536,6 +541,7 @@ bool hasReferenceTensorView(Fusion* fusion) {
 // input/output caches)
 void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   FusionGuard fg(fusion);
+  std::cout << "SchedulePointwise " << std::endl;
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
@@ -564,17 +570,17 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   }
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
 
-  int64_t max_dims = 0;
+  int64_t max_local_dims = 0;
   for (auto inp : input_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
+    max_local_dims = std::max(pointwise_utils::nRootDims(inp), max_local_dims);
   }
 
   for (auto out : output_tvs) {
-    max_dims = std::max(pointwise_utils::nRootDims(out), max_dims);
+    max_local_dims = std::max(pointwise_utils::nRootDims(out), max_local_dims);
   }
 
   // If everything is zero dim tensors, just return.
-  if (max_dims == 0) {
+  if (max_local_dims == 0) {
     return;
   }
 
@@ -584,8 +590,12 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       reference_tv != nullptr,
       "Could not find a fully broadcasted output to reference schedule on.");
 
+  // Adjust the break point
+  int64_t num_device_dims_in_ref = numDeviceDims(reference_tv);
+  int64_t did_aware_break_point = params.break_point + num_device_dims_in_ref;
+
   // Positions of rhs and lhs after merging all dimensions.
-  int64_t rhs_i = -1;
+  int64_t rhs_i = -1; 
   int64_t lhs_i = -1;
 
   if (!ir_utils::getViewOps(fusion).empty()) {
@@ -603,18 +613,18 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // to do this is with Dependency check which will grab all intermediate
     // values too.
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getMaybeRFactorDomain().begin(),
-         reference_tv->getMaybeRFactorDomain().begin() + params.break_point},
-        {reference_tv->getLeafDomain().begin(),
+        {reference_tv->getMaybeRFactorDomain().begin() + num_device_dims_in_ref,
+         reference_tv->getMaybeRFactorDomain().begin() + did_aware_break_point},
+        {reference_tv->getLeafDomain().begin() + num_device_dims_in_ref,
          reference_tv->getLeafDomain().end()});
 
     std::unordered_set<Val*> lhs_all_vals_set(
         lhs_all_vals.begin(), lhs_all_vals.end());
 
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getMaybeRFactorDomain().begin() + params.break_point,
+        {reference_tv->getMaybeRFactorDomain().begin() + did_aware_break_point,
          reference_tv->getMaybeRFactorDomain().end()},
-        {reference_tv->getLeafDomain().begin(),
+        {reference_tv->getLeafDomain().begin() + num_device_dims_in_ref,
          reference_tv->getLeafDomain().end()});
 
     std::unordered_set<Val*> rhs_all_vals_set(
@@ -674,7 +684,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     }
 
     // Merge right side of break point
-    for (int64_t i = reference_tv->nDims(); i > params.break_point; i--) {
+    for (int64_t i = reference_tv->nDims(); i > did_aware_break_point; i--) {
       auto axis_i = i - 1;
       if (rhs_i == -1) {
         rhs_i = axis_i;
@@ -689,7 +699,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     }
 
     // Merge left side of break point
-    for (int64_t i = params.break_point; i > 0; i--) {
+    for (int64_t i = did_aware_break_point; i > num_device_dims_in_ref; i--) {
       auto axis_i = i - 1;
       if (lhs_i == -1) {
         lhs_i = axis_i;
@@ -806,6 +816,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     }
   } else {
     // 1D Scheduler
+    // TODO: DID aware 1D scheduler
     NVF_ERROR(rhs_i >= 0 && lhs_i == -1);
 
     // right hand side exists and is the only axis we care to schedule, move

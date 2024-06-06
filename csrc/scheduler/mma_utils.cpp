@@ -703,6 +703,7 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 } // namespace
 
 void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
+  std::cout << "ScheduleLdMatrix " << tv->toString() << std::endl;
   bool transpose = tv->definition()->as<LoadStoreOp>()->opType() ==
       LoadStoreOpType::LdMatrixTranspose;
   // For A, we have an extra outer dim (-6), which is the "warp group". For
@@ -761,6 +762,7 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
 
   tv->axis(-2)->parallelize(ParallelType::TIDx);
   // TODO: this is not really vectorization. Change its parallel type to Mma.
+  std::cout << "LdMatrix vectorize " << tv->axis(-1) << std::endl;
   tv->axis(-1)->parallelize(ParallelType::Vectorize);
   setWarpMapped(tv, 2);
 }
@@ -966,7 +968,9 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
     NVF_CHECK(root_id_set.count(id), id->toString(), " not a root id.");
 
     // Categorize each original iterdomain position
-    if (m_id_set.count(id)) {
+    if (id->isDeviceDim()) {
+      device_pos.push_back(idx);
+    } else if (m_id_set.count(id)) {
       m_pos.push_back(idx);
     } else if (n_id_set.count(id)) {
       n_pos.push_back(idx);
@@ -974,9 +978,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
       k_pos.push_back(idx);
     } else if (id->isReduction()) {
       prev_reduction_pos.push_back(idx);
-    } else if (id->isDeviceDim()) {
-      device_pos.push_back(idx);
-    } else {
+    }  else {
       batch_pos.push_back(idx);
     }
   }

@@ -1631,7 +1631,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
   auto ref_root_domain =
-      TensorDomain::noReductions(reference_tv->getMaybeRFactorDomain());
+      TensorDomain::noDevices(TensorDomain::noReductions(reference_tv->getMaybeRFactorDomain()));
 
   if (!rfactor_reorder_map.empty()) {
     ref_root_domain =

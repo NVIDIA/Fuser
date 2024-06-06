@@ -16,6 +16,11 @@
 
 namespace nvfuser {
 
+// TODO: Add explanation for handling DID axis
+// DID axes arrive pre-parallelized (i.e. this is scheduling). 
+// DID axes are never allocated, so we ignore them
+// Assumptions: All TensorViews are canonicalized into such that DID axes are in the front
+// There is no resharding expressions in the fusion. TODO: What does that mean precisely.
 /*
  * The 2D pointwise scheduling logic is a bit interesting. We'll start by giving
  * motivation for what the scheduling is attempting to do. What we're going to

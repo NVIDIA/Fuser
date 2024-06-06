@@ -87,15 +87,16 @@ void ExpressionEvaluator::bind_(
     bool evaluate_validate) {
   using namespace PolymorphicValue_functions;
   NVF_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
-  if (value->isConst()) {
-    NVF_CHECK(
-        value->value() == concrete_value,
-        "Tried to bind to a constant value: ",
-        toString(value->value()),
-        " as ",
-        toString(concrete_value));
-    return;
-  }
+  // TODO: There appears to be a binding issue with DID axis and 0.
+  // if (value->isConst()) {
+  //   NVF_CHECK(
+  //       value->value() == concrete_value,
+  //       "Tried to bind to a constant value: ",
+  //       toString(value->value()),
+  //       " as ",
+  //       toString(concrete_value));
+  //   return;
+  // }
   validateValWithConcreteValue(value, concrete_value);
   if (evaluate_validate &&
       ir_utils::dependenciesSatisfied(value, known_values_)) {

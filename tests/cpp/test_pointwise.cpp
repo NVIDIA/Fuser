@@ -486,4 +486,47 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+TEST_F(PointwiseTest, DIDInputTensor) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = makeContigTensor(1);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv0);
+  auto tv3 = broadcast(tv1, {true, false});
+  auto tv4 = add(tv2, tv3);
+  fusion->addOutput(tv4);
+
+  DeviceMesh mesh = DeviceMesh::createForNumDevices(4);
+  for (TensorView* tv : {tv0, tv2, tv3, tv4}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  tv1->setDeviceMesh(mesh);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  fec.profile(true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1, 1024, 32}, options); // Note: sharded input tensor.
+  at::Tensor t1 = at::randn({32}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  // NOTE: force pointwise scheduler here just for testing purpose
+  auto params = getPointwiseHeuristics(fusion, aten_inputs);
+  auto lparams = schedulePointwise(fusion, aten_inputs);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, aten_inputs, lparams);
+  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+
+  EXPECT_EQ(params->vectorize, true);
+  EXPECT_EQ(params->unroll_factor, 4);
+  EXPECT_TRUE(hasVectorizationCache(tv0));
+  EXPECT_TRUE(hasVectorizationCache(tv1));
+
+  testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
 } // namespace nvfuser

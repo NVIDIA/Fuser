@@ -16,6 +16,7 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
+#include <multidevice/utils.h>
 
 namespace nvfuser {
 
@@ -1148,6 +1149,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
 // fusion is the input IR that will be modified by this function
 void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
+  std::cout << "Schedule reduction " << std::endl;
   FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
 
