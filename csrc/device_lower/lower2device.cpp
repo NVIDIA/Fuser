@@ -392,7 +392,22 @@ void GpuLower::analysis(Fusion* fusion) {
   // so it is expected that generated code may use diffrent variable
   // names
   if (isOptionEnabled(EnableOption::IdModel)) {
-    IdModel id_model(fusion_);
+    // Enable validation in the DEBUG build mode
+#ifdef NDEBUG
+    // Not DEBUG build
+    IdModel id_model(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+#else
+    // DEBUG build
+    IdModel id_model(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/true);
+#endif
   }
 
   resolveComputeWith(fusion_);
