@@ -143,6 +143,14 @@ class VectorOfUniqueEntries {
     return set_;
   }
 
+  bool operator==(const VectorOfUniqueEntries& other) const {
+    return vector() == other.vector();
+  }
+
+  bool operator!=(const VectorOfUniqueEntries& other) const {
+    return !operator==(other);
+  }
+
   // Returns first element in vector
   T front() const {
 #ifndef NDEBUG
