@@ -475,28 +475,24 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
   // allocation domain, which is mapped with the merge of the two
   // logical domains of tv1 on the AlmostExact graph. Traverse back to
   // the merge output from the loop domains.
-  auto tv0_producer_index_ref = SimplifyingIrBuilder::addExpr(
-      SimplifyingIrBuilder::mulExpr(
-          tv1_loop_indices.at(0), tv1->axis(1)->extent()),
+  auto tv0_producer_index_ref = addExpr(
+      mulExpr(tv1_loop_indices.at(0), tv1->axis(1)->extent()),
       tv1_loop_indices.at(1));
 
   // tv1 is a Local tensor, so its allocation domains are just their
   // loop domains. This index is mathematically equivalent to the tv0
   // index, but the order of linearizing the two loop domains is
   // different from the order of computing the merge input index.
-  auto tv1_consumer_index_ref = SimplifyingIrBuilder::addExpr(
+  auto tv1_consumer_index_ref = addExpr(
       tv1_loop_indices.at(1),
-      SimplifyingIrBuilder::mulExpr(
-          tv1_loop_indices.at(0), tv1->axis(1)->extent()));
+      mulExpr(tv1_loop_indices.at(0), tv1->axis(1)->extent()));
 
-  auto tv1_producer_index_ref = SimplifyingIrBuilder::addExpr(
+  auto tv1_producer_index_ref = addExpr(
       tv2_loop_indices.at(1),
-      SimplifyingIrBuilder::mulExpr(
-          tv2_loop_indices.at(0), tv2->axis(1)->extent()));
+      mulExpr(tv2_loop_indices.at(0), tv2->axis(1)->extent()));
 
-  auto tv2_consumer_index_ref = SimplifyingIrBuilder::addExpr(
-      SimplifyingIrBuilder::mulExpr(
-          tv2_loop_indices.at(0), tv2->axis(1)->extent()),
+  auto tv2_consumer_index_ref = addExpr(
+      mulExpr(tv2_loop_indices.at(0), tv2->axis(1)->extent()),
       tv2_loop_indices.at(1));
 
   EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
