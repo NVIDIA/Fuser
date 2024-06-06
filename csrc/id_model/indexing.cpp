@@ -11,7 +11,6 @@
 #include <expr_simplifier.h>
 #include <id_model/indexing.h>
 #include <id_model/to_string.h>
-#include <id_model/utils.h>
 #include <index_compute.h>
 #include <ir/builder.h>
 #include <ir/graphviz.h>
