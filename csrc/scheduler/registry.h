@@ -73,7 +73,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //! ignoring any IterType::Reduction domains in the allocation domain. This
   //! only works for complete Fusion inputs whose allocation domain is a
   //! permutation of their root domain and will raise an exception otherwise.
-  const std::vector<int64_t>& getInputAllocationSizes(TensorView* tv) {
+  const std::vector<int64_t>& getInputAllocationSizes(TensorView* tv) const {
     NVF_ERROR(
         isInputTv(tv),
         "TensorView ",
@@ -89,7 +89,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //! instead of bytes. Only works for complete Fusion inputs whose allocation
   //! domain is a permutation of their root domain and will raise an exception
   //! otherwise.
-  const std::vector<int64_t>& getInputAllocationStrides(TensorView* tv) {
+  const std::vector<int64_t>& getInputAllocationStrides(TensorView* tv) const {
     NVF_ERROR(
         isInputTv(tv),
         "TensorView ",
@@ -126,7 +126,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
       const KernelArgumentHolder& inputs,
       PrecomputedValues* precomputed_values);
 
-  bool isInputTv(TensorView* tv) {
+  bool isInputTv(TensorView* tv) const {
     return std::find(
                complete_fusion_->inputs().begin(),
                complete_fusion_->inputs().end(),

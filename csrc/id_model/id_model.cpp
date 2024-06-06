@@ -752,8 +752,8 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
       id_definitions_[new_inputs.at(i)];
       id_uses_[new_inputs.at(i)];
       for (auto mode : initialized_modes) {
-        idGraph(mode).initializeVal(new_inputs.at(i), {}, {});
-        idGraph(mode).mapVals(new_inputs.at(i), tmp_inputs.at(i));
+        idGraph(mode).initializeVal(
+            new_inputs.at(i), idGraph(mode).toGroup(tmp_inputs.at(i)));
       }
     }
   }
