@@ -53,7 +53,7 @@ Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
   NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
 
   // Allocation domains can include reduction domains, but
-  // alloc_stride arraies do not.
+  // alloc_stride arrays do not.
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
   int64_t stride_dim = -1;
   for (const auto i : c10::irange(alloc_dim + 1)) {

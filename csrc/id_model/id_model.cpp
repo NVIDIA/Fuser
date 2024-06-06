@@ -94,6 +94,10 @@ IdModel::IdModel(
 
   tvs_ = all_tvs.vector();
 
+  NVF_ERROR(!tvs_.empty(), "No tensor to build IdModel for");
+
+  fusion_ = tvs_.front()->fusion();
+
   // Add uses and definitions to all iter domains.
   buildIterDomainDefinitionsAndUses();
 
@@ -108,7 +112,8 @@ IdModel::IdModel(
     bool allow_self_mapping,
     bool validate,
     LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback)
-    : allow_self_mapping_(allow_self_mapping),
+    : fusion_(fusion),
+      allow_self_mapping_(allow_self_mapping),
       validate_(validate),
       loop_promotion_map_builder_callback_(
           loop_promotion_map_builder_callback) {
