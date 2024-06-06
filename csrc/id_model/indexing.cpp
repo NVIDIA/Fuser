@@ -167,6 +167,20 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     }
   }
 
+  // Loop promotion may affect allocations. Promotions of intermediate
+  // domains may not be defined correctly. Only consider loop domains
+  // for now.
+  for (auto& allocation_domain : allocation_domains) {
+    bool is_loop = std::find(
+                       tv->getLeafDomain().begin(),
+                       tv->getLeafDomain().end(),
+                       allocation_domain) != tv->getLeafDomain().end();
+    if (!is_loop) {
+      continue;
+    }
+    allocation_domain = getLoopPromotion(allocation_domain, id_model);
+  }
+
   // Compute the strides from innermost to outermost domains
   std::vector<Val*> strides(allocation_domains.size(), nullptr);
   Val* cur_contig_stride = tv->fusion()->oneVal();

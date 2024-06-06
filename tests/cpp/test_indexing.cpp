@@ -612,6 +612,22 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
 
   IdModel id_model(&fusion);
   TensorIndexer indexer(id_model);
+
+  // As discussed in the doc, the inner domain of tv2 is promoted to
+  // a domain with the same extent as the inner domain of tv4. Since
+  // tv2 is a Local tensor, its allocation domain is also promoted to
+  // the same domain. Thus, its consumer index is just the loop index
+  // of the inner loop of the tv2 loop domains, and its producer index
+  // is also just the inner loop index of the loop domains of tv4.
+
+  std::vector<Val*> tv2_loop_indices = getLoopIndices(tv2, indexer);
+  std::vector<Val*> tv4_loop_indices = getLoopIndices(tv4, indexer);
+
+  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
+  auto tv2_producer_index = indexer.getLinearIndex(tv2, tv4->definition());
+
+  EXPECT_EQ(tv2_consumer_index, tv2_loop_indices.at(1));
+  EXPECT_EQ(tv2_producer_index, tv4_loop_indices.at(1));
 }
 
 } // namespace nvfuser
