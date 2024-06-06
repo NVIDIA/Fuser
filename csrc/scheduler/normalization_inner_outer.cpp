@@ -317,6 +317,42 @@ struct PersistentBufferStorageParams {
   bool project_to_input = false;
 };
 
+// Prioritize moving buffers used by outer broadcast tensors to shared memory
+// because:
+// (1) They are reused in every iteration of the outer loop, has lower IO.
+// (2) Load occurs before the outer loop. Temporary register usage won't
+//     increase register pressure since the loop is the high-pressure region.
+std::vector<TensorView*> sortProjectableBufferInputs(
+    const std::vector<TensorView*>& projectable_buffer_inputs,
+    const std::vector<TensorView*>& outer_broadcast_tvs) {
+  // mark whether the buffer is used by outer broadcast tensors
+  const int64_t n_buffer_inputs = (int64_t)projectable_buffer_inputs.size();
+  std::vector<bool> is_used_by_outer_bcast(n_buffer_inputs, false);
+  for (auto idx = 0; idx < n_buffer_inputs; idx++) {
+    auto input_buffer = projectable_buffer_inputs.at(idx);
+    is_used_by_outer_bcast[idx] = std::any_of(
+        outer_broadcast_tvs.begin(),
+        outer_broadcast_tvs.end(),
+        [&input_buffer](TensorView* tv) {
+          return DependencyCheck::isDependencyOf(input_buffer, tv);
+        });
+  }
+
+  // sort based on [is_used_by_outer_bcast]
+  std::vector<int> idxs(n_buffer_inputs);
+  std::iota(idxs.begin(), idxs.end(), 0);
+  std::stable_sort(
+      idxs.begin(), idxs.end(), [&is_used_by_outer_bcast](int i, int j) {
+        return is_used_by_outer_bcast[i] && !is_used_by_outer_bcast[j];
+      });
+  std::vector<TensorView*> sorted_candidate_tvs;
+  sorted_candidate_tvs.reserve(n_buffer_inputs);
+  for (auto idx : idxs) {
+    sorted_candidate_tvs.emplace_back(projectable_buffer_inputs.at(idx));
+  }
+  return sorted_candidate_tvs;
+}
+
 PersistentBufferStorageParams getPersistentBufferStorageParams(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -384,8 +420,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   // (3) Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
+  // (3.1) Sort the candidate persistent buffers
   const auto buffers = buffer_params.project_to_input
-      ? persistent_buffer_info.projectable_buffer_inputs
+      ? sortProjectableBufferInputs(
+            persistent_buffer_info.projectable_buffer_inputs,
+            outer_broadcast_tvs)
       : persistent_buffer_info.persistent_buffers;
 
   // (3.2) Before this loop, all buffers are in registers.
