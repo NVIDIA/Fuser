@@ -498,6 +498,18 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 }
 
 Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
+  NVF_ERROR(tv != nullptr);
+  NVF_ERROR(expr != nullptr);
+  NVF_ERROR(
+      (std::find(expr->inputs().begin(), expr->inputs().end(), tv) !=
+       expr->inputs().end()) ||
+          (std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
+           expr->outputs().end()),
+      "Inconsistent tensor and expr. Tensor, ",
+      tv->toString(),
+      " not found in ",
+      expr->toString());
+
   VERBOSE() << "getIndex of " << tv->toString() << " in " << expr->toString();
 
   const auto [allocation_domains, strides] =
