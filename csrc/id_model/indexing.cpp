@@ -88,13 +88,6 @@ Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
       stride_dim);
 }
 
-// Currently it's only Shared or Local but Global can be the case
-// too.
-bool isAllocationBasedOnLeaf(TensorView* tv) {
-  return tv->getMemoryType() == MemoryType::Shared ||
-      tv->getMemoryType() == MemoryType::Local;
-}
-
 // Get the allocation domains of a given tensor. Also returns its
 // strides.
 //
@@ -107,40 +100,17 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   std::vector<IterDomain*> allocation_domains;
   std::vector<std::optional<bool>> contiguity;
 
-  auto inlining_pos = tv->getComputeAtPosition();
-
-  bool use_set_allocatin_domain = false;
-
   if (tv->hasAllocation()) {
-    if (tv->getMemoryType() == MemoryType::Shared ||
-        tv->getMemoryType() == MemoryType::Local) {
-      if (std::is_permutation(
-              tv->getLeafDomain().begin(),
-              tv->getLeafDomain().end(),
-              tv->getAllocationDomain().begin())) {
-        use_set_allocatin_domain = true;
-      }
-    } else {
-      use_set_allocatin_domain = true;
-    }
-  }
-
-  // Ignore allocation of non-global tensors for now
-  if (use_set_allocatin_domain) {
     allocation_domains = tv->getAllocationDomain();
-    NVF_ERROR(!tv->isDoubleBuffered());
     contiguity = tv->domain()->contiguity();
   } else {
     // If allocation domain is not set, assume that:
-    // Local/Shared: leaf domains to the right of the CA position
-    // Global: rfactor domains
+    // Global: logical domains
+    // Local/Shared: loop domains to the right of the CA position
+    const auto inlining_pos = tv->getComputeAtPosition();
     if (tv->getMemoryType() == MemoryType::Global) {
-      VERBOSE() << "Tv does not have allocation of " << tv->toString() << ", "
-                << toDelimitedString(tv->getMaybeAllocationDomain())
-                << std::endl;
       allocation_domains = tv->getLogicalDomain();
       contiguity = tv->domain()->contiguity();
-      NVF_ERROR(!tv->isDoubleBuffered());
     } else {
       for (const auto i : c10::irange(tv->nDims())) {
         auto loop_id = tv->getLeafDomain().at(i);
@@ -295,9 +265,6 @@ bool IdGraphIndexCompute::isForward(Expr* expr) const {
 void IdGraphIndexCompute::handle(Split* split) {
   const bool is_forward = isForward(split);
 
-  VERBOSE() << "IdGraphIndexCompute handle (" << (is_forward ? "fwd" : "bwd")
-            << "): " << split->toString();
-
   if (is_forward) {
     auto in_idx = getIndex(split->in());
     auto inner_extent = split->inner()->extent();
@@ -318,9 +285,6 @@ void IdGraphIndexCompute::handle(Split* split) {
 
 void IdGraphIndexCompute::handle(Merge* merge) {
   const bool is_forward = isForward(merge);
-
-  VERBOSE() << "IdGraphIndexCompute handle (" << (is_forward ? "fwd" : "bwd")
-            << "): " << merge->toString();
 
   auto inner_ext = merge->inner()->extent();
 
@@ -399,30 +363,9 @@ void TensorIndexer::buildLoopIndexMap() {
       } else if (shouldUseZeroIndex(loop_group)) {
         loop_index = fusion->zeroVal();
       } else {
-        // Everything now should be serial concrete loops. For the mean
-        // time, just use the same index integer val generated for
-        // ComputeAtMap if available.
-        if (GpuLower::hasCurrent()) {
-          const auto& ca_map = GpuLower::current()->caMap();
-          for (const auto& id :
-               ir_utils::filterByType<IterDomain>(loop_group->vector())) {
-            if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
-              continue;
-            }
-            loop_index = ca_map->getIndexVariable(id);
-            break;
-          }
-          NVF_ERROR(
-              loop_index != nullptr,
-              "No existing index found for ",
-              nvfuser::toString(loop_group));
-        } else {
-          // Not reusing the ComputeATMap index assignments
-          loop_index = IrBuilder::create<Val>(DataType::Index);
-        }
+        loop_index = IrBuilder::create<Val>(DataType::Index);
       }
 
-      NVF_ERROR(loop_index != nullptr);
       loop_index_map_[loop_group] = loop_index;
     }
   }
@@ -524,13 +467,8 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
       " not found in ",
       expr->toString());
 
-  VERBOSE() << "getIndex of " << tv->toString() << " in " << expr->toString();
-
   const auto [allocation_domains, strides] =
       getAllocationDomains(tv, id_model_);
-
-  VERBOSE() << "Allocation domains: " << toDelimitedString(allocation_domains)
-            << std::endl;
 
   const auto& index_info = computeIndex(expr, allocation_domains);
   const auto& index_map = index_info.index_map;
@@ -551,9 +489,6 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
         "Index not found for ",
         allocation_domain->toString());
     Val* idx = idx_it->second;
-    VERBOSE() << "Index of " << allocation_domain->toString() << ": "
-              << idx->toInlineString() << std::endl;
-
     index = SimplifyingIrBuilder::addExpr(
         index, SimplifyingIrBuilder::mulExpr(idx, stride));
   }
@@ -570,17 +505,6 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // scatter
   auto loop_domains = ir_utils::getTvOutput(expr)->getLeafDomain();
 
-  // If this is an expr initializing a buffer for a reduction, there
-  // should be no loops for reduction domains
-  if (lower_utils::isReductionInitExpr(expr)) {
-    loop_domains.erase(
-        std::remove_if(
-            loop_domains.begin(),
-            loop_domains.end(),
-            [](IterDomain* id) -> bool { return id->isReduction(); }),
-        loop_domains.end());
-  }
-
   for (auto& loop_id : loop_domains) {
     loop_id = getLoopPromotion(loop_id, id_model_);
   }
@@ -592,10 +516,6 @@ IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const std::vector<IterDomain*>& index_domains) const {
   const auto loop_domains = getLoopDomains(expr);
-  VERBOSE() << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
-
-  VERBOSE() << "Index domains: " << toDelimitedString(index_domains)
-            << std::endl;
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
   const ValGroups index_groups = traversalGraph().toGroups(index_domains);
