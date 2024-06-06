@@ -45,6 +45,25 @@ struct Tensor {
     return index;
   }
 
+  bool operator==(const Tensor& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (dims != other.dims) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
+  }
+
+  bool operator!=(const Tensor& other) const {
+    return !(*this == other);
+  }
+
   //! A unique index to identifiy each recorded state item.
   size_t index;
   size_t dims;
@@ -63,6 +82,21 @@ struct Scalar {
     return index;
   }
 
+  bool operator==(const Scalar& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
+  }
+
+  bool operator!=(const Scalar& other) const {
+    return !(*this == other);
+  }
+
   //! A unique index to identifiy each recorded state item.
   size_t index;
 
@@ -78,6 +112,25 @@ struct Vector {
 
   size_t operator()() const {
     return index;
+  }
+
+  bool operator==(const Vector& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (size != other.size) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
+  }
+
+  bool operator!=(const Vector& other) const {
+    return !(*this == other);
   }
 
   //! A unique index to identifiy each recorded state item.
@@ -128,9 +181,10 @@ class NVF_API FusionDefinition : public FusionState {
   //! Executes a fusion if a valid definition or cache lookup occurred prior
   NVF_API std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
+      std::optional<int8_t> device,
       bool override_user_schedule,
       bool capture_debug_output,
-      std::optional<int8_t> device) const;
+      bool profile) const;
   //! Return debugging output captured through exeuction with
   //! capture_debug_output=true
   std::optional<std::string> getDebugOutput() const {
@@ -186,6 +240,8 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API void defineRecord(RecordFunctor* record);
   //! Gets a Record State object
   NVF_API State recordingState(size_t index) const;
+  //! Get all Tensors in FusionState.
+  NVF_API std::vector<Tensor> tensors();
 
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions

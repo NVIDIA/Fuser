@@ -654,8 +654,11 @@ std::optional<std::vector<int64_t>> computePermutation(
 
 bool hasTrivialAllocationDomain(const TensorView* tv);
 
-// Returns true if memory_type is partitioned in parallel_type
-inline bool isPartitionedMemory(
+// Returns true if memory_type is partitioned in parallel_type. See
+// also isMemorySharedAcross. Specifically, isMemorySharedAcross == true does
+// not imply isMemoryPartitionedAcross == false. For example, Local with no
+// parallelization is not partitioned nor shared.
+inline bool isMemoryPartitionedAcross(
     MemoryType memory_type,
     ParallelType parallel_type) {
   switch (memory_type) {
@@ -672,8 +675,11 @@ inline bool isPartitionedMemory(
   }
 }
 
-// Returns true if memory_type is shared in parallel_type
-inline bool isSharedMemory(MemoryType memory_type, ParallelType parallel_type) {
+// Returns true if memory_type is shared in parallel_type. See also
+// isPartitionedMemory.
+inline bool isMemorySharedAcross(
+    MemoryType memory_type,
+    ParallelType parallel_type) {
   switch (memory_type) {
     case MemoryType::Local:
       // Nothing is shared if it's Local

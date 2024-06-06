@@ -9,10 +9,12 @@
 
 #include <c10/util/ArrayRef.h>
 #include <c10/util/irange.h>
+#include <fusion_profiler.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -20,12 +22,12 @@
 #include <python_frontend/python_bindings.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
-#include <complex>
 #include <iostream>
 #include <optional>
 #include <tuple>
 
 #include <pybind11/complex.h>
+#include <pybind11/operators.h>
 #include <pybind11/stl.h>
 
 namespace nvfuser::python_frontend {
@@ -489,6 +491,80 @@ void initNvFuserPythonBindings(PyObject* module) {
         return ss.str();
       });
 
+  //! KernelProfiles are encapsulated in FusionProfiles where each KP
+  //! is associated with a segment.
+  py::class_<KernelProfile> kernel_prof(nvfuser, "KernelProfile");
+  kernel_prof.def_property_readonly(
+      "name", [](KernelProfile& self) { return self.name; });
+  kernel_prof.def_property_readonly(
+      "segment_id", [](KernelProfile& self) { return self.segment_id; });
+  kernel_prof.def_property_readonly(
+      "device", [](KernelProfile& self) { return self.device; });
+  kernel_prof.def_property_readonly(
+      "stream", [](KernelProfile& self) { return self.stream; });
+  kernel_prof.def_property_readonly("correlation_id", [](KernelProfile& self) {
+    return self.correlation_id;
+  });
+  kernel_prof.def_property_readonly("compile_time_ms", [](KernelProfile& self) {
+    return self.compile_time_ms;
+  });
+  kernel_prof.def_property_readonly(
+      "time_ms", [](KernelProfile& self) { return self.time_ms; });
+  kernel_prof.def_property_readonly(
+      "effective_bandwidth_gbs",
+      [](KernelProfile& self) { return self.effective_bandwidth_gbs; });
+  kernel_prof.def_property_readonly(
+      "percentage_peak_bandwidth",
+      [](KernelProfile& self) { return self.percentage_peak_bandwidth; });
+  kernel_prof.def_property_readonly(
+      "grid_str", [](KernelProfile& self) { return self.grid_str; });
+  kernel_prof.def_property_readonly(
+      "block_str", [](KernelProfile& self) { return self.block_str; });
+  kernel_prof.def_property_readonly(
+      "cluster_str", [](KernelProfile& self) { return self.cluster_str; });
+  kernel_prof.def_property_readonly("shared_mem_str", [](KernelProfile& self) {
+    return self.shared_mem_str;
+  });
+  kernel_prof.def_property_readonly(
+      "registers", [](KernelProfile& self) { return self.registers; });
+  kernel_prof.def_property_readonly(
+      "input_bytes", [](KernelProfile& self) { return self.input_bytes; });
+  kernel_prof.def_property_readonly(
+      "output_bytes", [](KernelProfile& self) { return self.output_bytes; });
+
+  //! A fusion profile is generated for FusionDefinition.
+  py::class_<FusionProfile> fusion_prof(nvfuser, "FusionProfile");
+  fusion_prof.def_property_readonly(
+      "verbose", [](FusionProfile& self) { return self.verbose; });
+  fusion_prof.def_property_readonly(
+      "fusion_id", [](FusionProfile& self) { return self.fusion_id; });
+  fusion_prof.def_property_readonly(
+      "segments", [](FusionProfile& self) { return self.segments; });
+  fusion_prof.def_property_readonly(
+      "cuda_evt_time_ms",
+      [](FusionProfile& self) { return self.cuda_evt_time_ms; });
+  fusion_prof.def_property_readonly(
+      "host_time_ms", [](FusionProfile& self) { return self.host_time_ms; });
+  fusion_prof.def_property_readonly("compile_time_ms", [](FusionProfile& self) {
+    return self.compile_time_ms;
+  });
+  fusion_prof.def_property_readonly("kernel_time_ms", [](FusionProfile& self) {
+    return self.kernel_time_ms;
+  });
+  fusion_prof.def_property_readonly(
+      "effective_bandwith_gbs",
+      [](FusionProfile& self) { return self.effective_bandwidth_gbs; });
+  fusion_prof.def_property_readonly(
+      "percentage_peak_bandwith",
+      [](FusionProfile& self) { return self.percentage_peak_bandwidth; });
+  fusion_prof.def_property_readonly(
+      "input_bytes", [](FusionProfile& self) { return self.input_bytes; });
+  fusion_prof.def_property_readonly(
+      "output_bytes", [](FusionProfile& self) { return self.output_bytes; });
+  fusion_prof.def_property_readonly("kernel_profiles", [](FusionProfile& self) {
+    return self.kernel_profiles;
+  });
+
   //! These are the FusionDefinition supported object types that are either
   //! defined as inputs or the output of an operation.
   py::class_<Tensor> tensor_class(nvfuser, "Tensor");
@@ -502,6 +578,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   tensor_class.def("_get_fusion_definition", [](Tensor& self) {
     return self.fusion_definition;
   });
+  tensor_class.def(pybind11::self == pybind11::self);
+  tensor_class.def(pybind11::self != pybind11::self);
 
   py::class_<Scalar> scalar_class(nvfuser, "Scalar");
   scalar_class.def("__repr__", [](Scalar& self) {
@@ -509,6 +587,8 @@ void initNvFuserPythonBindings(PyObject* module) {
     ss << "Scalar(index=" << self.index << ")";
     return ss.str();
   });
+  scalar_class.def(pybind11::self == pybind11::self);
+  scalar_class.def(pybind11::self != pybind11::self);
 
   py::class_<DeviceMesh> device_mesh_class(nvfuser, "DeviceMesh");
   device_mesh_class.def("__repr__", [](const DeviceMesh& self) {
@@ -525,6 +605,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   });
   vector_class.def_property_readonly(
       "size", [](Vector& self) { return self.size; });
+  vector_class.def(pybind11::self == pybind11::self);
+  vector_class.def(pybind11::self != pybind11::self);
 
   //! The FusionDefinition is a context manager in Python where the user will
   //! define the set the operations and connections between operations for
@@ -584,9 +666,10 @@ void initNvFuserPythonBindings(PyObject* module) {
           "_execute",
           [](FusionDefinition& self,
              const py::iterable& iter,
-             bool override_user_schedule,
              std::optional<int64_t> device,
-             bool capture_debug_output) {
+             bool override_user_schedule,
+             bool capture_debug_output,
+             bool profile) {
             std::vector<c10::IValue> inputs;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
@@ -608,15 +691,21 @@ void initNvFuserPythonBindings(PyObject* module) {
             }
             return self.execute(
                 inputs,
+                int8_device,
                 override_user_schedule,
                 capture_debug_output,
-                int8_device);
+                profile);
           },
           py::arg("inputs"),
-          py::arg("override_user_schedule") = false,
           py::kw_only(),
           py::arg("device") = py::none(),
+          py::arg("override_user_schedule") = false,
           py::arg("capture_debug_output") = false,
+          py::arg("profile") = false,
+          py::return_value_policy::reference)
+      .def_static(
+          "_profile",
+          &FusionProfiler::profile,
           py::return_value_policy::reference)
       .def(
           "_debug_output",
@@ -3149,6 +3238,31 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("pos") = -1,
       py::arg("best_effort") = false,
       py::arg("selected_tensors") = std::vector<Tensor>());
+  nvf_sched.def("tensors", [](FusionDefinition::SchedOperators& self) {
+    NVF_CHECK(
+        self.validUse(),
+        "Attempting to use a SchedOperators Op prior to definition!");
+    // Return all Tensors in FusionDefinition
+    return self.fusion_definition->tensors();
+  });
+  nvf_sched.def(
+      "is_reduction",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        // Determine if tensor is a result from a reduction operation.
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        return (
+            !tv->isFusionInput() &&
+            std::any_of(
+                tv->getMaybeRootDomain().begin(),
+                tv->getMaybeRootDomain().end(),
+                [](IterDomain* id) { return id->isReduction(); }) &&
+            !isResharding(tv->definition()));
+      },
+      py::arg("tensor"));
 }
-
 } // namespace nvfuser::python_frontend

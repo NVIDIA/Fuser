@@ -658,15 +658,14 @@ TEST_F(CombineMulSumAsMmaTest, SwapAandB) {
 
       // Check that we properly map M and N to their roles even with swap
       IdModel id_model(&fusion);
-      std::unordered_map<ValGroup, MatmulDomain> dim_roles =
-          pattern.getDimRoles(id_model);
-      ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-      const ValGroup& m_gp = exact_graph.toGroup(tv0->axis(-3));
+      mma_utils::DimRolesMap dim_roles = pattern.getDimRoles(id_model);
+      ValGraph& permissive_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+      const ValGroup& m_gp = permissive_graph.toGroup(tv0->axis(-3));
       auto m_it = dim_roles.find(m_gp);
       ASSERT_NE(m_it, dim_roles.end());
       EXPECT_EQ(m_it->second, MatmulDomain::M);
 
-      const ValGroup& n_gp = exact_graph.toGroup(tv1->axis(-2));
+      const ValGroup& n_gp = permissive_graph.toGroup(tv1->axis(-2));
       auto n_it = dim_roles.find(n_gp);
       ASSERT_NE(n_it, dim_roles.end());
       EXPECT_EQ(n_it->second, MatmulDomain::N);

@@ -52,7 +52,7 @@ bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
 
   // If the memory of this domain is partitioned with respect to the
   // parallel type of the domain, there's no allocation for the domain
-  return ir_utils::isPartitionedMemory(
+  return ir_utils::isMemoryPartitionedAcross(
       tv->getMemoryType(), id->getParallelType());
 }
 
@@ -70,7 +70,7 @@ Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
   NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
 
   // Allocation domains can include reduction domains, but
-  // alloc_stride arraies do not.
+  // alloc_stride arrays do not.
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
   int64_t stride_dim = -1;
   for (const auto i : c10::irange(alloc_dim + 1)) {
@@ -99,6 +99,7 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   std::vector<IterDomain*> allocation_domains;
   std::vector<std::optional<bool>> contiguity;
 
+  // Use the allocation domain if set for the tensor
   if (tv->hasAllocation()) {
     allocation_domains = tv->getAllocationDomain();
     contiguity = tv->domain()->contiguity();
@@ -106,11 +107,11 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     // If allocation domain is not set, assume that:
     // - Global: logical domains
     // - Local/Shared: loop domains to the right of the CA position
-    const auto inlining_pos = tv->getComputeAtPosition();
     if (tv->getMemoryType() == MemoryType::Global) {
       allocation_domains = tv->getLogicalDomain();
       contiguity = tv->domain()->contiguity();
     } else {
+      const auto inlining_pos = tv->getComputeAtPosition();
       for (const auto i : c10::irange(tv->nDims())) {
         auto loop_id = tv->getLeafDomain().at(i);
         auto pt = loop_id->getParallelType();
@@ -118,13 +119,13 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
           continue;
         }
 
-        // If the position is left of the inlinig position, no need to
-        // alloate the domain unless it's shared. For example, if this
+        // If the position is left of the inlining position, no need to
+        // allocate the domain unless it's shared. For example, if this
         // is a Shared tensor and the domain is parallelized with TID,
         // even if it's outside of the CA position, since the domain
         // is shared, it must be allocated.
         if (i < inlining_pos &&
-            !ir_utils::isSharedMemory(tv->getMemoryType(), pt)) {
+            !ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
           continue;
         }
 
@@ -264,18 +265,17 @@ bool IdGraphIndexCompute::isForward(Expr* expr) const {
 void IdGraphIndexCompute::handle(Split* split) {
   const bool is_forward = isForward(split);
 
+  auto inner_extent = split->inner()->extent();
+  
   if (is_forward) {
     auto in_idx = getIndex(split->in());
-    auto inner_extent = split->inner()->extent();
     auto outer_idx = SimplifyingIrBuilder::divExpr(in_idx, inner_extent);
-    Val* inner_idx = nullptr;
-    inner_idx = SimplifyingIrBuilder::modExpr(in_idx, inner_extent);
+    Val* inner_idx = SimplifyingIrBuilder::modExpr(in_idx, inner_extent);
     setIndex(split->outer(), outer_idx);
     setIndex(split->inner(), inner_idx);
   } else {
     auto outer_idx = getIndex(split->outer());
     auto inner_idx = getIndex(split->inner());
-    auto inner_extent = split->inner()->extent();
     auto in_idx = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::mulExpr(outer_idx, inner_extent), inner_idx);
     setIndex(split->in(), in_idx);
@@ -344,6 +344,9 @@ void TensorIndexer::buildLoopIndexMap() {
     if (!ir_utils::isTvOp(expr)) {
       continue;
     }
+
+    // It's assumed that all sibling outputs share the same for-loops,
+    // thus only one of the outputs is considered.
     auto tv_output = ir_utils::getTvOutput(expr);
     for (auto leaf_id : tv_output->getLeafDomain()) {
       const ValGroup& loop_group =
