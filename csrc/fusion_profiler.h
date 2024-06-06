@@ -236,9 +236,6 @@ class FusionProfiler {
   NVF_API static void reset();
   NVF_API static ProfilerState state();
 
-  static void setCppPrinting(bool enable);
-  static bool cppPrintingEnabled();
-
   //! Profiling Methods
   NVF_API static void start(bool cupti_disable = false);
   NVF_API static void stop();
@@ -272,8 +269,6 @@ class FusionProfiler {
 
   //! Disables CUPTI usage in order to measure Host Time without CUPTI overhead
   bool cupti_disabled_;
-  //! Indicates whether CPP Printing is enabled
-  bool cpp_printing_enabled_;
   //! Buffer for Cupti to store Activity Buffers during async activity
   std::vector<uint8_t> cupti_buffer_;
   //! The state is used to check for errors in usage
