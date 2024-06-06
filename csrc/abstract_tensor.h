@@ -148,6 +148,11 @@ struct AbstractTensor {
   void merge(int64_t axis) {
     merge(axis, axis + 1);
   }
+
+  // Both `from` and `to` are inclusive.
+  void flatten(int64_t from = 0, int64_t to = -1);
+
+  void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
 };
 
 } // namespace nvfuser
