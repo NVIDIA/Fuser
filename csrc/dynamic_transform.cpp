@@ -307,6 +307,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 
     // Determine input shape using expr evaluator
     std::vector<int64_t> inp_shape(inp_dom.size(), 0);
+    bool is_empty = false;
     for (const auto i : c10::irange((int64_t)inp_dom.size())) {
       auto inp_id = inp_dom.at(i);
       // This should have been validated when initially creating reshape
@@ -325,10 +326,18 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
           "Invalid evaluated value of domain extent: ",
           inp_id->toString());
       NVF_ERROR(
-          extent_val.as<int64_t>() > 0,
+          extent_val.as<int64_t>() >= 0,
           "Invalid input domain extent: ",
           extent_val.as<int64_t>());
       inp_shape.at(i) = extent_val.as<int64_t>();
+      if (inp_shape.at(i) == 0l) {
+        is_empty = true;
+      }
+    }
+
+    if (is_empty) {
+      reshape_transforms_.emplace_back(tv_index, std::nullopt);
+      continue;
     }
 
     const auto& out_dom = out_tv->getLogicalDomain();
@@ -543,10 +552,15 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   NVF_ERROR(
       reshape_transforms_.size() ==
       initial_info_->getDynamicReshapedTensorViews().size());
-  for (const auto& [tv_index, analyze_result] : reshape_transforms_) {
+  for (const auto& [tv_index, maybe_analyze_result] : reshape_transforms_) {
     auto tv = initial_info_->getDynamicReshapedTensorViews().at(tv_index);
-    ss << indent << indent << tv->toString() << " (index=" << tv_index << "), "
-       << analyze_result.toString() << "\n";
+    if (maybe_analyze_result.has_value()) {
+      ss << indent << indent << tv->toString() << " (index=" << tv_index
+         << "), " << maybe_analyze_result.value().toString() << "\n";
+    } else {
+      ss << indent << indent << tv->toString() << " (index=" << tv_index
+         << "), is empty\n";
+    }
   }
   ss << indent << "Resize:\n";
   NVF_ERROR(
@@ -731,13 +745,28 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
 
 void DynamicTransformConcretizer::concretizeReshape() {
   // Concretize each reshape op.
-  for (const auto& [tv_index, view_analysis] : info_->getReshapeTransforms()) {
+  for (const auto& [tv_index, maybe_view_analysis] :
+       info_->getReshapeTransforms()) {
     auto incomplete_out_tv =
         info_->initialInfo()->getDynamicReshapedTensorViews().at(tv_index);
     auto view_op = incomplete_out_tv->definition()->as<ViewOp>();
     auto inp_tv = view_op->in()->as<TensorView>();
 
-    auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
+    TensorView* concrete_reshape_out_tv = nullptr;
+
+    if (maybe_view_analysis.has_value()) {
+      concrete_reshape_out_tv = reshape(inp_tv, maybe_view_analysis.value());
+    } else {
+      std::vector<Val*> new_shape;
+      new_shape.reserve(incomplete_out_tv->getLogicalDomain().size());
+      for (IterDomain* id : incomplete_out_tv->getLogicalDomain()) {
+        new_shape.push_back(id->extent());
+      }
+      concrete_reshape_out_tv = full(
+          new_shape,
+          inp_tv->fusion()->zeroVal(inp_tv->dtype()),
+          inp_tv->dtype());
+    }
 
     // We do the replacement directly here, but we must still check that the
     // replacement is valid
@@ -1326,8 +1355,10 @@ size_t DynamicTransformConcretizationInfo::hash() const {
   // expect (< 100). We should analyze this and trim out the pieces that are
   // unlikely to change based on real inputs.
   size_t hash = 0;
-  for (const auto& [tv, view_result] : getReshapeTransforms()) {
-    hashCombine(hash, view_result.hash());
+  for (const auto& [tv, maybe_view_result] : getReshapeTransforms()) {
+    if (maybe_view_result.has_value()) {
+      hashCombine(hash, maybe_view_result.value().hash());
+    }
   }
   for (const auto& extent_idx : getEmptyExtents()) {
     hashCombine(hash, (size_t)extent_idx);
