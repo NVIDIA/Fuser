@@ -859,6 +859,12 @@ TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
       // Values of -1 must be passed as constants instead of input-dependent
       // scalars.
       //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
+
+      // Empty reshapes should translate to FullOp
+      {{8, 0, 7, 9}, {24, 0, 9}, false},
+      {{8, 0, 7, 9}, {24, 0, 0}, false},
+      {{8, 0, 7, 9}, {24, -1, 9}, false},
+      {{8, 0, 7, 9}, {47, 0, 13, 0}, false},
   };
   reductionDynamicViewAddFusion(
       invocations, true /* reshape_before_reduction */);
