@@ -42,7 +42,7 @@ TEST_F(IdModelTest, DetectSelfMapping) {
   EXPECT_THAT(
       [&]() { IdModel id_model(&fusion, /*build_graphs=*/true); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("!hasSelfMapping")));
+          ::testing::HasSubstr("are mapped with each other")));
 }
 
 TEST_F(IdModelTest, PerTensorSelfMapping) {
