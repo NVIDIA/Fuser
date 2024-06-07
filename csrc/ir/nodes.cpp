@@ -1411,6 +1411,9 @@ void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
         new_id->toString());
     NVF_CHECK(
         !new_id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
+    // NOTE: we do not check the extent here. Even if the extent is not a const
+    // scalar we know that it would simplify to 1 for these inputs, since this
+    // IterDomain is concretized to Broadcast.
   }
 }
 
