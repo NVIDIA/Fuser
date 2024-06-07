@@ -2100,7 +2100,8 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
         const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
         NVF_CHECK(
             fusion_layout.isValid(),
-            "failed to get decide matmul layout through fusion definition");
+            "failed to get decide matmul layout through fusion definition. Error: ",
+            fusion_layout.getErrorMsg());
         NVF_CHECK(
             fusion_layout.getData() == layout,
             "mismatch between test layout (",
@@ -2216,9 +2217,7 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
         run(504, 136, 248, 2, 8, 8, 2, 8, max_vec_epi);
         // B not vectorizable due to pointer offset
         run(504, 136, 248, 8, 2, 8, 8, 2, max_vec_epi);
-        // epilogue not vectorizable due to pointer offset
-        // Disabled temporarily: https://github.com/NVIDIA/Fuser/issues/2169
-        // run(504, 136, 248, 8, 8, 2, 8, 8, 2);
+        run(504, 136, 248, 8, 8, 2, 8, 8, add_2d_bias ? 2 : max_vec_epi);
       }
     }
   }
@@ -2275,7 +2274,7 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
           if (add_2d_bias) {
             auto bias = TensorViewBuilder()
                             .ndims(2)
-                            .contiguity({false, contiguous_inner_dim_B})
+                            .contiguity({false, contiguous_inner_dim_bias})
                             .dtype(DataType::Half)
                             .build();
             fusion->addInput(bias);
@@ -2426,8 +2425,6 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
             max_vec_epi);
         // Padding by 2 from a multiple of 8 means we can only vectorize at
         // width 2
-        // NOTE: we do not pad bias here until we have addressed
-        // https://github.com/NVIDIA/Fuser/issues/2169
         run(504,
             136,
             248,
@@ -2439,10 +2436,10 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
             true,
             2,
             2,
-            0,
             2,
             2,
-            max_vec_epi);
+            2,
+            add_2d_bias ? 2 : max_vec_epi);
         // Incompatible sizes are not vectorized despite padding to compatible
         // strides
         run(505,
@@ -2509,7 +2506,21 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
             8,
             1,
             max_vec_epi);
-        // run(504, 136, 248, 8, 8, 8, true, true, false, 0, 0, 0, 8, 8, 1);
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            true,
+            false,
+            0,
+            0,
+            0,
+            8,
+            8,
+            add_2d_bias ? 1 : max_vec_epi);
       }
     }
   }
