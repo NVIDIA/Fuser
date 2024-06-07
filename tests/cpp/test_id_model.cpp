@@ -42,7 +42,7 @@ TEST_F(IdModelTest, DetectSelfMapping) {
   EXPECT_THAT(
       [&]() { IdModel id_model(&fusion, /*build_graphs=*/true); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("!hasSelfMapping")));
+          ::testing::HasSubstr("are mapped with each other")));
 }
 
 TEST_F(IdModelTest, PerTensorSelfMapping) {
@@ -2583,6 +2583,35 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
         << ". Expected: " << reference_promotion->toString()
         << ". Actual: " << promotion_id->toString();
   }
+}
+
+TEST_F(IdModelTest, ParallelTypePropagation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(0, 4);
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
+
+  EXPECT_EQ(tv1->axis(0)->getParallelType(), tv2->axis(0)->getParallelType())
+      << "Parallel type propagation failed";
+  EXPECT_EQ(tv1->axis(1)->getParallelType(), tv2->axis(1)->getParallelType())
+      << "Parallel type propagation failed";
 }
 
 } // namespace nvfuser
