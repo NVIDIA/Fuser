@@ -4112,6 +4112,7 @@ class TestNvFuserFrontend(TestCase):
         if not is_pre_ampere():
             dtypes.append(DataType.BFloat16)
         for dtype, randopname in itertools.product(dtypes, ["uniform", "normal"]):
+
             def fusion_fn(fd: FusionDefinition):
                 # generate 4 values and check that they are all distinct
                 shape = fd.define_vector([2, 2], dtype=DataType.Int)
