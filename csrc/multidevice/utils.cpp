@@ -556,7 +556,6 @@ void reorderDIDToFront(TensorView* tv) {
     }
   }
 
-
   for (auto pos : c10::irange(tv->nDims())) {
     if (!tv->axis(pos)->isDeviceDim()) {
       order_map[current_pos] = pos;

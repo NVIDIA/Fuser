@@ -490,7 +490,7 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
 class ShardedPointwiseTest
     : public NVFuserTest,
       public testing::WithParamInterface<std::tuple<bool, int>> {};
-   
+
 TEST_P(ShardedPointwiseTest, DID_Compatible) {
   auto [use_1D_scheduler, sharded_dim] = GetParam();
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -526,8 +526,7 @@ TEST_P(ShardedPointwiseTest, DID_Compatible) {
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 =
-      at::randn(input_size, options).unsqueeze(sharded_dim);
+  at::Tensor t0 = at::randn(input_size, options).unsqueeze(sharded_dim);
   at::Tensor t1 = at::randn({input_size[1], input_size[2]}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
@@ -537,11 +536,11 @@ TEST_P(ShardedPointwiseTest, DID_Compatible) {
   fe.compileFusion(fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
-  EXPECT_EQ(use_1D_scheduler, params->break_point==0);
+  EXPECT_EQ(use_1D_scheduler, params->break_point == 0);
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 
-  // Create a single device fusion and verify the same scheduling parameters are used for
-  // given the same single device fusion. 
+  // Create a single device fusion and verify the same scheduling parameters are
+  // used for given the same single device fusion.
   auto unsharded_fusion_ptr = std::make_unique<Fusion>();
   auto unsharded_fusion = unsharded_fusion_ptr.get();
   FusionGuard unsharded_fg(unsharded_fusion);
@@ -559,8 +558,10 @@ TEST_P(ShardedPointwiseTest, DID_Compatible) {
   FusionExecutorCache fec2(std::move(unsharded_fusion_ptr));
   fec2.profile(true);
 
-  std::vector<c10::IValue> unsharded_aten_inputs = {t0.squeeze(sharded_dim), t1};
-  auto unsharded_params = getPointwiseHeuristics(unsharded_fusion, unsharded_aten_inputs);
+  std::vector<c10::IValue> unsharded_aten_inputs = {
+      t0.squeeze(sharded_dim), t1};
+  auto unsharded_params =
+      getPointwiseHeuristics(unsharded_fusion, unsharded_aten_inputs);
   EXPECT_TRUE(params->sameAs(unsharded_params));
 }
 
