@@ -77,6 +77,9 @@ TensorView* reshape(
         has_dynamic_axis = true;
         s = 0l;
       }
+      if (s == 0l) {
+        has_zero_output_size = true;
+      }
       new_shape.push_back(IrBuilder::create<Val>(s, DataType::Index));
     }
     NVF_CHECK(

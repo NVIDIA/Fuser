@@ -4057,17 +4057,15 @@ class TestNvFuserFrontend(TestCase):
 
     # Test empty symbolic tensors can be reshaped
     # See https://github.com/NVIDIA/Fuser/issues/2362
-    def test_expanded_reduction(self):
+    def test_empty_reshape(self):
         inputs = [
-            torch.randint(0, 10, (0,), dtype=torch.int64, device="cuda:0").as_strided(
-                (2, 1, 0, 3, 1), (3, 3, 3, 1, 1)
-            ),
+            torch.randint(0, 10, (0, 1, 2, 3, 4), dtype=torch.int64, device="cuda:0")
         ]
 
         def fusion_func(fd: FusionDefinition) -> None:
             T0 = fd.define_tensor(
-                shape=[-1, 1, -1, -1, 1],
-                contiguity=[False, None, True, True, None],
+                shape=[-1, 1, -1, -1, -1],
+                contiguity=[False, None, True, True, True],
                 dtype=DataType.Int,
                 is_cpu=False,
                 stride_order=[4, 3, 2, 1, 0],
