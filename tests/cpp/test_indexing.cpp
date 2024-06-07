@@ -80,7 +80,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
           IrBuilder::getItemExpr(
               IrBuilder::getAttrExpr(
                   IrBuilder::metadataExpr(tv0), "alloc_stride"),
-              (int64_t)1)),
+              IrBuilder::create<Val>(1))),
       SimplifyingIrBuilder::mulExpr(
           SimplifyingIrBuilder::divExpr(
               SimplifyingIrBuilder::addExpr(
@@ -91,7 +91,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
           IrBuilder::getItemExpr(
               IrBuilder::getAttrExpr(
                   IrBuilder::metadataExpr(tv0), "alloc_stride"),
-              (int64_t)0)));
+              IrBuilder::create<Val>(0))));
 
   auto tv1_consumer_index_ref = tv1_loop_indices.at(1);
   auto tv1_producer_index_ref = tv2_loop_indices.at(1);
