@@ -736,6 +736,8 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
                   pre_reduction_tvs.count(backward_running_producer);
 
               bool at_leat_one_id_mapped = false;
+              // backward visit of ids_to_resolve sicne we may erase
+              // elements from the vector
               for (size_t entry_i = ids_to_resolve.size(); entry_i > 0;
                    entry_i--) {
                 auto orig_id = ids_to_resolve[entry_i - 1].first;
