@@ -61,7 +61,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
     for (auto output :
          ir_utils::filterByType<TensorView>(reduction->outputs())) {
       auto concrete_dimension =
-          TensorDomain::noReductions(output->getRFactorDomain());
+          TensorDomain::noReductions(output->getLogicalDomain());
       auto all_nonzero = std::none_of(
           concrete_dimension.begin(),
           concrete_dimension.end(),

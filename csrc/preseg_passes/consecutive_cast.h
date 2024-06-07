@@ -16,6 +16,9 @@ class ConsecutiveCastPass : public OptimizationPass<ConsecutiveCastPass> {
 
  protected:
   static void runPass(Fusion* fusion);
+  static std::string name() {
+    return "ConsecutiveCastPass";
+  }
 };
 
 } // namespace nvfuser::preseg_passes

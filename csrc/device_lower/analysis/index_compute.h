@@ -311,11 +311,11 @@ std::unordered_set<IterDomain*> buildLoopIndexingPreferredPath(
     bool use_replay_map = false,
     std::unordered_map<IterDomain*, IterDomain*> p2c_map = {});
 
-// Get an rfactor IterDomain that is mapped with an IterDomain. If
+// Get an logical IterDomain that is mapped with an IterDomain. If
 // multiple such IDs exist, select one whose input IDs are mapped with
 // the consumer IDs. This is to ensure the path from the leaf
 // IterDomains to the root matches with the consumer tensor.
-IterDomain* getRfactorIDToTraverse(
+IterDomain* getLogicalIDToTraverse(
     IterDomain* id,
     const std::vector<Val*>& consumer_all_ids);
 

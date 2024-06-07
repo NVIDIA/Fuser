@@ -2100,7 +2100,8 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
         const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
         NVF_CHECK(
             fusion_layout.isValid(),
-            "failed to get decide matmul layout through fusion definition");
+            "failed to get decide matmul layout through fusion definition. Error: ",
+            fusion_layout.getErrorMsg());
         NVF_CHECK(
             fusion_layout.getData() == layout,
             "mismatch between test layout (",
@@ -2216,9 +2217,7 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
         run(504, 136, 248, 2, 8, 8, 2, 8, max_vec_epi);
         // B not vectorizable due to pointer offset
         run(504, 136, 248, 8, 2, 8, 8, 2, max_vec_epi);
-        // epilogue not vectorizable due to pointer offset
-        // Disabled temporarily: https://github.com/NVIDIA/Fuser/issues/2169
-        // run(504, 136, 248, 8, 8, 2, 8, 8, 2);
+        run(504, 136, 248, 8, 8, 2, 8, 8, add_2d_bias ? 2 : max_vec_epi);
       }
     }
   }
@@ -2275,7 +2274,7 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
           if (add_2d_bias) {
             auto bias = TensorViewBuilder()
                             .ndims(2)
-                            .contiguity({false, contiguous_inner_dim_B})
+                            .contiguity({false, contiguous_inner_dim_bias})
                             .dtype(DataType::Half)
                             .build();
             fusion->addInput(bias);
@@ -2426,8 +2425,6 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
             max_vec_epi);
         // Padding by 2 from a multiple of 8 means we can only vectorize at
         // width 2
-        // NOTE: we do not pad bias here until we have addressed
-        // https://github.com/NVIDIA/Fuser/issues/2169
         run(504,
             136,
             248,
@@ -2439,10 +2436,10 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
             true,
             2,
             2,
-            0,
             2,
             2,
-            max_vec_epi);
+            2,
+            add_2d_bias ? 2 : max_vec_epi);
         // Incompatible sizes are not vectorized despite padding to compatible
         // strides
         run(505,
@@ -2509,7 +2506,21 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
             8,
             1,
             max_vec_epi);
-        // run(504, 136, 248, 8, 8, 8, true, true, false, 0, 0, 0, 8, 8, 1);
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            true,
+            false,
+            0,
+            0,
+            0,
+            8,
+            8,
+            add_2d_bias ? 1 : max_vec_epi);
       }
     }
   }
@@ -2811,6 +2822,321 @@ TEST_F(MatmulSchedulerTest, DISABLED_RequireExternalPlugin) {
 
   MatmulParams params;
 }
+
+class AllocationDomainTest
+    : public NVFuserFixtureParamTest<std::tuple<bool, bool>> {
+ protected:
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  AllocationDomainTest() : optimization_guard_(false) {
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
+    params.supported_vec_size = {8, 8, 4};
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.double_buffer_options.double_buffer_smem_write = true;
+    params.double_buffer_options.double_buffer_smem_read = true;
+    params.double_buffer_options.smem_double_buffer_stage = 4;
+  }
+
+  std::pair<TensorView*, TensorView*> getInputTVs(
+      int M,
+      int N,
+      int K,
+      bool a_m_inner,
+      bool b_k_inner) {
+    auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
+    auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
+
+    if (a_m_inner) {
+      tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+    }
+
+    if (b_k_inner) {
+      tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+    }
+    return {tv0, tv1};
+  }
+
+  std::pair<at::Tensor, at::Tensor> getInputTensors(
+      int M,
+      int N,
+      int K,
+      bool a_m_inner,
+      bool b_k_inner) {
+    const auto options =
+        at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
+    auto t0 = a_m_inner ? at::randn({M, K}, options).as_strided({M, K}, {1, M})
+                        : at::randn({M, K}, options);
+    auto t1 = b_k_inner ? at::randn({K, N}, options).as_strided({K, N}, {1, K})
+                        : at::randn({K, N}, options);
+    return {t0, t1};
+  }
+
+  MatmulParams params;
+
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
+
+  DisableOptionsGuard option_guard_;
+};
+
+// This tests fusions where inputs to a Matmul will have the root domains
+// [M, K] and [K, N], and all possible combinations of allocation domains.
+// Please note that inpout in B is transposed prior to creating a Mma op.
+TEST_P(AllocationDomainTest, BasicMatmul) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 512, N = 128, K = 256;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  // This has rfactor: {N, K}
+  auto tv1t = transpose(tv1);
+  // [M, N, K]
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1t, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+// Same as above but without the the input tv1 being transposed.
+TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 512, N = 128, K = 256;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // [M, K, N]
+  auto tv0b = broadcast(tv0, {false, false, true});
+  auto tv1b = broadcast(tv1, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 128, N = 256, K = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tvSet = set(tv1);
+  // K, N -> N, K
+  auto tv1t = transpose(tvSet);
+
+  // M, N, K
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1t, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 128, N = 256, K = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tvSet = set(tv1);
+  // K, N -> N, K
+  auto tv1t = transpose(tvSet);
+  auto tv1tc = castOp(DataType::Half, sin(tv1t));
+
+  // M, N, K
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1tc, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+// Matmul test for Ampere MMA: across supported layouts
+TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 128, N = 256, K = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tvSet = set(tv1);
+  auto tv1tc = castOp(DataType::Half, sin(tvSet));
+
+  // M, K, N
+  auto tv0b = broadcast(tv0, {false, false, true});
+  auto tv1b = broadcast(tv1tc, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 128, N = 256, K = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tvSet = set(tv1);
+  auto tv1tc = castOp(DataType::Half, sin(tvSet));
+  auto tv1tcs = set(tv1tc);
+
+  // M, K, N
+  auto tv0b = broadcast(tv0, {false, false, true});
+  auto tv1b = broadcast(tv1tcs, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 128, N = 256, K = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tvSet = set(tv1);
+  auto tv1tc = castOp(DataType::Half, sin(tvSet));
+  auto tv1tct = transpose(tv1tc);
+
+  // M, N, K
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1tct, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    MatmulSchedulerTest,
+    AllocationDomainTest,
+    testing::Combine(testing::Bool(), testing::Bool()));
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 

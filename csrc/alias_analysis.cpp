@@ -40,12 +40,12 @@ class AliasFinder : public OptOutConstDispatch {
 
  private:
   // A helper function used to compute the perferred output layout. It computes
-  // the mapping from `in_rfactor` to `out_root` and applies that mapping to
+  // the mapping from `in_logical` to `out_root` and applies that mapping to
   // `preferred_in_layout`. For many ops, this function returns a good initial
   // preferred output layout for aliasing because it tries to preserve the input
-  // layout. An op (e.g. ViewOp and SliceOp) that transforms root to rfactor
+  // layout. An op (e.g. ViewOp and SliceOp) that transforms root to logical
   // using expressions will have to modify this initial layout so its allocation
-  // domain will be a function of its rfactor domain.
+  // domain will be a function of its logical domain.
   //
   // Returns `nullopt` if computation fails, so the caller can handle things
   // conservatively.
@@ -134,21 +134,21 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
     TensorView* in,
     TensorView* out) {
   if (!ir_utils::computePermutation(
-           in->getRFactorDomain(), preferred_in_layout.allocation_domain)
+           in->getLogicalDomain(), preferred_in_layout.allocation_domain)
            .has_value()) {
-    // Give up when `in`'s allocation domain is not an rfactor permutation. As
-    // an extension, we could map in_alloc to in_rfactor and apply the inverse
+    // Give up when `in`'s allocation domain is not an logical permutation. As
+    // an extension, we could map in_alloc to in_logical and apply the inverse
     // mapping to out_root.
     return std::nullopt;
   }
 
-  std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
+  std::unordered_map<IterDomain*, IterDomain*> in_logical_to_out_root =
       PairwiseRootDomainMap(in, out).mapProducerToConsumer();
 
   Layout preferred_out_layout;
   for (const auto i : c10::irange(preferred_in_layout.size())) {
     IterDomain* in_alloc_id = preferred_in_layout.allocation_domain[i];
-    IterDomain* out_root_id = getOrDefault(in_rfactor_to_out_root, in_alloc_id);
+    IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
     if (out_root_id == nullptr) {
       // This can happen when in_alloc_id is of type reduction or squeezed out.
       continue;
@@ -164,7 +164,7 @@ void AliasFinder::handle(const ViewOp* view) {
   TensorView* in = view->in();
   TensorView* out = view->out();
 
-  // Collect the allocation order of `in`'s rfactor domain and thus `out`'s root
+  // Collect the allocation order of `in`'s logical domain and thus `out`'s root
   // domain.
   std::optional<Layout> out_root_layout =
       mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
@@ -177,7 +177,7 @@ void AliasFinder::handle(const ViewOp* view) {
     if (!out_root_layout->contiguity[i].has_value() &&
         !out_root_layout->allocation_domain[i]->isBroadcast()) {
       // TODO(#1126): Due to #1126, `out_root` materializes an expanded
-      // broadcast IterDomain from `in_rfactor` when `view` splits or merges
+      // broadcast IterDomain from `in_logical` when `view` splits or merges
       // that IterDomain. We return no alias when this happen; otherwise
       // AliasTest.MergeBroadcastsBetweenConcretes would fail.
       return;
@@ -186,15 +186,15 @@ void AliasFinder::handle(const ViewOp* view) {
         out_root_layout->allocation_domain[i], out_root_layout->contiguity[i]);
   }
 
-  // Replay `Expr`s from `out_root` to `out_rfactor` on
+  // Replay `Expr`s from `out_root` to `out_logical` on
   // `allocation_to_contiguity`. Stop when an `Expr` requires a data copy;
-  // otherwise generate the allocation order of `out_rfactor` and the
+  // otherwise generate the allocation order of `out_logical` and the
   // corresponding contiguity flags.
   const std::vector<IterDomain*>& out_root = out->getRootDomain();
-  const std::vector<IterDomain*>& out_rfactor = out->getRFactorDomain();
+  const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   for (Expr* transform : DependencyCheck::getAllExprsBetween(
            {out_root.begin(), out_root.end()},
-           {out_rfactor.begin(), out_rfactor.end()})) {
+           {out_logical.begin(), out_logical.end()})) {
     if (Split* split = dynamic_cast<Split*>(transform)) {
       const auto [contiguity, split_i] =
           allocation_to_contiguity.erase(split->in());
@@ -227,12 +227,12 @@ void AliasFinder::handle(const ViewOp* view) {
     }
   }
 
-  Layout out_rfactor_layout;
+  Layout out_logical_layout;
   for (const auto& [allocation_id, contiguity] : allocation_to_contiguity) {
-    out_rfactor_layout.allocation_domain.push_back(allocation_id);
-    out_rfactor_layout.contiguity.push_back(contiguity);
+    out_logical_layout.allocation_domain.push_back(allocation_id);
+    out_logical_layout.contiguity.push_back(contiguity);
   }
-  analysis_.add(out, in, std::move(out_rfactor_layout));
+  analysis_.add(out, in, std::move(out_logical_layout));
 }
 
 void AliasFinder::handle(const LoadStoreOp* permute) {
@@ -246,17 +246,17 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   //
   // For example,
   //
-  // in: rfactor=[i0,i1,i2], allocation=[i2,i0,i1]
+  // in: logical=[i0,i1,i2], allocation=[i2,i0,i1]
   // out = permute(in, {1, 0, 2})
-  // out: root=[i3,i4,i5], rfactor=[i4,i3,i5]
+  // out: root=[i3,i4,i5], logical=[i4,i3,i5]
   //
   // `out`'s preferred allocation domain is [i5,i3,i4]. This allocation domain
-  // is not affected by `out`'s rfactor domain or the permutation, because
+  // is not affected by `out`'s logical domain or the permutation, because
   // `permute` changes the logical shape but not the physical layout.
   //
   // Therefore, `out`'s preferred allocation domain can be computed in two
   // steps:
-  // 1. Construct the map from `in`'s rfactor to `out`'s root:
+  // 1. Construct the map from `in`'s logical to `out`'s root:
   // {i0->i3,i1->i4,i2->i5}.
   // 2. Apply the map to `in`'s allocation and get [i5,i3,i4].
   std::optional<Layout> out_root_layout =
@@ -280,14 +280,14 @@ void AliasFinder::handle(const SliceOp* slice) {
   }
 
   const std::vector<IterDomain*>& out_root = out->getRootDomain();
-  std::unordered_map<IterDomain*, IterDomain*> out_root_to_rfactor;
+  std::unordered_map<IterDomain*, IterDomain*> out_root_to_logical;
   {
-    const std::vector<IterDomain*>& out_rfactor = out->getRFactorDomain();
+    const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
     const auto out_rank = out_root.size();
-    NVF_ERROR(out_rfactor.size() == out_rank);
-    out_root_to_rfactor.reserve(out_rank);
+    NVF_ERROR(out_logical.size() == out_rank);
+    out_root_to_logical.reserve(out_rank);
     for (auto i : c10::irange(out_rank)) {
-      out_root_to_rfactor[out_root[i]] = out_rfactor[i];
+      out_root_to_logical[out_root[i]] = out_logical[i];
     }
   }
 
@@ -305,7 +305,7 @@ void AliasFinder::handle(const SliceOp* slice) {
     IterDomain*& alloc_id = out_layout->allocation_domain[i];
     std::optional<bool>& contiguity = out_layout->contiguity[i];
 
-    alloc_id = out_root_to_rfactor.at(alloc_id);
+    alloc_id = out_root_to_logical.at(alloc_id);
 
     if (alloc_id->isBroadcast()) {
       // A broadcast dimension may be a slicing product as well. So, don't
@@ -345,10 +345,10 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   }
 
   // Put new, broadcast dimensions to the end.
-  const std::vector<IterDomain*> out_rfactor = out->getRFactorDomain();
-  for (const auto i : c10::irange(out_rfactor.size())) {
+  const std::vector<IterDomain*> out_logical = out->getLogicalDomain();
+  for (const auto i : c10::irange(out_logical.size())) {
     if (bcast->isBroadcastDim(i)) {
-      out_layout->allocation_domain.push_back(out_rfactor[i]);
+      out_layout->allocation_domain.push_back(out_logical[i]);
       out_layout->contiguity.emplace_back(std::nullopt);
     }
   }
@@ -460,8 +460,8 @@ std::string AliasAnalysisResult::toString(const int indent_size) const {
     indent(ss, indent_size + 1)
         << ir_utils::varName(alias) << " of allocation domain ["
         << toDelimitedString(alias->getAllocationDomain())
-        << "] and rfactor domain ["
-        << toDelimitedString(alias->getRFactorDomain())
+        << "] and logical domain ["
+        << toDelimitedString(alias->getLogicalDomain())
         << "] is a transitive alias of " << ir_utils::varName(root)
         << std::endl;
   }

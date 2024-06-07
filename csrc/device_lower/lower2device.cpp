@@ -179,7 +179,8 @@ void GpuLower::collectPaddedParallelDims() {
             size_after_padding.value() == warp_size;
 
         if (id->extent()->isConstInt() &&
-            id->extent()->evaluate() > warp_size && !padding_to_single_warp) {
+            id->extent()->evaluate().as<int64_t>() > warp_size &&
+            !padding_to_single_warp) {
           // If we see any other TIDx binding that's larger than
           //  a warp or unknown, we shouldn't lower warp reduce
           //  to a single warp type.
@@ -188,7 +189,7 @@ void GpuLower::collectPaddedParallelDims() {
         } else if (can_be_single_warp) {
           if (padding_to_single_warp ||
               (id->extent()->isConstInt() &&
-               id->extent()->evaluate() == warp_size)) {
+               id->extent()->evaluate().as<int64_t>() == warp_size)) {
             warp_pad_info_.is_tidx_single_warp = true;
           }
         }
@@ -391,7 +392,22 @@ void GpuLower::analysis(Fusion* fusion) {
   // so it is expected that generated code may use diffrent variable
   // names
   if (isOptionEnabled(EnableOption::IdModel)) {
-    IdModel id_model(fusion_);
+    // Enable validation in the DEBUG build mode
+#ifdef NDEBUG
+    // Not DEBUG build
+    IdModel id_model(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+#else
+    // DEBUG build
+    IdModel id_model(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/true);
+#endif
   }
 
   resolveComputeWith(fusion_);

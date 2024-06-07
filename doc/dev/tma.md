@@ -74,7 +74,7 @@ The TMA domain for the above matmul example is shown in the Figure 3 below:
 
 ![Figure 3: The TMA domain of the matmul example](tma/matmul-tma-domain.svg)
 
-Please note that the TMA domain is not a member of a TensorDomain like the root/rFactor/allocation/leaf domains.
+Please note that the TMA domain is not a member of a TensorDomain like the root/logical/allocation/leaf domains.
 Instead, it is a virtual domain that only exists in the user's mind.
 
 Also note that the IterDomain expressions between the global tensor's allocation domain and the TMA domain must be a view,

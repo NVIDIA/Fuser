@@ -225,7 +225,7 @@ class ReductionSizeMapper : private IterVisitor {
 
   int64_t getReductionSize(const TensorView* tv) {
     int64_t reduction_elements = 1;
-    for (auto id : tv->getRFactorDomain()) {
+    for (auto id : tv->getLogicalDomain()) {
       if (id->isReduction()) {
         auto inferred_extent = expr_eval_.evaluate(id->extent());
         NVF_ERROR(

@@ -301,7 +301,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << var_name_ss.str();
         } else {
           code_ << "Tensor<" << param->dtype() << ", "
-                << TensorDomain::noReductions(tv->getRFactorDomain()).size()
+                << TensorDomain::noReductions(tv->getLogicalDomain()).size()
                 << ", "
                 << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
                        .size()
@@ -2748,10 +2748,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         par_domains.find(ParallelType::TIDz) != par_domains.end() &&
         par_domains.at(ParallelType::TIDz)->isReduction();
 
+    NVF_ERROR(
+        !tidx && tidy && !tidz,
+        "blockIterGroupedYdimReduce only supports reduction along TIDy");
+
     const auto data_type = output->dtype();
 
     ArgumentBuilder template_args;
-    template_args.arg(tidx).arg(tidy).arg(tidz);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
 
@@ -2778,7 +2781,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     func_args.arg(genCall(data_type, genInline(init)));
 
-    indent() << genCall("blockIterGroupedReduce", template_args, func_args)
+    indent() << genCall("blockIterGroupedYdimReduce", template_args, func_args)
              << ";\n";
   }
 

@@ -42,7 +42,7 @@ class LoadStoreOpInserter : private kir::ExprMutator {
     auto container = out->container();
     registerReplaceAndPropagate(
         sop,
-        IrBuilder::create<LoadStoreOp>(
+        IrBuilder::createInContainer<LoadStoreOp>(
             container, LoadStoreOpType::Set, out, in));
   }
 
@@ -52,7 +52,7 @@ class LoadStoreOpInserter : private kir::ExprMutator {
     auto container = out->container();
     registerReplaceAndPropagate(
         eop,
-        IrBuilder::create<LoadStoreOp>(
+        IrBuilder::createInContainer<LoadStoreOp>(
             container, LoadStoreOpType::Set, out, in));
   }
 
@@ -62,7 +62,7 @@ class LoadStoreOpInserter : private kir::ExprMutator {
     auto container = out->container();
     registerReplaceAndPropagate(
         vop,
-        IrBuilder::create<LoadStoreOp>(
+        IrBuilder::createInContainer<LoadStoreOp>(
             container, LoadStoreOpType::Set, out, in));
   }
 };

@@ -291,7 +291,7 @@ NVF_API std::vector<TensorView*> getReductionTvs(Fusion* fusion);
 // Returns a list of TensorViews that are the consumer tv for a view operation.
 std::vector<TensorView*> getViewTVs(Fusion* fusion);
 
-// Returns a list of non-reduction TensorViews that have a rfactor domain
+// Returns a list of non-reduction TensorViews that have a root domain
 std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 
 // Reset inputs and outputs to global memory, everything else to local.
@@ -325,7 +325,7 @@ IterDomain* innerMostAllocDim(TensorView* tv);
 // case.
 class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
   std::unordered_map<TensorView*, IterDomain*> mapped_root_ids_;
-  std::unordered_map<TensorView*, IterDomain*> mapped_rfactor_ids_;
+  std::unordered_map<TensorView*, IterDomain*> mapped_logical_ids_;
   TensorView* starting_tv_ = nullptr;
   IterDomain* starting_id_ = nullptr;
   bool inner_only_;
@@ -364,17 +364,17 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     bool vectorize_pass);
 
 // Holder return struct for the below function.
-struct DisjointRFactorSetInfo {
+struct DisjointLogicalSetInfo {
   // const* to the disjoint set in disjoint_rfactor_set passed in to
-  // getDisjointRFactorSetsOf each iterdomain in the rfactor of ref is mapped
+  // getDisjointLogicalSetsOf each iterdomain in the rfactor of ref is mapped
   // to.
   //
   // WARNING: these pointers are relative to the disjoint_rfactor_set reference
-  // passed into getDisjointRFactorSetsOf it's the user's responsibility to
+  // passed into getDisjointLogicalSetsOf it's the user's responsibility to
   // maintain the lifetime of that reference to match this vector.
   std::vector<const VectorOfUniqueEntries<IterDomain*>*> disjoint_sets_of_ref;
 
-  // Unique ID associated to the disjoint view group the rfactor id belongs to
+  // Unique ID associated to the disjoint view group the logical id belongs to
   // in disjoint_sets_of_ref. It's straight forward to map from
   // disjoint_sets_of_ref to the vector, but not the other way around.
   std::vector<int64_t> disjoint_set_ids;
@@ -387,7 +387,7 @@ struct DisjointRFactorSetInfo {
 // of vectors of size rfactorDomain of reference. Vector of
 // VectorOfUniqueEntries returns a const* to the disjoint set in
 // disjoint_rfactor_set the iterdomain is mapped to. Integer vector represents
-// which disjoint rfactor group the rfactor id belongs to. It's straightforward
+// which disjoint rfactor group the logical id belongs to. It's straightforward
 // to map from the former to the latter, but not the latter to former.
 //
 // Since we return a const* to entries in disjoint_rfactor_set, it must be
@@ -395,13 +395,13 @@ struct DisjointRFactorSetInfo {
 // reference, but generating the disjoint rfactor set is likely the limiter on
 // perf of this function.
 //
-// rfactor_reorder_map is provided to assume TensorView `of` will be reordered
+// logical_reorder_map is provided to assume TensorView `of` will be reordered
 // per the map
-DisjointRFactorSetInfo getDisjointRFactorSetsOf(
+DisjointLogicalSetInfo getDisjointLogicalSetsOf(
     Fusion* fusion,
     TensorView* of,
     DisjointSets<IterDomain*>& disjoint_rfactor_set,
-    const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map = {});
+    const std::unordered_map<int64_t, int64_t>& logical_reorder_map = {});
 
 // Structure to hold byte multiples for break points. I.e. if we have the
 // tensors:
@@ -422,11 +422,11 @@ struct BroadcastMultipleInformation {
   std::vector<BroadcastMultiple> broadcast_multiples;
 };
 
-// Returns a vector of size reference_tv->getRFactorDomain().size() which
+// Returns a vector of size reference_tv->getLogicalDomain().size() which
 // is a view disjoint set id of each of those iter domains. If entries share the
 // same value, they undergo view transformations in the fusion together.
 // Broadcast multiples are also of size
-// reference_tv->getRFactorDomain().size(), each entry [i] is the number of
+// reference_tv->getLogicalDomain().size(), each entry [i] is the number of
 // inputs/outputs that have a non-broadcast dimension mapped to the
 // corresponding dimension in reference_tv. Broadcast multiples includes
 // reference_tv if reference_tv is an input or output. Broadcast multiples is
@@ -436,12 +436,12 @@ struct BroadcastMultipleInformation {
 // dimensions are broadcast that input/output will not contribute to the
 // multiple.
 //
-// rfactor_reorder_map is provided to assume reference_tv will be reordered per
+// logical_reorder_map is provided to assume reference_tv will be reordered per
 // the map
 NVF_API BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
     DataType index_type,
-    const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map = {});
+    const std::unordered_map<int64_t, int64_t>& logical_reorder_map = {});
 
 //! Propagate current transformations on from_tv up to the given
 //!  position, to all tensorviews on the owning fusion that has
@@ -566,7 +566,7 @@ struct BoundedDirectionalTransformPropagator {
 // If IterDomains are disjoint in the returned set, then they are considered
 // "separable".
 // Warning: This pass generates the IdGraphs, not intended for use at runtime.
-NVF_API DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion);
+NVF_API DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion);
 
 // Makes sure that there are no group id's left of pos that match right of pos.
 // e.g.
@@ -574,19 +574,19 @@ NVF_API DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion);
 // [1, 0, 0] pos 1 would return true
 NVF_API bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 
-// Generates an old to new map to reorder tv's domain as the rfactor order.
+// Generates an old to new map to reorder tv's domain as the logical order.
 // Priority is given to inner most dimensions for example:
-// rfactor [i0, i1, i2]
+// logical [i0, i1, i2]
 // domain [i0*i2, i1]
 // will produce the map {{0, 1}, {1, 0}}
 // This is somewhat similar to orderTiledConcreteIdAsRoot
-NVF_API std::unordered_map<int64_t, int64_t> domainReorderAsRfactorMap(
+NVF_API std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(
     TensorView* tv);
 
-// Generates an old to new map to reorder tv's domain as the rfactor order.
+// Generates an old to new map to reorder tv's domain as the logical order.
 // This only handles the simple case where allocation is a permutation of
-// rfactor domain, otherwise, the function returns an empty container.
-std::unordered_map<int64_t, int64_t> maybeRfactorReorderAsAllocationMap(
+// logical domain, otherwise, the function returns an empty container.
+std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
     TensorView* tv);
 
 // Assumes view's are consistent as detected by
