@@ -1206,4 +1206,43 @@ TEST_F(PersistentBufferTest, PostReductionBroadcastCheck) {
   testValidate(fusion, cg_outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
 }
 
+// Cases with two broadcast IDs
+TEST_F(PersistentBufferTest, PostReductionBroadcastCheckMultiBcastDims) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int dim0 = 16;
+  const int dim1 = 32;
+  const int dim2 = 64;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({dim0, dim1, dim2}, input_dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1, dim2}, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = sum(tv2, {1, 2});
+  auto tv4 = broadcast(tv3, {false, true, true});
+  auto tv5 = set(tv1);
+  auto tv6 = add(tv4, tv5);
+  auto tv7 = add(tv6, tv2);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1, dim2}, options);
+  auto t1 = at::randn({dim0, dim1, dim2}, options);
+  auto t2 = at::sum(t0, {1, 2}).unsqueeze(-1).unsqueeze(-1) + t0;
+  auto t4 = t2 + t1;
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
+  NVF_CHECK(
+      !fec.getMostRecentKernelRuntime()->isSegmented(),
+      "unexpected segmentation!");
+
+  testValidate(fusion, cg_outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

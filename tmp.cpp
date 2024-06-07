@@ -11,7 +11,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
-
+#include <ir/graphviz.h>
 namespace nvfuser {
 
 namespace registry_utils {
@@ -545,7 +545,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
       reduction_tvs.push_back(tv);
     }
   }
-
+  IrGraphGenerator::print(fusion, "TakeAlongAxisIntermediateTensorNormalization1_CUDA.dot", IrGraphGenerator::DetailLevel::ComputeOnly);
   // All tensor views that are eventually consumed to produce a reduction,
   // includes reduction tensor views.
   std::unordered_set<TensorView*> pre_reduction_tvs;
@@ -569,117 +569,110 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
   // that were resolved and make sure there's a mapping to a TensorView before
   // a reduction.
   for (auto red_tv : reduction_tvs) {
+    std::cout << "\nred_tv: " << red_tv->toString() << std::endl;
     auto forward_tv_chains = tvChains(DependencyCheck::getAllUseChains(red_tv));
     // Propagate forward from reduction through all uses of the reduction
     for (auto forward_tv_dep_chain : forward_tv_chains) {
+      // These are the ids we will have to resolve. As we resolve them we'll
+      // remove them from this vector. If this vector ends up empty, then
+      // we've resolved everything we need to. This is a pair so as we
+      // traverse we can map the id through the traversal. The first entry
+      // in the pair will be the original id so we can reset it if it's not
+      // resolved before the next traversal. The second ID will be
+      // propagated as we map the IDs through the backward traversal.
+      std::vector<std::pair<IterDomain*, IterDomain*>> ids_to_resolve;
       TensorView* forward_running_producer = nullptr;
       TensorView* forward_running_consumer = forward_tv_dep_chain.front();
       forward_tv_dep_chain.pop_front();
       while (!forward_tv_dep_chain.empty()) {
         forward_running_producer = forward_running_consumer;
         forward_running_consumer = forward_tv_dep_chain.front();
+        std::cout << "p: " << forward_running_producer->toString() << ", c: " << forward_running_consumer->toString() << std::endl;
         forward_tv_dep_chain.pop_front();
-
-        if (std::none_of(
-                forward_running_producer->getMaybeRootDomain().begin(),
-                forward_running_producer->getMaybeRootDomain().end(),
-                [](IterDomain* id) { return id->isBroadcast(); })) {
-          // If there's no broadcast axes in producer it doesn't need to be
-          // checked
-          continue;
-        }
-
-        // If consumer is before another reduction it doesn't need to be
-        // checked
-        if (pre_reduction_tvs.count(forward_running_consumer)) {
-          break;
-        }
-
-        // If consumer was already validated it doesn't need to be checked
-        if (validated_resolved_tvs.count(forward_running_consumer)) {
-          continue;
-        }
-
-        auto forward_pairwise_root_map = PairwiseRootDomainMap(
-            forward_running_producer, forward_running_consumer);
-        auto forward_p2c_root_map =
-            forward_pairwise_root_map.mapProducerToConsumer();
-
-        // These are the ids we will have to resolve. As we resolve them we'll
-        // remove them from this vector. If this vector ends up empty, then
-        // we've resolved everything we need to. This is a pair so as we
-        // traverse we can map the id through the traversal. The first entry
-        // in the pair will be the original id so we can reset it if it's not
-        // resolved before the next traversal. The second ID will be
-        // propagated as we map the IDs through the backward traversal.
-        std::vector<std::pair<IterDomain*, IterDomain*>> ids_to_resolve;
-
-        // Check if any TensorViews have a resolved broadcast
-        for (auto entry : forward_p2c_root_map) {
-          auto p_id = entry.first;
-          auto c_id = entry.second;
-          if (p_id->isBroadcast() && !c_id->isBroadcast()) {
-            ids_to_resolve.emplace_back(c_id, c_id);
-          }
-        }
-
+        // Find the id to resolve
         if (ids_to_resolve.empty()) {
-          continue;
-        }
+          if (std::none_of(
+                  forward_running_producer->getRFactorDomain().begin(),
+                  forward_running_producer->getRFactorDomain().end(),
+                  [](IterDomain* id) { return id->isBroadcast(); })) {
+            // If there's no broadcast axes in producer it doesn't need to be
+            // checked
+            continue;
+          }
 
-        // Move forward to output to avoid unnecessary segmentation when the
-        // reduction input iteration domain is used after the resolution point.
-        // Assume we have a fusion with:
-        // Fusion inputs: T2 & T5
-        // Reduction inputs: T2
-        // T3[I1, R] = sum(T2[I1,I2], axis=1)
-        // T4[I1,B] = broadcast(T3[I1,R], axis=1)
-        // T6[I1,I2] = T4[I1,B] + T5[I1,I2]
-        // T7[I1,I2] = T6[I1,I2] + T2[I1,I2]
-        // We found a id to resolve at T6 = T4 + T5.
-        // If we do backward transversal from T6[I1,I2], we can't find
-        // T2[I1,I2]. But from T7, the backward search can find the
-        // corresponding reduction input ID, which is {I2} in T2. See
-        // PostReductionBroadcastCheck test and issue-2146.
-        while (!forward_tv_dep_chain.empty()) {
-          // Assume we move one step forward
-          auto tmp_producer = forward_running_consumer;
-          auto tmp_consumer = forward_tv_dep_chain.front();
-
-          // Don't move forward if the consumer is a broadcast.
-          // broadcastOp introduces a new broadcast axis, and it may be resolved
-          // and requires a new check.
-          // see FusionReshapePersistentShmoo.
-          if (tmp_consumer->definition()->isA<BroadcastOp>()) {
+          // If consumer is before another reduction it doesn't need to be
+          // checked
+          if (pre_reduction_tvs.count(forward_running_consumer)) {
             break;
           }
 
-          // Don't move forward if there is no mapped id.
-          // otherwise, we can't do backward traversal.
-          // see TakeAlongAxisIntermediateTensorNormalization1_CUDA
-          bool at_leat_one_id_mapped = false;
-          auto forward_pairwise_root_map =
-              PairwiseRootDomainMap(tmp_producer, tmp_consumer);
+          // If consumer was already validated it doesn't need to be checked
+          if (validated_resolved_tvs.count(forward_running_consumer)) {
+            continue;
+          }
+
+          auto forward_pairwise_root_map = PairwiseRootDomainMap(
+              forward_running_producer, forward_running_consumer);
           auto forward_p2c_root_map =
               forward_pairwise_root_map.mapProducerToConsumer();
-          for (size_t entry_i = ids_to_resolve.size(); entry_i > 0; entry_i--) {
-            auto running_id = ids_to_resolve[entry_i - 1].second;
-            if (forward_p2c_root_map.find(running_id) !=
-                forward_p2c_root_map.end()) {
-              at_leat_one_id_mapped = true;
-              ids_to_resolve[entry_i - 1] = std::make_pair(
-                  forward_p2c_root_map.at(running_id),
-                  forward_p2c_root_map.at(running_id));
+
+          // Check if any TensorViews have a resolved broadcast
+          for (auto entry : forward_p2c_root_map) {
+            auto p_id = entry.first;
+            auto c_id = entry.second;
+            if (p_id->isBroadcast() && !c_id->isBroadcast()) {
+              std::cout << "ids_to_resolve: p_id: " << p_id->toString() << ", c_id: " << c_id->toString() << std::endl;
+              ids_to_resolve.emplace_back(c_id, c_id);
             }
           }
-          if (!at_leat_one_id_mapped) {
-            break;
+          if (ids_to_resolve.empty()) {
+            continue;
           }
+        }
 
-          // safe to move forward
-          forward_running_producer = tmp_producer;
-          forward_running_consumer = tmp_consumer;
-          forward_tv_dep_chain.pop_front();
+        // At this point, we have some ids to resovle.
+        // Check if we can move forward further along the use chain.
+        // This helps gathering more usage info to resolve this id to avoid
+        // unnecessary segmentation when the reduction input iteration domain is
+        // used after this tensor. See PostReductionBroadcastCheck test and
+        // issue-2146. We can move forward when:
+        // (1) The usage chain is not empty.
+        // (2) The consumer is not a broadcastOp, as broadcastOp introduces a
+        //     new broadcast axis and require a new check, see
+        //     FusionReshapePersistentShmoo.
+        // (3) At least one id is mapped, otherwise can't do backward traversal.
+        //     see TakeAlongAxisIntermediateTensorNormalization1_CUDA
+        if (!forward_tv_dep_chain.empty()) {
+          // try to move forward along the use chain
+          auto tmp_producer = forward_running_consumer;
+          auto tmp_consumer = forward_tv_dep_chain.front();
+          std::cout << "tmp_producer: " << tmp_producer->toString() << ", tmp_consumer: " << tmp_consumer->toString() << std::endl;
+          if (!tmp_consumer->definition()->isA<BroadcastOp>()) {
+            auto forward_pairwise_root_map =
+                PairwiseRootDomainMap(tmp_producer, tmp_consumer);
+            auto forward_p2c_root_map =
+                forward_pairwise_root_map.mapProducerToConsumer();
+            bool at_leat_one_id_mapped = false;
+            for (size_t entry_i = ids_to_resolve.size(); entry_i > 0;
+                 entry_i--) {
+              auto running_id = ids_to_resolve[entry_i - 1].second;
+              if (forward_p2c_root_map.find(running_id) !=
+                  forward_p2c_root_map.end()) {
+                at_leat_one_id_mapped = true;
+                ids_to_resolve[entry_i - 1] = std::make_pair(
+                    forward_p2c_root_map.at(running_id),
+                    forward_p2c_root_map.at(running_id));
+              }
+            }
+            if (at_leat_one_id_mapped) {
+              std::cout << "id mapped" << std::endl;
+              continue;
+            }
+          }
+        }
+
+        for(auto pair : ids_to_resolve){
+          std::cout << "ids_to_resolve: " << pair.first->toString() << ", " << pair.second->toString() << std::endl;
         }
 
         // Only because of api limitations in getAllDependencyChains
@@ -702,7 +695,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
           auto backward_tv_chains =
               tvChains(DependencyCheck::getAllDependencyChains(
                   input_of_forward_running_consumer, forward_running_consumer));
-
+          std::cout << "backward from : " << forward_running_consumer->toString() << ", to: " << input_of_forward_running_consumer->toString() << std::endl;
           for (auto backward_tv_chain : backward_tv_chains) {
             if (ids_to_resolve.empty()) {
               break;
@@ -722,7 +715,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
               backward_running_consumer = backward_running_producer;
               backward_running_producer = backward_tv_chain.back();
               backward_tv_chain.pop_back();
-
+              std::cout << "backward_tv_chain p: " << backward_running_producer->toString() << ", c: " << backward_running_consumer->toString() << std::endl;
               std::vector<IterDomain*> running_resolved_ids;
 
               auto backward_pairwise_root_map = PairwiseRootDomainMap(
@@ -747,15 +740,18 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
                       !backward_c2p_root_map.at(running_id)->isBroadcast()) {
                     // If mapped, and producer is a producer of a reduction,
                     // we can resolve this id
+                    std::cout << "erase ids_to_resolve: " << orig_id->toString() << ", " << running_id->toString() << std::endl;                        
                     ids_to_resolve.erase(
                         ids_to_resolve.begin() + (int64_t)entry_i - 1);
                   } else {
                     ids_to_resolve[entry_i - 1] = std::make_pair(
                         orig_id, backward_c2p_root_map.at(running_id));
+                    std::cout << "add ids_to_resolve: " << orig_id->toString() << ", " << backward_c2p_root_map.at(running_id)->toString() << std::endl;                        
                   }
                 }
               }
               if (!at_leat_one_id_mapped) {
+                std::cout << "go to the next chain" << std::endl;
                 // If no id's map any more, go to the next chain
                 break;
               }
