@@ -27,6 +27,7 @@
 #include <c10/util/irange.h>
 #include <torch/csrc/jit/jit_log.h>
 
+#include <fstream>
 #include <mutex>
 #include <sstream>
 
@@ -783,7 +784,21 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     auto reuse_it = std::find_if(
         kernel_runtimes.begin(),
         kernel_runtimes.end(),
-        [&args, &new_heuristics, &forced_index_type](auto& kernel_runtime) {
+        [&new_heuristics, &args, &forced_index_type](auto& kernel_runtime) {
+          SegmentedFusion* seg_fusion = kernel_runtime->fusionSegments();
+          // Check whether segmentation would result in the same segmented
+          // fusion of this runtime using the new runtime info
+          SchedulerRuntimeInfo runtime_info(
+              seg_fusion->completeFusion(),
+              args,
+              /*precomputed_values=*/nullptr,
+              /*all_tvs=*/{},
+              forced_index_type);
+          if (!seg_fusion->checkSegmentationPath(runtime_info)) {
+            return false;
+          }
+
+          // Check that heuristic for each segment matches
           auto maybe_heuristics =
               kernel_runtime->getMaybeHeuristicsFor(args, forced_index_type);
           if (!maybe_heuristics.has_value()) {
@@ -793,9 +808,35 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
           return true;
         });
     if (reuse_it != kernel_runtimes.end()) {
+      reusing = true;
       kernel_runtime = reuse_it->get();
       kernel_runtime->updateHeuristicsLaunchParams(new_heuristics.get());
-      reusing = true;
+      static int reused_kernel = 1;
+      // Print cuda kernels and PTX in order so that we can compare to those
+      // created with DisableOption::KernelReuse
+      for (const FusionExecutor& executor : kernel_runtime->executors()) {
+        // Disable printing so that we don't redundantly print this kernel
+        DebugDumpOptionsGuard ddog;
+        if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
+            isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
+          DebugDumpOptionsGuard::getCurOptions().unset(
+              DebugDumpOption::CudaToFile);
+          DebugDumpOptionsGuard::getCurOptions().unset(
+              DebugDumpOption::DebugInfo);
+          std::stringstream filenamess;
+          filenamess << "__tmp_kernel_" << reused_kernel << ".reused.cu";
+          std::ofstream kernel_file(filenamess.str());
+          std::cout << "PRINTING: " << filenamess.str() << std::endl;
+          kernel_file << executor.getStructuredCode() << std::endl;
+        }
+        if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
+          std::string ptx_filename = executor_utils::dumpCompiledCodeToFile(
+              executor.compiledKernel().ptx,
+              std::to_string(reused_kernel),
+              ".reused.ptx");
+        }
+        reused_kernel++;
+      }
     }
   }
 

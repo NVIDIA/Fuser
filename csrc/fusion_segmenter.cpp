@@ -693,6 +693,14 @@ void SegmentedFusion::Impl::cleanUnused() {
   std::unordered_set<SegmentedEdge*> e_used(
       owning_fusion_->edges().begin(), owning_fusion_->edges().end());
 
+  for (const auto& [groups, result] : owning_fusion_->merge_results_) {
+    for (auto g : groups) {
+      g_used.insert(g);
+      e_used.insert(g->producer_edges.begin(), g->producer_edges.end());
+      e_used.insert(g->consumer_edges.begin(), g->consumer_edges.end());
+    }
+  }
+
   groups_.erase(
       std::remove_if(
           groups_.begin(),
@@ -3148,10 +3156,13 @@ class CombineReductions {
         all_groups_to_merge.begin(), all_groups_to_merge.end());
 
     // Final sanity check: the merged group can actually be scheduled
-    if (!tryMerge(
-            segment_candidate_finder_->segmented_fusion_.get(),
-            segment_candidate_finder_->runtimeInfo(),
-            all_groups_to_merge_vec)) {
+    const auto h = tryMerge(
+        segment_candidate_finder_->segmented_fusion_.get(),
+        segment_candidate_finder_->runtimeInfo(),
+        all_groups_to_merge_vec);
+    segment_candidate_finder_->segmented_fusion_->recordMergeResult(
+        all_groups_to_merge_vec, /*result=*/h);
+    if (!h.has_value()) {
       return nullptr;
     }
 
@@ -3285,10 +3296,13 @@ class CombineReductions {
               to_merge_with_first_group.end());
           std::vector<SegmentedGroup*> groups_to_merge_vec(
               groups_to_merge_set.begin(), groups_to_merge_set.end());
-          if (tryMerge(
-                  segment_candidate_finder_->segmented_fusion_.get(),
-                  segment_candidate_finder_->runtimeInfo(),
-                  groups_to_merge_vec)) {
+          const auto h = tryMerge(
+              segment_candidate_finder_->segmented_fusion_.get(),
+              segment_candidate_finder_->runtimeInfo(),
+              groups_to_merge_vec);
+          segment_candidate_finder_->segmented_fusion_->recordMergeResult(
+              groups_to_merge_vec, /*result=*/h);
+          if (h.has_value()) {
             // Found a valid horizontal merge, want to proceed with merging here
             auto joined_group = segment_candidate_finder_->mergeAllGivenGroups(
                 groups_to_merge_vec);
@@ -3656,6 +3670,7 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
     return true;
   }
   auto h = tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
+  segmented_fusion_->recordMergeResult({group1, group2}, /*result=*/h);
   return h.has_value();
 }
 
@@ -4582,6 +4597,26 @@ std::string toString(const SegmentCandidateFinderOptions& segment_options) {
   }
   ss << "\n}\n";
   return ss.str();
+}
+
+bool SegmentedFusion::checkSegmentationPath(
+    SchedulerRuntimeInfo& runtime_info) {
+  const bool is_segmented =
+      !SchedulerEntry::proposeHeuristics(complete_fusion_.get(), runtime_info)
+           .has_value();
+
+  if (is_segmented != isSegmented()) {
+    return false;
+  }
+
+  // For segmented fusions, check that the segmentation path matches. For
+  // unsegmented fusions, merge_results_ is empty, so return true.
+  for (const auto& [groups, result] : merge_results_) {
+    if (tryMerge(this, runtime_info, groups) != result) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace nvfuser
