@@ -626,4 +626,40 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   EXPECT_EQ(tv2_producer_index, tv4_loop_indices.at(1));
 }
 
+// Allocation of broadcast domains should not need to be promoted.
+TEST_F(IndexingTest, PromotedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, false});
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  tv2->inlineAt(1);
+  tv2->setMemoryType(MemoryType::Shared);
+  tv2->axis(0)->parallelize(ParallelType::TIDx);
+
+  // tv2->axis(0) is a broadcast domain promoted to
+  // tv3->axis(0). While it's promoted, since it's a broadcast domain,
+  // it doesn't need to be allocated. The resulting index of tv2
+  // should just consist of the loop index of the inner domain.
+
+  IdModel id_model(&fusion);
+  TensorIndexer indexer(id_model);
+
+  std::vector<Val*> tv2_loop_indices = getLoopIndices(tv2, indexer);
+  std::vector<Val*> tv3_loop_indices = getLoopIndices(tv3, indexer);
+
+  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
+  auto tv2_producer_index = indexer.getLinearIndex(tv2, tv3->definition());
+
+  EXPECT_EQ(tv2_consumer_index, tv2_loop_indices.at(1));
+  EXPECT_EQ(tv2_producer_index, tv3_loop_indices.at(1));
+}
+
 } // namespace nvfuser
