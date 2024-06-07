@@ -1411,9 +1411,6 @@ void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
         new_id->toString());
     NVF_CHECK(
         !new_id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-    NVF_CHECK(
-        new_id->extent()->isOneInt(),
-        "Can not squeeze dimension(s) with size != 1.");
   }
 }
 
