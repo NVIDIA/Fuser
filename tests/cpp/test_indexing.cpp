@@ -21,7 +21,7 @@
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
 
-#include <functional>
+#include <utility>
 
 namespace nvfuser {
 
