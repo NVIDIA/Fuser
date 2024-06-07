@@ -61,12 +61,13 @@ class DomainMap {
   std::vector<TensorView*> tvs_with_rfactor_;
 };
 
-// Returns number of non-reduction/non-broadcast dims in logical domain
+// Returns number of non-reduction/non-broadcas/non-device dims in logical
+// domain
 inline int64_t nRootDims(const TensorView* tv) {
   auto root_dom = tv->getLogicalDomain();
   int64_t tv_n_dims = 0;
   for (auto dim : root_dom) {
-    if (!dim->isReduction() && !dim->isBroadcast()) {
+    if (!dim->isReduction() && !dim->isBroadcast() && !dim->isDeviceDim()) {
       tv_n_dims++;
     }
   }
