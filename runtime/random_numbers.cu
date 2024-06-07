@@ -171,6 +171,37 @@ __device__ float normalf(unsigned int x, unsigned int y, int rng_component) {
   }
 }
 
+template <unsigned int significand_bits>
+__device__ float normal_for_casting(
+    unsigned int x,
+    unsigned int y,
+    int rng_component) {
+  float u = uniform_for_casting<significand_bits>(x);
+  float v = uniform_for_casting<significand_bits>(y) * 6.2831855f;
+
+  if (rng_component % 2 == 0) {
+    return sqrtf(-2.0f * logf(u)) * sinf(v);
+  } else {
+    return sqrtf(-2.0f * logf(u)) * cosf(v);
+  }
+}
+
+// Returns float since we might still need to center and scale
+__device__ float normal_half(
+    unsigned int x,
+    unsigned int y,
+    int rng_component) {
+  return normal_for_casting<11>(x, y, rng_component);
+}
+
+// Returns float since we might still need to center and scale
+__device__ float normal_bfloat(
+    unsigned int x,
+    unsigned int y,
+    int rng_component) {
+  return normal_for_casting<8>(x, y, rng_component);
+}
+
 __device__ double normal(
     unsigned int x0,
     unsigned int x1,
@@ -203,6 +234,22 @@ __device__ float rng_normal_standardf(
       rng_component);
 }
 
+__device__ __half
+rng_normal_standard_half(const uint4& rng_result, int rng_component) {
+  return __float2half(normal_half(
+      (&rng_result.x)[rng_component / 2 * 2],
+      (&rng_result.y)[rng_component / 2 * 2],
+      rng_component));
+}
+
+__device__ __bfloat
+rng_normal_standard_bfloat(const uint4& rng_result, int rng_component) {
+  return __float2bfloat(normal_bfloat(
+      (&rng_result.x)[rng_component / 2 * 2],
+      (&rng_result.y)[rng_component / 2 * 2],
+      rng_component));
+}
+
 __device__ double rng_normal_general(
     const uint4& rng_result,
     int rng_component,
@@ -219,4 +266,28 @@ __device__ float rng_normal_generalf(
     float std) {
   auto normal01 = rng_normal_standardf(rng_result, rng_component);
   return normal01 * std + mean;
+}
+
+__device__ __half rng_normal_general_half(
+    const uint4& rng_result,
+    int rng_component,
+    float mean,
+    float std) {
+  auto normal01 = normal_half(
+      (&rng_result.x)[rng_component / 2 * 2],
+      (&rng_result.y)[rng_component / 2 * 2],
+      rng_component);
+  return __float2half(normal01 * std + mean);
+}
+
+__device__ __bfloat rng_normal_general_bfloat(
+    const uint4& rng_result,
+    int rng_component,
+    float mean,
+    float std) {
+  auto normal01 = normal_bfloat(
+      (&rng_result.x)[rng_component / 2 * 2],
+      (&rng_result.y)[rng_component / 2 * 2],
+      rng_component);
+  return __float2bfloat(normal01 * std + mean);
 }

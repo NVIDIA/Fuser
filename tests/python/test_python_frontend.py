@@ -4057,7 +4057,7 @@ class TestNvFuserFrontend(TestCase):
 
     # Test that the range of generated uniform values spans the proper range
     # https://github.com/NVIDIA/Fuser/issues/1653
-    def test_rng_range(self):
+    def test_uniform_range(self):
         dtypes = [DataType.Double, DataType.Float, DataType.Half]
         if not is_pre_ampere():
             dtypes.append(DataType.BFloat16)
@@ -4107,18 +4107,18 @@ class TestNvFuserFrontend(TestCase):
                     1.0 - x.item(), 3.0 / math.sqrt(12 * num_samples)
                 ), f"{output.dtype} mean generated value: {mu.item()}"
 
-    def test_rng_distinct_values(self):
+    def test_random_distinct_values(self):
         dtypes = [DataType.Double, DataType.Float, DataType.Half]
         if not is_pre_ampere():
             dtypes.append(DataType.BFloat16)
-        for dtype in dtypes:
-
+        for dtype, randopname in itertools.product(dtypes, ["uniform", "normal"]):
             def fusion_fn(fd: FusionDefinition):
                 # generate 4 values and check that they are all distinct
                 shape = fd.define_vector([2, 2], dtype=DataType.Int)
+                randop = getattr(fd.ops, randopname)
                 S0 = fd.define_scalar(0.00000, dtype=DataType.Double)
                 S1 = fd.define_scalar(1.00000, dtype=DataType.Double)
-                output = fd.ops.uniform(S0, S1, shape=shape, dtype=dtype)
+                output = randop(S0, S1, shape=shape, dtype=dtype)
                 fd.add_output(output)
 
             with FusionDefinition() as fd:
