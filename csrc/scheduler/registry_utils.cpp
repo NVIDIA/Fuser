@@ -686,7 +686,6 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
           }
 
           // safe to move forward
-          forward_running_producer = tmp_producer;
           forward_running_consumer = tmp_consumer;
           forward_tv_dep_chain.pop_front();
         }
