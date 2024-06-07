@@ -80,6 +80,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
   tv1->inlineAt(1);
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
@@ -180,6 +181,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
   tv2->setMemoryType(MemoryType::Shared);
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   // tv0 and tv3 are global tensors and should have the same index:
@@ -252,6 +254,7 @@ TEST_F(IndexingTest, SimpleReduction) {
   fusion.addOutput(tv2);
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
@@ -296,6 +299,7 @@ TEST_F(IndexingTest, AllocationDomain) {
   tv1->setAllocationDomain(tv1_transposed, true);
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
@@ -358,6 +362,7 @@ TEST_F(IndexingTest, Reshape) {
   inlineMost();
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   // Validate tv0 indexing
@@ -416,6 +421,7 @@ TEST_F(IndexingTest, SimpleBroadcast1) {
   fusion.addOutput(tv2);
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
@@ -456,6 +462,7 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
   MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   // The first merge of the logical domains should be a trivial merge,
@@ -534,6 +541,7 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
   inlineMost();
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   std::vector<Val*> tv3_loop_indices = getLoopIndices(tv3, indexer);
@@ -607,6 +615,7 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   }
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   // As discussed in the doc, the inner domain of tv2 is promoted to
@@ -640,16 +649,22 @@ TEST_F(IndexingTest, PromotedBroadcast) {
   auto tv3 = add(tv2, tv1);
   fusion.addOutput(tv3);
 
-  tv2->inlineAt(1);
+  // Note that tv2->inlineAt(1) just results in no inlining since
+  // tv2->axis(0) is a broadcast domain.
+  tv2->inlineAt(2);
   tv2->setMemoryType(MemoryType::Shared);
-  tv2->axis(0)->parallelize(ParallelType::TIDx);
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   // tv2->axis(0) is a broadcast domain promoted to
   // tv3->axis(0). While it's promoted, since it's a broadcast domain,
-  // it doesn't need to be allocated. The resulting index of tv2
-  // should just consist of the loop index of the inner domain.
+  // it doesn't need to be allocated. Since the inner domain is also
+  // inlined, the resulting index of tv2 should just be zero.
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
+
+  ASSERT_EQ(tv2->axis(0)->getParallelType(), ParallelType::TIDx);
+
   TensorIndexer indexer(id_model);
 
   std::vector<Val*> tv2_loop_indices = getLoopIndices(tv2, indexer);
@@ -658,8 +673,8 @@ TEST_F(IndexingTest, PromotedBroadcast) {
   auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
   auto tv2_producer_index = indexer.getLinearIndex(tv2, tv3->definition());
 
-  EXPECT_EQ(tv2_consumer_index, tv2_loop_indices.at(1));
-  EXPECT_EQ(tv2_producer_index, tv3_loop_indices.at(1));
+  EXPECT_TRUE(tv2_consumer_index->isZero());
+  EXPECT_TRUE(tv2_producer_index->isZero());
 }
 
 } // namespace nvfuser
