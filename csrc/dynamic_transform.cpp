@@ -335,16 +335,12 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
       }
     }
 
-    if (is_empty) {
-      reshape_transforms_.emplace_back(tv_index, std::nullopt);
-      continue;
-    }
-
     const auto& out_dom = out_tv->getLogicalDomain();
 
     // Determine output shape using expr evaluator. Note there may be
     // one domain of extent -1
     std::vector<int64_t> out_shape(out_dom.size(), 0);
+    std::vector<int64_t> out_symbolic_sizes;
     for (const auto i : c10::irange((int64_t)out_dom.size())) {
       auto out_id = out_dom.at(i);
       auto extent_val = expr_eval->evaluate(out_id->extent());
@@ -360,15 +356,31 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
       if (extent_int == -1) {
         // For non-constant Scalar sizes, check that we have not passed -1.
         NVF_CHECK(
-            out_id->extent()->isConst(),
+            is_empty || out_id->extent()->isConst(),
             "Values of -1 passed to reshape must be constant at definition.")
       }
       out_shape.at(i) = extent_int;
+      if (is_empty) {
+        if (extent_int == 1l) {
+          // Indicates we should concretize to IterType::Broadcast
+          out_symbolic_sizes.push_back(1l);
+        } else if (extent_int == 0l || extent_int == -1l) {
+          // Indicates we should concretize to IterType::Iteration and
+          // concretize extent to 0
+          out_symbolic_sizes.push_back(0l);
+        } else {
+          // Indicates we should concretize to IterType::Iteration
+          out_symbolic_sizes.push_back(-1l);
+        }
+      }
     }
 
-    auto view_result = analyzeView(inp_tv, inp_shape, out_shape);
-
-    reshape_transforms_.emplace_back(tv_index, view_result);
+    if (is_empty) {
+      reshape_transforms_.emplace_back(tv_index, out_symbolic_sizes);
+    } else {
+      reshape_transforms_.emplace_back(
+          tv_index, analyzeView(inp_tv, inp_shape, out_shape));
+    }
   }
 }
 
@@ -552,14 +564,15 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   NVF_ERROR(
       reshape_transforms_.size() ==
       initial_info_->getDynamicReshapedTensorViews().size());
-  for (const auto& [tv_index, maybe_analyze_result] : reshape_transforms_) {
+  for (const auto& [tv_index, view_info] : reshape_transforms_) {
     auto tv = initial_info_->getDynamicReshapedTensorViews().at(tv_index);
-    if (maybe_analyze_result.has_value()) {
+    if (std::holds_alternative<AnalyzeViewResult>(view_info)) {
       ss << indent << indent << tv->toString() << " (index=" << tv_index
-         << "), " << maybe_analyze_result.value().toString() << "\n";
+         << "), " << std::get<AnalyzeViewResult>(view_info).toString() << "\n";
     } else {
       ss << indent << indent << tv->toString() << " (index=" << tv_index
-         << "), is empty\n";
+         << "), is empty. Symbolic reshape sizes: "
+         << std::get<std::vector<int64_t>>(view_info) << "\n";
     }
   }
   ss << indent << "Resize:\n";
@@ -621,6 +634,16 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
  private:
   void concretize();
+
+  TensorView* concretizeNonEmptyReshape(
+      TensorView* inp_tv,
+      TensorView* incomplete_out_tv,
+      const AnalyzeViewResult& view_analysis);
+
+  TensorView* concretizeEmptyReshape(
+      TensorView* inp_tv,
+      TensorView* incomplete_out_tv,
+      const std::vector<int64_t>& iter_types);
 
   void concretizeReshape();
 
@@ -743,10 +766,117 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
   }
 }
 
+TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
+    TensorView* inp_tv,
+    TensorView* incomplete_out_tv,
+    const AnalyzeViewResult& view_analysis) {
+  TensorView* concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
+
+  // Extent expressions often change when concretizing a reshape. Here we
+  // replace these in all downstream expressions so that the Fusion looks just
+  // like it would have if we had used a static reshape instead.
+  //
+  // Note that Reduction IterDomains might be present in the concretized
+  // reshape. For example, suppose we are given the following dynamic Fusion
+  //
+  //   Inputs:
+  //     T0
+  //   Outputs:
+  //     T3
+  //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
+  //   T2[ ?S4{i2} ] = view(T1[ iS2{i0} rS3{i1} ])
+  //   T3[ ?S4{i2} ] = -T2[ ?S4{i2} ]
+  //
+  // Then we will concretize this as
+  //
+  //   Inputs:
+  //     T0
+  //   Outputs:
+  //     T3
+  //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
+  //   T3[ iS4{i0} ] = -T1[ iS2{i0} rS3{i1} ]
+  //
+  // Notice here that the ViewOp is gone since we recognized that there is no
+  // transformation to perform. Instead, T1 is used directly in place of T2.
+  // We also replace the extent i2 from the dynamic reshape output T2 with i0,
+  // which is what the code below implements. Since T1 includes a Reduction
+  // IterDomain, we must ignore it in order to match ?S4{i2} with iS2{i0}.
+  auto old_logical = incomplete_out_tv->getLogicalDomain();
+  auto new_logical =
+      TensorDomain::noReductions(concrete_reshape_out_tv->getLogicalDomain());
+  NVF_ERROR(
+      old_logical.size() == new_logical.size(),
+      "Concretized reshape logical size does not match symbolic logical size");
+  for (auto idx : c10::irange((int64_t)new_logical.size())) {
+    auto old_extent = old_logical.at(idx)->extent();
+    auto new_extent = new_logical.at(idx)->extent();
+    // If the old extent did not have a definition, we don't need to replace
+    // it, since it will get bound whenever this tensor is a segmentation
+    // edge.
+    //
+    // Also, if the old extent is already a constant, don't replace it with a
+    // non-constant, since this could cause downstream extents to become
+    // non-constant. See https://github.com/NVIDIA/Fuser/issues/1572
+    if (old_extent->definition() && !new_extent->sameAs(old_extent) &&
+        (!old_extent->isConstScalar() || new_extent->isConstScalar())) {
+      registerConcretization(old_extent, new_extent);
+    }
+  }
+
+  return concrete_reshape_out_tv;
+}
+
+TensorView* DynamicTransformConcretizer::concretizeEmptyReshape(
+    TensorView* inp_tv,
+    TensorView* incomplete_out_tv,
+    const std::vector<int64_t>& symbolic_sizes) {
+  std::vector<Val*> new_shape;
+  const std::vector<IterDomain*>& old_logical =
+      incomplete_out_tv->getLogicalDomain();
+  NVF_ERROR(symbolic_sizes.size() == old_logical.size());
+  new_shape.reserve(incomplete_out_tv->getLogicalDomain().size());
+  for (size_t i : c10::irange(old_logical.size())) {
+    int64_t symbolic_size = symbolic_sizes[i];
+    if (symbolic_size == 0l) {
+      new_shape.push_back(inp_tv->fusion()->zeroVal(DataType::Index));
+    } else if (symbolic_size == 1l) {
+      new_shape.push_back(inp_tv->fusion()->oneVal(DataType::Index));
+    } else {
+      IterDomain* id = incomplete_out_tv->getLogicalDomain().at(i);
+      new_shape.push_back(id->extent());
+    }
+  }
+  TensorView* concrete_reshape_out_tv = full(
+      new_shape, inp_tv->fusion()->zeroVal(inp_tv->dtype()), inp_tv->dtype());
+
+  const std::vector<IterDomain*>& new_logical =
+      concrete_reshape_out_tv->getLogicalDomain();
+  NVF_ERROR(symbolic_sizes.size() == new_logical.size());
+  for (size_t i : c10::irange(symbolic_sizes.size())) {
+    int64_t symbolic_size = symbolic_sizes[i];
+    IterType iter_type =
+        symbolic_size == 1l ? IterType::Broadcast : IterType::Iteration;
+    IterDomain* new_id = new_logical[i];
+    Val* extent = symbolic_size == 0l
+        ? new_id->fusion()->zeroVal(DataType::Index)
+        : maybeMutated(new_id->extent());
+    registerConcretization(old_logical[i]->extent(), extent);
+    if (!new_id->isSymbolic()) {
+      NVF_ERROR(new_id->getIterType() == iter_type);
+      continue;
+    }
+    // Concretize Symbolic IterDomains that were just created
+    registerConcretization(
+        new_id,
+        IterDomainBuilder(new_id).extent(extent).iter_type(iter_type).build());
+  }
+
+  return concrete_reshape_out_tv;
+}
+
 void DynamicTransformConcretizer::concretizeReshape() {
   // Concretize each reshape op.
-  for (const auto& [tv_index, maybe_view_analysis] :
-       info_->getReshapeTransforms()) {
+  for (const auto& [tv_index, view_info] : info_->getReshapeTransforms()) {
     auto incomplete_out_tv =
         info_->initialInfo()->getDynamicReshapedTensorViews().at(tv_index);
     auto view_op = incomplete_out_tv->definition()->as<ViewOp>();
@@ -754,74 +884,17 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
     TensorView* concrete_reshape_out_tv = nullptr;
 
-    if (maybe_view_analysis.has_value()) {
-      concrete_reshape_out_tv = reshape(inp_tv, maybe_view_analysis.value());
+    if (std::holds_alternative<AnalyzeViewResult>(view_info)) {
+      concrete_reshape_out_tv = concretizeNonEmptyReshape(
+          inp_tv, incomplete_out_tv, std::get<AnalyzeViewResult>(view_info));
     } else {
-      std::vector<Val*> new_shape;
-      new_shape.reserve(incomplete_out_tv->getLogicalDomain().size());
-      for (IterDomain* id : incomplete_out_tv->getLogicalDomain()) {
-        new_shape.push_back(id->extent());
-      }
-      concrete_reshape_out_tv = full(
-          new_shape,
-          inp_tv->fusion()->zeroVal(inp_tv->dtype()),
-          inp_tv->dtype());
+      concrete_reshape_out_tv = concretizeEmptyReshape(
+          inp_tv, incomplete_out_tv, std::get<std::vector<int64_t>>(view_info));
     }
 
     // We do the replacement directly here, but we must still check that the
     // replacement is valid
     checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
-
-    // Extent expressions often change when concretizing a reshape. Here we
-    // replace these in all downstream expressions so that the Fusion looks just
-    // like it would have if we had used a static reshape instead.
-    //
-    // Note that Reduction IterDomains might be present in the concretized
-    // reshape. For example, suppose we are given the following dynamic Fusion
-    //
-    //   Inputs:
-    //     T0
-    //   Outputs:
-    //     T3
-    //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
-    //   T2[ ?S4{i2} ] = view(T1[ iS2{i0} rS3{i1} ])
-    //   T3[ ?S4{i2} ] = -T2[ ?S4{i2} ]
-    //
-    // Then we will concretize this as
-    //
-    //   Inputs:
-    //     T0
-    //   Outputs:
-    //     T3
-    //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
-    //   T3[ iS4{i0} ] = -T1[ iS2{i0} rS3{i1} ]
-    //
-    // Notice here that the ViewOp is gone since we recognized that there is no
-    // transformation to perform. Instead, T1 is used directly in place of T2.
-    // We also replace the extent i2 from the dynamic reshape output T2 with i0,
-    // which is what the code below implements. Since T1 includes a Reduction
-    // IterDomain, we must ignore it in order to match ?S4{i2} with iS2{i0}.
-    auto old_logical = incomplete_out_tv->getLogicalDomain();
-    auto new_logical =
-        TensorDomain::noReductions(concrete_reshape_out_tv->getLogicalDomain());
-    NVF_ERROR(
-        old_logical.size() == new_logical.size(),
-        "Concretized reshape logical size does not match symbolic logical size");
-    for (auto idx : c10::irange((int64_t)new_logical.size())) {
-      auto old_extent = old_logical.at(idx)->extent();
-      auto new_extent = new_logical.at(idx)->extent();
-      // If the old extent did not have a definition, we don't need to replace
-      // it, since it will get bound whenever this tensor is a segmentation
-      // edge.
-      //
-      // Also, if the old extent is already a constant, don't replace it with a
-      // non-constant, since this could cause downstream extents to become
-      // non-constant. See https://github.com/NVIDIA/Fuser/issues/1572
-      if (old_extent->definition() && !new_extent->sameAs(old_extent) &&
-          (!old_extent->isConstScalar() || new_extent->isConstScalar())) {
-        registerConcretization(old_extent, new_extent);
-      }
-    }
 
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(
         incomplete_out_tv, concrete_reshape_out_tv);
@@ -1355,9 +1428,14 @@ size_t DynamicTransformConcretizationInfo::hash() const {
   // expect (< 100). We should analyze this and trim out the pieces that are
   // unlikely to change based on real inputs.
   size_t hash = 0;
-  for (const auto& [tv, maybe_view_result] : getReshapeTransforms()) {
-    if (maybe_view_result.has_value()) {
-      hashCombine(hash, maybe_view_result.value().hash());
+  for (const auto& [tv, view_info] : getReshapeTransforms()) {
+    if (std::holds_alternative<AnalyzeViewResult>(view_info)) {
+      hashCombine(hash, std::get<AnalyzeViewResult>(view_info).hash());
+    } else {
+      for (const int64_t symbolic_size :
+           std::get<std::vector<int64_t>>(view_info)) {
+        hashCombine(hash, (size_t)symbolic_size);
+      }
     }
   }
   for (const auto& extent_idx : getEmptyExtents()) {

@@ -159,7 +159,14 @@ class DynamicTransformConcretizationInfo {
   //! the vector returned by initialInfo()->getDynamicReshapedTensorViews(),
   //! along with an AnalyzeViewResult describing how that reshape operation
   //! should be decomposed into split, merge, squeeze, and broadcast transforms.
-  const std::vector<std::pair<int64_t, std::optional<AnalyzeViewResult>>>&
+  //!
+  //! In case there are any zeros in the size of the input and output we will
+  //! not perform a reshape but rather replace the output with full(). Then
+  //! instead of an AnalyzeViewResult we will hold a vector of symbolic sizes
+  //! indicating how to concretize the output IterDomains.
+  using ViewConcretizationInfo =
+      std::variant<AnalyzeViewResult, std::vector<int64_t>>;
+  const std::vector<std::pair<int64_t, ViewConcretizationInfo>>&
   getReshapeTransforms() const {
     return reshape_transforms_;
   }
@@ -244,12 +251,9 @@ class DynamicTransformConcretizationInfo {
 
   //! Holds the index of the output TensorView in the vector returned by
   //! initial_info_->getDynamicReshapedTensorViews(), and the corresponding
-  //! result of analyzeView.
-  //!
-  //! Note that std::nullopt indicates that the input and output shapes contain
-  //! zeros, so the definition should be converted to full()
-  std::vector<std::pair<int64_t, std::optional<AnalyzeViewResult>>>
-      reshape_transforms_;
+  //! result of analyzeView (or list of IterTypes for output of full() in the
+  //! case of empty reshapes).
+  std::vector<std::pair<int64_t, ViewConcretizationInfo>> reshape_transforms_;
 
   //! Holds a vector of indices into initial_info_.getMaybeZeroExtents() which
   //! evaluate to 0
