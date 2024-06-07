@@ -490,7 +490,7 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
 class ShardedPointwiseTest
     : public NVFuserTest,
       public testing::WithParamInterface<std::tuple<bool, int>> {};
-      
+   
 TEST_P(ShardedPointwiseTest, DID_Compatible) {
   auto [use_1D_scheduler, sharded_dim] = GetParam();
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -536,38 +536,38 @@ TEST_P(ShardedPointwiseTest, DID_Compatible) {
   FusionExecutor fe;
   fe.compileFusion(fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+
+  EXPECT_EQ(use_1D_scheduler, params->break_point==0);
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 
   // Create a single device fusion and verify the same scheduling parameters are used for
   // given the same single device fusion. 
-  auto fusion_ptr2 = std::make_unique<Fusion>();
-  auto fusion2 = fusion_ptr2.get();
-  FusionGuard fg2(fusion2);
+  auto unsharded_fusion_ptr = std::make_unique<Fusion>();
+  auto unsharded_fusion = unsharded_fusion_ptr.get();
+  FusionGuard unsharded_fg(unsharded_fusion);
 
   TensorView* utv0 = makeContigTensor(3);
   TensorView* utv1 = makeContigTensor(2);
 
-  fusion2->addInput(utv0);
-  fusion2->addInput(utv1);
+  unsharded_fusion->addInput(utv0);
+  unsharded_fusion->addInput(utv1);
   auto utv2 = add(utv0, utv0);
   auto utv3 = broadcast(utv1, {true, false, false});
   auto utv4 = add(utv2, utv3);
-  fusion2->addOutput(utv4);
+  unsharded_fusion->addOutput(utv4);
 
-  FusionExecutorCache fec2(std::move(fusion_ptr));
+  FusionExecutorCache fec2(std::move(unsharded_fusion_ptr));
   fec2.profile(true);
 
-  std::vector<c10::IValue> aten_inputs2 = {t0.squeeze(sharded_dim), t1};
-  auto params2 = getPointwiseHeuristics(fusion2, aten_inputs2);
-  auto lparams2 = schedulePointwise(fusion2, aten_inputs2);
-  EXPECT_TRUE(params->sameAs(params2));
-  EXPECT_EQ(use_1D_scheduler, params->break_point==0);
+  std::vector<c10::IValue> unsharded_aten_inputs = {t0.squeeze(sharded_dim), t1};
+  auto unsharded_params = getPointwiseHeuristics(unsharded_fusion, unsharded_aten_inputs);
+  EXPECT_TRUE(params->sameAs(unsharded_params));
 }
 
 INSTANTIATE_TEST_SUITE_P(
     ,
     ShardedPointwiseTest,
-    testing::Combine(testing::Bool(), testing::Values(0)),
+    testing::Combine(testing::Bool(), testing::Values(0, 1)),
     [](const testing::TestParamInfo<std::tuple<bool, int>>& info)
         -> std::string {
       bool use_1D_scheduler;

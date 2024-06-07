@@ -116,4 +116,6 @@ void setShardedAllocationDomain(Fusion* fusion);
 // TODO: Assumes no merges/splits on sharded axis.
 int64_t getShardedAxis(TensorView*);
 
+// Reorders a TensorView so that the DID parallelized axis are in front.
+void reorderDIDToFront(TensorView*);
 } // namespace nvfuser
