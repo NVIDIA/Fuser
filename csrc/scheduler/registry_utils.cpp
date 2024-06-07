@@ -575,36 +575,8 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
       TensorView* forward_running_producer = nullptr;
       TensorView* forward_running_consumer = forward_tv_dep_chain.front();
       forward_tv_dep_chain.pop_front();
+
       while (!forward_tv_dep_chain.empty()) {
-        forward_running_producer = forward_running_consumer;
-        forward_running_consumer = forward_tv_dep_chain.front();
-        forward_tv_dep_chain.pop_front();
-
-        if (std::none_of(
-                forward_running_producer->getLogicalDomain().begin(),
-                forward_running_producer->getLogicalDomain().end(),
-                [](IterDomain* id) { return id->isBroadcast(); })) {
-          // If there's no broadcast axes in producer it doesn't need to be
-          // checked
-          continue;
-        }
-
-        // If consumer is before another reduction it doesn't need to be
-        // checked
-        if (pre_reduction_tvs.count(forward_running_consumer)) {
-          break;
-        }
-
-        // If consumer was already validated it doesn't need to be checked
-        if (validated_resolved_tvs.count(forward_running_consumer)) {
-          continue;
-        }
-
-        auto forward_pairwise_root_map = PairwiseRootDomainMap(
-            forward_running_producer, forward_running_consumer);
-        auto forward_p2c_root_map =
-            forward_pairwise_root_map.mapProducerToConsumer();
-
         // These are the ids we will have to resolve. As we resolve them we'll
         // remove them from this vector. If this vector ends up empty, then
         // we've resolved everything we need to. This is a pair so as we
@@ -614,29 +586,66 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         // propagated as we map the IDs through the backward traversal.
         std::vector<std::pair<IterDomain*, IterDomain*>> ids_to_resolve;
 
-        // Check if any TensorViews have a resolved broadcast
-        for (auto entry : forward_p2c_root_map) {
-          auto p_id = entry.first;
-          auto c_id = entry.second;
-          if (p_id->isBroadcast() && !c_id->isBroadcast()) {
-            ids_to_resolve.emplace_back(c_id, c_id);
+        // (1) step-1, Find the id to resolve
+        while (!forward_tv_dep_chain.empty()) {
+          forward_running_producer = forward_running_consumer;
+          forward_running_consumer = forward_tv_dep_chain.front();
+          forward_tv_dep_chain.pop_front();
+
+          if (std::none_of(
+                  forward_running_producer->getLogicalDomain().begin(),
+                  forward_running_producer->getLogicalDomain().end(),
+                  [](IterDomain* id) { return id->isBroadcast(); })) {
+            // If there's no broadcast axes in producer it doesn't need to be
+            // checked
+            continue;
+          }
+
+          // If consumer is before another reduction it doesn't need to be
+          // checked
+          if (pre_reduction_tvs.count(forward_running_consumer)) {
+            break;
+          }
+
+          // If consumer was already validated it doesn't need to be checked
+          if (validated_resolved_tvs.count(forward_running_consumer)) {
+            continue;
+          }
+
+          auto forward_pairwise_root_map = PairwiseRootDomainMap(
+              forward_running_producer, forward_running_consumer);
+          auto forward_p2c_root_map =
+              forward_pairwise_root_map.mapProducerToConsumer();
+
+          // Check if any TensorViews have a resolved broadcast
+          for (auto entry : forward_p2c_root_map) {
+            auto p_id = entry.first;
+            auto c_id = entry.second;
+            if (p_id->isBroadcast() && !c_id->isBroadcast()) {
+              ids_to_resolve.emplace_back(c_id, c_id);
+            }
+          }
+
+          // Mission accomplished, we've found a ID to resolve
+          if (!ids_to_resolve.empty()) {
+            break;
           }
         }
-
+        // break from this chain if no id to resolve
         if (ids_to_resolve.empty()) {
-          continue;
+          break;
         }
-
-        // Move forward to output to avoid unnecessary segmentation when the
-        // reduction input iteration domain is used after the resolution point.
-        // Assume we have a fusion with:
-        // Fusion inputs: T2 & T5
-        // Reduction inputs: T2
-        // T3[I1, R] = sum(T2[I1,I2], axis=1)
-        // T4[I1,B] = broadcast(T3[I1,R], axis=1)
-        // T6[I1,I2] = T4[I1,B] + T5[I1,I2]
-        // T7[I1,I2] = T6[I1,I2] + T2[I1,I2]
-        // We found a id to resolve at T6 = T4 + T5.
+        // (2) step-2, Find the location we need to start the backward traversal
+        // to resolve the id. Move forward to output to avoid unnecessary
+        // segmentation when the reduction input iteration domain is used after
+        // the resolution point. Assume we have a fusion with:
+        //! Fusion inputs: T2 & T5
+        //! Reduction inputs: T2
+        //! T3[I1, R] = sum(T2[I1,I2], axis=1)
+        //! T4[I1, B] = broadcast(T3[I1,R], axis=1)
+        //! T6[I1,I2] = T4[I1,B] + T5[I1,I2]
+        //! T7[I1,I2] = T6[I1,I2] + T2[I1,I2]
+        //! We found a id to resolve at T6 = T4 + T5.
         // If we do backward transversal from T6[I1,I2], we can't find
         // T2[I1,I2]. But from T7, the backward search can find the
         // corresponding reduction input ID, which is {I2} in T2. See
@@ -682,7 +691,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
           forward_tv_dep_chain.pop_front();
         }
 
-        // Only because of api limitations in getAllDependencyChains
+        // (3) step-3, backward traversal to resolve the id
         auto inputs_of_forward_running_consumer =
             IterVisitor::getInputsTo({forward_running_consumer});
         auto tv_inputs_of_forward_running_consumer =
@@ -770,12 +779,13 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         } // for(auto input_of_forward_running_consumer :
           // tv_inputs_of_forward_running_consumer){
 
+        // (4) step-4, check if all ids were resolved
         // if all ids were not resolved, then we've found an instance of a
-        // bad broadcast resolution after reduction
+        // bad broadcast resolution after reduction, return true. Otherwise,
+        // move to top of the while loop and further check along this chain.
         if (!ids_to_resolve.empty()) {
           return true;
         }
-
       } // while (!forward_tv_dep_chain.empty()) {
     } // for (auto forward_tv_dep_chain : forward_tv_chains) {
   } // for (auto red_tv : reduction_tvs)
