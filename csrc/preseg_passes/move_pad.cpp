@@ -22,6 +22,8 @@ struct Edge {
   Expr* expr_ = nullptr;
   size_t index_ = 0;
 
+  Edge(Expr* expr, size_t index) : expr_(expr), index_(index) {}
+
   Val* val() const {
     return expr_->input(index_);
   }
@@ -51,7 +53,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   // NOTE: the optimization logic assumes a zero pad_op.
   // This is used for logic in handling binary operations, we should extend this later.
   if (!pad_op->value()->isZero()) {
-    return false;
+    return nullptr;
   }
 
   if (!candidate_check(pad_op->in())) {
@@ -69,7 +71,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   // TODO: not sure if I need a stack if I need to keep a replay_sequence.
   std::stack<Edge> stack;
   std::vector<Expr*> replay_sequence;
-  stack.emplace(pad_op->in()->as<TensorView>(), 0);
+  stack.emplace(pad_op, 0);
 
 
   // tvs in stack are:
