@@ -121,7 +121,7 @@ Communication::Communication(
     int64_t scattered_axis,
     TensorView* input_tv,
     TensorView* output_tv)
-    : Expr(passkey, {input_tv}, {output_tv}, {}) {
+    : Expr(passkey) {
   NVF_ERROR(mesh.size() > 0, "The mesh size must be greater than 0.");
   NVF_ERROR(
       hasRoot(type) == (root >= 0),
@@ -133,6 +133,12 @@ Communication::Communication(
   NVF_ERROR(
       (type == CommunicationType::ReduceScatter) == (scattered_axis >= 0));
 
+  if (input_tv != nullptr) {
+    addInput(input_tv);
+  }
+  if (output_tv != nullptr) {
+    addOutput(output_tv);
+  }
   addDataAttribute(type);
   addDataAttribute(mesh);
   addDataAttribute(team);
