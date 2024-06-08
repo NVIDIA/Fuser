@@ -24,6 +24,23 @@ namespace nvfuser {
 
 namespace {
 
+// Get the promotion domain of a given loop domain.
+IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  const auto& loop_group = loop_graph.toGroup(loop_id);
+
+  auto loop_promotion_map_it = loop_promotion_map.find(loop_group);
+  NVF_ERROR(
+      loop_promotion_map_it != loop_promotion_map.end(),
+      "No loop promotion found: ",
+      loop_id->toString(),
+      ". Loop group: ",
+      nvfuser::toString(loop_group));
+
+  return loop_promotion_map_it->second;
+}
+
 // True if a given domain is a loop doamin of a given tensor and its
 // loop is partitioned with respect to the memory type of the tensor
 bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
@@ -118,6 +135,20 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
       contiguity =
           std::vector<std::optional<bool>>(allocation_domains.size(), true);
     }
+  }
+
+  // Loop promotion may affect allocations. Promotions of intermediate
+  // domains may not be defined correctly. Only consider loop domains
+  // for now.
+  for (auto& allocation_domain : allocation_domains) {
+    bool is_loop = std::find(
+                       tv->getLeafDomain().begin(),
+                       tv->getLeafDomain().end(),
+                       allocation_domain) != tv->getLeafDomain().end();
+    if (!is_loop) {
+      continue;
+    }
+    allocation_domain = getLoopPromotion(allocation_domain, id_model);
   }
 
   // Compute the strides from innermost to outermost domains
@@ -330,6 +361,8 @@ void TensorIndexer::buildLoopIndexMap() {
       ParallelType ptype = getParallelType(loop_group);
       if (isParallelTypeThread(ptype)) {
         loop_index = NamedScalar::getParallelIndex(ptype);
+      } else if (shouldUseZeroIndex(loop_group)) {
+        loop_index = fusion->zeroVal();
       } else {
         loop_index = IrBuilder::create<Val>(DataType::Index);
       }
@@ -337,6 +370,18 @@ void TensorIndexer::buildLoopIndexMap() {
       loop_index_map_[loop_group] = loop_index;
     }
   }
+}
+
+bool TensorIndexer::shouldUseZeroIndex(const ValGroup& loop_group) const {
+  // Trivial loop
+  auto promotion_id =
+      getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
+  if (promotion_id->isBroadcast() ||
+      simplifyExpr(promotion_id->extent())->isOneInt()) {
+    return true;
+  }
+
+  return false;
 }
 
 Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
@@ -363,6 +408,21 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
     Val* loop_index = getLoopIndex(loop_id);
     const auto& almost_exact_group = traversalGraph().toGroup(loop_id);
 
+    if (initial_index_map.find(almost_exact_group) != initial_index_map.end()) {
+      // Initial index already set. This can happen as this is an
+      // almost exact group. It should be just size-1 domain.
+      NVF_ERROR(
+          loop_index->isZeroInt(),
+          "Unexpected initial index: ",
+          loop_index->toInlineString());
+      auto existing_index = initial_index_map.at(almost_exact_group);
+      NVF_ERROR(
+          existing_index->isZeroInt(),
+          "Unexpected initial index: ",
+          existing_index->toInlineString());
+      continue;
+    }
+
     initial_index_map.emplace(almost_exact_group, loop_index);
   }
 
@@ -370,6 +430,18 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 }
 
 Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
+  NVF_ERROR(tv != nullptr);
+  NVF_ERROR(expr != nullptr);
+  NVF_ERROR(
+      (std::find(expr->inputs().begin(), expr->inputs().end(), tv) !=
+       expr->inputs().end()) ||
+          (std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
+           expr->outputs().end()),
+      "Inconsistent tensor and expr. Tensor, ",
+      tv->toString(),
+      " not found in ",
+      expr->toString());
+
   const auto [allocation_domains, strides] =
       getAllocationDomains(tv, id_model_);
 
@@ -399,10 +471,18 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
   return index;
 }
 
+// Get the loop domains of a given expr, which are (potentially
+// promoted) loop domains of the consumer tensor.
 std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // Assume consumer-based indexing. Needs to revisit for ops like
   // scatter
-  return ir_utils::getTvOutput(expr)->getLeafDomain();
+  auto loop_domains = ir_utils::getTvOutput(expr)->getLeafDomain();
+
+  for (auto& loop_id : loop_domains) {
+    loop_id = getLoopPromotion(loop_id, id_model_);
+  }
+
+  return loop_domains;
 }
 
 IndexingInfo TensorIndexer::computeIndex(
