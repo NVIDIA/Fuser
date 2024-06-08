@@ -212,7 +212,8 @@ std::pair<std::optional<int64_t>, int64_t>
 getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
     const int64_t outer_dim_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t regs_buffer_size,
+    const int64_t smem_buffer_size,
     const int64_t vectorize_factor,
     const int64_t warp_size,
     const bool ignore_register_size_limit);

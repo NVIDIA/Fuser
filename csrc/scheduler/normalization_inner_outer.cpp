@@ -367,9 +367,13 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       InnerOuterPersistentKernelScheduler::threads_per_block_max);
   int64_t available_smem =
       (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
-  int64_t available_regs = scheduler_utils::register_file_size_full;
+  int64_t available_regs = 56 * 1024 * 4;
   buffer_params.smem_overhead = smem_overhead;
-
+  std::cout << "available_smem: " << available_smem
+            << " total_buffer_size: " << total_buffer_size
+            << " projected_persistent_buffer_size: "
+            << persistent_buffer_size_info.projected_persistent_buffer_size
+            << std::endl;
   // (1) init the buffer_params by putting all the persistent tensors in
   // registers
   buffer_params.regs_buffer_size = total_buffer_size;
@@ -384,6 +388,12 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   // (3) Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
+
+  // when start using shared memory, L1 cache's capability to cache register
+  // spills is reduced must try our best to avoid register spills. So decrease
+  // the buffer register size further to 48K.
+  available_regs = 48 * 1024 * 4;
+
   const auto buffers = buffer_params.project_to_input
       ? persistent_buffer_info.projectable_buffer_inputs
       : persistent_buffer_info.persistent_buffers;
@@ -495,23 +505,6 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(),
         "not enough registers or shared memory for persistence");
-    return false;
-  }
-
-  // check if we can schedule the combined reductions with a reasonable
-  // batch size without register spills.
-  if (!normalization_scheduler_utils::
-           getOptionalInnerOuterPersistentBufferBatches(
-               properties.total_reduction_numel,
-               properties.total_iteration_numel,
-               buffer_params.regs_buffer_size,
-               (int64_t)vectorize_factor,
-               warp_size,
-               false)
-               .first.has_value()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "Required batch number is larger than available batch number! Will cause register spills!");
     return false;
   }
 
@@ -679,6 +672,7 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
           inner_dim_numel,
           outer_dim_numel,
           regs_buffer_size,
+          smem_buffer_size,
           iop.inner_vect,
           dev_prop->warpSize,
           ignore_register_size_limit);
