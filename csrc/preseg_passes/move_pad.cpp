@@ -11,25 +11,27 @@
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
+#include <transform_replay.h>
+#include <ops/alias.h>
 
 namespace nvfuser::preseg_passes {
 
 namespace {
 
 struct Edge {
-  Expr* expr_;
-  size_t index_;
+  Expr* expr_ = nullptr;
+  size_t index_ = 0;
 
   Val* val() const {
     return expr_->input(index_);
   }
 };
 
-Val* propagatePadToProducer(PadOp* pad) {
+Val* propagatePadToProducer(PadOp* pad_op) {
   std::vector<Val*> pad_dependencies;
 
   auto candidate_check = [&pad_dependencies](Val* val) {
-    if (!val->isA<TensorView>) {
+    if (!val->isA<TensorView>()) {
       return false;
     }
     if (val->uses().size() > 1) {
@@ -44,20 +46,20 @@ Val* propagatePadToProducer(PadOp* pad) {
       return false;
     }
     return true;
-  }
+  };
 
-  // NOTE: the optimization logic assumes a zero pad.
+  // NOTE: the optimization logic assumes a zero pad_op.
   // This is used for logic in handling binary operations, we should extend this later.
-  if (!pad->value()->isZero()) {
+  if (!pad_op->value()->isZero()) {
     return false;
   }
 
-  if (!candidate_check(pad->in())) {
+  if (!candidate_check(pad_op->in())) {
     return nullptr;
   }
 
-  for (Val* val : pad->inputs()) {
-    if (val == pad->in() || val->isConst()) {
+  for (Val* val : pad_op->inputs()) {
+    if (val == pad_op->in() || val->isConst()) {
       continue;
     }
     pad_dependencies.push_back(val);
@@ -67,7 +69,7 @@ Val* propagatePadToProducer(PadOp* pad) {
   // TODO: not sure if I need a stack if I need to keep a replay_sequence.
   std::stack<Edge> stack;
   std::vector<Expr*> replay_sequence;
-  stack.emplace(pad->in()->as<TensorView>(), 0);
+  stack.emplace(pad_op->in()->as<TensorView>(), 0);
 
 
   // tvs in stack are:
@@ -77,7 +79,7 @@ Val* propagatePadToProducer(PadOp* pad) {
   //   4. maybe also check aliases?!
   while(!stack.empty()) {
     Edge edge = stack.top();
-    Expr* def = edge->val()->definition();
+    Expr* def = edge.val()->definition();
     stack.pop();
 
 
@@ -86,7 +88,7 @@ Val* propagatePadToProducer(PadOp* pad) {
       // TODO: exception to break propagation.
       if (candidate_check(uop->in())) {
         stack.emplace(uop, 0);
-        replay_stack.push_back(uop);
+        replay_sequence.push_back(uop);
         continue;
       }
     // This will require us having `replayExprWithNewInput` to support binary ops.
@@ -100,7 +102,7 @@ Val* propagatePadToProducer(PadOp* pad) {
     //   }
 
 
-    // TODO: adding pad
+    // TODO: adding pad_op
     // } else if (def->isA<PadOp>()) {
     //   if (candidate_check(def->input(0))) {
     //     // NOTE: stopping propagation, we'll merge it with its consumer padOp
@@ -109,7 +111,7 @@ Val* propagatePadToProducer(PadOp* pad) {
     //   }
     }
 
-    if (edge->val() != pad->in()) {
+    if (edge.val() != pad_op->in()) {
       // propagation stopped, push entry to frontier
       frontier.push_back(edge);
     }
@@ -120,31 +122,31 @@ Val* propagatePadToProducer(PadOp* pad) {
   }
 
   std::unordered_map<Val*, Val*> replacement_map;
-  // modify pad on frontier
+  // modify pad_op on frontier
   for (const Edge& edge : frontier) {
-    // insert pad
+    // insert pad_op
     // Note: operation with multiple operand would require us to support partial update in each iteration.
-    auto width_size = pad->inputs().size() - 2;
+    auto width_size = pad_op->inputs().size() - 2;
 
-    const std::vector<Val*> pad_width;
+    std::vector<Val*> pad_width;
     pad_width.reserve(width_size);
     for (auto i : c10::irange(width_size)) {
-      pad_width.push_back(pad->inputs(2+i));
+      pad_width.push_back(pad_op->input(2+i));
     }
-    replacement_map[edge->val()] = pad(edge->val()->as<TensorView>(), pad_width, pad->value());
-    // TODO: modify existing pad, when its only consumer is a pad
+    replacement_map[edge.val()] = pad(edge.val()->as<TensorView>(), pad_width, pad_op->value());
+    // TODO: modify existing pad_op, when its only consumer is a pad_op
   }
 
   // propagate to update TensorProxy
   // I think I can just follow the reverse order from earlier stack traversal.
   for (Expr* e : replay_sequence) {
     // TODO extend this for multiple inputs.
-    Expr* padded_e = replayExprWithNewInput(e, replacement_map(e->input(0)));
+    Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)));
     replacement_map[e->output(0)] = padded_e->output(0);
   }
 
-  // return the replacement input to pad, since we have already padded everything out.
-  return replacement_map.at(pad->in());
+  // return the replacement input to pad_op, since we have already padded everything out.
+  return replacement_map.at(pad_op->in());
 }
 
 }
@@ -161,9 +163,9 @@ void MovePadPass::runPass(Fusion* fusion) {
 
     std::unordered_map<Val*, Val*> replacement_map;
     for (Val* in : cat->inputs()) {
-      auto* pad = in->definition()->as<PadOp>();
-      if (Val* new_pad_out = propagatePadToProducer(pad)) {
-        replacement_map.at(in) = new_pad_out;
+      auto* pad_op = in->definition()->as<PadOp>();
+      if (Val* new_pad_out = propagatePadToProducer(pad_op)) {
+        replacement_map[in] = new_pad_out;
       }
     }
     if (replacement_map.empty()) {
