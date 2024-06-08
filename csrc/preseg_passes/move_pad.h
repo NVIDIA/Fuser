@@ -11,7 +11,7 @@ namespace nvfuser::preseg_passes {
 
 // A pre-segmenter optimization that moves pad operation across its producers
 class MovePadPass : public OptimizationPass<MovePadPass> {
-  friend class OptimizationPass<MoveSplitCatPass>;
+  friend class OptimizationPass<MovePadPass>;
 
  protected:
   static void runPass(Fusion* fusion);
