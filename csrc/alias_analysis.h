@@ -71,6 +71,9 @@ class AliasAnalysisResult {
   // Returns the mapped value in `alias_to_root_` or null.
   TensorView* getNearestAliasedIo(const TensorView* alias) const;
 
+  // Returns the mapped value in `alias_to_source_` or null.
+  TensorView* getAliasedSource(const TensorView* alias) const;
+
  private:
   // Maps an alias (e.g. the output of a `ViewOp`) to its direct source (e.g.
   // the input of the same `ViewOp`). Also stores the preferred output layout
