@@ -378,20 +378,11 @@ void TensorIndexer::buildLoopIndexMap() {
 }
 
 bool TensorIndexer::shouldUseZeroIndex(const ValGroup& loop_group) const {
-  // All loops in this set are non-parallel, non-concretized broadcast
-  //  iterdomains, their "index variable" should be zero. This
-  //  condition should be included in the next triviality check, but
-  //  just checking isBroadcast should be more efficient.
-  if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
-        return val->as<IterDomain>()->isBroadcast();
-      })) {
-    return true;
-  }
-
   // Trivial loop
-  auto leaf_id =
+  auto promotion_id =
       getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
-  if (!leaf_id->maybePartial() && simplifyExpr(leaf_id->extent())->isOneInt()) {
+  if (promotion_id->isBroadcast() ||
+      simplifyExpr(promotion_id->extent())->isOneInt()) {
     return true;
   }
 
