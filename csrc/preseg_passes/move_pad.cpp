@@ -147,10 +147,12 @@ Val* propagatePadToProducer(PadOp* pad) {
   return replacement_map.at(pad->in());
 }
 
+}
+
 void MovePadPass::runPass(Fusion* fusion) {
   fusion->printMath();
   // TODO: verify that no dead branch is traversed in exprs.
-  std::vector<Expr*> exprs = fusion_->exprs();
+  std::vector<Expr*> exprs = fusion->exprs();
 
   // NOTE: should we expand this optimization to general pad but not just pad within cat?
 
