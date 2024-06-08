@@ -487,7 +487,7 @@ bool isTorchGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 
-// Check if a tensor is resized as part of  its root to rfactor transformations
+// Check if a tensor is resized as part of its root to logical transformations
 bool hasResizedRfactor(const TensorView* tv);
 
 // Returns tvs that have symbolic axes
@@ -653,5 +653,47 @@ std::optional<std::vector<int64_t>> computePermutation(
 }
 
 bool hasTrivialAllocationDomain(const TensorView* tv);
+
+// Returns true if memory_type is partitioned in parallel_type. See
+// also isMemorySharedAcross. Specifically, isMemorySharedAcross == true does
+// not imply isMemoryPartitionedAcross == false. For example, Local with no
+// parallelization is not partitioned nor shared.
+inline bool isMemoryPartitionedAcross(
+    MemoryType memory_type,
+    ParallelType parallel_type) {
+  switch (memory_type) {
+    case MemoryType::Local:
+      return isParallelTypeThread(parallel_type) ||
+          isParallelTypeDeviceDim(parallel_type);
+    case MemoryType::Shared:
+      return isParallelTypeBlockDim(parallel_type) ||
+          isParallelTypeDeviceDim(parallel_type);
+    case MemoryType::Global:
+      return isParallelTypeDeviceDim(parallel_type);
+    default:
+      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+  }
+}
+
+// Returns true if memory_type is shared in parallel_type. See also
+// isPartitionedMemory.
+inline bool isMemorySharedAcross(
+    MemoryType memory_type,
+    ParallelType parallel_type) {
+  switch (memory_type) {
+    case MemoryType::Local:
+      // Nothing is shared if it's Local
+      return false;
+    case MemoryType::Shared:
+      // Only TID parallelized domains are shared if it's Shared
+      return isParallelTypeThreadDim(parallel_type);
+    case MemoryType::Global:
+      // Only TID and BID parallelized domains are shared if it's Global
+      return isParallelTypeThreadDim(parallel_type) ||
+          isParallelTypeBlockDim(parallel_type);
+    default:
+      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+  }
+}
 
 } // namespace nvfuser::ir_utils

@@ -262,12 +262,12 @@ bool useSameIndex(
   // and consumer tensors.
   auto consumer_root_ids = InputsOf::output(consumer_id);
 
-  auto producer_root_vals = StmtSort::getStmtsBetween(
-      {producer_tv->getRFactorDomain().begin(),
-       producer_tv->getRFactorDomain().end()},
+  auto producer_logical_vals = StmtSort::getStmtsBetween(
+      {producer_tv->getLogicalDomain().begin(),
+       producer_tv->getLogicalDomain().end()},
       {producer_id});
-  auto producer_root_ids =
-      ir_utils::filterByType<IterDomain>(producer_root_vals);
+  auto producer_logical_ids =
+      ir_utils::filterByType<IterDomain>(producer_logical_vals);
 
   // For each of the root IDs that consumer_id is dependent on, check
   // if the producer uses the same indexing as the consumer. This
@@ -281,14 +281,14 @@ bool useSameIndex(
           ir_utils::filterByType<IterDomain>(consumer_root_ids).end(),
           [&](IterDomain* consumer_root_id) {
             return std::find_if(
-                       producer_root_ids.begin(),
-                       producer_root_ids.end(),
+                       producer_logical_ids.begin(),
+                       producer_logical_ids.end(),
                        [&](IterDomain* producer_root_id) {
                          return ca_map.areMapped(
                              producer_root_id,
                              consumer_root_id,
                              IdMappingMode::EXACT);
-                       }) != producer_root_ids.end() ||
+                       }) != producer_logical_ids.end() ||
                 std::find(
                     indexing_info.getConsumerRootIDsSharedWithProducer()
                         .begin(),
@@ -654,7 +654,7 @@ SyncMap::SyncMap(Fusion* fusion) {
           if (isParallelTypeThread(producer_ptype) &&
               producer->hasSwizzleOp()) {
             if (!ir_utils::getAllSwizzlesBetween(
-                     producer->getRFactorDomain(), {p_id})
+                     producer->getLogicalDomain(), {p_id})
                      .empty()) {
               raw_dims.set(producer_ptype);
             }

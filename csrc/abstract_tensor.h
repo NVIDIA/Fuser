@@ -116,6 +116,9 @@ using AbstractId = dynamic_type::DynamicType<
 struct AbstractTensor {
   std::vector<AbstractId> domain;
 
+  AbstractTensor() = default;
+  AbstractTensor(std::vector<AbstractId> domain) : domain(std::move(domain)) {}
+
   template <typename T>
   std::vector<T> as() const {
     std::vector<T> result;
@@ -126,7 +129,28 @@ struct AbstractTensor {
     return result;
   }
 
-  // TODO: split is not implemented yet
+  decltype(auto) operator[](int64_t i) {
+    return domain[i];
+  }
+
+  decltype(auto) operator[](int64_t i) const {
+    return domain[i];
+  }
+
+  decltype(auto) size() const {
+    return domain.size();
+  }
+
+  template <typename T>
+  bool operator==(T&& t) const {
+    return domain == std::forward<T>(t);
+  }
+
+  template <typename T>
+  bool operator!=(T&& t) const {
+    return !operator==(std::forward<T>(t));
+  }
+
   void split(int64_t axis, Val* factor, bool inner_split = true);
   void split(int64_t axis, int64_t factor, bool inner_split = true);
 
@@ -134,6 +158,22 @@ struct AbstractTensor {
   void merge(int64_t axis) {
     merge(axis, axis + 1);
   }
+
+  void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
+  void reorder(
+      const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
+    return reorder(std::unordered_map<int64_t, int64_t>(old2new));
+  }
+  // old2new[index] = permutation[index]
+  void reorder(const std::vector<int64_t>& permutation);
+  void reorder(const std::initializer_list<int64_t>& permutation) {
+    reorder(std::vector<int64_t>(permutation));
+  }
+
+  // Both `from` and `to` are inclusive.
+  void flatten(int64_t from = 0, int64_t to = -1);
+
+  void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
 };
 
 } // namespace nvfuser

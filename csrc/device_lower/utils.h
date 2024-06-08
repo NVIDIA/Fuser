@@ -71,9 +71,9 @@ NVF_API ir_utils::TVDomainGuard overrideContiguityGuard(
     bool contiguity);
 
 // Create a TVDomainGuard that temporarily setting allocation domain as
-// getRFactorDomain() from a TensorView, contiguity are filled all true or
+// getLogicalDomain() from a TensorView, contiguity are filled all true or
 // all false
-ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
+ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
     TensorView* tv,
     bool contiguity);
 

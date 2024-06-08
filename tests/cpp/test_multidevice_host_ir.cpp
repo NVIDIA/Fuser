@@ -70,8 +70,8 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   FusionGuard::setCurFusion(hic.get());
 
   // [Step 3a)] Create a HostUnit Ir holding the fusions
-  auto hu = IrBuilder::create<HostUnit>(
-      static_cast<IrContainer*>(hic.get()), std::move(fusion));
+  auto hu =
+      IrBuilder::createInContainer<HostUnit>(hic.get(), std::move(fusion));
 
   // [Step 4)] Create TensorViews at the Host level
   IrCloner ir_cloner(hic.get());
@@ -85,17 +85,14 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   // [Step 5)a.] Create PostOnStream Irs representing executing the Fusion
   std::vector<Val*> compute_inputs = {tv0};
   std::vector<Val*> compute_outputs = {tv1};
-  auto post_compute = IrBuilder::create<PostOnStream>(
-      static_cast<IrContainer*>(hic.get()),
-      hu,
-      compute_inputs,
-      compute_outputs);
+  auto post_compute = IrBuilder::createInContainer<PostOnStream>(
+      hic.get(), hu, compute_inputs, compute_outputs);
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
   auto communication_input = tv1->as<TensorView>();
   auto communication_output = tv2->as<TensorView>();
 
-  auto communication = IrBuilder::create<Communication>(
-      static_cast<IrContainer*>(hic.get()),
+  auto communication = IrBuilder::createInContainer<Communication>(
+      hic.get(),
       CommunicationType::Allgather,
       mesh,
       mesh.vector(),

@@ -124,21 +124,21 @@ void IrTransformPrinter::handle(Fusion* f) {
 }
 
 void IrTransformPrinter::printTransforms(const TensorView* tv) {
-  const auto& rfactor_domain = tv->getRFactorDomain();
+  const auto& logical_domain = tv->getLogicalDomain();
   if (tv->hasRoot()) {
     const auto& root_domain = tv->getRootDomain();
     os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
 
     const auto all_exp = DependencyCheck::getAllExprsBetween(
         {root_domain.begin(), root_domain.end()},
-        {rfactor_domain.begin(), rfactor_domain.end()});
+        {logical_domain.begin(), logical_domain.end()});
 
     for (const auto exp : all_exp) {
       os() << "  " << exp->toString();
     }
   }
 
-  os() << " rfactor domain : (" << toDelimitedString(rfactor_domain) << ")\n";
+  os() << " logical domain : (" << toDelimitedString(logical_domain) << ")\n";
 
   if (tv->hasAllocation()) {
     const auto& alloc_domain = tv->getAllocationDomain();
@@ -149,7 +149,7 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
 
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
-  const auto& from = tv->getRFactorDomain();
+  const auto& from = tv->getLogicalDomain();
   const auto& leaf = tv->getLeafDomain();
   const auto all_exp = DependencyCheck::getAllExprsBetween(
       {from.begin(), from.end()}, {leaf.begin(), leaf.end()});

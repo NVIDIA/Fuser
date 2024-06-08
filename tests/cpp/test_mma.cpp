@@ -124,10 +124,10 @@ std::vector<at::Tensor> scheduleCompileAndRun(
 
   if (tvb->hasAllocation()) {
     // Get the permutation that describes the difference
-    // between the rfactor domain and allocation domain.
+    // between the logical domain and allocation domain.
     auto b_permutation =
         ir_utils::computePermutation(
-            tvb->getRFactorDomain(), tvb->getAllocationDomain())
+            tvb->getLogicalDomain(), tvb->getAllocationDomain())
             .value();
 
     // Reorder the ouput of Mma.
@@ -573,7 +573,7 @@ TEST_P(HopperSS, SingleTile) {
     default:
       NVF_ERROR("Invalid layout");
   }
-  tv2->commitLeafToRFactor();
+  tv2->commitLeafToLogical();
 
   fusion.addOutput(tv2);
 

@@ -59,7 +59,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
       std::optional<std::vector<int64_t>> alloc_perm_opt =
           ir_utils::computePermutation(
-              TensorDomain::noReductions(input_tv->getRFactorDomain()),
+              TensorDomain::noReductions(input_tv->getLogicalDomain()),
               TensorDomain::noReductions(input_tv->getMaybeAllocationDomain()));
       if (alloc_perm_opt.has_value()) {
         // Save the strides in order of allocation domain in case the
@@ -405,7 +405,7 @@ void HeuristicSummary::validate() const {
         if (!*can_schedule_transpose) {
           break;
         }
-        NVF_ERROR(entry_type_map_.count(EntryType::RFACTOR_REORDER_MAP));
+        NVF_ERROR(entry_type_map_.count(EntryType::LOGICAL_REORDER_MAP));
       }
       NVF_ERROR(entry_type_map_.count(EntryType::TRANSPOSE_DOMAIN_MAP));
       NVF_ERROR(entry_type_map_.count(
@@ -507,6 +507,6 @@ template class HeuristicSummaryEntry<HeuristicCompileTime::BroadcastMultiples>;
 template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::RfactorReorderMap>;
+template class HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>;
 
 } // namespace nvfuser
