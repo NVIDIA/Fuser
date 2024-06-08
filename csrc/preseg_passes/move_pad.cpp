@@ -23,7 +23,7 @@ struct Edge {
   Val* val() const {
     return expr_->input(index_);
   }
-}
+};
 
 Val* propagatePadToProducer(PadOp* pad) {
   std::vector<Val*> pad_dependencies;
