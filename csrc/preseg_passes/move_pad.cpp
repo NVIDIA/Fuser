@@ -198,7 +198,7 @@ void MovePadPass::runPass(Fusion* fusion) {
 	Val* new_out = IrBuilder::create<TensorView>(
     IrBuilder::create<TensorDomain>(res->as<TensorView>()->domain()),
     res->getDataType().value());
-	IrBuilder::create<BinaryOp>(type, new_out, res, rhs);
+	IrBuilder::create<BinaryOp>(BinaryOpType::Add, new_out, res, rhs);
 	res = new_out;
       }
     }
