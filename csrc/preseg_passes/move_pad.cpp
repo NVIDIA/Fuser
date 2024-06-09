@@ -128,13 +128,16 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   for (const Edge& edge : frontier) {
     // insert pad_op
     // Note: operation with multiple operand would require us to support partial update in each iteration.
-    auto width_size = pad_op->inputs().size() - 2;
+    const auto width_size = pad_op->inputs().size() - 2;
+    const auto num_padded_dims = width_size / 2;
 
     std::vector<Val*> pad_width;
     pad_width.reserve(width_size);
-    for (auto i : c10::irange(width_size)) {
-      pad_width.push_back(pad_op->input(2+i));
+    for (auto i : c10::irange(num_padded_dims)) {
+      pad_width.push_back(pad_op->input((num_padded_dims - i)*2));
+      pad_width.push_back(pad_op->input((num_padded_dims - i)*2 + 1));
     }
+
     replacement_map[edge.val()] = pad(edge.val()->as<TensorView>(), pad_width, pad_op->value());
     // TODO: modify existing pad_op, when its only consumer is a pad_op
   }
