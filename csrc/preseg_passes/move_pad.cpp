@@ -140,9 +140,10 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // cannot use `pad` op, because it would give us symolic iter domain
     // replacement_map[edge.val()] = pad(edge.val()->as<TensorView>(), pad_width, pad_op->value());
 
+    NVF_ERROR(edge.val()->getDataType().has_value(), "pad source dtype is missing");
     auto new_out = IrBuilder::create<TensorView>(
     IrBuilder::create<TensorDomain>(pad_op->out()->as<TensorView>()->domain()),
-    edge.val()->getDataType());
+    edge.val()->getDataType().value());
 
     IrBuilder::create<PadOp>(new_out, edge.val()->as<TensorView>(), pad_op->getPadWidths(), pad_op->value());
 
