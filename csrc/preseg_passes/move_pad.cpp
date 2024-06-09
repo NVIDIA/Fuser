@@ -204,7 +204,7 @@ void MovePadPass::runPass(Fusion* fusion) {
     // TODO: We won't have it in tests yet, but would replaceValue also replace the outputs of the fusion?
     // TODO: does this invalidate the downstream exprs?
     // ir_utils::replaceValue(fusion, replacement_map);
-    ir_utils::replaceValue(fusion, {{cat->outputs(0), res}});
+    ir_utils::replaceValue(fusion, {{cat->output(0), res}});
     // Do we *have to* swap cat with pointwise add?
   }
 
