@@ -188,13 +188,11 @@ void MovePadPass::runPass(Fusion* fusion) {
     }
     // NOTE: I'm hitting an index error with PadOp in device_lower/pass/index.cpp:1944
     Val* res = nullptr;
-    // const std::vector<Val*>& cat_inputs = cat->inputs();
-    // Val* tmp = replacement_map.count(cat_inputs[0]) == 0 ? cat_inputs[0] : replacement_map.at(cat_inputs[0]);
     for (Val* inp : cat->inputs()) {
       if (res == nullptr) {
-        res = replacement_map.count(cat_inputs[0]) == 0 ? cat_inputs[0] : replacement_map.at(cat_inputs[0]);
+        res = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
       } else {
-        rhs = replacement_map.count(cat_inputs[0]) == 0 ? cat_inputs[0] : replacement_map.at(cat_inputs[0]);
+        rhs = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
 	Val* new_out = IrBuilder::create<TensorView>(
     IrBuilder::create<TensorDomain>(res->as<TensorView>()->domain()),
     res->getDataType().value());
@@ -206,7 +204,7 @@ void MovePadPass::runPass(Fusion* fusion) {
     // TODO: We won't have it in tests yet, but would replaceValue also replace the outputs of the fusion?
     // TODO: does this invalidate the downstream exprs?
     // ir_utils::replaceValue(fusion, replacement_map);
-    ir_utils::replaceValue(fusion, {{cat->out(), res}});
+    ir_utils::replaceValue(fusion, {{cat->outputs(0), res}});
     // Do we *have to* swap cat with pointwise add?
   }
 
