@@ -8236,6 +8236,42 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
           ::testing::HasSubstr("unsupported use case of cp.async")));
 }
 
+TEST_F(NVFuserTest, FusionPadDynamicShape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(3);
+  fusion->addInput(tv0);
+  TensorView* tv1 = makeContigTensor(3);
+  fusion->addInput(tv1);
+
+  Val* i15 = add(tv0->axis(2)->extent(), tv1->axis(2)->extent());
+  Val* i17 = neg(tv0->axis(2)->extent());
+  Val* i19 = add(i15, i17);
+  Val* zero = IrBuilder::create<Val>(0);
+
+  TensorView* tv3 = pad(tv0, {zero, zero, zero, zero, zero, i19});
+
+  Val* i21 = add(zero, tv0->axis(2)->extent());
+  TensorView* tv6 = pad(tv1, {zero, zero, zero, zero, i21, zero});
+  TensorView* tv7 = relu(tv6);
+  TensorView* tv8 = add(tv7, tv8);
+  fusion->addOutput(tv8);
+
+  fusion->print();
+  
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2, 5, 10}, options);
+  at::Tensor t1 = at::randn({2, 5, 3}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
