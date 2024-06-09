@@ -206,6 +206,10 @@ void MovePadPass::runPass(Fusion* fusion) {
     // ir_utils::replaceValue(fusion, replacement_map);
     ir_utils::replaceValue(fusion, {{cat->output(0), res}});
     // Do we *have to* swap cat with pointwise add?
+    if (cat->output(0)->isFusionOutput()) {
+      fusion->replaceOutput(cat->output(0), res);
+    }
+
   }
 
   fusion->printMath();
