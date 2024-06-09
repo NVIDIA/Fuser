@@ -8250,12 +8250,12 @@ TEST_F(NVFuserTest, FusionPadDynamicShape) {
   Val* i19 = add(i15, i17);
   Val* zero = IrBuilder::create<Val>(0);
 
-  TensorView* tv3 = pad(tv0, {zero, zero, zero, zero, zero, i19});
+  TensorView* tv3 = pad(tv0, {zero, i19, zero, zero, zero, zero});
 
   Val* i21 = add(zero, tv0->axis(2)->extent());
-  TensorView* tv6 = pad(tv1, {zero, zero, zero, zero, i21, zero});
+  TensorView* tv6 = pad(tv1, {i21, zero, zero, zero, zero, zero});
   TensorView* tv7 = relu(tv6);
-  TensorView* tv8 = add(tv7, tv8);
+  TensorView* tv8 = add(tv7, tv3);
   fusion->addOutput(tv8);
 
   fusion->print();
