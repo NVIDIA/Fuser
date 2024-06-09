@@ -192,7 +192,7 @@ void MovePadPass::runPass(Fusion* fusion) {
       if (res == nullptr) {
         res = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
       } else {
-        rhs = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
+        Val* rhs = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
 	Val* new_out = IrBuilder::create<TensorView>(
     IrBuilder::create<TensorDomain>(res->as<TensorView>()->domain()),
     res->getDataType().value());
