@@ -141,7 +141,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // replacement_map[edge.val()] = pad(edge.val()->as<TensorView>(), pad_width, pad_op->value());
 
     auto new_out = IrBuilder::create<TensorView>(
-    IrBuilder::create<TensorDomain>(pad_op->out()->domain()),
+    IrBuilder::create<TensorDomain>(pad_op->out()->as<TensorView>()->domain()),
     edge.val()->getDataType());
 
     IrBuilder::create<PadOp>(new_out, edge.val()->as<TensorView>(), pad_op->getPadWidths(), pad_op->value());
