@@ -3273,6 +3273,58 @@ TEST_F(GPUTTensorCoreTest, MultipleMDims) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+// This is a tougher test where we insert a batch dim between the M dims
+TEST_F(GPUTTensorCoreTest, MultipleMDimsBatch) {
+  int Batch = 2, M1 = 126, N = 136, M2 = 4, K = 248;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Note that M2 is inside K, so this is an NN layout
+  auto tv0 = makeContigTensor(4, DataType::Half); // M1, Batch, M2, K
+  auto tv1 = makeContigTensor(3, DataType::Half); // Batch, N, K
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  tv0 = broadcast(tv0, {false, false, false, true, false});
+  tv1 = broadcast(tv1, {true, false, true, false, false});
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  // Supported vec size is based on inner dim
+  params.supported_vec_size = {4, 8, 4};
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.double_buffer_options.double_buffer_smem_write = true;
+  params.double_buffer_options.double_buffer_smem_read = true;
+  params.double_buffer_options.smem_double_buffer_stage = 4;
+  scheduleMatmul(&fusion, params);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor A = at::randn({M1, Batch, M2, K}, options);
+  at::Tensor B = at::randn({Batch, N, K}, options);
+  std::vector<c10::IValue> inputs{A, B};
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  auto cg_outputs = fe.runFusion(inputs);
+  auto tref =
+      at::matmul(A.to(at::kFloat), at::permute(B.to(at::kFloat), {0, 2, 1}));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser
