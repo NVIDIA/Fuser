@@ -51,21 +51,12 @@ void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
     streams_.insert(
         {stream,
          c10::cuda::getStreamFromPool(
-             /* high priority */ true, static_cast<c10::DeviceIndex>(i))});
+             /*isHighPriority=*/ true, static_cast<c10::DeviceIndex>(i))});
   }
   setCurrentCUDAStream(streams_.at(stream));
 }
 
 void HostIrExecutor::handle(PostOnStream* post_ir) {
-  Expr* op = post_ir->hostOpToPost();
-  if (op->isA<HostUnit>()) {
-    postCompute(post_ir);
-  } else {
-    dispatch(op);
-  }
-}
-
-void HostIrExecutor::postCompute(PostOnStream* post_ir) {
   std::vector<c10::IValue> input_IValues;
   for (auto& input : post_ir->inputs()) {
     NVF_ERROR(
