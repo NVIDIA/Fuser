@@ -16,6 +16,9 @@
 #include <vector>
 
 namespace nvfuser {
+
+enum class AttnRole { Q = 0, K, V, Mask };
+
 namespace ops {
 
 TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank);

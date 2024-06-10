@@ -4260,4 +4260,137 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   return {at::linear(a, b)};
 }
 
+SdpaFwdOp::SdpaFwdOp(
+    IrBuilderPasskey passkey,
+    TensorView* output,
+    TensorView* log_sumexp,
+    TensorView* cum_seq_q,
+    TensorView* cum_seq_k,
+    Val* query_seq_len,
+    Val* key_seq_len,
+    TensorView* philox_seed,
+    TensorView* philox_offset,
+    TensorView* debug_attn_mask,
+    Val* query,
+    Val* key,
+    Val* value,
+    Val* dropout_p,
+    Val* is_causal,
+    Val* scale)
+    : Expr(passkey) {
+  addOutput(output);
+  addOutput(log_sumexp);
+  addOutput(cum_seq_q);
+  addOutput(cum_seq_k);
+  addOutput(query_seq_len);
+  addOutput(key_seq_len);
+  addOutput(philox_seed);
+  addOutput(philox_offset);
+  addOutput(debug_attn_mask);
+
+  addInput(query);
+  addInput(key);
+  addInput(value);
+  addInput(dropout_p);
+  addInput(is_causal);
+  if (scale != nullptr) {
+    addInput(scale);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
+
+std::string SdpaFwdOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << attn_out()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          is_causal = " << is_causal()->toInlineString();
+  if (scale() != nullptr) {
+    indent(ss, indent_size + 1)
+        << ",\n          scale = " << scale()->toInlineString();
+  }
+  indent(ss, indent_size + 1) << ")\n";
+  return ss.str();
+}
+
+std::string SdpaFwdOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  auto query = inputs.at(0).as<at::Tensor>();
+  auto key = inputs.at(1).as<at::Tensor>();
+  auto value = inputs.at(2).as<at::Tensor>();
+
+  const auto dropout_p = inputs.at(3).as<double>();
+  const auto is_causal = inputs.at(4).as<bool>();
+
+  // Flash attention requires the last dimension to be padded to 8.
+  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
+  const auto last_dim_size = query.sizes()[3];
+  auto pad_last_dim = [last_dim_size](
+                          at::Tensor inp, int alignment_size) -> at::Tensor {
+    if (last_dim_size % alignment_size == 0) {
+      return inp;
+    }
+    auto pad_count = alignment_size - (last_dim_size % alignment_size);
+    auto padded_inp = at::pad(inp, {0, pad_count});
+    return padded_inp;
+  };
+
+  query = pad_last_dim(query, 8);
+  key = pad_last_dim(key, 8);
+  value = pad_last_dim(value, 8);
+
+  // Conmpute scale using original size of last dimension
+  double scale = inputs.size() > 5 ? inputs.back().as<double>()
+                                   : 1.0 / std::sqrt(last_dim_size);
+
+  // ATen reference:
+  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
+  auto
+      [output,
+       log_sumexp,
+       cum_seq_q,
+       cum_seq_k,
+       query_seq_len,
+       key_seq_len,
+       philox_seed,
+       philox_offset,
+       debug_attn_mask] =
+          at::_scaled_dot_product_flash_attention(
+              query,
+              key,
+              value,
+              dropout_p,
+              is_causal,
+              /*return_debug_mask=*/false,
+              scale);
+
+  // If the inputs were padded, slice the output to restore the original size
+  if (output.sizes()[3] != last_dim_size) {
+    output = output.slice(-1, 0, last_dim_size);
+  }
+
+  // Query and key seq len are of type c10::SymInt -> convert them to int for
+  // Polymorphic Value
+  return {
+      output,
+      log_sumexp,
+      cum_seq_q,
+      cum_seq_k,
+      *query_seq_len.maybe_as_int(),
+      *key_seq_len.maybe_as_int(),
+      philox_seed,
+      philox_offset,
+      debug_attn_mask};
+}
+
 } // namespace nvfuser
