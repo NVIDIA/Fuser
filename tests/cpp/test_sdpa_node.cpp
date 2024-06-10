@@ -11,8 +11,8 @@
 #include <fusion.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
-#include <preseg_passes/move_split_cat.h>
 #include <preseg_passes/allocation_order_inference.h>
+#include <preseg_passes/move_split_cat.h>
 #include <preseg_passes/optimization_pass.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -22,9 +22,11 @@ namespace nvfuser {
 class SDPATest : public NVFuserTest {
  protected:
   SDPATest() : optimization_guard_(false), allocation_order_guard_(false) {}
+
  private:
   // Note: `MoveSpliCat` and `AllocationDomain` preseg passes use ID model.
-  // `SdpaOp` currently does not work with ID model since it requires all sibling outputs to have the same root domain.
+  // `SdpaOp` currently does not work with ID model since it requires all
+  // sibling outputs to have the same root domain.
   //  This will be modified in a future PR.
   preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
       optimization_guard_;
@@ -199,30 +201,34 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
   fusion->addOutput(tvattn.output);
 
   // Verify mapping between Q,K,V and attention output
-  std::vector<TensorView*> producer_tvs {tvq, tvk, tvv};
-  for (auto role: {AttnRole::Q, AttnRole::K, AttnRole::V}){
+  std::vector<TensorView*> producer_tvs{tvq, tvk, tvv};
+  for (auto role : {AttnRole::Q, AttnRole::K, AttnRole::V}) {
     auto producer_tv = producer_tvs[(int)role];
-    auto pairwise_map = PairwiseRootDomainMap(producer_tv, tvattn.output).mapProducerToConsumer();
+    auto pairwise_map = PairwiseRootDomainMap(producer_tv, tvattn.output)
+                            .mapProducerToConsumer();
 
-    auto mappingExists = [&pairwise_map](IterDomain* p_id, IterDomain* c_id) -> bool {
-        return pairwise_map.find(p_id) != pairwise_map.end() && pairwise_map[p_id] == c_id;
+    auto mappingExists = [&pairwise_map](
+                             IterDomain* p_id, IterDomain* c_id) -> bool {
+      return pairwise_map.find(p_id) != pairwise_map.end() &&
+          pairwise_map[p_id] == c_id;
     };
 
     // Mapping for N, H exists from Q/K/V to output.
-    for (auto idx : c10::irange(2)){
-        EXPECT_TRUE(mappingExists(producer_tv->axis(idx), tvattn.output->axis(idx)));
+    for (auto idx : c10::irange(2)) {
+      EXPECT_TRUE(
+          mappingExists(producer_tv->axis(idx), tvattn.output->axis(idx)));
     }
     // Mapping for L exists between Q and output.
-    if (role == AttnRole::Q){
-        EXPECT_TRUE(mappingExists(producer_tv->axis(2), tvattn.output->axis(2)));
+    if (role == AttnRole::Q) {
+      EXPECT_TRUE(mappingExists(producer_tv->axis(2), tvattn.output->axis(2)));
     } else {
-        EXPECT_FALSE(mappingExists(producer_tv->axis(2), tvattn.output->axis(2)));
+      EXPECT_FALSE(mappingExists(producer_tv->axis(2), tvattn.output->axis(2)));
     }
     // Mapping for Ev exists between V and output.
-    if (role == AttnRole::V){
-        EXPECT_TRUE(mappingExists(producer_tv->axis(3), tvattn.output->axis(3)));
+    if (role == AttnRole::V) {
+      EXPECT_TRUE(mappingExists(producer_tv->axis(3), tvattn.output->axis(3)));
     } else {
-        EXPECT_FALSE(mappingExists(producer_tv->axis(3), tvattn.output->axis(3)));
+      EXPECT_FALSE(mappingExists(producer_tv->axis(3), tvattn.output->axis(3)));
     }
   }
 }

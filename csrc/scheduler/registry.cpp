@@ -228,9 +228,11 @@ bool checkCanSchedule(
       return checkCanSchedule<MatmulScheduler>(
           fusion, runtime_info, data_cache);
     case ScheduleHeuristic::ExprEval:
-      // `ExprEval` only accepts a single op, so we don't need other checks which build a computeAt map.
-      // Note: `SdpaOp` does not work with `computeAt` since it requires all sibling outputs to have same root domain.
-      // `canSchedulerRuntime` is always true so only compile time check required here.
+      // `ExprEval` only accepts a single op, so we don't need other checks
+      // which build a computeAt map. Note: `SdpaOp` does not work with
+      // `computeAt` since it requires all sibling outputs to have same root
+      // domain. `canSchedulerRuntime` is always true so only compile time check
+      // required here.
       return ExprEvalScheduler::canScheduleCompileTime(fusion);
     default:
       NVF_ERROR(false, "unreachable");

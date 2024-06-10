@@ -229,18 +229,25 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     return dom_map;
   }
 
-  if (SdpaFwdOp* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())){
+  if (SdpaFwdOp* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())) {
+    // Consumers: output = [N, H, L, Ev], logsumexp = [N, H, L], cum_seq_q/k =
+    // [N + 1,] Producers: query = [N, H, L, E], key = [N, H, S, E], value = [N,
+    // H, S, Ev]
+
     // Map N, H from any input (query/key/value)
-    for (auto idx: c10::irange(consumer_root.size())){
+    for (auto idx : c10::irange(consumer_root.size())) {
       if (idx < 2) {
-        updatePairwiseRootDomainMap(producer_logical.at(idx), consumer_root.at(idx));
+        updatePairwiseRootDomainMap(
+            producer_logical.at(idx), consumer_root.at(idx));
       }
       // Map L, E from query and value respectively
-      if (idx == 2 && producer_tv_->sameAs(op->query())){
-       updatePairwiseRootDomainMap(producer_logical.at(2), consumer_root.at(2));
+      if (idx == 2 && producer_tv_->sameAs(op->query())) {
+        updatePairwiseRootDomainMap(
+            producer_logical.at(2), consumer_root.at(2));
       }
-      if (idx == 3 && producer_tv_->sameAs(op->value())){
-        updatePairwiseRootDomainMap(producer_logical.at(3), consumer_root.at(3));
+      if (idx == 3 && producer_tv_->sameAs(op->value())) {
+        updatePairwiseRootDomainMap(
+            producer_logical.at(3), consumer_root.at(3));
       }
     }
     return dom_map;
