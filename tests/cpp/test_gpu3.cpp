@@ -9,6 +9,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <abstract_tensor.h>
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/lower2device.h>
@@ -8234,6 +8235,57 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
       [&]() { fe.compileFusion(&fusion, {t0}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("unsupported use case of cp.async")));
+}
+
+TEST_F(NVFuserTest, DecoupledDomains) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // XX shape structure:
+  //
+  // domain 0: [I0, I1...    I4  I5} domain 1
+  //             \  /         \  /
+  //            merge         merge
+  //             /  \         /  \.
+  // domain 1: {I2  I3    ...I6  I7] domain 0
+  auto create_xx_shape_structure = []() {
+    auto s0 = IrBuilder::create<Val>(DataType::Index);
+    auto s1 = IrBuilder::create<Val>(DataType::Index);
+    auto s2 = IrBuilder::create<Val>(DataType::Index);
+    auto s3 = IrBuilder::create<Val>(DataType::Index);
+    auto id0 = IterDomainBuilder(s0->fusion()->zeroVal(), s0).build();
+    auto id1 = IterDomainBuilder(s1->fusion()->zeroVal(), s1).build();
+    auto id2 = IterDomainBuilder(s2->fusion()->zeroVal(), s2).build();
+    auto id3 = IterDomainBuilder(s3->fusion()->zeroVal(), s3).build();
+    AbstractTensor dom0({id0, id1, id2, id3});
+    AbstractTensor dom1 = dom0;
+    dom0.merge(2);
+    dom0.split(2, 256);
+    dom1.merge(0);
+    dom1.split(0, 256);
+    return std::make_pair(dom0.as<IterDomain*>(), dom1.as<IterDomain*>());
+  };
+  auto [root_xx0, root_xx1] = create_xx_shape_structure();
+  auto [alloc_xx0, alloc_xx1] = create_xx_shape_structure();
+  auto [loop_xx0, loop_xx1] = create_xx_shape_structure();
+
+  auto concat = [](auto x, auto y, auto z) {
+    std::vector<IterDomain*> result;
+    result.reserve(x.size() + y.size() + z.size());
+    result.insert(result.end(), x.begin(), x.end());
+    result.insert(result.end(), y.begin(), y.end());
+    result.insert(result.end(), z.begin(), z.end());
+    return result;
+  };
+  auto logical_domain = concat(root_xx0, alloc_xx0, loop_xx0);
+  auto root_domain = concat(root_xx1, alloc_xx0, loop_xx0);
+  auto allocation_domain = concat(root_xx0, alloc_xx1, loop_xx0);
+  auto loop_domain = concat(root_xx0, alloc_xx0, loop_xx1);
+  std::vector<std::optional<bool>> contiguity(allocation_domain.size(), true);
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      root_domain, logical_domain, allocation_domain, loop_domain, contiguity);
+  IrBuilder::create<TensorView>(td, DataType::Float);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

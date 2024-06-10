@@ -820,84 +820,36 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
-namespace {
+void validateDomainEquivalence(
+    const std::vector<IterDomain*>& dom0,
+    const std::vector<IterDomain*>& dom1) {
+  std::unordered_set<Val*> dom0_set(dom0.begin(), dom0.end());
+  std::unordered_set<Val*> dom1_set(dom1.begin(), dom1.end());
 
-class ValidateDomainEquivalence : private IterVisitor {
- public:
-  ValidateDomainEquivalence(
-      const std::vector<IterDomain*>& initial_domain,
-      const std::vector<IterDomain*>& derived_domain)
-      : initial_domain_({initial_domain.begin(), initial_domain.end()}),
-        derived_domain_({derived_domain.begin(), derived_domain.end()}),
-        frontier_({initial_domain.begin(), initial_domain.end()}) {
-    // empty domain are equivalent.
-    if (initial_domain.empty() && derived_domain.empty()) {
-      return;
-    }
-    NVF_ERROR(!initial_domain.empty());
-    NVF_ERROR(!derived_domain.empty());
-    // Make sure there's no duplicate in the parameter vectors
-    NVF_ERROR(
-        initial_domain.size() == initial_domain_.size(),
-        "Duplicated entry is detected in inial_domain: ",
-        toDelimitedString(initial_domain));
-    NVF_ERROR(
-        derived_domain.size() == derived_domain_.size(),
-        "Duplicated entry is detected in derived_domain: ",
-        toDelimitedString(derived_domain));
+  // empty domain are equivalent.
+  if (dom0.empty() && dom1.empty()) {
+    return;
+  }
+  NVF_ERROR(!dom0.empty());
+  NVF_ERROR(!dom1.empty());
+  // Make sure there's no duplicate in the parameter vectors
+  NVF_ERROR(
+      dom0.size() == dom0_set.size(),
+      "Duplicated entry is detected in dom0: ",
+      toDelimitedString(dom0));
+  NVF_ERROR(
+      dom1.size() == dom1_set.size(),
+      "Duplicated entry is detected in dom1: ",
+      toDelimitedString(dom1));
 
-    traverseBetween(
-        {initial_domain.begin(), initial_domain.end()},
-        {derived_domain.begin(), derived_domain.end()});
+  std::vector<Val*> dom0_val(dom0.begin(), dom0.end());
+  std::vector<Val*> dom1_val(dom1.begin(), dom1.end());
+  auto forward_exprs = StmtSort::getExprsBetween(dom0_val, dom1_val);
+  auto backward_exprs = StmtSort::getExprsBetween(dom1_val, dom0_val);
 
-    // At this point, the frontier set and the derived set should be
-    // equal, except when there's a symbolic ID in the derived set,
-    // where the traversal may be incomplete.
-    if (std::any_of(derived_domain.begin(), derived_domain.end(), [](auto id) {
-          return id->getIterType() == IterType::Symbolic;
-        })) {
-      // Make sure all non-symbolic IDs of the derived set are included
-      // in the frontier set
-      NVF_ERROR(
-          std::all_of(
-              derived_domain.begin(),
-              derived_domain.end(),
-              [&](auto id) {
-                return id->getIterType() == IterType::Symbolic ||
-                    frontier_.count(id);
-              }),
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-      // Similarly, all frontier vals should be included in the
-      // derived set. It is also possible that an ID in the initial
-      // domain set still remains in the frontier set as there may be
-      // no expr connecting to the derived set, e.g., dynamic reshape
-      NVF_ERROR(
-          std::all_of(
-              frontier_.begin(),
-              frontier_.end(),
-              [&](Val* val) {
-                NVF_ERROR(val->isA<IterDomain>());
-                return derived_domain_.count(val->as<IterDomain>()) ||
-                    initial_domain_.count(val);
-              }),
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-    } else {
-      NVF_ERROR(
-          derived_domain_ == frontier_,
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-    }
-  };
+  std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  void dispatch(Expr* expr) override {
+  auto next = [&frontier](Expr* expr, bool forward) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -906,45 +858,86 @@ class ValidateDomainEquivalence : private IterVisitor {
         std::all_of(expr->outputs().begin(), expr->outputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
         }));
-    // If any of the inputs is included in derived_domain_, that means there's a
-    // dependency within derived_domain_ and the dependent domains
-    // redundantly cover the initial domain
-    NVF_ERROR(
-        std::none_of(
-            expr->inputs().begin(),
-            expr->inputs().end(),
-            [&](Val* input_val) {
-              return derived_domain_.find(input_val) != derived_domain_.end();
-            }),
-        "Invalid derived domain due to dependent expr: ",
-        expr->toString(),
-        ". Derived domain: ",
-        toDelimitedString(derived_domain_));
-    for (auto out : expr->outputs()) {
-      // Make sure the output is not yet visited
+    std::vector<Val*> from;
+    std::vector<Val*> to;
+    if (forward) {
+      from = expr->inputs();
+      to = expr->outputs();
+    } else {
+      from = expr->outputs();
+      to = expr->inputs();
+    }
+    for (auto id : to) {
       NVF_ERROR(
-          frontier_.insert(out).second,
+          frontier.insert(id).second,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Output should just show up once: ",
-          out->toString());
+          id->toString());
     }
-    for (auto inp : expr->inputs()) {
+    for (auto id : from) {
       NVF_ERROR(
-          frontier_.erase(inp) == 1,
+          frontier.erase(id) == 1,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Input not seen before: ",
-          inp->toString());
+          id->toString());
     }
+  };
+  for (Expr* expr : forward_exprs) {
+    next(expr, true);
+  }
+  for (auto it = backward_exprs.rbegin(); it != backward_exprs.rend(); it++) {
+    next(*it, false);
   }
 
- private:
-  const std::unordered_set<Val*> initial_domain_;
-  const std::unordered_set<Val*> derived_domain_;
-  //! Traversal frontier vals
-  std::unordered_set<Val*> frontier_;
-};
+  // At this point, the frontier set and dom1 should be equal, except when
+  // there's a symbolic ID in dom1, where the traversal may be incomplete.
+  if (std::any_of(dom1.begin(), dom1.end(), [](auto id) {
+        return id->getIterType() == IterType::Symbolic;
+      })) {
+    // Make sure all non-symbolic IDs of the dom1 set are included
+    // in the frontier set
+    NVF_ERROR(
+        std::all_of(
+            dom1.begin(),
+            dom1.end(),
+            [&](auto id) {
+              return id->getIterType() == IterType::Symbolic ||
+                  frontier.count(id);
+            }),
+        "dom0 and dom1 are not equal. dom0: ",
+        toDelimitedString(dom0),
+        ". dom1: ",
+        toDelimitedString(dom1));
+    // Similarly, all frontier vals should be included in the dom1 set. It is
+    // also possible that an ID in the dom0 set still remains in the frontier
+    // set as there may be no expr connecting to the derived set, e.g., dynamic
+    // reshape
+    NVF_ERROR(
+        std::all_of(
+            frontier.begin(),
+            frontier.end(),
+            [&](Val* val) {
+              NVF_ERROR(val->isA<IterDomain>());
+              return dom1_set.count(val->as<IterDomain>()) ||
+                  dom0_set.count(val);
+            }),
+        "dom0 and dom1 are not equal. dom0: ",
+        toDelimitedString(dom0),
+        ". dom1: ",
+        toDelimitedString(dom1));
+  } else {
+    NVF_ERROR(
+        dom1_set == frontier,
+        "dom0 and dom1 are not equal. dom0: ",
+        toDelimitedString(dom0),
+        ". dom1: ",
+        toDelimitedString(dom1));
+  }
+}
+
+namespace {
 
 std::vector<Statement*> next(Statement* stmt) {
   if (stmt->isVal()) {
@@ -962,12 +955,6 @@ std::vector<Statement*> next(Statement* stmt) {
 }
 
 } // namespace
-
-void validateDomainEquivalence(
-    const std::vector<IterDomain*>& initial_domain,
-    const std::vector<IterDomain*>& derived_domain) {
-  ValidateDomainEquivalence(initial_domain, derived_domain);
-}
 
 std::vector<Statement*> checkCycle(
     Fusion* fusion,
