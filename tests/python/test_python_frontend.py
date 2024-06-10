@@ -4173,5 +4173,6 @@ class TestNvFuserFrontend(TestCase):
                     match_pairs.item() < 3
                 ), f"At least three entries match in {output}"
 
+
 if __name__ == "__main__":
     run_tests()
