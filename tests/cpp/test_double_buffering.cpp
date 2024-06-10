@@ -54,7 +54,7 @@ TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
   tv0->computeAt(tv1, 1);
 
   // Double Buffer with TMA loads
-  //tv2->doubleBuffer();
+  tv2->doubleBuffer();
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
 
   fusion.printTransforms();
@@ -66,6 +66,7 @@ TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
   FusionExecutor fe;
   CompileParams index32bit{DataType::Int32, 255, false};
   fe.compileFusion(&fusion, {t0}, {}, index32bit);
+
   auto cg_outputs = fe.runFusion({t0});
 
 #if TMA_DEV_TOOLS
