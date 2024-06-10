@@ -448,17 +448,18 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
               //
               // Where loop_idx is in range 0...stages-1
 
-              auto if_expr = createThreadPredicatedIfThenElse();
-              auto body = if_expr->thenBody();
+              kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+              kir::Scope& body = if_expr->thenBody();
 
-              auto ldst = expr->as<LoadStoreOp>();
+              LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
-              auto mbarrier_arrive_tx = createMbarrierArriveExpectTx(
-                  ldst, double_buffer_loop_->index());
+              kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
+                  createMbarrierArriveExpectTx(
+                      ldst, double_buffer_loop_->index());
               body.push_back(mbarrier_arrive_tx);
 
               // Clone LoadStoreOp & map it to mbarrier alloc
-              auto new_ldst =
+              Expr* new_ldst =
                   IrBuilder::create<LoadStoreOp>(
                       ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
                       ->withPredicate(ldst->predicate());
@@ -537,7 +538,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
             //
             // Where mbarrier and token are smem arrays bound to the LoadStoreOp
 
-            auto if_expr = createThreadPredicatedIfThenElse();
+            kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
             auto body = if_expr->thenBody();
 
             auto ldst = expr->as<LoadStoreOp>();
@@ -773,7 +774,7 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
 
     // Construct predicate
     // 'threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0'
-    auto if_expr = createThreadPredicatedIfThenElse();
+    kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
     // Construct for loop, a body for if expressiong
     auto loop = createStagesForLoop(double_buffer_loop_);
@@ -872,7 +873,7 @@ class CpAsyncBulkPostEpilogue {
 
     // Construct predicate
     // 'threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0'
-    auto if_expr = createThreadPredicatedIfThenElse();
+    kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
     // Construct for loop, a body for if expressiong
     auto loop = createStagesForLoop(double_buffer_loop_);
@@ -1012,6 +1013,14 @@ class DoubleBufferInserter : private kir::ExprMutator {
         DoubleBufferLoopStage::Prolog,
         has_cp_async_bulk);
     registerInsertBefore(double_buffer_loop, prologue_loop);
+#ifdef EXTRA_LOGS
+    std::cout
+        << "=============================================================\n";
+    std::cout << "[DEBUG] Prologue_loop: " << prologue_loop->toString()
+              << std::endl;
+    std::cout
+        << "=============================================================\n";
+#endif //  EXTRA_LOGS
 
     // cpAsyncBulk (with TMA) block sync prior to entering main loop to
     //  make smem with mbarrier objects is initialized.
