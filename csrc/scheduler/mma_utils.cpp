@@ -1005,7 +1005,7 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
   }
 }
 
-void canonicalizeMmaTvOrdering(
+std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
     TensorView* tv,
     const ValGraph& permissive_graph,
     const DimRolesMap& dim_roles,
@@ -1036,13 +1036,19 @@ void canonicalizeMmaTvOrdering(
   };
   // Loop from inner to outer, merging when needed
   MatmulDomain prev_role = getRole(tv->axis(-1));
+  std::vector<MatmulDomain> roles{prev_role};
   for (int64_t dim = tv->nDims() - 2; dim >= 0; --dim) {
     MatmulDomain role = getRole(tv->axis(dim));
     if (role == prev_role) {
       tv->merge(dim);
+    } else {
+      roles.push_back(role);
     }
     prev_role = role;
   }
+  // Roles are inserted in reverse order
+  std::reverse(roles.begin(), roles.end());
+  return roles;
 }
 
 namespace {
