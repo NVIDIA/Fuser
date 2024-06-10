@@ -541,10 +541,10 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   // Clear unswitch
   IterDomain* unswitch_id = nullptr;
   auto unswitch_id_it = std::find_if(
-      reduction_tv_rf->getLeafDomain().begin(),
-      reduction_tv_rf->getLeafDomain().end(),
+      reduction_tv_rf->getLoopDomain().begin(),
+      reduction_tv_rf->getLoopDomain().end(),
       [](auto id) { return id->getParallelType() == ParallelType::Unswitch; });
-  if (unswitch_id_it != reduction_tv_rf->getLeafDomain().end()) {
+  if (unswitch_id_it != reduction_tv_rf->getLoopDomain().end()) {
     unswitch_id = *unswitch_id_it;
   }
 
@@ -2517,7 +2517,7 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
   for (auto tv : reduction_tvs) {
     bool has_grid_reduction = false;
     bool has_grouped_domain = false;
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (id->isReduction() && id->getParallelType() == ParallelType::BIDy) {
         has_grid_reduction = true;
       }

@@ -1196,7 +1196,7 @@ TEST_F(GpuViewTest, FusionReshapeVectorize) {
   auto lparams = schedulePointwise(&fusion, {input});
 
   auto hasVectorization = [](TensorView* tv) -> bool {
-    for (auto i : tv->getLeafDomain()) {
+    for (auto i : tv->getLoopDomain()) {
       if (i->getParallelType() == ParallelType::Vectorize) {
         return true;
       }

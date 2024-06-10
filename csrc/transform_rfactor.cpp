@@ -50,7 +50,7 @@ namespace {
 // I1}. Then, as we perform the replay the logical domain will be updated as:
 // [I1] -> [I2, I3] -> [I5, I4, I3] -> [I5, I6]
 //
-// ReplayTransformations typically updates the leaf ids, but we'll simply use
+// ReplayTransformations typically updates the loop ids, but we'll simply use
 // the mapping from the original tensor domain so we won't bother updating them
 // in this replay.
 class ReplayRFactor : public ReplayTransformations {
@@ -103,10 +103,10 @@ class ReplayRFactor : public ReplayTransformations {
         "Transform traversal failed, dependencies not met.");
     // Grab the ID we're going to replay on
     auto mapped = (*it).second;
-    // This ID should be a leaf ID (meaning it has no uses we generated)
+    // This ID should be a loop ID (meaning it has no uses we generated)
     NVF_ERROR(
-        leaf_ids_.find(mapped) != leaf_ids_.end(),
-        "Transform traversal failed, modified a node but it was not a leaf node.");
+        loop_ids_.find(mapped) != loop_ids_.end(),
+        "Transform traversal failed, modified a node but it was not a loop node.");
 
     // outer loop size
     Val* remainder = ceilDiv(mapped->extent(), s->factor());
@@ -146,11 +146,11 @@ class ReplayRFactor : public ReplayTransformations {
     IrBuilder::createInContainer<Split>(
         s->container(), ido, idi, mapped, s->factor(), s->innerSplit());
 
-    // Remove mapped id from leaf IDs
-    leaf_ids_.erase(mapped);
-    // Add outputs to leaf IDs
-    leaf_ids_[ido] = newCounter();
-    leaf_ids_[idi] = newCounter();
+    // Remove mapped id from loop IDs
+    loop_ids_.erase(mapped);
+    // Add outputs to loop IDs
+    loop_ids_[ido] = newCounter();
+    loop_ids_[idi] = newCounter();
 
     // Update our ID map to include these outputs
     id_map_[s->outer()] = ido;
@@ -174,13 +174,13 @@ class ReplayRFactor : public ReplayTransformations {
     auto id_inner_mapped = (*it_inner).second;
 
     NVF_ERROR(
-        leaf_ids_.find(id_outer_mapped) != leaf_ids_.end() &&
-            leaf_ids_.find(id_inner_mapped) != leaf_ids_.end(),
+        loop_ids_.find(id_outer_mapped) != loop_ids_.end() &&
+            loop_ids_.find(id_inner_mapped) != loop_ids_.end(),
         "Transform traversal failed, modified ",
         id_outer_mapped,
         " and ",
         id_inner_mapped,
-        " however one or both are not leaf nodes.");
+        " however one or both are not loop nodes.");
 
     Val* merged_id_size =
         mul(id_outer_mapped->extent(), id_inner_mapped->extent());
@@ -196,12 +196,12 @@ class ReplayRFactor : public ReplayTransformations {
     IrBuilder::createInContainer<Merge>(
         m->container(), merged_id, id_outer_mapped, id_inner_mapped);
 
-    // Remove inputs from the leaf IDs
-    leaf_ids_.erase(id_outer_mapped);
-    leaf_ids_.erase(id_inner_mapped);
+    // Remove inputs from the loop IDs
+    loop_ids_.erase(id_outer_mapped);
+    loop_ids_.erase(id_inner_mapped);
 
-    // Add the output to the leaf IDs
-    leaf_ids_[merged_id] = newCounter();
+    // Add the output to the loop IDs
+    loop_ids_[merged_id] = newCounter();
 
     id_map_[m->out()] = merged_id;
 
@@ -248,13 +248,13 @@ class ReplayRFactor : public ReplayTransformations {
       // The root mapping from the original root domain, to the roots of the
       // domain to be replayed.
       std::unordered_map<IterDomain*, IterDomain*> id_map,
-      // The rfactor axes in original_domain->leaf() to be factored into the
+      // The rfactor axes in original_domain->loop() to be factored into the
       // two stage reduction.
       std::unordered_set<IterDomain*> rfactor_axes,
       // All the iter domains in original_domain that the rfactor axes are
       // dependant on.
       std::unordered_set<IterDomain*> static_logical_ids)
-      : ReplayTransformations(original_domain->leaf(), std::move(id_map)),
+      : ReplayTransformations(original_domain->loop(), std::move(id_map)),
         rfactor_axes_(std::move(rfactor_axes)),
         static_logical_ids_(std::move(static_logical_ids)),
         logical_domain_(original_domain->logical()) {
@@ -305,7 +305,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::unordered_set<IterDomain*> rfactor_axes(axes_set.size());
   {
     int i = 0;
-    for (auto id : original_td->leaf()) {
+    for (auto id : original_td->loop()) {
       if (axes_set.find(i++) != axes_set.end()) {
         rfactor_axes.emplace(id);
       } else if (id->isReduction()) {
@@ -458,7 +458,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   }
 
   ReplayTransformations consumer_replay(
-      original_td->leaf(), original_to_consumer_root_map);
+      original_td->loop(), original_to_consumer_root_map);
   consumer_replay.setErrorOnFailure(false).setReplayResize(true);
 
   auto original_to_consumer_map = consumer_replay.getReplay();

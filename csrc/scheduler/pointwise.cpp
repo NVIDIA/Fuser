@@ -240,7 +240,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // If zero dimensional or zero size, return default parameters
   if (TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(largest_out->getLeafDomain()))
+          TensorDomain::noBroadcasts(largest_out->getLoopDomain()))
           .empty() ||
       n_elems == 0) {
     auto vectorizable_inputs_outputs_entry = HeuristicSummaryEntry<
@@ -596,15 +596,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     reference_tv->reorder(
         scheduler_utils::domainReorderAsLogicalMap(reference_tv));
 
-    // Break point is relative to logical domain, find the leaf domain ID's in
+    // Break point is relative to logical domain, find the loop domain ID's in
     // the left/right side, we really need the values in domain, but easiest way
     // to do this is with Dependency check which will grab all intermediate
     // values too.
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
         {reference_tv->getLogicalDomain().begin(),
          reference_tv->getLogicalDomain().begin() + params.break_point},
-        {reference_tv->getLeafDomain().begin(),
-         reference_tv->getLeafDomain().end()});
+        {reference_tv->getLoopDomain().begin(),
+         reference_tv->getLoopDomain().end()});
 
     std::unordered_set<Val*> lhs_all_vals_set(
         lhs_all_vals.begin(), lhs_all_vals.end());
@@ -612,8 +612,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
         {reference_tv->getLogicalDomain().begin() + params.break_point,
          reference_tv->getLogicalDomain().end()},
-        {reference_tv->getLeafDomain().begin(),
-         reference_tv->getLeafDomain().end()});
+        {reference_tv->getLoopDomain().begin(),
+         reference_tv->getLoopDomain().end()});
 
     std::unordered_set<Val*> rhs_all_vals_set(
         rhs_all_vals.begin(), rhs_all_vals.end());

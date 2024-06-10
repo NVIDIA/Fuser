@@ -627,7 +627,7 @@ struct id_lt {
 } // namespace
 
 TensorView* sortAndRFactor(TensorView* reference_tv) {
-  auto domain = reference_tv->getLeafDomain();
+  auto domain = reference_tv->getLoopDomain();
   std::sort(domain.begin(), domain.end(), id_lt());
   std::unordered_map<int64_t, int64_t> reorder_map;
   std::unordered_map<IterDomain*, int64_t> domain_pos;

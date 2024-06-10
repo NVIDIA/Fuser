@@ -2881,12 +2881,12 @@ void IterDomain::parallelize(ParallelType t) {
     return;
   }
 
-  // assert check that we only parallelize a leaf domain.
-  // leaf domains are domains that are not used by any other domains.
+  // assert check that we only parallelize a loop domain.
+  // loop domains are domains that are not used by any other domains.
   if (t != ParallelType::Serial) {
     NVF_CHECK(
         uses().empty(),
-        "Only allowed to parallelize a leaf domain.",
+        "Only allowed to parallelize a loop domain.",
         " Domain: ",
         toString(),
         ", Parallel type: ",
@@ -2978,7 +2978,7 @@ TensorDomain::TensorDomain(
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       logical_domain_(std::move(logical_domain)),
-      leaf_domain_(logical_domain_),
+      loop_domain_(logical_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
@@ -2995,7 +2995,7 @@ TensorDomain::TensorDomain(
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       logical_domain_(std::move(logical_domain)),
-      leaf_domain_(logical_domain_),
+      loop_domain_(logical_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
@@ -3027,19 +3027,19 @@ TensorDomain::TensorDomain(
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> logical_domain,
-    std::vector<IterDomain*> leaf_domain,
+    std::vector<IterDomain*> loop_domain,
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       logical_domain_(std::move(logical_domain)),
-      leaf_domain_(std::move(leaf_domain)),
+      loop_domain_(std::move(loop_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   if (!logical_domain_.empty()) {
-    NVF_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
-    ir_utils::validateDomainEquivalence(logical_domain_, leaf_domain_);
+    NVF_CHECK(!loop_domain_.empty(), "Root domain is not empty but loop is");
+    ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -3050,23 +3050,23 @@ TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> logical_domain,
-    std::vector<IterDomain*> leaf_domain,
+    std::vector<IterDomain*> loop_domain,
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
-      leaf_domain_(std::move(leaf_domain)),
+      loop_domain_(std::move(loop_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
-    NVF_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
-    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
+    NVF_CHECK(!loop_domain_.empty(), "Root domain is not empty but loop is");
+    ir_utils::validateDomainEquivalence(root_domain_, loop_domain_);
     if (!logical_domain_.empty()) {
       ir_utils::validateDomainEquivalence(root_domain_, logical_domain_);
-      ir_utils::validateDomainEquivalence(logical_domain_, leaf_domain_);
+      ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
     }
   }
 
@@ -3079,28 +3079,28 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> logical_domain,
     std::vector<IterDomain*> allocation_domain,
-    std::vector<IterDomain*> leaf_domain,
+    std::vector<IterDomain*> loop_domain,
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
       allocation_domain_(std::move(allocation_domain)),
-      leaf_domain_(std::move(leaf_domain)),
+      loop_domain_(std::move(loop_domain)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
   if (!root_domain_.empty()) {
-    NVF_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
-    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
+    NVF_CHECK(!loop_domain_.empty(), "Root domain is not empty but loop is");
+    ir_utils::validateDomainEquivalence(root_domain_, loop_domain_);
     if (!logical_domain_.empty()) {
       ir_utils::validateDomainEquivalence(root_domain_, logical_domain_);
-      ir_utils::validateDomainEquivalence(logical_domain_, leaf_domain_);
+      ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
     }
     if (!allocation_domain_.empty()) {
       ir_utils::validateDomainEquivalence(root_domain_, allocation_domain_);
-      ir_utils::validateDomainEquivalence(allocation_domain_, leaf_domain_);
+      ir_utils::validateDomainEquivalence(allocation_domain_, loop_domain_);
     }
   }
 
@@ -3113,7 +3113,7 @@ TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
       root_domain_(src->root_domain_),
       logical_domain_(src->logical_domain_),
       allocation_domain_(src->allocation_domain_),
-      leaf_domain_(src->leaf_domain_),
+      loop_domain_(src->loop_domain_),
       no_bcast_domain_(src->no_bcast_domain_),
       no_reduction_domain_(src->no_reduction_domain_),
       contiguity_(src->contiguity_),
@@ -3124,7 +3124,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       root_domain_(ir_cloner->clone(src->root_domain_)),
       logical_domain_(ir_cloner->clone(src->logical_domain_)),
       allocation_domain_(ir_cloner->clone(src->allocation_domain_)),
-      leaf_domain_(ir_cloner->clone(src->leaf_domain_)),
+      loop_domain_(ir_cloner->clone(src->loop_domain_)),
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       contiguity_(src->contiguity()),
@@ -3134,14 +3134,14 @@ NVFUSER_DEFINE_CLONE(TensorDomain)
 
 bool TensorDomain::hasBlockBroadcast() const {
   return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isBroadcast() && id->isThreadDim();
       });
 }
 
 bool TensorDomain::hasGridBroadcast() const {
   return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isBroadcast() && id->isBlockDim();
       });
 }
@@ -3151,7 +3151,7 @@ bool TensorDomain::operator==(const TensorDomain& other) const {
   // check no_bcast_domain_ and no_reduction_domain_ as they are just
   // derived from domain_.
   return root_domain_ == other.root_domain_ &&
-      leaf_domain_ == other.leaf_domain_ &&
+      loop_domain_ == other.loop_domain_ &&
       logical_domain_ == other.logical_domain_ &&
       allocation_domain_ == other.allocation_domain_ &&
       contiguity_ == other.contiguity_;
@@ -3205,8 +3205,8 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     }
   }
 
-  for (const auto i : c10::irange(leaf().size())) {
-    if (!(leaf()[i]->sameAs(other_td->leaf()[i]))) {
+  for (const auto i : c10::irange(loop().size())) {
+    if (!(loop()[i]->sameAs(other_td->loop()[i]))) {
       return false;
     }
   }
@@ -3229,15 +3229,15 @@ bool TensorDomain::sameAs(
   return true;
 }
 
-std::string TensorDomain::toString(const int indent_size, const bool leaf_only)
+std::string TensorDomain::toString(const int indent_size, const bool loop_only)
     const {
   std::stringstream ss;
   if (nDims() == 0) {
     indent(ss, indent_size) << "[ ]";
     return ss.str();
   }
-  indent(ss, indent_size) << "[ " << toDelimitedString(leaf()) << " ]";
-  if (!leaf_only) {
+  indent(ss, indent_size) << "[ " << toDelimitedString(loop()) << " ]";
+  if (!loop_only) {
     if (hasRoot()) {
       ss << "," << std::endl;
       indent(ss, indent_size + 1)
@@ -3256,7 +3256,7 @@ std::string TensorDomain::toString(const int indent_size, const bool leaf_only)
 }
 
 std::string TensorDomain::toString(const int indent_size) const {
-  return toString(indent_size, /*leaf_only=*/true);
+  return toString(indent_size, /*loop_only=*/true);
 }
 
 std::string TensorDomain::toInlineString(int indent_size) const {
@@ -3280,14 +3280,14 @@ void TensorDomain::setContiguity(
 
 bool TensorDomain::hasBlockReduction() const {
   return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isReduction() && id->isThreadDim();
       });
 }
 
 bool TensorDomain::hasGridReduction() const {
   return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isReduction() && id->isBlockDim();
       });
 }
@@ -3322,7 +3322,7 @@ bool TensorDomain::hasViewLikeRFactor() const {
 
 bool TensorDomain::hasVectorize() const {
   return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->getParallelType() == ParallelType::Vectorize ||
             id->getParallelType() == ParallelType::MisalignedVectorize;
       });
@@ -3330,13 +3330,13 @@ bool TensorDomain::hasVectorize() const {
 
 std::optional<int64_t> TensorDomain::getReductionAxis() const {
   auto it = std::find_if(
-      leaf_domain_.begin(), leaf_domain_.end(), [](const auto& id) {
+      loop_domain_.begin(), loop_domain_.end(), [](const auto& id) {
         return id->isReduction();
       });
-  if (it == leaf_domain_.end()) {
+  if (it == loop_domain_.end()) {
     return std::optional<int64_t>();
   } else {
-    return std::optional<int64_t>(std::distance(leaf_domain_.begin(), it));
+    return std::optional<int64_t>(std::distance(loop_domain_.begin(), it));
   }
 }
 
@@ -3344,14 +3344,14 @@ std::optional<int64_t> TensorDomain::getReductionAxis() const {
 // uint.
 IterDomain* TensorDomain::axis(int64_t i) const {
   NVF_ERROR(nDims() > 0, "Tried to access an axis in a 0-dim domain");
-  return leaf_domain_[wrapDim(i)];
+  return loop_domain_[wrapDim(i)];
 }
 
 int64_t TensorDomain::posOf(IterDomain* id) const {
   NVF_ERROR(nDims() > 0, "Tried to find an axis in a 0-dim domain");
   int64_t i = 0;
-  while (i < (int64_t)leaf_domain_.size()) {
-    if (leaf_domain_[i] == id) {
+  while (i < (int64_t)loop_domain_.size()) {
+    if (loop_domain_[i] == id) {
       return i;
     }
     i++;
@@ -3378,9 +3378,9 @@ void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
       "Further transformation on warp mapped id's not allowed.");
 
   auto split_ids = IterDomain::split(id, factor, inner_split);
-  leaf_domain_.erase(leaf_domain_.begin() + axis);
-  leaf_domain_.insert(leaf_domain_.begin() + axis, split_ids.second);
-  leaf_domain_.insert(leaf_domain_.begin() + axis, split_ids.first);
+  loop_domain_.erase(loop_domain_.begin() + axis);
+  loop_domain_.insert(loop_domain_.begin() + axis, split_ids.second);
+  loop_domain_.insert(loop_domain_.begin() + axis, split_ids.first);
   resetDomains();
 }
 
@@ -3408,9 +3408,9 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
   auto td_outer_pos = axis_o < axis_i ? axis_o : axis_i;
   auto td_inner_pos = axis_o < axis_i ? axis_i : axis_o;
 
-  leaf_domain_.erase(leaf_domain_.begin() + td_inner_pos);
-  leaf_domain_.erase(leaf_domain_.begin() + td_outer_pos);
-  leaf_domain_.insert(leaf_domain_.begin() + td_outer_pos, merged_id);
+  loop_domain_.erase(loop_domain_.begin() + td_inner_pos);
+  loop_domain_.erase(loop_domain_.begin() + td_outer_pos);
+  loop_domain_.insert(loop_domain_.begin() + td_outer_pos, merged_id);
   resetDomains();
 }
 
@@ -3419,7 +3419,7 @@ void TensorDomain::reorder(
     const std::unordered_map<int64_t, int64_t>& old2new_) {
   NVF_ERROR(
       nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
-  leaf_domain_ = orderedAs(leaf_domain_, old2new_);
+  loop_domain_ = orderedAs(loop_domain_, old2new_);
   resetDomains();
 }
 
@@ -3458,11 +3458,11 @@ void TensorDomain::swizzle(SwizzleType swizzle_type, int64_t x, int64_t y) {
   std::tie(axis_out_x, axis_out_y) =
       IterDomain::swizzle(swizzle_type, axis_x, axis_y);
 
-  leaf_domain_.erase(leaf_domain_.begin() + x);
-  leaf_domain_.insert(leaf_domain_.begin() + x, axis_out_x);
+  loop_domain_.erase(loop_domain_.begin() + x);
+  loop_domain_.insert(loop_domain_.begin() + x, axis_out_x);
 
-  leaf_domain_.erase(leaf_domain_.begin() + y);
-  leaf_domain_.insert(leaf_domain_.begin() + y, axis_out_y);
+  loop_domain_.erase(loop_domain_.begin() + y);
+  loop_domain_.insert(loop_domain_.begin() + y, axis_out_y);
 
   resetDomains();
 }
@@ -3485,11 +3485,11 @@ void TensorDomain::swizzle(
   std::tie(axis_out_x, axis_out_y) =
       IterDomain::swizzle(swizzle_type, axis_x, axis_y, swizzle_mode);
 
-  leaf_domain_.erase(leaf_domain_.begin() + x);
-  leaf_domain_.insert(leaf_domain_.begin() + x, axis_out_x);
+  loop_domain_.erase(loop_domain_.begin() + x);
+  loop_domain_.insert(loop_domain_.begin() + x, axis_out_x);
 
-  leaf_domain_.erase(leaf_domain_.begin() + y);
-  leaf_domain_.insert(leaf_domain_.begin() + y, axis_out_y);
+  loop_domain_.erase(loop_domain_.begin() + y);
+  loop_domain_.insert(loop_domain_.begin() + y, axis_out_y);
 
   resetDomains();
 }
@@ -3648,7 +3648,7 @@ void TensorDomain::setAllocationDomain(
   validateContiguity(new_allocation_domain, new_contiguity);
 
   ir_utils::validateDomainEquivalence(maybeRoot(), new_allocation_domain);
-  ir_utils::validateDomainEquivalence(new_allocation_domain, leaf_domain_);
+  ir_utils::validateDomainEquivalence(new_allocation_domain, loop_domain_);
 
   allocation_domain_ = std::move(new_allocation_domain);
   contiguity_ = std::move(new_contiguity);

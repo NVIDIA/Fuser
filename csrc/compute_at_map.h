@@ -141,7 +141,7 @@ class IterDomainGraph {
  private:
   void build(Fusion* fusion);
 
-  void initializeId(IterDomain* id, bool is_rfactor_id, bool is_leaf_id);
+  void initializeId(IterDomain* id, bool is_rfactor_id, bool is_loop_id);
 
   // Checks if exprsMap then if forward will map outputs else inputs in exact
   // and permissive map.

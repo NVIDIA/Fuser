@@ -66,7 +66,7 @@ ir_utils::TVDomainGuard overrideContiguityGuard(
           tv->getRootDomain(),
           tv->getLogicalDomain(),
           tv->getAllocationDomain(),
-          tv->getLeafDomain(),
+          tv->getLoopDomain(),
           TensorDomain::getContiguityFilledWith(
               tv->getMaybeAllocationDomain(), contiguity));
 
@@ -81,7 +81,7 @@ ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
       IrBuilder::create<TensorDomain>(
           tv->getRootDomain(),
           tv->getLogicalDomain(),
-          tv->getLeafDomain(),
+          tv->getLoopDomain(),
           TensorDomain::getContiguityFilledWith(
               tv->getLogicalDomain(), contiguity));
 
@@ -314,7 +314,7 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   IterDomain* reduction_on_xdim = nullptr;
-  for (auto id : tv_out->getLeafDomain()) {
+  for (auto id : tv_out->getLoopDomain()) {
     // Currently warp reduction only allows
     //  serial and block.x parallel reductions
     if (id->isReduction() && id->isParallelized()) {
@@ -359,7 +359,7 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
   }
 
   std::unordered_map<ParallelType, IterDomain*> parallel_domains;
-  for (auto d : tv->getLeafDomain()) {
+  for (auto d : tv->getLoopDomain()) {
     if (d->isThread()) {
       parallel_domains.insert(std::make_pair(d->getParallelType(), d));
     }
@@ -872,7 +872,7 @@ std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion) {
 
 Val* getNumThreadsInTensorView(TensorView* tv) {
   Val* num_threads = tv->fusion()->oneVal();
-  for (auto id : tv->getLeafDomain()) {
+  for (auto id : tv->getLoopDomain()) {
     if (id->isThreadDim()) {
       num_threads = SimplifyingIrBuilder::mulExpr(num_threads, id->extent());
     }
