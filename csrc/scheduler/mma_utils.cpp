@@ -1011,16 +1011,6 @@ void canonicalizeMmaTvOrdering(
     const std::vector<ValGroup>& ordering) {
   std::unordered_map<int64_t, int64_t> old2new;
 
-  tv->fusion()->printMath();
-  std::cout << "canonicalizeMmaTvOrdering:" << std::endl;
-  for (auto g : ordering) {
-    std::cout << " ";
-    for (auto val : *g) {
-      std::cout << " " << val->toString();
-    }
-    std::cout << std::endl;
-  }
-
   for (size_t i : c10::irange(tv->nDims())) {
     IterDomain* id = tv->axis((int64_t)i);
     const ValGroup& g = permissive_graph.toGroup(id);
@@ -1756,30 +1746,6 @@ std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
     const ValGraph& permissive_graph) {
-  std::cout << "canonicalDimOrdering:" << std::endl;
-  for (auto& [g, role] : dim_roles) {
-    std::cout << "  ";
-    switch (role) {
-      case MatmulDomain::Batch:
-        std::cout << "Batch";
-        break;
-      case MatmulDomain::M:
-        std::cout << "M";
-        break;
-      case MatmulDomain::N:
-        std::cout << "N";
-        break;
-      case MatmulDomain::K:
-        std::cout << "K";
-        break;
-    }
-    std::cout << ":";
-    for (Val* v : *g) {
-      std::cout << " " << v->toString();
-    }
-    std::cout << std::endl;
-  }
-
   VectorOfUniqueEntries<ValGroup> batch_dims, m_dims, n_dims, k_dims,
       other_dims;
   // This is +1 if N should come before M and -1 otherwise. It is zero until the
