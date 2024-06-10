@@ -73,13 +73,6 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto hu =
       IrBuilder::createInContainer<HostUnit>(hic.get(), std::move(fusion));
 
-  // [Step 3b)] Create a Communication Ir
-  auto communication = IrBuilder::createInContainer<Communication>(
-      static_cast<IrContainer*>(hic.get()),
-      CommunicationType::Allgather,
-      mesh,
-      mesh.vector());
-
   // [Step 4)] Create TensorViews at the Host level
   IrCloner ir_cloner(hic.get());
   auto tv0 = ir_cloner.clone(
@@ -89,24 +82,33 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto tv2 = makeConcreteTensor(unsharded_input_sizes);
   tv2->setDeviceMesh(mesh);
 
-  // [Step 5)a.] Create PostOnStream Irs representing executing the Fusion and
-  // the Communication
+  // [Step 5)a.] Create PostOnStream Irs representing executing the Fusion
   std::vector<Val*> compute_inputs = {tv0};
   std::vector<Val*> compute_outputs = {tv1};
   auto post_compute = IrBuilder::createInContainer<PostOnStream>(
       hic.get(), hu, compute_inputs, compute_outputs);
-  std::vector<Val*> communication_inputs = {tv1};
-  std::vector<Val*> communication_outputs = {tv2};
-  auto post_communication = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(), communication, communication_inputs, communication_outputs);
+  // [Step 5)b.] Create Communication Ir representing executing the Fusion
+  auto communication_input = tv1->as<TensorView>();
+  auto communication_output = tv2->as<TensorView>();
+
+  auto communication = IrBuilder::createInContainer<Communication>(
+      hic.get(),
+      CommunicationType::Allgather,
+      mesh,
+      mesh.vector(),
+      -1,
+      RedOpType::UNUSED,
+      -1,
+      communication_input,
+      communication_output);
 
   // [Step 6)] Define the Host program
   hic->pushBackTopLevelExprs(post_compute);
-  hic->pushBackTopLevelExprs(post_communication);
+  hic->pushBackTopLevelExprs(communication);
 
   // [Step 7)] Define the Host program's global I/O
   hic->addInput(post_compute->inputs().back());
-  hic->addOutput(post_communication->outputs().back());
+  hic->addOutput(communication->outputs().back());
 
   // [Step 8)] Execute the Host program
   HostIrExecutorParams params;
@@ -126,7 +128,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
 
   auto outputs = hie.runWithInput(
       {{post_compute->inputs().back(), input},
-       {post_communication->outputs().back(), output}});
+       {communication->outputs().back(), output}});
 
   // validate the obtained results
   GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));

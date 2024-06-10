@@ -21,6 +21,8 @@
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
 
+#include <utility>
+
 namespace nvfuser {
 
 using IndexingTest = NVFuserTest;
@@ -33,6 +35,26 @@ std::vector<Val*> getLoopIndices(TensorView* tv, const TensorIndexer& indexer) {
     loop_indices.push_back(indexer.getLoopIndex(loop_id));
   }
   return loop_indices;
+}
+
+template <typename... Args>
+Val* addExpr(Args&&... args) {
+  return SimplifyingIrBuilder::addExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* mulExpr(Args&&... args) {
+  return SimplifyingIrBuilder::mulExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* divExpr(Args&&... args) {
+  return SimplifyingIrBuilder::divExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* modExpr(Args&&... args) {
+  return SimplifyingIrBuilder::modExpr(std::forward<Args>(args)...);
 }
 
 } // namespace
@@ -58,6 +80,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
   tv1->inlineAt(1);
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
@@ -80,7 +103,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
           IrBuilder::getItemExpr(
               IrBuilder::getAttrExpr(
                   IrBuilder::metadataExpr(tv0), "alloc_stride"),
-              (int64_t)1)),
+              IrBuilder::create<Val>(1))),
       SimplifyingIrBuilder::mulExpr(
           SimplifyingIrBuilder::divExpr(
               SimplifyingIrBuilder::addExpr(
@@ -91,7 +114,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
           IrBuilder::getItemExpr(
               IrBuilder::getAttrExpr(
                   IrBuilder::metadataExpr(tv0), "alloc_stride"),
-              (int64_t)0)));
+              IrBuilder::create<Val>(0))));
 
   auto tv1_consumer_index_ref = tv1_loop_indices.at(1);
   auto tv1_producer_index_ref = tv2_loop_indices.at(1);
@@ -158,6 +181,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
   tv2->setMemoryType(MemoryType::Shared);
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   // tv0 and tv3 are global tensors and should have the same index:
@@ -230,6 +254,7 @@ TEST_F(IndexingTest, SimpleReduction) {
   fusion.addOutput(tv2);
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
@@ -274,6 +299,7 @@ TEST_F(IndexingTest, AllocationDomain) {
   tv1->setAllocationDomain(tv1_transposed, true);
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
@@ -336,6 +362,7 @@ TEST_F(IndexingTest, Reshape) {
   inlineMost();
 
   IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
   TensorIndexer indexer(id_model);
 
   // Validate tv0 indexing
@@ -346,7 +373,7 @@ TEST_F(IndexingTest, Reshape) {
   // to provide the extent of the group. However, since everything
   // should be deterministic, string match should also work.
   std::string tv0_producer_index_ref =
-      "( ( ( ( ( i78 * ( ceilDiv(( 4 * 25 ), 5) ) ) + ( ( i79 * ( ceilDiv(( ceilDiv(( 4 * 25 ), 5) ), 2) ) ) + i80 ) ) / 25 ) * ( ceilDiv(100, 4) ) ) + ( ( ( i78 * ( ceilDiv(( 4 * 25 ), 5) ) ) + ( ( i79 * ( ceilDiv(( ceilDiv(( 4 * 25 ), 5) ), 2) ) ) + i80 ) ) % 25 ) )";
+      "( ( ( ( ( i114 * ( ceilDiv(( 4 * 25 ), 5) ) ) + ( ( i115 * ( ceilDiv(( ceilDiv(( 4 * 25 ), 5) ), 2) ) ) + i116 ) ) / 25 ) * ( ceilDiv(100, 4) ) ) + ( ( ( i114 * ( ceilDiv(( 4 * 25 ), 5) ) ) + ( ( i115 * ( ceilDiv(( ceilDiv(( 4 * 25 ), 5) ), 2) ) ) + i116 ) ) % 25 ) )";
 
   EXPECT_EQ(tv0_producer_index->toInlineString(), tv0_producer_index_ref);
 
@@ -379,6 +406,478 @@ TEST_F(IndexingTest, Reshape) {
   EXPECT_TRUE(tv5_consumer_index->sameAs(tv5_consumer_index_ref))
       << "Ref: " << tv5_consumer_index_ref->toInlineString()
       << ". Actual: " << tv5_consumer_index->toInlineString();
+}
+
+// Simple non-concretized broadcast
+TEST_F(IndexingTest, SimpleBroadcast1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
+  TensorIndexer indexer(id_model);
+
+  std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
+
+  EXPECT_TRUE(tv1_loop_indices.at(1)->isZeroInt());
+
+  std::vector<Val*> tv2_loop_indices = getLoopIndices(tv2, indexer);
+
+  EXPECT_TRUE(tv2_loop_indices.at(1)->isZeroInt());
+
+  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv1->definition());
+  auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
+  auto tv1_producer_index = indexer.getLinearIndex(tv1, tv2->definition());
+  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
+
+  EXPECT_EQ(tv0_producer_index, tv1_loop_indices.at(0));
+  EXPECT_EQ(tv1_consumer_index, tv1_loop_indices.at(0));
+  EXPECT_EQ(tv1_producer_index, tv2_loop_indices.at(0));
+  EXPECT_EQ(tv2_consumer_index, tv2_loop_indices.at(0));
+}
+
+// SimpleBroadcast1 + scheduling
+TEST_F(IndexingTest, SimpleBroadcast2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->flatten();
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
+  TensorIndexer indexer(id_model);
+
+  // The first merge of the logical domains should be a trivial merge,
+  // i.e., a merge with a extent-one domain. Thus, the indexing
+  // travesal should return "x + y * 4", where x and y are the loop
+  // indices, respecitvely.
+
+  std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
+  std::vector<Val*> tv2_loop_indices = getLoopIndices(tv2, indexer);
+
+  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv1->definition());
+  auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
+  auto tv1_producer_index = indexer.getLinearIndex(tv1, tv2->definition());
+  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
+
+  // tv0 is a global memory tensor, so the indexing is done with its
+  // allocation domain, which is mapped with the merge of the two
+  // logical domains of tv1 on the AlmostExact graph. Traverse back to
+  // the merge output from the loop domains.
+  auto tv0_producer_index_ref = addExpr(
+      mulExpr(tv1_loop_indices.at(0), tv1->axis(1)->extent()),
+      tv1_loop_indices.at(1));
+
+  // tv1 is a Local tensor, so its allocation domains are just their
+  // loop domains. This index is mathematically equivalent to the tv0
+  // index, but the order of linearizing the two loop domains is
+  // different from the order of computing the merge input index.
+  auto tv1_consumer_index_ref = addExpr(
+      tv1_loop_indices.at(1),
+      mulExpr(tv1_loop_indices.at(0), tv1->axis(1)->extent()));
+
+  auto tv1_producer_index_ref = addExpr(
+      tv2_loop_indices.at(1),
+      mulExpr(tv2_loop_indices.at(0), tv2->axis(1)->extent()));
+
+  auto tv2_consumer_index_ref = addExpr(
+      mulExpr(tv2_loop_indices.at(0), tv2->axis(1)->extent()),
+      tv2_loop_indices.at(1));
+
+  EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
+      << "Ref: " << tv0_producer_index_ref->toInlineString()
+      << ". Actual: " << tv0_producer_index->toInlineString();
+
+  EXPECT_TRUE(tv1_consumer_index->sameAs(tv1_consumer_index_ref))
+      << "Ref: " << tv1_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv1_consumer_index->toInlineString();
+
+  EXPECT_TRUE(tv1_producer_index->sameAs(tv1_producer_index_ref))
+      << "Ref: " << tv1_producer_index_ref->toInlineString()
+      << ". Actual: " << tv1_producer_index->toInlineString();
+
+  EXPECT_TRUE(tv2_consumer_index->sameAs(tv2_consumer_index_ref))
+      << "Ref: " << tv2_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv2_consumer_index->toInlineString();
+}
+
+// Concretized broadcast
+TEST_F(IndexingTest, SimpleBroadcast3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  tv3->flatten();
+
+  TransformPropagator propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
+  TensorIndexer indexer(id_model);
+
+  std::vector<Val*> tv3_loop_indices = getLoopIndices(tv3, indexer);
+
+  // Start with tv3 index as it's most straightforward
+  auto tv3_consumer_index = indexer.getLinearIndex(tv3, tv3->definition());
+  auto tv3_consumer_index_ref = addExpr(
+      modExpr(tv3_loop_indices.at(0), tv3->getLogicalDomain().at(1)->extent()),
+      mulExpr(
+          divExpr(
+              tv3_loop_indices.at(0), tv3->getLogicalDomain().at(1)->extent()),
+          tv3->getLogicalDomain().at(1)->extent()));
+
+  EXPECT_TRUE(tv3_consumer_index->sameAs(tv3_consumer_index_ref))
+      << "Ref: " << tv3_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv3_consumer_index->toInlineString();
+
+  // Since tv2 is fully inlined, its index should be just zero
+  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
+  auto tv2_producer_index = indexer.getLinearIndex(tv2, tv3->definition());
+
+  EXPECT_TRUE(tv2_consumer_index->isZeroInt());
+  EXPECT_TRUE(tv2_producer_index->isZeroInt());
+
+  // tv0 is a 1D pre-broadcast input tensor, so it only needs the
+  // index that corresponds to the outer dimension of the tv3 (or tv2)
+  // logical domains
+  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv2->definition());
+  auto tv0_producer_index_ref =
+      divExpr(tv3_loop_indices.at(0), tv3->getLogicalDomain().at(1)->extent());
+
+  EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
+      << "Ref: " << tv0_producer_index_ref->toInlineString()
+      << ". Actual: " << tv0_producer_index->toInlineString();
+
+  // tv1 should have the same index as tv3
+  auto tv1_producer_index = indexer.getLinearIndex(tv1, tv3->definition());
+  EXPECT_TRUE(tv1_producer_index->sameAs(tv3_consumer_index_ref))
+      << "Ref: " << tv3_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv1_producer_index->toInlineString();
+}
+
+// Concretized broadcast with partial inlining. Loop promotion is
+// required. Same fusion as IdModelTest.LoopPromotion4. See also
+// Example 1 of the Loop Promotion doc.
+TEST_F(IndexingTest, SimpleBroadcast4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({1, 4});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({3, 4});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  // [i0, i1]
+  tv4->merge(0);
+  // [i0*i1]
+  tv4->split(0, 4, false); // outer split
+  // [4, i0*i1/4]
+
+  TransformPropagator propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    tv->inlineAt(-2);
+  }
+
+  IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
+  TensorIndexer indexer(id_model);
+
+  // As discussed in the doc, the inner domain of tv2 is promoted to
+  // a domain with the same extent as the inner domain of tv4. Since
+  // tv2 is a Local tensor, its allocation domain is also promoted to
+  // the same domain. Thus, its consumer index is just the loop index
+  // of the inner loop of the tv2 loop domains, and its producer index
+  // is also just the inner loop index of the loop domains of tv4.
+
+  std::vector<Val*> tv2_loop_indices = getLoopIndices(tv2, indexer);
+  std::vector<Val*> tv4_loop_indices = getLoopIndices(tv4, indexer);
+
+  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
+  auto tv2_producer_index = indexer.getLinearIndex(tv2, tv4->definition());
+
+  EXPECT_EQ(tv2_consumer_index, tv2_loop_indices.at(1));
+  EXPECT_EQ(tv2_producer_index, tv4_loop_indices.at(1));
+}
+
+// Trivial example. 1D shared tensor. Each device only has one
+// element, so the index should be always just zero.
+TEST_F(IndexingTest, MultiDevice1DNoSplitMerge) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  IdModel id_model(&fusion);
+  TensorIndexer indexer(id_model);
+
+  EXPECT_TRUE(indexer.getLinearIndex(tv0, tv1->definition())->isZeroInt());
+  EXPECT_TRUE(indexer.getLinearIndex(tv1, tv1->definition())->isZeroInt());
+}
+
+// Same fusion as MultiDevice1DNoSplitMerge but with split.
+TEST_F(IndexingTest, MultiDevice1DSplit) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  Val* num_devices = IrBuilder::create<Val>(DataType::Index);
+
+  tv0->split(0, num_devices, false);
+  tv1->split(0, num_devices, false);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  IdModel id_model(&fusion);
+  TensorIndexer indexer(id_model);
+
+  std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
+
+  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv1->definition());
+  auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
+
+  auto tv0_producer_index_ref = tv1_loop_indices.at(1);
+  auto tv1_consumer_index_ref = tv1_loop_indices.at(1);
+
+  EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
+      << "Ref: " << tv0_producer_index_ref->toInlineString()
+      << ". Actual: " << tv0_producer_index->toInlineString();
+
+  EXPECT_TRUE(tv1_consumer_index->sameAs(tv1_consumer_index_ref))
+      << "Ref: " << tv1_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv1_consumer_index->toInlineString();
+}
+
+TEST_F(IndexingTest, MultiDevice2D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  Val* num_devices = IrBuilder::create<Val>(DataType::Index);
+
+  tv1->flatten();
+  tv1->split(0, num_devices, false);
+
+  TransformPropagator propagator(tv1);
+  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  IdModel id_model(&fusion);
+  TensorIndexer indexer(id_model);
+
+  std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
+
+  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv1->definition());
+  auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
+
+  auto inner_dim = tv1->getLogicalDomain().at(1)->extent();
+
+  // Note that the allocation domain is the logical domain. See the
+  // next test for a leaf allocation example
+  auto tv0_producer_index_ref = addExpr(
+      modExpr(tv1_loop_indices.at(1), inner_dim),
+      mulExpr(divExpr(tv1_loop_indices.at(1), inner_dim), inner_dim));
+
+  // Should use the same index
+  auto tv1_consumer_index_ref = tv0_producer_index_ref;
+
+  EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
+      << "Ref: " << tv0_producer_index_ref->toInlineString()
+      << ". Actual: " << tv0_producer_index->toInlineString();
+
+  EXPECT_TRUE(tv1_consumer_index->sameAs(tv1_consumer_index_ref))
+      << "Ref: " << tv1_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv1_consumer_index->toInlineString();
+}
+
+// Same fusion as MultiDevice2D but with leaf allocation
+TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  Val* num_devices = IrBuilder::create<Val>(DataType::Index);
+
+  tv1->flatten();
+  tv1->split(0, num_devices, false);
+
+  TransformPropagator propagator(tv1);
+  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  tv0->setAllocationDomain(tv0->getLeafDomain(), true);
+  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+
+  IdModel id_model(&fusion);
+  TensorIndexer indexer(id_model);
+
+  std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
+
+  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv1->definition());
+  auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
+
+  // Since the leaf domain is the allocation domain, the index should
+  // be just the non-parallelized loop index
+  auto tv0_producer_index_ref = tv1_loop_indices.at(1);
+
+  // Should use the same index
+  auto tv1_consumer_index_ref = tv0_producer_index_ref;
+
+  EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
+      << "Ref: " << tv0_producer_index_ref->toInlineString()
+      << ". Actual: " << tv0_producer_index->toInlineString();
+
+  EXPECT_TRUE(tv1_consumer_index->sameAs(tv1_consumer_index_ref))
+      << "Ref: " << tv1_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv1_consumer_index->toInlineString();
+}
+
+TEST_F(IndexingTest, MultiDevice2DTranspose) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = transpose(tv0);
+  fusion.addOutput(tv1);
+
+  Val* num_devices = IrBuilder::create<Val>(DataType::Index);
+
+  tv0->split(0, num_devices, false);
+  tv1->split(0, num_devices, false);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  IdModel id_model(&fusion);
+  TensorIndexer indexer(id_model);
+
+  std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
+
+  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv1->definition());
+  auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
+
+  auto tv0_producer_index_ref = addExpr(
+      tv1_loop_indices.at(1),
+      mulExpr(tv1_loop_indices.at(2), tv0->getLogicalDomain().at(1)->extent()));
+
+  // Should use the same index
+  auto tv1_consumer_index_ref = addExpr(
+      tv1_loop_indices.at(2),
+      mulExpr(tv1_loop_indices.at(1), tv1->getLogicalDomain().at(1)->extent()));
+
+  EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
+      << "Ref: " << tv0_producer_index_ref->toInlineString()
+      << ". Actual: " << tv0_producer_index->toInlineString();
+
+  EXPECT_TRUE(tv1_consumer_index->sameAs(tv1_consumer_index_ref))
+      << "Ref: " << tv1_consumer_index_ref->toInlineString()
+      << ". Actual: " << tv1_consumer_index->toInlineString();
+}
+
+// Allocation of broadcast domains should not need to be promoted.
+TEST_F(IndexingTest, PromotedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, false});
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  // Note that tv2->inlineAt(1) just results in no inlining since
+  // tv2->axis(0) is a broadcast domain.
+  tv2->inlineAt(2);
+  tv2->setMemoryType(MemoryType::Shared);
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+
+  // tv2->axis(0) is a broadcast domain promoted to
+  // tv3->axis(0). While it's promoted, since it's a broadcast domain,
+  // it doesn't need to be allocated. Since the inner domain is also
+  // inlined, the resulting index of tv2 should just be zero.
+
+  IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
+
+  ASSERT_EQ(tv2->axis(0)->getParallelType(), ParallelType::TIDx);
+
+  TensorIndexer indexer(id_model);
+
+  std::vector<Val*> tv2_loop_indices = getLoopIndices(tv2, indexer);
+  std::vector<Val*> tv3_loop_indices = getLoopIndices(tv3, indexer);
+
+  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
+  auto tv2_producer_index = indexer.getLinearIndex(tv2, tv3->definition());
+
+  EXPECT_TRUE(tv2_consumer_index->isZero());
+  EXPECT_TRUE(tv2_producer_index->isZero());
 }
 
 } // namespace nvfuser

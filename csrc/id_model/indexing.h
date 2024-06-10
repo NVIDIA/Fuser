@@ -82,6 +82,11 @@ class TensorIndexer {
       const Expr* expr,
       const std::vector<IterDomain*>& index_domains) const;
 
+  // Check if the loop index of a loop group should be always
+  // just zero. For example, a loop group with an extent of one, i.e.,
+  // a broadcast-only loop group, should just use zero.
+  bool shouldUseZeroIndex(const ValGroup& loop_group) const;
+
  private:
   const IdModel& id_model_;
 

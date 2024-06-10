@@ -60,7 +60,9 @@ class Communication : public Expr {
                  // sharding.
       DeviceIdxType root = -1,
       RedOpType red_op = RedOpType::UNUSED,
-      int64_t scattered_axis = -1);
+      int64_t scattered_axis = -1,
+      TensorView* input_tv = nullptr,
+      TensorView* output_tv = nullptr);
 
   Communication(const Communication& other) = delete;
   Communication& operator=(const Communication& other) = delete;

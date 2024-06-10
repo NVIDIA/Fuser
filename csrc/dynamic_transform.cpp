@@ -739,9 +739,10 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
     auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
 
-    // We do the replacement directly here, but we must still check that the
-    // replacement is valid
-    checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
+    // NOTE: The replacement might not yet actually be valid. For example, if
+    // inp_tv contains Symbolic domains that need to be squeezed, this check
+    // would fail at this point. So we skip checkConcretizedUses here and
+    // perform it later in mutate(TensorView*).
 
     // Extent expressions often change when concretizing a reshape. Here we
     // replace these in all downstream expressions so that the Fusion looks just
@@ -1031,6 +1032,9 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // TensorDomain and then TensorView
   mutate(tv->domain());
   OptOutMutator::mutate(tv);
+  // Check concretization is valid after we've done the replacement. See note
+  // about squeeze inside concretizeReshape above.
+  checkConcretizedUses(tv, tv);
 }
 
 // Almost an exact copy of OptOutMutator::mutate(TensorDomain*), but
