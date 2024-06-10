@@ -128,7 +128,7 @@ class Stream : public Val {
  private:
   // the class contains a unique ID counter accross instances that is mainly
   // useful for debug print
-  const int idx_;
+  const int64_t idx_;
   static std::atomic<int64_t> running_counter_;
 };
 
