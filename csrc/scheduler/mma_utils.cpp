@@ -1029,7 +1029,7 @@ std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
   // Now merge dims that have the same role
   NVF_ERROR(tv->nDims() > 0);
   const auto getRole = [&dim_roles, &permissive_graph](IterDomain* id) {
-    ValGroup g = permissive_graph.toGroup(id);
+    const ValGroup& g = permissive_graph.toGroup(id);
     const auto it = dim_roles.find(g);
     NVF_ERROR(it != dim_roles.end());
     return it->second;
