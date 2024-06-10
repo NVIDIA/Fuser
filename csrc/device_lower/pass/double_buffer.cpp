@@ -1061,8 +1061,6 @@ class DoubleBufferInserter : private kir::ExprMutator {
         registerInsertAfter(double_buffer_loop, expr);
       }
     }
-
-    NVF_ERROR(false, "insertTma - not implemented");
   }
 
   void insert(
