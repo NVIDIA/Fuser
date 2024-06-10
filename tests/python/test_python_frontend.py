@@ -4055,6 +4055,37 @@ class TestNvFuserFrontend(TestCase):
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
             )
 
+    # Small repro from https://github.com/NVIDIA/Fuser/issues/2359
+    def test_reshape_squeeze_concretization(self):
+        inputs = [
+            torch.randn((100,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 5, 10), (50, 10, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T1 = fd.ops.slice(
+                T0, start_indices=[0, 0, 0], end_indices=[1, 2, 4], strides=[1, 1, 1]
+            )
+            S2 = fd.define_scalar(1, dtype=DataType.Int)
+            S3 = fd.define_scalar(8, dtype=DataType.Int)
+            V4 = fd.define_vector([S2, S3], dtype=DataType.Int)
+            V5 = fd.define_vector([S3], dtype=DataType.Int)
+            T6 = fd.ops.reshape(T1, new_shape=V4)
+            T7 = fd.ops.reshape(T6, new_shape=V5)
+            # this works fine
+            # T7 = fd.ops.reshape(T1, new_shape=V5)
+            fd.add_output(T7)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
     # Test that the range of generated uniform values spans the proper range
     # https://github.com/NVIDIA/Fuser/issues/1653
     def test_uniform_range(self):
@@ -4141,7 +4172,6 @@ class TestNvFuserFrontend(TestCase):
                 assert (
                     match_pairs.item() < 3
                 ), f"At least three entries match in {output}"
-
 
 if __name__ == "__main__":
     run_tests()
