@@ -233,14 +233,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // Map N, H from any input (query/key/value)
     for (auto idx: c10::irange(consumer_root.size())){
       if (idx < 2) {
-        updatePairwiseRootDomainMap(producer_root.at(idx), consumer_root.at(idx));
+        updatePairwiseRootDomainMap(producer_logical.at(idx), consumer_root.at(idx));
       }
       // Map L, E from query and value respectively
       if (idx == 2 && producer_tv_->sameAs(op->query())){
-       updatePairwiseRootDomainMap(producer_root.at(2), consumer_root.at(2));
+       updatePairwiseRootDomainMap(producer_logical.at(2), consumer_root.at(2));
       }
       if (idx == 3 && producer_tv_->sameAs(op->value())){
-        updatePairwiseRootDomainMap(producer_root.at(3), consumer_root.at(3));
+        updatePairwiseRootDomainMap(producer_logical.at(3), consumer_root.at(3));
       }
     }
     return dom_map;
