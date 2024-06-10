@@ -51,7 +51,7 @@ void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
     streams_.insert(
         {stream,
          c10::cuda::getStreamFromPool(
-             /*isHighPriority=*/ true, static_cast<c10::DeviceIndex>(i))});
+             /*isHighPriority=*/true, static_cast<c10::DeviceIndex>(i))});
   }
   setCurrentCUDAStream(streams_.at(stream));
 }
