@@ -1025,7 +1025,10 @@ void canonicalizeMmaTvOrdering(
     IterDomain* id = tv->axis((int64_t)i);
     const ValGroup& g = permissive_graph.toGroup(id);
     auto order_it = std::find(ordering.begin(), ordering.end(), g);
-    NVF_ERROR(order_it != ordering.end());
+    NVF_ERROR(
+        order_it != ordering.end(),
+        "Couldn't find ordering entry for ",
+        id->toString());
     size_t pos = std::distance(ordering.begin(), order_it);
     old2new[(int64_t)i] = (int64_t)pos;
   }
@@ -1727,13 +1730,15 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
 
   for (const auto& [g, f] : flags) {
     const auto& [present_flags, concrete_flags] = f;
-    if (concrete_flags.all() || present_flags.all()) {
+    if (concrete_flags.all() || concrete_flags.none()) {
+      // Batch dimensions are any of those that are not concretized or reduced.
+      // These could be all Iteration or all Broadcast
       dim_roles[g] = MatmulDomain::Batch;
-    } else if (concrete_flags == 0b011 || present_flags == 0b011) {
+    } else if (concrete_flags == 0b011) {
       dim_roles[g] = MatmulDomain::K;
-    } else if (concrete_flags == 0b101 || present_flags == 0b101) {
+    } else if (concrete_flags == 0b101) {
       dim_roles[g] = MatmulDomain::M;
-    } else if (concrete_flags == 0b110 || present_flags == 0b110) {
+    } else if (concrete_flags == 0b110) {
       dim_roles[g] = MatmulDomain::N;
     } else {
       NVF_ERROR(
@@ -1835,6 +1840,34 @@ std::vector<ValGroup> canonicalDimOrdering(
     }
   }
   NVF_ERROR(other_dims.empty(), "Found unrecognized dims in matmul tensors");
+
+  // At this point we might not have included all the ValGroups for each role,
+  // since some might be all Broadcast (e.g. broadcast batch dims). We will add
+  // any skipped groups outside the ones that are already included, i.e. we
+  // place broadcast dims outside non-broadcast within the same role.
+  for (const auto& [g, role] : dim_roles) {
+    VectorOfUniqueEntries<ValGroup>* inserted = nullptr;
+    switch (role) {
+      case MatmulDomain::Batch:
+        inserted = &batch_dims;
+        break;
+      case MatmulDomain::M:
+        inserted = &m_dims;
+        break;
+      case MatmulDomain::N:
+        inserted = &n_dims;
+        break;
+      case MatmulDomain::K:
+        inserted = &k_dims;
+        break;
+    }
+    auto it = inserted->set().find(g);
+    if (it == inserted->set().end()) {
+      // We did not insert this group yet. Insert it at the outer position
+      // (inserted is reverse-ordered).
+      inserted->pushBack(g);
+    }
+  }
 
   // See https://github.com/NVIDIA/Fuser/pull/2303#discussion_r1626587836
   NVF_ERROR(
