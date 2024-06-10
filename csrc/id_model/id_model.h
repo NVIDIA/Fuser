@@ -127,7 +127,7 @@ class IdModel : public PolymorphicBase {
       Fusion* fusion,
       bool build_graphs = true,
       bool allow_self_mapping = false,
-      bool validate = true,
+      bool validate = false,
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
 
@@ -152,6 +152,14 @@ class IdModel : public PolymorphicBase {
   }
 
   std::string toString() const;
+
+  bool empty() const {
+    return tvs_.empty();
+  }
+
+  Fusion* fusion() const {
+    return fusion_;
+  }
 
   // Build all graphs, i.e., Exact, AlmostExact, Permissive and
   // LOOP. This is by default called from the constructor
@@ -202,6 +210,11 @@ class IdModel : public PolymorphicBase {
   // replayed expression and adding potential mappings through the expression.
   Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
 
+  //! Run through disjoint sets in the LOOP graph, make sure there's only one
+  //! non-serial parallel type in each disjoint set, set the parallel type of
+  //! all IterDomains in the disjoint set to that PType.
+  void validateAndPropagatePType();
+
  protected:
   // Fills id_uses_ and id_definitions_ for all IterDomains active in the
   // fusion.
@@ -225,6 +238,9 @@ class IdModel : public PolymorphicBase {
   void validateLoopGraphHasNoSelfMappedLeafDomains() const;
 
  protected:
+  // Fusion where iter domains belong
+  Fusion* fusion_ = nullptr;
+
   // All tensor expressions that this model analyzes
   std::vector<Expr*> tv_exprs_;
 

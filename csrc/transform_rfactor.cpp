@@ -19,7 +19,7 @@ namespace nvfuser {
 
 namespace {
 
-// This class replays the root domains of the producer of an rfactor domain.
+// This class replays the root domains of the producer of an logical domain.
 // Axes must be replayed to mark rfactor iter domains as being reductions in the
 // producer, but converting the other reductions in the producer as iter
 // domains. Those (previously reductions in the producer) iter domains are then
@@ -27,15 +27,15 @@ namespace {
 // into two stages, but maintains the correct values are reduced across those
 // stages.
 //
-// The rfactor domain of the producer must match the consumers root domain to
+// The logical domain of the producer must match the consumers root domain to
 // maintain producer-consumer mappings. The following uses the original domain
-// being rfactored and marked iter domains as "static_rfactor_ids". These static
+// being rfactored and marked iter domains as "static_logical_ids". These static
 // IDs cannot be changed in the producer as it would invalidate the rfactor, no
 // longer matching the consumer.
 //
-// To find the rfactor domain in the producer which will be used as the root
+// To find the logical domain in the producer which will be used as the root
 // domain in the consumer, we start at the roots of producer, and replay forward
-// the root iter domains if that iter domain is marked as a "static_rfactor_id".
+// the root iter domains if that iter domain is marked as a "static_logical_id".
 // To do this we maintain the ordering of the iter domains. For example:
 //
 //       I1
@@ -46,8 +46,8 @@ namespace {
 //   /    \/
 //  I5    I6
 //
-// If rfactor_axes = {I6}, then "static_rfactor_id" IDs will be {I6, I4, I3, I2,
-// I1}. Then, as we perform the replay the rfactor domain will be updated as:
+// If rfactor_axes = {I6}, then "static_logical_id" IDs will be {I6, I4, I3, I2,
+// I1}. Then, as we perform the replay the logical domain will be updated as:
 // [I1] -> [I2, I3] -> [I5, I4, I3] -> [I5, I6]
 //
 // ReplayTransformations typically updates the leaf ids, but we'll simply use
@@ -55,7 +55,7 @@ namespace {
 // in this replay.
 class ReplayRFactor : public ReplayTransformations {
  private:
-  // Perform the update of the rfactor domain by replacing "replace0" with
+  // Perform the update of the logical domain by replacing "replace0" with
   // "with0" and if not nullptr "with1", also removes "replace1" if not nullptr.
   void updateRFactorDomain(
       IterDomain* replace0,
@@ -67,27 +67,27 @@ class ReplayRFactor : public ReplayTransformations {
         "The first provided IterDomain should be a real pointer,",
         " the second iter domain provided can be a nullptr.");
     auto pos =
-        std::find(rfactor_domain_.begin(), rfactor_domain_.end(), replace0);
+        std::find(logical_domain_.begin(), logical_domain_.end(), replace0);
     NVF_ERROR(
-        pos != rfactor_domain_.end(),
+        pos != logical_domain_.end(),
         "Could not find iter domain: ",
         replace0->toString(),
-        " in the rfactor domain to replace.");
-    rfactor_domain_.insert(pos, with0);
+        " in the logical domain to replace.");
+    logical_domain_.insert(pos, with0);
     if (with1 != nullptr) {
-      pos = std::find(rfactor_domain_.begin(), rfactor_domain_.end(), replace0);
-      rfactor_domain_.insert(pos, with1);
+      pos = std::find(logical_domain_.begin(), logical_domain_.end(), replace0);
+      logical_domain_.insert(pos, with1);
     }
-    pos = std::find(rfactor_domain_.begin(), rfactor_domain_.end(), replace0);
-    rfactor_domain_.erase(pos);
+    pos = std::find(logical_domain_.begin(), logical_domain_.end(), replace0);
+    logical_domain_.erase(pos);
     if (replace1 != nullptr) {
-      pos = std::find(rfactor_domain_.begin(), rfactor_domain_.end(), replace1);
+      pos = std::find(logical_domain_.begin(), logical_domain_.end(), replace1);
       NVF_ERROR(
-          pos != rfactor_domain_.end(),
+          pos != logical_domain_.end(),
           "Wanted to replace ",
           replace1->toString(),
-          " but it's not in the rfactor domain.");
-      rfactor_domain_.erase(pos);
+          " but it's not in the logical domain.");
+      logical_domain_.erase(pos);
     }
   }
 
@@ -111,13 +111,13 @@ class ReplayRFactor : public ReplayTransformations {
     // outer loop size
     Val* remainder = ceilDiv(mapped->extent(), s->factor());
 
-    // Check if we need to mark the outputs as an rfactor domain meaning this
+    // Check if we need to mark the outputs as an logical domain meaning this
     // transformation must be present in replays otherwise it breaks the compute
     // definition of the fusion. Iter domains are actually not static, its the
     // transformation that's static or not, so if one output is marked as a
     // static id, then both must be.
-    bool static_rfactor_outputs = static_rfactor_ids_.count(s->outer()) ||
-        static_rfactor_ids_.count(s->inner());
+    bool static_logical_outputs = static_logical_ids_.count(s->outer()) ||
+        static_logical_ids_.count(s->inner());
 
     // Manually replay the split, making reduction = false and rfactor = true
     // outer IterDomain
@@ -128,7 +128,7 @@ class ReplayRFactor : public ReplayTransformations {
             .iter_type(
                 rfactor_axes_.count(s->outer()) ? IterType::Reduction
                                                 : IterType::Iteration)
-            .is_rfactor_domain(static_rfactor_outputs)
+            .is_rfactor_domain(static_logical_outputs)
             .build();
 
     // inner IterDomain
@@ -139,11 +139,11 @@ class ReplayRFactor : public ReplayTransformations {
             .iter_type(
                 rfactor_axes_.count(s->inner()) ? IterType::Reduction
                                                 : IterType::Iteration)
-            .is_rfactor_domain(static_rfactor_outputs)
+            .is_rfactor_domain(static_logical_outputs)
             .build();
 
     // Generate the split node
-    IrBuilder::create<Split>(
+    IrBuilder::createInContainer<Split>(
         s->container(), ido, idi, mapped, s->factor(), s->innerSplit());
 
     // Remove mapped id from leaf IDs
@@ -156,7 +156,7 @@ class ReplayRFactor : public ReplayTransformations {
     id_map_[s->outer()] = ido;
     id_map_[s->inner()] = idi;
 
-    if (static_rfactor_ids_.count(s->in())) {
+    if (static_logical_ids_.count(s->in())) {
       updateRFactorDomain(s->in(), nullptr, s->outer(), s->inner());
     }
   }
@@ -190,10 +190,10 @@ class ReplayRFactor : public ReplayTransformations {
             .iter_type(
                 rfactor_axes_.count(m->out()) ? IterType::Reduction
                                               : IterType::Iteration)
-            .is_rfactor_domain(static_rfactor_ids_.count(m->out()))
+            .is_rfactor_domain(static_logical_ids_.count(m->out()))
             .build();
 
-    IrBuilder::create<Merge>(
+    IrBuilder::createInContainer<Merge>(
         m->container(), merged_id, id_outer_mapped, id_inner_mapped);
 
     // Remove inputs from the leaf IDs
@@ -207,12 +207,12 @@ class ReplayRFactor : public ReplayTransformations {
 
     // Similar to split replay above, check if output needs to be marked as
     // rfactor indicating this transofrmation is static.
-    if (static_rfactor_ids_.count(m->inner()) ||
-        static_rfactor_ids_.count(m->outer())) {
+    if (static_logical_ids_.count(m->inner()) ||
+        static_logical_ids_.count(m->outer())) {
       NVF_ERROR(
-          static_rfactor_ids_.count(m->inner()) ==
-              static_rfactor_ids_.count(m->outer()),
-          "If one input to a merge is a static rfactor id, the other must be as well.");
+          static_logical_ids_.count(m->inner()) ==
+              static_logical_ids_.count(m->outer()),
+          "If one input to a merge is a static logical id, the other must be as well.");
       updateRFactorDomain(m->outer(), m->inner(), m->out(), nullptr);
     }
   }
@@ -234,13 +234,13 @@ class ReplayRFactor : public ReplayTransformations {
   std::unordered_set<IterDomain*> rfactor_axes_;
   // Iter domains whose history cannot be changed as it would break rfactor
   // dependencies.
-  std::unordered_set<IterDomain*> static_rfactor_ids_;
+  std::unordered_set<IterDomain*> static_logical_ids_;
 
  public:
-  // The updated domain matching the producer's rfactor domain. This rfactor
+  // The updated domain matching the producer's logical domain. This rfactor
   // domain is relative to the iter domains in the origianl_domain and must be
   // updated to grab the mapped id's later.
-  std::vector<IterDomain*> rfactor_domain_;
+  std::vector<IterDomain*> logical_domain_;
 
   ReplayRFactor(
       // Original domain the rfactor is in reference to.
@@ -253,11 +253,11 @@ class ReplayRFactor : public ReplayTransformations {
       std::unordered_set<IterDomain*> rfactor_axes,
       // All the iter domains in original_domain that the rfactor axes are
       // dependant on.
-      std::unordered_set<IterDomain*> static_rfactor_ids)
+      std::unordered_set<IterDomain*> static_logical_ids)
       : ReplayTransformations(original_domain->leaf(), std::move(id_map)),
         rfactor_axes_(std::move(rfactor_axes)),
-        static_rfactor_ids_(std::move(static_rfactor_ids)),
-        rfactor_domain_(original_domain->maybeRFactor()) {
+        static_logical_ids_(std::move(static_logical_ids)),
+        logical_domain_(original_domain->logical()) {
     setErrorOnFailure(false);
   }
 };
@@ -318,7 +318,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       found_non_rfactor_reduction,
       "Must have at least one reduction axis not marked as rfactor.");
 
-  // Get root IterDomains of the rfactor domains, these will be the ones we will
+  // Get root IterDomains of the logical domains, these will be the ones we will
   // replay marked as rfactor axes, those marked in the axes set will be
   // reduction=false
   auto rfactor_root_vals = IterVisitor::getInputsTo(
@@ -336,7 +336,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
           [](IterDomain* id) { return id->maybePartial(); }),
       "rFactor of partial domains not allowed, but at least one found.");
 
-  auto original_td_root = original_td->maybeRFactor();
+  auto original_td_root = original_td->logical();
 
   // Generate a new TensorDomain and set up map from one root to this one.
   std::vector<IterDomain*> new_producer_root(original_td_root.size(), nullptr);
@@ -368,22 +368,22 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   // Axes in the original_td that are in the history of the rfactored domains.
   // These will mark which iter domains must be preserved as static
   // transformations to preserve compute semantics.
-  auto all_deps_of_rfactor = DependencyCheck::getAllValsBetween(
-      {original_td->maybeRFactor().begin(), original_td->maybeRFactor().end()},
+  auto all_deps_of_logical = DependencyCheck::getAllValsBetween(
+      {original_td->logical().begin(), original_td->logical().end()},
       {rfactor_axes.begin(), rfactor_axes.end()});
 
-  auto all_id_deps_of_rfactor =
-      ir_utils::filterByType<IterDomain>(all_deps_of_rfactor);
+  auto all_id_deps_of_logical =
+      ir_utils::filterByType<IterDomain>(all_deps_of_logical);
 
-  std::unordered_set<IterDomain*> static_rfactor_ids(
-      {all_id_deps_of_rfactor.begin(), all_id_deps_of_rfactor.end()});
+  std::unordered_set<IterDomain*> static_logical_ids(
+      {all_id_deps_of_logical.begin(), all_id_deps_of_logical.end()});
 
   // Replay producer dimensions.
   ReplayRFactor replay_rfactor(
       original_td,
       original_to_producer_root_map,
       rfactor_axes,
-      static_rfactor_ids);
+      static_logical_ids);
 
   std::unordered_map<IterDomain*, IterDomain*> original_to_producer_id_map =
       replay_rfactor.getReplay();
@@ -405,14 +405,14 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
     }
   }
 
-  // Specify the rfactor domain of the producer which will match the consumer
+  // Specify the logical domain of the producer which will match the consumer
   // root domain.
-  std::vector<IterDomain*> new_producer_rfactor_domain;
-  new_producer_rfactor_domain.reserve(replay_rfactor.rfactor_domain_.size());
+  std::vector<IterDomain*> new_producer_logical_domain;
+  new_producer_logical_domain.reserve(replay_rfactor.logical_domain_.size());
   std::transform(
-      replay_rfactor.rfactor_domain_.begin(),
-      replay_rfactor.rfactor_domain_.end(),
-      std::back_inserter(new_producer_rfactor_domain),
+      replay_rfactor.logical_domain_.begin(),
+      replay_rfactor.logical_domain_.end(),
+      std::back_inserter(new_producer_logical_domain),
       [&](IterDomain* id) {
         auto replayed_id_it = original_to_producer_id_map.find(id);
         NVF_ERROR(
@@ -421,12 +421,12 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
         return replayed_id_it->second;
       });
 
-  TensorDomain* producer_domain = IrBuilder::create<TensorDomain>(
+  TensorDomain* producer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),
       new_producer_root,
-      new_producer_rfactor_domain,
+      new_producer_logical_domain,
       new_producer_domain,
-      TensorDomain::getContiguityFilledWith(new_producer_rfactor_domain, true));
+      TensorDomain::getContiguityFilledWith(new_producer_logical_domain, true));
 
   // Producer has been finished, now work on consumer.
 
@@ -437,9 +437,9 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   }
 
   std::vector<IterDomain*> new_consumer_root_domain;
-  new_consumer_root_domain.reserve(new_producer_rfactor_domain.size());
+  new_consumer_root_domain.reserve(new_producer_logical_domain.size());
   std::unordered_map<IterDomain*, IterDomain*> original_to_consumer_root_map;
-  for (auto p_root_id : new_producer_rfactor_domain) {
+  for (auto p_root_id : new_producer_logical_domain) {
     if (p_root_id->isReduction()) {
       continue;
     }
@@ -481,7 +481,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
     }
   }
 
-  auto consumer_domain = IrBuilder::create<TensorDomain>(
+  auto consumer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),
       new_consumer_root_domain,
       new_consumer_domain,

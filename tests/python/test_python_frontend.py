@@ -1802,6 +1802,8 @@ class TestNvFuserFrontend(TestCase):
 
             _ = fd.execute(inputs)
 
+            code_len = len(fd.sched.user_schedule_ir())
+            self.assertTrue(code_len > 0, "User schedule is not defined.")
             code_len = len(fd.last_cuda_code())
             self.assertTrue(code_len > 0, "Cuda Code was not produced!")
             code_len = len(fd.last_cuda_code(intrinsic_code=True))
@@ -4015,6 +4017,43 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T101)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_fusion_profiler(self):
+        inputs = [
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.ops.add(T0, T1)
+            T3 = fd.ops.sum(T2, dim=-1)
+            T4 = fd.ops.sum(T3, dim=-1)
+            fd.add_output(T4)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        # Testing returning a profile without profiling, expect an error!
+        try:
+            fd.profile()
+            raise RuntimeError(
+                "fd.profile() should have raised a ValueError because profile() was called before exeute()!"
+            )
+        except ValueError:
+            pass
+
+        # Testing that the profile returns 2 segments
+        try:
+            fd.execute(inputs, profile=True)
+            prof = fd.profile()
+            self.assertEqual(prof.segments, 2)
+            self.assertEqual(len(prof.kernel_profiles), 2)
+        except Exception as e:
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
 
 
 if __name__ == "__main__":

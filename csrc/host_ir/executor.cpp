@@ -19,7 +19,7 @@ HostIrExecutor::HostIrExecutor(
     HostIrExecutorParams params)
     : container_(std::move(container)),
       communicator_(communicator),
-      params_(params){};
+      params_(params) {}
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
@@ -55,10 +55,8 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
   Expr* op = post_ir->hostOpToPost();
   if (op->isA<HostUnit>()) {
     postCompute(post_ir);
-  } else if (op->isA<Communication>()) {
-    postCommunication(post_ir);
   } else {
-    NVF_ERROR(false, "The op cannot be posted on a stream: ", op);
+    dispatch(op);
   }
 }
 
@@ -119,26 +117,21 @@ void HostIrExecutor::postCompute(PostOnStream* post_ir) {
   }
 }
 
-void HostIrExecutor::postCommunication(PostOnStream* post_ir) {
+void HostIrExecutor::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
   NVF_ERROR(
-      post_ir->hostOpToPost()->isA<Communication>(),
-      "op must be a Communication: ",
-      post_ir->hostOpToPost());
-  auto communication = post_ir->hostOpToPost()->as<Communication>();
-  NVF_ERROR(
       std::find(
-          communication->params().team.begin(),
-          communication->params().team.end(),
-          communicator_->deviceId()) != communication->params().team.end(),
+          communication->team().begin(),
+          communication->team().end(),
+          communicator_->deviceId()) != communication->team().end(),
       "current device index ",
       communicator_->deviceId(),
       " must be present in the communication's team");
 
-  auto input_val = post_ir->inputs().at(0);
-  auto output_val = post_ir->outputs().at(0);
+  Val* input_val = communication->input(0);
+  Val* output_val = communication->output(0);
   at::Tensor input_tensor;
   if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
     input_tensor = val_to_IValue_.at(input_val).toTensor();
@@ -148,8 +141,8 @@ void HostIrExecutor::postCommunication(PostOnStream* post_ir) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
   }
 
-  c10::intrusive_ptr<c10d::Backend> backend = communicator_->getBackendForTeam(
-      communication->params().team, std::nullopt);
+  c10d::Backend* backend =
+      communicator_->getBackendForTeam(communication->team(), std::nullopt);
   c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
       communication,
       communicator_->deviceId(),

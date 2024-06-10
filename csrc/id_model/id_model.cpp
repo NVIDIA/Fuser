@@ -94,6 +94,10 @@ IdModel::IdModel(
 
   tvs_ = all_tvs.vector();
 
+  NVF_ERROR(!tvs_.empty(), "No tensor to build IdModel for");
+
+  fusion_ = tvs_.front()->fusion();
+
   // Add uses and definitions to all iter domains.
   buildIterDomainDefinitionsAndUses();
 
@@ -108,7 +112,8 @@ IdModel::IdModel(
     bool allow_self_mapping,
     bool validate,
     LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback)
-    : allow_self_mapping_(allow_self_mapping),
+    : fusion_(fusion),
+      allow_self_mapping_(allow_self_mapping),
       validate_(validate),
       loop_promotion_map_builder_callback_(
           loop_promotion_map_builder_callback) {
@@ -166,7 +171,7 @@ ValGraph& IdModel::idGraph(IdMappingMode mode) {
 void IdModel::buildIterDomainDefinitionsAndUses() {
   for (const auto tv : tvs_) {
     VectorOfUniqueEntries<IterDomain*> root_domain_ids{
-        tv->getRootDomain().begin(), tv->getRootDomain().end()};
+        tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()};
 
     std::vector<IterDomain*> all_ids = ir_utils::allIDsOf(tv);
 
@@ -179,9 +184,9 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         // If the tensor domain is a view like domain, and the iteration
         // domain is marked as an rfactor product and is in the rfactor
         // domain, it's a view like rfactor iteration domain
-        const auto& rfactor_domain = tv->domain()->maybeRFactor();
-        if (std::find(rfactor_domain.begin(), rfactor_domain.end(), id) !=
-            rfactor_domain.end()) {
+        const auto& logical_domain = tv->domain()->logical();
+        if (std::find(logical_domain.begin(), logical_domain.end(), id) !=
+            logical_domain.end()) {
           view_rfactor_ids_.emplace(id);
         }
       }
@@ -286,13 +291,13 @@ void IdModel::buildExactGraph() {
       // their leaf iter domains.
 
       NVF_ERROR(
-          other_tv_output->getRootDomain().size() ==
-              c_tv->getRootDomain().size(),
+          other_tv_output->getMaybeRootDomain().size() ==
+              c_tv->getMaybeRootDomain().size(),
           "Multiple outputs with mismatched TV domains is not supported.");
 
-      for (auto domain_i : c10::irange(c_tv->getRootDomain().size())) {
-        auto c_id = c_tv->getRootDomain()[domain_i];
-        auto o_id = other_tv_output->getRootDomain()[domain_i];
+      for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
+        auto c_id = c_tv->getMaybeRootDomain()[domain_i];
+        auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
         idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
       }
     }
@@ -334,8 +339,7 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
-    if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-        split->stopOffset()->isZeroInt()) {
+    if (split->factor()->isOneInt()) {
       if (split->innerSplit()) {
         mapped_ids.push_back({split->in(), split->outer()});
       } else {
@@ -501,13 +505,13 @@ StatefulInliningInfo buildStatefulInliningInfo(
   for (auto expr : exprs) {
     for (auto producer_tv :
          ir_utils::filterByType<TensorView>(expr->inputs())) {
-      const auto& producer_root = producer_tv->getMaybeRFactorDomain();
+      const auto& producer_logical = producer_tv->getLogicalDomain();
       const auto& producer_domain = producer_tv->domain()->leaf();
 
       // Grab all iteration domains in producer that its compute at iter domains
       // depend on.
       auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-          {producer_root.begin(), producer_root.end()},
+          {producer_logical.begin(), producer_logical.end()},
           {producer_domain.begin(),
            producer_domain.begin() + producer_tv->getComputeAtPosition()});
       auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
@@ -557,7 +561,9 @@ StatefulInliningInfo buildStatefulInliningInfo(
             all_consumer_ids, all_consumer_i_ids);
 
         for (const auto& [c_id_1, c_ids] : sibling_map) {
-          NVF_ERROR(c_ids.size() == 1);
+          // Note that c_ids can have multiple domains as this graph
+          // is a Permissive graph and there may be broadcast merged
+          // domains
           info.sibling_maps[c_id_1->as<IterDomain>()].pushBack(c_ids);
         }
       }
@@ -751,8 +757,8 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
       id_definitions_[new_inputs.at(i)];
       id_uses_[new_inputs.at(i)];
       for (auto mode : initialized_modes) {
-        idGraph(mode).initializeVal(new_inputs.at(i), {}, {});
-        idGraph(mode).mapVals(new_inputs.at(i), tmp_inputs.at(i));
+        idGraph(mode).initializeVal(
+            new_inputs.at(i), idGraph(mode).toGroup(tmp_inputs.at(i)));
       }
     }
   }
@@ -867,6 +873,30 @@ std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
         nvfuser::toString(new_groups.front()));
   }
   return new_map;
+}
+
+// Mostly just copied from ComputeAtMap::validateAndPropagatePType
+void IdModel::validateAndPropagatePType() {
+  for (const ValGroup& loop_group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    ParallelType common_ptype = ParallelType::Serial;
+    for (Val* id : *loop_group) {
+      auto id_ptype = id->as<IterDomain>()->getParallelType();
+      NVF_ERROR(
+          id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
+              common_ptype == ParallelType::Serial,
+          "Issue validating parallel type disjoint ptype is, ",
+          common_ptype,
+          " but found in the set the id: ",
+          id->toString());
+      common_ptype =
+          common_ptype == ParallelType::Serial ? id_ptype : common_ptype;
+    }
+
+    for (auto id : *loop_group) {
+      id->as<IterDomain>()->parallelize(common_ptype);
+    }
+  }
 }
 
 } // namespace nvfuser

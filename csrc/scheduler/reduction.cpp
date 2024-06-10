@@ -938,7 +938,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
     size_t axis_count = 0;
     auto reduction_root_size = [](TensorView* red_tv) {
       size_t count = 0;
-      for (auto id : red_tv->getRootDomain()) {
+      for (auto id : red_tv->getMaybeRootDomain()) {
         if (!id->isBroadcast()) {
           count++;
         }
@@ -954,9 +954,9 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
         if (reduction_root_size(red) != axis_count) {
           scheduler_debug_utils::canScheduleRejectReason(
               heuristicType(),
-              "Inconsistent reduction axes ",
-              red,
-              "is not ",
+              "Inconsistent reduction root size: ",
+              red->toString(),
+              ", expected: ",
               axis_count);
           return false;
         }
@@ -976,7 +976,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
             heuristicType(),
             "Un-mapped multi-reduction: ",
             reduction_tvs[it - 1]->toString(),
-            " ",
+            " and ",
             reduction_tvs[it]->toString());
         return false;
       }
@@ -1181,7 +1181,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
     reduction_tv->reorder(
-        scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
+        scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
 
   NVF_ERROR(

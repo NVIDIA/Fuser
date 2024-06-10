@@ -263,14 +263,13 @@ void FusionExecutor::compileFusion(
   }
 
   for (auto out : fusion->outputs()) {
-    const auto maybe_rfactor_domain =
-        out->as<TensorView>()->getMaybeRFactorDomain();
+    const auto logical_domain = out->as<TensorView>()->getLogicalDomain();
     // walking through outputs to see if output shapes are dependent on
     // non-tensor inputs. For which case, we should have disabled output
     // allocation, since the caching id only looks at tensor shapes.
     // See issue https://github.com/csarofeen/pytorch/issues/2002
     std::vector<Val*> output_extents;
-    for (const auto id : maybe_rfactor_domain) {
+    for (const auto id : logical_domain) {
       Val* extent = nullptr;
       if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
         continue;
@@ -609,12 +608,12 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
-class ForwardTraverseFromAllocToRFactor {
+class ForwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
   ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
-  // Forward traverse split from allocation to rFactor. Needs to, for example,
+  // Forward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 15, ...] as [..., 3, 5, ...]
   void handle(Split* split) {
     auto in = split->in();
@@ -625,14 +624,14 @@ class ForwardTraverseFromAllocToRFactor {
     // NVF_ERROR(in_it != frontier_.end());
     if (in_it == frontier_.end()) {
       // TODO: We should get rid of this return and enable the above assert.
-      // Note [Allocation domain on both side of rFactor]
-      // For cases where the allocation domain is on both side of rFactor, for
+      // Note [Allocation domain on both side of logical]
+      // For cases where the allocation domain is on both side of logical, for
       // example, in Tensor3d_To_NHWC4d_FwdBwd_CUDA:
       // [alloc,root]   [alloc,root]           [root]
       //          \     /                      /    |
-      //         [rFactor]                  split   [rFactor]
+      //         [logical]                  split   [logical]
       //                                    /  \         |
-      //                      [alloc,rFactor] [rFactor]  |
+      //                      [alloc,logical] [logical]  |
       //                                             \   |
       //                                             [alloc]
       // I have no idea why StmtSort::getExprsBetween is not returning the
@@ -658,7 +657,7 @@ class ForwardTraverseFromAllocToRFactor {
     frontier_.erase(in_it);
   }
 
-  // Forward traverse split from allocation to rFactor. Needs to, for example,
+  // Forward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
   void handle(Merge* merge) {
     auto inner = merge->inner();
@@ -669,7 +668,7 @@ class ForwardTraverseFromAllocToRFactor {
     // NVF_ERROR(inner_it != frontier_.end());
     // NVF_ERROR(outer_it != frontier_.end());
     if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
+      // TODO: see [Allocation domain on both side of logical]
       return;
     }
     int64_t inner_dim = std::distance(frontier_.begin(), inner_it);
@@ -726,17 +725,17 @@ class ForwardTraverseFromAllocToRFactor {
   }
 
  public:
-  ForwardTraverseFromAllocToRFactor(
+  ForwardTraverseFromAllocToLogical(
       at::Tensor tensor,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
-      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
     auto forward_exprs = StmtSort::getExprsBetween(
-        {alloc.begin(), alloc.end()}, {rfactor.begin(), rfactor.end()});
+        {alloc.begin(), alloc.end()}, {logical.begin(), logical.end()});
     for (auto expr : forward_exprs) {
       handle(expr);
     }
@@ -746,12 +745,12 @@ class ForwardTraverseFromAllocToRFactor {
 
 // Backward traverse is similar to forward traverse, but we need to do opposite
 // transformations.
-class BackwardTraverseFromAllocToRFactor {
+class BackwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
   ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
-  // Backward traverse split from allocation to rFactor. Needs to, for example,
+  // Backward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
   void handle(Split* split) {
     auto inner = split->inner();
@@ -762,7 +761,7 @@ class BackwardTraverseFromAllocToRFactor {
     // NVF_ERROR(inner_it != frontier_.end());
     // NVF_ERROR(outer_it != frontier_.end());
     if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
+      // TODO: see [Allocation domain on both side of logical]
       return;
     }
     int64_t inner_dim = std::distance(frontier_.begin(), inner_it);
@@ -808,7 +807,7 @@ class BackwardTraverseFromAllocToRFactor {
     }
   }
 
-  // Backward traverse split from allocation to rFactor. Needs to, for example,
+  // Backward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 15, ...] as [..., 3, 5, ...]
   void handle(Merge* merge) {
     auto out = merge->out();
@@ -818,7 +817,7 @@ class BackwardTraverseFromAllocToRFactor {
     auto out_it = std::find(frontier_.begin(), frontier_.end(), out);
     // NVF_ERROR(out_it != frontier_.end());
     if (out_it == frontier_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
+      // TODO: see [Allocation domain on both side of logical]
       return;
     }
     // view tensor
@@ -850,17 +849,17 @@ class BackwardTraverseFromAllocToRFactor {
   }
 
  public:
-  BackwardTraverseFromAllocToRFactor(
+  BackwardTraverseFromAllocToLogical(
       at::Tensor tensor,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
-      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
     auto backward_exprs = StmtSort::getExprsBetween(
-        {rfactor.begin(), rfactor.end()}, {alloc.begin(), alloc.end()});
+        {logical.begin(), logical.end()}, {alloc.begin(), alloc.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());
     for (auto expr : backward_exprs) {
       handle(expr);
@@ -871,32 +870,32 @@ class BackwardTraverseFromAllocToRFactor {
 
 // Start from a tensor whose dimensions are consistent with the allocation
 // domain of tv, apply a sequence of view/permute to the tensor to transform it
-// into a format whose dimensions are consistent with the rFactor domain of tv.
-// For example, if the rFactor domain is [I1, I2], and the allocation domain is
+// into a format whose dimensions are consistent with the logical domain of tv.
+// For example, if the logical domain is [I1, I2], and the allocation domain is
 // [I2*I1], then we will allocate as [I2*I1], then do a tensor.view(I2, I1).t()
 // to get a tensor whose semantics is [I1, I2] but its memory is [I2*I1].
-// Another example, if the rFactor domain is [I1*I2] and the allocation domain
+// Another example, if the logical domain is [I1*I2] and the allocation domain
 // is [I1, I2], then we will allocate as [I1, I2] and do a tensor.view(I1*I2) to
 // get a tensor whose semantics is [I1*I2] but memory is [I1,I2]
-at::Tensor transformOutputFromAllocationToRFactor(
+at::Tensor transformOutputFromAllocationToLogical(
     at::Tensor tensor,
     TensorView* tv,
     ExpressionEvaluator& ee) {
   // Ignore reductions because reductions does not exist in tensor's definition
-  auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
   auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   // Traverse all affine transformations from allocation domain. Because
-  // allocation domain can be before or after the rFactor domain, we need both a
+  // allocation domain can be before or after the logical domain, we need both a
   // forward and a backward traverse.
   std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
   NVF_ERROR(tensor.dim() == (int64_t)frontier.size());
-  tensor = ForwardTraverseFromAllocToRFactor(tensor, ee, frontier)
-               .run(rfactor, alloc);
-  tensor = BackwardTraverseFromAllocToRFactor(tensor, ee, frontier)
-               .run(rfactor, alloc);
-  NVF_ERROR(frontier.size() == rfactor.size());
+  tensor = ForwardTraverseFromAllocToLogical(tensor, ee, frontier)
+               .run(logical, alloc);
+  tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
+               .run(logical, alloc);
+  NVF_ERROR(frontier.size() == logical.size());
   // Now that all affine transformations are handled, and frontiers should
-  // contain the same set of IDs as rfactor. We still need to do a final
+  // contain the same set of IDs as logical. We still need to do a final
   // permutation so that their orders are also consistent.
   std::unordered_map<IterDomain*, int64_t> current_dims;
   int64_t counter = 0;
@@ -905,7 +904,7 @@ at::Tensor transformOutputFromAllocationToRFactor(
   }
   std::vector<int64_t> dims;
   dims.reserve(frontier.size());
-  for (auto id : rfactor) {
+  for (auto id : logical) {
     dims.emplace_back(current_dims.at(id));
   }
   return tensor.permute(dims);
@@ -952,9 +951,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
       at::empty_strided(size_stride.first, size_stride.second, options);
   // TODO(jiej): we should refactor it here, there's no need to use
   // meta_tensor at all, size + stride should be used directly in the
-  // `transformOutputFromAllocationToRFactor`
+  // `transformOutputFromAllocationToLogical`
   meta_tensor =
-      transformOutputFromAllocationToRFactor(meta_tensor, tv, expr_eval);
+      transformOutputFromAllocationToLogical(meta_tensor, tv, expr_eval);
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
 }
 

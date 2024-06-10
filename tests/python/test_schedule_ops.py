@@ -10,7 +10,7 @@ import torch
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
-from nvfuser import FusionDefinition
+from nvfuser import FusionDefinition, DataType, ParallelType, MemoryType
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -102,6 +102,39 @@ class TestScheduleOps(TestCase):
         nvf_user_out = fd.execute(inputs)
         nvf_out = fd.execute(inputs, override_user_schedule=True)
         self.assertEqual(nvf_user_out, nvf_out)
+
+    def test_print(self):
+        """
+        Test to_string and user_schedule_ir print functions
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.add_output(self.t2)
+
+            def schedule(self):
+                fd.sched.merge(self.t0, dim=0)
+                fd.sched.merge(self.t1, dim=0)
+                fd.sched.merge(self.t2, dim=0)
+                assert len(fd.sched.to_string(self.t0)) > 0
+                assert len(fd.sched.to_string(self.t1)) > 0
+                assert len(fd.sched.to_string(self.t2)) > 0
+
+                user_ir = fd.sched.user_schedule_ir()
+                assert len(user_ir) > 0
+                assert user_ir != "User schedule is not defined."
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
 
     def test_merge_op(self):
         self.sched_op_in_definition_error(lambda fd: fd.sched.merge(fd.t1, 1))
@@ -247,6 +280,405 @@ class TestScheduleOps(TestCase):
 
         self.valid_use(lambda fd: fd.sched.split(fd.t1, 1, 2))
         self.valid_use(lambda fd: fd.sched.split(fd.t1, -1, 2))
+
+    def test_pointwise_basic_user_schedule(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses merge, split, parallelize schedule operations
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.add_output(self.t2)
+
+            def schedule(self):
+                fd.sched.merge(self.t2, dim=0)
+                fd.sched.split(self.t2, dim=0, factor=128)
+                fd.sched.parallelize(self.t2, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(self.t2, axis := 1, ParallelType.block_x)
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_pointwise_smem_cache_user_schedule(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses the following schedule operations:
+         * merge, split, parallelize
+         * cache_after, cache_before, set_memory_type
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.add_output(self.t2)
+
+            def schedule(self):
+                cache_after_t0 = fd.sched.cache_after(self.t0)
+                cache_after_t1 = fd.sched.cache_after(self.t1)
+                cache_before_t2 = fd.sched.cache_before(self.t2)
+                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
+                fd.sched.set_memory_type(cache_after_t1, MemoryType.shared)
+                fd.sched.set_memory_type(cache_before_t2, MemoryType.shared)
+
+                all_tensors = [cache_after_t0, cache_after_t1, cache_before_t2, self.t2]
+                for tensor in all_tensors:
+                    fd.sched.merge(tensor, dim=0)
+                    fd.sched.split(tensor, dim=0, factor=128)
+                    fd.sched.parallelize(tensor, axis := 0, ParallelType.grid_x)
+                    fd.sched.parallelize(tensor, axis := 1, ParallelType.block_x)
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_pointwise_partial_transform_user_schedule(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses the following schedule operations:
+         * merge, split, parallelize, cache_after, cache_before, set_memory_type
+         * transform_like, parallelize_like
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                # NOTE Manual broadcast is required so reduction TensorView is
+                # available in python frontend.
+                self.t2 = self.ops.max(self.t0, dims=[-1], keepdim=False)
+                self.t3 = self.ops.broadcast(self.t2, is_broadcast_dim=[False, True])
+                self.t4 = self.ops.sub(self.t0, self.t3)
+                self.t5 = self.ops.add(self.t4, self.t1)
+                self.add_output(self.t5)
+
+            def schedule(self):
+                # Initial selected tensors is all original fusion TensorViews
+                selected_tensors = [self.t2, self.t3, self.t4, self.t5]
+
+                # Create cache tensors
+                cache_after_t0 = fd.sched.cache_after(self.t0)
+                cache_after_t1 = fd.sched.cache_after(self.t1)
+                cache_before_t5 = fd.sched.cache_before(self.t5)
+
+                # Place all intermediate tensors in shared memory because
+                # we are not using computeAt
+                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
+                fd.sched.set_memory_type(cache_after_t1, MemoryType.shared)
+                fd.sched.set_memory_type(cache_before_t5, MemoryType.shared)
+                fd.sched.set_memory_type(self.t4, MemoryType.shared)
+
+                # Schedule all TensorViews except cache_after_t0 in the same way.
+                selected_tensors.extend([cache_after_t1, cache_before_t5])
+                fd.sched.split(self.t5, dim=1, factor=128)
+                fd.sched.transform_like(self.t5, selected_tensors)
+
+                # NOTE T2 was not transformed despite being a selected node,
+                # so we manually schedule it.
+                # TODO Improve error message to show warning if some selected
+                # tensors are not transformed.
+                fd.sched.split(self.t2, dim=1, factor=128)
+                fd.sched.transform_like(self.t2, selected_tensors)
+
+                # Create rfactor and add to selected tensors
+                rfactor_t2 = fd.sched.reduction_factor(self.t2, dims=[1])
+                selected_tensors.append(rfactor_t2)
+
+                fd.sched.parallelize(self.t5, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(self.t5, axis := -1, ParallelType.block_x)
+                fd.sched.parallelize_like(self.t5, pos := -1, selected_tensors)
+
+                # NOTE Parallelize T2 and rfactor_t2 separately
+                fd.sched.parallelize(self.t2, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(self.t2, axis := -1, ParallelType.block_x)
+                fd.sched.parallelize_like(self.t2, pos := -1, selected_tensors)
+
+                # Vectorize load t0 into shared memory
+                fd.sched.split(cache_after_t0, dim=1, factor=4)
+                fd.sched.parallelize(cache_after_t0, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(cache_after_t0, axis := 1, ParallelType.block_x)
+                fd.sched.parallelize(cache_after_t0, axis := 2, ParallelType.vectorize)
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        max_input0_values, max_input0_indices = torch.max(
+            inputs[0], dim=-1, keepdim=True
+        )
+        eager_out = (inputs[0] - max_input0_values) + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_pointwise_transform_user_schedule(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses the following schedule operations:
+         * merge, split, parallelize, cache_after, cache_before, set_memory_type
+         * transform_like, parallelize_like
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.add_output(self.t2)
+
+            def schedule(self):
+                cache_after_t0 = fd.sched.cache_after(self.t0)
+                cache_after_t1 = fd.sched.cache_after(self.t1)
+                cache_before_t2 = fd.sched.cache_before(self.t2)
+                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
+                fd.sched.set_memory_type(cache_after_t1, MemoryType.shared)
+                fd.sched.set_memory_type(cache_before_t2, MemoryType.shared)
+
+                fd.sched.merge(self.t2, dim=0)
+                fd.sched.split(self.t2, dim=0, factor=128)
+                fd.sched.transform_like(self.t2)
+
+                fd.sched.parallelize(self.t2, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(self.t2, axis := 1, ParallelType.block_x)
+                fd.sched.parallelize_like(self.t2)
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_pointwise_inline_most_user_schedule(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses the following schedule operations:
+         * merge, split, parallelize, cache_after, cache_before, set_memory_type
+         * transform_like, parallelize_like
+         * inline_most
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.add_output(self.t2)
+
+            def schedule(self):
+                cache_after_t0 = fd.sched.cache_after(self.t0)
+                cache_after_t1 = fd.sched.cache_after(self.t1)
+                cache_before_t2 = fd.sched.cache_before(self.t2)
+                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
+                fd.sched.set_memory_type(cache_after_t1, MemoryType.shared)
+                fd.sched.set_memory_type(cache_before_t2, MemoryType.shared)
+
+                fd.sched.merge(self.t2, dim=0)
+                fd.sched.split(self.t2, dim=0, factor=128)
+                fd.sched.transform_like(self.t2)
+
+                fd.sched.parallelize(self.t2, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(self.t2, axis := 1, ParallelType.block_x)
+                fd.sched.parallelize_like(self.t2)
+
+                fd.sched.inline_most()
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_pointwise_inline_at_user_schedule(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses the following schedule operations:
+         * merge, split, parallelize, cache_after, cache_before, set_memory_type
+         * transform_like, parallelize_like
+         * inline_at
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.add_output(self.t2)
+
+            def schedule(self):
+                cache_after_t0 = fd.sched.cache_after(self.t0)
+                cache_after_t1 = fd.sched.cache_after(self.t1)
+                cache_before_t2 = fd.sched.cache_before(self.t2)
+                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
+                fd.sched.set_memory_type(cache_after_t1, MemoryType.shared)
+                fd.sched.set_memory_type(cache_before_t2, MemoryType.shared)
+
+                fd.sched.merge(self.t2, dim=0)
+                fd.sched.split(self.t2, dim=0, factor=128)
+                fd.sched.split(self.t2, dim=0, factor=4)
+                fd.sched.transform_like(self.t2)
+
+                fd.sched.parallelize(self.t2, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(self.t2, axis := -1, ParallelType.block_x)
+                fd.sched.parallelize_like(self.t2)
+
+                fd.sched.inline_at(self.t2, pos=1)
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_pointwise_inline_selected_user_schedule(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses the following schedule operations:
+         * merge, split, parallelize, cache_after, cache_before, set_memory_type
+         * transform_like, parallelize_like
+         * inline_most, inline_at
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.t3 = self.ops.exp(self.t2)
+                self.add_output(self.t3)
+
+            def schedule(self):
+                cache_after_t0 = fd.sched.cache_after(self.t0)
+                cache_after_t1 = fd.sched.cache_after(self.t1)
+                cache_before_t3 = fd.sched.cache_before(self.t3)
+                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
+                fd.sched.set_memory_type(cache_after_t1, MemoryType.shared)
+                fd.sched.set_memory_type(cache_before_t3, MemoryType.shared)
+
+                fd.sched.merge(self.t3, dim=0)
+                fd.sched.split(self.t3, dim=0, factor=128)
+                fd.sched.split(self.t3, dim=0, factor=4)
+                fd.sched.transform_like(self.t3)
+
+                fd.sched.parallelize(self.t3, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(self.t3, axis := -1, ParallelType.block_x)
+                fd.sched.parallelize_like(self.t3)
+
+                fd.sched.inline_at(
+                    self.t2, pos=1, selected_tensors=[cache_after_t0, cache_after_t1]
+                )
+                fd.sched.inline_most(
+                    selected_tensors=[cache_before_t3, self.t2, self.t3]
+                )
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = torch.exp(inputs[0] + inputs[1])
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_var_mean_user_schedule(self):
+        """
+        Implement a simple normalization kernel with a user defined schedule
+         * Uses the following schedule operations:
+         * merge, split, parallelize, cache_after, cache_before, set_memory_type
+         * transform_like, parallelize_like
+         * inline_like
+         * predicates: is_reduction, equality operator
+        """
+        tensor_size = 4
+        inputs = [torch.randn(tensor_size, tensor_size, device="cuda")]
+
+        class VarMean(FusionDefinition):
+            def definition(self):
+                self.t0 = fd.from_pytorch(inputs[0])
+                self.s0 = fd.define_scalar(1e-6, dtype=DataType.Double)
+                self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
+
+                self.sum0 = fd.ops.sum(self.t0, dims=[-1])
+                # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
+                self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
+                self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
+
+                self.diff = fd.ops.sub(self.t0, self.mean)
+                self.diff_sq = fd.ops.mul(self.diff, self.diff)
+                self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
+                # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
+                self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
+                self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
+
+                self.t0_diff = fd.ops.sub(self.t0, self.mean)
+                self.var_eps = fd.ops.sqrt(fd.ops.add(self.var, self.s0))
+                self.t0_norm = fd.ops.div(self.t0_diff, self.var_eps)
+                self.add_output(self.t0_norm)
+
+            def schedule(self):
+                cache_after_t0 = fd.sched.cache_after(self.t0)
+                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
+
+                cache_before_t0_norm = fd.sched.cache_before(self.t0_norm)
+                cache_tensors = [cache_after_t0, cache_before_t0_norm]
+
+                reference_tensor = self.mean
+
+                # Schedule Reference
+                fd.sched.split(reference_tensor, dim=-1, factor=256 * 4)
+                fd.sched.split(reference_tensor, dim=-1, factor=4)
+                fd.sched.transform_like(reference_tensor)
+
+                # Add rfactor
+                reduction_tensors = list(
+                    filter(fd.sched.is_reduction, fd.sched.tensors())
+                )
+                assert len(reduction_tensors) == 2
+                rfactor_tensors = [
+                    fd.sched.rfactor(tensor, dims=[-1]) for tensor in reduction_tensors
+                ]
+
+                # Add common parallelization
+                fd.sched.parallelize(reference_tensor, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(reference_tensor, axis := -2, ParallelType.block_x)
+                fd.sched.parallelize_like(reference_tensor)
+
+                # Vectorize input load and output store
+                fd.sched.parallelize(cache_after_t0, axis := -1, ParallelType.vectorize)
+                fd.sched.parallelize(self.t0_norm, axis := -1, ParallelType.vectorize)
+
+                # Add computeAt
+                fd.sched.inline_most()
+
+        fd = VarMean()
+        nvf_out = fd.execute(inputs)
+        var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
+        eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
+        self.assertEqual(eager_out, nvf_out[0])
 
 
 if __name__ == "__main__":

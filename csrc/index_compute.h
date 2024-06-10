@@ -128,8 +128,8 @@ class IndexCompute : public BackwardVisitor {
 
   // Map we update as we propagate backward, containing all IDs in the
   // propagation. Initial indices are mapped with this map at tv->domain()
-  // and are back propagated to tv->getRootDomain(). This index_map_ keeps the
-  // indices at intermediate IterDomain's in that back propagation.
+  // and are back propagated to tv->getMaybeAllocationDomain(). This index_map_
+  // keeps the indices at intermediate IterDomain's in that back propagation.
   std::unordered_map<IterDomain*, Val*> index_map_; // NOLINT
 
   // Map from IterDomain to their broadcasted extent. If a TV has I0*I1 but its
@@ -485,7 +485,7 @@ class Index {
       bool generate_pointer = false,
       DataType as_type = DataType::Null);
 
-  //! Returns a vector of strided indices mapped onto the (rfactor)
+  //! Returns a vector of strided indices mapped onto the
   //! allocation domain of a producer tensor. The size of the returned
   //! vector is guaranteed to be equal to the number of axes of the
   //! indexing allocation domain.
@@ -497,7 +497,7 @@ class Index {
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false);
 
-  //! Returns a vector of strided indices mapped onto the (rfactor)
+  //! Returns a vector of strided indices mapped onto the
   //! allocation domain of a consumer tensor. The size of the returned
   //! vector is guaranteed to be equal to the number of axes of the
   //! indexing allocation domain.
@@ -517,8 +517,8 @@ class Index {
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops);
 
-  //! Returns a vector of logical indices mapped onto the (rfactor)
-  //! root domain of a consumer tensor. The returned index is intended
+  //! Returns a vector of logical indices mapped onto the logical
+  //! domain of a consumer tensor. The returned index is intended
   //! to be used for the computation of some tensor factories, such as:
   //! eye
   static std::vector<Val*> getConsumerPerDimLogicalIndex(
@@ -526,8 +526,8 @@ class Index {
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops);
 
-  //! Returns a vector of logical indices mapped onto the (rfactor)
-  //! root domain of a producer tensor.
+  //! Returns a vector of logical indices mapped onto the logical
+  //! domain of a producer tensor.
   static std::vector<Val*> getProducerPerDimLogicalIndex(
       TensorView* producer_tv,
       const TensorView* consumer_tv,

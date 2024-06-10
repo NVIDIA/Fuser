@@ -55,8 +55,6 @@ void ReplayTransformations::handle(Split* s) {
       mapped,
       s->factor(),
       s->innerSplit(),
-      s->startOffset(),
-      s->stopOffset(),
       replay_rfactor_ && s->outer()->isRFactorProduct());
   // Remove mapped from the leaf IDs
   leaf_ids_.erase(mapped);
@@ -391,14 +389,14 @@ BestEffortReplay::BestEffortReplay(
   std::vector<Expr*> replay_exprs =
       StmtSort::getExprsTo({replay_domain.begin(), replay_domain.end()});
 
-  // Track which id's in replay have to be replayed to guarantee rfactor
-  // transformations. The iteration domains in the rfactor axes don't have
+  // Track which id's in replay have to be replayed to guarantee root to logical
+  // transformations. The iteration domains in the logical axes don't have
   // to be used in a matching expression in target, so we want to exclude those.
-  // Only the iteration domains [root_domains, rfactor) domains have to be used
-  // in matching transformation to guarantee rfactor domain is consistent.
-  // However, if any rfactor id was used to produce the rfactor domain, we need
+  // Only the iteration domains [root_domains, logical) domains have to be used
+  // in matching transformation to guarantee logical domain is consistent.
+  // However, if any logical id was used to produce the logical domain, we need
   // transformations on them to match the target exactly.
-  std::unordered_set<IterDomain*> replay_rfactor_ids;
+  std::unordered_set<IterDomain*> replay_logical_ids;
 
   // Track which expressions iteration domains are used, they should only be
   // used in one expression.
@@ -419,7 +417,7 @@ BestEffortReplay::BestEffortReplay(
           return id->isRFactorProduct();
         })) {
       auto inp_ids = ir_utils::filterByType<IterDomain>(replay_expr->inputs());
-      replay_rfactor_ids.insert(inp_ids.begin(), inp_ids.end());
+      replay_logical_ids.insert(inp_ids.begin(), inp_ids.end());
     }
   }
 
@@ -507,19 +505,19 @@ BestEffortReplay::BestEffortReplay(
       }
     }
 
-    // Check if any of the associated replay id's are part of an rfactor domain
-    bool replay_has_rfactor_inp = std::any_of(
+    // Check if any of the associated replay id's are part of an logical domain
+    bool replay_has_logical_inp = std::any_of(
         replay_inps.begin(),
         replay_inps.end(),
-        [&replay_rfactor_ids](IterDomain* id) {
+        [&replay_logical_ids](IterDomain* id) {
           return id == nullptr ? false
                                : id->isRFactorProduct() &&
-                  (replay_rfactor_ids.find(id) != replay_rfactor_ids.end());
+                  (replay_logical_ids.find(id) != replay_logical_ids.end());
         });
 
     // If some replay id inputs are part of rfactor, make sure all target
     // expression inputs map to a replay input
-    if (replay_has_rfactor_inp) {
+    if (replay_has_logical_inp) {
       bool no_missing_exprs = std::none_of(
           replay_inps.begin(),
           replay_inps.end(),
@@ -542,7 +540,7 @@ BestEffortReplay::BestEffortReplay(
     // If any inputs are missing, continue as this expr doesn't match.
     if (missing_replay_input) {
       NVF_ERROR(
-          !replay_has_rfactor_inp || any_target_expr_contains_broadcast_id,
+          !replay_has_logical_inp || any_target_expr_contains_broadcast_id,
           err_str);
       continue;
     }
@@ -570,7 +568,7 @@ BestEffortReplay::BestEffortReplay(
     // If expressions of mapped inputs don't match, then continue to next target
     // expr
     if (mismatched_replay_exprs || replay_expr == nullptr) {
-      NVF_ERROR(!replay_has_rfactor_inp, err_str);
+      NVF_ERROR(!replay_has_logical_inp, err_str);
       continue;
     }
 
@@ -580,18 +578,18 @@ BestEffortReplay::BestEffortReplay(
           mismatched_inputs || replay_expr->inputs()[i] != replay_inps[i];
     }
 
-    // If there isn't an rfactor id in the replay's inputs and there's a
+    // If there isn't an logical id in the replay's inputs and there's a
     // mismatched input, continue
     if (mismatched_inputs) {
-      NVF_ERROR(!replay_has_rfactor_inp, err_str);
+      NVF_ERROR(!replay_has_logical_inp, err_str);
       continue;
     }
 
-    // If there isn't an rfactor id in the replay's inputs and there's a
+    // If there isn't an logical id in the replay's inputs and there's a
     // mismatch in replay_expr's and target_expr's outputs, continue
     if (target_expr->outputs().size() != replay_expr->outputs().size()) {
       NVF_ERROR(
-          !replay_has_rfactor_inp,
+          !replay_has_logical_inp,
           err_str,
           ". Target: ",
           target_expr->toString(),
@@ -600,24 +598,22 @@ BestEffortReplay::BestEffortReplay(
       continue;
     }
 
-    // If there isn't an rfactor id in the replay's inputs and there's a
+    // If there isn't an logical id in the replay's inputs and there's a
     // mismatch in replay_expr's and target_expr's expression type, continue
     if (typeid(*replay_expr) != typeid(*target_expr)) {
-      NVF_ERROR(!replay_has_rfactor_inp, err_str);
+      NVF_ERROR(!replay_has_logical_inp, err_str);
       continue;
     }
 
-    // If there isn't an rfactor id in the replay's inputs and there's a
+    // If there isn't an logical id in the replay's inputs and there's a
     // mismatch in replay_expr's and target_expr's split factor (if a split
     // expr), continue
     if (replay_expr->isA<Split>()) {
       auto r_split = replay_expr->as<Split>();
       auto t_split = target_expr->as<Split>();
       if (!r_split->factor()->sameAs(t_split->factor()) ||
-          r_split->innerSplit() != t_split->innerSplit() ||
-          !r_split->startOffset()->sameAs(t_split->startOffset()) ||
-          !r_split->stopOffset()->sameAs(t_split->stopOffset())) {
-        NVF_ERROR(!replay_has_rfactor_inp, err_str);
+          r_split->innerSplit() != t_split->innerSplit()) {
+        NVF_ERROR(!replay_has_logical_inp, err_str);
         continue;
       }
     }
@@ -629,7 +625,7 @@ BestEffortReplay::BestEffortReplay(
       auto r_swizzle_2d = replay_expr->as<Swizzle2D>();
       auto t_swizzle_2d = target_expr->as<Swizzle2D>();
       if (!(r_swizzle_2d->swizzleType() == t_swizzle_2d->swizzleType())) {
-        NVF_ERROR(!replay_has_rfactor_inp, err_str);
+        NVF_ERROR(!replay_has_logical_inp, err_str);
         continue;
       }
     }
@@ -639,7 +635,7 @@ BestEffortReplay::BestEffortReplay(
       auto t_resize = target_expr->as<Resize>();
       if (!r_resize->leftExpand()->sameAs(t_resize->leftExpand()) ||
           !r_resize->rightExpand()->sameAs(t_resize->rightExpand())) {
-        NVF_ERROR(!replay_has_rfactor_inp, err_str);
+        NVF_ERROR(!replay_has_logical_inp, err_str);
         continue;
       }
     }
@@ -692,10 +688,10 @@ int64_t BestEffortReplay::findFirstMismatchedID(
     const TensorDomain* td1,
     const TensorDomain* td2) {
   std::unordered_map<IterDomain*, IterDomain*> id_map;
-  auto rd1 = td1->root();
-  auto rd2 = td2->root();
+  auto rd1 = td1->maybeRoot();
+  auto rd2 = td2->maybeRoot();
   std::unordered_set<IterDomain*> rd2_set(
-      td2->root().begin(), td2->root().end());
+      td2->maybeRoot().begin(), td2->maybeRoot().end());
 
   // Find matching root IterDomains, we could make this O(nlog(n)) if we could
   // sort IterDomains.
@@ -745,27 +741,27 @@ ForwardingInfo::ForwardingInfo(
   const std::vector<bool>* active_dim_flags = nullptr;
 
   // Either producer or consumer depending on operation
-  std::vector<IterDomain*> active_root_dom;
+  std::vector<IterDomain*> active_logical_dom;
   const TensorView* active_tv = nullptr;
 
   if (auto bop = dynamic_cast<BroadcastOp*>(consumer->definition())) {
     active_forwarding_map = &consumer_forwarding_map;
     active_compliment_map = &consumer_compliment_map;
     active_dim_flags = &bop->getBroadcastDimFlags();
-    active_root_dom = consumer->getRootDomain();
+    active_logical_dom = consumer->getLogicalDomain();
     active_tv = consumer;
   } else if (auto sop = dynamic_cast<SqueezeOp*>(consumer->definition())) {
     active_forwarding_map = &producer_forwarding_map;
     active_compliment_map = &producer_compliment_map;
     active_dim_flags = &sop->getSqueezeDimFlags();
-    active_root_dom =
-        TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+    active_logical_dom =
+        TensorDomain::noReductions(producer->getLogicalDomain());
     active_tv = producer;
   } else {
     NVF_ERROR(false, "Should not be reachable");
   }
 
-  NVF_ERROR(active_root_dom.size() == active_dim_flags->size());
+  NVF_ERROR(active_logical_dom.size() == active_dim_flags->size());
 
   // Collect which root ids are only in active_tv but not in the inactive
   // tensor.
@@ -774,7 +770,7 @@ ForwardingInfo::ForwardingInfo(
   std::unordered_set<IterDomain*> forwarded_ids;
   for (auto i : c10::irange(active_dim_flags->size())) {
     if (active_dim_flags->at(i)) {
-      forwarded_ids.emplace(active_root_dom.at(i));
+      forwarded_ids.emplace(active_logical_dom.at(i));
     }
   }
 
@@ -977,19 +973,19 @@ BestEffortReplay BestEffortReplay::replayCasP(
       producer->getLeafDomain().begin() + producer_compute_at_axis);
   producer_CA_ids = TensorDomain::noReductions(producer_CA_ids);
 
-  // If producer has an rfactor root, that's what will match to the consumer
-  std::vector<IterDomain*> producer_root = producer->getMaybeRFactorDomain();
+  // If producer has an rfactor, that's what will match to the consumer
+  std::vector<IterDomain*> producer_logical = producer->getLogicalDomain();
 
   // Figure out all inputs required to generate the compute_at dimensions. We
-  // need all deps because inputs on producer may be in getRootDomain, but we
-  // may need in rFactorDomain
+  // need all deps because inputs on producer may be in getLogicaoDomain, but
+  // we may need in logical domain
   auto all_CA_id_deps = DependencyCheck::getAllValsBetween(
-      {producer_root.begin(), producer_root.end()},
+      {producer_logical.begin(), producer_logical.end()},
       {producer_CA_ids.begin(), producer_CA_ids.end()});
 
   // Figure out minimal set of root IDs needed to produce producer_CA_ids:
   std::unordered_set<IterDomain*> producer_CA_root_ids;
-  for (IterDomain* id : producer_root) {
+  for (IterDomain* id : producer_logical) {
     if (std::find(all_CA_id_deps.begin(), all_CA_id_deps.end(), id) !=
         all_CA_id_deps.end()) {
       producer_CA_root_ids.emplace(id);
