@@ -495,7 +495,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
             // cpAsyncBulk for double-buffered tensor has assigned
             //  a placeholder for token objects
 
-            auto stage_depth =
+            unsigned int stage_depth =
                 GpuLower::current()->doubleBufferInfo().getStageDepthFor(
                     double_buffer_loop_->iter_domain());
 
@@ -503,11 +503,12 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
               curr_stage_index_ = IrBuilder::modExpr(
                   double_buffer_loop_->index(),
                   IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-              auto curr_stage_index_alloc = IrBuilder::create<kir::Allocate>(
-                  curr_stage_index_,
-                  MemoryType::Local,
-                  IrBuilder::create<Val>(1L, PrimDataType::Index),
-                  false);
+              kir::Allocate* curr_stage_index_alloc =
+                  IrBuilder::create<kir::Allocate>(
+                      curr_stage_index_,
+                      MemoryType::Local,
+                      IrBuilder::create<Val>(1L, PrimDataType::Index),
+                      false);
               cloned_scopes_.back()->push_back(curr_stage_index_alloc);
               cloned_scopes_.back()->push_back(curr_stage_index_->definition());
             }
@@ -520,11 +521,12 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
                               stage_depth, PrimDataType::Index),
                           IrBuilder::create<Val>(1L, PrimDataType::Index))),
                   IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-              auto next_stage_index_alloc = IrBuilder::create<kir::Allocate>(
-                  next_stage_index_,
-                  MemoryType::Local,
-                  IrBuilder::create<Val>(1L, PrimDataType::Index),
-                  false);
+              kir::Allocate* next_stage_index_alloc =
+                  IrBuilder::create<kir::Allocate>(
+                      next_stage_index_,
+                      MemoryType::Local,
+                      IrBuilder::create<Val>(1L, PrimDataType::Index),
+                      false);
               cloned_scopes_.back()->push_back(next_stage_index_alloc);
               cloned_scopes_.back()->push_back(next_stage_index_->definition());
             }
@@ -539,10 +541,10 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
             // Where mbarrier and token are smem arrays bound to the LoadStoreOp
 
             kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-            auto body = if_expr->thenBody();
+            kir::Scope& body = if_expr->thenBody();
 
-            auto ldst = expr->as<LoadStoreOp>();
-            auto mbarrier_arrive_tx =
+            LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+            kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
                 createMbarrierArriveExpectTx(ldst, next_stage_index_);
             body.push_back(mbarrier_arrive_tx);
             body.push_back(ldst);
@@ -555,7 +557,8 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
             cloned_scopes_.back()->push_back(if_expr);
 
             // Construct mBarrier::wait for current stage
-            auto mbarrier_wait = createMbarrierWait(ldst, curr_stage_index_);
+            kir::MBarrierWait* mbarrier_wait =
+                createMbarrierWait(ldst, curr_stage_index_);
             cloned_scopes_.back()->push_back(mbarrier_wait);
 #ifdef EXTRA_LOGS
             std::cout << "[DEBUG] new MBarrierArriveExpectTx node: "
@@ -1016,8 +1019,8 @@ class DoubleBufferInserter : private kir::ExprMutator {
 #ifdef EXTRA_LOGS
     std::cout
         << "=============================================================\n";
-    std::cout << "[DEBUG] Prologue_loop: " << prologue_loop->toString()
-              << std::endl;
+    std::cout << "[DEBUG] Prologue Loop:\n"
+              << prologue_loop->toString() << std::endl;
     std::cout
         << "=============================================================\n";
 #endif //  EXTRA_LOGS
@@ -1034,8 +1037,14 @@ class DoubleBufferInserter : private kir::ExprMutator {
         loads,
         DoubleBufferLoopStage::Main,
         has_cp_async_bulk);
-
     registerReplace(double_buffer_loop, main_loop);
+#ifdef EXTRA_LOGS
+    std::cout
+        << "=============================================================\n";
+    std::cout << "[DEBUG] Main Loop:\n" << main_loop->toString() << std::endl;
+    std::cout
+        << "=============================================================\n";
+#endif //  EXTRA_LOGS
 
     if (requireEpilogue(loads)) {
       // In the case where the main loop is trivial (for example, ldmatrix in
@@ -1060,6 +1069,14 @@ class DoubleBufferInserter : private kir::ExprMutator {
           has_cp_async_bulk,
           alloc_in_main);
       registerInsertAfter(double_buffer_loop, epilogue_loop);
+#ifdef EXTRA_LOGS
+      std::cout
+          << "=============================================================\n";
+      std::cout << "[DEBUG] Epilogue Loop:\n"
+                << epilogue_loop->toString() << std::endl;
+      std::cout
+          << "=============================================================\n";
+#endif //  EXTRA_LOGS
     }
 
     auto post_epilogue_exprs =
