@@ -178,8 +178,7 @@ Communicator::Communicator(
       local_size_(0),
       master_port_(0),
       ucc_available_(false),
-      nccl_available_(false),
-      backend_running_counter_(0) {
+      nccl_available_(false) {
   // retrieves rank and communicator size
   is_available_ = parseEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
@@ -217,13 +216,12 @@ Communicator::Communicator(
 
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
-    std::optional<CommunicatorBackend> backend,
-    bool use_cache) {
+    std::optional<CommunicatorBackend> backend) {
   CommunicatorBackend b = getBackend(backend);
   std::string team_key = getTeamKey(team, b);
   // check if backend associated with the team is present in the cache
   if (backends_.find(team_key) ==
-      backends_.end() || !use_cache) { // create the backend and cache it
+      backends_.end()) { // create the backend and cache it
 #ifdef NVFUSER_DISTRIBUTED
     // check that the caller's rank belongs to the requested team
     auto rank_it = std::find(team.begin(), team.end(), deviceId());
@@ -236,7 +234,7 @@ c10d::Backend* Communicator::getBackendForTeam(
     // create the team and cache it
     backends_[team_key] = createBackend(
         b,
-        c10::make_intrusive<c10d::PrefixStore>(std::to_string(backend_running_counter_++), store_),
+        c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
         team_rank,
         static_cast<int64_t>(team.size()));
 #else
