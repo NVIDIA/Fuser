@@ -25,6 +25,10 @@ namespace mma_utils {
 //! Utilities in this namespace facilitates scheduling matmul kernels with
 //!  hierarchichal tiling specified in MatMulTileOptions.
 
+//! A mapping from ValGroup pointers to MatmulDomain. The ValGroups should
+//! correspond to IterDomain groups from an IdModel's exact graph. This
+using DimRolesMap = std::unordered_map<ValGroup, MatmulDomain>;
+
 //! Schedule utility for matmul prolog:
 //!   Use all the threads on a CTA tile to load matmul operands
 //!  into shared memory with the given vectorization word.
@@ -65,16 +69,12 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
 //!  defining vectorized loads.
 void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv);
 
-//! Orders the root id ordering of the given tv as
+//! Orders the leaf ID canonically, and merges dims of the same role
 //! [Device, Batch, Previous Reduction, M, N, K]
-//!  for easier processing of later scheduling steps.
-//!
-//! This matching works on root domain only, and
-//!  will throw if the tv has a leaf iterdomain that is
-//!  not a root id.
 void canonicalizeMmaTvOrdering(
     TensorView* tv,
     const ValGraph& permissive_graph,
+    const DimRolesMap& dim_roles,
     const std::vector<ValGroup>& ordering);
 
 //! [WarpMmaSwizzler]:
@@ -210,10 +210,6 @@ constexpr size_t MIN_MATMUL_INPUTS_NUMBER = 2;
 //! shape dimensions
 //!  TODO: extend definition for handling batch matmuls
 using ProblemIterDomains = std::array<IterDomain*, 3>;
-
-//! A mapping from ValGroup pointers to MatmulDomain. The ValGroups should
-//! correspond to IterDomain groups from an IdModel's exact graph. This
-using DimRolesMap = std::unordered_map<ValGroup, MatmulDomain>;
 
 //! An alias for mapping between TensorView instance and its role in
 //!  matmul fusion definition, some roles can be assigned to more than

@@ -908,7 +908,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // ------------------------------------------------------------------
   // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
   mma_utils::canonicalizeMmaTvOrdering(
-      mma_result, id_model.idGraph(IdMappingMode::PERMISSIVE), ordering);
+      mma_result,
+      id_model.idGraph(IdMappingMode::PERMISSIVE),
+      id_roles,
+      ordering);
   const int64_t num_local_dims =
       (int64_t)TensorDomain::noDevices(mma_result->getLeafDomain()).size();
   NVF_ERROR(

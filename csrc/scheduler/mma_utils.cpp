@@ -1008,6 +1008,7 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
 void canonicalizeMmaTvOrdering(
     TensorView* tv,
     const ValGraph& permissive_graph,
+    const DimRolesMap& dim_roles,
     const std::vector<ValGroup>& ordering) {
   std::unordered_map<int64_t, int64_t> old2new;
 
@@ -1024,6 +1025,24 @@ void canonicalizeMmaTvOrdering(
   }
 
   tv->reorder(old2new);
+
+  // Now merge dims that have the same role
+  NVF_ERROR(tv->nDims() > 0);
+  const auto getRole = [&dim_roles, &permissive_graph](IterDomain* id) {
+    ValGroup g = permissive_graph.toGroup(id);
+    const auto it = dim_roles.find(g);
+    NVF_ERROR(it != dim_roles.end());
+    return it->second;
+  };
+  // Loop from inner to outer, merging when needed
+  MatmulDomain prev_role = getRole(tv->axis(-1));
+  for (int64_t dim = tv->nDims() - 2; dim >= 0; --dim) {
+    MatmulDomain role = getRole(tv->axis(dim));
+    if (role == prev_role) {
+      tv->merge(dim);
+    }
+    prev_role = role;
+  }
 }
 
 namespace {
