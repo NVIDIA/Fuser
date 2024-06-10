@@ -91,7 +91,7 @@ class PostOnStream : public Expr {
   using Expr::Expr;
   PostOnStream(
       IrBuilderPasskey passkey,
-      Statement* host_op,
+      Expr* host_op,
       std::vector<Val*> inputs,
       std::vector<Val*> outputs);
 
@@ -110,8 +110,8 @@ class PostOnStream : public Expr {
 
   bool sameAs(const Statement* other) const override;
 
-  Statement* hostOpToPost() const {
-    return attributes_.at(0)->as<Statement>();
+  Expr* hostOpToPost() const {
+    return attributes_.at(0)->as<Expr>();
   }
 };
 
@@ -130,6 +130,31 @@ class Stream : public Val {
   // useful for debug print
   const int idx_;
   static std::atomic<int64_t> running_counter_;
+};
+
+class SetCurrentStream : public Expr {
+ public:
+  using Expr::Expr;
+  SetCurrentStream(IrBuilderPasskey passkey, Stream* stream);
+
+  SetCurrentStream(const SetCurrentStream& other) = delete;
+  SetCurrentStream& operator=(const SetCurrentStream& other) = delete;
+  SetCurrentStream(SetCurrentStream&& other) = delete;
+  SetCurrentStream& operator=(SetCurrentStream&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::SetCurrentStream";
+  }
+
+  bool sameAs(const Statement* other) const override;
+
+  Stream* stream() const {
+    return attributes_.at(0)->as<Stream>();
+  }
 };
 
 } // namespace hir

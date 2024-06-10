@@ -57,7 +57,7 @@ class HostIrExecutor final : public OptInDispatch {
 
  private:
   using OptInDispatch::handle;
-  void handle(Stream* stream) override;
+  void handle(SetCurrentStream* set_current_stream) override;
   void handle(PostOnStream* post_ir) override;
   void handle(Communication* communication) override;
   void postCompute(PostOnStream* post_ir);

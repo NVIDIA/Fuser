@@ -42,7 +42,8 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   return outputs;
 }
 
-void HostIrExecutor::handle(Stream* stream) {
+void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
+  Stream* stream = set_current_stream->stream();
   if (streams_.find(stream) == streams_.end()) {
     auto i = (communicator_ != nullptr && communicator_->is_available())
         ? communicator_->deviceId()
@@ -56,7 +57,7 @@ void HostIrExecutor::handle(Stream* stream) {
 }
 
 void HostIrExecutor::handle(PostOnStream* post_ir) {
-  Statement* op = post_ir->hostOpToPost();
+  Expr* op = post_ir->hostOpToPost();
   if (op->isA<HostUnit>()) {
     postCompute(post_ir);
   } else {

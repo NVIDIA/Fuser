@@ -391,11 +391,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_F(NVFuserTest, HostIrSetStream) {
   auto hic = std::make_unique<HostIrContainer>();
   auto stream = IrBuilder::createInContainer<Stream>(hic.get());
-  auto set_stream = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(),
-      stream,
-      std::vector<Val*>(),
-      std::vector<Val*>());
+  auto set_stream = IrBuilder::createInContainer<SetCurrentStream>(hic.get(), stream);
   hic->pushBackTopLevelExprs(set_stream);
 
   HostIrExecutor hie(std::move(hic));
@@ -465,11 +461,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
         post_on_stream_outputs);
 
     // Set the Stream
-    auto set_stream = IrBuilder::createInContainer<PostOnStream>(
-        hic.get(),
-        streams[i % streams.size()],
-        std::vector<Val*>(),
-        std::vector<Val*>());
+    auto set_stream = IrBuilder::createInContainer<SetCurrentStream>(hic.get(), streams[i % streams.size()]);
 
     // [Step 6)] Define the Host program by adding PostOnStream to the
     // container's top level expression
