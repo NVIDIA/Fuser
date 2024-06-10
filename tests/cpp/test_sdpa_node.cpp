@@ -10,6 +10,7 @@
 
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <ops/utils.h>
 #include <preseg_passes/move_split_cat.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
@@ -169,5 +170,58 @@ TEST_F(SDPATest, CausalAttn) {
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({q, k, v});
   EXPECT_TRUE(at::allclose(out[0], std::get<0>(aten_outputs)));
+}
+
+TEST_F(SDPATest, PairwiseRootDomainMap) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> q_shape({n, h, l, e});
+  std::vector<int64_t> k_shape({n, h, s, e});
+  std::vector<int64_t> v_shape({n, h, s, e});
+
+  auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
+  auto tvk = makeSymbolicTensor(k_shape, DataType::Half);
+  auto tvv = makeSymbolicTensor(k_shape, DataType::Half);
+
+  fusion->addInput(tvq);
+  fusion->addInput(tvk);
+  fusion->addInput(tvv);
+
+  auto tvattn = sdpfa_fwd(
+      tvq,
+      tvk,
+      tvv,
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(true),
+      /*scale=*/IrBuilder::create<Val>(1e-3));
+  fusion->addOutput(tvattn.output);
+
+  // Verify mapping between Q,K,V and attention output
+  std::vector<TensorView*> producer_tvs {tvq, tvk, tvv};
+  for (auto role: {AttnRole::Q, AttnRole::K, AttnRole::V}){
+    auto producer_tv = producer_tvs[(int)role];
+    auto pairwise_map = PairwiseRootDomainMap(producer_tv, tvattn.output).mapProducerToConsumer();
+
+    auto mappingExists = [&pairwise_map](IterDomain* p_id, IterDomain* c_id) -> bool {
+        return pairwise_map.find(p_id) != pairwise_map.end() && pairwise_map[p_id] == c_id;
+    };
+
+    // Mapping for N, H exists from Q/K/V to output.
+    for (auto idx : c10::irange(2)){
+        EXPECT_TRUE(mappingExists(producer_tv->axis(idx), tvattn.output->axis(idx)));
+    }
+    // Mapping for L exists between Q and output.
+    if (role == AttnRole::Q){
+        EXPECT_TRUE(mappingExists(producer_tv->axis(2), tvattn.output->axis(2)));
+    } else {
+        EXPECT_FALSE(mappingExists(producer_tv->axis(2), tvattn.output->axis(2)));
+    }
+    // Mapping for Ev exists between V and output.
+    if (role == AttnRole::V){
+        EXPECT_TRUE(mappingExists(producer_tv->axis(3), tvattn.output->axis(3)));
+    } else {
+        EXPECT_FALSE(mappingExists(producer_tv->axis(3), tvattn.output->axis(3)));
+    }
+  }
 }
 } // namespace nvfuser
