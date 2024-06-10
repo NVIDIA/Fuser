@@ -13,10 +13,6 @@
 #include <c10/util/ArrayRef.h>
 #include <ATen/Functions.h>
 
-// #include <c10/core/DeviceType.h>
-// #include <ATen/ATen.h>
-// #include <ATen/Operators.h>
-
 namespace nvfuser {
 
 enum class ComputeMode {
@@ -47,17 +43,18 @@ int parseEnvVariable(const char* env_name) {
 }
 
 struct OverlapTestParams {
-    // network backend
+    // network backend type
     CommunicatorBackend backend_type = CommunicatorBackend::nccl;
+    // number of different process group instances to create, to potentially achieve comm/comm overlap
     int nbr_of_backends = 1;
 
-    // tensors sizes
-    int64_t B = std::pow(2,4);
+    // tensors sizes. Tensor's unsharded size is [A,B,C], where B=number of devices
+    int64_t A = std::pow(2,4);
     int64_t C = std::pow(2,5);
 
     // overlap optimization parameters
-    int64_t tile_size = 1;
-    bool use_different_streams = false;
+    int64_t tile_size = 1; // must be a divisor of A
+    bool use_different_streams = false; // whether to change CUDA stream at each iteration
 
     // compute params
     ComputeMode compute_mode = ComputeMode::nvFuserFusionExecutor;
@@ -66,15 +63,13 @@ struct OverlapTestParams {
         if (parseEnvVariable("USE_UCC")) {
             backend_type = CommunicatorBackend::ucc;
         }
-        if (parseEnvVariable("B")) {
-            B = std::pow(2, parseEnvVariable("B"));
+        if (parseEnvVariable("A")) {
+            A = std::pow(2, parseEnvVariable("A"));
         }
         if (parseEnvVariable("C")) {
             C = std::pow(2, parseEnvVariable("C"));
         }
-        if (parseEnvVariable("NOT_INTERLEAVE")) {
-            tile_size = B;
-        } else if (parseEnvVariable("TILE_SIZE")) {
+        if (parseEnvVariable("TILE_SIZE")) {
             tile_size = parseEnvVariable("TILE_SIZE");
         }
         if (parseEnvVariable("USE_STREAMS")) {
@@ -93,7 +88,7 @@ std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
     std::string indent = "  ";
     out << "params:{\n"
         << indent << "backend_type=" << params.backend_type << "\n"
-        << indent << "B=" << params.B << "\n"
+        << indent << "A=" << params.A << "\n"
         << indent << "C=" << params.C << "\n"
         << indent << "tile_size=" << params.tile_size << "\n"
         << indent << "use_different_streams=" << params.use_different_streams << "\n"
@@ -107,7 +102,7 @@ class OverlapTest : public MultiDeviceTest {
   protected:
     OverlapTestParams params;
 
-    int64_t A;
+    int64_t B;
     std::vector<int64_t> unsharded_sizes;
     std::vector<int64_t> sharded_sizes;
     int64_t number_of_tiles;
@@ -130,8 +125,6 @@ class OverlapTest : public MultiDeviceTest {
             std::cout << params << std::endl;
         }
 
-        options = at::TensorOptions().dtype(at::kFloat).device(communicator->device());
-
         // Setup the world communicator. We use one device per rank
         int64_t num_devices = communicator->size();
         my_device_index = communicator->deviceId();
@@ -144,16 +137,15 @@ class OverlapTest : public MultiDeviceTest {
                 /*prefix=*/std::to_string((communicator_running_counter))));
         }
 
-        // Define the constants
-        A = num_devices;
-        NVF_ERROR(params.B % params.tile_size == 0);
-        number_of_tiles = params.B / params.tile_size;
+        B = num_devices;
+        NVF_ERROR(params.A % params.tile_size == 0);
+        number_of_tiles = params.A / params.tile_size;
 
         if (params.compute_mode == ComputeMode::nvFuserFusionExecutor) {
             fusion = std::make_unique<Fusion>();
             FusionGuard fg(fusion.get());
 
-            TensorView* tv = makeConcreteTensor({params.tile_size,A,params.C});
+            TensorView* tv = makeConcreteTensor({params.tile_size,B,params.C});
             fusion->addInput(tv);
             tv = add(tv,tv);
             tv = mul(tv,tv);
@@ -168,10 +160,10 @@ class OverlapTest : public MultiDeviceTest {
             fe = std::make_unique<FusionExecutor>();
         }
 
-        // Input set-up
-        // define the unsharded inputs for validation
-        unsharded_sizes = {params.B, A, params.C};
-        sharded_sizes = {params.B, 1, params.C};
+        // Input set-up. Define the full unsharded inputs for validation
+        unsharded_sizes = {params.A, B, params.C};
+        sharded_sizes = {params.A, 1, params.C};
+        options = at::TensorOptions().dtype(at::kFloat).device(communicator->device());
         t0_unsharded = at::randn(unsharded_sizes, options);
         t0 = at::empty(sharded_sizes, options);
         t0.copy_(t0_unsharded.index({at::indexing::Slice(),
@@ -179,8 +171,7 @@ class OverlapTest : public MultiDeviceTest {
         t1 = at::empty_like(t0);
         t2 = at::empty_like(t0_unsharded);
 
-        // validation
-        // compute the expected output
+        // compute the expected output for validation
         t2_ref = at::empty(unsharded_sizes, options);
         compute_ATen(t0_unsharded, t2_ref);
     }
@@ -225,8 +216,8 @@ class OverlapTest : public MultiDeviceTest {
 
 /*
 The tensor program we target is the following:
-    | input: t0[A,B,C], sharded accross first dimension (locally [1,B,C])
-    | t1[A,B,C] = pointwise_compute(t0) (locally [1,B,C])
+    | input: t0[A,B,C], sharded accross second dimension (locally [A,1,C])
+    | t1[A,B,C] = pointwise_compute(t0) (locally [A,1,C])
     | output: t2[A,B,C] = allgather(t1) (locally [A,B,C])
 
 We want to compare this baseline program with the following one, which is functionnally identical but where we interleave and pipeline the Comm and Compute kernels on different streams:
@@ -234,8 +225,8 @@ We want to compare this baseline program with the following one, which is functi
     |     t1 = pointwise_compute(t0[j], stream[j])
     |     t2 = allgather(t1[j], stream[j])
     | }
-where "[j]" referes to taking a slice onto the "B" dimension.
-This program should in principle achieve overlap between comms and compute
+where "[j]" referes to taking a slice onto the "A" dimension.
+This program achieves overlap between comms and compute
 */
 TEST_F(OverlapTest, SimpleComputeComm) {
     if (params.compute_mode == ComputeMode::nvFuserFusionExecutor) {
