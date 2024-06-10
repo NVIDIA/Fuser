@@ -72,7 +72,10 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv);
 //! This matching works on root domain only, and
 //!  will throw if the tv has a leaf iterdomain that is
 //!  not a root id.
-void canonicalizeMmaTvOrdering(TensorView* tv);
+void canonicalizeMmaTvOrdering(
+    TensorView* tv,
+    const ValGraph& permissive_graph,
+    const std::vector<ValGroup>& ordering);
 
 //! [WarpMmaSwizzler]:
 //!   This class is used to implement the thread swizzle format

@@ -901,10 +901,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   addSetForCacheRead(acw_smem, &acr);
   addSetForCacheRead(bcw_smem, &bcr);
 
+  const std::vector<ValGroup> ordering = mma_utils::canonicalDimOrdering(
+      tensor_roles, id_roles, id_model.idGraph(IdMappingMode::PERMISSIVE));
+
   // Make a CTA tile
   // ------------------------------------------------------------------
   // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
-  mma_utils::canonicalizeMmaTvOrdering(mma_result);
+  mma_utils::canonicalizeMmaTvOrdering(
+      mma_result, id_model.idGraph(IdMappingMode::PERMISSIVE), ordering);
   const int64_t num_local_dims =
       (int64_t)TensorDomain::noDevices(mma_result->getLeafDomain()).size();
   NVF_ERROR(
