@@ -129,6 +129,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
 }
 
 TEST_F(SDPATest, CausalAttn) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
@@ -173,6 +174,7 @@ TEST_F(SDPATest, CausalAttn) {
 }
 
 TEST_F(SDPATest, PairwiseRootDomainMap) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
