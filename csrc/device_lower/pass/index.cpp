@@ -1391,16 +1391,37 @@ void IndexLowering::handleGroupedGridWelford(
 }
 
 void IndexLowering::handle(const kir::MBarrierInit* minit) {
-  auto minit_indexed = IrBuilder::create<kir::MBarrierInit>(
-      lower_utils::u32IndexScalarSmemTv(minit->mbarrier()->as<TensorView>()),
-      minit->threadCount());
+  Val* smem_address_ptr = nullptr;
+
+  if (minit->mbarrier()->isA<TensorView>()) {
+    smem_address_ptr =
+        lower_utils::u32IndexScalarSmemTv(minit->mbarrier()->as<TensorView>());
+  } else if (minit->mbarrier()->isA<kir::TensorIndex>()) {
+    smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+        minit->mbarrier()->as<kir::TensorIndex>());
+  } else {
+    NVF_ERROR(false, "Unexpected MBarrierInit value.");
+  }
+  kir::MBarrierInit* minit_indexed = IrBuilder::create<kir::MBarrierInit>(
+      smem_address_ptr, minit->threadCount());
   pushBack(minit_indexed);
   GpuLower::current()->propagateExprInfo(minit, minit_indexed);
 }
 
 void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
-  auto minval_indexed = IrBuilder::create<kir::MBarrierInvalidate>(
-      lower_utils::u32IndexScalarSmemTv(minval->mbarrier()->as<TensorView>()));
+  Val* smem_address_ptr = nullptr;
+
+  if (minval->mbarrier()->isA<TensorView>()) {
+    smem_address_ptr =
+        lower_utils::u32IndexScalarSmemTv(minval->mbarrier()->as<TensorView>());
+  } else if (minval->mbarrier()->isA<kir::TensorIndex>()) {
+    smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+        minval->mbarrier()->as<kir::TensorIndex>());
+  } else {
+    NVF_ERROR(false, "Unexpected MBarrierInval value.");
+  }
+  kir::MBarrierInvalidate* minval_indexed =
+      IrBuilder::create<kir::MBarrierInvalidate>(smem_address_ptr);
   pushBack(minval_indexed);
   GpuLower::current()->propagateExprInfo(minval, minval_indexed);
 }

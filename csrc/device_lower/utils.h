@@ -304,6 +304,10 @@ bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id);
 //! indexing special items in shared memory, like mbarrier.
 NVF_API Val* u32IndexScalarSmemTv(TensorView* tv);
 
+//! Get the uint32_t index of a TensorIndex. This is usually used for
+//! initializing a pipeline of mbarriers.
+NVF_API Val* u32IndexScalarSmemTv(kir::TensorIndex* index);
+
 //! Get the size of a global sync buffer needed to perform a grid reduction for
 //! each axis in bitmap.
 Val* getGridSyncBufferSize(const ParallelTypeBitmap& bitmap);
