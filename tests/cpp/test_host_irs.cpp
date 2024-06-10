@@ -390,9 +390,9 @@ INSTANTIATE_TEST_SUITE_P(
 // the host program
 TEST_F(NVFuserTest, HostIrSetStream) {
   auto hic = std::make_unique<HostIrContainer>();
-  auto stream = IrBuilder::create<Stream>(static_cast<IrContainer*>(hic.get()));
-  auto set_stream = IrBuilder::create<PostOnStream>(
-      static_cast<IrContainer*>(hic.get()),
+  auto stream = IrBuilder::createInContainer<Stream>(hic.get());
+  auto set_stream = IrBuilder::createInContainer<PostOnStream>(
+      hic.get(),
       stream,
       std::vector<Val*>(),
       std::vector<Val*>());
@@ -435,12 +435,12 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
   std::vector<Stream*> streams;
   for (int i = 0; i < n_streams; i++) {
     streams.push_back(
-        IrBuilder::create<Stream>(static_cast<IrContainer*>(hic.get())));
+        IrBuilder::createInContainer<Stream>(hic.get()));
   }
 
   // [Step 3)] Create a HostUnit Ir holding the created fusion
-  auto host_unit = IrBuilder::create<HostUnit>(
-      static_cast<IrContainer*>(hic.get()), std::move(fusion));
+  auto host_unit = IrBuilder::createInContainer<HostUnit>(
+      hic.get(), std::move(fusion));
 
   // [Step 4)] Create TensorViews representing the Fusion's inputs at the Host
   // level
@@ -458,15 +458,15 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
 
     // [Step 5)] Create a PostOnStream Ir representing executing the Fusion with
     // given I/O
-    auto post_on_stream = IrBuilder::create<PostOnStream>(
-        static_cast<IrContainer*>(hic.get()),
+    auto post_on_stream = IrBuilder::createInContainer<PostOnStream>(
+        hic.get(),
         host_unit,
         post_on_stream_inputs,
         post_on_stream_outputs);
 
     // Set the Stream
-    auto set_stream = IrBuilder::create<PostOnStream>(
-        static_cast<IrContainer*>(hic.get()),
+    auto set_stream = IrBuilder::createInContainer<PostOnStream>(
+        hic.get(),
         streams[i % streams.size()],
         std::vector<Val*>(),
         std::vector<Val*>());
