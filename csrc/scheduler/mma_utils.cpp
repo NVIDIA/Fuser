@@ -348,7 +348,7 @@ void scheduleContiguousVectorLoad(
 
 void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
   NVF_CHECK(
-      tv->getLeafDomain().size() >= tile_sizes.size(),
+      tv->getLoopDomain().size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
 
   // Number of inner dimensions we are tiling.
@@ -438,7 +438,7 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
       tv->getMaybeAllocationDomain().begin(),
       tv->getMaybeAllocationDomain().end()};
 
-  // Keep track of leaf positions that is either a reduction
+  // Keep track of loop positions that is either a reduction
   //  or a broadcast.
   // Note: Currently don't really see a case where this function
   //  should be called on a reduction output tv, but adding them
@@ -446,8 +446,8 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
   std::deque<int64_t> broadcast_or_reduction_pos;
 
   // Map the id's to their innermost concrete id's
-  //  on the leaf.
-  std::unordered_map<IterDomain*, int64_t> id_to_inner_leaf_pos;
+  //  on the loop.
+  std::unordered_map<IterDomain*, int64_t> id_to_inner_loop_pos;
 
   // Try to re-order inner iterdomains from the innermost
   //  position backward. This utility only tries to re-order
@@ -463,8 +463,8 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
   //  not re-order any iterdomain beyond that point to keep the
   //  outer loop structure unchanged.
   for (int64_t i = ndims - 1; i >= 0; i--) {
-    auto leaf_id = tv->axis(i);
-    if (leaf_id->isBroadcast() || leaf_id->isReduction()) {
+    auto loop_id = tv->axis(i);
+    if (loop_id->isBroadcast() || loop_id->isReduction()) {
       // Register this reduction or broadcast axis
       //  to reorder.
       broadcast_or_reduction_pos.push_front(i);
@@ -472,13 +472,13 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
       continue;
     }
     auto maybe_alloc_domain =
-        getMaybeAllocationIfInnermostTiled(leaf_id, id_set);
+        getMaybeAllocationIfInnermostTiled(loop_id, id_set);
 
     if (maybe_alloc_domain.has_value()) {
       // Found an innermost id, add them to the
       //  axes to reorder.
       NVF_ERROR(
-          id_to_inner_leaf_pos
+          id_to_inner_loop_pos
               .insert(std::make_pair(maybe_alloc_domain.value(), i))
               .second,
           "Multiple \"innermost\" id seen for id :",
@@ -504,15 +504,15 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
     reorder_map_old_to_new[original_broadcast_or_reduction_pos] = current_pos++;
   }
 
-  // Next put all the innermost leaf id's, we make sure that
+  // Next put all the innermost loop id's, we make sure that
   //  the inner tile ordering follows the corresponding root
   //  domain ordering by iterating on the root domain and
   //  find their corresponding inner tile iterdomains from
-  //  the populated root_id_to_inner_leaf_pos.
+  //  the populated root_id_to_inner_loop_pos.
   for (auto id : tv->getMaybeAllocationDomain()) {
-    auto leaf_id_pos_it = id_to_inner_leaf_pos.find(id);
-    if (leaf_id_pos_it != id_to_inner_leaf_pos.end()) {
-      reorder_map_old_to_new[leaf_id_pos_it->second] = current_pos++;
+    auto loop_id_pos_it = id_to_inner_loop_pos.find(id);
+    if (loop_id_pos_it != id_to_inner_loop_pos.end()) {
+      reorder_map_old_to_new[loop_id_pos_it->second] = current_pos++;
     }
   }
 
@@ -529,31 +529,31 @@ namespace {
 // Utility for mma dimension matching
 enum class MmaDimension { M = 0, N, K };
 
-// Preliminary checks to try to validate that leaf is
+// Preliminary checks to try to validate that loop is
 //  a innermost dim of root of exactly the given size.
 bool canValidateIsInnerDim(
     IterDomain* root,
-    IterDomain* leaf,
+    IterDomain* loop,
     int inner_dim_size) {
-  auto expr = leaf->definition();
-  if (!leaf->extent()->isConstInt()) {
+  auto expr = loop->definition();
+  if (!loop->extent()->isConstInt()) {
     return false;
   }
-  if (leaf->extent()->evaluate() != inner_dim_size) {
+  if (loop->extent()->evaluate() != inner_dim_size) {
     return false;
   }
 
   while (expr) {
     if (auto split = dynamic_cast<Split*>(expr)) {
       // Inner split only
-      if (leaf != split->inner()) {
+      if (loop != split->inner()) {
         return false;
       }
       // Const split only
       if (!split->factor()->isConstInt()) {
         return false;
       }
-      leaf = split->in();
+      loop = split->in();
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       // Might consider just rejecting merge.
       auto outer = merge->outer();
@@ -562,18 +562,18 @@ bool canValidateIsInnerDim(
       }
 
       // Only support merging with constant sized dims
-      if (!leaf->extent()->isConstInt()) {
+      if (!loop->extent()->isConstInt()) {
         return false;
       }
-      leaf = merge->inner();
+      loop = merge->inner();
     } else {
       // No support for swizzled inner dim for now.
       //  Might need to add transpose swizzle here.
       return false;
     }
-    expr = leaf->definition();
+    expr = loop->definition();
   }
-  return leaf == root;
+  return loop == root;
 }
 
 } // namespace
@@ -906,7 +906,7 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
     }
   }
   if (set_allocation) {
-    tv->setAllocationDomain(tv->getLeafDomain(), true);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 }
 
@@ -943,7 +943,7 @@ void WarpMmaSwizzler::scheduleOperandRead(
     tv->reorder({{-3, -5}});
     // [Ko, Moo, K2, K4, Mo2, M8]
   }
-  tv->setAllocationDomain(tv->getLeafDomain(), true);
+  tv->setAllocationDomain(tv->getLoopDomain(), true);
 }
 
 void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
@@ -1065,7 +1065,7 @@ inline void resolveTvToMatmulDomainsMapping(
     // There could be inputs such as a zero-dimensional bias which
     // would otherwise be skipped.
     deps_map[tv] = {};
-    for (const auto domain : tv->getLeafDomain()) {
+    for (const auto domain : tv->getLoopDomain()) {
       if (ca_map.areMapped(m, domain, IdMappingMode::EXACT)) {
         deps_map[tv].push_back(MatmulDomain::M);
         continue;
@@ -1288,7 +1288,7 @@ bool hasValidBroadcastOp(TensorView* bcast_out) {
   // and has one broadcast dim.
   // Ignore device dimensions in this analysis.
   auto non_device_dims =
-      TensorDomain::noDevices(bcast_out->getLeafDomain()).size();
+      TensorDomain::noDevices(bcast_out->getLoopDomain()).size();
   if (!((non_device_dims == 3 || non_device_dims == 4) &&
         TensorDomain::noDevices(bcast_out->domain()->noBroadcasts()).size() ==
             non_device_dims - 1)) {
@@ -1305,8 +1305,8 @@ bool hasValidBroadcastOp(TensorView* bcast_out) {
 
 int64_t numBroadcastDeviceDims(TensorView* tv) {
   return std::count_if(
-      tv->getLeafDomain().begin(),
-      tv->getLeafDomain().end(),
+      tv->getLoopDomain().begin(),
+      tv->getLoopDomain().end(),
       [](IterDomain* id) { return id->isDeviceDim() && id->isBroadcast(); });
 }
 

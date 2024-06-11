@@ -148,10 +148,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       // Input and output extent expressions both affect concretization
       for (const auto& id :
            TensorDomain::noReductions(inp_tv->getLogicalDomain())) {
-        leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
+        loop_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
       for (const auto& id : out_tv->getLogicalDomain()) {
-        leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
+        loop_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
     }
   }
@@ -179,8 +179,8 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         // Not expanding this axis
         continue;
       }
-      leaf_dynamic_vals_.push_back(in_extent);
-      leaf_dynamic_vals_.push_back(out_extent);
+      loop_dynamic_vals_.push_back(in_extent);
+      loop_dynamic_vals_.push_back(out_extent);
       is_dynamic = true;
     }
     if (is_dynamic) {
@@ -196,7 +196,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       if (!id->getMaybeExpandedExtent()->isConstScalar() ||
           id->getMaybeExpandedExtent()->evaluate().as<int64_t>() == 0) {
         info_.maybe_zero_extents_set_.insert(id->getMaybeExpandedExtent());
-        leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
+        loop_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
       if (!id->definition() || id->getIterType() != IterType::Symbolic) {
         continue;
@@ -204,15 +204,15 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       if (id->definition()->isA<Resize>()) {
         info_.dynamic_resized_ids_.push_back(id);
         // extent of output determines its IterType
-        leaf_dynamic_vals_.push_back(id->extent());
+        loop_dynamic_vals_.push_back(id->extent());
       }
     }
   }
 
-  //! Process vector of leaf dynamic values by finding inputs and recording the
+  //! Process vector of loop dynamic values by finding inputs and recording the
   //! result into info_
   void finalizeDynamicVals() {
-    const auto inputs = InputsOf::outputs(leaf_dynamic_vals_);
+    const auto inputs = InputsOf::outputs(loop_dynamic_vals_);
     info_.root_dynamic_vals_.insert(inputs.begin(), inputs.end());
 
     // initial_info_ provides a set of Vals that are used for concretization.
@@ -247,7 +247,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! non-constant root Vals, which provides us with a minimal list of input
   //! scalars that influence concretization. That list of scalars is then used
   //! to compute a minimal cache key in InputsIdLookup::lookupId().
-  std::vector<Val*> leaf_dynamic_vals_;
+  std::vector<Val*> loop_dynamic_vals_;
 };
 
 DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
@@ -739,9 +739,10 @@ void DynamicTransformConcretizer::concretizeReshape() {
 
     auto concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
 
-    // We do the replacement directly here, but we must still check that the
-    // replacement is valid
-    checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
+    // NOTE: The replacement might not yet actually be valid. For example, if
+    // inp_tv contains Symbolic domains that need to be squeezed, this check
+    // would fail at this point. So we skip checkConcretizedUses here and
+    // perform it later in mutate(TensorView*).
 
     // Extent expressions often change when concretizing a reshape. Here we
     // replace these in all downstream expressions so that the Fusion looks just
@@ -916,7 +917,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
   // At this point, there should be no expr beyond rfactor root
   NVF_ERROR(
-      tv->getLeafDomain() == tv->getLogicalDomain(),
+      tv->getLoopDomain() == tv->getLogicalDomain(),
       "Invalid tensor: ",
       tv->toString());
 
@@ -1031,6 +1032,9 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // TensorDomain and then TensorView
   mutate(tv->domain());
   OptOutMutator::mutate(tv);
+  // Check concretization is valid after we've done the replacement. See note
+  // about squeeze inside concretizeReshape above.
+  checkConcretizedUses(tv, tv);
 }
 
 // Almost an exact copy of OptOutMutator::mutate(TensorDomain*), but
@@ -1055,7 +1059,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   std::vector<IterDomain*> root_dom =
       td->hasRoot() ? updateIdVec(td->root()) : std::vector<IterDomain*>();
   std::vector<IterDomain*> logical_dom = updateIdVec(td->logical());
-  std::vector<IterDomain*> leaf_domain = updateIdVec(td->leaf());
+  std::vector<IterDomain*> loop_domain = updateIdVec(td->loop());
   std::vector<IterDomain*> alloc_dom = td->hasAllocation()
       ? updateIdVec(td->allocation())
       : std::vector<IterDomain*>();
@@ -1093,7 +1097,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   }
 
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
-      td->container(), root_dom, logical_dom, alloc_dom, leaf_domain, contig);
+      td->container(), root_dom, logical_dom, alloc_dom, loop_domain, contig);
   registerConcretization(td, mutated_val);
 }
 

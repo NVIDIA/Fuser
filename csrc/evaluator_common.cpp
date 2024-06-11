@@ -95,7 +95,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
   auto all_tvs = ir_utils::allTvs(fusion);
   // Collect extent and inputs
   for (auto tv : all_tvs) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       ret.push_back(id->extent());
     }
     for (auto id : tv->getLogicalDomain()) {

@@ -371,25 +371,25 @@ MaxRootDomainInfoSpanningTree::getReferenceIDInfo(TensorView* tv) {
 std::shared_ptr<MaxRootDomainInfoSpanningTree::DomainInfo>
 MaxRootDomainInfoSpanningTree::getReferenceIDInfo(
     TensorView* tv,
-    int64_t leaf_pos) {
-  if (leaf_pos < 0) {
-    leaf_pos += int64_t(tv->nDims()) + 1;
+    int64_t loop_pos) {
+  if (loop_pos < 0) {
+    loop_pos += int64_t(tv->nDims()) + 1;
   }
   NVF_CHECK(
-      leaf_pos >= 0 && leaf_pos <= int64_t(tv->nDims()),
-      "MaxRootDomainInfoSpanningTree called on an leaf_pos outside valid range.");
+      loop_pos >= 0 && loop_pos <= int64_t(tv->nDims()),
+      "MaxRootDomainInfoSpanningTree called on an loop_pos outside valid range.");
   DomainInfo result;
   const auto& logical_domain = tv->getLogicalDomain();
-  const auto& leaf_domain = tv->getLeafDomain();
-  std::unordered_set<IterDomain*> selected_leaves(
-      leaf_domain.begin(), leaf_domain.begin() + leaf_pos);
+  const auto& loop_domain = tv->getLoopDomain();
+  std::unordered_set<IterDomain*> selected_loop(
+      loop_domain.begin(), loop_domain.begin() + loop_pos);
   for (auto id : logical_domain) {
-    if (selected_leaves.count(id) > 0) {
+    if (selected_loop.count(id) > 0) {
       result.info.emplace_back(IDInfo{{id}, true, true});
       continue;
     }
-    for (auto selected_leaf_id : selected_leaves) {
-      if (DependencyCheck::isDependencyOf(id, selected_leaf_id)) {
+    for (auto selected_loop_id : selected_loop) {
+      if (DependencyCheck::isDependencyOf(id, selected_loop_id)) {
         result.info.emplace_back(IDInfo{{id}, true, true});
         break;
       }

@@ -92,7 +92,7 @@ std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
 //!   This is different from a normal scheduler utility though,
 //!      as the thread mapping within a warp are *required* to be
 //!      a specific pattern which currently translates to an enforced
-//!      requirement that all the leaf domains produced by WarpMmaSwizzler
+//!      requirement that all the loop domains produced by WarpMmaSwizzler
 //!      cannot be further transformed (split/merge/reorder etc.).
 //!
 //!   Currently WarpMmaSwizzler can be accessed by schedulers through
@@ -189,9 +189,9 @@ class WarpMmaSwizzler {
   //! that each thread uses to call ldmatrix. In nvFuser, we schedule the
   //! allocation domain of the ldmatrix output and mma inputs to be consistent
   //! with the memory layout of the output of ldmatrix, and we schedule the
-  //! leaf domain of the ldmatrix output to be consistent with the index that
+  //! loop domain of the ldmatrix output to be consistent with the index that
   //! each thread uses to call ldmatrix. This function is used to schedule the
-  //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
+  //! loop domain of the ldmatrix output. The allocation domain of the ldmatrix
   //! output and mma inputs are scheduled in scheduleOperandRead, which must be
   //! called before this function.
   static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);

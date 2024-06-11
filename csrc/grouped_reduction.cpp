@@ -36,7 +36,7 @@ bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
   }
 
   auto replay = BestEffortReplay(
-                    other->getLeafDomain(), ref->getLeafDomain(), ref_2_other)
+                    other->getLoopDomain(), ref->getLoopDomain(), ref_2_other)
                     .getIterDomainEquivalence();
 
   for (const auto i : c10::irange(ref->nDims())) {

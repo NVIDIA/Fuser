@@ -151,7 +151,7 @@ void GpuLower::collectPaddedParallelDims() {
 
   auto used_vals = fusion_->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (tv->definition()) {
         // TODO: Support GroupedReductionOp
         if (auto reduction = dynamic_cast<ReductionOp*>(tv->definition())) {
@@ -392,7 +392,22 @@ void GpuLower::analysis(Fusion* fusion) {
   // so it is expected that generated code may use diffrent variable
   // names
   if (isOptionEnabled(EnableOption::IdModel)) {
-    IdModel id_model(fusion_);
+    // Enable validation in the DEBUG build mode
+#ifdef NDEBUG
+    // Not DEBUG build
+    IdModel id_model(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+#else
+    // DEBUG build
+    IdModel id_model(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/true);
+#endif
   }
 
   resolveComputeWith(fusion_);
