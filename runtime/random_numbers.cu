@@ -58,7 +58,7 @@ __device__ double raw_uniform_double(unsigned int x, unsigned int y) {
   return scale * (double)z + 0.5f * scale;
 }
 
-// This is a uniform double in the range (0, 1]
+// This is a uniform float in the range (0, 1]
 __device__ float raw_uniform_float(unsigned int x) {
   constexpr float scale = (float)(1.0 / (double)(1ll << 32));
   return scale * (float)x + 0.5f * scale;
