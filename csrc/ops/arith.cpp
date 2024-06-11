@@ -1180,7 +1180,7 @@ TensorView* reductionOpRaw(
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
       tv->getLogicalDomain(),
@@ -1280,7 +1280,7 @@ TensorView* reductionOp(
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
       tv->getLogicalDomain(),
@@ -1713,7 +1713,7 @@ WelfordResult WelfordRaw(
     TensorView* init_var,
     Val* init_N) {
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
       tv->getLogicalDomain(),
@@ -1779,7 +1779,7 @@ WelfordResult Welford(
     TensorView* init_var,
     Val* init_N) {
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
       tv->getLogicalDomain(),

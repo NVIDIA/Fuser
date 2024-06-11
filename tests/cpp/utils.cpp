@@ -588,7 +588,7 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       tensor->nDims());
 
   const auto concrete = TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tensor->getLeafDomain()));
+      TensorDomain::noBroadcasts(tensor->getLoopDomain()));
 
   TensorView *biasb = nullptr, *biased = nullptr;
 

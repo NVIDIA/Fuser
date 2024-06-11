@@ -26,16 +26,16 @@ bool idIsAComputeAtLeafDomain(
     IterDomain* id,
     TensorView* producer_tv,
     TensorView* consumer_tv) {
-  auto begin = producer_tv->getLeafDomain().begin();
-  auto end = producer_tv->getLeafDomain().begin() +
+  auto begin = producer_tv->getLoopDomain().begin();
+  auto end = producer_tv->getLoopDomain().begin() +
       producer_tv->getComputePosition(consumer_tv);
   return std::find(begin, end, id) != end;
 }
 
 // Is the provided IterDomain an Leaf of provided TensorView
 bool idIsALeafDomain(IterDomain* id, TensorView* tv) {
-  auto begin = tv->getLeafDomain().begin();
-  auto end = tv->getLeafDomain().end();
+  auto begin = tv->getLoopDomain().begin();
+  auto end = tv->getLoopDomain().end();
   return std::find(begin, end, id) != end;
 }
 
@@ -293,7 +293,7 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
 std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
 findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
   for (auto tv : ir_utils::allTvs(fusion)) {
-    // For each tensor, make sure root, logical and leaf domains
+    // For each tensor, make sure root, logical and loop domains
     // should not include domains that are mapped with another domain
     // in the same set of domains. This may be overly conservative,
     // and it maybe enough to check the root domains.
@@ -323,13 +323,13 @@ findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
     }
 
     // Leaf domains
-    auto self_mappped_leaf_pair =
-        detectMappablePair(tv->getLeafDomain(), id_graph, IdMappingMode::LOOP);
-    if (self_mappped_leaf_pair.has_value()) {
+    auto self_mappped_loop_pair =
+        detectMappablePair(tv->getLoopDomain(), id_graph, IdMappingMode::LOOP);
+    if (self_mappped_loop_pair.has_value()) {
       return std::make_tuple(
           tv,
-          self_mappped_leaf_pair->first,
-          self_mappped_leaf_pair->second,
+          self_mappped_loop_pair->first,
+          self_mappped_loop_pair->second,
           "Leaf");
     }
   }
@@ -343,7 +343,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
   // Initialize a node for every iteration domain
   for (auto tv : ir_utils::allTvs(fusion)) {
-    const auto& domain = tv->getLeafDomain();
+    const auto& domain = tv->getLoopDomain();
     auto all_ids = ir_utils::allIDsOf(tv);
 
     for (auto id : all_ids) {
@@ -353,9 +353,9 @@ void IterDomainGraph::build(Fusion* fusion) {
               tv->getLogicalDomain().begin(),
               tv->getLogicalDomain().end(),
               id) != tv->getLogicalDomain().end();
-      bool is_leaf_id =
+      bool is_loop_id =
           std::find(domain.begin(), domain.end(), id) != domain.end();
-      initializeId(id, is_rfactor_domain_id, is_leaf_id);
+      initializeId(id, is_rfactor_domain_id, is_loop_id);
     }
   }
 
@@ -400,11 +400,11 @@ void IterDomainGraph::build(Fusion* fusion) {
 
         // Multi output mapping, outputs are required to have the same domain
         // and same transformations, so they can be mapped in permissive/exact,
-        // and when within compute at position of getLeafDomain() in the
+        // and when within compute at position of getLoopDomain() in the
         // parallel map.
         auto replay_FasC = BestEffortReplay(
-            first_output_tv->getLeafDomain(),
-            c_tv->getLeafDomain(),
+            first_output_tv->getLoopDomain(),
+            c_tv->getLoopDomain(),
             c2f_root_map);
 
         // Map the entire replay map between the multiple
@@ -424,7 +424,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         }
 
         // Map all entries for the Loop map as they share the same loops.
-        for (auto f_id : first_output_tv->getLeafDomain()) {
+        for (auto f_id : first_output_tv->getLoopDomain()) {
           auto disjoint_set = c2f_disjoint_sets.getDisjointSetOf(f_id);
           auto id0 = *(disjoint_set.begin());
           for (auto id1 : disjoint_set) {
@@ -474,7 +474,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
         // Same as permissive above but for exact
         auto exact_replay_PasC = BestEffortReplay(
-            p_tv->getLeafDomain(), c_tv->getLeafDomain(), exact_c2p_root_map);
+            p_tv->getLoopDomain(), c_tv->getLoopDomain(), exact_c2p_root_map);
 
         const auto& exact_c2p_map = exact_replay_PasC.getReplay();
 
@@ -720,7 +720,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         innermost_nodes_.mapEntries(merge->outer(), merge->out());
       } else {
         // maps to inner dimension, even though it's not an identical mapping.
-        // This is used for transpose scheduler to map inner leaf dimensions
+        // This is used for transpose scheduler to map inner loop dimensions
         innermost_nodes_.mapEntries(merge->inner(), merge->out());
       }
       if (merge->outer()->extent()->isOneInt()) {
@@ -738,7 +738,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         innermost_nodes_.mapEntries(split->in(), split->outer());
       } else {
         // maps to inner dimension, even though it's not an identical mapping.
-        // This is used for transpose scheduler to map inner leaf dimensions
+        // This is used for transpose scheduler to map inner loop dimensions
         innermost_nodes_.mapEntries(split->in(), split->inner());
       }
     }
@@ -750,11 +750,11 @@ void IterDomainGraph::build(Fusion* fusion) {
 void IterDomainGraph::initializeId(
     IterDomain* id,
     bool is_rfactor_id,
-    bool is_leaf_id) {
+    bool is_loop_id) {
   permissive_nodes_.initializeSet(id);
   permissive_resize_nodes_.initializeSet(id);
   exact_nodes_.initializeSet(id);
-  if (is_leaf_id) {
+  if (is_loop_id) {
     loop_nodes_.initializeSet(id);
   }
   consumers_[id] = {};
@@ -958,10 +958,10 @@ IterDomain* ComputeAtMap::computeConcreteId(
   }
 
   // Broadcast resolution is what we have to figure out here. So if we traverse
-  // back from leaves to logical inputs through the exact map, if there's an
-  // operation with a broadcast input that's resolved within the history all of
-  // the domains in all of the logical_ids, then the concrete ID must
-  // resolve that broadcast.
+  // back from loop domain to logical inputs through the exact map, if there's
+  // an operation with a broadcast input that's resolved within the history all
+  // of the domains in all of the logical_ids, then the concrete ID must resolve
+  // that broadcast.
   //
   // (1) Compute "traversed IDs" which is every exact disjoint set starting at
   // all maybe concrete ID's traversing back through exact map.
@@ -1688,14 +1688,14 @@ void IterDomainGraph::updateComputeWith(TensorView* compute_with_tv) {
 
     // Find the matching consumer ID using the permissive map
     auto it = std::find_if(
-        consumer_tv->getLeafDomain().begin(),
-        consumer_tv->getLeafDomain().end(),
+        consumer_tv->getLoopDomain().begin(),
+        consumer_tv->getLoopDomain().end(),
         [&](auto consumer_id) {
           return permissiveNodes().disjointSetMap().at(id)->has(consumer_id);
         });
     NVF_ERROR(
-        it != consumer_tv->getLeafDomain().end(),
-        "No consumer leaf ID of tensor ",
+        it != consumer_tv->getLoopDomain().end(),
+        "No consumer loop ID of tensor ",
         consumer_tv->toString(),
         " permissively mapped with: ",
         id->toString());

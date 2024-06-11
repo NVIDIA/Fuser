@@ -736,7 +736,7 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   const auto& root_domain = tv->getMaybeRootDomain();
-  const auto& domain = tv->getLeafDomain();
+  const auto& domain = tv->getLoopDomain();
   // Grab all values in the history of the tensor view's domain
   auto all_vals = DependencyCheck::getAllValsBetween(
       {root_domain.begin(), root_domain.end()}, {domain.begin(), domain.end()});
@@ -1088,7 +1088,7 @@ bool isTensorStride(const Val* val) {
 }
 
 int64_t getVectorizeSize(const TensorView* tv) {
-  for (auto id : tv->getLeafDomain()) {
+  for (auto id : tv->getLoopDomain()) {
     if (!isParallelTypeVectorize(id->getParallelType())) {
       continue;
     }
