@@ -190,7 +190,10 @@ namespace {
 bool valEqualsInt(Val* val, int64_t i) {
   ExpressionEvaluator ee;
   PolymorphicValue pv = ee.evaluate(val);
-  return pv.hasValue() && (pv == i).as<bool>();
+  if (!pv.hasValue()) {
+    return false;
+  }
+  return pv == i;
 }
 
 } // namespace
