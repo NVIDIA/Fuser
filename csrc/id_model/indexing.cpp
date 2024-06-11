@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
@@ -369,7 +370,26 @@ void TensorIndexer::buildLoopIndexMap() {
           shouldUseZeroIndex(loop_group) || isParallelTypeDeviceDim(ptype)) {
         loop_index = fusion->zeroVal();
       } else {
-        loop_index = IrBuilder::create<Val>(DataType::Index);
+        // Until the transition to the IdModel-based indexing is
+        // completed, use the index Vals assigned for ComputeAtMap
+        // groups if available.
+        if (GpuLower::hasCurrent()) {
+          const auto& ca_map = GpuLower::current()->caMap();
+          for (const auto& id :
+               ir_utils::filterByType<IterDomain>(loop_group->vector())) {
+            if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+              continue;
+            }
+            loop_index = ca_map->getIndexVariable(id);
+            break;
+          }
+          NVF_ERROR(
+              loop_index != nullptr,
+              "No existing index found for ",
+              nvfuser::toString(loop_group));
+        } else {
+          loop_index = IrBuilder::create<Val>(DataType::Index);
+        }
       }
 
       loop_index_map_[loop_group] = loop_index;
@@ -478,6 +498,8 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
 
   index = ir_utils::replaceValRecursively(index, replacement_map);
 
+  debug() << "getLinearIndex of " << tv->toString() << ": "
+          << index->toInlineString() << std::endl;
   return index;
 }
 
@@ -539,6 +561,61 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   }
 
   return replacement_map;
+}
+
+bool TensorIndexer::isSupported(Fusion* fusion) {
+  const auto all_tvs = ir_utils::allTvs(fusion);
+
+  auto printReason = [](const std::string& reason) -> void {
+    debug() << "TensorIndexer disabled due to: " << reason << std::endl;
+  };
+
+  if (fusion->hasManaged("loop_rotation")) {
+    printReason("loop rotation is not supported");
+    return false;
+  }
+
+  for (const auto& tv : all_tvs) {
+    std::stringstream reason;
+
+    if (tv->isDoubleBuffered()) {
+      reason << "Double buffering is used: " << tv->toString();
+    } else if (tv->isCircularBuffered()) {
+      reason << "Circular buffering is used: " << tv->toString();
+    } else if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
+               loadstore != nullptr &&
+               (loadstore->opType() == LoadStoreOpType::LdMatrix ||
+                loadstore->opType() == LoadStoreOpType::CpAsync ||
+                loadstore->opType() ==
+                    LoadStoreOpType::CpAsyncBulkTensorTile)) {
+      reason << "LoadStoreOp not supported: " << loadstore->toString();
+    } else {
+      for (const auto& id : ir_utils::allIDsOf(tv)) {
+        if (id->getParallelType() == ParallelType::MisalignedVectorize) {
+          reason << "MialignedVectorize is used: " << id->toString();
+          break;
+        } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
+          reason << "Swizzle not supported: " << swizzle->toString();
+          break;
+        } else if (
+            auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
+          reason << "Swizzle2D not supported: " << swizzle2d->toString();
+          break;
+        } else if (ir_utils::isIndexedID(tv, id)) {
+          reason << "Index ops such as select not supported: "
+                 << tv->toString();
+          break;
+        }
+      }
+    }
+
+    if (!reason.str().empty()) {
+      printReason(reason.str());
+      return false;
+    }
+  }
+
+  return true;
 }
 
 } // namespace nvfuser

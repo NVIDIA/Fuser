@@ -500,6 +500,13 @@ void GpuLower::analysis(Fusion* fusion) {
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  // For now, instantiate an TensorIndexer only when it's
+  // supported. This should be eventually done always.
+  if (isOptionEnabled(EnableOption::IdModel) &&
+      TensorIndexer::isSupported(fusion_)) {
+    tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+  }
 }
 
 kir::Kernel* GpuLower::kernel() const {

@@ -2170,8 +2170,16 @@ kir::TensorIndex* Index::getConsumerIndex(
     const std::unordered_map<int, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) {
-  auto index = getConsumerStridedIndices(
-      consumer, loops, rotated_loops, override_index, generate_pointer);
+  Val* index = nullptr;
+  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    index = GpuLower::current()->tensorIndexer().getLinearIndex(
+        consumer, consumer->definition());
+  } else {
+    index = getConsumerStridedIndices(
+        consumer, loops, rotated_loops, override_index, generate_pointer);
+  }
+
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
   return SimplifyingIrBuilder::create<kir::TensorIndex>(
       consumer, index, as_type);

@@ -110,12 +110,26 @@ class GpuLower : public NonCopyable {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
   }
 
+  IdModel& idModel() {
+    NVF_ERROR(id_model_.get());
+    return *id_model_;
+  }
+
   const IdModel& idModel() const {
     NVF_ERROR(id_model_.get());
     return *id_model_;
   }
 
-  TensorIndexer& tensorIndexer() const {
+  bool isTensorIndexerEnabled() const {
+    return tensor_indexer_.get() != nullptr;
+  }
+
+  TensorIndexer& tensorIndexer() {
+    NVF_ERROR(tensor_indexer_.get());
+    return *tensor_indexer_;
+  }
+
+  const TensorIndexer& tensorIndexer() const {
     NVF_ERROR(tensor_indexer_.get());
     return *tensor_indexer_;
   }
