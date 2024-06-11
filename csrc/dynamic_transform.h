@@ -164,6 +164,9 @@ class DynamicTransformConcretizationInfo {
   //! not perform a reshape but rather replace the output with full(). Then
   //! instead of an AnalyzeViewResult we will hold a vector of symbolic sizes
   //! indicating how to concretize the output IterDomains.
+  //!
+  //! The symbolic sizes are the actual sizes 0 or 1, or -1 if the size of a
+  //! given reshaped dimension is greater than 1.
   using ViewConcretizationInfo =
       std::variant<AnalyzeViewResult, std::vector<int64_t>>;
   const std::vector<std::pair<int64_t, ViewConcretizationInfo>>&

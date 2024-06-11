@@ -635,15 +635,19 @@ class DynamicTransformConcretizer : public OptOutMutator {
  private:
   void concretize();
 
+  //! Concretize a single reshape which has a non-empty input tensor
   TensorView* concretizeNonEmptyReshape(
       TensorView* inp_tv,
       TensorView* incomplete_out_tv,
       const AnalyzeViewResult& view_analysis);
 
+  //! Concretize a single reshape given that we know that numel=0.
+  //! The symbolic sizes are the actual sizes 0 or 1, or -1 if the size of a
+  //! given reshaped dimension is greater than 1.
   TensorView* concretizeEmptyReshape(
       TensorView* inp_tv,
       TensorView* incomplete_out_tv,
-      const std::vector<int64_t>& iter_types);
+      const std::vector<int64_t>& symbolic_sizes);
 
   void concretizeReshape();
 
@@ -842,6 +846,7 @@ TensorView* DynamicTransformConcretizer::concretizeEmptyReshape(
     } else if (symbolic_size == 1l) {
       new_shape.push_back(inp_tv->fusion()->oneVal(DataType::Index));
     } else {
+      NVF_ERROR(symbolic_size == -1l);
       IterDomain* id = incomplete_out_tv->getLogicalDomain().at(i);
       new_shape.push_back(id->extent());
     }
