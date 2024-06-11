@@ -1772,7 +1772,7 @@ std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::DimRolesMap& dim_roles,
     const ValGraph& permissive_graph) {
   VectorOfUniqueEntries<ValGroup> batch_dims, m_dims, n_dims, k_dims,
-      other_dims;
+      other_dims, device_dims;
   // This is +1 if N should come before M and -1 otherwise. It is zero until the
   // M/N ordering has been determined.
   int64_t n_inside_m = 0;
@@ -1792,7 +1792,14 @@ std::vector<ValGroup> canonicalDimOrdering(
            id_it != tv->getMaybeAllocationDomain().rend();
            id_it++) {
         IterDomain* id = *id_it;
-        if (id->isDeviceDim() || id->isBroadcast() || id->isReduction()) {
+        if (id->isDeviceDim()) {
+          // save device dim groups since they must be outermost
+          const ValGroup& g = permissive_graph.toGroup(id);
+          device_dims.pushBack(g);
+          continue;
+        } else if (id->isBroadcast() || id->isReduction()) {
+          // all-broadcast and all-reduction groups will be outermost within
+          // their roles
           continue;
         }
         const ValGroup& g = permissive_graph.toGroup(id);
@@ -1869,11 +1876,20 @@ std::vector<ValGroup> canonicalDimOrdering(
   std::vector<ValGroup> ordering;
   ordering.reserve(
       batch_dims.size() + m_dims.size() + n_dims.size() + k_dims.size());
-  const auto insert = [&ordering](const VectorOfUniqueEntries<ValGroup>& v) {
+  const auto insert = [&ordering, &device_dims](
+                          const VectorOfUniqueEntries<ValGroup>& v,
+                          bool skip_device_dims = true) {
     for (auto it = v.vector().rbegin(); it != v.vector().rend(); ++it) {
-      ordering.push_back(*it);
+      const ValGroup& g = *it;
+      if (skip_device_dims && device_dims.has(g)) {
+        continue;
+      }
+      ordering.push_back(g);
     }
   };
+  // Insert the device dims first, then skip them when inserting dims from each
+  // other role
+  insert(device_dims, /*skip_device_dims=*/false);
   insert(batch_dims);
   if (n_inside_m == 1) {
     insert(m_dims);
