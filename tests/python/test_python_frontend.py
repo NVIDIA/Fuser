@@ -4129,10 +4129,6 @@ class TestNvFuserFrontend(TestCase):
                 torch.tensor(left, dtype=output.dtype),
             )
 
-            print(
-                f"{output.dtype} min={m.item()} mu={mu.item()} max={x.item()} theomin={theomin} theomu={theomu} theomax={theomax.item()}"
-            )
-
             if dtype != DataType.Double:
                 # Even with repeats, there's no hope of sampling extreme double values
 
