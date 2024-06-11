@@ -22,6 +22,7 @@
 namespace nvfuser {
 
 struct IndexingInfo {
+  std::vector<IterDomain*> loop_domains;
   // Indexing traversal path from loop domains
   ExprPath traversal_path;
   // Index mappings of ID groups along the traversal path
@@ -47,7 +48,7 @@ class TensorIndexer {
   // Get a linear index of a given tensor appearing in a given expr, either
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
-  Val* getLinearIndex(TensorView* tv, const Expr* expr);
+  Val* getLinearIndex(TensorView* tv, const Expr* expr) const;
 
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
@@ -86,6 +87,23 @@ class TensorIndexer {
   // just zero. For example, a loop group with an extent of one, i.e.,
   // a broadcast-only loop group, should just use zero.
   bool shouldUseZeroIndex(const ValGroup& loop_group) const;
+
+  // Get a replace map for tensor indexing. Examples include replacing
+  // an index of a vectorized loop with zero.
+  //
+  // This replacement map is used to replace a tensor index after an
+  // index map is generated. Since replacment is only done for loop
+  // domains, this could be done as part of getInitialIndexMap. One
+  // reason that we might want to first generate an index and do some
+  // replacements, rather than using final index vals to build the
+  // index map, is that one index map could be used for multiple
+  // indices. For normal tensor indexing, this may not matter, but for
+  // predicate indexing, it needs to generate both start and stop
+  // predicates, and one index map would be sufficient for both
+  // indices by using different replacement maps.
+  std::unordered_map<Val*, Val*> getIndexReplacementMap(
+      const std::vector<IterDomain*>& loop_domains,
+      const std::unordered_map<ValGroup, Val*>& index_map) const;
 
  private:
   const IdModel& id_model_;
