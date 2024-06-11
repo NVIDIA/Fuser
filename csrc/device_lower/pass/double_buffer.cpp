@@ -1045,6 +1045,8 @@ class DoubleBufferInserter : private kir::ExprMutator {
         << "=============================================================\n";
 #endif //  EXTRA_LOGS
 
+    kir::ForLoop* last_for_loop = double_buffer_loop;
+
     if (requireEpilogue(loads)) {
       // In the case where the main loop is trivial (for example, ldmatrix in
       // matmul kernel), we need to be careful when copying epilog loop. For
@@ -1068,6 +1070,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
           has_cp_async_bulk,
           alloc_in_main);
       registerInsertAfter(double_buffer_loop, epilogue_loop);
+      last_for_loop = epilogue_loop;
 #ifdef EXTRA_LOGS
       std::cout
           << "=============================================================\n";
@@ -1082,8 +1085,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
         CpAsyncBulkPostEpilogue::create(double_buffer_loop, loads);
     if (!post_epilogue_exprs.empty()) {
       for (auto expr : post_epilogue_exprs) {
-        // TODO: insert after epilogue loop, not the main loop!
-        registerInsertAfter(double_buffer_loop, expr);
+        registerInsertAfter(last_for_loop, expr);
       }
     }
   }
