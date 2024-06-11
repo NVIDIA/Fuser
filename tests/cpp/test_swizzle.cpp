@@ -339,7 +339,7 @@ TEST_F(SwizzleTest, LoopSwizzleCheck0) {
   // Swizzle the inner tile.
   tv2->swizzle(Swizzle2DType::ZShape, -2, -1, SwizzleMode::Loop);
 
-  // Make swizzle output not a leaf domain.
+  // Make swizzle output not a loop domain.
   tv2->merge(-2);
 
   tv0->computeAt(tv2, -1);
@@ -645,7 +645,7 @@ TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {
 
   auto exprs = StmtSort::getExprsBetween(
       {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
-      {tv1->getLeafDomain().begin(), tv1->getLeafDomain().end()});
+      {tv1->getLoopDomain().begin(), tv1->getLoopDomain().end()});
   EXPECT_TRUE(std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
     return expr->isA<Swizzle2D>();
   }));

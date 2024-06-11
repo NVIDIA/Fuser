@@ -588,7 +588,7 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       tensor->nDims());
 
   const auto concrete = TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tensor->getLeafDomain()));
+      TensorDomain::noBroadcasts(tensor->getLoopDomain()));
 
   TensorView *biasb = nullptr, *biased = nullptr;
 
@@ -749,5 +749,14 @@ int64_t getNumSMs() {
   }
   return num_SMs[dev_idx];
 }
+
+bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y) {
+  if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
+    return false;
+  }
+  const ValGroup& gx = vg.toGroup(x);
+  const ValGroup& gy = vg.toGroup(y);
+  return gx.get() == gy.get();
+};
 
 } // namespace nvfuser

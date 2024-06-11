@@ -22,7 +22,7 @@ NVF_API bool distributedEnabled();
 // Checks that the other non-reduction axis are not parallelized on Didx
 NVF_API bool isSharded(TensorView*);
 
-// Returns number of device dimensions in a TensorView's leaf domain.
+// Returns number of device dimensions in a TensorView's loop domain.
 int64_t numDeviceDims(TensorView*);
 
 // Returns the subset of tvs which elements have the different multi-device
@@ -32,7 +32,7 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     TvIterator tvs) {
   std::unordered_set<TensorView*> ret;
-  const auto& reference_dom = ref->getLeafDomain();
+  const auto& reference_dom = ref->getLoopDomain();
   FusionGuard fg(ref->fusion());
   auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
   std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
@@ -47,7 +47,7 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
       ret.insert(tv);
       continue;
     }
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       auto ca_id =
           ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {

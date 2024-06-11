@@ -129,7 +129,7 @@ ParallelTypeBitmap avoidRedundantWrites(const TensorView* out_tv) {
   ParallelTypeBitmap unused_types;
   // Initially all types are conservatively assumed to not be used.
   unused_types = ~unused_types;
-  for (auto out_tv_id : out_tv->getLeafDomain()) {
+  for (auto out_tv_id : out_tv->getLoopDomain()) {
     auto pt = out_tv_id->getParallelType();
     if (!isParallelTypeThread(pt)) {
       continue;
@@ -229,8 +229,8 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
   // Parallel types used by the output tensor
   ParallelTypeBitmap output_ptypes;
   std::for_each(
-      ir_utils::getTvOutput(expr)->getLeafDomain().begin(),
-      ir_utils::getTvOutput(expr)->getLeafDomain().end(),
+      ir_utils::getTvOutput(expr)->getLoopDomain().begin(),
+      ir_utils::getTvOutput(expr)->getLoopDomain().end(),
       [&](auto out_tv_id) {
         if (out_tv_id->isThread()) {
           output_ptypes.set(out_tv_id->getParallelType());
@@ -264,7 +264,7 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
     ParallelTypeBitmap id_bcasts;
     ParallelTypeBitmap id_ptypes;
 
-    for (auto id : tv_inp->getLeafDomain()) {
+    for (auto id : tv_inp->getLoopDomain()) {
       if (id->isThread()) {
         id_ptypes.set(id->getParallelType());
         if (id->isReduction() &&
@@ -530,7 +530,7 @@ class RedundantUseAnalysis : BackwardVisitor {
 
 namespace {
 // This class removes the redundant write to gmem when an output tensor has a
-// leaf domain merged from concretized broadcast logical domain and parallelized
+// loop domain merged from concretized broadcast logical domain and parallelized
 // by thread/block id. issue https://github.com/csarofeen/pytorch/issues/2125
 class ConcretizedBroadcastRedundantWriteRemover {
  public:
@@ -538,15 +538,15 @@ class ConcretizedBroadcastRedundantWriteRemover {
   ConcretizedBroadcastRedundantWriteRemover(const TensorView* out_tv)
       : tv_(out_tv), logical_domain_(out_tv->getLogicalDomain()) {
     setCandidateLeafDomains();
-    if (candidate_leaf_domains_.empty()) {
+    if (candidate_loop_domains_.empty()) {
       return;
     }
     setConcretizedBroadcastLogicalDomain();
     if (concretized_broadcast_logical_domains_.empty()) {
       return;
     }
-    for (auto ld : candidate_leaf_domains_) {
-      // find all logical domains that are merged to this leaf domain.
+    for (auto ld : candidate_loop_domains_) {
+      // find all logical domains that are merged to this loop domain.
       const std::vector<IterDomain*>& merged_logical_domains =
           getLogicalDomainsMergedToLeaf(ld);
       if (!merged_logical_domains.empty()) {
@@ -565,9 +565,9 @@ class ConcretizedBroadcastRedundantWriteRemover {
  private:
   const TensorView* tv_;
   const std::vector<IterDomain*>& logical_domain_;
-  // leaf domains that are merged from logical domains and parallelized by
+  // loop domains that are merged from logical domains and parallelized by
   // thread blocks
-  std::vector<IterDomain*> candidate_leaf_domains_;
+  std::vector<IterDomain*> candidate_loop_domains_;
   // map from logical domain to its concretized domain
   std::unordered_map<IterDomain*, IterDomain*>
       concretized_broadcast_logical_domains_;
@@ -575,20 +575,20 @@ class ConcretizedBroadcastRedundantWriteRemover {
   std::unordered_map<ParallelType, std::vector<Val*>> write_index_map_;
 
   void setCandidateLeafDomains() {
-    for (auto ld : tv_->domain()->leaf()) {
+    for (auto ld : tv_->domain()->loop()) {
       const ParallelType& pt = ld->getParallelType();
       auto merge = dynamic_cast<Merge*>(ld->definition());
       if (isParallelTypeThread(pt) && merge) {
-        candidate_leaf_domains_.push_back(ld);
+        candidate_loop_domains_.push_back(ld);
       }
     }
   }
 
   void setConcretizedBroadcastLogicalDomain() {
     std::shared_ptr<const ComputeAtMap> caMap = GpuLower::current()->caMap();
-    for (auto leaf_id : candidate_leaf_domains_) {
+    for (auto loop_id : candidate_loop_domains_) {
       auto loop_concrete_id =
-          caMap->getConcreteMappedID(leaf_id, IdMappingMode::LOOP);
+          caMap->getConcreteMappedID(loop_id, IdMappingMode::LOOP);
       auto concrete_logical_vals = IterVisitor::getInputsTo({loop_concrete_id});
       auto concrete_logical_ids =
           ir_utils::filterByType<IterDomain>(concrete_logical_vals);
@@ -618,7 +618,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
     }
   }
 
-  // Find all the logical domains that are merged to the leaf domain.
+  // Find all the logical domains that are merged to the loop domain.
   // e.g. Root: [I1,B2,B3] -> Leaf: [I1*B2*B3]
   std::vector<IterDomain*> getLogicalDomainsMergedToLeaf(IterDomain* ld) {
     std::vector<IterDomain*> merged_logical_domains;
@@ -667,12 +667,12 @@ class ConcretizedBroadcastRedundantWriteRemover {
     return merged_logical_domains_sorted;
   }
 
-  // Get the index of the leaf domain if we skip the broadcasted logical domains
+  // Get the index of the loop domain if we skip the broadcasted logical domains
   std::vector<Val*> getIndexOfBroadcastLogicalDomains(
       const std::vector<IterDomain*>& merged_logical_domains,
       ParallelType pt) {
     const int64_t ndim = (int64_t)merged_logical_domains.size();
-    // get the stride if we index the leaf domain using its logical domains
+    // get the stride if we index the loop domain using its logical domains
     std::vector<Val*> logical_stride(ndim);
     logical_stride.at(ndim - 1) = GpuLower::current()->kernel()->oneVal();
     for (int64_t i = ndim - 2; i >= 0; i--) {
@@ -683,7 +683,7 @@ class ConcretizedBroadcastRedundantWriteRemover {
       logical_stride.at(i) =
           IrBuilder::mulExpr(logical_stride.at(i + 1), pre_extent);
     }
-    // convert the linear index of the leaf domain to the indices of the logical
+    // convert the linear index of the loop domain to the indices of the logical
     // domains
     Val* remaining_index = NamedScalar::getParallelIndex(pt);
     std::vector<Val*> index_broadcast_logical_domains;
@@ -703,9 +703,9 @@ class ConcretizedBroadcastRedundantWriteRemover {
 } // namespace
 
 // This function is to avoid redundant writes to global memory
-// when the tensor has a leaf domain merged from concretized
+// when the tensor has a loop domain merged from concretized
 // broadcast domains and parallelized by thread/block id.
-// Only do the write when the index of the leaf domain equals
+// Only do the write when the index of the loop domain equals
 // write_index_map_.at(pt) where pt is the parallel type.
 void ThreadPredicateMap::avoidConcretizedBroadcastRedundantWrite(
     const TensorView* out_tv) {
@@ -833,7 +833,7 @@ ParallelTypeBitmap ThreadPredicateMap::getParallelBroadcastDomains(
 
   ParallelTypeBitmap parallel_broadcast;
 
-  const auto& iter_domains = tv->getLeafDomain();
+  const auto& iter_domains = tv->getLoopDomain();
 
   // If the output is on shared memory, assume that all subsequent
   // reads from all threads in its CTA can be done with no parallel

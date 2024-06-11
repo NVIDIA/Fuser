@@ -5008,7 +5008,7 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
   tv1->setMemoryType(MemoryType::Shared);
 
   // The predicate tv2 should look like (i * 4) + j < tv0.extent(0),
-  // where i and j are the loop indices of the two leaf axes,
+  // where i and j are the loop indices of the two loop axes,
   // respectively. PredChecker checks if the second loop index is
   // indeed used in the predicate of tv2.
 
@@ -6577,10 +6577,10 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // [I0/4*4, I1]
 
   // Initial domain: logical domain
-  // Derived domain: leaf domain
+  // Derived domain: loop domain
   // Should succeed.
   ir_utils::validateDomainEquivalence(
-      tv1->getLogicalDomain(), tv1->getLeafDomain());
+      tv1->getLogicalDomain(), tv1->getLoopDomain());
 
   auto tv1_intermediate_id = tv1->axis(0);
 
@@ -6588,8 +6588,8 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // [I0/4*4/3, 3, I1]
 
   // Initial domain: logical domain
-  // Derived domain: leaf + tv1_intermediate_id
-  // Should fail as the intermediate ID and the first two leaves are redundant
+  // Derived domain: loop + tv1_intermediate_id
+  // Should fail as the intermediate ID and the first two loop ids are redundant
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
@@ -6606,7 +6606,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
        IrBuilder::create<Val>(DataType::Int)});
 
   ir_utils::validateDomainEquivalence(
-      tv2->getRootDomain(), tv2->getLeafDomain());
+      tv2->getRootDomain(), tv2->getLoopDomain());
 
   // create a 2D tensor with one symbolid and another non-symbolic
   auto tv4 = broadcast(sum(tv2, {1}), {false, true});
@@ -6617,7 +6617,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // [S0, B0/4, 4]
 
   ir_utils::validateDomainEquivalence(
-      tv4->getLogicalDomain(), tv4->getLeafDomain());
+      tv4->getLogicalDomain(), tv4->getLoopDomain());
 
   // Initial domain: root domain
   // Derived domain: [S0, B0/4]
@@ -6666,7 +6666,7 @@ TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
 }
 
 // Test for void IterDomain::parallelize(ParallelType t)
-// Only allowed to parallelize a leaf domain.
+// Only allowed to parallelize a loop domain.
 TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -6682,14 +6682,14 @@ TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
 
   const auto& logical_domain = tv1->getLogicalDomain();
 
-  // legal, as I0 is also a leaf domain
+  // legal, as I0 is also a loop domain
   logical_domain[0]->parallelize(ParallelType::BIDx);
 
-  // llegal, as I1 is not a leaf domain
+  // llegal, as I1 is not a loop domain
   EXPECT_THAT(
       [&]() { logical_domain[1]->parallelize(ParallelType::BIDy); },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Only allowed to parallelize a leaf domain")));
+          testing::HasSubstr("Only allowed to parallelize a loop domain")));
 }
 
 // delete intermediate tensors between segments to reduce memory usage of large
@@ -7018,7 +7018,7 @@ TEST_F(NVFuserTest, Repro413_CUDA) {
       auto expect_vec_factor = std::gcd(m, k);
 
       auto getVectorizationFactor = [](TensorView* tv) -> int64_t {
-        for (auto i : tv->getLeafDomain()) {
+        for (auto i : tv->getLoopDomain()) {
           if (i->getParallelType() == ParallelType::Vectorize) {
             return i->extent()->evaluate().as<int64_t>();
           }
