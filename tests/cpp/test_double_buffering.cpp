@@ -30,11 +30,6 @@ TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
 
   // gmem -> smem (tma / double buffering / 1d -> 2d)
   // smem -> gmem
-
-  constexpr size_t bulk_inner_dim = 32;
-  // constexpr size_t bulk_outer_dim = 4;
-  constexpr size_t tensor_dim = 128; // bulk_inner_dim * bulk_outer_dim;
-
   auto tv0 = makeContigTensor(1);
   auto tv1 = exp(tv0);
 
@@ -46,6 +41,7 @@ TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
 
   // [M] -> [M/bid, bid]
   auto reference = tv1;
+  constexpr size_t bulk_inner_dim = 32;
   reference->split(-1, bulk_inner_dim);
 
   TransformPropagatorWithCheck propagator(reference);
@@ -57,8 +53,8 @@ TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
   tv2->doubleBuffer();
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
 
-  fusion.printTransforms();
-
+  // bulk_inner_dim * bulk_outer_dim;
+  constexpr size_t tensor_dim = 128;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({tensor_dim}, options);
   auto t1 = at::exp(t0);

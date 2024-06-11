@@ -171,28 +171,25 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
 
 // Creates kir::Loop with range based on stages' number
 kir::ForLoop* createStagesForLoop(kir::ForLoop* double_buffer_loop) {
-  auto stage_depth = GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-      double_buffer_loop->iter_domain());
+  int64_t stage_depth =
+      GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+          double_buffer_loop->iter_domain());
 
-  auto loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
-  auto loop_index = IrBuilder::create<Val>(PrimDataType::Index);
-  auto loop_extend = IrBuilder::create<Val>(stage_depth, PrimDataType::Index);
-  auto loop_domain_builder = IterDomainBuilder(loop_start, loop_extend);
-  auto loop_step = IrBuilder::create<Val>(1L, PrimDataType::Index);
+  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
+  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
+  Val* loop_extend = IrBuilder::create<Val>(stage_depth, PrimDataType::Index);
+  IterDomainBuilder loop_domain_builder(loop_start, loop_extend);
+  Val* loop_step = IrBuilder::create<Val>(1L, PrimDataType::Index);
 
-  const auto vectorize = false;
-  Val* vectorize_shift = nullptr;
-  const auto unroll_required = false;
-
-  auto loop = IrBuilder::create<kir::ForLoop>(
+  kir::ForLoop* loop = IrBuilder::create<kir::ForLoop>(
       loop_domain_builder.build(),
       loop_index,
       loop_start,
       loop_extend,
       loop_step,
-      vectorize,
-      vectorize_shift,
-      unroll_required,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
       DoubleBufferLoopStage::NotApplicable);
 
   return loop;
@@ -779,7 +776,7 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
     // 'threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0'
     kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
-    // Construct for loop, a body for if expressiong
+    // Construct for loop, a body for if expression
     auto loop = createStagesForLoop(double_buffer_loop_);
 
     // Construct loop body with:
@@ -1356,9 +1353,8 @@ IterDomain* DoubleBufferInfo::getDoubleBufferAxis(const TensorView* tv) {
   return getTvInfo(tv).double_buffer_axis;
 }
 
-unsigned int DoubleBufferInfo::getStageDepthFor(
-    IterDomain* double_buffer_axis) {
-  auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
+int64_t DoubleBufferInfo::getStageDepthFor(IterDomain* double_buffer_axis) {
+  IterDomain* concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
       double_buffer_axis, IdMappingMode::LOOP);
 
   auto maybe_depth_it = stage_depth_.find(concrete_id);
