@@ -53,15 +53,16 @@ __device__ uint4 philox(
 
 // This is a uniform double in the range (0, 1]
 __device__ double raw_uniform_double(unsigned int x, unsigned int y) {
-  constexpr double scale = 5.421010862427522e-20;
-  unsigned long long z = (unsigned long long)x + ((unsigned long long)y << 32);
-  return scale * (double)z + 0.5f * scale;
+  constexpr double scale = 1.0 / (double)(1ll << 53);
+  const unsigned long long z =
+      (unsigned long long)x ^ ((unsigned long long)y << (53 - 32));
+  return (double)z * scale + 0.5 * scale;
 }
 
 // This is a uniform float in the range (0, 1]
 __device__ float raw_uniform_float(unsigned int x) {
   constexpr float scale = (float)(1.0 / (double)(1ll << 32));
-  return scale * (float)x + 0.5f * scale;
+  return (float)x * scale + 0.5f * scale;
 }
 
 // This is not actually __heq, but rather a bitwise identical check, i.e.
@@ -90,7 +91,7 @@ __device__ float uniformf(unsigned int x) {
 }
 
 __device__ double uniform(unsigned int x, unsigned int y) {
-  float result = raw_uniform_double(x, y);
+  double result = raw_uniform_double(x, y);
   return result == 1.0 ? 0.0 : result;
 }
 
