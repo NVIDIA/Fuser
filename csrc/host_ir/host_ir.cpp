@@ -152,9 +152,7 @@ bool SetCurrentStream::sameAs(const Statement* other) const {
   return false;
 }
 
-
-Wait::Wait(IrBuilderPasskey passkey,
-      Communication* communication)
+Wait::Wait(IrBuilderPasskey passkey, Communication* communication)
     : Expr(passkey, {}, {}, {communication}) {
   NVF_ERROR(
       passkey.ir_container_->isA<hir::HostIrContainer>(), // NOLINT
