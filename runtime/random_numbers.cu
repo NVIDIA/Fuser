@@ -62,29 +62,6 @@ __device__ float uniform_float(unsigned int x) {
   return scale * (float)x + 0.5f * scale;
 }
 
-template <typename Out, unsigned int significand_bits, typename In>
-__device__ Out uniform_for_casting(In x) {
-  // We scale the values to lie between 0 and 1 such that the highest generated
-  // value does not round to 1.0 when converted to half. Scaling is done by the
-  // transform x => scale * x + 0.5 * scale (see note below) so we choose scale
-  // accordingly.
-  //
-  // For a floating point value with significand having B bits of precision,
-  // nextafter(1.0, 0.0) == 1 - 1/(2^B). In round-to-nearest mode this
-  // means the highest scaled generated value `scale * (N-1) + 0.5 * scale` must
-  // be strictly less than 1 - 1/(2^(B+1)) (where N=2^32 for unsigned int input
-  // x). Equality is achieved when scale = (1 - 1/(2^(B+1))) / (N - 0.5). Since
-  // we need a scale strictly less than this, we do not subtract 0.5 from N.
-  constexpr Out scale = (Out)((1.0 - 1.0 / (double)(1l << (significand_bits))) /
-                              (double)(1l << (8 * sizeof(In))));
-
-  // x is an int between 0 and N-1 (inclusive) for N=2^bits. After scaling this
-  // becomes a float between 0 and (N-1)/N=1-1/N. We add 1/2N so that the mean
-  // of the generated values equals 0.5.
-  float result = (Out)x * scale + (scale / 2.0f);
-  return result;
-}
-
 // This is not actually __heq, but rather a bitwise identical check, i.e.
 // special cases for nans, subnormals, and denormalized floats are ignored.
 template <typename T>
