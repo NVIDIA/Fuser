@@ -23,8 +23,10 @@ def simple_pointwise_fusion(
         T2 = fd.ops.cast(T2, dtype=dtype)
     fd.add_output(T2)
 
+
 def simple_pointwise_fwd_fn(inputs: list):  # in_tensor
     return torch.mul(inputs[0], inputs[0])
+
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
