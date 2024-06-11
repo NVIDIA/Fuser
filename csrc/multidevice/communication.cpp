@@ -249,13 +249,12 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  std::vector<at::Tensor> input_tensors({input_tensor});
-  std::vector<std::vector<at::Tensor>> output_tensors(1);
-  output_tensors[0] = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
 
-  assertBufferCount(output_tensors[0], communication->team().size());
-  assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
-  return backend->allgather(output_tensors, input_tensors, {});
+  auto splits = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
+  assertBufferCount(splits, communication->team().size());
+  assertBuffersHaveSameSize({input_tensor}, splits);
+
+  return backend->_allgather_base(output_tensor, input_tensor, {});
 }
 
 c10::intrusive_ptr<c10d::Work> postScatter(
