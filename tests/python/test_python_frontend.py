@@ -4178,7 +4178,7 @@ class TestNvFuserFrontend(TestCase):
 
                 # Rarely we might have a pair of matching lower precision
                 # samples. However, it is extremely rare that we would have a
-                # set of three matching elements in only 1000 repeats unless we
+                # set of three matching elements in only 100 repeats unless we
                 # have a bug.
 
                 match = output.flatten().unsqueeze(0) == output.flatten().unsqueeze(1)
