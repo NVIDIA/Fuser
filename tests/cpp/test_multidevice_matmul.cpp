@@ -102,7 +102,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   // TODO: If c's allocation domain isn't set, it will fail validation at
   // csrc/device_lower/validation.cpp:419, Vectorized dim for consumer has to be
   // from a contiguous inner most position.
-  c->setAllocationDomain(c->getLeafDomain(), true);
+  c->setAllocationDomain(c->getLoopDomain(), true);
 
   auto [in0, in1, out] = getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
   in0 = in0.view({Mo, Mi, K});

@@ -301,7 +301,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
     auto consumer_tv = vector_info.consumer_tv;
     auto producer_tv = vector_info.producer_tv;
 
-    auto vector_dim = vector_info.vectorized_leaf_id;
+    auto vector_dim = vector_info.vectorized_loop_id;
     const auto is_aligned =
         vector_dim->getParallelType() == ParallelType::Vectorize;
 
@@ -365,7 +365,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
   return vectorized_tensor_info_ptr;
 }
 
-// Make sure the root domain(s) comprising the vectorized leaf domain
+// Make sure the root domain(s) comprising the vectorized loop domain
 // have the (merged) extent that is divisible by the vectorization
 // word size.
 void validateAlignedVectorizeExtents(
@@ -587,7 +587,7 @@ void validateAlignedVectorizedTensors(
     ExpressionEvaluator& expr_eval) {
   // Verify extents of aligned vectorized tensors
   for (const auto& vec_info : kernel->summary().vectorized_set_info) {
-    if (vec_info.vectorized_leaf_id->getParallelType() ==
+    if (vec_info.vectorized_loop_id->getParallelType() ==
         ParallelType::Vectorize) {
       validateAlignedVectorizeExtents(vec_info, expr_eval);
     }
@@ -1437,7 +1437,7 @@ std::vector<IterDomain*> getParallelBindingsIterDomains(
     const std::vector<TensorView*>& used_tvs) {
   std::vector<IterDomain*> parallel_ids;
   for (auto tv : used_tvs) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (id->isThread()) {
         if (id->isBroadcast()) {
           // Want to keep the broadcast dimensions if they are not resolved

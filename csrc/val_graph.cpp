@@ -690,7 +690,7 @@ std::optional<SelfMapping> hasSelfMapping(
   // TODO: Exact map isn't quite right here, it should be based on the index
   // map. However, it should also be impossible for index map to generate a
   // case like this.
-  mapped = detectSelfMapping(tv->getLeafDomain(), id_graph);
+  mapped = detectSelfMapping(tv->getLoopDomain(), id_graph);
   if (mapped.has_value()) {
     return SelfMapping{
         .id1 = mapped->first, .id2 = mapped->second, .where = "Leaf"};

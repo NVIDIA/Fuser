@@ -45,8 +45,8 @@ IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
 // loop is partitioned with respect to the memory type of the tensor
 bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
   // False if id is not a loop ID
-  if (std::find(tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id) ==
-      tv->getLeafDomain().end()) {
+  if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
+      tv->getLoopDomain().end()) {
     return false;
   }
 
@@ -113,7 +113,7 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     } else {
       const auto inlining_pos = tv->getComputeAtPosition();
       for (const auto i : c10::irange(tv->nDims())) {
-        auto loop_id = tv->getLeafDomain().at(i);
+        auto loop_id = tv->getLoopDomain().at(i);
         auto pt = loop_id->getParallelType();
         if (!mayRequireAllocation(tv, loop_id)) {
           continue;
@@ -142,9 +142,9 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   // for now.
   for (auto& allocation_domain : allocation_domains) {
     bool is_loop = std::find(
-                       tv->getLeafDomain().begin(),
-                       tv->getLeafDomain().end(),
-                       allocation_domain) != tv->getLeafDomain().end();
+                       tv->getLoopDomain().begin(),
+                       tv->getLoopDomain().end(),
+                       allocation_domain) != tv->getLoopDomain().end();
     if (!is_loop) {
       continue;
     }
@@ -347,9 +347,9 @@ void TensorIndexer::buildLoopIndexMap() {
     // It's assumed that all sibling outputs share the same for-loops,
     // thus only one of the outputs is considered.
     auto tv_output = ir_utils::getTvOutput(expr);
-    for (auto leaf_id : tv_output->getLeafDomain()) {
+    for (auto loop_id : tv_output->getLoopDomain()) {
       const ValGroup& loop_group =
-          id_model_.idGraph(IdMappingMode::LOOP).toGroup(leaf_id);
+          id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
 
       if (loop_index_map_.find(loop_group) != loop_index_map_.end()) {
         // Index already assigned
@@ -481,7 +481,7 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
 std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // Assume consumer-based indexing. Needs to revisit for ops like
   // scatter
-  auto loop_domains = ir_utils::getTvOutput(expr)->getLeafDomain();
+  auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
 
   for (auto& loop_id : loop_domains) {
     loop_id = getLoopPromotion(loop_id, id_model_);

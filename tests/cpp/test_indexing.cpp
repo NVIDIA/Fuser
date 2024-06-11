@@ -31,7 +31,7 @@ namespace {
 
 std::vector<Val*> getLoopIndices(TensorView* tv, const TensorIndexer& indexer) {
   std::vector<Val*> loop_indices;
-  for (const auto& loop_id : tv->getLeafDomain()) {
+  for (const auto& loop_id : tv->getLoopDomain()) {
     loop_indices.push_back(indexer.getLoopIndex(loop_id));
   }
   return loop_indices;
@@ -728,7 +728,7 @@ TEST_F(IndexingTest, MultiDevice2D) {
   auto inner_dim = tv1->getLogicalDomain().at(1)->extent();
 
   // Note that the allocation domain is the logical domain. See the
-  // next test for a leaf allocation example
+  // next test for a loop allocation example
   auto tv0_producer_index_ref = addExpr(
       modExpr(tv1_loop_indices.at(1), inner_dim),
       mulExpr(divExpr(tv1_loop_indices.at(1), inner_dim), inner_dim));
@@ -745,7 +745,7 @@ TEST_F(IndexingTest, MultiDevice2D) {
       << ". Actual: " << tv1_consumer_index->toInlineString();
 }
 
-// Same fusion as MultiDevice2D but with leaf allocation
+// Same fusion as MultiDevice2D but with loop allocation
 TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -767,8 +767,8 @@ TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
 
-  tv0->setAllocationDomain(tv0->getLeafDomain(), true);
-  tv1->setAllocationDomain(tv1->getLeafDomain(), true);
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   IdModel id_model(&fusion);
   TensorIndexer indexer(id_model);
@@ -778,7 +778,7 @@ TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
   auto tv0_producer_index = indexer.getLinearIndex(tv0, tv1->definition());
   auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
 
-  // Since the leaf domain is the allocation domain, the index should
+  // Since the loop domain is the allocation domain, the index should
   // be just the non-parallelized loop index
   auto tv0_producer_index_ref = tv1_loop_indices.at(1);
 

@@ -157,7 +157,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
     // >>>>>>>>>>>>>
     // Number of elements in vectorize access
-    auto vector_size = tensors.vec_tv->getLeafDomain().back()->extent();
+    auto vector_size = tensors.vec_tv->getLoopDomain().back()->extent();
 
     // Size of memory type for the elements
     Val* data_size_in_bytes = IrBuilder::create<Val>(
@@ -476,13 +476,13 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
         PairwiseRootDomainMap(producer_tv, consumer_tv).mapProducerToConsumer();
 
     auto consumer_root_right_of_ca_domains = IterVisitor::getInputsTo(
-        {consumer_tv->getLeafDomain().begin() +
+        {consumer_tv->getLoopDomain().begin() +
              consumer_tv->getComputeAtPosition(),
-         consumer_tv->getLeafDomain().end()});
+         consumer_tv->getLoopDomain().end()});
     auto producer_root_right_of_ca_domains = IterVisitor::getInputsTo(
-        {producer_tv->getLeafDomain().begin() +
+        {producer_tv->getLoopDomain().begin() +
              producer_tv->getComputeAtPosition(),
-         producer_tv->getLeafDomain().end()});
+         producer_tv->getLoopDomain().end()});
 
     const auto& consumer_contig = consumer_tv->domain()->contiguity();
     const auto& producer_contig = producer_tv->domain()->contiguity();

@@ -232,7 +232,7 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
   static std::shared_ptr<DomainInfo> getReferenceIDInfo(TensorView* tv);
   static std::shared_ptr<DomainInfo> getReferenceIDInfo(
       TensorView* tv,
-      int64_t leaf_pos);
+      int64_t loop_pos);
 
  public:
   MaxRootDomainInfoSpanningTree(
@@ -249,11 +249,11 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
             selector) {}
   MaxRootDomainInfoSpanningTree(
       TensorView* reference,
-      int64_t leaf_pos,
+      int64_t loop_pos,
       Selector* selector = nullptr)
       : MaxRootDomainInfoSpanningTree(
             reference,
-            getReferenceIDInfo(reference, leaf_pos),
+            getReferenceIDInfo(reference, loop_pos),
             selector) {}
 };
 
