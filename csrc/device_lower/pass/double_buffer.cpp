@@ -468,8 +468,8 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
               // Register mbarrier object to be used with new LoadStoreOp
               //  from prolog loop
-              gpu_lower->ldstMBarrierIndexMap()[new_ldst] =
-                  mbarrier_arrive_tx->mbarrier();
+              gpu_lower->ldstMBarrierIndexMap().emplace(
+                  new_ldst, mbarrier_arrive_tx->mbarrier());
 
               cloned_scopes_.back()->push_back(if_expr);
 #ifdef EXTRA_LOGS
@@ -551,8 +551,8 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
             // Register mbarrier object to be used with LoadStoreOp
             //  from main loop
-            gpu_lower->ldstMBarrierIndexMap()[ldst] =
-                mbarrier_arrive_tx->mbarrier();
+            gpu_lower->ldstMBarrierIndexMap().emplace(
+                ldst, mbarrier_arrive_tx->mbarrier());
 
             cloned_scopes_.back()->push_back(if_expr);
 

@@ -1437,20 +1437,18 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
   //  pass - kir nodes for arrive/expect tx and wait are added in their proper
   //  scopes.
   // Otherwise, add these nodes here, at this stage.
-  const auto is_double_buffered =
-      (0 != gpu_lower->ldstMBarrierTokenMap().count(ldst));
-
-  auto mbarrier = gpu_lower->ldstMBarrierMap().at(ldst);
+  const bool is_double_buffered =
+      (gpu_lower->ldstMBarrierIndexMap().count(ldst) != 0);
 
   if (is_double_buffered) {
     // indexing mbarrier
     Val* mbarrier_index = gpu_lower->ldstMBarrierIndexMap()[ldst];
 
     // indexing ldst op
-    auto out = lowerDstIndex(ldst->out(), {}, true);
+    Val* out = lowerDstIndex(ldst->out(), {}, true);
     auto [in, _] = Index::getCpAsyncBulkGmemIndex(
         in_tv, out_tv, mbarrier_index, for_loops_, rotated_loop_);
-    auto new_ldst =
+    Expr* new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
     pushBack(new_ldst);
@@ -1460,23 +1458,24 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
     gpu_lower->propagateExprInfo(ldst, back());
   } else {
+    TensorView* mbarrier = gpu_lower->ldstMBarrierMap().at(ldst);
     // indexing mbarrier
-    auto mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+    Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
     auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
         in_tv, out_tv, mbarrier_index, for_loops_, rotated_loop_);
 
     // arrive and expect_tx mbarrier
-    auto state = IrBuilder::create<Val>(DataType::UInt);
+    Val* state = IrBuilder::create<Val>(DataType::UInt);
     pushBack(IrBuilder::create<kir::Allocate>(
         state, MemoryType::Local, ldst->container()->oneVal()));
     pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
         state, mbarrier_index, expect_bytes));
 
     // indexing ldst op
-    auto out = lowerDstIndex(ldst->out(), {}, true);
-    auto new_ldst =
+    Val* out = lowerDstIndex(ldst->out(), {}, true);
+    Expr* new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
     pushBack(new_ldst);
