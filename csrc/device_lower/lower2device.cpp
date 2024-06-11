@@ -395,14 +395,14 @@ void GpuLower::analysis(Fusion* fusion) {
     // Enable validation in the DEBUG build mode
 #ifdef NDEBUG
     // Not DEBUG build
-    IdModel id_model(
+    id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
 #else
     // DEBUG build
-    IdModel id_model(
+    id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
