@@ -2508,4 +2508,75 @@ class ForLoop final : public Expr {
   mutable Val* simplified_stop_ = nullptr;
 };
 
+/*
+SDPA bwd node with same functionality at::_scaled_dot_product_flash_attention
+grad_query = [N, H, L, E]
+grad_key = [N, H, S, E]
+grad_value = [N, H, S, Ev]
+
+grad_output = [N, H, L, Ev]
+query = [N, H, L, E]
+key = [N, H, S, E]
+value = [N, H, S, Ev]
+output = [N, H, L, Ev]
+logsumexp = [N, H, L]
+cum_seq_q = [N + 1,]
+cum_seq_k = [N + 1,]
+query_seq_len = scalar(int)
+key_seq_len = scalar(int)
+dropout_p = scalar(double)
+is_causal = scalar(bool)
+philox_seed = scalar tensor
+philox_offset = scalar tensor
+scale = scalar(double)
+
+N = number of sequences / batch size
+H = num of heads
+L = query sequence length / target sequence length
+S = key/value sequence length / src sequence length
+E = query/key embd dimension
+Ev = value embd dimension
+
+For flash attention, E = Ev
+*/
+
+class SdpaBwdOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  SdpaBwdOp(
+      IrBuilderPasskey,
+      TensorView* grad_query,
+      TensorView* grad_key,
+      TensorView* grad_value,
+      
+      TensorView* grad_output,
+      TensorView* query,
+      TensorView* key,
+      TensorView* value,
+      TensorView* output,
+      TensorView* log_sumexp,
+      TensorView* cum_seq_q,
+      TensorView* cum_seq_k,
+      Val* query_seq_len,
+      Val* key_seq_len,
+      Val* dropout_p,
+      Val* is_causal,
+      TensorView* philox_seed,
+      TensorView* philox_offset,
+      Val* scale);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "SdpaBwdOp";
+  }
+
+  // std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 } // namespace nvfuser

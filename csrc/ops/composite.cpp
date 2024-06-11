@@ -532,4 +532,85 @@ SdpfaFwdResult sdpfa_fwd(
       debug_attn_mask};
 }
 
+SdpfaBwdResult sdpfa_bwd(
+    TensorView* grad_output,
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* output,
+    TensorView* log_sumexp,
+    TensorView* cum_seq_q,
+    TensorView* cum_seq_k,
+    Val* query_seq_len,
+    Val* key_seq_len,
+    Val* dropout_p,
+    Val* is_causal,
+    TensorView* philox_seed,
+    TensorView* philox_offset,
+    Val* scale) {
+  NVF_CHECK(
+      query->dtype() == key->dtype() && query->dtype() == value->dtype(),
+      "Expected query, key, and value to have the same dtype but got: ",
+      query->dtype(),
+      " ",
+      key->dtype(),
+      " ,and ",
+      value->dtype());
+
+  auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
+  auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
+  auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
+
+  NVF_CHECK(
+      query_domain.size() == 4 && key_domain.size() == 4 &&
+          value_domain.size() == 4,
+      "Expected query, key, and value to be 4D but got: ",
+      query_domain.size(),
+      " ",
+      key_domain.size(),
+      " ,and ",
+      value_domain.size());
+
+  NVF_CHECK(
+      !dropout_p || dropout_p->isScalar(),
+      "Expected dropout to be a scalar double.");
+  NVF_CHECK(
+      !is_causal || is_causal->isScalar(),
+      "Expected is_causal to be a scalar boolean.");
+  NVF_CHECK(
+      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+
+  // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
+  // N, H are mapped for all inputs to outputs. L is mapped from query to
+  // output. Ev is mapped from value to output. Note: There is no mapping for S,
+  // E. This may change in the future if we add additional reduction ids to the
+  // output.
+  auto ndims_out = query_domain.size();
+
+  TensorView* grad_query = newOutputTV({query}, query->dtype());
+  TensorView* grad_key = newOutputTV({key}, key->dtype());
+  TensorView* grad_value = newOutputTV({value}, value->dtype());
+
+  IrBuilder::create<SdpaBwdOp>(
+    grad_output,
+    query,
+    key,
+    value,
+    output,
+    log_sumexp,
+    cum_seq_q,
+    cum_seq_k,
+    query_seq_len,
+    key_seq_len,
+    dropout_p,
+    is_causal,
+    philox_seed,
+    philox_offset,
+    scale);
+  return {
+      grad_query,
+      grad_key,
+      grad_value};
+}
+
 } // namespace nvfuser
