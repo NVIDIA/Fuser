@@ -249,7 +249,6 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-
   auto splits = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
   assertBufferCount(splits, communication->team().size());
   assertBuffersHaveSameSize({input_tensor}, splits);
