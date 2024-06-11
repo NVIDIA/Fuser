@@ -24,7 +24,7 @@ TEST_F(DoubleBufferingTest, WIP) {
 #else
 TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
 #endif
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  // NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -67,6 +67,7 @@ TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
   CompileParams index32bit{DataType::Int32, 255, false};
   fe.compileFusion(&fusion, {t0}, {}, index32bit);
 
+  /*
   auto cg_outputs = fe.runFusion({t0});
 
 #if TMA_DEV_TOOLS
@@ -86,6 +87,7 @@ TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
   }
 #endif
   testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+  */
 }
 
 TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering2d) {

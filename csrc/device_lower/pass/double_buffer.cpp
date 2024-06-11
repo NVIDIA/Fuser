@@ -1009,6 +1009,12 @@ class DoubleBufferInserter : private kir::ExprMutator {
         registerInsertBefore(double_buffer_loop, expr);
       }
     }
+    // cpAsyncBulk (with TMA) block sync prior to entering main loop to
+    //  make smem with mbarrier objects is initialized.
+    if (has_cp_async_bulk) {
+      auto sync = IrBuilder::create<kir::BlockSync>(false);
+      registerInsertBefore(double_buffer_loop, sync);
+    }
 
     auto prologue_loop = DoubleBufferLoopCloner::clone(
         double_buffer_loop,
@@ -1024,13 +1030,6 @@ class DoubleBufferInserter : private kir::ExprMutator {
     std::cout
         << "=============================================================\n";
 #endif //  EXTRA_LOGS
-
-    // cpAsyncBulk (with TMA) block sync prior to entering main loop to
-    //  make smem with mbarrier objects is initialized.
-    if (has_cp_async_bulk) {
-      auto sync = IrBuilder::create<kir::BlockSync>(false);
-      registerInsertBefore(double_buffer_loop, sync);
-    }
 
     auto main_loop = DoubleBufferLoopCloner::clone(
         double_buffer_loop,

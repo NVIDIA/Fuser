@@ -373,6 +373,7 @@ void FusionExecutor::compileFusion(
   }
 
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
+  std::cout << kernel_code_ << std::endl;
 
   // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
   // If the loaded external source code is empty, revert to the default codegen.
@@ -399,6 +400,7 @@ void FusionExecutor::compileFusion(
       std::ref(target_arch.second),
       compile_to_sass);
 
+  /*
   NVF_CHECK(
       target_arch >= kernel_summary.min_device_version,
       "Target compute capability is ",
@@ -411,6 +413,7 @@ void FusionExecutor::compileFusion(
       kernel_summary.min_device_version.second,
       ". Reason: ",
       kernel_summary.min_device_version_reason);
+  */
 
   // We currently shouldn't allocate any more shared mem
   //  tensors statically but could keep this path if

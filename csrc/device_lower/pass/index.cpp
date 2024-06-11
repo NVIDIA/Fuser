@@ -1426,6 +1426,19 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
   GpuLower::current()->propagateExprInfo(minval, minval_indexed);
 }
 
+void IndexLowering::handle(
+    const kir::MBarrierArriveExpectTx* arrive_transaction) {
+  pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
+      arrive_transaction->state(),
+      arrive_transaction->mbarrier(),
+      arrive_transaction->txCount()));
+}
+
+void IndexLowering::handle(const kir::MBarrierWait* mwait) {
+  pushBack(
+      IrBuilder::create<kir::MBarrierWait>(mwait->mbarrier(), mwait->state()));
+}
+
 void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
   auto out_tv = ldst->out()->as<TensorView>();
   auto in_tv = ldst->in()->as<TensorView>();
@@ -1444,10 +1457,12 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
     // indexing mbarrier
     Val* mbarrier_index = gpu_lower->ldstMBarrierIndexMap()[ldst];
 
-    // indexing ldst op
-    Val* out = lowerDstIndex(ldst->out(), {}, true);
+    // gmem indexing and expect_bytes for mbarrier
     auto [in, _] = Index::getCpAsyncBulkGmemIndex(
         in_tv, out_tv, mbarrier_index, for_loops_, rotated_loop_);
+
+    // indexing ldst op
+    Val* out = lowerDstIndex(ldst->out(), {}, true);
     Expr* new_ldst =
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
@@ -1479,6 +1494,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
     pushBack(new_ldst);
+
     gpu_lower->propagateExprInfo(ldst, back());
     // wait mbarrier
     pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
