@@ -230,9 +230,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   }
 
   if (SdpaFwdOp* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())) {
-    // Consumers: output = [N, H, L, Ev], logsumexp = [N, H, L], cum_seq_q/k =
-    // [N + 1,] Producers: query = [N, H, L, E], key = [N, H, S, E], value = [N,
-    // H, S, Ev]
+    // Producers:
+    //   query = [N, H, L, E]
+    //   key = [N, H, S, E]
+    //   value = [N, H, S, Ev]
+    // Consumers:
+    //   output = [N, H, L, Ev]
+    //   logsumexp = [N, H, L]
+    //   cum_seq_q/k = [N + 1]
 
     // Map N, H from any input (query/key/value)
     for (auto idx : c10::irange(consumer_root.size())) {
