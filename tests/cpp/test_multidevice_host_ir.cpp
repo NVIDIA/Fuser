@@ -165,8 +165,8 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   FusionGuard::setCurFusion(hic.get());
 
   // [Step 3a)] Create a HostUnit Ir holding the fusions
-  auto hu = IrBuilder::create<HostUnit>(
-      static_cast<IrContainer*>(hic.get()), std::move(fusion));
+  auto hu = IrBuilder::createInContainer<HostUnit>(
+    hic.get(), std::move(fusion));
 
   // [Step 4)] Create TensorViews at the Host level
   IrCloner ir_cloner(hic.get());
@@ -180,28 +180,31 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   // [Step 5)a.] Create PostOnStream Irs representing executing the Fusion
   std::vector<Val*> compute_inputs = {tv0};
   std::vector<Val*> compute_outputs = {tv1};
-  auto post_compute = IrBuilder::create<PostOnStream>(
-      static_cast<IrContainer*>(hic.get()),
+  auto post_compute = IrBuilder::createInContainer<PostOnStream>(
+      hic.get(),
       hu,
       compute_inputs,
       compute_outputs);
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
-  TensorView* communication_inputs = tv1->as<TensorView>();
-  TensorView* communication_outputs = tv2->as<TensorView>();
-  CommParams comm_params{
-      .type = CommunicationType::Allgather,
-      .root = 0,
-      .mesh = mesh,
-      .team = mesh.vector()};
-  auto communication = IrBuilder::create<Communication>(
-      static_cast<IrContainer*>(hic.get()),
-      comm_params,
-      communication_inputs,
-      communication_outputs);
-  auto wait = IrBuilder::create<Wait>(
-      static_cast<IrContainer*>(hic.get()), communication);
+  TensorView* communication_input = tv1->as<TensorView>();
+  TensorView* communication_output = tv2->as<TensorView>();
+  auto communication = IrBuilder::createInContainer<Communication>(
+      hic.get(),
+      CommunicationType::Allgather,
+      mesh,
+      mesh.vector(),
+      -1,
+      RedOpType::UNUSED,
+      -1,
+      communication_input,
+      communication_output);
+  auto wait = IrBuilder::createInContainer<Wait>(
+      hic.get(), communication);
 
   // [Step 6)] Define the Host program
+  hic->pushBackTopLevelExprs(post_compute);
+  hic->pushBackTopLevelExprs(communication);
+  hic->pushBackTopLevelExprs(wait);
   hic->pushBackTopLevelExprs(post_compute);
   hic->pushBackTopLevelExprs(communication);
   hic->pushBackTopLevelExprs(post_compute);
