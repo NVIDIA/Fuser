@@ -82,18 +82,14 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
 
   TensorView* a = makeContigTensor(3, DataType::Half); // (Mo,Mi,K)
   TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
-  // TensorView* a_b = broadcast(a, {false, false, true, false}); // (Mo,Mi,b,K)
-  // TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
-  // TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
-  // TensorView* c = sum(ab, {-1}); // (Mo,Mi,N,r)
-  TensorView* c = matmul(a, b);
+  TensorView* b_t = transpose(b, 0, 1); // (K,N)
+  TensorView* c = matmul(a, b_t); //(Mo,Mi,N,r)
 
   fusion->addInput(a);
   fusion->addInput(b);
   fusion->addOutput(c);
 
   // Sharding M dimension
-  // auto all_sharded_tvs = {a, a_b, b_b, ab, c};
   auto all_sharded_tvs = {a, c};
   for (auto tv : all_sharded_tvs) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
@@ -141,14 +137,12 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   int Mo = num_devices_;
   int Mi = M / Mo;
   std::vector<int> a_shape = {Mo, Mi, K};
-  std::vector<int> b_shape = {N, K};
+  std::vector<int> b_shape = {N,K};
 
   TensorView* a = makeContigTensor(3, DataType::Half); // (Mo,Mi,K)
   TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
-  TensorView* a_b = broadcast(a, {false, false, true, false}); // (Mo,Mi,b,K)
-  TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
-  TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
-  TensorView* c0 = sum(ab, {-1}); // (Mo,Mi,N,r)
+  TensorView* b_t = transpose(b, 0, 1); // (K,N)
+  TensorView* c0 = matmul(a, b_t); //(Mo,Mi,N,r)
   TensorView* c = set(c0);
 
   fusion->addInput(a);
@@ -156,7 +150,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   fusion->addOutput(c);
 
   // Sharding M dimension
-  auto all_sharded_tvs = {a, a_b, b_b, ab, c0};
+  auto all_sharded_tvs = {a, c0};
   for (auto tv : all_sharded_tvs) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setDeviceMesh(mesh);
@@ -202,13 +196,9 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
 
   TensorView* a = makeContigTensor(3, DataType::Half); // (Ko,Ki,M)
   TensorView* b = makeContigTensor(3, DataType::Half); // (Ko,Ki,N)
-  // Transpose into TN layout, keep Ko (device axis) as the outermost.
+  // Transpose into TT layout, keep Ko (device axis) as the outermost.
   TensorView* a_t = transpose(a, 1, 2); // (Ko,M,Ki)
-  TensorView* b_t = transpose(b, 1, 2); // (Ko,N,Ki)
-  TensorView* a_b = broadcast(a_t, {false, false, true, false}); // (Ko,M,b,Ki)
-  TensorView* b_b = broadcast(b_t, {false, true, false, false}); // (Ko,b,N,Ki)
-  TensorView* ab = mul(a_b, b_b); // (Ko,M,N,Ki)
-  TensorView* c0 = sum(ab, {-1}); // (Ko,M,N,r)
+  TensorView* c0 = matmul(a_t, b); // (Ko,M,N,r)
   TensorView* c = sum(c0, {0}); // (r,M,N)
 
   fusion->addInput(a);
@@ -216,7 +206,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   fusion->addOutput(c);
 
   // Parallelize K on all inputs and intermediates.
-  auto all_sharded_tvs = {a, b, a_t, b_t, a_b, b_b, ab, c0};
+  auto all_sharded_tvs = {a, b, a_t, c0};
   for (auto tv : all_sharded_tvs) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setDeviceMesh(mesh);
@@ -258,11 +248,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   TensorView* a = makeContigTensor(3, DataType::Half); // (Ko,Ki,M)
   TensorView* b = makeContigTensor(3, DataType::Half); // (Ko,Ki,N)
   TensorView* a_t = transpose(a, 1, 2); // (Ko, M, Ki)
-  TensorView* b_t = transpose(b, 1, 2); // (Ko, N, Ki)
-  TensorView* a_b = broadcast(a_t, {false, false, true, false}); // (Ko,M,b,Ki)
-  TensorView* b_b = broadcast(b_t, {false, true, false, false}); // (Ko,b,N,Ki)
-  TensorView* ab = mul(a_b, b_b); // (Ko,M,N,Ki)
-  TensorView* c0 = sum(ab, {-1}); // (Ko,M,N,r)
+  TensorView* c0 = matmul(a_t, b); // (Ko,M,N,r)
   c0 = segment_set(c0);
   std::vector<int64_t> orig_size = {K, M, N};
   std::vector<int64_t> new_size = {K, Mo, Mi, N};
@@ -274,7 +260,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   fusion->addOutput(c);
 
   // Sharding K dimension of all inputs and intermediates.
-  auto all_sharded_tvs = {a, b, a_t, b_t, a_b, b_b, ab, c0, c1};
+  auto all_sharded_tvs = {a, b, a_t, c0, c1};
   for (auto tv : all_sharded_tvs) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setDeviceMesh(mesh);
