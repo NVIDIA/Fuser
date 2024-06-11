@@ -1237,8 +1237,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     rhs_i = lhs_i;
   }
 
-  reference1->split(0, 1);
-  // [merged_dim, 1, tile1, tile2]
+  reference1->split(rhs_i, 1);
+  // [r.., merged_dim, 1, tile1, tile2]
 
   // parallelize non-tile dimensions
   reference1->axis(1)->parallelize(ParallelType::Unswitch);
