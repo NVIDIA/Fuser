@@ -221,6 +221,8 @@ NVF_API bool isDebugDumpEnabled(DebugDumpOption option);
 
 const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option);
 
+bool hasDebugDumpArgument(DebugDumpOption option, const std::string& arg);
+
 // Enable options
 template <>
 NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
@@ -231,6 +233,8 @@ using EnableOptions = Options<EnableOption>;
 bool isOptionEnabled(EnableOption option);
 
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
+
+bool hasEnableOptionArgument(EnableOption option, const std::string& arg);
 
 template <>
 NVF_API Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
@@ -247,6 +251,8 @@ using DisableOptions = Options<DisableOption>;
 NVF_API bool isOptionDisabled(DisableOption option);
 
 const std::vector<std::string>& getDisableOptionArguments(DisableOption option);
+
+bool hasDisableOptionArgument(DisableOption option, const std::string& arg);
 
 template <>
 NVF_API Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
