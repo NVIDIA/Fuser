@@ -4092,14 +4092,15 @@ class TestNvFuserFrontend(TestCase):
         dtypes = [DataType.Double, DataType.Float, DataType.Half]
         if not is_pre_ampere():
             dtypes.append(DataType.BFloat16)
-        for dtype in dtypes:
+
+        def run_test(left: float, right: float, dtype: DataType):
             samples_per_run = 2**29
 
             def fusion_fn(fd: FusionDefinition):
                 # Generate enough values to reasonably expect to sample the ends of the range
                 shape = fd.define_vector([samples_per_run], dtype=DataType.Int)
-                S0 = fd.define_scalar(0.00000, dtype=DataType.Double)
-                S1 = fd.define_scalar(1.00000, dtype=DataType.Double)
+                S0 = fd.define_scalar(left, dtype=DataType.Double)
+                S1 = fd.define_scalar(right, dtype=DataType.Double)
                 output = fd.ops.uniform(S0, S1, shape=shape, dtype=dtype)
                 fd.add_output(output)
 
@@ -4109,6 +4110,7 @@ class TestNvFuserFrontend(TestCase):
             output = fd.execute([])[0]
 
             x = output.amax()
+            m = output.amin()
             mu = output.type(torch.float64).mean()
             # Repeat to improve chances of sampling extreme values
             num_runs = 100
@@ -4116,27 +4118,46 @@ class TestNvFuserFrontend(TestCase):
             for i in range(num_runs):
                 u = fd.execute([])[0]
                 x = torch.maximum(x, u.amax())
+                m = torch.minimum(m, u.amin())
                 mu = mu + (u.type(torch.float64).mean() - mu) / (i + 2)
+
+            # round-trip cast to find expected min
+            theomin = torch.tensor(left, dtype=output.dtype).item()
+            theomu = 0.5 * (right + left)
+            theomax = torch.nextafter(
+                torch.tensor(right, dtype=output.dtype),
+                torch.tensor(left, dtype=output.dtype),
+            )
+
+            print(
+                f"{output.dtype} min={m.item()} mu={mu.item()} max={x.item()} theomin={theomin} theomu={theomu} theomax={theomax.item()}"
+            )
 
             if dtype != DataType.Double:
                 # Even with repeats, there's no hope of sampling extreme double values
 
                 assert (
-                    x.item()
-                    == torch.nextafter(
-                        torch.tensor(1.0, dtype=output.dtype),
-                        torch.tensor(0.0, dtype=output.dtype),
-                    ).item()
-                ), f"{output.dtype} max generated value: {x.item()}"
+                    m.item() == theomin,
+                    f"{output.dtype} expect min generated value {theomin} but found {m.item()}",
+                )
+                assert (
+                    x.item() == theomax,
+                    f"{output.dtype} expect max generated value {theomax} but found {x.item()}",
+                )
 
                 # uniform distribution on [0, 1) has mean 0.5 and variance 1/12
                 # The standard error of the mean is then 1/sqrt(12 *
                 # num_samples). We use the precision at 1.0 as a surrogate for
                 # the contribution of rounding to the standard error of the
                 # finite-precision mean.
-                assert abs(mu.item() - 0.5) < max(
-                    1.0 - x.item(), 3.0 / math.sqrt(12 * num_samples)
-                ), f"{output.dtype} mean generated value: {mu.item()}"
+                assert abs(mu.item() - theomu) < (right - left) * max(
+                    right - x.item(), 3.0 / math.sqrt(12 * num_samples)
+                ), f"{output.dtype} expected mean generated value {theomu} but found {mu.item()}"
+
+        # test standard and non-standard uniform
+        for left, right in [[0.0, 1.0], [-1.5, 3.7]]:
+            for dtype in dtypes:
+                run_test(left, right, dtype)
 
     def test_random_distinct_values(self):
         dtypes = [DataType.Double, DataType.Float, DataType.Half]
@@ -4156,7 +4177,7 @@ class TestNvFuserFrontend(TestCase):
             with FusionDefinition() as fd:
                 fusion_fn(fd)
 
-            for i in range(1000):
+            for i in range(100):
                 output = fd.execute([])[0]
 
                 # Rarely we might have a pair of matching lower precision

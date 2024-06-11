@@ -51,8 +51,19 @@ __device__ uint4 philox(
   return output;
 }
 
-template <unsigned int significand_bits>
-__device__ float uniform_for_casting(unsigned int x) {
+__device__ double uniform_double(unsigned int x, unsigned int y) {
+  constexpr double scale = 5.421010862427522e-20;
+  unsigned long long z = (unsigned long long)x + ((unsigned long long)y << 32);
+  return scale * (double)z + 0.5f * scale;
+}
+
+__device__ float uniform_float(unsigned int x) {
+  constexpr float scale = (float)(1.0 / (double)(1ll << 32));
+  return scale * (float)x + 0.5f * scale;
+}
+
+template <typename Out, unsigned int significand_bits, typename In>
+__device__ Out uniform_for_casting(In x) {
   // We scale the values to lie between 0 and 1 such that the highest generated
   // value does not round to 1.0 when converted to half. Scaling is done by the
   // transform x => scale * x + 0.5 * scale (see note below) so we choose scale
@@ -64,41 +75,44 @@ __device__ float uniform_for_casting(unsigned int x) {
   // be strictly less than 1 - 1/(2^(B+1)) (where N=2^32 for unsigned int input
   // x). Equality is achieved when scale = (1 - 1/(2^(B+1))) / (N - 0.5). Since
   // we need a scale strictly less than this, we do not subtract 0.5 from N.
-  constexpr float scale =
-      (float)((1.0 - 1.0 / (double)(1l << (significand_bits))) /
-              (double)(1l << 32));
+  constexpr Out scale = (Out)((1.0 - 1.0 / (double)(1l << (significand_bits))) /
+                              (double)(1l << (8 * sizeof(In))));
 
   // x is an int between 0 and N-1 (inclusive) for N=2^bits. After scaling this
   // becomes a float between 0 and (N-1)/N=1-1/N. We add 1/2N so that the mean
   // of the generated values equals 0.5.
-  float result = (float)x * scale + (scale / 2.0f);
-  return result == 1 ? 0.0f : result;
+  float result = (Out)x * scale + (scale / 2.0f);
+  return result;
 }
 
-// Returns float since we might still need to scale to range
-__device__ float uniform_half(unsigned int x) {
-  // significand precision for float16 is 11 bits
-  return uniform_for_casting<11>(x);
+// This is not actually __heq, but rather a bitwise identical check, i.e.
+// special cases for nans, subnormals, and denormalized floats are ignored.
+template <typename T>
+__device__ __inline__ bool identical(const T& a, const T& b) {
+  static_assert(sizeof(T) == 2);
+  return *(reinterpret_cast<const uint16_t*>(&a)) ==
+      *(reinterpret_cast<const uint16_t*>(&b));
 }
 
-// Returns float since we might still need to scale to range
-__device__ float uniform_bfloat(unsigned int x) {
-  // significand precision for bfloat16 is 8 bits
-  return uniform_for_casting<8>(x);
+__device__ __half uniform_half(unsigned int x) {
+  __half result = __float2half(uniform_float(x));
+  return identical(result, __float2half(1.0f)) ? __float2half(0.0f) : result;
+}
+
+__device__ __bfloat uniform_bfloat(unsigned int x) {
+  __bfloat result = __float2bfloat(uniform_float(x));
+  return identical(result, __float2bfloat(1.0f)) ? __float2bfloat(0.0f)
+                                                 : result;
 }
 
 __device__ float uniformf(unsigned int x) {
-  constexpr float kRanInvM32 = 2.3283064e-10f; // Inverse of 2^32.
-  float result = x * kRanInvM32 + kRanInvM32 / 2.0f;
-  return result == 1 ? 0.0f : result;
+  float result = uniform_float(x);
+  return result == 1.0f ? 0.0f : result;
 }
 
 __device__ double uniform(unsigned int x, unsigned int y) {
-  constexpr double kRan2Pow53Inv = 1.1102230246251565e-16;
-  const unsigned long long z =
-      (unsigned long long)x ^ ((unsigned long long)y << (53 - 32));
-  double result = z * kRan2Pow53Inv + (kRan2Pow53Inv / 2.0);
-  return result == 1 ? 0.0 : result;
+  float result = uniform_double(x, y);
+  return result == 1.0 ? 0.0 : result;
 }
 
 __device__ double rng_uniform(const uint4& rng_result, int rng_component) {
@@ -112,12 +126,12 @@ __device__ float rng_uniformf(const uint4& rng_result, int rng_component) {
 }
 
 __device__ __half rng_uniform_half(const uint4& rng_result, int rng_component) {
-  return __float2half(uniform_half((&rng_result.x)[rng_component]));
+  return uniform_half((&rng_result.x)[rng_component]);
 }
 
 __device__ __bfloat
 rng_uniform_bfloat(const uint4& rng_result, int rng_component) {
-  return __float2bfloat(uniform_bfloat((&rng_result.x)[rng_component]));
+  return uniform_bfloat((&rng_result.x)[rng_component]);
 }
 
 __device__ double rng_uniform_range(
@@ -146,8 +160,9 @@ __device__ __half rng_uniform_range_half(
     float from,
     float to) {
   auto range = to - from;
-  auto uniform01 = uniform_half((&rng_result.x)[rng_component]);
-  return __float2half(from + range * uniform01);
+  float uniform01 = uniform_float((&rng_result.x)[rng_component]);
+  __half result = __float2half(from + range * uniform01);
+  return identical(result, __float2half(to)) ? __float2half(from) : result;
 }
 
 __device__ __bfloat rng_uniform_range_bfloat(
@@ -156,8 +171,9 @@ __device__ __bfloat rng_uniform_range_bfloat(
     float from,
     float to) {
   auto range = to - from;
-  auto uniform01 = uniform_bfloat((&rng_result.x)[rng_component]);
-  return __float2bfloat(from + range * uniform01);
+  float uniform01 = uniform_float((&rng_result.x)[rng_component]);
+  __bfloat result = __float2bfloat(from + range * uniform01);
+  return identical(result, __float2bfloat(to)) ? __float2bfloat(from) : result;
 }
 
 __device__ float normalf(unsigned int x, unsigned int y, int rng_component) {
@@ -169,37 +185,6 @@ __device__ float normalf(unsigned int x, unsigned int y, int rng_component) {
   } else {
     return sqrtf(-2.0f * logf(u)) * cosf(v);
   }
-}
-
-template <unsigned int significand_bits>
-__device__ float normal_for_casting(
-    unsigned int x,
-    unsigned int y,
-    int rng_component) {
-  float u = uniform_for_casting<significand_bits>(x);
-  float v = uniform_for_casting<significand_bits>(y) * 6.2831855f;
-
-  if (rng_component % 2 == 0) {
-    return sqrtf(-2.0f * logf(u)) * sinf(v);
-  } else {
-    return sqrtf(-2.0f * logf(u)) * cosf(v);
-  }
-}
-
-// Returns float since we might still need to center and scale
-__device__ float normal_half(
-    unsigned int x,
-    unsigned int y,
-    int rng_component) {
-  return normal_for_casting<11>(x, y, rng_component);
-}
-
-// Returns float since we might still need to center and scale
-__device__ float normal_bfloat(
-    unsigned int x,
-    unsigned int y,
-    int rng_component) {
-  return normal_for_casting<8>(x, y, rng_component);
 }
 
 __device__ double normal(
@@ -236,7 +221,7 @@ __device__ float rng_normal_standardf(
 
 __device__ __half
 rng_normal_standard_half(const uint4& rng_result, int rng_component) {
-  return __float2half(normal_half(
+  return __float2half(normalf(
       (&rng_result.x)[rng_component / 2 * 2],
       (&rng_result.y)[rng_component / 2 * 2],
       rng_component));
@@ -244,7 +229,7 @@ rng_normal_standard_half(const uint4& rng_result, int rng_component) {
 
 __device__ __bfloat
 rng_normal_standard_bfloat(const uint4& rng_result, int rng_component) {
-  return __float2bfloat(normal_bfloat(
+  return __float2bfloat(normalf(
       (&rng_result.x)[rng_component / 2 * 2],
       (&rng_result.y)[rng_component / 2 * 2],
       rng_component));
@@ -273,7 +258,7 @@ __device__ __half rng_normal_general_half(
     int rng_component,
     float mean,
     float std) {
-  auto normal01 = normal_half(
+  auto normal01 = normalf(
       (&rng_result.x)[rng_component / 2 * 2],
       (&rng_result.y)[rng_component / 2 * 2],
       rng_component);
@@ -285,7 +270,7 @@ __device__ __bfloat rng_normal_general_bfloat(
     int rng_component,
     float mean,
     float std) {
-  auto normal01 = normal_bfloat(
+  auto normal01 = normalf(
       (&rng_result.x)[rng_component / 2 * 2],
       (&rng_result.y)[rng_component / 2 * 2],
       rng_component);
