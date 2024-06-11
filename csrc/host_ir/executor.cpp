@@ -129,7 +129,8 @@ void HostIrExecutor::handle(Communication* communication) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
   }
 
-  c10d::Backend* backend = communicator_->getBackendForTeam(communication->team(), std::nullopt);
+  c10d::Backend* backend =
+      communicator_->getBackendForTeam(communication->team(), std::nullopt);
   works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),

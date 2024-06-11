@@ -198,7 +198,8 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
       comm_params,
       communication_inputs,
       communication_outputs);
-  auto wait = IrBuilder::create<Wait>(static_cast<IrContainer*>(hic.get()), communication);
+  auto wait = IrBuilder::create<Wait>(
+      static_cast<IrContainer*>(hic.get()), communication);
 
   // [Step 6)] Define the Host program
   hic->pushBackTopLevelExprs(post_compute);

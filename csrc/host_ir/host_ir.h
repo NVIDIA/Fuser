@@ -157,12 +157,10 @@ class SetCurrentStream : public Expr {
   }
 };
 
-
 class Wait : public Expr {
  public:
   using Expr::Expr;
-  Wait(IrBuilderPasskey passkey,
-      Communication* communication);
+  Wait(IrBuilderPasskey passkey, Communication* communication);
 
   Wait(const Wait& other) = delete;
   Wait& operator=(const Wait& other) = delete;
