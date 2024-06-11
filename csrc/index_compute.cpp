@@ -2089,13 +2089,23 @@ kir::TensorIndex* Index::getProducerIndex(
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) {
-  auto index = getProducerStridedIndices(
-      producer,
-      consumer,
-      loops,
-      rotated_loops,
-      override_index,
-      generate_pointer);
+  Val* index = nullptr;
+
+  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    std::cerr << "Producer indexng enabled\n";
+    index = GpuLower::current()->tensorIndexer().getLinearIndex(
+        producer, consumer->definition());
+  } else {
+    index = getProducerStridedIndices(
+        producer,
+        consumer,
+        loops,
+        rotated_loops,
+        override_index,
+        generate_pointer);
+  }
+
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
   if (ir_utils::isLdMatrixOp(consumer->definition()) &&
       at::cuda::getCurrentDeviceProperties()->major < 8) {

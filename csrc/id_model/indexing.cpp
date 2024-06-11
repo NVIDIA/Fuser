@@ -292,7 +292,7 @@ void IdGraphIndexCompute::handle(Merge* merge) {
     auto outer_idx = getIndex(merge->outer());
     auto inner_idx = getIndex(merge->inner());
     auto out_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(outer_idx, inner_ext), inner_idx);
+        SimplifyingIrBuilder::mulExpr(inner_ext, outer_idx), inner_idx);
     setIndex(merge->out(), out_idx);
   } else {
     auto out_idx = getIndex(merge->out());
@@ -477,11 +477,10 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   // TODO: Contiguous indexing
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
-    // Traverse from innermost to outermost
     IterDomain* allocation_domain =
-        allocation_domains.at(allocation_domains.size() - 1 - i);
+        allocation_domains.at(i);
 
-    Val* stride = strides.at(allocation_domains.size() - 1 - i);
+    Val* stride = strides.at(i);
 
     auto idx_it = index_map.find(traversalGraph().toGroup(allocation_domain));
     NVF_ERROR(
@@ -490,7 +489,7 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
         allocation_domain->toString());
     Val* idx = idx_it->second;
     index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(idx, stride));
+        index, SimplifyingIrBuilder::mulExpr(stride, idx));
   }
 
   const auto& replacement_map =
@@ -578,7 +577,11 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
   for (const auto& tv : all_tvs) {
     std::stringstream reason;
 
-    if (tv->isDoubleBuffered()) {
+    if (tv->getMemoryType() == MemoryType::Shared) {
+      reason << "Shared memory is used: " << tv->toString();
+    }else if (tv->hasAllocation()) {
+      reason << "Allocation domain is used: " << tv->toString();
+    } else if (tv->isDoubleBuffered()) {
       reason << "Double buffering is used: " << tv->toString();
     } else if (tv->isCircularBuffered()) {
       reason << "Circular buffering is used: " << tv->toString();
@@ -591,7 +594,10 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
       reason << "LoadStoreOp not supported: " << loadstore->toString();
     } else {
       for (const auto& id : ir_utils::allIDsOf(tv)) {
-        if (id->getParallelType() == ParallelType::MisalignedVectorize) {
+        if (id->getParallelType() == ParallelType::Vectorize) {
+          reason << "Vectorize is used: " << id->toString();
+          break;
+        } else if (id->getParallelType() == ParallelType::MisalignedVectorize) {
           reason << "MialignedVectorize is used: " << id->toString();
           break;
         } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
@@ -600,6 +606,10 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
         } else if (
             auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
           reason << "Swizzle2D not supported: " << swizzle2d->toString();
+          break;
+        } else if (
+            auto resize = dynamic_cast<Resize*>(id->definition())) {
+          reason << "Resize not supported: " << resize->toString();
           break;
         } else if (ir_utils::isIndexedID(tv, id)) {
           reason << "Index ops such as select not supported: "

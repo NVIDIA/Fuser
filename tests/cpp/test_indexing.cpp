@@ -18,9 +18,11 @@
 #include <id_model/to_string.h>
 #include <inlining.h>
 #include <ir/builder.h>
+#include <kernel_ir_dispatch.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
 
+#include <algorithm>
 #include <utility>
 
 namespace nvfuser {
@@ -78,6 +80,76 @@ void printAllIndices(
   }
 }
 
+template <typename GetReference>
+class IndexValidator : public kir::IrVisitor {
+ public:
+  IndexValidator(const GpuLower& lower, const GetReference& get_ref)
+      : get_ref_(get_ref) {}
+
+  using kir::IrVisitor::dispatch;
+  using kir::IrVisitor::handle;
+
+  void dispatch(Expr* expr) override {
+    if (!ir_utils::isTvOp(expr)) {
+      kir::IrVisitor::dispatch(expr);
+      return;
+    }
+
+    auto out_ti = expr->output(0)->as<kir::TensorIndex>();
+    for (auto inp : expr->inputs()) {
+      if (inp->isA<kir::TensorIndex>()) {
+        validate(inp->as<kir::TensorIndex>(), out_ti);
+      }
+    }
+    for (auto out : expr->outputs()) {
+      if (out->isA<kir::TensorIndex>()) {
+        validate(out->as<kir::TensorIndex>());
+      }
+    }
+  }
+
+  void validate(kir::TensorIndex* ti, kir::TensorIndex* out_ti = nullptr) {
+    Val* ref = get_ref_.get(ti, out_ti);
+    Val* actual = ti->index();
+    NVF_ERROR(ref != nullptr, "Failed to get a reference of ", ti->toString());
+    // std::cerr << "Validating " << ti->toString() << std::endl;
+    // std::cerr << "Actual: " << actual->toInlineString() << std::endl;
+    EXPECT_TRUE(actual->sameAs(ref))
+        << "Ref: " << ref->toInlineString()
+        << "\nActual: " << actual->toInlineString();
+  }
+
+  static void validate(Fusion* fusion) {
+    EnableOptionsGuard enable_options_guard;
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IdModel, {"consumer_index", "producer_index"});
+
+    // Disable simplifications to make the pattern matching of sameAs work
+    DisableOptionsGuard disable_options_guard;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
+    DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
+    // Magic zero is not yet supported
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+
+    GpuLower lower(fusion);
+
+    kir::Kernel* kernel = nullptr;
+    // Suppress warnings due to using dynamic register tensors
+    testing::internal::CaptureStderr();
+    kernel = lower.run();
+    testing::internal::GetCapturedStderr();
+
+    IndexValidator<GetReference> validator(
+        lower, GetReference(lower.tensorIndexer()));
+
+    FusionGuard fg(kernel);
+    validator.handle(kernel->topLevelExprs());
+  }
+
+ private:
+  const GetReference& get_ref_;
+};
+
 } // namespace
 
 // Simple pointwise test with no parallelization
@@ -100,77 +172,73 @@ TEST_F(IndexingTest, SimplePointwise1) {
 
   tv1->inlineAt(1);
 
-  IdModel id_model(&fusion);
-  id_model.validateAndPropagatePType();
-  TensorIndexer indexer(id_model);
+  struct GetReference {
+    GetReference(const TensorIndexer& indexer) : indexer(indexer) {}
 
-  std::vector<Val*> tv1_loop_indices = getLoopIndices(tv1, indexer);
-  std::vector<Val*> tv2_loop_indices = getLoopIndices(tv2, indexer);
+    Val* get(kir::TensorIndex* ti, kir::TensorIndex* consumer = nullptr) const {
+      auto tv = ti->view();
+      bool as_consumer = consumer == nullptr;
+      auto consumer_tv = consumer ? consumer->view() : tv;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer);
+      switch (tv->name()) {
+        case 0: {
+          NVF_ERROR(!as_consumer);
+          return addExpr(
+              mulExpr(
+                  IrBuilder::getItemExpr(
+                      IrBuilder::getAttrExpr(
+                          IrBuilder::metadataExpr(tv), "alloc_stride"),
+                      IrBuilder::create<Val>(0)),
+                  divExpr(
+                      addExpr(
+                          mulExpr(
+                              consumer_tv->axis(1)->extent(),
+                              loop_indices.at(0)),
+                          loop_indices.at(1)),
+                      tv->getLogicalDomain().at(1)->extent())),
+              mulExpr(
+                  IrBuilder::getItemExpr(
+                      IrBuilder::getAttrExpr(
+                          IrBuilder::metadataExpr(tv), "alloc_stride"),
+                      IrBuilder::create<Val>(1)),
+                  modExpr(
+                      addExpr(
+                          mulExpr(
+                              consumer_tv->axis(1)->extent(),
+                              loop_indices.at(0)),
+                          loop_indices.at(1)),
+                      tv->getLogicalDomain().at(1)->extent())));
+        }
+        case 1: {
+          return loop_indices.at(1);
+        }
+        case 2: {
+          NVF_ERROR(as_consumer);
+          return addExpr(
+              mulExpr(
+                  tv->getLogicalDomain().at(1)->extent(),
+                  divExpr(
+                      addExpr(
+                          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                          loop_indices.at(1)),
+                      tv->getLogicalDomain().at(1)->extent())),
+              modExpr(
+                  addExpr(
+                      mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                      loop_indices.at(1)),
+                  tv->getLogicalDomain().at(1)->extent()));
+        }
+        default:
+          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          break;
+      }
+      return nullptr;
+    }
 
-  auto tv0_producer_index = indexer.getLinearIndex(tv0, tv1->definition());
+    const TensorIndexer& indexer;
+  };
 
-  auto tv1_consumer_index = indexer.getLinearIndex(tv1, tv1->definition());
-  auto tv1_producer_index = indexer.getLinearIndex(tv1, tv2->definition());
-  auto tv2_consumer_index = indexer.getLinearIndex(tv2, tv2->definition());
-
-  auto tv0_producer_index_ref = SimplifyingIrBuilder::addExpr(
-      SimplifyingIrBuilder::mulExpr(
-          SimplifyingIrBuilder::modExpr(
-              SimplifyingIrBuilder::addExpr(
-                  SimplifyingIrBuilder::mulExpr(
-                      tv1_loop_indices.at(0), tv1->axis(1)->extent()),
-                  tv1_loop_indices.at(1)),
-              tv1->getLogicalDomain().at(1)->extent()),
-          IrBuilder::getItemExpr(
-              IrBuilder::getAttrExpr(
-                  IrBuilder::metadataExpr(tv0), "alloc_stride"),
-              IrBuilder::create<Val>(1))),
-      SimplifyingIrBuilder::mulExpr(
-          SimplifyingIrBuilder::divExpr(
-              SimplifyingIrBuilder::addExpr(
-                  SimplifyingIrBuilder::mulExpr(
-                      tv1_loop_indices.at(0), tv1->axis(1)->extent()),
-                  tv1_loop_indices.at(1)),
-              tv1->getLogicalDomain().at(1)->extent()),
-          IrBuilder::getItemExpr(
-              IrBuilder::getAttrExpr(
-                  IrBuilder::metadataExpr(tv0), "alloc_stride"),
-              IrBuilder::create<Val>(0))));
-
-  auto tv1_consumer_index_ref = tv1_loop_indices.at(1);
-  auto tv1_producer_index_ref = tv2_loop_indices.at(1);
-
-  auto tv2_consumer_index_ref = SimplifyingIrBuilder::addExpr(
-      SimplifyingIrBuilder::modExpr(
-          SimplifyingIrBuilder::addExpr(
-              SimplifyingIrBuilder::mulExpr(
-                  tv2_loop_indices.at(0), tv2->axis(1)->extent()),
-              tv2_loop_indices.at(1)),
-          tv2->getLogicalDomain().at(1)->extent()),
-      SimplifyingIrBuilder::mulExpr(
-          SimplifyingIrBuilder::divExpr(
-              SimplifyingIrBuilder::addExpr(
-                  SimplifyingIrBuilder::mulExpr(
-                      tv2_loop_indices.at(0), tv2->axis(1)->extent()),
-                  tv2_loop_indices.at(1)),
-              tv2->getLogicalDomain().at(1)->extent()),
-          tv2->getLogicalDomain().at(1)->extent()));
-
-  EXPECT_TRUE(tv0_producer_index->sameAs(tv0_producer_index_ref))
-      << "Ref: " << tv0_producer_index_ref->toInlineString()
-      << ". Actual: " << tv0_producer_index->toInlineString();
-
-  EXPECT_TRUE(tv1_consumer_index->sameAs(tv1_consumer_index_ref))
-      << "Ref: " << tv1_consumer_index_ref->toInlineString()
-      << ". Actual: " << tv1_consumer_index->toInlineString();
-
-  EXPECT_TRUE(tv1_producer_index->sameAs(tv1_producer_index_ref))
-      << "Ref: " << tv1_producer_index_ref->toInlineString()
-      << ". Actual: " << tv1_producer_index->toInlineString();
-
-  EXPECT_TRUE(tv2_consumer_index->sameAs(tv2_consumer_index_ref))
-      << "Ref: " << tv2_consumer_index_ref->toInlineString()
-      << ". Actual: " << tv2_consumer_index->toInlineString();
+  IndexValidator<GetReference>::validate(&fusion);
 }
 
 // Almost same fusion as SimplePointwiseSerial but TID and BID
@@ -969,4 +1037,80 @@ TEST_F(IndexingTest, SimpleVectorize) {
       << ". Actual: " << tv2_consumer_index->toInlineString();
 }
 
+#if 0
+TEST_F(IndexingTest, FusionSimpleBCast4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Set up your input tensor views
+  TensorView* tv0 = makeConcreteTensor({1, -1});
+
+  TensorView* tv1 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  TensorView* tv3 = add(tv0, tv1);
+
+  tv3->merge(0);
+  tv3->merge(0);
+  tv3->split(0, 128);
+  tv3->split(0, 4);
+
+  fusion.addOutput(tv3);
+
+  tv0->computeAt(tv3, -1);
+  tv1->computeAt(tv3, -1);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  if (getenv("UR")) {
+    tv3->axis(-2)->parallelize(ParallelType::Unroll);
+  } else if (getenv("US")) {
+    tv3->axis(-2)->parallelize(ParallelType::Unswitch);
+  }
+
+  EnableOptionsGuard options_guard;
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::IdModel, {"consumer_index"});
+
+  GpuLower lower(&fusion);
+  kir::Kernel* kernel = lower.run();
+
+  struct GetReference {
+    Val* operator()(kir::TensorIndex* ti, bool as_consumer) {
+      auto tv = ti->view();
+      std::cerr << "Getting reference of " << tv->toString() << std::endl;
+      switch (tv->name()) {
+        case 0:
+          break;
+        default:
+          NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
+          break;
+      }
+      return nullptr;
+    }
+  };
+
+
+  IndexValidator<GetReference> validator(lower);;
+  validator.handle(kernel->topLevelExprs());
+
+  constexpr int x = 63, y = 33, z = 15;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({1, z}, options);
+  at::Tensor t1 = at::randn({x, y, z}, options);
+
+  at::Tensor cg_output = at::empty({x, y, z}, options);
+
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  fe.runFusion(aten_inputs, {cg_output});
+
+  testValidate(&fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
+}
+#endif
 } // namespace nvfuser
