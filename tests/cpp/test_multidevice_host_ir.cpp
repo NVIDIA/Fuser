@@ -165,8 +165,8 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   FusionGuard::setCurFusion(hic.get());
 
   // [Step 3a)] Create a HostUnit Ir holding the fusions
-  auto hu = IrBuilder::createInContainer<HostUnit>(
-    hic.get(), std::move(fusion));
+  auto hu =
+      IrBuilder::createInContainer<HostUnit>(hic.get(), std::move(fusion));
 
   // [Step 4)] Create TensorViews at the Host level
   IrCloner ir_cloner(hic.get());
@@ -181,10 +181,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   std::vector<Val*> compute_inputs = {tv0};
   std::vector<Val*> compute_outputs = {tv1};
   auto post_compute = IrBuilder::createInContainer<PostOnStream>(
-      hic.get(),
-      hu,
-      compute_inputs,
-      compute_outputs);
+      hic.get(), hu, compute_inputs, compute_outputs);
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
   TensorView* communication_input = tv1->as<TensorView>();
   TensorView* communication_output = tv2->as<TensorView>();
@@ -198,8 +195,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
       -1,
       communication_input,
       communication_output);
-  auto wait = IrBuilder::createInContainer<Wait>(
-      hic.get(), communication);
+  auto wait = IrBuilder::createInContainer<Wait>(hic.get(), communication);
 
   // [Step 6)] Define the Host program
   hic->pushBackTopLevelExprs(post_compute);
