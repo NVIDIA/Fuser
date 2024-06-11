@@ -434,7 +434,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   return initial_index_map;
 }
 
-Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
+Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -473,6 +473,11 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
         index, SimplifyingIrBuilder::mulExpr(idx, stride));
   }
 
+  const auto& replacement_map =
+      getIndexReplacementMap(index_info.loop_domains, index_info.index_map);
+
+  index = ir_utils::replaceValRecursively(index, replacement_map);
+
   return index;
 }
 
@@ -509,8 +514,31 @@ IndexingInfo TensorIndexer::computeIndex(
     index_compute.propagate(expr_group, direction);
   }
 
-  IndexingInfo info{traversal_path, index_compute.indexMap()};
+  IndexingInfo info{loop_domains, traversal_path, index_compute.indexMap()};
   return info;
+}
+
+std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
+    const std::vector<IterDomain*>& loop_domains,
+    const std::unordered_map<ValGroup, Val*>& index_map) const {
+  std::unordered_map<Val*, Val*> replacement_map;
+
+  for (const auto loop_id : loop_domains) {
+    // Replace the index of a vectorized domain with zero. Note that
+    // vectorized domains may need to use N-1, where N is the extent
+    // of the domain, for predication, so the replacement is not
+    // always done with zero.
+    if (loop_id->getParallelType() != ParallelType::Vectorize) {
+      continue;
+    }
+    const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
+    auto index_it = index_map.find(loop_group);
+    NVF_ERROR(index_it != index_map.end());
+    Val* cur_index = index_it->second;
+    replacement_map.emplace(cur_index, cur_index->fusion()->zeroVal());
+  }
+
+  return replacement_map;
 }
 
 } // namespace nvfuser
