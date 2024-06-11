@@ -493,19 +493,17 @@ class ShardedPointwiseTest
 
 TEST_P(ShardedPointwiseTest, DID_Compatible) {
   auto [use_1D_scheduler, sharded_dim] = GetParam();
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
   TensorView* tv0 = makeContigTensor(4);
   TensorView* tv1 = makeContigTensor(2);
-
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
   auto tv2 = add(tv0, tv0);
   auto tv3 = broadcast(tv1, {true, true, false, false});
   auto tv4 = add(tv2, tv3);
-  fusion->addOutput(tv4);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv4);
 
   DeviceMesh mesh = DeviceMesh::createForNumDevices(4);
   for (TensorView* tv : {tv0, tv2, tv3, tv4}) {
@@ -514,11 +512,8 @@ TEST_P(ShardedPointwiseTest, DID_Compatible) {
   }
   tv1->setDeviceMesh(mesh);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  fec.profile(true);
-
   // Trigger the 1D scheduler by using small input size.
-  std::vector<int64_t> input_size(3);
+  std::vector<int64_t> input_size;
   if (use_1D_scheduler) {
     input_size = {16, 8, 24};
   } else {
@@ -530,38 +525,33 @@ TEST_P(ShardedPointwiseTest, DID_Compatible) {
   at::Tensor t1 = at::randn({input_size[1], input_size[2]}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  auto params = getPointwiseHeuristics(fusion, aten_inputs);
-  auto lparams = schedulePointwise(fusion, aten_inputs);
+  auto params = getPointwiseHeuristics(&fusion, aten_inputs);
+  auto lparams = schedulePointwise(&fusion, aten_inputs);
   FusionExecutor fe;
-  fe.compileFusion(fusion, aten_inputs, lparams);
+  fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
   EXPECT_EQ(use_1D_scheduler, params->break_point == 0);
-  testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 
   // Create a single device fusion and verify the same scheduling parameters are
   // used for given the same single device fusion.
-  auto unsharded_fusion_ptr = std::make_unique<Fusion>();
-  auto unsharded_fusion = unsharded_fusion_ptr.get();
-  FusionGuard unsharded_fg(unsharded_fusion);
+  Fusion unsharded_fusion;
+  FusionGuard unsharded_fg(&unsharded_fusion);
 
   TensorView* utv0 = makeContigTensor(3);
   TensorView* utv1 = makeContigTensor(2);
-
-  unsharded_fusion->addInput(utv0);
-  unsharded_fusion->addInput(utv1);
   auto utv2 = add(utv0, utv0);
   auto utv3 = broadcast(utv1, {true, false, false});
   auto utv4 = add(utv2, utv3);
-  unsharded_fusion->addOutput(utv4);
-
-  FusionExecutorCache fec2(std::move(unsharded_fusion_ptr));
-  fec2.profile(true);
+  unsharded_fusion.addInput(utv0);
+  unsharded_fusion.addInput(utv1);
+  unsharded_fusion.addOutput(utv4);
 
   std::vector<c10::IValue> unsharded_aten_inputs = {
       t0.squeeze(sharded_dim), t1};
   auto unsharded_params =
-      getPointwiseHeuristics(unsharded_fusion, unsharded_aten_inputs);
+      getPointwiseHeuristics(&unsharded_fusion, unsharded_aten_inputs);
   EXPECT_TRUE(params->sameAs(unsharded_params));
 }
 
