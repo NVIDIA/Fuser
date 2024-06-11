@@ -51,13 +51,15 @@ __device__ uint4 philox(
   return output;
 }
 
-__device__ double uniform_double(unsigned int x, unsigned int y) {
+// This is a uniform double in the range (0, 1]
+__device__ double raw_uniform_double(unsigned int x, unsigned int y) {
   constexpr double scale = 5.421010862427522e-20;
   unsigned long long z = (unsigned long long)x + ((unsigned long long)y << 32);
   return scale * (double)z + 0.5f * scale;
 }
 
-__device__ float uniform_float(unsigned int x) {
+// This is a uniform double in the range (0, 1]
+__device__ float raw_uniform_float(unsigned int x) {
   constexpr float scale = (float)(1.0 / (double)(1ll << 32));
   return scale * (float)x + 0.5f * scale;
 }
@@ -72,23 +74,23 @@ __device__ __inline__ bool identical(const T& a, const T& b) {
 }
 
 __device__ __half uniform_half(unsigned int x) {
-  __half result = __float2half(uniform_float(x));
+  __half result = __float2half(raw_uniform_float(x));
   return identical(result, __float2half(1.0f)) ? __float2half(0.0f) : result;
 }
 
 __device__ __bfloat uniform_bfloat(unsigned int x) {
-  __bfloat result = __float2bfloat(uniform_float(x));
+  __bfloat result = __float2bfloat(raw_uniform_float(x));
   return identical(result, __float2bfloat(1.0f)) ? __float2bfloat(0.0f)
                                                  : result;
 }
 
 __device__ float uniformf(unsigned int x) {
-  float result = uniform_float(x);
+  float result = raw_uniform_float(x);
   return result == 1.0f ? 0.0f : result;
 }
 
 __device__ double uniform(unsigned int x, unsigned int y) {
-  float result = uniform_double(x, y);
+  float result = raw_uniform_double(x, y);
   return result == 1.0 ? 0.0 : result;
 }
 
@@ -137,7 +139,7 @@ __device__ __half rng_uniform_range_half(
     float from,
     float to) {
   auto range = to - from;
-  float uniform01 = uniform_float((&rng_result.x)[rng_component]);
+  float uniform01 = raw_uniform_float((&rng_result.x)[rng_component]);
   __half result = __float2half(from + range * uniform01);
   return identical(result, __float2half(to)) ? __float2half(from) : result;
 }
@@ -148,7 +150,7 @@ __device__ __bfloat rng_uniform_range_bfloat(
     float from,
     float to) {
   auto range = to - from;
-  float uniform01 = uniform_float((&rng_result.x)[rng_component]);
+  float uniform01 = raw_uniform_float((&rng_result.x)[rng_component]);
   __bfloat result = __float2bfloat(from + range * uniform01);
   return identical(result, __float2bfloat(to)) ? __float2bfloat(from) : result;
 }
