@@ -245,6 +245,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
         updatePairwiseRootDomainMap(
             producer_logical.at(2), consumer_root.at(2));
       }
+      // Map Ev from value to output
       if (idx == 3 && producer_tv_->sameAs(op->value())) {
         updatePairwiseRootDomainMap(
             producer_logical.at(3), consumer_root.at(3));
