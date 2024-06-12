@@ -53,10 +53,6 @@ class TensorIndexer {
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
 
-  // Return false if not supported. Useful for excluding known
-  // failures in tests.
-  static bool isSupported(Fusion* fusion);
-
  private:
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.

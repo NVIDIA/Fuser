@@ -504,8 +504,7 @@ void GpuLower::analysis(Fusion* fusion) {
 
   // For now, instantiate an TensorIndexer only when it's
   // supported. This should be eventually done always.
-  if (isOptionEnabled(EnableOption::IdModel) &&
-      TensorIndexer::isSupported(fusion_)) {
+  if (isOptionEnabled(EnableOption::IdModel)) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
 }
