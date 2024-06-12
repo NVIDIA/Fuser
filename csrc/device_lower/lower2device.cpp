@@ -408,6 +408,7 @@ void GpuLower::analysis(Fusion* fusion) {
         /*allow_self_mapping=*/false,
         /*validate=*/true);
 #endif
+    id_model_->validateAndPropagatePType();
   }
 
   resolveComputeWith(fusion_);

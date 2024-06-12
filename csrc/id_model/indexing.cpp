@@ -563,6 +563,8 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
 }
 
 bool TensorIndexer::isSupported(Fusion* fusion) {
+  // TODO
+  return true;
   const auto all_tvs = ir_utils::allTvs(fusion);
 
   auto printReason = [](const std::string& reason) -> void {
