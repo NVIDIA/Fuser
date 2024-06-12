@@ -236,7 +236,7 @@ __device__ void blockSerializeRelease(int64_t* semaphore) {
   // Without a global thread fence, the writes to T3 from Block 1 in step 2
   // might not be visible to Block 2 at step 5, meaning Block 2 would compute
   // an invalid update.
-  // 
+  //
   // We use __syncthreads also, which implies a __threadfence_block but that
   // only guarantees that all writes are visible to threads _within the same
   // block_, so the __threadfence is still needed.
