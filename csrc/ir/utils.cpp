@@ -892,12 +892,16 @@ void validateDomainEquivalence(
   }
 
   // At this point, the frontier set and dom1 should be equal, except when
-  // there's a symbolic ID in dom1, where the traversal may be incomplete.
-  if (std::any_of(dom1.begin(), dom1.end(), [](auto id) {
-        return id->getIterType() == IterType::Symbolic;
-      })) {
-    // Make sure all non-symbolic IDs of the dom1 set are included
-    // in the frontier set
+  // there's a symbolic ID in dom0 or dom1, where the transformations are
+  // incomplete.
+  bool dom0_has_symbolic = std::any_of(dom0.begin(), dom0.end(), [](auto id) {
+    return id->getIterType() == IterType::Symbolic;
+  });
+  bool dom1_has_symbolic = std::any_of(dom1.begin(), dom1.end(), [](auto id) {
+    return id->getIterType() == IterType::Symbolic;
+  });
+  if (!dom0_has_symbolic) {
+    // dom0 and frontier fully covers dom1
     NVF_ERROR(
         std::all_of(
             dom1.begin(),
@@ -910,26 +914,18 @@ void validateDomainEquivalence(
         toDelimitedString(dom0),
         ". dom1: ",
         toDelimitedString(dom1));
-    // Similarly, all frontier vals should be included in the dom1 set. It is
-    // also possible that an ID in the dom0 set still remains in the frontier
-    // set as there may be no expr connecting to the derived set, e.g., dynamic
-    // reshape
+  }
+  if (!dom1_has_symbolic) {
+    // dom1 fully covers dom0 and frontier
     NVF_ERROR(
         std::all_of(
             frontier.begin(),
             frontier.end(),
-            [&](Val* val) {
-              NVF_ERROR(val->isA<IterDomain>());
-              return dom1_set.count(val->as<IterDomain>()) ||
-                  dom0_set.count(val);
+            [&](Val* id) {
+              return id->as<IterDomain>()->getIterType() ==
+                  IterType::Symbolic ||
+                  dom1_set.count(id);
             }),
-        "dom0 and dom1 are not equal. dom0: ",
-        toDelimitedString(dom0),
-        ". dom1: ",
-        toDelimitedString(dom1));
-  } else {
-    NVF_ERROR(
-        dom1_set == frontier,
         "dom0 and dom1 are not equal. dom0: ",
         toDelimitedString(dom0),
         ". dom1: ",
