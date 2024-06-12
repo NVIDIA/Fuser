@@ -375,6 +375,13 @@ void SegmentProfiler::outputBytesAccessed(int64_t bytes) {
   output_bytes_ = bytes;
 }
 
+void SegmentProfiler::scheduler(const std::string& name) {
+  scheduler_ = name;
+}
+const std::string& SegmentProfiler::scheduler() const {
+  return scheduler_;
+}
+
 uint32_t SegmentProfiler::segmentId() const {
   return segment_id_;
 }
@@ -757,6 +764,8 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
       kprof.block_str = toString(kprof.block);
       kprof.cluster_str = toString(kprof.cluster);
       kprof.shared_mem_str = toString(kprof.shared_mem);
+
+      kprof.scheduler = segment(kp_idx).scheduler();
 
       kernel_time_ms += kprof.time_ms;
       fprof.kernel_profiles[kp_idx] = std::move(kprof);

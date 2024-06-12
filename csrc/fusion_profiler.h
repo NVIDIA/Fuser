@@ -125,6 +125,8 @@ struct KernelProfile {
   std::string block_str{};
   std::string cluster_str{};
   std::string shared_mem_str{};
+
+  std::string scheduler{};
 };
 
 struct ProfileAttrDescriptor {
@@ -193,6 +195,9 @@ class SegmentProfiler {
   void inputBytesAccessed(int64_t bytes);
   void outputBytesAccessed(int64_t bytes);
 
+  void scheduler(const std::string& name);
+  const std::string& scheduler() const;
+
   uint32_t segmentId() const;
   int device() const {
     return device_;
@@ -220,6 +225,7 @@ class SegmentProfiler {
   HostTimer compile_timer_;
   int64_t input_bytes_;
   int64_t output_bytes_;
+  std::string scheduler_;
   ProfilerState kernel_profile_state_;
 };
 

@@ -281,10 +281,10 @@ const std::vector<std::string>& getDisableOptionArguments(
 bool isProfilerEnabled() {
   return ProfilerOptionsGuard::getCurOptions().hasAny();
 }
-bool isProfilerEnabledWithoutCupti() {
-  return ProfilerOptionsGuard::getCurOptions().has(
-             ProfilerOption::EnableNocupti) ||
-      ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::PrintNocupti);
+bool isProfilerEnabledWithCupti() {
+  return ProfilerOptionsGuard::getCurOptions().hasAny() && 
+      !(ProfilerOptionsGuard::getCurOptions().has( ProfilerOption::EnableNocupti) ||
+      ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::PrintNocupti));
 }
 bool isProfilerPrintingEnabled() {
   return ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::Print) ||
