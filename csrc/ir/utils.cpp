@@ -844,8 +844,8 @@ void validateDomainEquivalence(
 
   std::vector<Val*> dom0_val(dom0.begin(), dom0.end());
   std::vector<Val*> dom1_val(dom1.begin(), dom1.end());
-  auto forward_exprs = StmtSort::getExprsBetween(dom0_val, dom1_val);
-  auto backward_exprs = StmtSort::getExprsBetween(dom1_val, dom0_val);
+  auto forward_exprs = DependencyCheck::getAllExprsBetween(dom0_set, dom1_val);
+  auto backward_exprs = DependencyCheck::getAllExprsBetween(dom1_set, dom0_val);
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
