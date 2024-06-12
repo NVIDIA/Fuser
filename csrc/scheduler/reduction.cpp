@@ -598,7 +598,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       target_blocks *= 2;
     }
 
-    // Delay increasing unroll until we have more than a wave of blocks
+    // Delay increasing unroll until we have more than one block per SM.
+    // Assuming each SM can take more than one block.
     if (target_blocks > device_multiprocessor_count &&
         target_unroll < max_unroll && available_parallelism() > 1) {
       target_unroll *= 2;
