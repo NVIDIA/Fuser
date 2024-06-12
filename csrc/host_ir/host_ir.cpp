@@ -106,6 +106,52 @@ bool PostOnStream::sameAs(const Statement* other) const {
   return false;
 }
 
+std::atomic<int64_t> Stream::running_counter_ = 0;
+
+Stream::Stream(IrBuilderPasskey passkey)
+    : Val(passkey, ValType::Stream), idx_(running_counter_++){};
+
+Stream::Stream(const Stream* src, IrCloner* ir_cloner)
+    : Val(src, ir_cloner), idx_(src->idx_){};
+NVFUSER_DEFINE_CLONE(Stream)
+
+std::string Stream::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "Stream " << idx_;
+  return ss.str();
+}
+
+std::string Stream::toInlineString(int indent_size) const {
+  return toString(indent_size);
+}
+
+bool Stream::sameAs(const Statement* other) const {
+  return false;
+}
+
+SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
+    : Expr(passkey, {stream}, {}, {stream}) {
+  NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
+
+std::string SetCurrentStream::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "SetCurrentStream to " << stream()->toString();
+  return ss.str();
+}
+
+// TODO: implement better ?
+std::string SetCurrentStream::toInlineString(int indent_size) const {
+  return toString(indent_size);
+}
+
+// TODO: implement
+bool SetCurrentStream::sameAs(const Statement* other) const {
+  return false;
+}
+
 } // namespace hir
 
 } // namespace nvfuser
