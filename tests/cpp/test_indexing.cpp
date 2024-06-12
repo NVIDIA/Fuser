@@ -80,11 +80,19 @@ void printAllIndices(
   }
 }
 
+// AbstractGetReference and IndexValidator are used to validate
+// lowered index vals. Each test subclasses either or both of
+// getLinearIndex and getLinearIndexString of
+// AbstractGetReference. IndexValidator traverses lowered exprs to
+// validate each tensor indices.
 class AbstractGetReference {
  public:
   AbstractGetReference(const TensorIndexer& indexer) : indexer_(indexer) {}
   virtual ~AbstractGetReference() = default;
 
+  // Returns the index of a given tensor. If maybe_consumer is not
+  // nullptr, tv is indexed as a consumer. Otherwise, it's indexed as
+  // a producer of maybe_consumer
   virtual Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
       const {
     return nullptr;

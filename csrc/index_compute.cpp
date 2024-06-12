@@ -2093,7 +2093,6 @@ kir::TensorIndex* Index::getProducerIndex(
 
   if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
       GpuLower::current()->isTensorIndexerEnabled()) {
-    std::cerr << "Producer indexng enabled\n";
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition());
   } else {
