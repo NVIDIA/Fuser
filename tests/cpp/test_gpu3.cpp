@@ -6572,7 +6572,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv1->getLogicalDomain(), {tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Invalid derived domain")));
+          testing::HasSubstr("dom0 and dom1 are not equal")));
 
   tv1->merge(0);
   // [I0/4*4, I1]
@@ -6598,7 +6598,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Invalid derived domain")));
+          testing::HasSubstr("dom0 and dom1 are not equal")));
 
   // Testing symbolic domains
   auto tv2 = reshape(
@@ -6630,7 +6630,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv4->getLogicalDomain(), {tv4->axis(0), tv4->axis(1)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Invalid derived domain")));
+          testing::HasSubstr("dom0 and dom1 are not equal")));
 }
 
 // Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
