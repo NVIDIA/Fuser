@@ -1428,15 +1428,24 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
 
 void IndexLowering::handle(
     const kir::MBarrierArriveExpectTx* arrive_transaction) {
+  NVF_ERROR(arrive_transaction->mbarrier()->isA<kir::TensorIndex>(),
+	  "Expected kir::TensorIndex in MBarrierArriveExpectTx");
+
+  Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+      arrive_transaction->mbarrier()->as<kir::TensorIndex>());
   pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
       arrive_transaction->state(),
-      arrive_transaction->mbarrier(),
+      smem_address_ptr,
       arrive_transaction->txCount()));
 }
 
 void IndexLowering::handle(const kir::MBarrierWait* mwait) {
+  NVF_ERROR(mwait->mbarrier()->isA<kir::TensorIndex>(),
+	  "Expected kir::TensorIndex in MBarrierWait");
+  Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
+      mwait->mbarrier()->as<kir::TensorIndex>());
   pushBack(
-      IrBuilder::create<kir::MBarrierWait>(mwait->mbarrier(), mwait->state()));
+      IrBuilder::create<kir::MBarrierWait>(smem_address_ptr, mwait->state()));
 }
 
 void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
