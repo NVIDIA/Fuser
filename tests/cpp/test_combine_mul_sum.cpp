@@ -396,13 +396,12 @@ INSTANTIATE_TEST_SUITE_P(
         // Size-1 input combinations
         std::make_tuple(1l, 2l, true, false, true, ScheduleHeuristic::ExprEval),
         std::make_tuple(2l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
-        // We fuse this case using the Reduction scheduler
         std::make_tuple(
             1l,
             1l,
             true,
             false,
-            false,
+            true,
             ScheduleHeuristic::ExprEval),
         // Batch dims
         std::make_tuple(3l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
