@@ -52,7 +52,7 @@ class ThreadPredicateMap {
     // Parallel types where only one thread/block is enough.
     ParallelTypeBitmap redundant_types;
 
-    // when a leaf domain of a Tensor stored in global memory
+    // when a loop domain of a Tensor stored in global memory
     // is merged from concretized broadcast logical domain, the broadcasted
     // logical domains should be skipped when writing to global memory.
     // broadcast_ld_indices_map maps a parallel type to a list of indices

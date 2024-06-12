@@ -47,10 +47,10 @@ class ReplaySelf : public ReplayTransformations {
     // Grab the ID we're going to replay on
     auto mapped = it->second;
 
-    // This ID should be a leaf ID (meaning it has no uses we generated)
+    // This ID should be a loop ID (meaning it has no uses we generated)
     NVF_ERROR(
-        leaf_ids_.find(mapped) != leaf_ids_.end(),
-        "Transform traversal failed, modified a node but it was not a leaf node.");
+        loop_ids_.find(mapped) != loop_ids_.end(),
+        "Transform traversal failed, modified a node but it was not a loop node.");
 
     // outer loop size
     Val* remainder = ceilDiv(mapped->extent(), s->factor());
@@ -72,12 +72,12 @@ class ReplaySelf : public ReplayTransformations {
     IrBuilder::createInContainer<Split>(
         s->container(), ido, idi, mapped, s->factor(), s->innerSplit());
 
-    // Remove mapped id from leaf IDs
-    leaf_ids_.erase(mapped);
+    // Remove mapped id from loop IDs
+    loop_ids_.erase(mapped);
 
-    // Add outputs to leaf IDs
-    leaf_ids_[ido] = newCounter();
-    leaf_ids_[idi] = newCounter();
+    // Add outputs to loop IDs
+    loop_ids_[ido] = newCounter();
+    loop_ids_[idi] = newCounter();
 
     // Update our ID map to include these outputs
     id_map_[s->outer()] = ido;
@@ -99,13 +99,13 @@ class ReplaySelf : public ReplayTransformations {
     auto id_inner_mapped = it_inner->second;
 
     NVF_ERROR(
-        leaf_ids_.find(id_outer_mapped) != leaf_ids_.end() &&
-            leaf_ids_.find(id_inner_mapped) != leaf_ids_.end(),
+        loop_ids_.find(id_outer_mapped) != loop_ids_.end() &&
+            loop_ids_.find(id_inner_mapped) != loop_ids_.end(),
         "Transform traversal failed, modified ",
         id_outer_mapped,
         " and ",
         id_inner_mapped,
-        " however one or both are not leaf nodes.");
+        " however one or both are not loop nodes.");
 
     Val* merged_id_size =
         mul(id_outer_mapped->extent(), id_inner_mapped->extent());
@@ -118,12 +118,12 @@ class ReplaySelf : public ReplayTransformations {
     IrBuilder::createInContainer<Merge>(
         m->container(), merged_id, id_outer_mapped, id_inner_mapped);
 
-    // Remove inputs from the leaf IDs
-    leaf_ids_.erase(id_outer_mapped);
-    leaf_ids_.erase(id_inner_mapped);
+    // Remove inputs from the loop IDs
+    loop_ids_.erase(id_outer_mapped);
+    loop_ids_.erase(id_inner_mapped);
 
-    // Add the output to the leaf IDs
-    leaf_ids_[merged_id] = newCounter();
+    // Add the output to the loop IDs
+    loop_ids_[merged_id] = newCounter();
 
     id_map_[m->out()] = merged_id;
   }
@@ -147,8 +147,8 @@ class ReplaySelf : public ReplayTransformations {
     auto mapped = it->second;
 
     NVF_ERROR(
-        leaf_ids_.find(mapped) != leaf_ids_.end(),
-        "Transform traversal failed, modified a node but it was not a leaf node.");
+        loop_ids_.find(mapped) != loop_ids_.end(),
+        "Transform traversal failed, modified a node but it was not a loop node.");
 
     // When the original output is an rfactor, make the replayed
     // output domain also an rfactor
@@ -160,9 +160,9 @@ class ReplaySelf : public ReplayTransformations {
         resize->rightExpand(),
         resize_out_logical);
 
-    leaf_ids_.erase(mapped);
+    loop_ids_.erase(mapped);
 
-    leaf_ids_[replayed_out] = newCounter();
+    loop_ids_[replayed_out] = newCounter();
 
     id_map_[resize->out()] = replayed_out;
   }
@@ -207,12 +207,12 @@ TensorDomain* TransformReplay::fullSelfReplay(
   }
 
   // Replay producer dimensions.
-  ReplaySelf replay(self->leaf(), axis_map);
+  ReplaySelf replay(self->loop(), axis_map);
   std::vector<IterDomain*> new_domain(self->nDims(), nullptr);
 
   {
     int64_t i = 0;
-    for (auto id : self->leaf()) {
+    for (auto id : self->loop()) {
       auto it = replay.getReplay().find(id);
       NVF_ERROR(
           it != replay.getReplay().end(),
@@ -270,7 +270,7 @@ std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
 
   auto all_unmapped_vals = DependencyCheck::getAllValsBetween(
       unmapped_root_ids,
-      {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
 
   std::unordered_set<IterDomain*> all_unmapped_ids;
   std::transform(
@@ -302,8 +302,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
 
   // consumer ids we need to match in producer
   std::vector<IterDomain*> target_consumer_ids(
-      consumer->getLeafDomain().begin(),
-      consumer->getLeafDomain().begin() + consumer_pos);
+      consumer->getLoopDomain().begin(),
+      consumer->getLoopDomain().begin() + consumer_pos);
 
   // Instead of replaying from the root, lets try to play forward the history of
   // producer if they match ops on consumer. Enforce if we modify an rfactor
@@ -324,14 +324,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
       !opt.replay_swizzle,
       !opt.replay_resize);
 
-  // Make a new map based on all the leaves resulting from best effort replay
+  // Make a new map based on all the loop ids resulting from best effort replay
   id_map forwarded_replay_map;
-  auto forwarded_replay_leaves = forward_replay.getUnorderedLeafIDs();
+  auto forwarded_replay_loop = forward_replay.getUnorderedLeafIDs();
   for (auto entry : forward_replay.getReplay()) {
-    if (forwarded_replay_leaves.find(entry.second) !=
-        forwarded_replay_leaves.end()) {
+    if (forwarded_replay_loop.find(entry.second) !=
+        forwarded_replay_loop.end()) {
       forwarded_replay_map[entry.first] = entry.second;
-      forwarded_replay_leaves.erase(entry.second);
+      forwarded_replay_loop.erase(entry.second);
     }
   }
 
@@ -341,14 +341,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
       .setReplaySwizzle(opt.replay_swizzle)
       .setReplayResize(opt.replay_resize);
 
-  auto producer_leaf_ids(replay_PasC.getUnorderedLeafIDs());
+  auto producer_loop_ids(replay_PasC.getUnorderedLeafIDs());
 
   const auto maybe_unmapped_ids = getMaybeUnmappedIDs(
       consumer,
       false,
       root_map.mapConsumerToProducer(consumer->domain(), producer->domain()));
 
-  // Remove all ids from producer_leaf_ids that map within the consumer
+  // Remove all ids from producer_loop_ids that map within the consumer
   // position, we're going to try to further replay the rest of the producer
   // dimensions based on the producers original transformations. Save all dims
   // that mapped to target_consumer_ids.
@@ -364,47 +364,47 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
       continue;
     }
     NVF_ERROR(
-        producer_leaf_ids.find(it->second) != producer_leaf_ids.end(),
+        producer_loop_ids.find(it->second) != producer_loop_ids.end(),
         "Replayed id to match consumer id ",
         c_id,
-        " should be a leaf in replay map.");
-    producer_leaf_ids.erase(it->second);
+        " should be a loop in replay map.");
+    producer_loop_ids.erase(it->second);
     dims_mapped2target.push_back(it->second);
   }
 
-  // producer_leaf_ids now contains all producer ID products that are not used
+  // producer_loop_ids now contains all producer ID products that are not used
   // to satisfy the computeAt. Put them in a replay map so we can play forward
   // these IDs in producer (if possible):
   id_map producer_self_replay_map;
-  for (auto entry : producer_leaf_ids) {
+  for (auto entry : producer_loop_ids) {
     producer_self_replay_map[entry.first] = entry.first;
   }
 
-  for (auto entry : forwarded_replay_leaves) {
+  for (auto entry : forwarded_replay_loop) {
     producer_self_replay_map[entry.first] = entry.first;
   }
 
-  // Check which root domains were used to produce the producer_leaf_ids. We may
+  // Check which root domains were used to produce the producer_loop_ids. We may
   // have picked up extra roots in consumer because of broadcast forwarding.
-  std::vector<Val*> unordered_non_root_leaf_vals;
-  for (auto leaf_id : replay_PasC.getUnorderedLeafIDs()) {
-    if (leaf_id.first->definition() == nullptr) {
+  std::vector<Val*> unordered_non_root_loop_vals;
+  for (auto loop_id : replay_PasC.getUnorderedLeafIDs()) {
+    if (loop_id.first->definition() == nullptr) {
       continue;
     } else {
-      unordered_non_root_leaf_vals.emplace_back(leaf_id.first);
+      unordered_non_root_loop_vals.emplace_back(loop_id.first);
     }
   }
 
   auto producer_logical = producer->getLogicalDomain();
 
   // Figure out all id's that have been processed to generate the
-  // unordered_non_root_leaf_vals. This needs to be done because we want to
+  // unordered_non_root_loop_vals. This needs to be done because we want to
   // match on producer's logical domain, not root domain.
   std::unordered_set<IterDomain*> all_processed_ids;
   {
     auto all_processed_vals_vec = DependencyCheck::getAllValsBetween(
         {producer_logical.begin(), producer_logical.end()},
-        unordered_non_root_leaf_vals);
+        unordered_non_root_loop_vals);
     auto all_processed_ids_vec =
         ir_utils::filterByType<IterDomain>(all_processed_vals_vec);
     all_processed_ids.insert(
@@ -425,9 +425,9 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   }
 
   // Play forward transformations all producer IDs we can
-  auto producer_replayed_leaves = BestEffortReplay(
-      producer->getLeafDomain(),
-      producer->getLeafDomain(),
+  auto producer_replayed_loop = BestEffortReplay(
+      producer->getLoopDomain(),
+      producer->getLoopDomain(),
       producer_self_replay_map);
 
   /*
@@ -441,14 +441,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
    * consumer->domain(). These are axes that were "fully replayed" relative to
    * the consumer, even though it wasn't in the computeAt range.
    *
-   * producer_replayed_leaves now contain ids that we tried to forward
+   * producer_replayed_loop now contain ids that we tried to forward
    * back to what they were in producer. If they couldn't be forwarded they're
    * left in their "most forwarded" form which may be just a remainder of the
    * transformation required to generate the computeAt axes.
    *
-   * (3) Axes in producer->domain() that are in producer_replayed_leaves
+   * (3) Axes in producer->domain() that are in producer_replayed_loop
    *
-   * (4) Axes not in producer->domain() that are in producer_replayed_leaves
+   * (4) Axes not in producer->domain() that are in producer_replayed_loop
    *
    */
 
@@ -472,14 +472,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   int64_t producer_pos = (int64_t)new_IDs.size();
 
   // Add axes in (2)
-  for (auto c_id : consumer->getLeafDomain()) {
+  for (auto c_id : consumer->getLoopDomain()) {
     auto it = replay_PasC.getReplay().find(c_id);
     if (it != replay_PasC.getReplay().end()) {
       auto id = it->second;
-      // If the leaf id from ReplayTransformations is used to move
+      // If the loop id from ReplayTransformations is used to move
       // forward in BestEffortReplay, it is not a final ID.
-      if (producer_replayed_leaves.getUnorderedLeafIDs().find(id) ==
-          producer_replayed_leaves.getUnorderedLeafIDs().end()) {
+      if (producer_replayed_loop.getUnorderedLeafIDs().find(id) ==
+          producer_replayed_loop.getUnorderedLeafIDs().end()) {
         continue;
       }
       if (used_IDs.find(id) == used_IDs.end()) {
@@ -490,9 +490,9 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   }
 
   // Add axes in (3)
-  for (auto id : producer->getLeafDomain()) {
-    if (producer_replayed_leaves.getUnorderedLeafIDs().find(id) !=
-        producer_replayed_leaves.getUnorderedLeafIDs().end()) {
+  for (auto id : producer->getLoopDomain()) {
+    if (producer_replayed_loop.getUnorderedLeafIDs().find(id) !=
+        producer_replayed_loop.getUnorderedLeafIDs().end()) {
       if (used_IDs.find(id) == used_IDs.end()) {
         new_IDs.push_back(id);
         used_IDs.emplace(id);
@@ -501,7 +501,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   }
 
   // Add axes in (4)
-  for (auto id : producer_replayed_leaves.getLeafIDs()) {
+  for (auto id : producer_replayed_loop.getLeafIDs()) {
     if (used_IDs.find(id) == used_IDs.end()) {
       new_IDs.push_back(id);
     }
@@ -538,8 +538,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
 
   // producer ids we need to match in consumer
   std::vector<IterDomain*> target_producer_ids(
-      producer->getLeafDomain().begin(),
-      producer->getLeafDomain().begin() + producer_pos);
+      producer->getLoopDomain().begin(),
+      producer->getLoopDomain().begin() + producer_pos);
   target_producer_ids = TensorDomain::noReductions(target_producer_ids);
 
   // Instead of replaying from the root, lets try to forward the history of
@@ -561,17 +561,17 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       !opt.replay_swizzle,
       !opt.replay_resize);
 
-  // Track dangling leaves which can be produced in
+  // Track dangling loop ids which can be produced in
   // BestEffortReplay::replayCasP these don't have any equivalent in producer
   // so they're not in the map. We will simply map them to themselves so we
   // don't lose them.
   id_map forwarded_replay_map;
-  auto forwarded_replay_leaves = forward_replay.getUnorderedLeafIDs();
+  auto forwarded_replay_loop = forward_replay.getUnorderedLeafIDs();
   for (auto entry : forward_replay.getReplay()) {
-    if (forwarded_replay_leaves.find(entry.second) !=
-        forwarded_replay_leaves.end()) {
+    if (forwarded_replay_loop.find(entry.second) !=
+        forwarded_replay_loop.end()) {
       forwarded_replay_map[entry.first] = entry.second;
-      forwarded_replay_leaves.erase(entry.second);
+      forwarded_replay_loop.erase(entry.second);
     }
   }
 
@@ -581,7 +581,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       .setReplaySwizzle(opt.replay_swizzle)
       .setReplayResize(opt.replay_resize);
 
-  auto consumer_leaf_ids(replay_CasP.getUnorderedLeafIDs());
+  auto consumer_loop_ids(replay_CasP.getUnorderedLeafIDs());
 
   const auto maybe_unmapped_ids = getMaybeUnmappedIDs(
       producer,
@@ -605,38 +605,38 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       continue;
     }
     NVF_ERROR(
-        consumer_leaf_ids.find(it->second) != consumer_leaf_ids.end(),
+        consumer_loop_ids.find(it->second) != consumer_loop_ids.end(),
         "Replayed id to match producer id ",
         p_id,
-        " should be a leaf in replay map.");
-    consumer_leaf_ids.erase(it->second);
+        " should be a loop in replay map.");
+    consumer_loop_ids.erase(it->second);
     dims_mapped2target.push_back(it->second);
   }
 
-  // consumer_leaf_ids now contains all consumer ID products that are not used
+  // consumer_loop_ids now contains all consumer ID products that are not used
   // to satisfy the computeAt. Turn into a  map so we can play forward these IDs
   // in consumer (if possible):
   id_map consumer_self_replay_map;
-  for (auto entry : consumer_leaf_ids) {
+  for (auto entry : consumer_loop_ids) {
     consumer_self_replay_map[entry.first] = entry.first;
   }
 
-  for (auto entry : forwarded_replay_leaves) {
+  for (auto entry : forwarded_replay_loop) {
     consumer_self_replay_map[entry.first] = entry.first;
   }
 
-  // Check which root domains were used to produce the consumer_leaf_ids. We may
+  // Check which root domains were used to produce the consumer_loop_ids. We may
   // have picked up extra roots in consumer because of broadcast forwarding.
-  std::vector<Val*> unordered_non_root_leaf_vals;
-  for (auto leaf_id : replay_CasP.getUnorderedLeafIDs()) {
-    if (leaf_id.first->definition() == nullptr) {
+  std::vector<Val*> unordered_non_root_loop_vals;
+  for (auto loop_id : replay_CasP.getUnorderedLeafIDs()) {
+    if (loop_id.first->definition() == nullptr) {
       continue;
     } else {
-      unordered_non_root_leaf_vals.emplace_back(leaf_id.first);
+      unordered_non_root_loop_vals.emplace_back(loop_id.first);
     }
   }
 
-  auto processed_roots = IterVisitor::getInputsTo(unordered_non_root_leaf_vals);
+  auto processed_roots = IterVisitor::getInputsTo(unordered_non_root_loop_vals);
 
   std::vector<IterDomain*> consumer_root = consumer->getMaybeRootDomain();
 
@@ -656,9 +656,9 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   }
 
   // Play forward transformations all consumer IDs we can
-  auto consumer_replayed_leaves = BestEffortReplay(
-      consumer->getLeafDomain(),
-      consumer->getLeafDomain(),
+  auto consumer_replayed_loop = BestEffortReplay(
+      consumer->getLoopDomain(),
+      consumer->getLoopDomain(),
       consumer_self_replay_map);
 
   /*
@@ -672,14 +672,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
    * producer->domain(). These are axes that were "fully replayed" relative to
    * the producer, even though it wasn't in the computeAt range.
    *
-   * producer_replayed_leaves now contain ids that we tried to forward
+   * producer_replayed_loop now contain ids that we tried to forward
    * back to what they were in producer. If they couldn't be forwarded they're
    * left in their "most forwarded" form which may be just a remainder of the
    * transformation required to generate the computeAt axes.
    *
-   * (3) Axes in producer->domain() that are in producer_replayed_leaves
+   * (3) Axes in producer->domain() that are in producer_replayed_loop
    *
-   * (4) Axes not in producer->domain() that are in producer_replayed_leaves
+   * (4) Axes not in producer->domain() that are in producer_replayed_loop
    *
    * TODO: Should (2) and (3) be swapped?
    */
@@ -702,14 +702,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   }
 
   // Add axes in (2)
-  for (auto p_id : producer->getLeafDomain()) {
+  for (auto p_id : producer->getLoopDomain()) {
     auto it = replay_CasP.getReplay().find(p_id);
     if (it != replay_CasP.getReplay().end()) {
       auto id = it->second;
-      // If the leaf id from ReplayTransformations is used to move
+      // If the loop id from ReplayTransformations is used to move
       // forward in BestEffortReplay, it is not a final ID.
-      if (consumer_replayed_leaves.getUnorderedLeafIDs().find(id) ==
-          consumer_replayed_leaves.getUnorderedLeafIDs().end()) {
+      if (consumer_replayed_loop.getUnorderedLeafIDs().find(id) ==
+          consumer_replayed_loop.getUnorderedLeafIDs().end()) {
         continue;
       }
       if (used_IDs.find(id) == used_IDs.end()) {
@@ -722,9 +722,9 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   int64_t consumer_pos = (int64_t)new_IDs.size();
 
   // Add axes in (3)
-  for (auto id : consumer->getLeafDomain()) {
-    if (consumer_replayed_leaves.getUnorderedLeafIDs().find(id) !=
-        consumer_replayed_leaves.getUnorderedLeafIDs().end()) {
+  for (auto id : consumer->getLoopDomain()) {
+    if (consumer_replayed_loop.getUnorderedLeafIDs().find(id) !=
+        consumer_replayed_loop.getUnorderedLeafIDs().end()) {
       if (used_IDs.find(id) == used_IDs.end()) {
         new_IDs.push_back(id);
         used_IDs.emplace(id);
@@ -733,7 +733,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   }
 
   // Add axes in (4)
-  for (auto id : consumer_replayed_leaves.getLeafIDs()) {
+  for (auto id : consumer_replayed_loop.getLeafIDs()) {
     if (used_IDs.find(id) == used_IDs.end()) {
       new_IDs.push_back(id);
     }
@@ -762,13 +762,13 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       consumer->getRootDomain(),
       consumer->getLogicalDomain(),
       /*allocation=*/std::vector<IterDomain*>{},
-      /*leaf=*/new_IDs,
+      /*loop=*/new_IDs,
       consumer->domain()->contiguity());
 
   if (producer->hasAllocation()) {
     auto replay_CasP = BestEffortReplay(
         new_IDs,
-        producer->getLeafDomain(),
+        producer->getLoopDomain(),
         root_map.mapProducerToConsumer(producer->domain(), replayed));
     const auto& p2c_map = replay_CasP.getReplay();
 
@@ -835,7 +835,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
   id_map c2p_root_map = pairwise_map.mapConsumerToProducer();
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto consumer_domain = consumer->getLeafDomain();
+  const auto consumer_domain = consumer->getLoopDomain();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : c2p_root_map) {
@@ -849,7 +849,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
       unskippable_consumer_ids_vec.begin(), unskippable_consumer_ids_vec.end());
 
   // IterDomains in `producer` root also in `consumer` root
-  const auto producer_domain = producer->getLeafDomain();
+  const auto producer_domain = producer->getLoopDomain();
 
   auto it_consumer = consumer_domain.begin();
   auto it_producer = producer_domain.begin();
@@ -907,14 +907,14 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
   id_map p2c_root_map = pairwise_map.mapProducerToConsumer();
 
   // IterDomains in `producer` root that are not reduction
-  const auto producer_domain = producer->getLeafDomain();
+  const auto producer_domain = producer->getLoopDomain();
   auto unskippable_producer_ids_vec =
       TensorDomain::noReductions(producer_domain);
   std::unordered_set<IterDomain*> unskippable_producer_ids(
       unskippable_producer_ids_vec.begin(), unskippable_producer_ids_vec.end());
 
   // IterDomains in `consumer` root also in `producer` root
-  const auto consumer_domain = consumer->getLeafDomain();
+  const auto consumer_domain = consumer->getLoopDomain();
 
   std::unordered_set<Val*> mapped_consumer_roots;
   for (auto entry : p2c_root_map) {
@@ -979,9 +979,9 @@ bool TransformReplay::fullSelfMatching(
     const TensorView* replay,
     const TensorView* target) {
   auto replay_root = replay->getMaybeRootDomain();
-  auto replay_dom = replay->getLeafDomain();
+  auto replay_dom = replay->getLoopDomain();
   auto target_root = target->getMaybeRootDomain();
-  auto target_dom = target->getLeafDomain();
+  auto target_dom = target->getLoopDomain();
   std::unordered_map<IterDomain*, IterDomain*> target2replay_map;
   if (replay_root.size() != target_root.size()) {
     return false;
@@ -1240,25 +1240,25 @@ TensorDomain* fullReplay(
   NVF_CHECK(
       !old_domain->hasAllocation(),
       "Due to #986, the allocation domain may or may not be between root and "
-      "leaf. So, when `old_domain` has allocation, it may be incorrect to "
-      "use its leaf as the target domain: ",
-      old_domain->toString(0, /*leaf_only=*/false));
-  ReplayTransformations replay(old_domain->leaf(), old_root_to_new);
+      "loop. So, when `old_domain` has allocation, it may be incorrect to "
+      "use its loop as the target domain: ",
+      old_domain->toString(0, /*loop_only=*/false));
+  ReplayTransformations replay(old_domain->loop(), old_root_to_new);
   replay.setReplayRFactor(true);
 
-  std::vector<IterDomain*> new_leaf;
-  new_leaf.reserve(old_domain->nDims());
+  std::vector<IterDomain*> new_loop;
+  new_loop.reserve(old_domain->nDims());
   std::transform(
-      old_domain->leaf().begin(),
-      old_domain->leaf().end(),
-      std::back_inserter(new_leaf),
-      [&](IterDomain* old_leaf_id) {
-        return replay.getReplay().at(old_leaf_id);
+      old_domain->loop().begin(),
+      old_domain->loop().end(),
+      std::back_inserter(new_loop),
+      [&](IterDomain* old_loop_id) {
+        return replay.getReplay().at(old_loop_id);
       });
 
   if (!old_domain->hasRoot()) {
     return IrBuilder::createInContainer<TensorDomain>(
-        old_domain->container(), new_root, new_leaf, old_domain->contiguity());
+        old_domain->container(), new_root, new_loop, old_domain->contiguity());
   }
 
   std::vector<IterDomain*> new_logical;
@@ -1275,7 +1275,7 @@ TensorDomain* fullReplay(
       old_domain->container(),
       new_root,
       new_logical,
-      new_leaf,
+      new_loop,
       old_domain->contiguity());
 }
 

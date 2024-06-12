@@ -449,14 +449,14 @@ class TensorDomain : public Val {
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> logical_domain,
-      std::vector<IterDomain*> leaf_domain,
+      std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> logical_domain,
-      std::vector<IterDomain*> leaf_domain,
+      std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
@@ -464,7 +464,7 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> allocation,
-      std::vector<IterDomain*> leaf_domain,
+      std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
@@ -479,7 +479,7 @@ class TensorDomain : public Val {
   }
 
   int64_t nDims() const {
-    return (int64_t)leaf_domain_.size();
+    return (int64_t)loop_domain_.size();
   }
 
   bool sameAs(const Statement* other) const override;
@@ -488,9 +488,9 @@ class TensorDomain : public Val {
       const std::vector<IterDomain*>& lhs,
       const std::vector<IterDomain*>& rhs);
 
-  // When `leaf_only` is false, prints also the root, logical and allocation
+  // When `loop_only` is false, prints also the root, logical and allocation
   // domain if not empty.
-  std::string toString(int indent_size, bool leaf_only) const;
+  std::string toString(int indent_size, bool loop_only) const;
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
@@ -523,7 +523,7 @@ class TensorDomain : public Val {
   bool hasGridBroadcast() const;
 
   bool hasBroadcast() const {
-    return no_bcast_domain_.size() != leaf_domain_.size();
+    return no_bcast_domain_.size() != loop_domain_.size();
   }
 
   bool hasRoot() const {
@@ -573,8 +573,8 @@ class TensorDomain : public Val {
   }
 
   // The loop domain after scheduling. This defines loop nests and loop indices.
-  const std::vector<IterDomain*>& leaf() const {
-    return leaf_domain_;
+  const std::vector<IterDomain*>& loop() const {
+    return loop_domain_;
   }
 
   const std::vector<IterDomain*>& maybeAllocation() const {
@@ -582,8 +582,8 @@ class TensorDomain : public Val {
   };
 
   // Set the allocation domain of this TensorDomain. The new allocation domain
-  // must satisfy root <= allocation <= leaf, that is, it must be within the
-  // history between root and leaf domain. Because contiguity is always defined
+  // must satisfy root <= allocation <= loop, that is, it must be within the
+  // history between root and loop domain. Because contiguity is always defined
   // w.r.t. the allocation domain, the contiguity must be updated accordingly.
   NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
@@ -601,9 +601,9 @@ class TensorDomain : public Val {
   }
 
   void resetDomains() {
-    no_reduction_domain_ = noReductions(leaf_domain_);
-    no_bcast_domain_ = noBroadcasts(leaf_domain_);
-    has_reduction_ = hasReduction(leaf_domain_);
+    no_reduction_domain_ = noReductions(loop_domain_);
+    no_bcast_domain_ = noBroadcasts(loop_domain_);
+    has_reduction_ = hasReduction(loop_domain_);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a
@@ -680,7 +680,7 @@ class TensorDomain : public Val {
   const std::vector<IterDomain*> root_domain_;
   const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
-  std::vector<IterDomain*> leaf_domain_;
+  std::vector<IterDomain*> loop_domain_;
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;

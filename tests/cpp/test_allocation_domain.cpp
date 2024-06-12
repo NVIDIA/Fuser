@@ -805,7 +805,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
 }
 
 // NOT similar to NHWC2d_To_NHWC2d, because cacheAfter requires the
-// allocation tensor to be between rFactor domain and leaf domain, which is not
+// allocation tensor to be between rFactor domain and loop domain, which is not
 // the case for NHWC2d_To_NHWC2d
 TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
   auto fusion_ptr = std::make_unique<Fusion>();

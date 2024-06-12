@@ -29,14 +29,14 @@ int64_t getDoubleBufferAxisPosition(const TensorView* tv) {
 
   // Unroll must not exist outside of double-buffer axis
   auto first_unroll_it = std::find_if(
-      tv->getLeafDomain().begin(),
-      tv->getLeafDomain().end(),
+      tv->getLoopDomain().begin(),
+      tv->getLoopDomain().end(),
       [](const auto axis) {
         return axis->getParallelType() == ParallelType::Unroll;
       });
 
   const int64_t first_unroll_pos =
-      (int64_t)std::distance(tv->getLeafDomain().begin(), first_unroll_it);
+      (int64_t)std::distance(tv->getLoopDomain().begin(), first_unroll_it);
 
   const int64_t unroll_or_ca_pos =
       std::min(tv->getComputeAtPosition(), first_unroll_pos);

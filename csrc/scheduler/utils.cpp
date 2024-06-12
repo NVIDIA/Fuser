@@ -187,7 +187,7 @@ std::optional<int64_t> mergeDims(
   // transformations.
   for (int64_t i = 1; i < (int64_t)to_merge.size(); i++) {
     auto outer = to_merge[i];
-    // If outer > inner, the merge order conflicts with their order in leaf
+    // If outer > inner, the merge order conflicts with their order in loop
     // domain
     if (outer > inner) {
       // NOTE: reorder here is necessary to work around the automatic swap in
@@ -301,7 +301,7 @@ void parallelizeAllLike(
 
   auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
 
-  const auto& reference_dom = reference_tv->getLeafDomain();
+  const auto& reference_dom = reference_tv->getLoopDomain();
   for (auto it = reference_dom.begin(); it != reference_dom.begin() + pos;
        it++) {
     auto ca_id =
@@ -316,7 +316,7 @@ void parallelizeAllLike(
     if (tv->isFusionInput()) {
       continue;
     }
-    for (const auto i : c10::irange((int64_t)tv->getLeafDomain().size())) {
+    for (const auto i : c10::irange((int64_t)tv->getLoopDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
@@ -1067,8 +1067,8 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
   for (auto tv : all_tvs) {
     if (!tv->isFusionInput() &&
         std::any_of(
-            tv->getLeafDomain().begin(),
-            tv->getLeafDomain().end(),
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
             [](IterDomain* id) { return id->isReduction(); }) &&
         !isResharding(tv->definition())) {
       reduction_tvs.emplace_back(tv);
@@ -2036,7 +2036,7 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
 std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
   auto transform_exprs = StmtSort::getExprsTo(
-      {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
   // simply update this vector of id's as progressing through the transformation
   // expressions. We'll always insert the result of split in the location of the
   // input, and insert the merge result in the position of the inner dimension.
@@ -2096,14 +2096,14 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   }
 
   std::unordered_map<int64_t, int64_t> old2new;
-  for (auto id_i : c10::irange((int64_t)tv->getLeafDomain().size())) {
-    auto leaf_id = tv->axis(id_i);
+  for (auto id_i : c10::irange((int64_t)tv->getLoopDomain().size())) {
+    auto loop_id = tv->axis(id_i);
     auto find_it =
-        std::find(reordered_ids.begin(), reordered_ids.end(), leaf_id);
+        std::find(reordered_ids.begin(), reordered_ids.end(), loop_id);
     NVF_ERROR(
         find_it != reordered_ids.end(),
         "Reordering map creation failed, uninitialized iterdomain,",
-        " likely something is wrong with the transformations between the logical domain and the leaves.");
+        " likely something is wrong with the transformations between the logical and loop domain.");
     int64_t new_pos = (int64_t)std::distance(reordered_ids.begin(), find_it);
     int64_t old_pos = id_i;
     old2new[old_pos] = new_pos;
@@ -2196,15 +2196,15 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       if (terminating_reshape_dims.find(logical_id) !=
           terminating_reshape_dims.end()) {
         auto find_it = std::find(
-            tv->getLeafDomain().begin(), tv->getLeafDomain().end(), logical_id);
+            tv->getLoopDomain().begin(), tv->getLoopDomain().end(), logical_id);
         NVF_ERROR(
-            find_it != tv->getLeafDomain().end(),
+            find_it != tv->getLoopDomain().end(),
             "Require ",
             logical_id,
             " is in the active domain of ",
             tv->toString(),
             " for view propagation.");
-        int64_t old_pos = std::distance(tv->getLeafDomain().begin(), find_it);
+        int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);
 
         old2new[old_pos] = (int64_t)old2new.size();
       }
@@ -2409,8 +2409,8 @@ void promoteProducerMemoryTypes(
   // TODO: Clean up once the index map refactor is done
   for (auto& [producer, consumer] : non_pwise_pairs) {
     auto c2p_exact_map = BestEffortReplay(
-                             producer->getLeafDomain(),
-                             consumer->getLeafDomain(),
+                             producer->getLoopDomain(),
+                             consumer->getLoopDomain(),
                              PairwiseRootDomainMap(producer, consumer)
                                  .mapBroadcast(false)
                                  .mapConsumerToProducer())
@@ -2426,14 +2426,14 @@ void promoteProducerMemoryTypes(
       }
 
       auto consumer_exact_map_id_it = std::find_if(
-          consumer->getLeafDomain().begin(),
-          consumer->getLeafDomain().end(),
-          [&](IterDomain* consumer_leaf_id) {
-            auto it = c2p_exact_map.find(consumer_leaf_id);
+          consumer->getLoopDomain().begin(),
+          consumer->getLoopDomain().end(),
+          [&](IterDomain* consumer_loop_id) {
+            auto it = c2p_exact_map.find(consumer_loop_id);
             return it != c2p_exact_map.end() &&
                 it->second == producer_non_ca_id;
           });
-      if (consumer_exact_map_id_it != consumer->getLeafDomain().end() &&
+      if (consumer_exact_map_id_it != consumer->getLoopDomain().end() &&
           (*consumer_exact_map_id_it)->getParallelType() ==
               producer_non_ca_id_ptype) {
         continue;

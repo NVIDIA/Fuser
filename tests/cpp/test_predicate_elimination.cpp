@@ -349,7 +349,7 @@ TEST_F(PredicateEliminationTest, 8) {
 
   Val* num_features = IrBuilder::createInContainer<Val>(tv1->container(), 1.0);
   for (const auto dim : reduction_axes) {
-    num_features = mul(num_features, tv1->getLeafDomain()[dim]->extent());
+    num_features = mul(num_features, tv1->getLoopDomain()[dim]->extent());
   }
 
   auto tv5 = mul(tv1, tv0);

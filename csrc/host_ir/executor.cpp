@@ -42,16 +42,21 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   return outputs;
 }
 
-void HostIrExecutor::handle(PostOnStream* post_ir) {
-  Expr* op = post_ir->hostOpToPost();
-  if (op->isA<HostUnit>()) {
-    postCompute(post_ir);
-  } else {
-    dispatch(op);
+void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
+  Stream* stream = set_current_stream->stream();
+  if (streams_.find(stream) == streams_.end()) {
+    auto i = (communicator_ != nullptr && communicator_->is_available())
+        ? communicator_->deviceId()
+        : 0;
+    streams_.insert(
+        {stream,
+         c10::cuda::getStreamFromPool(
+             /*isHighPriority=*/true, static_cast<c10::DeviceIndex>(i))});
   }
+  setCurrentCUDAStream(streams_.at(stream));
 }
 
-void HostIrExecutor::postCompute(PostOnStream* post_ir) {
+void HostIrExecutor::handle(PostOnStream* post_ir) {
   std::vector<c10::IValue> input_IValues;
   for (auto& input : post_ir->inputs()) {
     NVF_ERROR(
@@ -74,11 +79,13 @@ void HostIrExecutor::postCompute(PostOnStream* post_ir) {
   // Compile the fusion and execute it with FusionExecutor(Cache)
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
-    fec_.try_emplace(
-        hu,
-        std::make_unique<Fusion>(*hu->fusion_to_execute()),
-        0,
-        !params_.skip_auto_scheduling);
+    if (!fec_.count(hu)) {
+      fec_.try_emplace(
+          hu,
+          std::make_unique<Fusion>(*hu->fusion_to_execute()),
+          0,
+          !params_.skip_auto_scheduling);
+    }
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
     auto [it, has_emplaced] = fe_.try_emplace(hu);
@@ -124,15 +131,22 @@ void HostIrExecutor::handle(Communication* communication) {
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), std::nullopt);
-  c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+  works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),
       backend,
       input_tensor,
       output_tensor);
+}
+
+void HostIrExecutor::handle(Wait* wait) {
+  Communication* communication = wait->communication();
+  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
+  auto& work = works_.at(communication);
   if (work != nullptr) {
     work->wait();
   }
+  works_.erase(communication);
 }
 
 } // namespace hir
