@@ -24,13 +24,13 @@ def pointwise_mul_fusion(
     fd.add_output(T2)
 
 
-def simple_pointwise_fwd_fn(inputs: list):  # in_tensor
+def pointwise_mul_fwd_fn(inputs: list):  # in_tensor
     return torch.mul(inputs[0], inputs[0])
 
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_simple_pointwise_nvf_benchmark(
+def test_pointwise_mul_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -39,10 +39,10 @@ def test_simple_pointwise_nvf_benchmark(
 ):
     clear_cuda_cache()
 
-    inputs = [torch.randn(*size, device="cuda", dtype=dtype)]
+    inputs = [torch.randn(size, device="cuda", dtype=dtype)]
 
     with FusionDefinition() as fd:
-        simple_pointwise_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
+        pointwise_mul_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
         eager_output = torch.mul(inputs[0].to(torch.double), inputs[0].to(torch.double))
@@ -55,7 +55,7 @@ def test_simple_pointwise_nvf_benchmark(
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_simple_pointwise_baseline_benchmark(
+def test_pointwise_mul_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -67,6 +67,6 @@ def test_simple_pointwise_baseline_benchmark(
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,
-        torch.compile(simple_pointwise_fwd_fn) if compile else simple_pointwise_fwd_fn,
+        torch.compile(pointwise_mul_fwd_fn) if compile else pointwise_mul_fwd_fn,
         [input],
     )
