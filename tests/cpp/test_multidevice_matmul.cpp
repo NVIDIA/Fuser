@@ -137,7 +137,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   int Mo = num_devices_;
   int Mi = M / Mo;
   std::vector<int> a_shape = {Mo, Mi, K};
-  std::vector<int> b_shape = {N,K};
+  std::vector<int> b_shape = {N, K};
 
   TensorView* a = makeContigTensor(3, DataType::Half); // (Mo,Mi,K)
   TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
@@ -250,8 +250,8 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   TensorView* a_t = transpose(a, 1, 2); // (Ko, M, Ki)
   TensorView* c0 = matmul(a_t, b); // (Ko,M,N,r)
   c0 = segment_set(c0);
-  std::vector<int64_t> orig_size = {K, M, N};
-  std::vector<int64_t> new_size = {K, Mo, Mi, N};
+  std::vector<int64_t> orig_size = {Ko, M, N};
+  std::vector<int64_t> new_size = {Ko, Mo, Mi, N};
   TensorView* c1 = reshape(c0, orig_size, new_size);
   TensorView* c = sum(c1, {0});
 
