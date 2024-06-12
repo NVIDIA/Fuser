@@ -1075,4 +1075,35 @@ TEST_F(IndexingTest, SimpleVectorize) {
   IndexValidator<GetReference>::validate(&fusion);
 }
 
+TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [w]
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  // [w, x]
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  tv3->split(0, 3);
+  tv3->split(2, 4);
+  tv3->merge(1);
+  tv3->split(1, 5);
+
+  MaxRootDomainInfoSpanningTree tree(tv3);
+  TransformPropagator tp(tv3);
+  tree.traverse(&tp);
+
+  inlineAllAt(tv3, 1, true);
+
+  fusion.printKernel();
+
+}
+
 } // namespace nvfuser
