@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <visibility.h>
 
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -170,6 +171,14 @@ class Options {
   const std::vector<std::string>& getArgs(OptionEnum option) const {
     NVF_ERROR(has(option), "Option not set");
     return options_.at(option);
+  }
+
+  bool hasArg(OptionEnum option, const std::string& arg) const {
+    if (!has(option)) {
+      return false;
+    }
+    const auto& args = getArgs(option);
+    return std::find(args.begin(), args.end(), arg) != args.end();
   }
 
   void set(OptionEnum option_type, std::vector<std::string> option = {}) {
