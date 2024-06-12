@@ -131,7 +131,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
 }
 
 TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
@@ -232,7 +232,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
 }
 
 INSTANTIATE_TEST_SUITE_P(
