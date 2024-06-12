@@ -227,7 +227,7 @@ int64_t getConsumerPosAlignedToProducerCA(
   int64_t consumer_pos = consumer->nDims();
   while (consumer_pos > 0) {
     auto consumer_id = consumer->axis(consumer_pos - 1);
-    auto p_dom = producer->getLeafDomain();
+    auto p_dom = producer->getLoopDomain();
     if (std::any_of(
             p_dom.begin(),
             p_dom.begin() + producer_pos,
@@ -851,11 +851,11 @@ TensorView* TensorView::multiOutputRFactorHelper(
     }
 
     // replay on the target tv
-    ReplayTransformations replay(getLeafDomain(), id_map);
+    ReplayTransformations replay(getLoopDomain(), id_map);
 
     // construct the new tensor domain
     std::vector<IterDomain*> new_id;
-    for (auto id : getLeafDomain()) {
+    for (auto id : getLoopDomain()) {
       NVF_ERROR(
           replay.getReplay().count(id), "Multi-output reduction replay failed");
       new_id.push_back(replay.getReplay().at(id));
@@ -1023,7 +1023,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
           getRootDomain(),
           getLogicalDomain(),
           getAllocationDomain(),
-          getLeafDomain(),
+          getLoopDomain(),
           getContiguity()),
       getDataType().value());
 
@@ -1226,7 +1226,7 @@ void TensorView::clearReductionIterDomains() {
       "should not call clearReductionIterDomains on rfactor tv");
 
   NVF_ERROR(
-      getLeafDomain() == getLogicalDomain(),
+      getLoopDomain() == getLogicalDomain(),
       "should not call clearReductionIterDomains on already transformed TensorDomains");
 
   const std::vector<IterDomain*>& logical = getLogicalDomain();
@@ -1305,14 +1305,14 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
     case MmaOperand::Accumulator:
       mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this);
       if (definition()->isA<MmaOp>()) {
-        setAllocationDomain(getLeafDomain(), true);
+        setAllocationDomain(getLoopDomain(), true);
       }
       break;
     case MmaOperand::A:
     case MmaOperand::B:
       mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, operand);
       if (ir_utils::isLdMatrixOp(definition())) {
-        setAllocationDomain(getLeafDomain(), true);
+        setAllocationDomain(getLoopDomain(), true);
         mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this, operand);
       }
       break;
@@ -1336,14 +1336,14 @@ void TensorView::commitLeafToLogical() {
   setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
       domain_->maybeRoot(),
-      domain_->leaf(),
+      domain_->loop(),
       domain_->allocation(),
-      domain_->leaf(),
+      domain_->loop(),
       // TODO: If needed, we can let commitLeafToLogical to take a parameter to
       // allow customizing contiguity. But there is no such need now, so I will
       // just fill the contiguity with true.
       TensorDomain::getContiguityFilledWith(
-          (domain_->hasAllocation() ? domain_->allocation() : domain_->leaf()),
+          (domain_->hasAllocation() ? domain_->allocation() : domain_->loop()),
           true)));
 }
 

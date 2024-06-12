@@ -172,15 +172,12 @@ class ContigIDs : public OptInDispatch {
       bool ignore_indexability = false,
       bool ignore_consistent_ordering = false);
 
-  //! \param ids IterDomains on the leaves of the domain we're looking for
-  //! contiguous indexing into.
-  //! \param alloc_domain the allocation domain of the domain we're looking for
-  //! contiguous indexing into.
-  //! \param alloc_contiguity the contiguity of the alloc_domain.
-  //! \param concrete_to_ref concrete ids of the exact map that the reference
-  //! index is using for indexing.
-  //! \param divisible_splits a set of all splits in the fusion that are
-  //! divisible.
+  //! \param ids IterDomains on the loop domain we're looking for contiguous
+  //! indexing into. \param alloc_domain the allocation domain of the domain
+  //! we're looking for contiguous indexing into. \param alloc_contiguity the
+  //! contiguity of the alloc_domain. \param concrete_to_ref concrete ids of the
+  //! exact map that the reference index is using for indexing. \param
+  //! divisible_splits a set of all splits in the fusion that are divisible.
   //! \param ca_map compute at map of the fusion.
   //! \param concrete_info concretized broadcast information of the fusion.
   //! \param p2c_id_map map from producer to consumer ids used for indexing

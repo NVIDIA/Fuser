@@ -30,9 +30,9 @@ namespace nvfuser {
 // T1 = set(T0);
 // T2 = set(T1);
 //
-// T0: root [I0, I1], leaf [I0, I1]
-// T1: root [I2, I3], leaf [I2*I3/4, 4]
-// T2: root [I4, I5], leaf [I4*I5/4, 4]
+// T0: root [I0, I1], loop [I0, I1]
+// T1: root [I2, I3], loop [I2*I3/4, 4]
+// T2: root [I4, I5], loop [I4*I5/4, 4]
 //
 // The Exact ValGraph consists of ValGroups of:
 //
@@ -411,7 +411,7 @@ inline std::ostream& operator<<(
 // Note, however, that the above example is not detectable at this
 // moment as the self mapping is partial through reshape. The analysis
 // below would need to be extended to consider producer and consumers
-// of domains as well rather than just root, logical and leaf domains.
+// of domains as well rather than just root, logical and loop domains.
 std::optional<std::pair<IterDomain*, IterDomain*>> detectSelfMapping(
     const std::vector<IterDomain*>& ids,
     const ValGraph& id_graph);
