@@ -462,6 +462,8 @@ void scheduleTile(
   }
 }
 
+// [M*N -> BlockIdx, T_M*T_N -> Bulk]
+
 TEST_P(TMASimpleLdstTest, Load) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -879,6 +881,40 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, SingleTile2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+  // put bcast first
+  auto tv0 = makeConcreteTensor({64, 16}, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1->applyMmaSwizzle(MmaInputSmemSwizzle::B32);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+
+  // markAllDimsExceptFirstAsBulk(tv1);
+  for (auto id : tv1->getLoopDomain()) {
+    id->parallelize(ParallelType::Bulk);
+  }
+
+  auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto inputs = at::randn({64, 16}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs}, LaunchParams(), matmul_cparams);
 }
 
 // TODO: improve validation of TMA, and add tests for invalid cases.
