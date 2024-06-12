@@ -1428,8 +1428,9 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
 
 void IndexLowering::handle(
     const kir::MBarrierArriveExpectTx* arrive_transaction) {
-  NVF_ERROR(arrive_transaction->mbarrier()->isA<kir::TensorIndex>(),
-	  "Expected kir::TensorIndex in MBarrierArriveExpectTx");
+  NVF_ERROR(
+      arrive_transaction->mbarrier()->isA<kir::TensorIndex>(),
+      "Expected kir::TensorIndex in MBarrierArriveExpectTx");
 
   Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
       arrive_transaction->mbarrier()->as<kir::TensorIndex>());
@@ -1440,8 +1441,9 @@ void IndexLowering::handle(
 }
 
 void IndexLowering::handle(const kir::MBarrierWait* mwait) {
-  NVF_ERROR(mwait->mbarrier()->isA<kir::TensorIndex>(),
-	  "Expected kir::TensorIndex in MBarrierWait");
+  NVF_ERROR(
+      mwait->mbarrier()->isA<kir::TensorIndex>(),
+      "Expected kir::TensorIndex in MBarrierWait");
   Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
       mwait->mbarrier()->as<kir::TensorIndex>());
   pushBack(
@@ -1464,7 +1466,12 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
   if (is_double_buffered) {
     // indexing mbarrier
-    Val* mbarrier_index = gpu_lower->ldstMBarrierIndexMap()[ldst];
+    Val* mbarrier = gpu_lower->ldstMBarrierIndexMap()[ldst];
+    NVF_ERROR(
+        mbarrier->isA<kir::TensorIndex>(),
+        "Expected TensorIndex for double buffer");
+    Val* mbarrier_index =
+        lower_utils::u32IndexScalarSmemTv(mbarrier->as<kir::TensorIndex>());
 
     // gmem indexing and expect_bytes for mbarrier
     auto [in, _] = Index::getCpAsyncBulkGmemIndex(
