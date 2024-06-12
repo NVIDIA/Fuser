@@ -85,14 +85,14 @@ class AbstractGetReference {
   AbstractGetReference(const TensorIndexer& indexer) : indexer_(indexer) {}
   virtual ~AbstractGetReference() = default;
 
-  virtual Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+  virtual Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
       const {
     return nullptr;
   }
 
   virtual std::string getLinearIndexString(
-      kir::TensorIndex* ti,
-      kir::TensorIndex* consumer) const {
+      TensorView* tv,
+      TensorView* maybe_consumer) const {
     return std::string();
   }
 
@@ -129,8 +129,10 @@ class IndexValidator : public kir::IrVisitor {
   }
 
   void validate(kir::TensorIndex* ti, kir::TensorIndex* out_ti = nullptr) {
+    TensorView* tv = ti->view();
+    TensorView* maybe_consumer = out_ti != nullptr ? out_ti->view() : nullptr;
     Val* actual = ti->index();
-    Val* ref = get_ref_.getLinearIndex(ti, out_ti);
+    Val* ref = get_ref_.getLinearIndex(tv, maybe_consumer);
     if (ref != nullptr) {
       EXPECT_TRUE(actual->sameAs(ref))
           << "Validation failure of " << ti->view()->toString()
@@ -140,7 +142,7 @@ class IndexValidator : public kir::IrVisitor {
     }
 
     // If nullptr is returned, check if a string ref is available
-    std::string ref_str = get_ref_.getLinearIndexString(ti, out_ti);
+    std::string ref_str = get_ref_.getLinearIndexString(tv, maybe_consumer);
     if (!ref_str.empty()) {
       EXPECT_EQ(actual->toInlineString(), ref_str)
           << "Validation failure of " << ti->view()->toString()
@@ -208,11 +210,10 @@ TEST_F(IndexingTest, SimplePointwise1) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       switch (tv->name()) {
         case 0: {
@@ -316,10 +317,9 @@ TEST_F(IndexingTest, SimplePointwise2) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
+      bool as_consumer = maybe_consumer == nullptr;
       auto contig_idx = SimplifyingIrBuilder::addExpr(
           SimplifyingIrBuilder::mulExpr(
               NamedScalar::getParallelIndex(ParallelType::BIDx),
@@ -377,11 +377,10 @@ TEST_F(IndexingTest, SimpleReduction) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
 
       switch (tv->name()) {
@@ -431,11 +430,10 @@ TEST_F(IndexingTest, AllocationDomain) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
 
       switch (tv->name()) {
@@ -492,11 +490,10 @@ TEST_F(IndexingTest, Reshape) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
 
       switch (tv->name()) {
@@ -528,14 +525,10 @@ TEST_F(IndexingTest, Reshape) {
       }
     }
 
-    std::string getLinearIndexString(
-        kir::TensorIndex* ti,
-        kir::TensorIndex* consumer) const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
+    std::string getLinearIndexString(TensorView* tv, TensorView* maybe_consumer)
+        const override {
       switch (tv->name()) {
         case 0: {
-          NVF_ERROR(!as_consumer);
           // It isn't straightforward to do structual checking as the other
           // tests since there's no particular rule about which domain is used
           // to provide the extent of the group. However, since everything
@@ -568,11 +561,10 @@ TEST_F(IndexingTest, SimpleBroadcast1) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       NVF_ERROR(loop_indices.at(1)->isZeroInt());
       switch (tv->name()) {
@@ -628,11 +620,10 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
     // different from the order of computing the merge input index.
     //
     // In the end, the indices of all tensors are the same
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       switch (tv->name()) {
         case 0:
@@ -676,11 +667,10 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       switch (tv->name()) {
         case 0: {
@@ -756,11 +746,10 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       switch (tv->name()) {
         case 2: {
@@ -794,9 +783,9 @@ TEST_F(IndexingTest, MultiDevice1DNoSplitMerge) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      return ti->fusion()->zeroVal();
+      return tv->fusion()->zeroVal();
     }
   };
 
@@ -826,11 +815,10 @@ TEST_F(IndexingTest, MultiDevice1DSplit) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       return loop_indices.at(1);
     }
@@ -864,18 +852,17 @@ TEST_F(IndexingTest, MultiDevice2D) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       // Note that the allocation domain is the logical domain. See the
       // next test for a loop allocation example
       auto inner_dim = tv->getLogicalDomain().at(1)->extent();
       return addExpr(
-          modExpr(loop_indices.at(1), inner_dim),
-          mulExpr(divExpr(loop_indices.at(1), inner_dim), inner_dim));
+          mulExpr(inner_dim, divExpr(loop_indices.at(1), inner_dim)),
+          modExpr(loop_indices.at(1), inner_dim));
     }
   };
 
@@ -911,11 +898,10 @@ TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       // Since the loop domain is the allocation domain, the index should
       // be just the non-parallelized loop index
@@ -948,11 +934,10 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       switch (tv->name()) {
         case 0: {
@@ -1005,11 +990,10 @@ TEST_F(IndexingTest, PromotedBroadcast) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       switch (tv->name()) {
         case 2:
@@ -1053,11 +1037,10 @@ TEST_F(IndexingTest, SimpleVectorize) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getLinearIndex(kir::TensorIndex* ti, kir::TensorIndex* consumer)
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
         const override {
-      auto tv = ti->view();
-      bool as_consumer = consumer == nullptr;
-      auto consumer_tv = as_consumer ? tv : consumer->view();
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
       std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
       switch (tv->name()) {
         case 0:

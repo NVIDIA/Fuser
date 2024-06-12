@@ -495,11 +495,7 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   const auto& replacement_map =
       getIndexReplacementMap(index_info.loop_domains, index_info.index_map);
 
-  index = ir_utils::replaceValRecursively(index, replacement_map);
-
-  debug() << "getLinearIndex of " << tv->toString() << ": "
-          << index->toInlineString() << std::endl;
-  return index;
+  return ir_utils::replaceValRecursively(index, replacement_map);
 }
 
 // Get the loop domains of a given expr, which are (potentially
