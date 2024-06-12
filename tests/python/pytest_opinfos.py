@@ -6,7 +6,7 @@
 import math
 import torch
 import jax
-from pytest_core import Domain, OpInfo, ReferenceType, SampleInput
+from pytest_core import OpInfo, ReferenceType, Domain
 from pytest_fusion_definitions import (
     api_test_fd_fn,
     tensor_input_fd_fn,
@@ -19,6 +19,7 @@ from pytest_input_generators import (
     broadcast_in_dim_error_generator,
     cat_generator,
     cat_error_generator,
+    div_input_generator,
     define_tensor_generator,
     define_tensor_error_generator,
     define_vector_constant_error_generator,
@@ -58,7 +59,6 @@ from pytest_utils import (
     full_precision_float_dtypes,
     int_dtypes,
     int_float_dtypes,
-    is_floating_dtype,
     float_complex_dtypes,
     ArgumentType,
 )
@@ -580,42 +580,11 @@ bitwise_xor_opinfo = OpInfo(
 )
 binary_ops.append(bitwise_xor_opinfo)
 
-
-def div_sample_input_generator(
-    op: OpInfo,
-    dtype: torch.dtype,
-    requires_grad: bool = False,
-):
-    """Rescale to avoid very small denominators"""
-    for sample in elementwise_binary_generator(
-        op,
-        dtype,
-        requires_grad,
-        supports_numbers=True,
-        enable_small_value_testing=False,
-        enable_extremal_value_testing=False,
-        exclude_zero=True,
-    ):
-        if not is_floating_dtype(dtype):
-            yield sample
-            continue
-
-        # rescale so that the denominator always has at least this modulus
-        mindenomabs = 1e-2
-        numer, denom = sample.args
-        denom = denom * 1e-4
-        denom_abs = denom.abs()  # this is never zero because of exclude_zero=True
-        denom_is_small = denom_abs < minabs
-        denom_scaled_to_minabs = denom * (minabs / denom_abs)
-        denom = torch.where(denom_is_small, denom_scaled_to_minabs, denom)
-        yield SampleInput(numer, denom)
-
-
 div_opinfo = OpInfo(
     lambda fd: fd.ops.div,
     "div",
     dtypes=float_complex_dtypes,
-    sample_input_generator=div_sample_input_generator,
+    sample_input_generator=div_input_generator,
     reference=_elementwise_binary_torch(torch.div),
 )
 binary_ops.append(div_opinfo)
@@ -768,7 +737,7 @@ binary_ops.append(sub_opinfo)
 truediv_opinfo = OpInfo(
     lambda fd: fd.ops.truediv,
     "truediv",
-    sample_input_generator=div_sample_input_generator,
+    sample_input_generator=div_input_generator,
     reference=_elementwise_binary_torch(torch.true_divide),
 )
 binary_ops.append(truediv_opinfo)
