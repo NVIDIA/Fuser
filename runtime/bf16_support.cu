@@ -282,7 +282,7 @@ __device__ __inline__ __bfloat __real_then_2bfloat(
   return __double2bfloat(std::real(c));
 }
 
-__device__ __inline__ bool __heq(const __bfloat& a, const __bfloat& b) {
+__device__ __inline__ bool __heq(const __bfloat a, const __bfloat b) {
 // From cuda_bf16.hpp
 #if __CUDA_ARCH__ >= 900
   unsigned short val;

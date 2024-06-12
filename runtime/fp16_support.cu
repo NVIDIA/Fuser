@@ -210,7 +210,7 @@ __device__ __inline__ __half __real_then_2half(const std::complex<double> c) {
   return __double2half(std::real(c));
 }
 
-__device__ __inline__ bool __heq(const __half& a, const __half& b) {
+__device__ __inline__ bool __heq(const __half a, const __half b) {
   // From cuda_fp16.hpp
   unsigned short val;
   asm("{ .reg .pred __$temp3;\n"
