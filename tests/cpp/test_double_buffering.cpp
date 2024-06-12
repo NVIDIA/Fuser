@@ -16,15 +16,8 @@ namespace {
 class DoubleBufferingTest : public NVFuserTest {};
 } // anonymous namespace
 
-// TODO: to be revomed
-#define TMA_DEV_TOOLS 1
-
-#if TMA_DEV_TOOLS
-TEST_F(DoubleBufferingTest, WIP) {
-#else
-TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
-#endif
-  // NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+TEST_F(DoubleBufferingTest, TmaDoubleBuffering1d) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -50,8 +43,8 @@ TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
   tv0->computeAt(tv1, 1);
 
   // Double Buffer with TMA loads
-  tv2->doubleBuffer();
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->doubleBuffer();
 
   // bulk_inner_dim * bulk_outer_dim;
   constexpr size_t tensor_dim = 128;
@@ -63,10 +56,7 @@ TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
   CompileParams index32bit{DataType::Int32, 255, false};
   fe.compileFusion(&fusion, {t0}, {}, index32bit);
 
-  /*
   auto cg_outputs = fe.runFusion({t0});
-
-#if TMA_DEV_TOOLS
   {
     auto ref_cpu_data = t1.cpu();
     auto res_cpu_data = cg_outputs.front().cpu();
@@ -81,12 +71,10 @@ TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering1d) {
       }
     }
   }
-#endif
   testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
-  */
 }
 
-TEST_F(DoubleBufferingTest, DISABLED_TmaDoubleBuffering2d) {
+TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   Fusion fusion;
