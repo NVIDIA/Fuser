@@ -253,6 +253,11 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
   assertBufferCount(splits, communication->team().size());
   assertBuffersHaveSameSize({input_tensor}, splits);
 
+  // allgather primitive in c10d induces extra buffering time to copy out the
+  // received tensors into user buffer. It is therefore always preferable to use
+  // _allgather_base, which does not perform any extra copy at the cost of
+  // assuming that the receive buffers are placed contiguously. See #2384 for an
+  // illustration.
   return backend->_allgather_base(output_tensor, input_tensor, {});
 }
 
