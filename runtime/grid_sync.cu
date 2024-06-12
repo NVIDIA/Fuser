@@ -220,7 +220,11 @@ __device__ void blockSerializeRelease(int64_t* semaphore) {
       index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
   bool last_block = block_idx_in_segment == segment_size - 1;
 
+  // Block until writes from all threads in this block are visible to all other
+  // blocks before releasing semaphore using thread 0.
+  __threadfence();
   __syncthreads();
+
   semaphoreRelease(semaphore, last_block ? 0 : block_idx_in_segment + 1);
 }
 
