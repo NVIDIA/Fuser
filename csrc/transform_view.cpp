@@ -714,7 +714,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
     const std::vector<int64_t>& new_sizes) {
   bool valid_original_sizes = std::all_of(
       original_sizes.begin(), original_sizes.end(), [](int64_t dim) {
-        return dim > 0;
+        return dim >= 0;
       });
   NVF_ERROR(valid_original_sizes);
 
@@ -730,7 +730,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
       NVF_ERROR(dynamic_index == -1, "Only one dimension can by inferred.")
       dynamic_index = idx;
     } else {
-      NVF_ERROR(new_sizes.at(idx) > 0);
+      NVF_ERROR(new_sizes.at(idx) >= 0);
       new_size_num_elements *= new_sizes.at(idx);
       new_view.at(idx) = new_sizes.at(idx);
     }
@@ -740,13 +740,14 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
       original_view.begin(), original_view.end(), 1, std::multiplies<>());
   if (dynamic_index != -1) {
     NVF_ERROR(
-        kNumElements % new_size_num_elements == 0,
+        kNumElements == 0 || kNumElements % new_size_num_elements == 0,
         "Cannot infer the actual size of -1 output domain as the number of input elements is not divisible by the number of the output elements computed from the other output domains. ",
         "Number of input elements: ",
         kNumElements,
         ". Number of output elements: ",
         new_size_num_elements);
-    new_view.at(dynamic_index) = kNumElements / new_size_num_elements;
+    new_view.at(dynamic_index) =
+        kNumElements == 0 ? 0 : (kNumElements / new_size_num_elements);
   }
 
   return {original_view, new_view};
