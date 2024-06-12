@@ -715,7 +715,11 @@ void IterDomainGraph::build(Fusion* fusion) {
       continue;
     }
     if (auto merge = dynamic_cast<Merge*>(def)) {
-      if (merge->inner()->extent()->isOneInt()) {
+      // Size-one domains should be broadcast, so just checking
+      // isBroadcast should be sufficient, but just in case if there's
+      // any missing conversion to broadcast
+      if (merge->inner()->isBroadcast() ||
+          merge->inner()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->outer(), merge->out());
         innermost_nodes_.mapEntries(merge->outer(), merge->out());
       } else {
@@ -723,7 +727,8 @@ void IterDomainGraph::build(Fusion* fusion) {
         // This is used for transpose scheduler to map inner loop dimensions
         innermost_nodes_.mapEntries(merge->inner(), merge->out());
       }
-      if (merge->outer()->extent()->isOneInt()) {
+      if (merge->outer()->isBroadcast() ||
+          merge->outer()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->inner(), merge->out());
       }
     } else if (auto split = dynamic_cast<Split*>(def)) {

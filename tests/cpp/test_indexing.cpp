@@ -1075,6 +1075,8 @@ TEST_F(IndexingTest, SimpleVectorize) {
   IndexValidator<GetReference>::validate(&fusion);
 }
 
+// Indexing traversal failure repro due to non-size-one broadcast
+// domains. See issue #2393 as well.
 TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1104,6 +1106,40 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
 
   fusion.printKernel();
 
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      // Make sure tv2 as the producer is correctly indexed for
+      // tv3. Skip validation for any other case
+      if (tv->name() != 2 || as_consumer) {
+        return nullptr;
+      }
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      TensorView* tv2 = tv;
+      TensorView* tv3 = consumer_tv;
+      IterDomain* id11 = tv3->axis(1)->definition()->input(0)->as<IterDomain>();
+      IterDomain* id9 = id11->definition()->input(1)->as<IterDomain>();
+      Val* id11_idx = addExpr(
+          mulExpr(loop_indices.at(1), tv3->axis(2)->extent()),
+          loop_indices.at(2));
+      Val* id8_idx = divExpr(id11_idx, id9->extent());
+      // id8 is mapped with id15, which should also be mapped with
+      // id18
+      IterDomain* id20 = tv2->axis(2);
+      Val* id19_idx = divExpr(id8_idx, id20->extent());
+      Val* id20_idx = modExpr(id8_idx, id20->extent());
+      Val* tv2_producer_idx =
+          addExpr(mulExpr(id19_idx, id20->extent()), id20_idx);
+      return tv2_producer_idx;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
 }
 
 } // namespace nvfuser
