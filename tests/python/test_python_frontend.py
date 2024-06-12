@@ -4152,24 +4152,32 @@ class TestNvFuserFrontend(TestCase):
                 torch.tensor(left, dtype=output.dtype),
             )
 
-            if dtype != DataType.Double:
-                # Even with repeats, there's no hope of sampling extreme double values
+            assert (
+                m.item() >= theomin
+            ), f"{output.dtype} expected min generated value {theomin} but found {m.item()}"
+            assert (
+                m.item() <= theomax
+            ), f"{output.dtype} expected max generated value {theomax} but found {x.item()}"
 
+            # uniform distribution on [0, 1) has mean 0.5 and variance 1/12
+            # The standard error of the mean is then 1/sqrt(12 *
+            # num_samples). We use the precision at 1.0 as a surrogate for
+            # the contribution of rounding to the standard error of the
+            # finite-precision mean.
+            assert abs(mu.item() - theomu) < (right - left) * max(
+                right - x.item(), 3.0 / math.sqrt(12 * num_samples)
+            ), f"{output.dtype} expected mean generated value {theomu} but found {mu.item()}"
+
+            if dtype not in [DataType.Float, DataType.Double]:
+                # For reduced precision types, check that we sample the extreme
+                # values. We don't do this for full precision types since the
+                # amount of samples required would be too large.
                 assert (
                     m.item() == theomin
-                ), f"{output.dtype} expect min generated value {theomin} but found {m.item()}"
+                ), f"{output.dtype} expected min generated value {theomin} but found {m.item()}"
                 assert (
                     x.item() == theomax
-                ), f"{output.dtype} expect max generated value {theomax} but found {x.item()}"
-
-                # uniform distribution on [0, 1) has mean 0.5 and variance 1/12
-                # The standard error of the mean is then 1/sqrt(12 *
-                # num_samples). We use the precision at 1.0 as a surrogate for
-                # the contribution of rounding to the standard error of the
-                # finite-precision mean.
-                assert abs(mu.item() - theomu) < (right - left) * max(
-                    right - x.item(), 3.0 / math.sqrt(12 * num_samples)
-                ), f"{output.dtype} expected mean generated value {theomu} but found {mu.item()}"
+                ), f"{output.dtype} expected max generated value {theomax} but found {x.item()}"
 
         # test standard and non-standard uniform
         for left, right in [[0.0, 1.0], [-1.5, 3.7]]:
