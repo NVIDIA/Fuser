@@ -157,31 +157,6 @@ class SetCurrentStream : public Expr {
   }
 };
 
-class Wait : public Expr {
- public:
-  using Expr::Expr;
-  Wait(IrBuilderPasskey passkey, Communication* communication);
-
-  Wait(const Wait& other) = delete;
-  Wait& operator=(const Wait& other) = delete;
-  Wait(Wait&& other) = delete;
-  Wait& operator=(Wait&& other) = delete;
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-  const char* getOpString() const override {
-    return "hir::Wait";
-  }
-
-  bool sameAs(const Statement* other) const override;
-
-  Communication* communication() const {
-    return attributes_.at(0)->as<Communication>();
-  }
-};
-
 } // namespace hir
 
 } // namespace nvfuser

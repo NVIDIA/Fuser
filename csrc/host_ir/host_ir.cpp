@@ -152,35 +152,6 @@ bool SetCurrentStream::sameAs(const Statement* other) const {
   return false;
 }
 
-Wait::Wait(IrBuilderPasskey passkey, Communication* communication)
-    : Expr(passkey, {}, {}, {communication}) {
-  NVF_ERROR(
-      passkey.ir_container_->isA<hir::HostIrContainer>(), // NOLINT
-      this,
-      "must be registered in a HostIrContainer");
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
-
-std::string Wait::toString(int indent_size) const {
-  int indent_increment = 2;
-  std::stringstream ss;
-  indent(ss, indent_size) << "Wait the communication :{" << std::endl;
-  ss << communication()->toString(indent_size + indent_increment) << std::endl;
-  indent(ss, indent_size) << "}";
-  return ss.str();
-}
-
-// TODO: implement better ?
-std::string Wait::toInlineString(int indent_size) const {
-  return toString(indent_size);
-}
-
-// TODO: implement
-bool Wait::sameAs(const Statement* other) const {
-  return false;
-}
-
 } // namespace hir
 
 } // namespace nvfuser
