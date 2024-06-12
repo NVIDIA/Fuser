@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
+#include <ir/iostream.h>
 #include <iter_visitor.h>
 #include <transform_view.h>
 #include <utils.h>
