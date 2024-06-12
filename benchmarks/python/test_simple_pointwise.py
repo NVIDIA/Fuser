@@ -9,7 +9,7 @@ import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
 
-def simple_pointwise_fusion(
+def pointwise_mul_fusion(
     fd: FusionDefinition,
     dtype: DataType,
 ) -> None:
