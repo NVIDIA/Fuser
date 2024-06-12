@@ -64,16 +64,56 @@ class MatmulParams : public HeuristicParams {
     }
   };
 
-  //! This is the maximum vectorization supported by the inputs.
+  //! This is the maximum vectorization supported by the inputs and outputs.
+  //! This refers to the number of data elements loaded simultaneously, not the
+  //! number of bytes.
   struct SupportedVectorization {
-    // operands
-    int64_t a = 8;
-    int64_t b = 8;
-    // This is the minimum vectorization factor between all epilogue tensor
-    // inputs and output tensors. These are treated jointly since we inline the
-    // epilogue with the output store and vectorize the inputs and outputs in
-    // the same way.
-    int64_t epilogue = 4;
+    // Each operand load from global to shared memory is vectorized along its
+    // inner-most allocation dimension as long as that is an M, N, or K
+    // dimension. For example, if the innermost dimension is a batch dimension
+    // then we will not vectorize that operand's loads from global to shared
+    // memory. If there are multiple dimensions in a given role, such as
+    // multiple K dimensions, then we can only vectorize those inner dimensions
+    // that are consistent with the canonical dimension ordering shared by all
+    // tensors in the Fusion.
+    int64_t a;
+    int64_t b;
+
+    // The epilogue is handled in a separate loop from the main loop/operand
+    // loads. We inline the epilogue expressions as much as possible, and we
+    // vectorize all tensors with the same factor for better memory coalescence;
+    // i.e. we parallelize the epilogue like [ ... TIDx V ] so we do not
+    // introduce any loops between the TIDx and V dimensions. If we used
+    // different vectorization for each output or epilogue input, then we would
+    // need an unrolled loop between TIDx and V which would interfere with
+    // memory coalescence. We assume the decrease in indexing arithmetic from
+    // vectorization is not worth the slowdown from non-coalesced accesses, so
+    // we prefer to use a smaller vectorization instead.
+    //
+    // To determine the epilogue vectorization we do the following steps:
+    //  - Look at each output, then each epilogue input and find the first
+    //    tensor with a non-batch dimension as its innermost allocation
+    //    dimension. We will use that as the innermost loop dimension and will
+    //    vectorize that dimension. If there are multiple such innermost
+    //    dimensions with the same role and full contiguity then we consider all
+    //    those dimensions as the merged vectorized dimension. For example if
+    //    we have an output whose allocation domain is [ B1 M1 N1 M2 M3 ] then
+    //    (M2*M3) will be the vectorized dimension. On the other hand, we would
+    //    skip a tensor that had allocation domain [ M1 M2 M3 N1 B1 ] since the
+    //    batch dimension is innermost.
+    //  - Then we pass over all epilogue inputs and outputs. For each tensor, we
+    //    consider all innermost dimensions in order. For example if we have
+    //    determined that we will vectorize along M1*M2*M3 and a tensor has
+    //    allocation [ B1 M1 N1 M2 M3 ] then we consider dimension M2*M3 (along
+    //    with all other strides) to find supported vectorization. If another
+    //    tensor has allocation [ B1 M1 M2 M3 N1 ] then we skip it since its
+    //    innermost dimension is not an N role dimension so its access will not
+    //    be vectorized.
+    //  - We store the minimum of all the maximum supported vectorizations
+    //    across all epilogue input and output tensors that were not skipped.
+    //    That is the value below. If no vectorization is possible, this will be
+    //    set to 1.
+    int64_t epilogue;
 
     bool operator==(const SupportedVectorization& other) const {
       return other.a == a && other.b == b && other.epilogue == epilogue;

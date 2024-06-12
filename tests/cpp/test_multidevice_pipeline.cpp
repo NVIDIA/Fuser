@@ -163,13 +163,13 @@ TEST_P(PipelineTestTwoStages, Communication) {
 
   std::vector<int64_t> unsharded_input_sizes = {3, 2, 3, 5};
   if (is_stage0_sharded) {
-    unsharded_input_sizes[sharded_dim] = mesh0.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh0.size();
   }
   if (is_stage1_sharded) {
-    unsharded_input_sizes[sharded_dim] = mesh1.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh1.size();
     if (do_reduction) {
-      ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
-      unsharded_input_sizes[sharded_dim + 1] = mesh1.vector().size();
+      ASSERT_EQ(mesh0.size(), mesh1.size());
+      unsharded_input_sizes[sharded_dim + 1] = mesh1.size();
     }
   }
 
@@ -217,8 +217,9 @@ DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
 DeviceMesh mesh4({1, 0, 2});
-auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
-auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4);
+DeviceMesh mesh5({1, 0});
+auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4, mesh5);
+auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4, mesh5);
 
 } // namespace
 

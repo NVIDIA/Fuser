@@ -233,6 +233,7 @@ struct PersistentKernelProperties {
   bool project_persistent_buffers;
   PrimDataType index_type;
   bool has_exp_op;
+  std::vector<TensorView*> persistent_buffers;
   std::string toString() const {
     std::stringstream ss;
     ss << "===== Persistent Kernel Properties ========\n"
@@ -311,6 +312,17 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
 // inputs are cached instead of the persistent buffers. The decision of
 // projection is primarily based on the required sizes of the two cases --
 // projection is done if projecting to the inputs results in a smaller size.
+
+// This function is used by inner persistent and InnerOuter persistent
+// schedulers.
+// TODO: Outer persistent scheduler should also use this function.
+// If the scheduler is innerOuter with outer broadcast, projection is allowed
+// even it leads to a larger buffer size becuase the scheduled kernel allows the
+// reuse of the outer broadcast Tv when iterating over the outer reduction
+// dimension and leads to higher performance ( TODO: needs re-evaluate, may not
+// true if the buffer size is increased a lot when projecting to inputs). See
+// https://github.com/NVIDIA/Fuser/issues/402
+
 // However, we experimentally found that certain relatively expensive operations
 // should not be projected even when that would require a larger buffer size.
 // Specifically,
@@ -325,6 +337,15 @@ bool isProjectBufferToInputs(
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
-    const bool is_inner_reduction);
+    const ScheduleHeuristic sh,
+    const bool check_projected_buffer_size = true);
+
+// move persistent buffer marked in rparams->smem_persistent_buffers from
+// register to smem
+void movePersistentBufferToSmem(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    const std::vector<TensorView*>& cached_inputs);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

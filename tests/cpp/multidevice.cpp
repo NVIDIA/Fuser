@@ -27,6 +27,16 @@ MultiDeviceTest::MultiDeviceTest() {
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
   disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 
+  // When an mpirun fails, it usually prints out something like
+  // ```
+  // mpirun detected that one or more processes exited with non-zero status,
+  // thus causing the job to be terminated. The first process to do so was:
+  //
+  //   Process name: [[17665,1],0]
+  //   Exit code:    1
+  // ```
+  // The last bit of the process name (0 in this case) is the rank of the first
+  // failing process.
   char* rank_to_debug_str = getNvFuserEnv("MULTIDEVICE_WAIT_DEBUGGER_AT_RANK");
   if (rank_to_debug_str != nullptr) {
     const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);
@@ -97,12 +107,9 @@ void MultiDeviceTest::SetUp() {
     return tensor;
   }
   auto sharded_dim = getShardedAxis(tv);
-  int i = 0;
-  const auto& devices = tv->getDeviceMesh().vector();
-  auto it = std::find(devices.begin(), devices.end(), deviceId);
-  if (it != devices.end()) {
-    i = std::distance(devices.begin(), it);
-  }
+  auto i = tv->getDeviceMesh().idxOf(deviceId);
+  // TODO: returning slice 0 temporarily when device is not in the mesh.
+  i = (i < 0) ? 0 : i;
   return tensor.slice(sharded_dim, i, i + 1).contiguous();
 }
 

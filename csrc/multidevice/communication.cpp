@@ -5,6 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/cloner.h>
+#include <ir/iostream.h>
+#include <ir/printer.h>
 #include <multidevice/communication.h>
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
@@ -12,11 +15,40 @@
 #include <utils.h>
 
 namespace nvfuser {
+
+std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
+  switch (type) {
+    case CommunicationType::Gather:
+      os << "Gather";
+      break;
+    case CommunicationType::Allgather:
+      os << "Allgather";
+      break;
+    case CommunicationType::Scatter:
+      os << "Scatter";
+      break;
+    case CommunicationType::Reduce:
+      os << "Reduce";
+      break;
+    case CommunicationType::Allreduce:
+      os << "Allreduce";
+      break;
+    case CommunicationType::ReduceScatter:
+      os << "ReduceScatter";
+      break;
+    case CommunicationType::Broadcast:
+      os << "Broadcast";
+      break;
+    case CommunicationType::SendRecv:
+      os << "SendRecv";
+      break;
+  }
+  return os;
+}
+
 namespace {
 
-inline void assertBufferCount(
-    const std::vector<at::Tensor>& bufs,
-    size_t count) {
+void assertBufferCount(const std::vector<at::Tensor>& bufs, size_t count) {
   NVF_ERROR(
       bufs.size() == count,
       "there must be ",
@@ -26,7 +58,7 @@ inline void assertBufferCount(
       " were given");
 }
 
-inline void assertBuffersHaveSameSize(
+void assertBuffersHaveSameSize(
     const std::vector<at::Tensor>& bufs1,
     const std::vector<at::Tensor>& bufs2) {
   if (bufs1.empty() && bufs2.empty()) {
@@ -42,18 +74,7 @@ inline void assertBuffersHaveSameSize(
   }
 }
 
-void post_common(Communication& self, Communicator& comm) {
-  NVF_ERROR(
-      std::find(
-          self.params().team.begin(),
-          self.params().team.end(),
-          comm.deviceId()) != self.params().team.end(),
-      "current device index ",
-      comm.deviceId(),
-      " must be present in the communication's team");
-}
-
-inline void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
+void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
   dst.view_as(src).copy_(src, /*non_blocking=*/true);
 }
 
@@ -75,63 +96,93 @@ T getInitialValue(c10d::ReduceOp::RedOpType op) {
   }
 }
 
-} // namespace
-
-Communication::Communication(CommParams params, std::string name, bool has_root)
-    : params_(std::move(params)),
-      collective_type_(std::move(name)),
-      has_root_(has_root) {
-  NVF_ERROR(
-      std::unique(params_.team.begin(), params_.team.end()) ==
-          params_.team.end(),
-      "the communication must not involve the same device more than once");
-  NVF_ERROR(!params_.team.empty(), "the team size must be greater than 0");
-  if (has_root_) {
-    auto it = std::find(params_.team.begin(), params_.team.end(), params_.root);
-    NVF_ERROR(
-        it != params_.team.end(),
-        "root (device ",
-        params_.root,
-        ") must be present in the communication's team");
-    // pytorch's process group expects the root to be specified
-    // as an integer between 0 and world_size-1. We choose it to be
-    // the device's relative index within the team
-    root_relative_index_ = std::distance(params_.team.begin(), it);
-  }
+bool hasRoot(CommunicationType type) {
+  return type == CommunicationType::Gather ||
+      type == CommunicationType::Scatter || type == CommunicationType::Reduce ||
+      type == CommunicationType::Broadcast ||
+      type == CommunicationType::SendRecv;
 }
 
-std::string Communication::toString(int indent) const {
+bool isReduction(CommunicationType type) {
+  return type == CommunicationType::Reduce ||
+      type == CommunicationType::Allreduce ||
+      type == CommunicationType::ReduceScatter;
+}
+
+} // namespace
+
+Communication::Communication(
+    IrBuilderPasskey passkey,
+    CommunicationType type,
+    DeviceMesh mesh,
+    Team team,
+    DeviceIdxType root,
+    RedOpType red_op,
+    int64_t scattered_axis,
+    TensorView* input_tv,
+    TensorView* output_tv)
+    : Expr(passkey) {
+  NVF_ERROR(mesh.size() > 0, "The mesh size must be greater than 0.");
+  NVF_ERROR(
+      hasRoot(type) == (root >= 0),
+      "Root ",
+      root,
+      " is not expected by CommunicationType ",
+      type);
+  NVF_ERROR(isReduction(type) == (red_op != RedOpType::UNUSED))
+  NVF_ERROR(
+      (type == CommunicationType::ReduceScatter) == (scattered_axis >= 0));
+
+  if (input_tv != nullptr) {
+    addInput(input_tv);
+  }
+  if (output_tv != nullptr) {
+    addOutput(output_tv);
+  }
+  addDataAttribute(type);
+  addDataAttribute(mesh);
+  addDataAttribute(team);
+  addDataAttribute(root);
+  addDataAttribute(red_op);
+  addDataAttribute(scattered_axis);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
+
+int64_t Communication::getRootRelativeIndex() {
+  auto i = std::find(team().begin(), team().end(), root());
+  NVF_ERROR(
+      i != team().end(), "Unable to find root ", root(), " in team ", team());
+  return std::distance(team().begin(), i);
+}
+
+std::string Communication::toString(const int indent_size) const {
   std::stringstream ss;
-  std::string ext_indent(" ", indent);
-  std::string indent1 = ext_indent + "  ";
-  std::string indent2 = ext_indent + "    ";
 
-  ss << ext_indent << "Communication " << collective_type_ << ": {\n";
-
-  if (has_root_) {
-    ss << indent1 << "root: " << params_.root << ",\n";
+  indent(ss, indent_size) << "Communication " << type() << ": {" << std::endl;
+  if (hasRoot(type())) {
+    indent(ss, indent_size + 1) << "root: " << root() << "," << std::endl;
   }
-  ss << indent1 << "team: {";
-  for (auto r : params_.team) {
-    ss << r << ", ";
-  }
-  ss << indent1 << "}\n";
-  ss << ext_indent << "}";
+  indent(ss, indent_size + 1) << "mesh: " << mesh() << "," << std::endl;
+  indent(ss, indent_size + 1) << "team: " << team() << "," << std::endl;
+  indent(ss, indent_size) << "}";
 
   return ss.str();
 }
 
-Broadcast::Broadcast(CommParams params) : Communication(params, "broadcast") {}
+std::string Communication::toInlineString(int indent_size) const {
+  return toString(indent_size);
+}
 
-c10::intrusive_ptr<c10d::Work> Broadcast::post(
-    Communicator& comm,
+namespace {
+c10::intrusive_ptr<c10d::Work> postBroadcast(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-
-  if (comm.deviceId() == params_.root) {
-    if (params_.is_root_in_mesh) {
+    at::Tensor output_tensor) {
+  if (my_device_index == communication->root()) {
+    if (communication->isRootInMesh()) {
       // Do a local copy and the subsequent broadcast will be in place. Consider
       // ProcessGroupNCCL::_broadcast_oop so ncclBroadcast doesn't wait for the
       // local copy to complete.
@@ -142,25 +193,23 @@ c10::intrusive_ptr<c10d::Work> Broadcast::post(
     }
   }
 
-  if (params_.team.size() == 1) {
+  if (communication->team().size() == 1) {
     return nullptr;
   }
 
   std::vector<at::Tensor> tensors({output_tensor});
-  return comm.getBackendForTeam(params_.team, backend)
-      ->broadcast(tensors, {.rootRank = root_relative_index_});
+  return backend->broadcast(
+      tensors, {.rootRank = communication->getRootRelativeIndex()});
 }
 
-Gather::Gather(CommParams params) : Communication(params, "gather") {}
-
-c10::intrusive_ptr<c10d::Work> Gather::post(
-    Communicator& comm,
+c10::intrusive_ptr<c10d::Work> postGather(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-
-  if (comm.deviceId() == params_.root && !params_.is_root_in_mesh) {
+    at::Tensor output_tensor) {
+  if (my_device_index == communication->root() &&
+      !communication->isRootInMesh()) {
     // This is likely a suboptimal way to allocate tensors for nccl. To benefit
     // from zero copy
     // (https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/bufferreg.html),
@@ -171,13 +220,14 @@ c10::intrusive_ptr<c10d::Work> Gather::post(
   }
   std::vector<at::Tensor> input_tensors({input_tensor});
 
+  auto root_relative_index = communication->getRootRelativeIndex();
   std::vector<std::vector<at::Tensor>> output_tensors;
-  if (comm.deviceId() == params_.root) {
+  if (my_device_index == communication->root()) {
     output_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : c10::irange(params_.team.size())) {
-      if (root_relative_index_ == static_cast<DeviceIdxType>(i) &&
-          !params_.is_root_in_mesh) {
+    for (auto i : c10::irange(communication->team().size())) {
+      if (root_relative_index == static_cast<DeviceIdxType>(i) &&
+          !communication->isRootInMesh()) {
         output_tensors[0].push_back(input_tensor);
         continue;
       }
@@ -185,56 +235,52 @@ c10::intrusive_ptr<c10d::Work> Gather::post(
       j++;
     }
 
-    assertBufferCount(output_tensors[0], params_.team.size());
+    assertBufferCount(output_tensors[0], communication->team().size());
     assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
   }
 
-  return comm.getBackendForTeam(params_.team, backend)
-      ->gather(
-          output_tensors, input_tensors, {.rootRank = root_relative_index_});
+  return backend->gather(
+      output_tensors, input_tensors, {.rootRank = root_relative_index});
 }
 
-Allgather::Allgather(CommParams params)
-    : Communication(params, "allgather", false) {}
-
-c10::intrusive_ptr<c10d::Work> Allgather::post(
-    Communicator& comm,
+c10::intrusive_ptr<c10d::Work> postAllgather(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
+    at::Tensor output_tensor) {
+  auto splits = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
+  assertBufferCount(splits, communication->team().size());
+  assertBuffersHaveSameSize({input_tensor}, splits);
 
-  std::vector<at::Tensor> input_tensors({input_tensor});
-  std::vector<std::vector<at::Tensor>> output_tensors(1);
-  output_tensors[0] = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
-
-  assertBufferCount(output_tensors[0], params_.team.size());
-  assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
-  return comm.getBackendForTeam(params_.team, backend)
-      ->allgather(output_tensors, input_tensors, {});
+  // allgather primitive in c10d induces extra buffering time to copy out the
+  // received tensors into user buffer. It is therefore always preferable to use
+  // _allgather_base, which does not perform any extra copy at the cost of
+  // assuming that the receive buffers are placed contiguously. See #2384 for an
+  // illustration.
+  return backend->_allgather_base(output_tensor, input_tensor, {});
 }
 
-Scatter::Scatter(CommParams params) : Communication(params, "scatter") {}
-
-c10::intrusive_ptr<c10d::Work> Scatter::post(
-    Communicator& comm,
+c10::intrusive_ptr<c10d::Work> postScatter(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-
-  if (comm.deviceId() == params_.root && !params_.is_root_in_mesh) {
+    at::Tensor output_tensor) {
+  if (my_device_index == communication->root() &&
+      !communication->isRootInMesh()) {
     output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
   }
   std::vector<at::Tensor> output_tensors({output_tensor});
 
+  auto root_relative_index = communication->getRootRelativeIndex();
   std::vector<std::vector<at::Tensor>> input_tensors;
-  if (comm.deviceId() == params_.root) {
+  if (my_device_index == communication->root()) {
     input_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : c10::irange(params_.team.size())) {
-      if (root_relative_index_ == static_cast<DeviceIdxType>(i) &&
-          !params_.is_root_in_mesh) {
+    for (auto i : c10::irange(communication->team().size())) {
+      if (root_relative_index == static_cast<DeviceIdxType>(i) &&
+          !communication->isRootInMesh()) {
         input_tensors.front().push_back(output_tensor);
         continue;
       }
@@ -242,34 +288,30 @@ c10::intrusive_ptr<c10d::Work> Scatter::post(
       j++;
     }
 
-    assertBufferCount(input_tensors[0], params_.team.size());
+    assertBufferCount(input_tensors[0], communication->team().size());
     assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   }
 
-  return comm.getBackendForTeam(params_.team, backend)
-      ->scatter(
-          output_tensors, input_tensors, {.rootRank = root_relative_index_});
+  return backend->scatter(
+      output_tensors, input_tensors, {.rootRank = root_relative_index});
 }
 
-Reduce::Reduce(CommParams params) : Communication(params, "reduce") {}
-
-c10::intrusive_ptr<c10d::Work> Reduce::post(
-    Communicator& comm,
+c10::intrusive_ptr<c10d::Work> postReduce(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-
+    at::Tensor output_tensor) {
   at::Tensor tensor;
-  if (comm.deviceId() == params_.root) {
-    if (params_.is_root_in_mesh) {
+  if (my_device_index == communication->root()) {
+    if (communication->isRootInMesh()) {
       doLocalCopy(output_tensor, input_tensor);
       tensor = output_tensor;
     } else {
       NVF_ERROR(
           output_tensor.scalar_type() == at::kFloat,
           "only float tensors are supported");
-      output_tensor.fill_(getInitialValue<float>(params_.redOp));
+      output_tensor.fill_(getInitialValue<float>(communication->reduceOp()));
       tensor = output_tensor;
     }
   } else {
@@ -278,81 +320,116 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(
   std::vector<at::Tensor> tensors({tensor});
 
   c10d::ReduceOptions options = {
-      .reduceOp = params_.redOp, .rootRank = root_relative_index_};
+      .reduceOp = communication->reduceOp(),
+      .rootRank = communication->getRootRelativeIndex()};
   // TODO: avoid local copy by using out-of-place reduction.
-  return comm.getBackendForTeam(params_.team, backend)
-      ->reduce(tensors, options);
+  return backend->reduce(tensors, options);
 }
 
-Allreduce::Allreduce(CommParams params)
-    : Communication(params, "allreduce", false) {}
-
-c10::intrusive_ptr<c10d::Work> Allreduce::post(
-    Communicator& comm,
+c10::intrusive_ptr<c10d::Work> postAllreduce(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-
+    at::Tensor output_tensor) {
   doLocalCopy(output_tensor, input_tensor);
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  return comm.getBackendForTeam(params_.team, backend)
-      ->allreduce(output_tensors, {.reduceOp = params_.redOp});
+  return backend->allreduce(
+      output_tensors, {.reduceOp = communication->reduceOp()});
 }
 
-ReduceScatter::ReduceScatter(CommParams params)
-    : Communication(params, "reduce_scatter", false) {}
-
-c10::intrusive_ptr<c10d::Work> ReduceScatter::post(
-    Communicator& comm,
+c10::intrusive_ptr<c10d::Work> postReduceScatter(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
-
+    at::Tensor output_tensor) {
   std::vector<std::vector<at::Tensor>> input_tensors(1);
+  const auto scattered_axis = communication->scatteredAxis();
   NVF_ERROR(
-      params_.scattered_axis >= 0,
+      scattered_axis >= 0,
       "scattered_axis is expected to be non-negative: ",
-      params_.scattered_axis)
-  input_tensors[0] =
-      at::split(input_tensor, /*split_size=*/1, /*dim=*/params_.scattered_axis);
+      scattered_axis)
+  input_tensors[0] = at::split(input_tensor, /*split_size=*/1, scattered_axis);
 
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  assertBufferCount(input_tensors[0], params_.team.size());
-  return comm.getBackendForTeam(params_.team, backend)
-      ->reduce_scatter(
-          output_tensors, input_tensors, {.reduceOp = params_.redOp});
+  assertBufferCount(input_tensors[0], communication->team().size());
+  return backend->reduce_scatter(
+      output_tensors, input_tensors, {.reduceOp = communication->reduceOp()});
 }
 
-SendRecv::SendRecv(CommParams params) : Communication(params, "send/recv") {
-  NVF_ERROR(
-      params_.team.size() == 1 || params_.team.size() == 2,
-      "the team size should be 1 or 2");
-}
-
-c10::intrusive_ptr<c10d::Work> SendRecv::post(
-    Communicator& comm,
+c10::intrusive_ptr<c10d::Work> postSendRecv(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor,
-    std::optional<CommunicatorBackend> backend) {
-  post_common(*this, comm);
+    at::Tensor output_tensor) {
+  NVF_ERROR(communication->mesh().size() == 1, "The mesh size should be 1.");
 
-  if (params_.team.size() == 1) {
+  if (communication->isRootInMesh()) {
     doLocalCopy(output_tensor, input_tensor);
     return nullptr;
   }
 
-  std::vector<at::Tensor> tensors(
-      {comm.deviceId() == params_.root ? input_tensor : output_tensor});
-  return comm.sendRecv(
-      /*receiver=*/(params_.team.at(0) == params_.root) ? params_.team.at(1)
-                                                        : params_.team.at(0),
-      /*sender=*/params_.root,
-      tensors,
-      backend);
+  const DeviceIdxType sender = communication->root();
+  const DeviceIdxType receiver = communication->mesh().at(0);
+
+  std::vector<at::Tensor> tensors;
+  if (my_device_index == sender) {
+    tensors = {input_tensor};
+    return backend->send(tensors, static_cast<int>(receiver), /*tag=*/0);
+  } else {
+    NVF_ERROR(my_device_index == receiver);
+    tensors = {output_tensor};
+    return backend->recv(tensors, static_cast<int>(sender), /*tag=*/0);
+  }
+}
+} // namespace
+
+c10::intrusive_ptr<c10d::Work> postSingleCommunication(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor) {
+  const Team& team = communication->team();
+  NVF_ERROR(
+      std::find(team.begin(), team.end(), my_device_index) != team.end(),
+      "current device index ",
+      my_device_index,
+      " must be present in the communication's team");
+
+  switch (communication->type()) {
+    case CommunicationType::Gather:
+      return postGather(
+          communication, my_device_index, backend, input_tensor, output_tensor);
+    case CommunicationType::Allgather:
+      return postAllgather(
+          communication, my_device_index, backend, input_tensor, output_tensor);
+    case CommunicationType::Scatter:
+      return postScatter(
+          communication, my_device_index, backend, input_tensor, output_tensor);
+    case CommunicationType::Reduce:
+      return postReduce(
+          communication, my_device_index, backend, input_tensor, output_tensor);
+    case CommunicationType::Allreduce:
+      return postAllreduce(
+          communication, my_device_index, backend, input_tensor, output_tensor);
+    case CommunicationType::ReduceScatter:
+      return postReduceScatter(
+          communication, my_device_index, backend, input_tensor, output_tensor);
+    case CommunicationType::Broadcast:
+      return postBroadcast(
+          communication, my_device_index, backend, input_tensor, output_tensor);
+    case CommunicationType::SendRecv:
+      return postSendRecv(
+          communication, my_device_index, backend, input_tensor, output_tensor);
+    default:
+      NVF_ERROR(false, "Wrong communication type: ", communication->type());
+      return nullptr;
+  }
 }
 
 } // namespace nvfuser

@@ -16,6 +16,58 @@ __device__ __inline__ __bfloat __float2bfloat(const float);
 struct __align__(2) __bfloat {
   __bfloat() = default;
 
+  __bfloat(const __bfloat& other) {
+    __x = other.__x;
+  }
+
+  __bfloat(const __bfloat&& other) {
+    __x = other.__x;
+  }
+
+  __bfloat(const volatile __bfloat& other) {
+    __x = other.__x;
+  }
+
+  __bfloat(const volatile __bfloat&& other) {
+    __x = other.__x;
+  }
+
+  // Note: not returning reference for `__bfloat::operator=`
+  // Doing so would requires us to return `volatile __bfloat&` for the volatile
+  // variants, which would trigger a gcc warning `implicit dereference will not
+  // access object of type ‘volatile S’ in statement`
+  __device__ void operator=(const __bfloat& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __bfloat&& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __bfloat& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __bfloat&& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __bfloat& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __bfloat&& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __bfloat& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __bfloat&& other) volatile {
+    __x = other.__x;
+  }
+
   __device__ __bfloat(const float f) {
     __x = __float2bfloat(f).__x;
   }

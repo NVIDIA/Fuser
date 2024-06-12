@@ -12,6 +12,58 @@ __device__ __inline__ __e4m3 __float2e4m3(const float);
 struct __align__(1) __e4m3 {
   __e4m3() = default;
 
+  __e4m3(const __e4m3& other) {
+    __x = other.__x;
+  }
+
+  __e4m3(const __e4m3&& other) {
+    __x = other.__x;
+  }
+
+  __e4m3(const volatile __e4m3& other) {
+    __x = other.__x;
+  }
+
+  __e4m3(const volatile __e4m3&& other) {
+    __x = other.__x;
+  }
+
+  // Note: not returning reference for `__e4m3::operator=`
+  // Doing so would requires us to return `volatile __e4m3&` for the volatile
+  // variants, which would trigger a gcc warning `implicit dereference will not
+  // access object of type ‘volatile S’ in statement`
+  __device__ void operator=(const __e4m3& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __e4m3&& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __e4m3& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __e4m3&& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __e4m3& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __e4m3&& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __e4m3& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __e4m3&& other) volatile {
+    __x = other.__x;
+  }
+
   __device__ __e4m3(const float f) {
     __x = __float2e4m3(f).__x;
   }
@@ -148,6 +200,58 @@ __device__ __inline__ __e5m2 __float2e5m2(const float);
 
 struct __align__(1) __e5m2 {
   __e5m2() = default;
+
+  __e5m2(const __e5m2& other) {
+    __x = other.__x;
+  }
+
+  __e5m2(const __e5m2&& other) {
+    __x = other.__x;
+  }
+
+  __e5m2(const volatile __e5m2& other) {
+    __x = other.__x;
+  }
+
+  __e5m2(const volatile __e5m2&& other) {
+    __x = other.__x;
+  }
+
+  // Note: not returning reference for `__e5m2::operator=`
+  // Doing so would requires us to return `volatile __e5m2&` for the volatile
+  // variants, which would trigger a gcc warning `implicit dereference will not
+  // access object of type ‘volatile S’ in statement`
+  __device__ void operator=(const __e5m2& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __e5m2&& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __e5m2& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __e5m2&& other) {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __e5m2& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const __e5m2&& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __e5m2& other) volatile {
+    __x = other.__x;
+  }
+
+  __device__ void operator=(const volatile __e5m2&& other) volatile {
+    __x = other.__x;
+  }
 
   __device__ __e5m2(const float f) {
     __x = __float2e5m2(f).__x;

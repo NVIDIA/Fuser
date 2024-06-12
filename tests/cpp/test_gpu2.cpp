@@ -4814,7 +4814,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize10_CUDA) {
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-// Similar to ValidateParallelize10, tv2 has a shared leaf axis
+// Similar to ValidateParallelize10, tv2 has a shared loop axis
 TEST_F(NVFuserTest, FusionValidateParallelize11_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -4843,7 +4843,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize11_CUDA) {
   tv5->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv5);
 
-  // Although tv3->axis(1) is a consumer-only leaf ID permissively
+  // Although tv3->axis(1) is a consumer-only loop ID permissively
   // mapped with its consumer, tv3->axis(0) and tv2->axis(0) are
   // shared, so all the tensors are indexed consistently. No sync is
   // required.
@@ -6540,7 +6540,7 @@ TEST_F(NVFuserTest, FusionSegfaultReduction_CUDA) {
       outer_reduction_axes.push_back(axis);
       at_sum_axes.push_back(axis);
       outer_broadcast_mask[axis] = true;
-      N = mul(N, input->getLeafDomain()[axis]->extent());
+      N = mul(N, input->getLoopDomain()[axis]->extent());
     }
   }
 
@@ -7180,7 +7180,8 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   auto t29 = mul(t25, t23);
   auto t30 = sum(t29, {2});
   auto t31 = broadcast(t30, {false, false, true});
-  auto d59 = mul(t1->getRootDomain()[2]->extent(), IrBuilder::create<Val>(1.0));
+  auto d59 =
+      mul(t1->getLogicalDomain()[2]->extent(), IrBuilder::create<Val>(1.0));
   auto t26 = mul(d59, t25);
   auto txx = mul(t26, IrBuilder::create<Val>(1.0));
   auto t33 = sub(txx, t28);
@@ -7557,7 +7558,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
 
   for (auto x_consumer : ir_utils::consumerTvsOf(x)) {
     bool found_vec_in_input = false;
-    for (auto id : x_consumer->getLeafDomain()) {
+    for (auto id : x_consumer->getLoopDomain()) {
       if (isParallelTypeVectorize(id->getParallelType())) {
         found_vec_in_input = true;
         break;
@@ -7566,7 +7567,7 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
     NVF_CHECK(found_vec_in_input, "Expect input to be vectorized");
   }
 
-  for (auto id : y->getLeafDomain()) {
+  for (auto id : y->getLoopDomain()) {
     if (isParallelTypeVectorize(id->getParallelType())) {
       return;
     }
@@ -8063,7 +8064,7 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
   // Modify the schedule to use warp reduction
   auto used_vals = fusion.usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (IterDomain* id : tv->getLeafDomain()) {
+    for (IterDomain* id : tv->getLoopDomain()) {
       if (id->getParallelType() == ParallelType::TIDx) {
         id->padToMultipleOfWarp();
       }

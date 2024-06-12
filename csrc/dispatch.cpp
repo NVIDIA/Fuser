@@ -60,6 +60,12 @@ void Val::dispatch(T handler, Val* val) {
     return;
     DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
+#define M(e)                                 \
+  case ValType::e:                           \
+    ptr(handler)->handle(val->as<hir::e>()); \
+    return;
+    DISPATCH_FOR_ALL_HIR_VALS(M)
+#undef M
     default:
       ptr(handler)->handle(val);
       return;
@@ -88,6 +94,13 @@ void Expr::dispatch(T handler, Expr* expr) {
     return;                                   \
   }
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
+#undef M
+#define M(e)                                  \
+  if (expr->isStrictlyA<hir::e>()) {          \
+    ptr(handler)->handle(expr->as<hir::e>()); \
+    return;                                   \
+  }
+  DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
   NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
@@ -118,6 +131,12 @@ void Val::constDispatch(T handler, const Val* val) {
     return;
     DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
+#define M(e)                                 \
+  case ValType::e:                           \
+    ptr(handler)->handle(val->as<hir::e>()); \
+    return;
+    DISPATCH_FOR_ALL_HIR_VALS(M)
+#undef M
     default:
       ptr(handler)->handle(val);
       return;
@@ -146,6 +165,13 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     return;                                   \
   }
   DISPATCH_FOR_ALL_KIR_EXPRS(M)
+#undef M
+#define M(e)                                  \
+  if (expr->isStrictlyA<hir::e>()) {          \
+    ptr(handler)->handle(expr->as<hir::e>()); \
+    return;                                   \
+  }
+  DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
   NVF_ERROR(false, "Unknown exprtype in dispatch: ", typeid(*expr).name());
 }
@@ -185,6 +211,12 @@ void Val::mutatorDispatch(T mutator, Val* val) {
     ptr(mutator)->mutate(val->as<kir::e>()); \
     return;
     DISPATCH_FOR_ALL_KIR_VALS(M)
+#undef M
+#define M(e)                                 \
+  case ValType::e:                           \
+    ptr(mutator)->mutate(val->as<hir::e>()); \
+    return;
+    DISPATCH_FOR_ALL_HIR_VALS(M)
 #undef M
     default:
       ptr(mutator)->mutate(val);
@@ -314,6 +346,13 @@ M(assoc_comm::FlattenedAssocCommOp)
 DISPATCH_FOR_ALL_KIR_EXPRS(M)
 DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
+#define M(e)                                             \
+  void OptOutConstDispatch::handle(const hir::e* stmt) { \
+    unhandled(stmt);                                     \
+  }
+DISPATCH_FOR_ALL_HIR_VALS(M)
+DISPATCH_FOR_ALL_HIR_EXPRS(M)
+#undef M
 
 void OptOutDispatch::unhandled(Statement*) {}
 
@@ -333,6 +372,13 @@ M(assoc_comm::FlattenedAssocCommOp)
   }
 DISPATCH_FOR_ALL_KIR_VALS(M)
 DISPATCH_FOR_ALL_KIR_EXPRS(M)
+#undef M
+#define M(e)                                  \
+  void OptOutDispatch::handle(hir::e* stmt) { \
+    unhandled(stmt);                          \
+  }
+DISPATCH_FOR_ALL_HIR_VALS(M)
+DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 
 } // namespace nvfuser

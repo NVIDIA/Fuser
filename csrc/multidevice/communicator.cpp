@@ -214,7 +214,7 @@ Communicator::Communicator(
 #endif
 }
 
-c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
+c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend) {
   CommunicatorBackend b = getBackend(backend);
@@ -241,28 +241,10 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
     backends_[team_key] = c10::make_intrusive<c10d::Backend>();
 #endif
   }
-  return backends_.at(team_key);
+  return backends_.at(team_key).get();
 }
 
-c10::intrusive_ptr<c10d::Work> Communicator::sendRecv(
-    DeviceIdxType receiver,
-    DeviceIdxType sender,
-    std::vector<at::Tensor>& tensors,
-    std::optional<CommunicatorBackend> backend,
-    int tag) {
-  NVF_ERROR(
-      deviceId() == sender || deviceId() == receiver,
-      "only sender or receiver should post the sendRecv");
-  NVF_ERROR(sender != receiver, "cannot send to self");
-
-  auto world = getWorld(backend);
-  if (deviceId() == sender) {
-    return world->send(tensors, static_cast<int>(dIdToRank(receiver)), tag);
-  }
-  return world->recv(tensors, static_cast<int>(dIdToRank(sender)), tag);
-}
-
-c10::intrusive_ptr<c10d::Backend> Communicator::getWorld(
+c10d::Backend* Communicator::getWorld(
     std::optional<CommunicatorBackend> backend) {
   std::vector<RankType> all_ranks(size_);
   std::iota(all_ranks.begin(), all_ranks.end(), 0);

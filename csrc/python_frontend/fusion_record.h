@@ -817,10 +817,11 @@ struct BroadcastOpRecord : RecordFunctor {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const BroadcastOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      result &= std::equal(
-          is_broadcast_dim_.begin(),
-          is_broadcast_dim_.end(),
-          child_ptr->is_broadcast_dim_.begin());
+      result = result &&
+          std::equal(
+                   is_broadcast_dim_.begin(),
+                   is_broadcast_dim_.end(),
+                   child_ptr->is_broadcast_dim_.begin());
     }
     return result;
   }
@@ -1200,7 +1201,7 @@ struct TensorRecord : RecordFunctor {
       // correctly with `contig_index` and `index`.
       //
       // stride_order[i] indicates that:
-      //   `rfactor_domain[i]` (and therefore `root_domain[i]` for input) maps
+      //   `logical_domain[i]` (and therefore `root_domain[i]` for input) maps
       //   to `alloc_domain[rank - 1 - stride_order_[i]]`
       //
       // Hence `index` on root domain would be corresponding to the contiguity
