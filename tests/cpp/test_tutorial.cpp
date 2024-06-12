@@ -530,15 +530,15 @@ TEST_F(Tutorial, Reshape) {
     reshape_output->split(0, 128);
 
     ASSERT_TRUE(
-        reshape_output->getLeafDomain().at(0)->definition()->isA<Split>());
+        reshape_output->getLoopDomain().at(0)->definition()->isA<Split>());
     ASSERT_EQ(
-        reshape_output->getLeafDomain()
+        reshape_output->getLoopDomain()
             .at(0)
             ->definition()
             ->as<Split>()
             ->inner(),
-        reshape_output->getLeafDomain().at(1));
-    ASSERT_TRUE(reshape_output->getLeafDomain()
+        reshape_output->getLoopDomain().at(1));
+    ASSERT_TRUE(reshape_output->getLoopDomain()
                     .at(0)
                     ->definition()
                     ->as<Split>()
@@ -546,7 +546,7 @@ TEST_F(Tutorial, Reshape) {
                     ->definition()
                     ->isA<Merge>());
     ASSERT_EQ(
-        reshape_output->getLeafDomain()
+        reshape_output->getLoopDomain()
             .at(0)
             ->definition()
             ->as<Split>()
@@ -556,7 +556,7 @@ TEST_F(Tutorial, Reshape) {
             ->outer(),
         reshape_output->getLogicalDomain().at(0));
     ASSERT_EQ(
-        reshape_output->getLeafDomain()
+        reshape_output->getLoopDomain()
             .at(0)
             ->definition()
             ->as<Split>()
@@ -590,15 +590,15 @@ TEST_F(Tutorial, Reshape) {
     // merge(1, 2) -> [b0, 3*i1*i2/3]
     // split(1, 128) -> [b0, 3*i1*i2/3/128, 128]
     ASSERT_TRUE(
-        squeeze_output->getLeafDomain().at(0)->definition()->isA<Split>());
+        squeeze_output->getLoopDomain().at(0)->definition()->isA<Split>());
     auto squeeze_output_second_split =
-        squeeze_output->getLeafDomain().at(0)->definition()->as<Split>();
+        squeeze_output->getLoopDomain().at(0)->definition()->as<Split>();
     ASSERT_EQ(
         squeeze_output_second_split->outer(),
-        squeeze_output->getLeafDomain().at(0));
+        squeeze_output->getLoopDomain().at(0));
     ASSERT_EQ(
         squeeze_output_second_split->inner(),
-        squeeze_output->getLeafDomain().at(1));
+        squeeze_output->getLoopDomain().at(1));
 
     ASSERT_TRUE(squeeze_output_second_split->in()->definition()->isA<Merge>());
     auto squeeze_output_second_merge =
@@ -676,7 +676,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
   }
 
   // Now, tv2 and tv3 should be fully mapped, including their root,
-  // intermediate and leaf domains.
+  // intermediate and loop domains.
 
   // Check the root domains.
   for (const auto i : c10::irange(tv2->getRootDomain().size())) {
@@ -690,7 +690,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
       tv2->getRootDomain().at(0)->uses().at(0)->as<Merge>()->out(),
       tv3->getRootDomain().at(0)->uses().at(0)->as<Merge>()->out()));
 
-  // The next operation is split. Its outputs, which are the leaf
+  // The next operation is split. Its outputs, which are the loop
   // domains, should be mapped too.
   for (const auto i : c10::irange(tv2->nDims())) {
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
@@ -1091,7 +1091,7 @@ TEST_F(Tutorial, BasicTMA) {
     // [I0, I1/32/2, 2, 32, I2/32'/2', 2', 32']
     smem_cache->reorder({{3, -2}, {2, -4}});
     // [I0, I1/32/2, I2/32'/2', 2, 2', 32, 32']
-    smem_cache->setAllocationDomain(smem_cache->getLeafDomain(), true);
+    smem_cache->setAllocationDomain(smem_cache->getLoopDomain(), true);
 
     // Step 5: schedule the consumer tensor
     // [I0, I1/32/2, I2/32'/2', 2, 2', 32, 32']
@@ -1197,7 +1197,7 @@ TEST_F(Tutorial, BasicTMA) {
     // [I0, I1/32/2, 2, 32, I2/32'/2', 2', 32']
     smem_cache->reorder({{3, -2}, {2, -4}});
     // [I0, I1/32/2, I2/32'/2', 2, 2', 32, 32']
-    smem_cache->setAllocationDomain(smem_cache->getLeafDomain(), true);
+    smem_cache->setAllocationDomain(smem_cache->getLoopDomain(), true);
 
     // Step 5: schedule the consumer tensor.
     // Because we are not inlining anything in this example, we do not care
@@ -1510,7 +1510,7 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   // conflict.
   // [BIDx, 32', 32]
   output_smem_cache->setAllocationDomain(
-      output_smem_cache->getLeafDomain(), true);
+      output_smem_cache->getLoopDomain(), true);
   output_smem_cache->split(1, 4);
   // [BIDx, 8', 4', 32]
   scheduler_utils::BoundedDirectionalTransformPropagator::backward(
@@ -1526,7 +1526,7 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   output_smem_cache->axis(2)->parallelize(ParallelType::Unroll);
   output_reg_cache->axis(2)->parallelize(ParallelType::Vectorize);
   output_reg_cache->setAllocationDomain(
-      output_reg_cache->getLeafDomain(), true);
+      output_reg_cache->getLoopDomain(), true);
 
   // Schedule the memory format for 128 byte swizzle
   // [BIDx, 8', 4', 32]
@@ -1537,7 +1537,7 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
   // [BIDx, 4, 8, 8', 4']
   input_smem_cache->setAllocationDomain(
-      input_smem_cache->getLeafDomain(), true);
+      input_smem_cache->getLoopDomain(), true);
   input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
   input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
   input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);

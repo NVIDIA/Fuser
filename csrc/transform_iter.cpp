@@ -44,10 +44,10 @@ void ReplayTransformations::handle(Split* s) {
   }
 
   auto mapped = it->second;
-  // Make sure this ID is a leaf ID (meaning it has no uses we generated)
+  // Make sure this ID is a loop ID (meaning it has no uses we generated)
   NVF_ERROR(
-      leaf_ids_.find(mapped) != leaf_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a leaf node.");
+      loop_ids_.find(mapped) != loop_ids_.end(),
+      "Transform traversal failed, modified a node but it was not a loop node.");
 
   // Replay the split onto mapped
   NVF_ERROR(s->outer()->isRFactorProduct() == s->inner()->isRFactorProduct());
@@ -56,12 +56,12 @@ void ReplayTransformations::handle(Split* s) {
       s->factor(),
       s->innerSplit(),
       replay_rfactor_ && s->outer()->isRFactorProduct());
-  // Remove mapped from the leaf IDs
-  leaf_ids_.erase(mapped);
+  // Remove mapped from the loop IDs
+  loop_ids_.erase(mapped);
 
-  // Add outputs to leaf IDs
-  leaf_ids_[outs.first] = newCounter();
-  leaf_ids_[outs.second] = newCounter();
+  // Add outputs to loop IDs
+  loop_ids_[outs.first] = newCounter();
+  loop_ids_[outs.second] = newCounter();
 
   // Update our ID map to include these outputs
   id_map_[s->outer()] = outs.first;
@@ -114,15 +114,15 @@ void ReplayTransformations::handle(Merge* m) {
   const auto id_outer_mapped = it_outer->second;
   const auto id_inner_mapped = it_inner->second;
 
-  // Make sure these IDs are leaf IDs (meaning they have no uses we generated)
+  // Make sure these IDs are loop IDs (meaning they have no uses we generated)
   NVF_ERROR(
-      leaf_ids_.find(id_outer_mapped) != leaf_ids_.end() &&
-          leaf_ids_.find(id_inner_mapped) != leaf_ids_.end(),
+      loop_ids_.find(id_outer_mapped) != loop_ids_.end() &&
+          loop_ids_.find(id_inner_mapped) != loop_ids_.end(),
       "Transform traversal failed, tried to replay with ",
       id_outer_mapped,
       " and ",
       id_inner_mapped,
-      " however one or both are not leaf nodes.");
+      " however one or both are not loop nodes.");
 
   // Replay the merge operation
   auto out = IterDomain::merge(
@@ -130,12 +130,12 @@ void ReplayTransformations::handle(Merge* m) {
       id_inner_mapped,
       replay_rfactor_ && m->out()->isRFactorProduct());
 
-  // Remove inputs from the leaf IDs
-  leaf_ids_.erase(id_outer_mapped);
-  leaf_ids_.erase(id_inner_mapped);
+  // Remove inputs from the loop IDs
+  loop_ids_.erase(id_outer_mapped);
+  loop_ids_.erase(id_inner_mapped);
 
-  // Add the output to the leaf IDs
-  leaf_ids_[out] = newCounter();
+  // Add the output to the loop IDs
+  loop_ids_[out] = newCounter();
 
   // Update our ID map with the replayed output
   id_map_[m->out()] = out;
@@ -162,24 +162,24 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
   auto mapped_x = it_x->second;
   auto mapped_y = it_y->second;
 
-  // Make sure this ID is a leaf ID (meaning it has no uses we generated)
+  // Make sure this ID is a loop ID (meaning it has no uses we generated)
   NVF_ERROR(
-      leaf_ids_.find(mapped_x) != leaf_ids_.end() &&
-          leaf_ids_.find(mapped_y) != leaf_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a leaf node.");
+      loop_ids_.find(mapped_x) != loop_ids_.end() &&
+          loop_ids_.find(mapped_y) != loop_ids_.end(),
+      "Transform traversal failed, modified a node but it was not a loop node.");
 
   auto outs = std::make_pair(mapped_x, mapped_y);
 
   // Replay the swizzle onto mapped
   outs = IterDomain::swizzle(swizzle->swizzleType(), mapped_x, mapped_y);
 
-  // Remove mapped from the leaf IDs
-  leaf_ids_.erase(mapped_x);
-  leaf_ids_.erase(mapped_y);
+  // Remove mapped from the loop IDs
+  loop_ids_.erase(mapped_x);
+  loop_ids_.erase(mapped_y);
 
-  // Add outputs to leaf IDs
-  leaf_ids_[outs.first] = newCounter();
-  leaf_ids_[outs.second] = newCounter();
+  // Add outputs to loop IDs
+  loop_ids_[outs.first] = newCounter();
+  loop_ids_[outs.second] = newCounter();
 
   // Update our ID map to include these outputs
   id_map_[swizzle->outX()] = outs.first;
@@ -207,11 +207,11 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
   auto mapped_x = it_x->second;
   auto mapped_y = it_y->second;
 
-  // Make sure this ID is a leaf ID (meaning it has no uses we generated)
+  // Make sure this ID is a loop ID (meaning it has no uses we generated)
   NVF_ERROR(
-      leaf_ids_.find(mapped_x) != leaf_ids_.end() &&
-          leaf_ids_.find(mapped_y) != leaf_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a leaf node.");
+      loop_ids_.find(mapped_x) != loop_ids_.end() &&
+          loop_ids_.find(mapped_y) != loop_ids_.end(),
+      "Transform traversal failed, modified a node but it was not a loop node.");
 
   auto outs = std::make_pair(mapped_x, mapped_y);
 
@@ -219,14 +219,14 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
     // Replay the swizzle onto mapped
     outs = IterDomain::swizzle(swizzle_2d->swizzleType(), mapped_x, mapped_y);
 
-    // Remove mapped from the leaf IDs
-    leaf_ids_.erase(mapped_x);
-    leaf_ids_.erase(mapped_y);
+    // Remove mapped from the loop IDs
+    loop_ids_.erase(mapped_x);
+    loop_ids_.erase(mapped_y);
   }
 
-  // Add outputs to leaf IDs
-  leaf_ids_[outs.first] = newCounter();
-  leaf_ids_[outs.second] = newCounter();
+  // Add outputs to loop IDs
+  loop_ids_[outs.first] = newCounter();
+  loop_ids_[outs.second] = newCounter();
 
   // Update our ID map to include these outputs
   id_map_[swizzle_2d->outX()] = outs.first;
@@ -246,10 +246,10 @@ void ReplayTransformations::handle(Resize* exp) {
   }
 
   auto mapped = it->second;
-  // Make sure this ID is a leaf ID (meaning it has no uses we generated)
+  // Make sure this ID is a loop ID (meaning it has no uses we generated)
   NVF_ERROR(
-      leaf_ids_.find(mapped) != leaf_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a leaf node.");
+      loop_ids_.find(mapped) != loop_ids_.end(),
+      "Transform traversal failed, modified a node but it was not a loop node.");
 
   auto out = mapped;
 
@@ -261,9 +261,9 @@ void ReplayTransformations::handle(Resize* exp) {
         replay_rfactor_ && exp->out()->isRFactorProduct());
   }
 
-  leaf_ids_.erase(mapped);
+  loop_ids_.erase(mapped);
 
-  leaf_ids_[out] = newCounter();
+  loop_ids_[out] = newCounter();
 
   id_map_[exp->out()] = out;
 }
@@ -272,10 +272,10 @@ ReplayTransformations::ReplayTransformations(
     const std::vector<IterDomain*>& target_domain,
     std::unordered_map<IterDomain*, IterDomain*> id_map)
     : target_domain_(target_domain), id_map_(std::move(id_map)) {
-  // Set all the leaf nodes for tracking, all ids start as a leaf and will be
+  // Set all the loop nodes for tracking, all ids start as a loop and will be
   // updated based on the transformations
   for (auto entry : id_map_) {
-    leaf_ids_[entry.second] = newCounter();
+    loop_ids_[entry.second] = newCounter();
   }
 }
 
@@ -316,7 +316,7 @@ void ReplayTransformations::runReplay() {
 
   if (error_on_failure_) {
     NVF_ERROR(
-        leaf_ids_.size() >= target_domain_.size(),
+        loop_ids_.size() >= target_domain_.size(),
         "Transform traversal failed, did not find enough output IterDomains.");
   }
 
@@ -333,27 +333,27 @@ void ReplayTransformations::runReplay() {
     }
 
     auto id_replayed = it_replayed->second;
-    auto it_leaf = leaf_ids_.find(id_replayed);
+    auto it_loop = loop_ids_.find(id_replayed);
     NVF_ERROR(
-        it_leaf != leaf_ids_.end(),
+        it_loop != loop_ids_.end(),
         "Transform Traversal failed, expected a replayed dim for ",
         out,
         " but one was not created.");
   }
 
-  // Populate leaf_vec_ in a deterministic manner. This is deterministic
-  // because size_t in leaf_ids is filled based on operation order.
+  // Populate loop_vec_ in a deterministic manner. This is deterministic
+  // because size_t in loop_ids is filled based on operation order.
   std::set<std::pair<IterDomain*, size_t>, id_int_lt> ordered_set;
-  for (auto entry : leaf_ids_) {
+  for (auto entry : loop_ids_) {
     ordered_set.emplace(entry);
   }
 
-  leaf_vec_.clear();
-  leaf_vec_.resize(ordered_set.size());
+  loop_vec_.clear();
+  loop_vec_.resize(ordered_set.size());
   std::transform(
       ordered_set.begin(),
       ordered_set.end(),
-      leaf_vec_.begin(),
+      loop_vec_.begin(),
       [](std::pair<IterDomain*, size_t> entry) { return entry.first; });
 }
 
@@ -372,7 +372,7 @@ BestEffortReplay::BestEffortReplay(
       skip_replay_swizzle_(skip_replay_swizzle),
       skip_target_swizzle_(skip_target_swizzle) {
   for (auto entry : target2replay_id_map_) {
-    leaf_ids_[entry.second] = counter++;
+    loop_ids_[entry.second] = counter++;
   }
 
   // Grab expr history of iter domains in target_domain
@@ -646,9 +646,9 @@ BestEffortReplay::BestEffortReplay(
       auto r_orig_inp = target2replay_id_map_.at(t_inp);
       auto r_maybe_forwarded_inp = replay_inps[t_i];
 
-      // Remove original target2replay_it->second if it's in leaf_ids
-      if (leaf_ids_.find(r_orig_inp) != leaf_ids_.end()) {
-        leaf_ids_.erase(r_orig_inp);
+      // Remove original target2replay_it->second if it's in loop_ids
+      if (loop_ids_.find(r_orig_inp) != loop_ids_.end()) {
+        loop_ids_.erase(r_orig_inp);
       }
 
       // Check if we used a forwarded id, if so add forwarded id's to tracking.
@@ -665,7 +665,7 @@ BestEffortReplay::BestEffortReplay(
           r_out->getValType() == ValType::IterDomain) {
         target2replay_id_map_[t_out->as<IterDomain>()] =
             r_out->as<IterDomain>();
-        leaf_ids_[r_out->as<IterDomain>()] = counter++;
+        loop_ids_[r_out->as<IterDomain>()] = counter++;
       }
     }
 
@@ -705,9 +705,9 @@ int64_t BestEffortReplay::findFirstMismatchedID(
     }
   }
 
-  BestEffortReplay ber(td2->leaf(), td1->leaf(), id_map);
+  BestEffortReplay ber(td2->loop(), td1->loop(), id_map);
   for (const auto i :
-       c10::irange((int64_t)std::max(td1->leaf().size(), td2->leaf().size()))) {
+       c10::irange((int64_t)std::max(td1->loop().size(), td2->loop().size()))) {
     if (ber.getReplay().find(td1->axis(i)) == ber.getReplay().end()) {
       return i;
     }
@@ -778,7 +778,7 @@ ForwardingInfo::ForwardingInfo(
   // now forward those to include all id's in active_tv comprised of only axes
   // not in the inactive tensor.
   auto active_tv_history = StmtSort::getExprsTo(std::vector<Val*>(
-      active_tv->domain()->leaf().begin(), active_tv->domain()->leaf().end()));
+      active_tv->domain()->loop().begin(), active_tv->domain()->loop().end()));
 
   auto isInForwardIdSet = [&forwarded_ids](IterDomain* input_id) {
     return forwarded_ids.count(input_id) > 0;
@@ -834,7 +834,7 @@ ForwardingInfo::ForwardingInfo(
 namespace {
 
 // Trace chain of swizzles until reaching
-//  an IterDomain that's either a leaf or
+//  an IterDomain that's either a loop or
 //  not a producer of any swizzle.
 IterDomain* getSwizzleFinalOutput(
     IterDomain* id,
@@ -846,7 +846,7 @@ IterDomain* getSwizzleFinalOutput(
   while (true) {
     auto expr_it = id2expr.find(id);
 
-    // This means id is a leaf that doesn't
+    // This means id is a loop that doesn't
     //  have any consumers. Stop iteration in this case.
     if (expr_it == id2expr.end()) {
       break;
@@ -930,24 +930,24 @@ void BestEffortReplay::addComplimentLeafIDs(
   auto compliment_exprs =
       StmtSort::getExprsTo({compliments.begin(), compliments.end()});
 
-  // Figure out if there are any leaves in compliment_exprs that aren't
+  // Figure out if there are any loop id in compliment_exprs that aren't
   // the forwarded id
-  std::unordered_map<IterDomain*, size_t> leaf_ids;
+  std::unordered_map<IterDomain*, size_t> loop_ids;
 
   for (auto expr : compliment_exprs) {
     for (auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-      leaf_ids.erase(inp);
+      loop_ids.erase(inp);
     }
     for (auto out : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-      // If we used the comliment for forwarded don't add to leaf nodes.
+      // If we used the comliment for forwarded don't add to loop nodes.
       if (std::find(compliments.begin(), compliments.end(), out) ==
           compliments.end()) {
-        leaf_ids.emplace(out, counter++);
+        loop_ids.emplace(out, counter++);
       }
     }
   }
 
-  leaf_ids_.insert(leaf_ids.begin(), leaf_ids.end());
+  loop_ids_.insert(loop_ids.begin(), loop_ids.end());
 }
 
 BestEffortReplay BestEffortReplay::replayCasP(
@@ -969,8 +969,8 @@ BestEffortReplay BestEffortReplay::replayCasP(
 
   // producer ids we need to match in consumer
   std::vector<IterDomain*> producer_CA_ids(
-      producer->getLeafDomain().begin(),
-      producer->getLeafDomain().begin() + producer_compute_at_axis);
+      producer->getLoopDomain().begin(),
+      producer->getLoopDomain().begin() + producer_compute_at_axis);
   producer_CA_ids = TensorDomain::noReductions(producer_CA_ids);
 
   // If producer has an rfactor, that's what will match to the consumer
@@ -999,7 +999,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
   ForwardingInfo forwarding_info(producer, consumer);
 
   auto consumer_replay = BestEffortReplay(
-      consumer->getLeafDomain(),
+      consumer->getLoopDomain(),
       producer_CA_ids,
       p2c_root_map,
       forwarding_info.consumer_forwarding_map,
@@ -1035,8 +1035,8 @@ BestEffortReplay BestEffortReplay::replayPasC(
 
   // consumer ids we need to match in producer
   std::vector<IterDomain*> consumer_CA_ids(
-      consumer->getLeafDomain().begin(),
-      consumer->getLeafDomain().begin() + consumer_compute_at_axis);
+      consumer->getLoopDomain().begin(),
+      consumer->getLoopDomain().begin() + consumer_compute_at_axis);
 
   // Figure out all inputs required to generate the compute_at dimensions
   auto consumer_CA_root_vals = IterVisitor::getInputsTo(
@@ -1058,7 +1058,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
   // of producer if they match ops on consumer. Enforce if we modify an
   // rfactor axis that those ops must match.
   auto producer_replay = BestEffortReplay(
-      producer->getLeafDomain(),
+      producer->getLoopDomain(),
       consumer_CA_ids,
       c2p_root_map,
       forwarding_info.producer_forwarding_map,
@@ -1096,17 +1096,17 @@ void BestEffortReplay::skipSwizzles(
 
         // new_target and new_replay will now be the final output
         //  skipping all swizzles in between. We'd need to
-        //  update the mapping and leaf ids to the final outputs.
+        //  update the mapping and loop ids to the final outputs.
         target2replay_id_map_.erase(it.first);
         NVF_ERROR(
             target2replay_id_map_.insert(std::make_pair(new_target, new_replay))
                 .second,
-            "Unexpected replay leaf");
-        // Progress the leaf ids if the replay is updated
+            "Unexpected replay loop");
+        // Progress the loop ids if the replay is updated
         if (it.second != new_replay &&
-            leaf_ids_.find(it.second) != leaf_ids_.end()) {
-          leaf_ids_.erase(it.second);
-          leaf_ids_[new_replay] = counter++;
+            loop_ids_.find(it.second) != loop_ids_.end()) {
+          loop_ids_.erase(it.second);
+          loop_ids_[new_replay] = counter++;
         }
         break;
       }
@@ -1158,12 +1158,12 @@ void BestEffortReplay::skipResizes(
           target2replay_id_map_
               .insert(std::make_pair(new_target_id, new_replay_id))
               .second,
-          "Unexpected replay leaf");
-      // Progress the leaf ids if the replay is updated
+          "Unexpected replay loop");
+      // Progress the loop ids if the replay is updated
       if (replay_id != new_replay_id &&
-          leaf_ids_.find(replay_id) != leaf_ids_.end()) {
-        leaf_ids_.erase(replay_id);
-        leaf_ids_[new_replay_id] = counter++;
+          loop_ids_.find(replay_id) != loop_ids_.end()) {
+        loop_ids_.erase(replay_id);
+        loop_ids_[new_replay_id] = counter++;
       }
       updated = true;
       break;

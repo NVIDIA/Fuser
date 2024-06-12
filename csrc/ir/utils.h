@@ -499,7 +499,7 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! transformations. This validation makes sure both sets
 //! of domains represent the same logical space.
 //!
-//! It is intended to be used to validate rfactor and leaf domains
+//! It is intended to be used to validate rfactor and loop domains
 //! of a tensor root domain.
 //!
 //! For example, it's an error if a initial ID is split and

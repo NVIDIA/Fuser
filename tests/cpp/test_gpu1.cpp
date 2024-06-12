@@ -621,7 +621,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
   auto tv = makeSymbolicTensor(3);
   std::vector<IterDomain*> ref;
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -630,7 +630,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -639,7 +639,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_right);
   NVF_CHECK(ref[ref.size() - 1]->sameAs(tv->axis(0)));
@@ -649,7 +649,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
   tv->reorder(swap);
   NVF_CHECK(ref[0]->sameAs(tv->axis(2)));
   NVF_CHECK(ref[2]->sameAs(tv->axis(0)));
@@ -1430,13 +1430,13 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt7_CUDA) {
   tv7->axis(1)->parallelize(ParallelType::TIDx);
 
   tv0->computeAt(tv7, 1);
-  auto tv5_domain = tv5->getLeafDomain();
+  auto tv5_domain = tv5->getLoopDomain();
 
   // These computeAt transformations should not affect the TV5 domain
   tv0->computeAt(tv4, -1);
   tv2->computeAt(tv4, -1);
 
-  auto tv5_domain_current = tv5->getLeafDomain();
+  auto tv5_domain_current = tv5->getLoopDomain();
   NVF_CHECK(tv5_domain == tv5_domain_current, "Invalid TV5 domain");
 
   const int numel_x = 100;
