@@ -6562,8 +6562,8 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->split(0, 4);
   // [I0/4, 4, I1]
 
-  // Initial domain: logical domain
-  // Derived domain: [4, I1]
+  // dom0: logical domain
+  // dom1: [4, I1]
   // Should fail as the derived domain only partially covers the
   // logical domain
   EXPECT_THAT(
@@ -6577,8 +6577,8 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->merge(0);
   // [I0/4*4, I1]
 
-  // Initial domain: logical domain
-  // Derived domain: loop domain
+  // dom0: logical domain
+  // dom1: loop domain
   // Should succeed.
   ir_utils::validateDomainEquivalence(
       tv1->getLogicalDomain(), tv1->getLoopDomain());
@@ -6588,8 +6588,8 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->split(0, 3);
   // [I0/4*4/3, 3, I1]
 
-  // Initial domain: logical domain
-  // Derived domain: loop + tv1_intermediate_id
+  // dom0: logical domain
+  // dom1: loop + tv1_intermediate_id
   // Should fail as the intermediate ID and the first two loop ids are redundant
   EXPECT_THAT(
       [&]() {
@@ -6620,10 +6620,9 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   ir_utils::validateDomainEquivalence(
       tv4->getLogicalDomain(), tv4->getLoopDomain());
 
-  // Initial domain: root domain
-  // Derived domain: [S0, B0/4]
-  // Should fail as the derived domain only partially covers the
-  // root domain
+  // dom0: logical domain
+  // dom1: [S0, B0/4]
+  // Should fail as the dom1 only partially covers dom0
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(

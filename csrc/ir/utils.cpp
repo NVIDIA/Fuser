@@ -891,17 +891,30 @@ void validateDomainEquivalence(
     next(*it, false);
   }
 
+  // Remove symbolic IDs that appear both in frontier and in dom1_set. These IDs
+  // are carried over without any transformation.
+  auto is_symb = [](Val* v) {
+    return v->as<IterDomain>()->getIterType() == IterType::Symbolic;
+  };
+  std::vector<Val*> ids_to_remove;
+  for (Val* id : frontier) {
+    if (is_symb(id) && dom1_set.count(id)) {
+      ids_to_remove.push_back(id);
+    }
+  }
+  for (Val* id : ids_to_remove) {
+    frontier.erase(id);
+    dom1_set.erase(id);
+  }
   // At this point, the frontier set and dom1 should be equal, except when
-  // there's a symbolic ID in dom0 or dom1, where the transformations are
+  // there's a symbolic ID in frontier or dom1, where the transformations are
   // incomplete.
-  bool dom0_has_symbolic = std::any_of(dom0.begin(), dom0.end(), [](auto id) {
-    return id->getIterType() == IterType::Symbolic;
-  });
-  bool dom1_has_symbolic = std::any_of(dom1.begin(), dom1.end(), [](auto id) {
-    return id->getIterType() == IterType::Symbolic;
-  });
-  if (!dom0_has_symbolic) {
-    // dom0 and frontier fully covers dom1
+  bool frontier_has_symbolic =
+      std::any_of(frontier.begin(), frontier.end(), is_symb);
+  bool dom1_has_symbolic =
+      std::any_of(dom1_set.begin(), dom1_set.end(), is_symb);
+  if (!frontier_has_symbolic) {
+    // frontier fully covers dom1
     NVF_ERROR(
         std::all_of(
             dom1.begin(),
@@ -916,7 +929,7 @@ void validateDomainEquivalence(
         toDelimitedString(dom1));
   }
   if (!dom1_has_symbolic) {
-    // dom1 fully covers dom0 and frontier
+    // dom1 fully covers frontier
     NVF_ERROR(
         std::all_of(
             frontier.begin(),
