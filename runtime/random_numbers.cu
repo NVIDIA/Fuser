@@ -65,24 +65,14 @@ __device__ float raw_uniform_float(unsigned int x) {
   return (float)x * scale + 0.5f * scale;
 }
 
-// This is not actually __heq, but rather a bitwise identical check, i.e.
-// special cases for nans, subnormals, and denormalized floats are ignored.
-template <typename T>
-__device__ __inline__ bool identical(const T& a, const T& b) {
-  static_assert(sizeof(T) == 2);
-  return *(reinterpret_cast<const uint16_t*>(&a)) ==
-      *(reinterpret_cast<const uint16_t*>(&b));
-}
-
 __device__ __half uniform_half(unsigned int x) {
   __half result = __float2half(raw_uniform_float(x));
-  return identical(result, __float2half(1.0f)) ? __float2half(0.0f) : result;
+  return __heq(result, __float2half(1.0f)) ? __float2half(0.0f) : result;
 }
 
 __device__ __bfloat uniform_bfloat(unsigned int x) {
   __bfloat result = __float2bfloat(raw_uniform_float(x));
-  return identical(result, __float2bfloat(1.0f)) ? __float2bfloat(0.0f)
-                                                 : result;
+  return __heq(result, __float2bfloat(1.0f)) ? __float2bfloat(0.0f) : result;
 }
 
 __device__ float uniformf(unsigned int x) {
@@ -142,7 +132,7 @@ __device__ __half rng_uniform_range_half(
   auto range = to - from;
   float uniform01 = raw_uniform_float((&rng_result.x)[rng_component]);
   __half result = __float2half(from + range * uniform01);
-  return identical(result, __float2half(to)) ? __float2half(from) : result;
+  return __heq(result, __float2half(to)) ? __float2half(from) : result;
 }
 
 __device__ __bfloat rng_uniform_range_bfloat(
@@ -153,7 +143,7 @@ __device__ __bfloat rng_uniform_range_bfloat(
   auto range = to - from;
   float uniform01 = raw_uniform_float((&rng_result.x)[rng_component]);
   __bfloat result = __float2bfloat(from + range * uniform01);
-  return identical(result, __float2bfloat(to)) ? __float2bfloat(from) : result;
+  return __heq(result, __float2bfloat(to)) ? __float2bfloat(from) : result;
 }
 
 __device__ float normalf(unsigned int x, unsigned int y, int rng_component) {
