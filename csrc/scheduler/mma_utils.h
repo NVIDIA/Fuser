@@ -317,6 +317,7 @@ NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
 //!  be gathered.
 TensorRolesMapOpt getTensorRoles(
     Fusion* fusion,
+    const MatmulPattern& pattern,
     const IdModel& id_model,
     const DimRolesMap& dim_roles);
 

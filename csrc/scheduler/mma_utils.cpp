@@ -1123,7 +1123,8 @@ MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion) {
   const MatmulPattern& pattern = patterns[0];
   IdModel id_model(fusion);
   const auto id_roles = pattern.getDimRoles(id_model);
-  const auto tensor_roles_opt = getTensorRoles(fusion, id_model, id_roles);
+  const auto tensor_roles_opt =
+      getTensorRoles(fusion, pattern, id_model, id_roles);
   if (!tensor_roles_opt.isValid()) {
     return {tensor_roles_opt.getErrorMsg()};
   }
@@ -1201,6 +1202,7 @@ MatmulProblemLayoutOpt getProblemLayout(
 
 TensorRolesMapOpt getTensorRoles(
     Fusion* fusion,
+    const MatmulPattern& pattern,
     const IdModel& id_model,
     const DimRolesMap& dim_roles) {
   const auto mma_input_candidates =
@@ -1269,7 +1271,10 @@ TensorRolesMapOpt getTensorRoles(
     }
   }
 
-  std::vector<TensorView*> storage;
+  // Get all outputs that are downstream of this pattern
+  const std::unordered_set<Val*> fusion_outputs_of_pattern =
+      DependencyCheck::getAllOutputsOf({pattern.output});
+
   for (TensorView* tv : mma_output_candidates) {
     DimPresence has = findDims(tv);
     // NOTE: depending on fusion definition k domain may appear in the output:
@@ -1282,15 +1287,10 @@ TensorRolesMapOpt getTensorRoles(
       continue;
     }
 
-    // NOTE: the core fusion output tensors are the ones with m and n
-    //  domains
-    if (has.m && has.n) {
-      storage.push_back(tv);
+    // only include outputs that are downstream of pattern
+    if (fusion_outputs_of_pattern.find(tv) != fusion_outputs_of_pattern.end()) {
+      tensor_roles[MatmulRole::OUTPUT_D].push_back(tv);
     }
-  }
-
-  if (!storage.empty()) {
-    tensor_roles[MatmulRole::OUTPUT_D] = storage;
   }
 
   for (auto& [role, tvs] : tensor_roles) {
