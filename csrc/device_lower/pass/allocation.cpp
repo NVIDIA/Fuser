@@ -521,14 +521,13 @@ class AllocationInserter : public kir::ExprMutator {
       auto alloc_expr = createAllocExpr(allocation, is_output);
       auto init_expr = createInitExpr(allocation, init);
 
-      // Find the largest circular buffer depth, to be used for bulk load
-      // allocation
+      // Find the largest circular buffer depth; Used for tma buffer allocation
       if (out_tv->isDoubleBuffered()) {
         if (out_tv->isCircularBuffered()) {
           circular_buffer_depth =
               std::max(circular_buffer_depth, out_tv->circularBufferDepth());
         } else {
-          circular_buffer_depth = std::max(circular_buffer_depth, (int64_t)2);
+          circular_buffer_depth = std::max(circular_buffer_depth, 2l);
         }
       }
 
@@ -566,11 +565,10 @@ class AllocationInserter : public kir::ExprMutator {
     // synchronizations for cp.async.bulk.
     if (ir_utils::isCpAsyncBulkLoad(expr)) {
       if (circular_buffer_depth > 1) {
-        // Create and allocate a memory barrier, if this is a circular buffer
-        //  then allocate an array of mbarier objects.
-        // mbarrier::init and mbarrier::inval will be updated in Double
-        //  Buffering pass, but we need to add them to correctly handle smem
-        //  placeholders lifetime in alias memory pass.
+        // Create and allocate a memory barrier. If this is a circular buffer,
+        // then allocate an array of mbarier objects. mbarrier::init and
+        // mbarrier::inval will be updated in double buffering pass, but we add
+        // them here to handle shared memory correctly in alias memory pass.
         TensorView* mbarrier =
             TensorViewBuilder()
                 .shape(std::vector<int64_t>{circular_buffer_depth})
@@ -579,21 +577,22 @@ class AllocationInserter : public kir::ExprMutator {
                 .build();
         mbarrier->setMemoryType(MemoryType::Shared);
 
-        // Arrival condition for mbarrier is 1 thread, the core barrier
-        //  condition is be end of transaction
-        auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+        // The wait condition for mbarrier is 1 thread and the expected
+        // number of transaction bytes
+        kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
             mbarrier, expr->container()->oneVal(DataType::UInt32));
 
         kir::Allocate* mbarrier_alloc =
             IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+
         kir::Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
 
-        auto mbarrier_inval =
+        kir::MBarrierInvalidate* mbarrier_inval =
             IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
 
-        // For double/circular buffers we need to prepare a placeholder
-        //  for sync tokens created by 'MBarrierArriveExpectTx' IR node.
-        // Tokens are placed in smem and used by threads in a block.
+        // For double/circular buffers we need to prepare a placeholder for the
+        // tokens created by 'MBarrierArriveExpectTx' IR node The tokens are
+        // placed in shared memory and used by threads in a block.
         TensorView* mbarrier_tokens =
             TensorViewBuilder()
                 .shape(std::vector<int64_t>{circular_buffer_depth})
@@ -601,17 +600,19 @@ class AllocationInserter : public kir::ExprMutator {
                 .contiguity(true)
                 .build();
         mbarrier_tokens->setMemoryType(MemoryType::Shared);
+
         kir::Allocate* mbarrier_tokens_alloc = IrBuilder::create<kir::Allocate>(
             mbarrier_tokens, MemoryType::Shared);
 
-        // NOTE: no block sync ir node is added, it will be added in double
-        //  buffering pass
+        // NOTE: Block sync ir node is not added here. It will be added in the
+        // double buffering pass
         registerInsertBefore(expr, mbarrier_tokens_alloc, expr_scope);
         registerInsertBefore(expr, mbarrier_alloc, expr_scope);
         registerInsertBefore(expr, mbarrier_init, expr_scope);
         registerInsertAfter(expr, mbarrier_inval, expr_scope);
-        GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
 
+        // Map LoadStoreOp expression to ir nodes created in this pass
+        GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
         GpuLower::current()->ldstMBarrierTokenMap()[expr] = mbarrier_tokens;
         // Register tokens placeholder for MBarrierInit and MBarrierInvalidate,
         //  needed to manage life time of smem buffor in alias memory
