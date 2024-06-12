@@ -477,8 +477,7 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   // TODO: Contiguous indexing
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
-    IterDomain* allocation_domain =
-        allocation_domains.at(i);
+    IterDomain* allocation_domain = allocation_domains.at(i);
 
     Val* stride = strides.at(i);
 
