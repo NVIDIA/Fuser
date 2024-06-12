@@ -32,9 +32,9 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering1d) {
   auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv2->setMemoryType(MemoryType::Shared);
 
-  // [M] -> [M/bid, bid]
   auto reference = tv1;
   constexpr size_t bulk_inner_dim = 32;
+  // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
   TransformPropagatorWithCheck propagator(reference);
@@ -46,7 +46,6 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering1d) {
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->doubleBuffer();
 
-  // bulk_inner_dim * bulk_outer_dim;
   constexpr size_t tensor_dim = 128;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({tensor_dim}, options);
@@ -83,44 +82,45 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   // gmem -> smem (tma / double buffer / 2d -> 4d)
   // smem -> gmem
 
-  constexpr size_t bulk_inner_dim = 4;
-  constexpr size_t bulk_outer_dim = 4;
-
   auto tv0 = makeContigTensor(2);
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-
+  auto tv1 = exp(tv0);
   fusion.addInput(tv0);
-  fusion.addOutput(tv2);
+  fusion.addOutput(tv1);
 
-  tv1->setMemoryType(MemoryType::Shared);
-  tv1->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
 
-  tv1->axis(0)->parallelize(ParallelType::Bulk);
-  tv1->axis(1)->parallelize(ParallelType::Bulk);
-
+  auto reference = tv1;
+  constexpr size_t tma_outer_dim = 4;
+  constexpr size_t tma_inner_dim = 32;
   // [M, N] -> [M, N/bid, bid]
-  tv2->split(-1, bulk_inner_dim);
+  reference->split(-1, tma_inner_dim);
   // [M, N/bid, bid] -> [M/bod, bod, N/bid, bid]
-  tv2->split(0, bulk_outer_dim);
+  reference->split(0, tma_outer_dim);
   // [M/bod, bod, N/bid, bid] -> [M/bod, N/bid, bod, bid]
-  tv2->reorder({{-2, -3}});
+  reference->reorder({{-2, -3}});
 
-  TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  TransformPropagatorWithCheck propagator(reference);
+  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
 
-  tv0->computeAt(tv2, 2);
-  tv1->doubleBuffer();
+  tv0->computeAt(tv1, 2);
 
-  fusion.printTransforms();
+  // Double Buffer with TMA loads
+  tv2->doubleBuffer();
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->axis(-2)->parallelize(ParallelType::Bulk);
 
+  constexpr size_t tensor_outer_dim = 4;
+  constexpr size_t tensor_inner_dim = 128;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({bulk_outer_dim, bulk_inner_dim}, options);
+  auto t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  auto t1 = at::exp(t0);
+
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  CompileParams index32bit{DataType::Int32, 255, false};
+  fe.compileFusion(&fusion, {t0}, {}, index32bit);
   auto cg_outputs = fe.runFusion({t0});
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {
