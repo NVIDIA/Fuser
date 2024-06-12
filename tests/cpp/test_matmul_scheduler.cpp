@@ -3139,7 +3139,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(testing::Bool(), testing::Bool()));
 
 // Test that we segment an unsupported matmul properly
-TEST_F(MatmulSchedulerTest, SegmentLinearUnsupportedEpilogueReduction) {
+TEST_P(MatmulFusionTest, SegmentLinearUnsupportedEpilogueReduction) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248;
 
@@ -3155,7 +3155,7 @@ TEST_F(MatmulSchedulerTest, SegmentLinearUnsupportedEpilogueReduction) {
 
   auto tv2 = linear(tv0, tv1);
 
-  to tv3 = sum(tv2, {1});
+  auto tv3 = sum(castOp(DataType::Float, tv2), {1});
 
   fusion->addOutput(tv3);
 
@@ -3171,6 +3171,7 @@ TEST_F(MatmulSchedulerTest, SegmentLinearUnsupportedEpilogueReduction) {
 
   auto outputs = executor_cache.runFusionWithInputs(inputs);
 
+  // We should segment regardless of `fusion_enabled`
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);

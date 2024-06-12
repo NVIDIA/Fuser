@@ -764,7 +764,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   IdModel id_model(fusion);
   mma_utils::DimRolesMap id_roles = patterns.front().getDimRoles(id_model);
   const auto& tensor_roles_opt =
-      mma_utils::getTensorRoles(fusion, id_model, id_roles);
+      mma_utils::getTensorRoles(fusion, patterns.front(), id_model, id_roles);
 
   // NOTE: the contents of tensor_roles have been already validated during
   //  compute-time checks

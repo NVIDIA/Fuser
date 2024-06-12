@@ -188,6 +188,7 @@ ProblemShape getProblemShape(
 //   - has a fusion output with OUTPUT_D role i.e. that has M, N dims
 //   - includes all fusion inputs/outputs in its tensor roles
 //   - has no fusion inputs with non-trivial allocation domain
+//   - has no epilogue expressions that are no pointwise ops
 std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
     const mma_utils::MatmulPattern& pattern,
@@ -308,6 +309,24 @@ std::string isMatmulFusionDefinitionSupported(
     if (auto tv = dynamic_cast<TensorView*>(outp);
         tv && !ir_utils::hasTrivialAllocationDomain(tv)) {
       return "detected output TV with non-trivial allocation domain";
+    }
+  }
+
+  // Check that epilogue contains only pointwise ops.
+  {
+    std::vector<Val*> epilogue_inputs{pattern.output};
+    auto c_inputs = tensor_roles.find(MatmulRole::INPUT_C);
+    if (c_inputs != tensor_roles.end()) {
+      epilogue_inputs.insert(
+          epilogue_inputs.end(),
+          c_inputs->second.begin(),
+          c_inputs->second.end());
+    }
+    for (Expr* e :
+         StmtSort::getExprsBetween(epilogue_inputs, fusion->outputs())) {
+      if (!e->isOneOf<UnaryOp, BinaryOp, TernaryOp>()) {
+        return "epilogue must contain only pointwise operations";
+      }
     }
   }
 
@@ -672,7 +691,6 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // 4. Check if fusion represents expressions that are recognized by matmul
   // 5. Check if the input layout for the matmul pattern can be determined
   // scheduler.
-  // 6. Check that epilogue contains only pointwise ops.
 
   // #0
   {
@@ -729,7 +747,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   IdModel id_model(fusion);
   const auto id_roles = patterns.front().getDimRoles(id_model);
   const mma_utils::TensorRolesMapOpt tensor_roles_opt =
-      mma_utils::getTensorRoles(fusion, id_model, id_roles);
+      mma_utils::getTensorRoles(fusion, patterns.front(), id_model, id_roles);
   if (!tensor_roles_opt.isValid()) {
     return {tensor_roles_opt.getErrorMsg()};
   }
@@ -749,37 +767,6 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
       mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
   if (!input_layout_opt.isValid()) {
     return input_layout_opt.getErrorMsg();
-  }
-
-  // #6
-  {
-    std::vector<Val*> epilogue_inputs;
-    for (const mma_utils::MulSumProperties& props : mma_from_mul_sums) {
-      epilogue_inputs.push_back(props.insouts.out);
-      const auto& roles_map_opt =
-          mma_utils::getTensorsRoles(fusion, props.insouts);
-      // TODO: re-use the roles maps generated in
-      // isMatmulFusionDefinitionSupported, or move this functionality into
-      // that function
-      if (!roles_map_opt.isValid()) {
-        return roles_map_opt.getErrorMsg();
-      }
-      const auto& roles_map = roles_map_opt.getData();
-      auto c_inputs = roles_map.find(MatmulRole::INPUT_C);
-      if (c_inputs != roles_map.end()) {
-        epilogue_inputs.insert(
-            epilogue_inputs.end(),
-            c_inputs->second.begin(),
-            c_inputs->second.end());
-      }
-    }
-
-    for (Expr* e :
-         StmtSort::getExprsBetween(epilogue_inputs, fusion->outputs())) {
-      if (!e->isOneOf<UnaryOp, BinaryOp, TernaryOp>()) {
-        return "epilogue must contain only pointwise operations";
-      }
-    }
   }
 
   return "";
@@ -839,7 +826,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   params->mma_macro = mma_op.value();
 
   const auto& tensor_roles_opt =
-      mma_utils::getTensorRoles(fusion, id_model, id_roles);
+      mma_utils::getTensorRoles(fusion, patterns.front(), id_model, id_roles);
   NVF_ERROR(
       tensor_roles_opt.isValid(), "Tensor roles map in mma is not valid.");
   const auto tensor_roles = tensor_roles_opt.getData();
