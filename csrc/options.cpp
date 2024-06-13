@@ -8,8 +8,6 @@
 #include <options.h>
 #include <utils.h>
 
-#include <algorithm>
-
 namespace nvfuser {
 
 namespace {
@@ -262,12 +260,7 @@ const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option) {
 }
 
 bool hasDebugDumpArgument(DebugDumpOption option, const std::string& arg) {
-  if (!isDebugDumpEnabled(option)) {
-    return false;
-  }
-
-  const auto& args = getDebugDumpArguments(option);
-  return std::find(args.begin(), args.end(), arg) != args.end();
+  return DebugDumpOptionsGuard::getCurOptions().hasArg(option, arg);
 }
 
 bool isOptionEnabled(EnableOption option) {
@@ -279,12 +272,7 @@ const std::vector<std::string>& getEnableOptionArguments(EnableOption option) {
 }
 
 bool hasEnableOptionArgument(EnableOption option, const std::string& arg) {
-  if (!isOptionEnabled(option)) {
-    return false;
-  }
-
-  const auto& args = getEnableOptionArguments(option);
-  return std::find(args.begin(), args.end(), arg) != args.end();
+  return EnableOptionsGuard::getCurOptions().hasArg(option, arg);
 }
 
 bool isOptionDisabled(DisableOption option) {
@@ -297,12 +285,7 @@ const std::vector<std::string>& getDisableOptionArguments(
 }
 
 bool hasDisableOptionArguments(DisableOption option, const std::string& arg) {
-  if (!isOptionDisabled(option)) {
-    return false;
-  }
-
-  const auto& args = getDisableOptionArguments(option);
-  return std::find(args.begin(), args.end(), arg) != args.end();
+  return DisableOptionsGuard::getCurOptions().hasArg(option, arg);
 }
 
 bool isProfilerEnabled() {
