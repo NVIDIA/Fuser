@@ -106,7 +106,7 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
   return std::make_pair(producer_domain, consumer_domain);
 }
 
-void applyReductionFactor(
+void factorReductionTensorView(
     TensorView* consumer,
     const std::vector<int64_t>& axes) {
   FusionGuard fg(consumer->fusion());
@@ -416,7 +416,7 @@ void factorCommonReductionAxes(Fusion* fusion) {
     // Skip if all ids are used for this TensorView
     if (rfactor_indices.size() < num_reduction_ids) {
       // Separate common reduction axes
-      applyReductionFactor(tv, rfactor_indices);
+      factorReductionTensorView(tv, rfactor_indices);
     }
   }
 }
