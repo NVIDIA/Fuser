@@ -391,7 +391,7 @@ void GpuLower::analysis(Fusion* fusion) {
   // functionality should be affected. New IterDomains may be created,
   // so it is expected that generated code may use diffrent variable
   // names
-  if (isOptionEnabled(EnableOption::IdModel)) {
+  if (true || isOptionEnabled(EnableOption::IdModel)) {
     // Enable validation in the DEBUG build mode
 #ifdef NDEBUG
     // Not DEBUG build
@@ -419,6 +419,9 @@ void GpuLower::analysis(Fusion* fusion) {
   }
   compute_at_map_->validateAndPropagatePType();
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndPropagatePType");
+
+  consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
 
   // Uses compute_at_map, find all splits that are enforced to be divisible
   divisible_splits_ = getAllDivisibleSplits(fusion_, compute_at_map_.get());
