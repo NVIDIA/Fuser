@@ -239,14 +239,14 @@ class OverlapTest : public MultiDeviceTest {
 // We want to compare this baseline program with one that is functionnally
 // identical but achieves more overlap between computations and communications.
 // Our goal is to interlave the comms and compute using a technic called
-// "reduce-scatter based pipelining" To do so, we further split the row
+// "reduce-scatter based pipelining". To do so, we further split the row
 // dimension M with a factor `S` representing the number of tiles, and we apply
 // the operations successively on tensors slices accross S, changing stream at
 // each iteration. Assuming the following shapes:
 //     - A [S, num_devices, M/S, K/num_devices], sharded on num_devices
 //     - B [num_devices, K/num_devices, N], sharded on num_devices
 //     - C [S, num_devices, M/(S*num_devices), N], sharded on num_devices
-// the program implementing collective-based pipelining could be summarized as:
+// the program could be summarized as:
 //     | for (j=0; j<S; j++) {
 //     |   setCurrentStream(Stream[j])
 //     |   C_unreduced[j] = pointwise_multiply(A[j],B)
@@ -254,7 +254,6 @@ class OverlapTest : public MultiDeviceTest {
 //     |   C[j]=reduce_scatter(C_locally_reduce[j], op=sum)
 //     | }
 // where "[j]" referes to taking a slice onto the `S` dimension.
-// This program achieves overlap between comms and compute
 // Remarks:
 //   1) it is convenient to have "S" as being the outermost dimension so
 //      C_locally_reduce[j] is a contiguous buffer.
@@ -273,7 +272,8 @@ TEST_F(OverlapTest, SimpleComputeComm) {
     auto tc_j = getSlice(tc, j);
 
     if (params.use_different_streams) {
-      auto new_stream = c10::cuda::getStreamFromPool(/*isHighPriority=*/true, my_device_index);
+      auto new_stream = c10::cuda::getStreamFromPool(
+          /*isHighPriority=*/true, my_device_index);
       streams.push_back(new_stream);
       setCurrentCUDAStream(new_stream);
     }
@@ -288,7 +288,7 @@ TEST_F(OverlapTest, SimpleComputeComm) {
 
   // synchronize default stream with all other streams
   setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream());
-  for (auto stream: streams) {
+  for (auto stream : streams) {
     stream.synchronize();
   }
 
