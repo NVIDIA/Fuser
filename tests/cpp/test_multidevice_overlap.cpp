@@ -39,9 +39,6 @@ struct OverlapTestParams {
 
   // network backend type
   CommunicatorBackend backend_type = CommunicatorBackend::nccl;
-  // number of different process group instances to create, to potentially
-  // achieve comm/comm overlap
-  int nbr_of_backends = 1;
 
   // overlap optimization parameters
   bool use_different_streams =
@@ -66,9 +63,6 @@ struct OverlapTestParams {
     if (isEnvVariableDefined("USE_UCC")) {
       backend_type = CommunicatorBackend::ucc;
     }
-    if (isEnvVariableDefined("NBR_BACKENDS")) {
-      nbr_of_backends = parseEnvVariable("NBR_BACKENDS");
-    }
     if (isEnvVariableDefined("USE_STREAMS")) {
       use_different_streams = true;
     }
@@ -88,7 +82,6 @@ std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
       << indent << "S=" << params.S << "\n"
       << indent << "use_different_streams=" << params.use_different_streams
       << "\n"
-      << indent << "nbr_of_backends=" << params.nbr_of_backends << "\n"
       << "}";
   return out;
 }
@@ -100,11 +93,8 @@ class OverlapTest : public MultiDeviceTest {
   int64_t num_devices;
   int64_t my_device_index;
   at::Tensor ta, tb, tc_unreduced, tc_locally_reduced, tc, tc_expected;
-
-  // stores the backends
-  std::vector<c10d::Backend*> world_communicators;
-  // index to round-robin iterate in world_communicators
-  int communicator_running_counter = 0;
+  // stores the backend
+  c10d::Backend* world_communicator;
 
   void SetUp() {
     MultiDeviceTest::SetUp();
@@ -118,12 +108,8 @@ class OverlapTest : public MultiDeviceTest {
     // Setup the world communicators
     std::vector<int64_t> devices(num_devices);
     std::iota(devices.begin(), devices.end(), 0);
-    for (int i = 0; i < params.nbr_of_backends; i++) {
-      world_communicators.push_back(communicator->getBackendForTeam(
-          devices,
-          /*backend=*/params.backend_type,
-          /*prefix=*/std::to_string((communicator_running_counter))));
-    }
+    world_communicator = communicator->getBackendForTeam(
+        devices, /*backend=*/params.backend_type);
 
     // Define I/O and intermediate Tensor shapes
     // clang-format off
@@ -184,11 +170,6 @@ class OverlapTest : public MultiDeviceTest {
                 << std::endl;
       std::cout << "tc.sizes()=" << tc.sizes() << std::endl;
     }
-  }
-
-  c10d::Backend* getWorldCommunicator() {
-    return world_communicators.at(
-        (communicator_running_counter++) % world_communicators.size());
   }
 
   at::Tensor getSlice(at::Tensor t, int64_t j) {
@@ -281,8 +262,7 @@ TEST_F(OverlapTest, SimpleComputeComm) {
     // local compute
     computeATen(ta_j, tb, tc_unreduced_j, tc_locally_reduced_j);
     // communication
-    getWorldCommunicator()
-        ->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
+    world_communicator->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
         ->wait();
   }
 
