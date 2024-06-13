@@ -23,6 +23,8 @@
 #include <exceptions.h>
 #include <executor_params.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model.h>
+#include <id_model/indexing.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
@@ -106,6 +108,30 @@ class GpuLower : public NonCopyable {
 
   std::shared_ptr<const ComputeAtMap> caMap() const {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
+  }
+
+  IdModel& idModel() {
+    NVF_ERROR(id_model_.get());
+    return *id_model_;
+  }
+
+  const IdModel& idModel() const {
+    NVF_ERROR(id_model_.get());
+    return *id_model_;
+  }
+
+  bool isTensorIndexerEnabled() const {
+    return tensor_indexer_.get() != nullptr;
+  }
+
+  TensorIndexer& tensorIndexer() {
+    NVF_ERROR(tensor_indexer_.get());
+    return *tensor_indexer_;
+  }
+
+  const TensorIndexer& tensorIndexer() const {
+    NVF_ERROR(tensor_indexer_.get());
+    return *tensor_indexer_;
   }
 
   const ParallelDimensionMap& parallelDimensionMap() const {
@@ -291,6 +317,8 @@ class GpuLower : public NonCopyable {
   kir::KernelPerformanceProfile profile_;
   std::unordered_set<Split*> divisible_splits_;
   CompileParams cparams_;
+  std::unique_ptr<IdModel> id_model_;
+  std::unique_ptr<TensorIndexer> tensor_indexer_;
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size

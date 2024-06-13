@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
@@ -291,7 +292,7 @@ void IdGraphIndexCompute::handle(Merge* merge) {
     auto outer_idx = getIndex(merge->outer());
     auto inner_idx = getIndex(merge->inner());
     auto out_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(outer_idx, inner_ext), inner_idx);
+        SimplifyingIrBuilder::mulExpr(inner_ext, outer_idx), inner_idx);
     setIndex(merge->out(), out_idx);
   } else {
     auto out_idx = getIndex(merge->out());
@@ -369,7 +370,26 @@ void TensorIndexer::buildLoopIndexMap() {
           shouldUseZeroIndex(loop_group) || isParallelTypeDeviceDim(ptype)) {
         loop_index = fusion->zeroVal();
       } else {
-        loop_index = IrBuilder::create<Val>(DataType::Index);
+        // Until the transition to the IdModel-based indexing is
+        // completed, use the index Vals assigned for ComputeAtMap
+        // groups if available.
+        if (GpuLower::hasCurrent()) {
+          const auto& ca_map = GpuLower::current()->caMap();
+          for (const auto& id :
+               ir_utils::filterByType<IterDomain>(loop_group->vector())) {
+            if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+              continue;
+            }
+            loop_index = ca_map->getIndexVariable(id);
+            break;
+          }
+          NVF_ERROR(
+              loop_index != nullptr,
+              "No existing index found for ",
+              nvfuser::toString(loop_group));
+        } else {
+          loop_index = IrBuilder::create<Val>(DataType::Index);
+        }
       }
 
       loop_index_map_[loop_group] = loop_index;
@@ -457,11 +477,9 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   // TODO: Contiguous indexing
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
-    // Traverse from innermost to outermost
-    IterDomain* allocation_domain =
-        allocation_domains.at(allocation_domains.size() - 1 - i);
+    IterDomain* allocation_domain = allocation_domains.at(i);
 
-    Val* stride = strides.at(allocation_domains.size() - 1 - i);
+    Val* stride = strides.at(i);
 
     auto idx_it = index_map.find(traversalGraph().toGroup(allocation_domain));
     NVF_ERROR(
@@ -470,15 +488,13 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
         allocation_domain->toString());
     Val* idx = idx_it->second;
     index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(idx, stride));
+        index, SimplifyingIrBuilder::mulExpr(stride, idx));
   }
 
   const auto& replacement_map =
       getIndexReplacementMap(index_info.loop_domains, index_info.index_map);
 
-  index = ir_utils::replaceValRecursively(index, replacement_map);
-
-  return index;
+  return ir_utils::replaceValRecursively(index, replacement_map);
 }
 
 // Get the loop domains of a given expr, which are (potentially
