@@ -151,7 +151,7 @@ void GpuLower::collectPaddedParallelDims() {
 
   auto used_vals = fusion_->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (tv->definition()) {
         // TODO: Support GroupedReductionOp
         if (auto reduction = dynamic_cast<ReductionOp*>(tv->definition())) {
@@ -395,19 +395,20 @@ void GpuLower::analysis(Fusion* fusion) {
     // Enable validation in the DEBUG build mode
 #ifdef NDEBUG
     // Not DEBUG build
-    IdModel id_model(
+    id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
 #else
     // DEBUG build
-    IdModel id_model(
+    id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/true);
 #endif
+    id_model_->validateAndPropagatePType();
   }
 
   resolveComputeWith(fusion_);
@@ -500,6 +501,10 @@ void GpuLower::analysis(Fusion* fusion) {
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  if (isOptionEnabled(EnableOption::IdModel)) {
+    tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+  }
 }
 
 kir::Kernel* GpuLower::kernel() const {

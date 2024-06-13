@@ -9,7 +9,6 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <id_model/id_model.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/allocation_order_inference.h>
@@ -47,15 +46,6 @@ class LinearNodeParametrizedTest
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
-};
-
-const bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y) {
-  if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
-    return false;
-  }
-  const ValGroup& gx = vg.toGroup(x);
-  const ValGroup& gy = vg.toGroup(y);
-  return gx.get() == gy.get();
 };
 
 // Check that ID exact mapping works as expected

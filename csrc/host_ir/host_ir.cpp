@@ -57,7 +57,7 @@ PostOnStream::PostOnStream(
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
-      (host_op->isOneOf<HostUnit, Communication>()), "wrong host op type");
+      (host_op->isA<HostUnit>()), "wrong host op type: ", host_op->toString());
   if (host_op->isA<HostUnit>()) {
     NVF_ERROR(
         this->inputs().size() ==
@@ -72,13 +72,6 @@ PostOnStream::PostOnStream(
     // for (int i : c10::irange(outputs.size())) {
     //     NVF_ERROR(outputs.at(i)->sameAs(executable_fusion->outputs().at(i)));
     // }
-  } else if (host_op->isA<Communication>()) {
-    NVF_ERROR(
-        this->inputs().size() == 1,
-        "Communication must have exactly one input");
-    NVF_ERROR(
-        this->outputs().size() == 1,
-        "Communication must have exactly one output");
   }
 }
 
@@ -110,6 +103,52 @@ std::string PostOnStream::toInlineString(int indent_size) const {
 
 // TODO: implement
 bool PostOnStream::sameAs(const Statement* other) const {
+  return false;
+}
+
+std::atomic<int64_t> Stream::running_counter_ = 0;
+
+Stream::Stream(IrBuilderPasskey passkey)
+    : Val(passkey, ValType::Stream), idx_(running_counter_++){};
+
+Stream::Stream(const Stream* src, IrCloner* ir_cloner)
+    : Val(src, ir_cloner), idx_(src->idx_){};
+NVFUSER_DEFINE_CLONE(Stream)
+
+std::string Stream::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "Stream " << idx_;
+  return ss.str();
+}
+
+std::string Stream::toInlineString(int indent_size) const {
+  return toString(indent_size);
+}
+
+bool Stream::sameAs(const Statement* other) const {
+  return false;
+}
+
+SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
+    : Expr(passkey, {stream}, {}, {stream}) {
+  NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
+
+std::string SetCurrentStream::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "SetCurrentStream to " << stream()->toString();
+  return ss.str();
+}
+
+// TODO: implement better ?
+std::string SetCurrentStream::toInlineString(int indent_size) const {
+  return toString(indent_size);
+}
+
+// TODO: implement
+bool SetCurrentStream::sameAs(const Statement* other) const {
   return false;
 }
 

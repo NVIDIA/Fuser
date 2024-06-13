@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
@@ -45,8 +46,8 @@ IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
 // loop is partitioned with respect to the memory type of the tensor
 bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
   // False if id is not a loop ID
-  if (std::find(tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id) ==
-      tv->getLeafDomain().end()) {
+  if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
+      tv->getLoopDomain().end()) {
     return false;
   }
 
@@ -113,7 +114,7 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     } else {
       const auto inlining_pos = tv->getComputeAtPosition();
       for (const auto i : c10::irange(tv->nDims())) {
-        auto loop_id = tv->getLeafDomain().at(i);
+        auto loop_id = tv->getLoopDomain().at(i);
         auto pt = loop_id->getParallelType();
         if (!mayRequireAllocation(tv, loop_id)) {
           continue;
@@ -142,9 +143,9 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   // for now.
   for (auto& allocation_domain : allocation_domains) {
     bool is_loop = std::find(
-                       tv->getLeafDomain().begin(),
-                       tv->getLeafDomain().end(),
-                       allocation_domain) != tv->getLeafDomain().end();
+                       tv->getLoopDomain().begin(),
+                       tv->getLoopDomain().end(),
+                       allocation_domain) != tv->getLoopDomain().end();
     if (!is_loop) {
       continue;
     }
@@ -291,7 +292,7 @@ void IdGraphIndexCompute::handle(Merge* merge) {
     auto outer_idx = getIndex(merge->outer());
     auto inner_idx = getIndex(merge->inner());
     auto out_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(outer_idx, inner_ext), inner_idx);
+        SimplifyingIrBuilder::mulExpr(inner_ext, outer_idx), inner_idx);
     setIndex(merge->out(), out_idx);
   } else {
     auto out_idx = getIndex(merge->out());
@@ -347,9 +348,9 @@ void TensorIndexer::buildLoopIndexMap() {
     // It's assumed that all sibling outputs share the same for-loops,
     // thus only one of the outputs is considered.
     auto tv_output = ir_utils::getTvOutput(expr);
-    for (auto leaf_id : tv_output->getLeafDomain()) {
+    for (auto loop_id : tv_output->getLoopDomain()) {
       const ValGroup& loop_group =
-          id_model_.idGraph(IdMappingMode::LOOP).toGroup(leaf_id);
+          id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
 
       if (loop_index_map_.find(loop_group) != loop_index_map_.end()) {
         // Index already assigned
@@ -369,7 +370,26 @@ void TensorIndexer::buildLoopIndexMap() {
           shouldUseZeroIndex(loop_group) || isParallelTypeDeviceDim(ptype)) {
         loop_index = fusion->zeroVal();
       } else {
-        loop_index = IrBuilder::create<Val>(DataType::Index);
+        // Until the transition to the IdModel-based indexing is
+        // completed, use the index Vals assigned for ComputeAtMap
+        // groups if available.
+        if (GpuLower::hasCurrent()) {
+          const auto& ca_map = GpuLower::current()->caMap();
+          for (const auto& id :
+               ir_utils::filterByType<IterDomain>(loop_group->vector())) {
+            if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+              continue;
+            }
+            loop_index = ca_map->getIndexVariable(id);
+            break;
+          }
+          NVF_ERROR(
+              loop_index != nullptr,
+              "No existing index found for ",
+              nvfuser::toString(loop_group));
+        } else {
+          loop_index = IrBuilder::create<Val>(DataType::Index);
+        }
       }
 
       loop_index_map_[loop_group] = loop_index;
@@ -434,7 +454,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   return initial_index_map;
 }
 
-Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
+Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -457,11 +477,9 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
   // TODO: Contiguous indexing
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
-    // Traverse from innermost to outermost
-    IterDomain* allocation_domain =
-        allocation_domains.at(allocation_domains.size() - 1 - i);
+    IterDomain* allocation_domain = allocation_domains.at(i);
 
-    Val* stride = strides.at(allocation_domains.size() - 1 - i);
+    Val* stride = strides.at(i);
 
     auto idx_it = index_map.find(traversalGraph().toGroup(allocation_domain));
     NVF_ERROR(
@@ -470,10 +488,13 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
         allocation_domain->toString());
     Val* idx = idx_it->second;
     index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(idx, stride));
+        index, SimplifyingIrBuilder::mulExpr(stride, idx));
   }
 
-  return index;
+  const auto& replacement_map =
+      getIndexReplacementMap(index_info.loop_domains, index_info.index_map);
+
+  return ir_utils::replaceValRecursively(index, replacement_map);
 }
 
 // Get the loop domains of a given expr, which are (potentially
@@ -481,7 +502,7 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) {
 std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // Assume consumer-based indexing. Needs to revisit for ops like
   // scatter
-  auto loop_domains = ir_utils::getTvOutput(expr)->getLeafDomain();
+  auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
 
   for (auto& loop_id : loop_domains) {
     loop_id = getLoopPromotion(loop_id, id_model_);
@@ -509,8 +530,31 @@ IndexingInfo TensorIndexer::computeIndex(
     index_compute.propagate(expr_group, direction);
   }
 
-  IndexingInfo info{traversal_path, index_compute.indexMap()};
+  IndexingInfo info{loop_domains, traversal_path, index_compute.indexMap()};
   return info;
+}
+
+std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
+    const std::vector<IterDomain*>& loop_domains,
+    const std::unordered_map<ValGroup, Val*>& index_map) const {
+  std::unordered_map<Val*, Val*> replacement_map;
+
+  for (const auto loop_id : loop_domains) {
+    // Replace the index of a vectorized domain with zero. Note that
+    // vectorized domains may need to use N-1, where N is the extent
+    // of the domain, for predication, so the replacement is not
+    // always done with zero.
+    if (loop_id->getParallelType() != ParallelType::Vectorize) {
+      continue;
+    }
+    const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
+    auto index_it = index_map.find(loop_group);
+    NVF_ERROR(index_it != index_map.end());
+    Val* cur_index = index_it->second;
+    replacement_map.emplace(cur_index, cur_index->fusion()->zeroVal());
+  }
+
+  return replacement_map;
 }
 
 } // namespace nvfuser

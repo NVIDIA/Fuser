@@ -42,7 +42,7 @@ bool hasVectorizationCache(TensorView* tv) {
   auto cached_input = set_expr->out()->as<TensorView>();
   NVF_CHECK(cached_input, "expects input to be cached");
 
-  for (const auto* id : cached_input->getLeafDomain()) {
+  for (const auto* id : cached_input->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       return true;
     }

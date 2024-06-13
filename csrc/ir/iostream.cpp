@@ -150,14 +150,14 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
   const auto& from = tv->getLogicalDomain();
-  const auto& leaf = tv->getLeafDomain();
+  const auto& loop = tv->getLoopDomain();
   const auto all_exp = DependencyCheck::getAllExprsBetween(
-      {from.begin(), from.end()}, {leaf.begin(), leaf.end()});
+      {from.begin(), from.end()}, {loop.begin(), loop.end()});
 
   for (const auto exp : all_exp) {
     os() << "  " << exp->toString();
   }
-  os() << " leaf domain : (" << toDelimitedString(leaf) << ")\n";
+  os() << " loop domain : (" << toDelimitedString(loop) << ")\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const Statement* stmt) {

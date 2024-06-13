@@ -182,6 +182,22 @@ TensorView* rand(
 }
 
 // TENSOR FACTORIES
+
+namespace {
+
+//! Check that val is an int or float scalar equal to the given integer (after
+//! possible promotion)
+bool valEqualsInt(Val* val, int64_t i) {
+  ExpressionEvaluator ee;
+  PolymorphicValue pv = ee.evaluate(val);
+  if (!pv.hasValue()) {
+    return false;
+  }
+  return pv == i;
+}
+
+} // namespace
+
 TensorView* uniform(
     const std::vector<Val*>& shape,
     Val* low,
@@ -191,13 +207,24 @@ TensorView* uniform(
     Val* philox_offset,
     bool maybe_symbolic) {
   TensorView* out = factoryOutput(shape, dtype, maybe_symbolic);
-  IrBuilder::create<RNGOp>(
-      RNGOpType::UniformRange,
-      out,
-      dtype,
-      std::vector<Val*>{low, high},
-      philox_seed,
-      philox_offset);
+  if (valEqualsInt(low, 0l) && valEqualsInt(high, 1l)) {
+    // Avoid unnecessary shifting and scaling
+    IrBuilder::create<RNGOp>(
+        RNGOpType::Uniform,
+        out,
+        dtype,
+        std::vector<Val*>{},
+        philox_seed,
+        philox_offset);
+  } else {
+    IrBuilder::create<RNGOp>(
+        RNGOpType::UniformRange,
+        out,
+        dtype,
+        std::vector<Val*>{low, high},
+        philox_seed,
+        philox_offset);
+  }
   return out;
 }
 
@@ -210,13 +237,24 @@ TensorView* normal(
     Val* philox_offset,
     bool maybe_symbolic) {
   TensorView* out = factoryOutput(shape, dtype, maybe_symbolic);
-  IrBuilder::create<RNGOp>(
-      RNGOpType::NormalGeneral,
-      out,
-      dtype,
-      std::vector<Val*>{mean, std},
-      philox_seed,
-      philox_offset);
+  if (valEqualsInt(mean, 0l) && valEqualsInt(std, 1l)) {
+    // Avoid unnecessary shifting and scaling
+    IrBuilder::create<RNGOp>(
+        RNGOpType::NormalStandard,
+        out,
+        dtype,
+        std::vector<Val*>{},
+        philox_seed,
+        philox_offset);
+  } else {
+    IrBuilder::create<RNGOp>(
+        RNGOpType::NormalGeneral,
+        out,
+        dtype,
+        std::vector<Val*>{mean, std},
+        philox_seed,
+        philox_offset);
+  }
   return out;
 }
 
@@ -1180,7 +1218,7 @@ TensorView* reductionOpRaw(
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
       tv->getLogicalDomain(),
@@ -1280,7 +1318,7 @@ TensorView* reductionOp(
       "Cannot create a reduction operation where the initial value is not a const scalar.");
 
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
       tv->getLogicalDomain(),
@@ -1713,7 +1751,7 @@ WelfordResult WelfordRaw(
     TensorView* init_var,
     Val* init_N) {
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
       tv->getLogicalDomain(),
@@ -1779,7 +1817,7 @@ WelfordResult Welford(
     TensorView* init_var,
     Val* init_N) {
   NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLeafDomain()),
+      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
       "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
       tv->getLogicalDomain(),
