@@ -587,7 +587,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           // There's a place to put it in the device
           || target_blocks < device_multiprocessor_count * n_waves
           // There's a place to put it in unrolling
-          || target_unroll < int64_t(vectorize_factor))) {
+          || target_unroll < max_unroll)) {
     if (target_threads_in_block <
         ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4)) {
       target_threads_in_block *= 2;
@@ -598,13 +598,10 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       target_blocks *= 2;
     }
 
-    // Delay increasing unroll until we're at a quarter of the target blocks and
-    // threads
+    // Delay increasing unroll until we have more than one block per SM.
+    // Assuming each SM can take more than one block.
     if (target_blocks > device_multiprocessor_count &&
-        target_threads_in_block >
-            ceilDiv(device_max_threads_per_multiprocessor, (int64_t)16) &&
-        target_unroll < int64_t(vectorize_factor) &&
-        available_parallelism() > 1) {
+        target_unroll < max_unroll && available_parallelism() > 1) {
       target_unroll *= 2;
     }
   }
@@ -650,14 +647,13 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     return ceilDiv(
         total_reduction_numel, grdim * bdimy * inner_reduction_unroll_factor);
   };
-
   // Leave some serial work on top of unroll to avoid using large unroll for
   // small reductions
   const int64_t min_serial_top_unroll = 2L;
 
   // Try to use block reduction, if can't efficiently use a high fraction of SMs
-  // go to grid reduction. Block reduction doesn't require expensive global memory
-  // communications and leads to better performance if SM usage is high.
+  // go to grid reduction. Block reduction doesn't require expensive global
+  // memory communications and leads to better performance if SM usage is high.
   bool is_block_reduction = false;
   {
     // block reduction is done with 1 block per sm to ensure it is finished
@@ -674,7 +670,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     constexpr int64_t bytes_per_transaction = 128L;
     int64_t transaction_based_vect =
         ceilDiv(bytes_per_transaction, max_input_dtype_size * bdimx);
-    int64_t target_vect = std::max(target_unroll, transaction_based_vect);    
+    int64_t target_vect = std::max(target_unroll, transaction_based_vect);
     int64_t max_iter_unroll_factor =
         std::min((int64_t)vectorize_factor, std::min(iDimAvail(), target_vect));
     while (total_iteration_numel % (bdimx * iter_unroll_factor * 2) == 0 &&
@@ -692,7 +688,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       iter_unroll_factor /= 2;
       gidim *= 2;
     }
-    
+
     // set a max bdimx to leave some threads for reduction
     // move from gidim to bdimx to avoid using multiple waves
     constexpr int64_t max_serial_top_unroll = 128L;
@@ -732,12 +728,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   // grid reduction
   if (!is_block_reduction) {
-    // reset bdimx and iter_unroll_factor
-    bdimx = 1;
-    bdimy = 1;
-    iter_unroll_factor = 1;
-    inner_reduction_unroll_factor = 1;
-    gidim = 1;
     // Start bdimx as a warp
     bdimx = std::min(min_warp_size, total_iteration_numel);
 
@@ -749,18 +739,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       }
     }
 
-    // Try to use a vectorization factor large enough to ensure one transaction
-    // reads 128 bytes. For example, when bdimx = 16 with fp16,
-    // transaction_based_vect = 4.
-    constexpr int64_t bytes_per_transaction = 128L;
-    int64_t transaction_based_vect =
-        ceilDiv(bytes_per_transaction, max_input_dtype_size * bdimx);
-    int64_t target_vect = std::max(target_unroll, transaction_based_vect);
     // gradually increased iter_unroll_factor from 1 to 2, 4, 8, ensure the
     // split is divisible. This improves performance when iteration dim is not
     // power of 2, e.g. 1600 and 4800.
-    int64_t max_iter_unroll_factor =
-        std::min((int64_t)vectorize_factor, std::min(iDimAvail(), target_vect));
+    int64_t max_iter_unroll_factor = std::min(
+        (int64_t)vectorize_factor, std::min(iDimAvail(), target_unroll));
     while (total_iteration_numel % (bdimx * iter_unroll_factor * 2) == 0 &&
            iter_unroll_factor * 2 <= max_iter_unroll_factor) {
       iter_unroll_factor *= 2;
