@@ -194,52 +194,68 @@ TensorView* detectAmaxPattern(TensorView* tv) {
 
   TensorView* max_reduction_tv = nullptr;
   TensorView* current_tv = tv;
+  std::cout << "==========" << std::endl;
   while (current_tv != nullptr) {
     switch (state) {
       case Start: {
+        std::cout << "from start" << std::endl;
         if (findUnaryDefinition(current_tv, UnaryOpType::Cast)) {
           // Move state from Start to Cast if we have a Cast definition
+          std::cout << " to cast" << std::endl;
           current_tv = current_tv->definition()->input(0)->as<TensorView>();
           state = Cast;
-          continue;
+          break;
         } else if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
+          std::cout << " to max-red" << std::endl;
           // Move state from Start to MaxReduction if we have a Max reduction
           // definition
           max_reduction_tv = current_tv;
           current_tv = current_tv->definition()->input(0)->as<TensorView>();
           state = MaxReduction;
-          continue;
+          break;
         }
         // Otherwise, move state from Start to Fail
+        std::cout << " to fail" << std::endl;
         current_tv = nullptr;
         max_reduction_tv = nullptr;
+        break;
       }
       case Cast: {
+        std::cout << "from cast" << std::endl;
         if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
           // Move state from Cast to MaxReduction if we have a Max reduction
           // definition
+          std::cout << " to max-red" << std::endl;
           max_reduction_tv = current_tv;
           current_tv = current_tv->definition()->input(0)->as<TensorView>();
           state = MaxReduction;
-          continue;
+          break;
         }
         // Otherwise, move state from Cast to Fail
+        std::cout << " to fail" << std::endl;
         current_tv = nullptr;
         max_reduction_tv = nullptr;
+        break;
       }
       case MaxReduction: {
+        std::cout << "max_reduction" << std::endl;
         if (findUnaryDefinition(current_tv, UnaryOpType::Abs)) {
           // Move state from MaxReduction to Success if we have an Abs
           // definition
+          std::cout << " to pass" << std::endl;
           current_tv = nullptr;
+          break;
         } else {
           // Otherwise, move state from MaxReduction to Fail
+          std::cout << " to fail" << std::endl;
           current_tv = nullptr;
           max_reduction_tv = nullptr;
+          break;
         }
       }
     }
   }
+  std::cout << "==========" << std::endl;
   NVF_ERROR(
       max_reduction_tv == nullptr ||
       findReductionDefinition(max_reduction_tv, BinaryOpType::Max));
