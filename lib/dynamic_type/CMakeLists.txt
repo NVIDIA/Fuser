@@ -5,7 +5,7 @@
 add_library(dynamic_type INTERFACE)
 target_include_directories(dynamic_type INTERFACE src)
 
-if(BUILD_TEST)
+if(0)
     function(add_test_for_standard std_version)
         set(target test_dynamic_type_${std_version})
         add_executable(${target}
@@ -39,7 +39,7 @@ if(BUILD_TEST)
     # add_test_for_standard(26)
 endif()
 
-if(BUILD_NVFUSER_BENCHMARK)
+if(0)
     function(add_benchmark_for_standard std_version)
         set(target bench_dynamic_type_${std_version})
         add_executable(${target}

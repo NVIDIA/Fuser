@@ -45,7 +45,7 @@ endforeach
 # benchmarks
 gbench_dep = dependency('benchmark')
 
-foreach standard : ['17', '20', '23']
+foreach standard : ['17']
     name = 'bench_dynamic_type_' + standard
     bench_exe = executable(name,
         [

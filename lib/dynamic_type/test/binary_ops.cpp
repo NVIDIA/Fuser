@@ -86,8 +86,82 @@ TEST_BINARY_OP_ALLTYPE(Add, +);
 TEST_BINARY_OP_ALLTYPE(Minus, -);
 TEST_BINARY_OP_ALLTYPE(Mul, *);
 TEST_BINARY_OP_ALLTYPE(Div, /);
-TEST_BINARY_OP_ALLTYPE(LogicalAnd, &&);
-TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
+
+#define TEST_BINARY_OP_LOGICAL(name, op)                                       \
+  TEST_F(DynamicTypeTest, name) {                                              \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
+    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVec>); \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<int>);                   \
+    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<int>);                \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64BoolTwo>);    \
+    static_assert(                                                             \
+        opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVecTwo>);        \
+    static_assert(opcheck<int> op opcheck<DoubleInt64Bool>);                   \
+    static_assert(opcheck<int> op opcheck<DoubleInt64BoolVec>);                \
+    static_assert(opcheck<DoubleInt64BoolTwo> op opcheck<DoubleInt64Bool>);    \
+    static_assert(                                                             \
+        opcheck<DoubleInt64BoolVecTwo> op opcheck<DoubleInt64BoolVec>);        \
+    static_assert(std::is_same_v<                                              \
+                  decltype(DoubleInt64Bool(2L) op DoubleInt64Bool(2.5)),       \
+                  bool>);                                                      \
+    static_assert(                                                             \
+        (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5)) == (2L op 2.5));         \
+    static_assert(std::is_same_v<                                              \
+                  decltype(DoubleInt64Bool(2L) op DoubleInt64BoolTwo{}),       \
+                  bool>);                                                      \
+    static_assert(                                                             \
+        (DoubleInt64Bool(2L) op DoubleInt64BoolTwo{}) == (2L op 2L));          \
+    static_assert(std::is_same_v<                                              \
+                  decltype(DoubleInt64BoolTwo {} op DoubleInt64Bool(2L)),      \
+                  bool>);                                                      \
+    static_assert(                                                             \
+        (DoubleInt64BoolTwo {} op DoubleInt64Bool(2L)) == (2L op 2L));         \
+    static_assert(std::is_same_v<                                              \
+                  decltype(DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.5)), \
+                  bool>);                                                      \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.5)), (2L op 2.5));     \
+    static_assert(std::is_same_v<                                              \
+                  decltype(DoubleInt64BoolVec(2L) op DoubleInt64BoolVecTwo{}), \
+                  bool>);                                                      \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVecTwo{}), (2L op 2L));      \
+    static_assert(                                                             \
+        std::is_same_v<                                                        \
+            decltype(DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(2L)),      \
+            bool>);                                                            \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(2L)), (2L op 2L));     \
+    static_assert(std::is_same_v<decltype(DoubleInt64Bool(3L) op 2L), bool>);  \
+    static_assert((DoubleInt64Bool(3L) op 2L) == (3L op 2L));                  \
+    static_assert(                                                             \
+        std::is_same_v<decltype(DoubleInt64BoolVec(3L) op 2L), bool>);         \
+    EXPECT_EQ((DoubleInt64BoolVec(3L) op 2L), (3L op 2L));                     \
+    static_assert(std::is_same_v<decltype(3L op DoubleInt64Bool(2L)), bool>);  \
+    static_assert((3L op DoubleInt64Bool(2L)) == (3L op 2L));                  \
+    static_assert(                                                             \
+        std::is_same_v<decltype(3L op DoubleInt64BoolVec(2L)), bool>);         \
+    EXPECT_EQ((3L op DoubleInt64BoolVec(2L)), (3L op 2L));                     \
+    EXPECT_THAT(                                                               \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
+    EXPECT_THAT(                                                               \
+        [&]() {                                                                \
+          DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
+              op DoubleInt64BoolVec(2L);                                       \
+        },                                                                     \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
+    static_assert(opcheck<IntSomeType> op opcheck<IntSomeType>);               \
+    EXPECT_THAT(                                                               \
+        [&]() { IntSomeType(SomeType{}) op IntSomeType(SomeType{}); },         \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
+  }
+
+TEST_BINARY_OP_LOGICAL(LogicalAnd, &&);
+TEST_BINARY_OP_LOGICAL(LogicalOr, ||);
 
 #define TEST_COMPARE_OP(name, op)                                              \
   TEST_F(DynamicTypeTest, name) {                                              \
@@ -279,10 +353,12 @@ TEST_NAMED_COMPARE_OP(NamedGe, >=, ge);
         (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(3L))                   \
             .as<decltype(2L op 3L)>(),                                         \
         (2L op 3L));                                                           \
-    static_assert((DoubleInt64Bool(3L) op 2L).as<int64_t>() == (3L op 2L));    \
-    EXPECT_EQ((DoubleInt64BoolVec(3L) op 2L).as<int64_t>(), (3L op 2L));       \
-    static_assert((3L op DoubleInt64Bool(2L)).as<int64_t>() == (3L op 2L));    \
-    EXPECT_EQ((3L op DoubleInt64BoolVec(2L)).as<int64_t>(), (3L op 2L));       \
+    static_assert((DoubleInt64Bool(3L) op 2L) == (3L op 2L));                  \
+    EXPECT_EQ(DoubleInt64BoolVec(3L) op 2L, (3L op 2L));                       \
+    static_assert(                                                             \
+        std::is_same_v<decltype(3L op DoubleInt64Bool(2L)), int64_t>);         \
+    static_assert((3L op DoubleInt64Bool(2L)) == (3L op 2L));                  \
+    EXPECT_EQ(3L op DoubleInt64BoolVec(2L), (3L op 2L));                       \
     EXPECT_THAT(                                                               \
         [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
@@ -325,23 +401,20 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
       return true;
     }
   };
-  // not defined compile time because Type2+Type2 is not in type list
+  // defined compile time because Type2+Type2 is defined
   static_assert(
-      !(opcheck<DynamicType<NoContainers, Type2, SomeType>> +
-        opcheck<DynamicType<NoContainers, Type2, SomeType>>));
+      opcheck<DynamicType<NoContainers, Type2, SomeType>> +
+      opcheck<DynamicType<NoContainers, Type2, SomeType>>);
   static_assert(
-      !(opcheck<DynamicType<NoContainers, Type2, SomeType>> + opcheck<Type2>));
+      opcheck<DynamicType<NoContainers, Type2, SomeType>> + opcheck<Type2>);
   static_assert(
-      !(opcheck<Type2> + opcheck<DynamicType<NoContainers, Type2, SomeType>>));
+      opcheck<Type2> + opcheck<DynamicType<NoContainers, Type2, SomeType>>);
   // defined compile time because Type2+Type2 and +Type2 is constructible to
   // Type3
   using Type2Type3 = DynamicType<NoContainers, Type2, Type3>;
   static_assert(opcheck<Type2Type3> + opcheck<Type2Type3>);
-  static_assert(Type2Type3(Type2{}) + Type2Type3(Type2{}) == Type3{});
   static_assert(opcheck<Type2Type3> + opcheck<Type2>);
-  static_assert(Type2Type3(Type2{}) + Type2{} == Type3{});
   static_assert(opcheck<Type2> + opcheck<Type2Type3>);
-  static_assert(Type2{} + Type2Type3(Type2{}) == Type3{});
   static_assert(+opcheck<Type2Type3>);
   static_assert(+Type2Type3(Type2{}) == Type3{});
   // defined compile time because int+int is in type list

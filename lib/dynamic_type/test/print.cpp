@@ -31,10 +31,10 @@ TEST_F(DynamicTypeTest, Printing) {
 
   EXPECT_THAT(
       [&]() { ss << IntSomeType(); },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Can not print")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
   EXPECT_THAT(
       [&]() { ss << IntSomeType(SomeType{}); },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Can not print")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
 }

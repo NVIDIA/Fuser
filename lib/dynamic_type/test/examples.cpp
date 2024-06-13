@@ -70,7 +70,7 @@ float operator+(bfloat16_zero, half_zero) {
 
 TEST_F(Examples, Example4) {
   using BFloatOrHalfZero = DynamicType<NoContainers, bfloat16_zero, half_zero>;
-  static_assert(!(opcheck<BFloatOrHalfZero> + opcheck<BFloatOrHalfZero>));
+  static_assert(opcheck<BFloatOrHalfZero> + opcheck<BFloatOrHalfZero>);
   using BFloatOrHalfZeroOrInt =
       DynamicType<NoContainers, bfloat16_zero, half_zero, int>;
   static_assert(
@@ -89,12 +89,17 @@ namespace example_5 {
 using IntOrFloat = DynamicType<NoContainers, int, float>;
 constexpr IntOrFloat x = 1;
 constexpr float y = 2.5f;
-static_assert(std::is_same_v<decltype(x + y), IntOrFloat>);
-static_assert((x + y).as<float>() == 3.5f);
-static_assert(std::is_same_v<decltype(y + x), IntOrFloat>);
-static_assert((y + x).as<float>() == 3.5f);
-static_assert(!(opcheck<IntOrFloat> + opcheck<double>));
-static_assert(!(opcheck<double> + opcheck<IntOrFloat>));
+static_assert(std::is_same_v<decltype(x + y), float>);
+static_assert(x + y == 3.5f);
+static_assert(std::is_same_v<decltype(y + x), float>);
+static_assert(y + x == 3.5f);
+static_assert(opcheck<IntOrFloat> + opcheck<double>);
+static_assert(opcheck<double> + opcheck<IntOrFloat>);
+constexpr int z = 5;
+static_assert(std::is_same_v<decltype(x + z), IntOrFloat>);
+static_assert((x + z).as<int>() == 6);
+static_assert(std::is_same_v<decltype(z + x), IntOrFloat>);
+static_assert((z + x).as<int>() == 6);
 
 } // namespace example_5
 

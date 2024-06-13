@@ -108,7 +108,7 @@ struct DynamicStruct {
 };
 
 using StructVecDouble =
-    DynamicType<Containers<DynamicStruct, std::vector>, double>;
+    DynamicType<Containers<DynamicStruct, std::vector>, double, int64_t>;
 
 static StructVecDouble kNN_Dictionary(
     const StructVecDouble& data,

@@ -190,7 +190,8 @@ struct DynamicType {
             } else {
               DYNAMIC_TYPE_CHECK(
                   false,
-                  "Result is dynamic but not convertible to result type");
+                  "Result is dynamic but not convertible to result type ",
+                  typeid(result_type).name());
             }
           }
         });
@@ -282,7 +283,7 @@ struct DynamicType {
   }
 
   template <typename T, typename = std::enable_if_t<can_cast_to<T>>>
-  explicit constexpr operator T() const {
+  constexpr operator T() const {
     return dispatch(
         [](auto x) -> decltype(auto) {
           using X = decltype(x);
@@ -299,7 +300,7 @@ struct DynamicType {
       typename ItemT,
       typename = std::enable_if_t<
           is_candidate_type<Template<DynamicType>> && can_cast_to<ItemT>>>
-  explicit constexpr operator Template<ItemT>() const {
+  constexpr operator Template<ItemT>() const {
     DYNAMIC_TYPE_CHECK(
         is<Template<DynamicType>>(),
         "Cannot cast from ",
@@ -513,23 +514,12 @@ struct is_dynamic_type<DynamicType<Ts...>> : std::true_type {};
 template <typename T>
 constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
 
-#define DEFINE_BINARY_OP(opname, op, func_name, return_type, check_existence)  \
-  template <typename X, typename Y, typename RetT>                             \
-  constexpr bool opname##_type_compatible() {                                  \
-    if constexpr (opcheck<X> op opcheck<Y>) {                                  \
-      if constexpr (std::is_convertible_v<                                     \
-                        decltype(std::declval<X>() op std::declval<Y>()),      \
-                        RetT>) {                                               \
-        return true;                                                           \
-      }                                                                        \
-    }                                                                          \
-    return false;                                                              \
-  }                                                                            \
+#define DEFINE_BINARY_OP(opname, op, func_name, compare_op)                    \
   template <typename RetT>                                                     \
   constexpr auto opname##_is_valid = [](auto&& x, auto&& y) {                  \
     using X = decltype(x);                                                     \
     using Y = decltype(y);                                                     \
-    if constexpr (opname##_type_compatible<X, Y, RetT>()) {                    \
+    if constexpr (opcheck<X> op opcheck<Y>) {                                  \
       return std::true_type{};                                                 \
     } else {                                                                   \
       return;                                                                  \
@@ -552,7 +542,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
              opcheck<std::decay_t<RHS>>))) {                                   \
       return opname##_defined<DT, DT>();                                       \
     } else {                                                                   \
-      if constexpr (check_existence) {                                         \
+      if constexpr (!compare_op) {                                             \
         using should_define_t = decltype(DT::dispatch(                         \
             opname##_is_valid<DT>, std::declval<LHS>(), std::declval<RHS>())); \
         return std::is_same_v<should_define_t, std::true_type>;                \
@@ -569,7 +559,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           std::decay_t<LHS>,                                                   \
           std::decay_t<RHS>>,                                                  \
       typename = std::enable_if_t<opname##_defined<LHS, RHS>()>>               \
-  inline constexpr return_type func_name(LHS&& x, RHS&& y) {                   \
+  inline constexpr decltype(auto) func_name(LHS&& x, RHS&& y) {                \
     constexpr bool lhs_is_dt = is_dynamic_type_v<std::decay_t<LHS>>;           \
     constexpr bool rhs_is_dt = is_dynamic_type_v<std::decay_t<RHS>>;           \
     if constexpr (                                                             \
@@ -587,21 +577,16 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
           [](auto&& x, auto&& y) -> decltype(auto) {                           \
             using X = decltype(x);                                             \
             using Y = decltype(y);                                             \
-            if constexpr (false) {                                             \
-              /* TODO: This doesn't work on gcc 11.4 with C++20, temporarily   \
-               * disabled and use the more verbose implementation below. We    \
-               * should reenable this when we upgrade our compilers. */        \
-              if constexpr (opname##_type_compatible<X, Y, return_type>()) {   \
-                return std::forward<X>(x) op std::forward<Y>(y);               \
-              }                                                                \
-            } else {                                                           \
-              if constexpr (opcheck<X> op opcheck<Y>) {                        \
-                if constexpr (std::is_convertible_v<                           \
+            if constexpr (opcheck<X> op opcheck<Y>) {                          \
+              if constexpr (compare_op) {                                      \
+                if constexpr (std::is_same_v<                           \
                                   decltype(std::declval<X>()                   \
                                                op std::declval<Y>()),          \
-                                  return_type>) {                              \
+                                  bool>) {                                     \
                   return std::forward<X>(x) op std::forward<Y>(y);             \
                 }                                                              \
+              } else {                                                         \
+                return std::forward<X>(x) op std::forward<Y>(y);               \
               }                                                                \
             }                                                                  \
           },                                                                   \
@@ -610,18 +595,18 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     }                                                                          \
   }
 
-DEFINE_BINARY_OP(add, +, operator+, DT, true);
-DEFINE_BINARY_OP(minus, -, operator-, DT, true);
-DEFINE_BINARY_OP(mul, *, operator*, DT, true);
-DEFINE_BINARY_OP(div, /, operator/, DT, true);
-DEFINE_BINARY_OP(mod, %, operator%, DT, true);
-DEFINE_BINARY_OP(band, &, operator&, DT, true);
-DEFINE_BINARY_OP(bor, |, operator|, DT, true);
-DEFINE_BINARY_OP(xor, ^, operator^, DT, true);
-DEFINE_BINARY_OP(land, &&, operator&&, DT, true);
-DEFINE_BINARY_OP(lor, ||, operator||, DT, true);
-DEFINE_BINARY_OP(lshift, <<, operator<<, DT, true);
-DEFINE_BINARY_OP(rshift, >>, operator>>, DT, true);
+DEFINE_BINARY_OP(add, +, operator+, false);
+DEFINE_BINARY_OP(minus, -, operator-, false);
+DEFINE_BINARY_OP(mul, *, operator*, false);
+DEFINE_BINARY_OP(div, /, operator/, false);
+DEFINE_BINARY_OP(mod, %, operator%, false);
+DEFINE_BINARY_OP(band, &, operator&, false);
+DEFINE_BINARY_OP(bor, |, operator|, false);
+DEFINE_BINARY_OP(xor, ^, operator^, false);
+DEFINE_BINARY_OP(land, &&, operator&&, false);
+DEFINE_BINARY_OP(lor, ||, operator||, false);
+DEFINE_BINARY_OP(lshift, <<, operator<<, false);
+DEFINE_BINARY_OP(rshift, >>, operator>>, false);
 
 // Not defining comparison operators that returns DynamicType as operator
 // overloading, because we want to leave the operator overloading for comparison
@@ -629,22 +614,22 @@ DEFINE_BINARY_OP(rshift, >>, operator>>, DT, true);
 // so that users can use the function name to call the operator. That is:
 //   dt1 < dt2 --> returns a bool (defined below by DEFINE_COMPARE_OP)
 //   lt(dt1, dt2) --> returns a DynamicType
-DEFINE_BINARY_OP(named_eq, ==, eq, DT, true);
-DEFINE_BINARY_OP(named_neq, !=, ne, DT, true);
-DEFINE_BINARY_OP(named_lt, <, lt, DT, true);
-DEFINE_BINARY_OP(named_gt, >, gt, DT, true);
-DEFINE_BINARY_OP(named_le, <=, le, DT, true);
-DEFINE_BINARY_OP(named_ge, >=, ge, DT, true);
+DEFINE_BINARY_OP(named_eq, ==, eq, false);
+DEFINE_BINARY_OP(named_neq, !=, ne, false);
+DEFINE_BINARY_OP(named_lt, <, lt, false);
+DEFINE_BINARY_OP(named_gt, >, gt, false);
+DEFINE_BINARY_OP(named_le, <=, le, false);
+DEFINE_BINARY_OP(named_ge, >=, ge, false);
 
 // std::monostate has definitions on compare operators, so DynamicType should
 // always define them as well. There is no need for any SFINAE about member type
 // here. https://en.cppreference.com/w/cpp/utility/variant/monostate
-DEFINE_BINARY_OP(eq, ==, operator==, bool, false);
-DEFINE_BINARY_OP(neq, !=, operator!=, bool, false);
-DEFINE_BINARY_OP(lt, <, operator<, bool, false);
-DEFINE_BINARY_OP(gt, >, operator>, bool, false);
-DEFINE_BINARY_OP(le, <=, operator<=, bool, false);
-DEFINE_BINARY_OP(ge, >=, operator>=, bool, false);
+DEFINE_BINARY_OP(eq, ==, operator==, true);
+DEFINE_BINARY_OP(neq, !=, operator!=, true);
+DEFINE_BINARY_OP(lt, <, operator<, true);
+DEFINE_BINARY_OP(gt, >, operator>, true);
+DEFINE_BINARY_OP(le, <=, operator<=, true);
+DEFINE_BINARY_OP(ge, >=, operator>=, true);
 
 #undef DEFINE_BINARY_OP
 
@@ -733,43 +718,6 @@ DT& operator*(const DT& x) {
 }
 
 #undef DEFINE_UNARY_OP
-
-// Printing
-// TODO: we should inline the definition of can_print into enable_if, but I can
-// only do this in C++20
-constexpr auto can_print = [](auto x) constexpr {
-  using T = typename decltype(x)::type;
-  if constexpr (opcheck<std::ostream&> << opcheck<T>) {
-    return std::is_same_v<
-        decltype(std::declval<std::ostream&>() << std::declval<T>()),
-        std::ostream&>;
-  }
-  return false;
-};
-template <
-    typename DT,
-    typename = std::enable_if_t<
-        is_dynamic_type_v<DT> &&
-        any_check(can_print, DT::type_identities_as_tuple)>>
-std::ostream& operator<<(std::ostream& os, const DT& dt) {
-  bool printed = false;
-  DT::for_all_types([&printed, &os, &dt](auto _) {
-    using T = typename decltype(_)::type;
-    if constexpr (opcheck<std::ostream&> << opcheck<T>) {
-      if constexpr (std::is_same_v<
-                        decltype(os << std::declval<T>()),
-                        std::ostream&>) {
-        if (dt.template is<T>()) {
-          os << dt.template as<T>();
-          printed = true;
-        }
-      }
-    }
-  });
-  DYNAMIC_TYPE_CHECK(
-      printed, "Can not print ", dt.type().name(), " : incompatible type");
-  return os;
-}
 
 #define DEFINE_LEFT_PPMM(opname, op)                                           \
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
