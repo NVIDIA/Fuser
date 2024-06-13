@@ -396,7 +396,6 @@ void GpuLower::analysis(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
 
   this->requiresIdModel() = nvfuser::requiresIdModel(fusion_);
-  NVF_ERROR(!this->requiresIdModel());
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
