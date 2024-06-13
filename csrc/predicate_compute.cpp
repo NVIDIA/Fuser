@@ -73,15 +73,15 @@ namespace {
 std::unordered_set<Val*> getNonUnswitchedRootDomains(
     const std::vector<kir::ForLoop*>& loops,
     size_t unswitched_loop_index) {
-  std::vector<Val*> non_unswited_leaf_domains;
+  std::vector<Val*> non_unswited_loop_domains;
   std::transform(
       loops.begin(),
       loops.begin() + (int64_t)unswitched_loop_index,
-      std::back_inserter(non_unswited_leaf_domains),
+      std::back_inserter(non_unswited_loop_domains),
       [&](kir::ForLoop* loop) { return loop->iter_domain(); });
 
   auto non_unswitched_inputs =
-      IterVisitor::getInputsTo(non_unswited_leaf_domains);
+      IterVisitor::getInputsTo(non_unswited_loop_domains);
 
   auto non_unswitched_root_doms =
       ir_utils::filterByType<IterDomain>(non_unswitched_inputs);
@@ -174,13 +174,13 @@ ParallelizedDomainPredicate::getPredicateMap(
     for (auto tv : output_tvs) {
       // Check if the loop domain is used by the output tensor
       auto it = std::find_if(
-          tv->getLeafDomain().begin(),
-          tv->getLeafDomain().end(),
+          tv->getLoopDomain().begin(),
+          tv->getLoopDomain().end(),
           [&](auto tv_id) {
             return gpu_lower->caMap()->areMapped(
                 loop_id, tv_id, IdMappingMode::EXACT);
           });
-      if (it == tv->getLeafDomain().end()) {
+      if (it == tv->getLoopDomain().end()) {
         continue;
       }
 
@@ -194,8 +194,9 @@ ParallelizedDomainPredicate::getPredicateMap(
       // If it's a root domain, it should be covered by the root
       // predicates, so no extra predicate is required.
       if (std::find(
-              tv->getRootDomain().begin(), tv->getRootDomain().end(), tv_id) !=
-          tv->getRootDomain().end()) {
+              tv->getMaybeRootDomain().begin(),
+              tv->getMaybeRootDomain().end(),
+              tv_id) != tv->getMaybeRootDomain().end()) {
         continue;
       }
 
@@ -260,28 +261,28 @@ UnswitchPredicateKey::UnswitchPredicateKey(
     parallel_concrete_ids_.insert({pt, nullptr});
   }
 
-  std::vector<Val*> all_parallelized_consumer_leaf_ids;
+  std::vector<Val*> all_parallelized_consumer_loop_ids;
   std::copy_if(
-      consumer_tv->getLeafDomain().begin(),
-      consumer_tv->getLeafDomain().end(),
-      std::back_inserter(all_parallelized_consumer_leaf_ids),
+      consumer_tv->getLoopDomain().begin(),
+      consumer_tv->getLoopDomain().end(),
+      std::back_inserter(all_parallelized_consumer_loop_ids),
       [](IterDomain* x) { return isParallelTypeThread(x->getParallelType()); });
 
   // If the consumer domais are not parallelized at all, no need to
   // differentiate keys based on how the predicated id is parallelized
-  if (all_parallelized_consumer_leaf_ids.empty()) {
+  if (all_parallelized_consumer_loop_ids.empty()) {
     return;
   }
 
   // All domains that are parallelized descendants of predicated_consumer_id
   auto all_parallelized_consumer_ids = DependencyCheck::getAllValsBetween(
-      {predicated_consumer_id}, all_parallelized_consumer_leaf_ids);
-  // Just pick leaf domains
-  std::vector<IterDomain*> parallelized_consumer_leaf_ids;
+      {predicated_consumer_id}, all_parallelized_consumer_loop_ids);
+  // Just pick loop domains
+  std::vector<IterDomain*> parallelized_consumer_loop_ids;
   std::copy_if(
-      consumer_tv->getLeafDomain().begin(),
-      consumer_tv->getLeafDomain().end(),
-      std::back_inserter(parallelized_consumer_leaf_ids),
+      consumer_tv->getLoopDomain().begin(),
+      consumer_tv->getLoopDomain().end(),
+      std::back_inserter(parallelized_consumer_loop_ids),
       [&](IterDomain* x) {
         return std::find(
                    all_parallelized_consumer_ids.begin(),
@@ -289,18 +290,18 @@ UnswitchPredicateKey::UnswitchPredicateKey(
                    x) != all_parallelized_consumer_ids.end();
       });
 
-  if (parallelized_consumer_leaf_ids.empty()) {
-    // None of the parallelized leaf domains are derived from
+  if (parallelized_consumer_loop_ids.empty()) {
+    // None of the parallelized loop domains are derived from
     // predicated_consumer_id
     return;
   }
 
   // Find the corresponding concrete id for each parallel type
-  for (auto consumer_leaf : parallelized_consumer_leaf_ids) {
-    auto pt = consumer_leaf->getParallelType();
-    auto concrete_leaf = GpuLower::current()->caMap()->getConcreteMappedID(
-        consumer_leaf, IdMappingMode::EXACT);
-    parallel_concrete_ids_.at(pt) = concrete_leaf;
+  for (auto consumer_loop : parallelized_consumer_loop_ids) {
+    auto pt = consumer_loop->getParallelType();
+    auto concrete_loop = GpuLower::current()->caMap()->getConcreteMappedID(
+        consumer_loop, IdMappingMode::EXACT);
+    parallel_concrete_ids_.at(pt) = concrete_loop;
   }
 }
 
@@ -381,12 +382,8 @@ Val* PredicateCompute::getInlinePredicate(
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
-  auto pred_info_vec = Index::getReferenceRootPredicates(
-      out_tv,
-      loops,
-      rotated_loops,
-      nullptr,
-      pred_type == PredicateType::Padding);
+  auto pred_info_vec =
+      Index::getReferenceRootPredicates(out_tv, loops, rotated_loops, nullptr);
 
   std::vector<Val*> preds;
 
@@ -478,7 +475,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   auto ref_pred_info = Index::getReferenceRootPredicates(
-      out_tv, for_loops_, rotated_loop_, unrolled_loop_, false);
+      out_tv, for_loops_, rotated_loop_, unrolled_loop_);
 
   // If RootPredicateInfo has a static predicate that is more
   // restrictive than the current one, replace the current with the

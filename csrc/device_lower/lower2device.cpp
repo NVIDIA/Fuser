@@ -11,7 +11,6 @@
 #include <debug.h>
 #include <device_lower/analysis/device_version.h>
 #include <device_lower/analysis/divisible_split.h>
-#include <device_lower/analysis/shift.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/double_buffer.h>
@@ -152,7 +151,7 @@ void GpuLower::collectPaddedParallelDims() {
 
   auto used_vals = fusion_->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (tv->definition()) {
         // TODO: Support GroupedReductionOp
         if (auto reduction = dynamic_cast<ReductionOp*>(tv->definition())) {
@@ -180,7 +179,8 @@ void GpuLower::collectPaddedParallelDims() {
             size_after_padding.value() == warp_size;
 
         if (id->extent()->isConstInt() &&
-            id->extent()->evaluate() > warp_size && !padding_to_single_warp) {
+            id->extent()->evaluate().as<int64_t>() > warp_size &&
+            !padding_to_single_warp) {
           // If we see any other TIDx binding that's larger than
           //  a warp or unknown, we shouldn't lower warp reduce
           //  to a single warp type.
@@ -189,7 +189,7 @@ void GpuLower::collectPaddedParallelDims() {
         } else if (can_be_single_warp) {
           if (padding_to_single_warp ||
               (id->extent()->isConstInt() &&
-               id->extent()->evaluate() == warp_size)) {
+               id->extent()->evaluate().as<int64_t>() == warp_size)) {
             warp_pad_info_.is_tidx_single_warp = true;
           }
         }
@@ -392,7 +392,23 @@ void GpuLower::analysis(Fusion* fusion) {
   // so it is expected that generated code may use diffrent variable
   // names
   if (isOptionEnabled(EnableOption::IdModel)) {
-    IdModel id_model(fusion_);
+    // Enable validation in the DEBUG build mode
+#ifdef NDEBUG
+    // Not DEBUG build
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+#else
+    // DEBUG build
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/true);
+#endif
+    id_model_->validateAndPropagatePType();
   }
 
   resolveComputeWith(fusion_);
@@ -444,17 +460,13 @@ void GpuLower::analysis(Fusion* fusion) {
   fuseReductionsAndBroadcasts(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
-  // Scan the whole fusion and build mappings about halo extensions of
-  // all IterDomains
-  halo_info_ = std::make_shared<HaloInfo>(fusion_, compute_at_map_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build HaloInfo");
-
-  // Want to run this after parallel map and halo info map are
-  // created. vectorized_accesses_ and vectorized_set_info_ are filled.
+  // Want to run this after parallel map is
+  // created. vectorized_accesses_ and vectorized_set_info_ are
+  // filled.
   validateAndCollectVectorizeInfo(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
 
-  // Depends on ComputeAtMap and HaloInfo.
+  // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
 
@@ -476,12 +488,6 @@ void GpuLower::analysis(Fusion* fusion) {
   }
   dumpExprsIfEnabled(fusion_->exprs(), "SyncMap");
 
-  partialSplitMap().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build partialSplitMap");
-
-  validatePartialSplit(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validatePartialSplit");
-
   nonDivisibleSplitInfo().build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build nonDivisibleSplitInfo");
 
@@ -495,6 +501,10 @@ void GpuLower::analysis(Fusion* fusion) {
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  if (isOptionEnabled(EnableOption::IdModel)) {
+    tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+  }
 }
 
 kir::Kernel* GpuLower::kernel() const {

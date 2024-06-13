@@ -157,7 +157,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
     // >>>>>>>>>>>>>
     // Number of elements in vectorize access
-    auto vector_size = tensors.vec_tv->getLeafDomain().back()->extent();
+    auto vector_size = tensors.vec_tv->getLoopDomain().back()->extent();
 
     // Size of memory type for the elements
     Val* data_size_in_bytes = IrBuilder::create<Val>(
@@ -476,59 +476,59 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
         PairwiseRootDomainMap(producer_tv, consumer_tv).mapProducerToConsumer();
 
     auto consumer_root_right_of_ca_domains = IterVisitor::getInputsTo(
-        {consumer_tv->getLeafDomain().begin() +
+        {consumer_tv->getLoopDomain().begin() +
              consumer_tv->getComputeAtPosition(),
-         consumer_tv->getLeafDomain().end()});
+         consumer_tv->getLoopDomain().end()});
     auto producer_root_right_of_ca_domains = IterVisitor::getInputsTo(
-        {producer_tv->getLeafDomain().begin() +
+        {producer_tv->getLoopDomain().begin() +
              producer_tv->getComputeAtPosition(),
-         producer_tv->getLeafDomain().end()});
+         producer_tv->getLoopDomain().end()});
 
     const auto& consumer_contig = consumer_tv->domain()->contiguity();
     const auto& producer_contig = producer_tv->domain()->contiguity();
 
-    const auto& producer_root_domain = producer_tv->getMaybeRFactorDomain();
-    const auto& consumer_root_domain = consumer_tv->getMaybeRFactorDomain();
+    const auto& producer_logical_domain = producer_tv->getLogicalDomain();
+    const auto& consumer_logical_domain = consumer_tv->getLogicalDomain();
 
-    // Calculate extent of merged root domains
+    // Calculate extent of merged logical domains
     Val* extent = nullptr;
-    auto consumer_root_idx = int(consumer_root_domain.size()) - 1;
-    for (int i = int(producer_root_domain.size()) - 1; i >= 0; --i) {
-      auto producer_root_id = producer_root_domain.at(i);
+    auto consumer_logical_idx = int(consumer_logical_domain.size()) - 1;
+    for (int i = int(producer_logical_domain.size()) - 1; i >= 0; --i) {
+      auto producer_logical_id = producer_logical_domain.at(i);
 
       // If the producer ID is reduction or broadcast, it should be safe
       // to ignore.
-      if (producer_root_id->isReduction()) {
+      if (producer_logical_id->isReduction()) {
         continue;
-      } else if (producer_root_id->isBroadcast()) {
-        --consumer_root_idx;
+      } else if (producer_logical_id->isBroadcast()) {
+        --consumer_logical_idx;
         continue;
       }
 
-      // There must be a matching consumer root ID as the producer ID is
+      // There must be a matching consumer logical ID as the producer ID is
       // not reduction and the expression between them is LoadStoreOp.
-      auto it = p2c.find(producer_root_id);
-      NVF_ERROR(it != p2c.end(), "No matching consumer root ID found");
-      auto consumer_root_id = it->second;
+      auto it = p2c.find(producer_logical_id);
+      NVF_ERROR(it != p2c.end(), "No matching consumer logical ID found");
+      auto consumer_logical_id = it->second;
 
       // Don't extend the vectorization domain beyond the CA position
       if (std::find(
               consumer_root_right_of_ca_domains.begin(),
               consumer_root_right_of_ca_domains.end(),
-              consumer_root_id) == consumer_root_right_of_ca_domains.end() ||
+              consumer_logical_id) == consumer_root_right_of_ca_domains.end() ||
           std::find(
               producer_root_right_of_ca_domains.begin(),
               producer_root_right_of_ca_domains.end(),
-              producer_root_id) == producer_root_right_of_ca_domains.end()) {
+              producer_logical_id) == producer_root_right_of_ca_domains.end()) {
         break;
       }
 
       // We now know it's safe to extend the vectorization domain to these
       // axes. It shouldn't matter whether producer or consumer is used.
       if (extent == nullptr) {
-        extent = consumer_root_id->extent();
+        extent = consumer_logical_id->extent();
       } else {
-        extent = IrBuilder::mulExpr(extent, consumer_root_id->extent());
+        extent = IrBuilder::mulExpr(extent, consumer_logical_id->extent());
       }
 
       // If it's not contiguous, extending the vectorization domain
@@ -536,7 +536,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       auto producer_dim_contiguity = producer_contig.at(i);
       NVF_ERROR(producer_dim_contiguity.has_value());
 
-      auto consumer_dim_contiguity = consumer_contig.at(consumer_root_idx);
+      auto consumer_dim_contiguity = consumer_contig.at(consumer_logical_idx);
       NVF_ERROR(consumer_dim_contiguity.has_value());
 
       if (!(producer_dim_contiguity.value() &&
@@ -544,7 +544,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
         break;
       }
 
-      --consumer_root_idx;
+      --consumer_logical_idx;
     }
 
     NVF_ERROR(extent != nullptr);

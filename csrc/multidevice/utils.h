@@ -22,7 +22,7 @@ NVF_API bool distributedEnabled();
 // Checks that the other non-reduction axis are not parallelized on Didx
 NVF_API bool isSharded(TensorView*);
 
-// Returns number of device dimensions in a TensorView's leaf domain.
+// Returns number of device dimensions in a TensorView's loop domain.
 int64_t numDeviceDims(TensorView*);
 
 // Returns the subset of tvs which elements have the different multi-device
@@ -32,7 +32,7 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     TvIterator tvs) {
   std::unordered_set<TensorView*> ret;
-  const auto& reference_dom = ref->getLeafDomain();
+  const auto& reference_dom = ref->getLoopDomain();
   FusionGuard fg(ref->fusion());
   auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
   std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
@@ -47,7 +47,7 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
       ret.insert(tv);
       continue;
     }
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       auto ca_id =
           ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
@@ -104,6 +104,13 @@ void insertReshardings(Fusion* fusion);
 // inserts permutations necessary to push the device parallel axis
 // to the front so that communication operations are contiguous.
 void insertShardedAxisReordering(Fusion* fusion);
+
+// Resharding expressions are mapped to collective libraries which expect
+// contiguous tensors and output contiguous buffers. This pass checks that
+// inputs are contiguous and sets the allocation domain of inputs and outputs of
+// all resharding expressions. This pass should run after all passes that add or
+// update resharding expressions.
+void setShardedAllocationDomain(Fusion* fusion);
 
 // Returns the index of the a sharded axis if none return -1.
 // TODO: Assumes no merges/splits on sharded axis.

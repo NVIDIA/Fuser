@@ -12,7 +12,6 @@
 #include <compute_at_map.h>
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/predicate_elimination.h>
-#include <device_lower/analysis/shift.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/analysis/trivial_broadcast.h>
@@ -24,13 +23,14 @@
 #include <exceptions.h>
 #include <executor_params.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model.h>
+#include <id_model/indexing.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
-#include <partial_split_map.h>
 #include <root_domain_map.h>
 #include <vectorization_info.h>
 #include <visibility.h>
@@ -110,8 +110,28 @@ class GpuLower : public NonCopyable {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
   }
 
-  std::shared_ptr<const HaloInfo> haloInfo() const {
-    return std::const_pointer_cast<const HaloInfo>(halo_info_);
+  IdModel& idModel() {
+    NVF_ERROR(id_model_.get());
+    return *id_model_;
+  }
+
+  const IdModel& idModel() const {
+    NVF_ERROR(id_model_.get());
+    return *id_model_;
+  }
+
+  bool isTensorIndexerEnabled() const {
+    return tensor_indexer_.get() != nullptr;
+  }
+
+  TensorIndexer& tensorIndexer() {
+    NVF_ERROR(tensor_indexer_.get());
+    return *tensor_indexer_;
+  }
+
+  const TensorIndexer& tensorIndexer() const {
+    NVF_ERROR(tensor_indexer_.get());
+    return *tensor_indexer_;
   }
 
   const ParallelDimensionMap& parallelDimensionMap() const {
@@ -138,14 +158,6 @@ class GpuLower : public NonCopyable {
 
   const WarpPaddedParallelInfo& getWarpPaddedParallelInfo() const {
     return warp_pad_info_;
-  }
-
-  PartialSplitMap& partialSplitMap() {
-    return partial_split_map_;
-  }
-
-  const PartialSplitMap& partialSplitMap() const {
-    return partial_split_map_;
   }
 
   auto& nonDivisibleSplitInfo() {
@@ -294,11 +306,9 @@ class GpuLower : public NonCopyable {
   ThreadPredicateMap thread_pred_map_;
   std::unique_ptr<PredicateElimination> pred_elimination_;
   std::shared_ptr<ComputeAtMap> compute_at_map_;
-  std::shared_ptr<HaloInfo> halo_info_;
   LocalAllocationInfoMap local_allocation_info_map_;
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;
-  PartialSplitMap partial_split_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
   DoubleBufferInfo double_buffer_info_;
   CommonScalarMap common_scalar_map_;
@@ -307,6 +317,8 @@ class GpuLower : public NonCopyable {
   kir::KernelPerformanceProfile profile_;
   std::unordered_set<Split*> divisible_splits_;
   CompileParams cparams_;
+  std::unique_ptr<IdModel> id_model_;
+  std::unique_ptr<TensorIndexer> tensor_indexer_;
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size

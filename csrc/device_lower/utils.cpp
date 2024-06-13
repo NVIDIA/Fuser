@@ -64,26 +64,26 @@ ir_utils::TVDomainGuard overrideContiguityGuard(
   TensorDomain* domain_with_specified_contiguity =
       IrBuilder::create<TensorDomain>(
           tv->getRootDomain(),
-          tv->getRFactorDomain(),
+          tv->getLogicalDomain(),
           tv->getAllocationDomain(),
-          tv->getLeafDomain(),
+          tv->getLoopDomain(),
           TensorDomain::getContiguityFilledWith(
               tv->getMaybeAllocationDomain(), contiguity));
 
   return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
 }
 
-ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
+ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
     TensorView* tv,
     bool contiguity) {
   // Use domain guard to ignore the contiguity of the given tv.
   TensorDomain* domain_with_specified_contiguity =
       IrBuilder::create<TensorDomain>(
           tv->getRootDomain(),
-          tv->getRFactorDomain(),
-          tv->getLeafDomain(),
+          tv->getLogicalDomain(),
+          tv->getLoopDomain(),
           TensorDomain::getContiguityFilledWith(
-              tv->getMaybeRFactorDomain(), contiguity));
+              tv->getLogicalDomain(), contiguity));
 
   return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
 }
@@ -152,11 +152,10 @@ bool isTvOp(const Expr* expr) {
           MatmulOp,
           MmaOp,
           LinearOp,
+          SdpaFwdOp,
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
-          ShiftOp,
-          GatherOp,
           ViewAsScalar,
           ViewOp,
           PadOp,
@@ -175,8 +174,7 @@ bool isTvOp(const Expr* expr) {
 
 bool isLdMatrixOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::LdMatrix ||
-        ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+    return ldst->opType() == LoadStoreOpType::LdMatrix;
   }
   return false;
 }
@@ -317,7 +315,7 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   IterDomain* reduction_on_xdim = nullptr;
-  for (auto id : tv_out->getLeafDomain()) {
+  for (auto id : tv_out->getLoopDomain()) {
     // Currently warp reduction only allows
     //  serial and block.x parallel reductions
     if (id->isReduction() && id->isParallelized()) {
@@ -362,7 +360,7 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
   }
 
   std::unordered_map<ParallelType, IterDomain*> parallel_domains;
-  for (auto d : tv->getLeafDomain()) {
+  for (auto d : tv->getLoopDomain()) {
     if (d->isThread()) {
       parallel_domains.insert(std::make_pair(d->getParallelType(), d));
     }
@@ -875,7 +873,7 @@ std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion) {
 
 Val* getNumThreadsInTensorView(TensorView* tv) {
   Val* num_threads = tv->fusion()->oneVal();
-  for (auto id : tv->getLeafDomain()) {
+  for (auto id : tv->getLoopDomain()) {
     if (id->isThreadDim()) {
       num_threads = SimplifyingIrBuilder::mulExpr(num_threads, id->extent());
     }
@@ -894,7 +892,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getRootDomain()) {
+  for (auto id : out_tv->getLogicalDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;

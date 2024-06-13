@@ -225,7 +225,7 @@ class ReductionSizeMapper : private IterVisitor {
 
   int64_t getReductionSize(const TensorView* tv) {
     int64_t reduction_elements = 1;
-    for (auto id : tv->getMaybeRFactorDomain()) {
+    for (auto id : tv->getLogicalDomain()) {
       if (id->isReduction()) {
         auto inferred_extent = expr_eval_.evaluate(id->extent());
         NVF_ERROR(
@@ -285,7 +285,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 
     // Roughly taken from executor.cpp/computeLaunchParams
     auto tv = val->as<TensorView>();
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (!(id->isThread() && id->extent()->definition() == nullptr)) {
         continue;
       }
