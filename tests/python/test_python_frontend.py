@@ -4211,6 +4211,46 @@ class TestNvFuserFrontend(TestCase):
             [x, bias, residual, ln_weight, ln_bias, scale_tensor, amax_tensor]
         )
 
+    def test_issue_2258_simple(self):
+        def partially_contig_tensor(
+            fd: FusionDefinition,
+            x: torch.Tensor,
+        ) -> "nvfuser.Tensor":
+            return fd.define_tensor(
+                sizes=x.size(),
+                strides=x.stride(),
+                dtype=torch_dtype_to_nvfuser_dtype(x.dtype),
+            )
+
+        input_dtype = torch.float32
+        output_dtype = torch.float32
+        x_shape = (512, 12288)
+
+        # Inputs
+        x = -2.3 + 0.5 * torch.randn(
+            x_shape, dtype=input_dtype, device="cuda", requires_grad=True
+        )
+        fp8_amax_history = torch.zeros(1, 1, dtype=torch.float32, device="cuda")
+        amax_tensor = fp8_amax_history[0][0]
+
+        with FusionDefinition() as fd:
+            T1 = partially_contig_tensor(fd, x)
+            amax_f = partially_contig_tensor(fd, amax_tensor)
+
+            T1_shape = T1.shape()
+            T2 = fd.ops.sum(T1, [1], keepdim=False)
+            T3 = fd.ops.broadcast(T2, [False, True])
+            T4 = fd.ops.sub(T1, T3)
+            fd.add_output(T4)  # Result Output
+
+            # Amax
+            T5 = fd.ops.abs(T4)
+            T6 = fd.ops.max(T5)
+
+            fd.add_output(T6, alias_input=amax_f)  # Amax Aliased Output
+
+        out = fd.execute([x, amax_tensor])
+
 
 if __name__ == "__main__":
     run_tests()
