@@ -169,7 +169,6 @@ void AliasFinder::handle(const ViewOp* view) {
   std::optional<Layout> out_root_layout =
       mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
   if (!out_root_layout.has_value()) {
-    std::cout << "out_root_layout has no value" << std::endl;
     return;
   }
 
@@ -181,7 +180,6 @@ void AliasFinder::handle(const ViewOp* view) {
       // broadcast IterDomain from `in_logical` when `view` splits or merges
       // that IterDomain. We return no alias when this happen; otherwise
       // AliasTest.MergeBroadcastsBetweenConcretes would fail.
-      std::cout << "MergeBroadcastsBetweenConcretes" << std::endl;
       return;
     }
     allocation_to_contiguity.pushBack(
@@ -211,8 +209,6 @@ void AliasFinder::handle(const ViewOp* view) {
       if (inner_i == allocation_to_contiguity.end() ||
           inner_i->first != merge->inner()) {
         // Outer and inner are not adjacent in allocation order.
-        std::cout << "Outer and inner are not adjacent in allocation order"
-                  << std::endl;
         return;
       }
       const auto [inner_contiguity, merge_i] =
@@ -223,7 +219,6 @@ void AliasFinder::handle(const ViewOp* view) {
           merge->inner()->hasExpandedExtent(),
           inner_contiguity);
       if (!mergeable) {
-        std::cout << "Not mergeable" << std::endl;
         return;
       }
       allocation_to_contiguity.insert(merge_i, merge->out(), contiguity);
@@ -237,7 +232,6 @@ void AliasFinder::handle(const ViewOp* view) {
     out_logical_layout.allocation_domain.push_back(allocation_id);
     out_logical_layout.contiguity.push_back(contiguity);
   }
-  std::cout << "add viewOp" << std::endl;
   analysis_.add(out, in, std::move(out_logical_layout));
 }
 
@@ -412,24 +406,8 @@ bool okToRelayout(
   const std::vector<IterDomain*> allocation =
       (can_override_empty_allocation_domain ? tv->getAllocationDomain()
                                             : tv->getMaybeAllocationDomain());
-  tv->printTransforms();
   return new_layout.isCompliantWith({allocation, tv->getContiguity()});
 }
-
-bool inline isSegmentInputOutput(const TensorView* tv) {
-  auto isSegmentSet = [](const TensorView* tv) {
-    return false;
-    auto def = tv->definition();
-    if (auto lsop = dynamic_cast<LoadStoreOp*>(def)) {
-      if (lsop->opType() == LoadStoreOpType::SegmenterSet) {
-        return true;
-      }
-    }
-  };
-  return tv == nullptr || tv->isFusionInput() || tv->isFusionOutput() ||
-      isSegmentSet(tv);
-}
-
 } // namespace
 
 void AliasAnalysisResult::finalize(
@@ -437,36 +415,25 @@ void AliasAnalysisResult::finalize(
   bool pre_segmenter_stage = can_override_empty_allocation_domain;
   for (auto [alias, root_and_layout] : alias_to_source_) {
     auto [root, preferred_layout] = root_and_layout;
-    // Walks up the `alias_to_source_` chain.
-    // while (root != nullptr && !root->isFusionInput() &&
-    //        !root->isFusionOutput()) {
-    //   const auto i = alias_to_source_.find(root);
-    //   root = (i == alias_to_source_.end() ? nullptr : i->second.first);
-    // }
-
     // allow output tv to alias intermediate tv, then will add segment_set
     // before output tv which changes the output to be a no op for non-output
     // tv. Otherwise, walk up the chain to find an input or output root.
-    bool output_alias_intermediate = pre_segmenter_stage && alias->isFusionOutput();
+    bool output_alias_intermediate =
+        pre_segmenter_stage && alias->isFusionOutput();
     if (!output_alias_intermediate) {
-      while (!isSegmentInputOutput(root)) {
+      while (root != nullptr && !root->isFusionInput() &&
+             !root->isFusionOutput()) {
         const auto i = alias_to_source_.find(root);
         root = (i == alias_to_source_.end() ? nullptr : i->second.first);
       }
     }
 
     if (root == nullptr) {
-      std::cout << "root is null, alias= " << alias->toString() << std::endl;
       continue;
     }
 
     if (!okToRelayout(
             alias, preferred_layout, can_override_empty_allocation_domain)) {
-      std::cout << "not okToRelayout, alias= " << alias->toString()
-                << std::endl;
-      std::cout << "not okToRelayout, root = " << root->toString() << std::endl;
-      std::cout << "not okToRelayout, preferred_layout = "
-                << preferred_layout.toString() << std::endl;
       continue;
     }
 
@@ -555,21 +522,17 @@ bool contiguityIsCompliant(
 
 bool Layout::isCompliantWith(const Layout& required) const {
   if (required.allocation_domain.empty()) {
-    std::cout << "true required.allocation_domain is empty" << std::endl;
     return true;
   }
 
   if (allocation_domain != required.allocation_domain) {
     // This can be relaxed by allowing broadcast dimensions to be ordered
     // differently.
-    std::cout << "false allocation_domain != required.allocation_domain"
-              << std::endl;
     return false;
   }
 
   for (const auto i : c10::irange(allocation_domain.size())) {
     if (!contiguityIsCompliant(contiguity[i], required.contiguity[i])) {
-      std::cout << "false contiguityIsCompliant" << std::endl;
       return false;
     }
   }

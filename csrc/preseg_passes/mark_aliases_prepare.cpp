@@ -13,6 +13,11 @@
 
 namespace nvfuser::preseg_passes {
 
+// TODO: other special ops?
+bool isViewOp(TensorView* tv) {
+  return tv->definition() != nullptr && tv->definition()->isA<ViewOp>();
+}
+
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   const AliasAnalysisResult analysis =
       findAliases(fusion, /*can_override_empty_allocation_domain=*/true);
@@ -35,15 +40,17 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     if (aliased_io == nullptr) {
       continue;
     }
-    std::cout << "tv: " << tv->toString() << " aliased_io: " << aliased_io->toString() << std::endl;
 
     if (tv->isFusionOutput() && aliased_io->isFusionOutput() &&
         !aliased_io->isFusionInput() &&
         analysis.getNearestAliasedIo(aliased_io) == nullptr) {
       aliased_outs.insert(aliased_io);
-    }else if(aliased_io->isFusionInput() && !tv->isFusionOutput()){
+    } else if (
+        aliased_io->isFusionInput() && !tv->isFusionOutput() && isViewOp(tv)) {
       tvs_aliased_to_inputs.insert(tv);
-    }else if(tv->isFusionOutput() && !aliased_io->isFusionOutput() && !aliased_io->isFusionInput()){
+    } else if (
+        tv->isFusionOutput() && !aliased_io->isFusionOutput() &&
+        !aliased_io->isFusionInput() && isViewOp(tv)) {
       output_aliased_to_intermediates.insert(aliased_io);
     }
 
@@ -112,10 +119,9 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   }
 
   for (TensorView* tv : tvs_aliased_to_inputs) {
-    // Rarely, if `aliased_input` is already defined by `segment_set`, don't
+    // Rarely, if `tv` is already defined by `segment_set`, don't
     // create another `segment_set`.
-    if (LoadStoreOp* def =
-            dynamic_cast<LoadStoreOp*>(tv->definition())) {
+    if (LoadStoreOp* def = dynamic_cast<LoadStoreOp*>(tv->definition())) {
       if (def != nullptr && def->opType() == LoadStoreOpType::SegmenterSet) {
         continue;
       }
@@ -124,7 +130,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   }
 
   for (TensorView* aliased_root : output_aliased_to_intermediates) {
-    // Rarely, if `aliased_input` is already defined by `segment_set`, don't
+    // Rarely, if `aliased_root` is already defined by `segment_set`, don't
     // create another `segment_set`.
     if (LoadStoreOp* def =
             dynamic_cast<LoadStoreOp*>(aliased_root->definition())) {

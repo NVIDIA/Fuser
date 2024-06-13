@@ -2325,7 +2325,7 @@ TEST_F(GpuViewTest, GroupNormOriginal) {
   const std::vector<int64_t> input_shape = {N, C, H, W};
   const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
   const std::vector<int64_t> input_shape_wb = {C};
-  const std::vector<int64_t> group_shape_wb = {G, C / G};  
+  const std::vector<int64_t> group_shape_wb = {G, C / G};
   DataType dtype = DataType::Half;
   auto tv0 = makeContigTensor(input_shape.size(), dtype);
   auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
@@ -2353,8 +2353,9 @@ TEST_F(GpuViewTest, GroupNormOriginal) {
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto options_wb =
-      at::TensorOptions().dtype(data_type_to_aten(DataType::Float)).device(at::kCUDA, 0);      
+  auto options_wb = at::TensorOptions()
+                        .dtype(data_type_to_aten(DataType::Float))
+                        .device(at::kCUDA, 0);
   auto t0 = at::randn(input_shape, options);
   auto tw = at::randn(input_shape_wb, options_wb);
   auto tb = at::randn(input_shape_wb, options_wb);
@@ -2368,6 +2369,23 @@ TEST_F(GpuViewTest, GroupNormOriginal) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  // should expect 1 after adding a pre-segment pass to move reshape to input
+  // and output.
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  int n_pointwise = 0, n_norm = 0, n_other = 0;
+  for (auto sg : seg_groups) {
+    if (sg->heuristic() == ScheduleHeuristic::PointWise) {
+      n_pointwise++;
+    } else if (sg->heuristic() == ScheduleHeuristic::InnerPersistent) {
+      n_norm++;
+    } else {
+      n_other++;
+    }
+  }
+  EXPECT_EQ(n_pointwise, 2);
+  EXPECT_EQ(n_norm, 1);
+  EXPECT_EQ(n_other, 0);
   EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t7, 1e-5, 0.01))
       << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t7).abs().max();
 }
@@ -2401,10 +2419,24 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToInputOutputNoWeightBias) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  int n_pointwise = 0, n_norm = 0, n_noop = 0;
+  for (auto sg : seg_groups) {
+    if (sg->heuristic() == ScheduleHeuristic::PointWise) {
+      n_pointwise++;
+    } else if (sg->heuristic() == ScheduleHeuristic::InnerPersistent) {
+      n_norm++;
+    } else if (sg->heuristic() == ScheduleHeuristic::NoOp) {
+      n_noop++;
+    }
+  }
+  EXPECT_EQ(n_pointwise, 0);
+  EXPECT_EQ(n_norm, 1);
+  EXPECT_EQ(n_noop, 2);
   EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t4, 1e-5, 0.01))
       << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t4).abs().max();
 }
-
 
 // one kernel
 TEST_F(GpuViewTest, GroupNormReshapeMovedToInputOutput) {
@@ -2414,7 +2446,7 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToInputOutput) {
   const std::vector<int64_t> input_shape = {N, C, H, W};
   const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
   const std::vector<int64_t> input_shape_wb = {C};
-  const std::vector<int64_t> group_shape_wb = {G, C / G};  
+  const std::vector<int64_t> group_shape_wb = {G, C / G};
   DataType dtype = DataType::Half;
   auto tv0 = makeContigTensor(input_shape.size(), dtype);
   auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
@@ -2439,8 +2471,9 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToInputOutput) {
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto options_wb =
-      at::TensorOptions().dtype(data_type_to_aten(DataType::Float)).device(at::kCUDA, 0);      
+  auto options_wb = at::TensorOptions()
+                        .dtype(data_type_to_aten(DataType::Float))
+                        .device(at::kCUDA, 0);
   auto t0 = at::randn(input_shape, options);
   auto tw = at::randn(input_shape_wb, options_wb);
   auto tb = at::randn(input_shape_wb, options_wb);
@@ -2454,6 +2487,21 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToInputOutput) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  int n_pointwise = 0, n_norm = 0, n_noop = 0;
+  for (auto sg : seg_groups) {
+    if (sg->heuristic() == ScheduleHeuristic::PointWise) {
+      n_pointwise++;
+    } else if (sg->heuristic() == ScheduleHeuristic::InnerPersistent) {
+      n_norm++;
+    } else if (sg->heuristic() == ScheduleHeuristic::NoOp) {
+      n_noop++;
+    }
+  }
+  EXPECT_EQ(n_pointwise, 0);
+  EXPECT_EQ(n_norm, 1);
+  EXPECT_EQ(n_noop, 4);
   EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t7, 1e-5, 0.01))
       << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t7).abs().max();
 }
