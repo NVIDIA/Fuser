@@ -396,12 +396,19 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  NVF_ERROR(
-      communication->receiverMesh().size() == 1,
-      "The receiver mesh size should be 1.");
-
+  const Team& team = communication->team();
   const DeviceIdxType sender = communication->root();
-  const DeviceIdxType receiver = communication->receiverMesh().at(0);
+  DeviceIdxType receiver = -1;
+  if (team.size() == 1) {
+    receiver = sender;
+  } else {
+    NVF_ERROR(
+        team.size() == 2,
+        "SendRecv's team size is expected to be 1 or 2, however found ",
+        team.size());
+    receiver = (team[0] == sender ? team[1] : team[0]);
+  }
+
   if (sender == receiver) {
     doLocalCopy(output_tensor, input_tensor);
     return nullptr;

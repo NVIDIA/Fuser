@@ -220,14 +220,14 @@ TEST_P(CommunicationTest, SendRecv) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto* in = makeContigTensor(1);
-  in->setDeviceMesh(full_mesh_);
+  in->setDeviceMesh({sender});
   auto* out = makeContigTensor(1);
-  out->setDeviceMesh(full_mesh_);
+  out->setDeviceMesh({receiver});
   auto* communication = IrBuilder::create<Communication>(
       CommunicationType::SendRecv,
       out,
       in,
-      /*team=*/Team({sender, receiver}),
+      Team({sender, receiver}),
       /*root=*/sender);
 
   at::Tensor input_tensor;
