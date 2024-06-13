@@ -147,6 +147,152 @@ void applyReductionFactor(
       producer);
 }
 
+// Determine if TensorView has the desired UnaryOp definition
+bool findUnaryDefinition(TensorView* tv, UnaryOpType op_type) {
+  if (!tv->definition()->isA<UnaryOp>()) {
+    return false;
+  }
+
+  UnaryOp* uop = tv->definition()->as<UnaryOp>();
+  if (uop->getUnaryOpType() != op_type) {
+    return false;
+  }
+
+  return true;
+}
+
+// Determine if TensorView has the desired ReductionOp definition
+bool findReductionDefinition(TensorView* tv, BinaryOpType op_type) {
+  if (!tv->definition()->isA<ReductionOp>()) {
+    return false;
+  }
+
+  ReductionOp* rop = tv->definition()->as<ReductionOp>();
+  if (rop->getReductionOpType() != op_type) {
+    return false;
+  }
+
+  return true;
+}
+
+// We are using a state machine to detect amax pattern.
+//
+// Start -> Cast
+// Start -> MaxReduction
+// Start -> Fail
+//
+// Cast -> MaxReduction
+// Cast -> Fail
+//
+// Max_Reduction -> Success
+// Max_Reduction -> Fail
+//
+// Fail -> Return nullptr
+// Success -> Return reduction TensorView
+TensorView* detectAmaxPattern(TensorView* tv) {
+  enum { Start, Cast, MaxReduction } state = Start;
+
+  TensorView* max_reduction_tv = nullptr;
+  TensorView* current_tv = tv;
+  while (current_tv != nullptr) {
+    switch (state) {
+      case Start: {
+        if (findUnaryDefinition(current_tv, UnaryOpType::Cast)) {
+          // Move state from Start to Cast if we have a Cast definition
+          current_tv = current_tv->definition()->input(0)->as<TensorView>();
+          state = Cast;
+          continue;
+        } else if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
+          // Move state from Start to MaxReduction if we have a Max reduction
+          // definition
+          max_reduction_tv = current_tv;
+          current_tv = current_tv->definition()->input(0)->as<TensorView>();
+          state = MaxReduction;
+          continue;
+        }
+        // Otherwise, move state from Start to Fail
+        current_tv = nullptr;
+        max_reduction_tv = nullptr;
+      }
+      case Cast: {
+        if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
+          // Move state from Cast to MaxReduction if we have a Max reduction
+          // definition
+          max_reduction_tv = current_tv;
+          current_tv = current_tv->definition()->input(0)->as<TensorView>();
+          state = MaxReduction;
+          continue;
+        }
+        // Otherwise, move state from Cast to Fail
+        current_tv = nullptr;
+        max_reduction_tv = nullptr;
+      }
+      case MaxReduction: {
+        if (findUnaryDefinition(current_tv, UnaryOpType::Abs)) {
+          // Move state from MaxReduction to Success if we have an Abs
+          // definition
+          current_tv = nullptr;
+        } else {
+          // Otherwise, move state from MaxReduction to Fail
+          current_tv = nullptr;
+          max_reduction_tv = nullptr;
+        }
+      }
+    }
+  }
+  NVF_ERROR(
+      max_reduction_tv == nullptr ||
+      findReductionDefinition(max_reduction_tv, BinaryOpType::Max));
+  return max_reduction_tv;
+}
+
+std::vector<TensorView*> findAmaxReductionDependencies(
+    Fusion* fusion,
+    TensorView* amax_reduction) {
+  NVF_ERROR(
+      amax_reduction != nullptr &&
+      findReductionDefinition(amax_reduction, BinaryOpType::Max));
+  std::vector<TensorView*> compatible_reductions;
+  return compatible_reductions;
+}
+
+void run(Fusion* fusion) {
+  std::vector<Val*> output_tvs;
+
+  // start from outputs tvs
+  std::copy_if(
+      fusion->outputs().begin(),
+      fusion->outputs().end(),
+      std::back_inserter(output_tvs),
+      [](Val* v) { return v->isA<TensorView>(); });
+
+  for (Val* output_tv : output_tvs) {
+    TensorView* amax_reduction = detectAmaxPattern(output_tv->as<TensorView>());
+    // Stop if we cannot find amax reduction pattern
+    if (amax_reduction == nullptr) {
+      std::cout << "Failed to find amax reduction pattern" << std::endl;
+      continue;
+    }
+
+    // Detect dependency chain between amax and some reduction operation
+    std::vector<TensorView*> dependency_tvs =
+        findAmaxReductionDependencies(fusion, amax_reduction);
+    // Stop if we cannot find any compatible reduction tvs
+    if (dependency_tvs.empty()) {
+      std::cout
+          << "Failed to compatible reduction TensorView for amax reduction pattern"
+          << std::endl;
+      continue;
+    }
+
+    // Avoid matmul pattern
+
+    // Given TensorViews, partition reduction axes into compatible sets.
+
+    // Factor amax reduction into multiple partial reductions.
+  }
+}
+
 void FactorReductionPass::runPass(Fusion* fusion) {
   // Persistent schedule expects all reductions to have same axes.
   // Factor common reduction axes into separate reduction operations
