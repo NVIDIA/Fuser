@@ -154,7 +154,7 @@ class OverlapTest : public MultiDeviceTest {
         std::vector<int64_t> tb_unsharded_sizes         = {1       , num_devices, 1                , params.K/num_devices, params.N};
         std::vector<int64_t> tb_sizes                   = {1       , 1          , 1                , params.K/num_devices, params.N};
         std::vector<int64_t> tc_unreduced_sizes         = {params.S, 1          , params.M/params.S, params.K/num_devices, params.N};
-        std::vector<int64_t> tc_partially_reduced_sizes = {params.S, 1          , params.M/params.S, 1                   , params.N};
+        std::vector<int64_t> tc_partially_reduced_sizes = {params.S, 1          , params.M/params.S,                       params.N};
         std::vector<int64_t> tc_sizes                   = {params.S, 1          , params.M/(params.S*num_devices)        , params.N};
 
         options = at::TensorOptions().dtype(at::kFloat).device(communicator->device());
