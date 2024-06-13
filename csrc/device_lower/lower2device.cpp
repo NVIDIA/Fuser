@@ -332,16 +332,12 @@ kir::Kernel* GpuLower::run() {
 }
 
 bool requiresIdModel(Fusion* fusion) {
-  // TMA, ldmatrix, MmaOp requires IdModel
+  // TMA requires IdModel
   for (auto expr : fusion->exprs()) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
-          ldst->opType() == LoadStoreOpType::LdMatrix) {
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
         return true;
       }
-    }
-    if (expr->isA<MmaOp>()) {
-      return true;
     }
   }
   // If a tensor does not have a nice root->logical/allocation->loop
