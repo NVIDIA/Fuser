@@ -111,8 +111,8 @@ class AbstractGetReference {
 template <typename GetReference>
 class IndexValidator : public kir::IrVisitor {
  public:
-  IndexValidator(const GpuLower& lower, const GetReference& get_ref)
-      : get_ref_(get_ref) {}
+  IndexValidator(const GpuLower& lower, GetReference&& get_ref)
+      : get_ref_(std::move(get_ref)) {}
 
   using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
@@ -189,7 +189,7 @@ class IndexValidator : public kir::IrVisitor {
   }
 
  private:
-  const GetReference& get_ref_;
+  GetReference get_ref_;
 };
 
 } // namespace
@@ -408,7 +408,8 @@ TEST_F(IndexingTest, SimpleReduction) {
         }
         default:
           NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
-          break;
+          // gcc v11.4 requires this return statement
+          return nullptr;
       }
     }
   };
