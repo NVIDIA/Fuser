@@ -86,7 +86,6 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
       });
 
   TensorDomain* producer_domain = IrBuilder::create<TensorDomain>(
-      original_td->container(),
       new_producer_root,
       TensorDomain::getContiguityFilledWith(new_producer_root, true));
 
@@ -101,7 +100,6 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
   }
 
   TensorDomain* consumer_domain = IrBuilder::create<TensorDomain>(
-      original_td->container(),
       new_consumer_root,
       TensorDomain::getContiguityFilledWith(new_consumer_root, true));
 
