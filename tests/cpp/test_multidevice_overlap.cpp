@@ -206,7 +206,7 @@ class OverlapTest : public MultiDeviceTest {
 //          and the allocation size of M is [1, M/num_devices,N]
 // Up to some broadcast and view ops, a straightforward program to generate the
 // output could be summarized as
-//     | C_unreduced = pointwise_multiply(A,B) 
+//     | C_unreduced = pointwise_multiply(A,B)
 //     | C_locally_reduce = reduction(C_unreduced, axis=`K/num_devices`, op=sum)
 //     | C = reduce_scatter(C_unreduced, op=sum)
 // where:
