@@ -64,6 +64,9 @@ struct OverlapTestParams {
     // compute params
     ComputeMode compute_mode = ComputeMode::nvFuserFusionExecutor;
 
+    // debug
+    bool debug_print = false;
+
     void parseEnv() {
         if (isEnvVariableDefined("USE_UCC")) {
             backend_type = CommunicatorBackend::ucc;
@@ -88,6 +91,9 @@ struct OverlapTestParams {
         }
         if (isEnvVariableDefined("NBR_BACKENDS")) {
             nbr_of_backends = parseEnvVariable("NBR_BACKENDS");
+        }
+        if (isEnvVariableDefined("DEBUG_PRINT")) {
+            debug_print = true;
         }
     }
 };
@@ -129,9 +135,6 @@ class OverlapTest : public MultiDeviceTest {
         MultiDeviceTest::SetUp();
 
         params.parseEnv();
-        if (!communicator->deviceId()) {
-            std::cout << params << std::endl;
-        }
 
         // Setup the world communicator. We use one device per rank
         num_devices = communicator->size();
@@ -181,16 +184,13 @@ class OverlapTest : public MultiDeviceTest {
                             at::indexing::Slice(my_device_index, my_device_index+1), "..."});
 
 
-        if (!communicator->deviceId()) {
+        if (!communicator->deviceId() && params.debug_print) {
+            std::cout << params << std::endl;
             std::cout << "ta.sizes()=" << ta.sizes() << std::endl;
             std::cout << "tb.sizes()=" << tb.sizes() << std::endl;
             std::cout << "tc_unreduced.sizes()=" << tc_unreduced.sizes() << std::endl;
             std::cout << "tc_locally_reduced.sizes()=" << tc_locally_reduced.sizes() << std::endl;
             std::cout << "tc.sizes()=" << tc.sizes() << std::endl;
-            std::cout << "tc_ref.sizes()=" << tc_ref.sizes() << std::endl;
-            std::cout << "tc_unsharded_unreduced.sizes()=" << tc_unsharded_unreduced.sizes() << std::endl;
-            std::cout << "tc_unsharded_ref.sizes()=" << tc_unsharded_ref.sizes() << std::endl;
-            std::cout << "tc_unsharded_ref_reshaped.sizes()=" << tc_unsharded_ref_reshaped.sizes() << std::endl;
         }
 
 
