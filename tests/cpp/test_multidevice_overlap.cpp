@@ -15,23 +15,6 @@
 
 namespace nvfuser {
 
-enum class ComputeMode {
-    Pytorch,
-    nvFuserFusionExecutor
-};
-
-std::ostream& operator<<(std::ostream& out, const ComputeMode& mode) {
-  switch (mode) {
-    case ComputeMode::Pytorch:
-      return out << "ComputeMode::Pytorch";
-    case ComputeMode::nvFuserFusionExecutor:
-      return out << "ComputeMode::nvFuserFusionExecutor";
-    default:
-      NVF_ERROR(false);
-  }
-  return out;
-}
-
 int parseEnvVariable(const char* env_name) {
     const std::string prefix = "NVFUSER_OVERLAP_";
     auto prefixed_name = prefix + env_name;
@@ -61,9 +44,6 @@ struct OverlapTestParams {
     // overlap optimization parameters
     bool use_different_streams = false; // whether to change CUDA stream at each iteration
 
-    // compute params
-    ComputeMode compute_mode = ComputeMode::nvFuserFusionExecutor;
-
     // debug
     bool debug_print = false;
 
@@ -86,9 +66,6 @@ struct OverlapTestParams {
         if (isEnvVariableDefined("USE_STREAMS")) {
             use_different_streams = true;
         }
-        if (isEnvVariableDefined("COMPUTE_PYTORCH")) {
-            compute_mode = ComputeMode::Pytorch;
-        }
         if (isEnvVariableDefined("NBR_BACKENDS")) {
             nbr_of_backends = parseEnvVariable("NBR_BACKENDS");
         }
@@ -107,7 +84,6 @@ std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
         << indent << "N=" << params.N << "\n"
         << indent << "S=" << params.S << "\n"
         << indent << "use_different_streams=" << params.use_different_streams << "\n"
-        << indent << "compute_mode=" << params.compute_mode << "\n"
         << indent << "nbr_of_backends=" << params.nbr_of_backends << "\n"
         << "}";
     return out;
@@ -197,24 +173,6 @@ class OverlapTest : public MultiDeviceTest {
         // computeATen(t0_unsharded, t2_ref);
 
 
-        // if (params.compute_mode == ComputeMode::nvFuserFusionExecutor) {
-        //     fusion = std::make_unique<Fusion>();
-        //     FusionGuard fg(fusion.get());
-
-        //     TensorView* tv = makeConcreteTensor({params.tile_size,B,params.C});
-        //     fusion->addInput(tv);
-        //     tv = add(tv,tv);
-        //     tv = mul(tv,tv);
-        //     fusion->addOutput(tv);
-
-        //     DeviceMesh mesh(devices);
-        //     for (auto tv: ir_utils::filterByType<TensorView>(fusion->vals())) {
-        //         tv->setDeviceMesh(mesh);
-        //         tv->axis(1)->parallelize(ParallelType::DIDx);
-        //     }
-
-        //     fe = std::make_unique<FusionExecutor>();
-        // }
     }
 
     // void TearDown() override {
@@ -254,24 +212,6 @@ class OverlapTest : public MultiDeviceTest {
         // }
         // return tc_locally_reduced;
     }
-
-//     void compute(at::Tensor t, at::Tensor output) {
-//         std::vector<c10::IValue> inputs;
-//         switch (params.compute_mode)
-//         {
-//         case ComputeMode::Pytorch:
-//             computeATen(t, output);
-//             break;
-//         // case ComputeMode::nvFuserFusionExecutor:
-//         //     inputs.push_back(t);
-//         //     fe->runFusion(inputs, {output});
-//         //     break;
-//         default:
-//             NVF_ERROR(false);
-//             break;
-//         }
-//         return;
-//     }
 };
 
 /*
@@ -332,10 +272,6 @@ TEST_F(OverlapTest, GEMM_RS_without_overlap) {
 }
 
 TEST_F(OverlapTest, SimpleComputeComm) {
-    // if (params.compute_mode == ComputeMode::nvFuserFusionExecutor) {
-    //     c10::IValue t0_ivalue = t0.index({at::indexing::Slice(0, params.tile_size), "..."});
-    //     fe->compileFusion(fusion.get(), t0_ivalue);
-    // }
     // Iterate over the number of tiles and pipeline the comms and compute
     for (auto j: c10::irange(params.S)) {
         auto ta_j                   = getSlice(ta, j);
