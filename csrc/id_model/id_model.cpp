@@ -659,10 +659,8 @@ void IdModel::buildAllGraphs() {
   }
 
   buildAlmostExactGraph();
-  if (validate_) {
-    validator->checkAlmostExactGraphEquivalence(
-        idGraph(IdMappingMode::ALMOSTEXACT));
-  }
+  // Skip validating the almost exact graph as the IdModel graph also
+  // maps non-size-one broadcast domains
 
   buildPermissiveGraph();
   // Validation is not implemented when compliment mapping is enabled
