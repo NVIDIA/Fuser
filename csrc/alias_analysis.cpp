@@ -412,18 +412,19 @@ bool okToRelayout(
   const std::vector<IterDomain*> allocation =
       (can_override_empty_allocation_domain ? tv->getAllocationDomain()
                                             : tv->getMaybeAllocationDomain());
+  tv->printTransforms();
   return new_layout.isCompliantWith({allocation, tv->getContiguity()});
 }
 
 bool inline isSegmentInputOutput(const TensorView* tv) {
   auto isSegmentSet = [](const TensorView* tv) {
+    return false;
     auto def = tv->definition();
     if (auto lsop = dynamic_cast<LoadStoreOp*>(def)) {
       if (lsop->opType() == LoadStoreOpType::SegmenterSet) {
         return true;
       }
     }
-    return false;
   };
   return tv == nullptr || tv->isFusionInput() || tv->isFusionOutput() ||
       isSegmentSet(tv);
@@ -433,6 +434,7 @@ bool inline isSegmentInputOutput(const TensorView* tv) {
 
 void AliasAnalysisResult::finalize(
     const bool can_override_empty_allocation_domain) {
+  bool pre_segmenter_stage = can_override_empty_allocation_domain;
   for (auto [alias, root_and_layout] : alias_to_source_) {
     auto [root, preferred_layout] = root_and_layout;
     // Walks up the `alias_to_source_` chain.
@@ -442,16 +444,29 @@ void AliasAnalysisResult::finalize(
     //   root = (i == alias_to_source_.end() ? nullptr : i->second.first);
     // }
 
-    while (!isSegmentInputOutput(root)) {
-      const auto i = alias_to_source_.find(root);
-      root = (i == alias_to_source_.end() ? nullptr : i->second.first);
+    // allow output tv to alias intermediate tv, then will add segment_set
+    // before output tv which changes the output to be a no op for non-output
+    // tv. Otherwise, walk up the chain to find an input or output root.
+    bool can_skip_walk_up = pre_segmenter_stage && alias->isFusionOutput();
+    if (!can_skip_walk_up) {
+      while (!isSegmentInputOutput(root)) {
+        const auto i = alias_to_source_.find(root);
+        root = (i == alias_to_source_.end() ? nullptr : i->second.first);
+      }
     }
+
     if (root == nullptr) {
+      std::cout << "root is null, alias= " << alias->toString() << std::endl;
       continue;
     }
 
     if (!okToRelayout(
             alias, preferred_layout, can_override_empty_allocation_domain)) {
+      std::cout << "not okToRelayout, alias= " << alias->toString()
+                << std::endl;
+      std::cout << "not okToRelayout, root = " << root->toString() << std::endl;
+      std::cout << "not okToRelayout, preferred_layout = "
+                << preferred_layout.toString() << std::endl;
       continue;
     }
 
@@ -540,17 +555,21 @@ bool contiguityIsCompliant(
 
 bool Layout::isCompliantWith(const Layout& required) const {
   if (required.allocation_domain.empty()) {
+    std::cout << "true required.allocation_domain is empty" << std::endl;
     return true;
   }
 
   if (allocation_domain != required.allocation_domain) {
     // This can be relaxed by allowing broadcast dimensions to be ordered
     // differently.
+    std::cout << "false allocation_domain != required.allocation_domain"
+              << std::endl;
     return false;
   }
 
   for (const auto i : c10::irange(allocation_domain.size())) {
     if (!contiguityIsCompliant(contiguity[i], required.contiguity[i])) {
+      std::cout << "false contiguityIsCompliant" << std::endl;
       return false;
     }
   }
