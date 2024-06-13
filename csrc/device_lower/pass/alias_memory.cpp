@@ -866,41 +866,44 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void collectLivenessInfoOfExprMBarrier(Expr* expr) {
-    const auto expr_pos = scope_map_.getExprPos(expr);
+    int64_t expr_pos = scope_map_.getExprPos(expr);
+
+    auto mark_liveness = [&expr_pos, this](TensorView* tv, bool is_write) {
+      AllocationInfo* alloc_info = getAllocInfoFromTV(tv);
+      if (is_write) {
+        alloc_info->inner_live_interval->markWrite(expr_pos);
+      } else {
+        alloc_info->inner_live_interval->markRead(expr_pos);
+      }
+      ScopeInfo* outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
+      int64_t outer_pos =
+          outer_loop_info ? outer_loop_info->start_pos : expr_pos;
+      if (is_write) {
+        alloc_info->outer_live_interval->markWrite(outer_pos);
+      } else {
+        alloc_info->outer_live_interval->markRead(outer_pos);
+      }
+    };
 
     if (auto init = dynamic_cast<kir::MBarrierInit*>(expr)) {
-      const auto markWrite = [&expr_pos, this](TensorView* tv) {
-        auto alloc_info = getAllocInfoFromTV(tv);
-        alloc_info->inner_live_interval->markWrite(expr_pos);
-        auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
-        auto write_pos =
-            outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-        alloc_info->outer_live_interval->markWrite(write_pos);
-      };
-
-      markWrite(init->mbarrier()->as<TensorView>());
+      mark_liveness(init->mbarrier()->as<TensorView>(), /*is_write=*/true);
 
       // Register life time start for a smem placeholder with tokens
       //  returned by MBarrierArriveExpectTx / MBarrierArrive
       if (GpuLower::current()->ldstMBarrierTokenMap().count(expr)) {
-        markWrite(GpuLower::current()->ldstMBarrierTokenMap()[expr]);
+        mark_liveness(
+            GpuLower::current()->ldstMBarrierTokenMap()[expr],
+            /*is_write=*/true);
       }
     } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
-      const auto markRead = [&expr_pos, this](TensorView* tv) {
-        auto alloc_info = getAllocInfoFromTV(tv);
-        alloc_info->inner_live_interval->markRead(expr_pos);
-        auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
-        auto write_pos =
-            outer_loop_info ? outer_loop_info->start_pos : expr_pos;
-        alloc_info->outer_live_interval->markRead(write_pos);
-      };
-
-      markRead(inval->mbarrier()->as<TensorView>());
+      mark_liveness(inval->mbarrier()->as<TensorView>(), /*is_write=*/false);
 
       // Register life time end for a smem placeholder with tokens
       //  returned by MBarrierArriveExpectTx / MBarrierArrive
       if (GpuLower::current()->ldstMBarrierTokenMap().count(expr)) {
-        markRead(GpuLower::current()->ldstMBarrierTokenMap()[expr]);
+        mark_liveness(
+            GpuLower::current()->ldstMBarrierTokenMap()[expr],
+            /*is_write=*/false);
       }
     }
   }
