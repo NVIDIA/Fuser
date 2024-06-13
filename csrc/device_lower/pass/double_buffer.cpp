@@ -503,22 +503,30 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
                 GpuLower::current()->doubleBufferInfo().getStageDepthFor(
                     double_buffer_loop_->iter_domain());
 
-            if (current_stage_index_ == nullptr) {
-              current_stage_index_ = IrBuilder::modExpr(
+            //! Before waiting at the mbarrier for the current stage, we
+            //! launch the load operation for the next available stage. The
+            //! last buffer in the pipeline is the first available after the
+            //! prologue loop launches the initial wave of tma loads.
+            //!
+            //! current_compute_stage = for_loop_index % stage_depth
+            //! current_load_stage = (for_loop_index + (stage_depth - 1)) %
+            //! stage_depth)
+            if (current_compute_stage_ == nullptr) {
+              current_compute_stage_ = IrBuilder::modExpr(
                   double_buffer_loop_->index(),
                   IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-              kir::Allocate* current_stage_index_alloc =
+              kir::Allocate* current_compute_stage_alloc =
                   IrBuilder::create<kir::Allocate>(
-                      current_stage_index_,
+                      current_compute_stage_,
                       MemoryType::Local,
                       IrBuilder::create<Val>(1L, PrimDataType::Index),
                       /*zero_init=*/false);
-              cloned_scopes_.back()->push_back(current_stage_index_alloc);
+              cloned_scopes_.back()->push_back(current_compute_stage_alloc);
               cloned_scopes_.back()->push_back(
-                  current_stage_index_->definition());
+                  current_compute_stage_->definition());
             }
-            if (next_stage_index_ == nullptr) {
-              next_stage_index_ = IrBuilder::modExpr(
+            if (current_load_stage_ == nullptr) {
+              current_load_stage_ = IrBuilder::modExpr(
                   IrBuilder::addExpr(
                       double_buffer_loop_->index(),
                       IrBuilder::subExpr(
@@ -526,14 +534,15 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
                               stage_depth, PrimDataType::Index),
                           IrBuilder::create<Val>(1L, PrimDataType::Index))),
                   IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-              kir::Allocate* next_stage_index_alloc =
+              kir::Allocate* current_load_stage_alloc =
                   IrBuilder::create<kir::Allocate>(
-                      next_stage_index_,
+                      current_load_stage_,
                       MemoryType::Local,
                       IrBuilder::create<Val>(1L, PrimDataType::Index),
                       /*zero_init=*/false);
-              cloned_scopes_.back()->push_back(next_stage_index_alloc);
-              cloned_scopes_.back()->push_back(next_stage_index_->definition());
+              cloned_scopes_.back()->push_back(current_load_stage_alloc);
+              cloned_scopes_.back()->push_back(
+                  current_load_stage_->definition());
             }
 
             // Replace LoadStoreOp with:
@@ -550,7 +559,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
             LoadStoreOp* ldst = expr->as<LoadStoreOp>();
             kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
-                createMbarrierArriveExpectTx(ldst, next_stage_index_);
+                createMbarrierArriveExpectTx(ldst, current_load_stage_);
             body.push_back(mbarrier_arrive_tx);
             body.push_back(ldst);
 
@@ -563,7 +572,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
             // Construct mBarrier::wait for current stage
             kir::MBarrierWait* mbarrier_wait =
-                createMbarrierWait(ldst, current_stage_index_);
+                createMbarrierWait(ldst, current_compute_stage_);
             cloned_scopes_.back()->push_back(mbarrier_wait);
 #ifdef EXTRA_LOGS
             std::cout << "[DEBUG] new MBarrierArriveExpectTx node: "
@@ -620,10 +629,10 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
   // Current stage, expectation:
   //  curr_stages_idx = (double_buffer_loop_idx % stages)
-  Val* current_stage_index_ = nullptr;
+  Val* current_compute_stage_ = nullptr;
   // Next stage, expectation:
   //  next_stages_idx = (double_buffer_loop_idx + (stages -1)) % stages
-  Val* next_stage_index_ = nullptr;
+  Val* current_load_stage_ = nullptr;
 };
 
 using InsertionInfo = std::unordered_map<kir::ForLoop*, std::vector<Expr*>>;
@@ -849,6 +858,7 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
   std::vector<Expr*> pre_prologue_exprs_;
 };
 
+// TODO Move to DoubleBufferLoopCloner
 // Creates post-epilogue section needed for releasing mbarriers after TMA memory
 // operations.
 //
