@@ -60,7 +60,6 @@ class HostIrExecutor final : public OptInDispatch {
   void handle(SetCurrentStream* set_current_stream) override;
   void handle(PostOnStream* post_ir) override;
   void handle(Communication* communication) override;
-  void handle(Wait* wait) override;
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
@@ -71,7 +70,6 @@ class HostIrExecutor final : public OptInDispatch {
   std::unordered_map<HostUnit*, FusionExecutor> fe_;
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
   std::unordered_map<Stream*, c10::cuda::CUDAStream> streams_;
-  std::unordered_map<Communication*, c10::intrusive_ptr<c10d::Work>> works_;
 };
 
 } // namespace hir
