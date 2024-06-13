@@ -151,10 +151,11 @@ class DoubleBufferFusionInspector : private IterVisitor {
 };
 
 // Creates kir::IfThenElse with the following predicate:
-//  threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
+// threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
+// TODO Replace with elect.sync pts
 kir::IfThenElse* createThreadPredicatedIfThenElse() {
-  auto zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
-  auto if_predicate_expr = IrBuilder::logicalAndExpr(
+  Val* zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
+  Val* if_predicate_expr = IrBuilder::logicalAndExpr(
       IrBuilder::logicalAndExpr(
           IrBuilder::eqExpr(
               NamedScalar::getParallelIndex(ParallelType::TIDx), zero_val),
@@ -163,13 +164,13 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
       IrBuilder::eqExpr(
           NamedScalar::getParallelIndex(ParallelType::TIDz), zero_val));
 
-  auto if_expr = IrBuilder::create<kir::IfThenElse>(
+  kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
       IrBuilder::create<kir::Predicate>(if_predicate_expr));
 
   return if_expr;
 }
 
-// Creates kir::Loop with range based on stages' number
+// Creates kir::Loop with range based on stage depth
 kir::ForLoop* createStagesForLoop(kir::ForLoop* double_buffer_loop) {
   int64_t stage_depth =
       GpuLower::current()->doubleBufferInfo().getStageDepthFor(
@@ -196,14 +197,14 @@ kir::ForLoop* createStagesForLoop(kir::ForLoop* double_buffer_loop) {
 }
 
 // Creates kir::MBarrierArriveExpectTx for given LoadStoreOp and index of
-//  loop in scope's which LoadStoreOp is present
+// loop in scope's which LoadStoreOp is present
 kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
     LoadStoreOp* ldst,
     Val* loop_index) {
-  auto ldst_out_tv = ldst->out()->as<TensorView>();
+  TensorView* ldst_out_tv = ldst->out()->as<TensorView>();
   Val* expect_bytes =
       IrBuilder::create<Val>(dataTypeSize(ldst_out_tv->dtype()));
-  for (auto id : ldst_out_tv->getLeafDomain()) {
+  for (IterDomain* id : ldst_out_tv->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Bulk) {
       expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
     }
@@ -211,29 +212,34 @@ kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
   expect_bytes =
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expect_bytes);
 
-  auto mbarrier_tokens = GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
-  auto state = IrBuilder::create<kir::TensorIndex>(mbarrier_tokens, loop_index);
+  TensorView* all_mbarrier_tokens =
+      GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
+  kir::TensorIndex* stage_token =
+      IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
 
-  auto mbarrier_objs = GpuLower::current()->ldstMBarrierMap().at(ldst);
-  auto mbarrier =
-      IrBuilder::create<kir::TensorIndex>(mbarrier_objs, loop_index);
+  TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+  kir::TensorIndex* stage_mbarrier =
+      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
 
   auto mbarrier_arrive_tx = IrBuilder::create<kir::MBarrierArriveExpectTx>(
-      state, mbarrier, expect_bytes);
+      stage_token, stage_mbarrier, expect_bytes);
 
   return mbarrier_arrive_tx;
 }
 
 // Creates kir::MBarrierWait for given LoadStoreOp and loop index
 kir::MBarrierWait* createMbarrierWait(LoadStoreOp* ldst, Val* loop_index) {
-  auto mbarrier_objs = GpuLower::current()->ldstMBarrierMap().at(ldst);
-  auto mbarrier =
-      IrBuilder::create<kir::TensorIndex>(mbarrier_objs, loop_index);
+  TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+  kir::TensorIndex* stage_mbarrier =
+      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
 
-  auto mbarrier_tokens = GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
-  auto state = IrBuilder::create<kir::TensorIndex>(mbarrier_tokens, loop_index);
+  TensorView* all_mbarrier_tokens =
+      GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
+  kir::TensorIndex* stage_token =
+      IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
 
-  auto mbarrier_wait = IrBuilder::create<kir::MBarrierWait>(mbarrier, state);
+  kir::MBarrierWait* mbarrier_wait =
+      IrBuilder::create<kir::MBarrierWait>(stage_mbarrier, stage_token);
   return mbarrier_wait;
 }
 
@@ -241,8 +247,7 @@ kir::MBarrierWait* createMbarrierWait(LoadStoreOp* ldst, Val* loop_index) {
 // buffer tensor is on smem, in which case it would otherwise require
 // an additional predicate to guard buffer overruns. When it's on
 // gmem, that isn't the case, so it does not need to create an
-// epilogue loop.
-// In case of cpAsyncBulk there is always an epilogue loop
+// epilogue loop. For TMA cpAsyncBulk, there is always an epilogue loop.
 bool requireEpilogue(const std::vector<Expr*>& exprs) {
   return std::any_of(exprs.begin(), exprs.end(), [](const Expr* expr) {
     return (expr->input(0)->as<TensorView>()->getMemoryType() ==
