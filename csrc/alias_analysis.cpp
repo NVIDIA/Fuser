@@ -163,16 +163,14 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
 void AliasFinder::handle(const ViewOp* view) {
   TensorView* in = view->in();
   TensorView* out = view->out();
-  std::cout << "ViewOp: " << view->toString() << std::endl;
+
   // Collect the allocation order of `in`'s logical domain and thus `out`'s root
   // domain.
   std::optional<Layout> out_root_layout =
       mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
   if (!out_root_layout.has_value()) {
-    std::cout << "out_root_layout is not valid" << std::endl;
     return;
   }
-  std::cout << "out_root_layout: " << out_root_layout->toString() << std::endl;
 
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto i : c10::irange(out_root_layout->size())) {
@@ -211,8 +209,6 @@ void AliasFinder::handle(const ViewOp* view) {
       if (inner_i == allocation_to_contiguity.end() ||
           inner_i->first != merge->inner()) {
         // Outer and inner are not adjacent in allocation order.
-        std::cout << "Outer and inner are not adjacent in allocation order"
-                  << std::endl;
         return;
       }
       const auto [inner_contiguity, merge_i] =
@@ -223,7 +219,6 @@ void AliasFinder::handle(const ViewOp* view) {
           merge->inner()->hasExpandedExtent(),
           inner_contiguity);
       if (!mergeable) {
-        std::cout << "mergeable is false" << std::endl;
         return;
       }
       allocation_to_contiguity.insert(merge_i, merge->out(), contiguity);
@@ -237,7 +232,6 @@ void AliasFinder::handle(const ViewOp* view) {
     out_logical_layout.allocation_domain.push_back(allocation_id);
     out_logical_layout.contiguity.push_back(contiguity);
   }
-  std::cout << "analysis_.add: out " << out->toString() << ", in " << in->toString() << std::endl;
   analysis_.add(out, in, std::move(out_logical_layout));
 }
 
@@ -404,12 +398,6 @@ TensorView* AliasAnalysisResult::getNearestAliasedIo(
   return i == alias_to_root_.end() ? nullptr : i->second;
 }
 
-TensorView* AliasAnalysisResult::getAliasedSource(
-    const TensorView* alias) const {
-  const auto i = alias_to_source_.find(alias);
-  return i == alias_to_source_.end() ? nullptr : i->second.first;
-}
-
 namespace {
 bool okToRelayout(
     const TensorView* tv,
@@ -426,17 +414,11 @@ void AliasAnalysisResult::finalize(
     const bool can_override_empty_allocation_domain) {
   for (auto [alias, root_and_layout] : alias_to_source_) {
     auto [root, preferred_layout] = root_and_layout;
-    std::cout << "\nfinalize: alias " << alias->toString() << ", root " << root->toString() << std::endl;
     // Walks up the `alias_to_source_` chain.
     while (root != nullptr && !root->isFusionInput() &&
            !root->isFusionOutput()) {
       const auto i = alias_to_source_.find(root);
       root = (i == alias_to_source_.end() ? nullptr : i->second.first);
-      if(root){
-        std::cout << "------ move root to " << root->toString() << std::endl;
-      }else{
-        std::cout << "------ move root to null" << std::endl;
-      }
     }
     if (root == nullptr) {
       continue;
@@ -444,10 +426,9 @@ void AliasAnalysisResult::finalize(
 
     if (!okToRelayout(
             alias, preferred_layout, can_override_empty_allocation_domain)) {
-        std::cout << "Not okToRelayout" << std::endl;
       continue;
     }
-    std::cout << "add alias_to_root_: alias " << alias->toString() << ", root " << root->toString() << std::endl;
+
     alias_to_root_[alias] = root;
   }
 }
