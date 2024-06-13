@@ -256,7 +256,7 @@ std::vector<TensorView*> findAmaxReductionDependencies(
   return compatible_reductions;
 }
 
-void run(Fusion* fusion) {
+void FactorReductionPass::runPass(Fusion* fusion) {
   std::vector<Val*> output_tvs;
 
   // start from outputs tvs
@@ -293,7 +293,10 @@ void run(Fusion* fusion) {
   }
 }
 
-void FactorReductionPass::runPass(Fusion* fusion) {
+// Gather all reduction TensorViews
+// Find axes intersection common to all reductions
+// Factor common axes for all reductions
+void factorCommonReductionAxes(Fusion* fusion) {
   // Persistent schedule expects all reductions to have same axes.
   // Factor common reduction axes into separate reduction operations
   // to create better fusions.
