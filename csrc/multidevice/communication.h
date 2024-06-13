@@ -9,6 +9,7 @@
 
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
+#include <ir/interface_nodes.h>
 #include <multidevice/communicator.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/multidevice.h>
@@ -54,15 +55,14 @@ class Communication : public Expr {
   Communication(
       IrBuilderPasskey passkey,
       CommunicationType type,
-      DeviceMesh mesh, // Might not contain `root`.
+      TensorView* out,
+      TensorView* in,
       Team team, // All devices involved in this communication. It must include
                  // `root`. It can be a subset of `root`+`mesh` in case of 2D
                  // sharding.
       DeviceIdxType root = -1,
       RedOpType red_op = RedOpType::UNUSED,
-      int64_t scattered_axis = -1,
-      TensorView* input_tv = nullptr,
-      TensorView* output_tv = nullptr);
+      int64_t scattered_axis = -1);
 
   Communication(const Communication& other) = delete;
   Communication& operator=(const Communication& other) = delete;
@@ -81,28 +81,36 @@ class Communication : public Expr {
     return attribute<CommunicationType>(0);
   }
 
-  const DeviceMesh& mesh() const {
-    return attribute<DeviceMesh>(1);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
+  }
+
+  const DeviceMesh& senderMesh() const {
+    return in()->getDeviceMesh();
+  }
+
+  const DeviceMesh& receiverMesh() const {
+    return out()->getDeviceMesh();
   }
 
   const Team& team() const {
-    return attribute<Team>(2);
+    return attribute<Team>(1);
   }
 
   DeviceIdxType root() const {
-    return attribute<DeviceIdxType>(3);
+    return attribute<DeviceIdxType>(2);
   }
 
   RedOpType reduceOp() const {
-    return attribute<RedOpType>(4);
+    return attribute<RedOpType>(3);
   }
 
   int64_t scatteredAxis() const {
-    return attribute<int64_t>(5);
-  }
-
-  bool isRootInMesh() const {
-    return mesh().has(root());
+    return attribute<int64_t>(4);
   }
 
   // PyTorch's process group expects the root to be specified

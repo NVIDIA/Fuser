@@ -42,6 +42,8 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
     case CommunicationType::SendRecv:
       os << "SendRecv";
       break;
+    default:
+      NVF_ERROR(false, "unrecognized CommunicationType: ", type);
   }
   return os;
 }
@@ -97,16 +99,37 @@ T getInitialValue(c10d::ReduceOp::RedOpType op) {
 }
 
 bool hasRoot(CommunicationType type) {
-  return type == CommunicationType::Gather ||
-      type == CommunicationType::Scatter || type == CommunicationType::Reduce ||
-      type == CommunicationType::Broadcast ||
-      type == CommunicationType::SendRecv;
+  switch (type) {
+    case CommunicationType::Gather:
+    case CommunicationType::Scatter:
+    case CommunicationType::Reduce:
+    case CommunicationType::Broadcast:
+    case CommunicationType::SendRecv:
+      return true;
+    case CommunicationType::Allgather:
+    case CommunicationType::Allreduce:
+    case CommunicationType::ReduceScatter:
+      return false;
+    default:
+      NVF_ERROR(false, "unrecognized CommunicationType: ", type);
+  }
 }
 
 bool isReduction(CommunicationType type) {
-  return type == CommunicationType::Reduce ||
-      type == CommunicationType::Allreduce ||
-      type == CommunicationType::ReduceScatter;
+  switch (type) {
+    case CommunicationType::Reduce:
+    case CommunicationType::Allreduce:
+    case CommunicationType::ReduceScatter:
+      return true;
+    case CommunicationType::Gather:
+    case CommunicationType::Allgather:
+    case CommunicationType::Scatter:
+    case CommunicationType::Broadcast:
+    case CommunicationType::SendRecv:
+      return false;
+    default:
+      NVF_ERROR(false, "unrecognized CommunicationType: ", type);
+  }
 }
 
 } // namespace
@@ -114,15 +137,19 @@ bool isReduction(CommunicationType type) {
 Communication::Communication(
     IrBuilderPasskey passkey,
     CommunicationType type,
-    DeviceMesh mesh,
+    TensorView* out,
+    TensorView* in,
     Team team,
     DeviceIdxType root,
     RedOpType red_op,
-    int64_t scattered_axis,
-    TensorView* input_tv,
-    TensorView* output_tv)
+    int64_t scattered_axis)
     : Expr(passkey) {
-  NVF_ERROR(mesh.size() > 0, "The mesh size must be greater than 0.");
+  NVF_ERROR(
+      in->getDeviceMesh().size() > 0,
+      "The input mesh size must be greater than 0.");
+  NVF_ERROR(
+      out->getDeviceMesh().size() > 0,
+      "The output mesh size must be greater than 0.");
   NVF_ERROR(
       hasRoot(type) == (root >= 0),
       "Root ",
@@ -133,14 +160,9 @@ Communication::Communication(
   NVF_ERROR(
       (type == CommunicationType::ReduceScatter) == (scattered_axis >= 0));
 
-  if (input_tv != nullptr) {
-    addInput(input_tv);
-  }
-  if (output_tv != nullptr) {
-    addOutput(output_tv);
-  }
+  addInput(in);
+  addOutput(out);
   addDataAttribute(type);
-  addDataAttribute(mesh);
   addDataAttribute(team);
   addDataAttribute(root);
   addDataAttribute(red_op);
@@ -168,7 +190,10 @@ std::string Communication::toString(const int indent_size) const {
   if (hasRoot(type())) {
     indent(ss, indent_size + 1) << "root: " << root() << "," << std::endl;
   }
-  indent(ss, indent_size + 1) << "mesh: " << mesh() << "," << std::endl;
+  indent(ss, indent_size + 1)
+      << "sender mesh: " << senderMesh() << "," << std::endl;
+  indent(ss, indent_size + 1)
+      << "receiver mesh: " << receiverMesh() << "," << std::endl;
   indent(ss, indent_size + 1) << "team: " << team() << "," << std::endl;
   indent(ss, indent_size) << "}";
 
@@ -187,7 +212,7 @@ c10::intrusive_ptr<c10d::Work> postBroadcast(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   if (my_device_index == communication->root()) {
-    if (communication->isRootInMesh()) {
+    if (communication->receiverMesh().has(communication->root())) {
       // Do a local copy and the subsequent broadcast will be in place. Consider
       // ProcessGroupNCCL::_broadcast_oop so ncclBroadcast doesn't wait for the
       // local copy to complete.
@@ -214,7 +239,7 @@ c10::intrusive_ptr<c10d::Work> postGather(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   if (my_device_index == communication->root() &&
-      !communication->isRootInMesh()) {
+      !communication->senderMesh().has(communication->root())) {
     // This is likely a suboptimal way to allocate tensors for nccl. To benefit
     // from zero copy
     // (https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/bufferreg.html),
@@ -232,7 +257,7 @@ c10::intrusive_ptr<c10d::Work> postGather(
     int64_t j = 0;
     for (auto i : c10::irange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->isRootInMesh()) {
+          !communication->senderMesh().has(communication->root())) {
         output_tensors[0].push_back(input_tensor);
         continue;
       }
@@ -273,7 +298,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   if (my_device_index == communication->root() &&
-      !communication->isRootInMesh()) {
+      !communication->receiverMesh().has(communication->root())) {
     output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
   }
   std::vector<at::Tensor> output_tensors({output_tensor});
@@ -285,7 +310,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     int64_t j = 0;
     for (auto i : c10::irange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->isRootInMesh()) {
+          !communication->receiverMesh().has(communication->root())) {
         input_tensors.front().push_back(output_tensor);
         continue;
       }
@@ -309,7 +334,7 @@ c10::intrusive_ptr<c10d::Work> postReduce(
     at::Tensor output_tensor) {
   at::Tensor tensor;
   if (my_device_index == communication->root()) {
-    if (communication->isRootInMesh()) {
+    if (communication->senderMesh().has(communication->root())) {
       doLocalCopy(output_tensor, input_tensor);
       tensor = output_tensor;
     } else {
@@ -371,15 +396,16 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  NVF_ERROR(communication->mesh().size() == 1, "The mesh size should be 1.");
+  NVF_ERROR(
+      communication->receiverMesh().size() == 1,
+      "The receiver mesh size should be 1.");
 
-  if (communication->isRootInMesh()) {
+  const DeviceIdxType sender = communication->root();
+  const DeviceIdxType receiver = communication->receiverMesh().at(0);
+  if (sender == receiver) {
     doLocalCopy(output_tensor, input_tensor);
     return nullptr;
   }
-
-  const DeviceIdxType sender = communication->root();
-  const DeviceIdxType receiver = communication->mesh().at(0);
 
   std::vector<at::Tensor> tensors;
   if (my_device_index == sender) {

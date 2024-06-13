@@ -94,13 +94,9 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto communication = IrBuilder::createInContainer<Communication>(
       hic.get(),
       CommunicationType::Allgather,
-      mesh,
-      mesh.vector(),
-      -1,
-      RedOpType::UNUSED,
-      -1,
+      communication_output,
       communication_input,
-      communication_output);
+      mesh.vector());
   auto wait = IrBuilder::createInContainer<Wait>(hic.get(), communication);
 
   // [Step 6)] Define the Host program
@@ -190,13 +186,9 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   auto communication = IrBuilder::createInContainer<Communication>(
       hic.get(),
       CommunicationType::Allgather,
-      mesh,
-      mesh.vector(),
-      -1,
-      RedOpType::UNUSED,
-      -1,
+      communication_output,
       communication_input,
-      communication_output);
+      mesh.vector());
   auto wait = IrBuilder::createInContainer<Wait>(hic.get(), communication);
 
   // [Step 6)] Define the Host program
