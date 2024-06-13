@@ -194,15 +194,15 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // NOTE: queryUserSchedule is broken, see issue:
   // https://github.com/NVIDIA/Fuser/issues/2056
   if (!override_user_schedule) {
-    if (isProfilerEnabledWithCupti()) {
-      FusionProfiler::start();
-    }
     auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(
         inputs.empty() || device > -1,
         "Inputs are not all on the same device or don't match selection!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
+      //if (isProfilerEnabledWithCupti()) {
+      //  FusionProfiler::start();
+      //}
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
@@ -211,9 +211,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
         user_sched.executor->compileFusion(user_sched.schedule.get(), inputs);
       }
       outputs = user_sched.executor->runFusion(inputs);
-    }
-    if (isProfilerEnabledWithCupti()) {
-      FusionProfiler::stop();
+      //if (isProfilerEnabledWithCupti()) {
+      //  FusionProfiler::stop();
+      //}
     }
   }
 
