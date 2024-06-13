@@ -295,8 +295,6 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void clone() {
-    const auto gpu_lower = GpuLower::current();
-
 #ifdef EXTRA_LOGS
     std::cout << "[DEBUG] double_buffer_loop_ loop:\n"
               << double_buffer_loop_->toString() << std::endl;
@@ -312,7 +310,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         double_buffer_loop_->iter_domain(), loop_type_);
     auto start = double_buffer_loop_->start();
     auto stop = double_buffer_loop_->stop();
-    auto stage_depth = gpu_lower->doubleBufferInfo().getStageDepthFor(
+    auto stage_depth = GpuLower::current()->doubleBufferInfo().getStageDepthFor(
         double_buffer_loop_->iter_domain());
 
     if (loop_type_ == DoubleBufferLoopStage::Prolog) {
@@ -323,7 +321,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         loop_type_ == DoubleBufferLoopStage::Main &&
         requireEpilogue(double_buffer_load_exprs_)) {
       stop = IrBuilder::subExpr(
-          double_buffer_loop_->stop(), gpu_lower->kernel()->oneVal());
+          double_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
     } else if (loop_type_ == DoubleBufferLoopStage::Epilog) {
       NVF_ERROR(requireEpilogue(double_buffer_load_exprs_));
       start = IrBuilder::subExpr(
@@ -337,7 +335,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         index,
         start,
         stop,
-        gpu_lower->kernel()->oneVal(),
+        GpuLower::current()->kernel()->oneVal(),
         false,
         nullptr,
         double_buffer_loop_->isUnrollRequired(),
@@ -391,20 +389,18 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         });
 
     if (has_cp_async_bulk_) {
-      auto gpu_lower = GpuLower::current();
-
-      // Expr that is a part of cpAsyncBulk synchronization proces, added
-      //  earlier to satisfy other passes checks, are handled already won't
-      //  be pushed to the new scope.
-      // There can be cases where cpAsyncBulk data movement is not a part of
-      //  double buffering, such expr will be added to new scope.
-      const auto isIgnorableCpAsyncBulkSmemAlloc =
-          (gpu_lower->mBarrierTokenSmemAllocSet().count(expr) != 0);
-      const auto isIgnorableMbarrierInit = (expr->isA<kir::MBarrierInit>()) &&
-          (gpu_lower->ldstMBarrierTokenMap().count(expr) != 0);
-      const auto isIgnorableMbarrierInval =
-          (expr->isA<kir::MBarrierInvalidate>()) &&
-          (gpu_lower->ldstMBarrierTokenMap().count(expr) != 0);
+      // This expr is a part of cpAsyncBulk synchronization process. It was
+      // added earlier to satisfy checks in other passes. It was already handled
+      // already, so it will not be pushed to the new scope. cpAsyncBulk exprs
+      // that are not a part of double buffering, will be added to a new scope.
+      bool mbarrier_token_exists =
+          GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
+      bool is_ignorable_tma_smem_alloc =
+          (GpuLower::current()->mBarrierTokenSmemAllocSet().count(expr) != 0);
+      bool is_ignorable_mbarrier_init =
+          (expr->isA<kir::MBarrierInit>() && mbarrier_token_exists);
+      bool is_ignorable_mbarrier_inval =
+          (expr->isA<kir::MBarrierInvalidate>() && mbarrier_token_exists);
 
       // Target:
       // pre-prolog:
@@ -438,7 +434,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
           if (expr->isA<LoadStoreOp>()) {
             // Handle cpAsyncBulk type LoadStoreOp that is registered with
             //  token smem TVs as it requires synchronization
-            if (gpu_lower->ldstMBarrierTokenMap().count(expr) != 0) {
+            if (mbarrier_token_exists) {
               // See AllocationInserter for details when and how
               //  token map is filled with data
 
@@ -456,7 +452,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
               LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
               int64_t stage_depth =
-                  gpu_lower->doubleBufferInfo().getStageDepthFor(
+                  GpuLower::current()->doubleBufferInfo().getStageDepthFor(
                       double_buffer_loop_->iter_domain());
 
               Val* index = (stage_depth == 2)
@@ -477,7 +473,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
               // Register mbarrier object to be used with new LoadStoreOp
               //  from prolog loop
-              gpu_lower->ldstMBarrierIndexMap().emplace(
+              GpuLower::current()->ldstMBarrierIndexMap().emplace(
                   new_ldst, mbarrier_arrive_tx->mbarrier());
 
               cloned_scopes_.back()->push_back(if_expr);
@@ -499,27 +495,27 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         case DoubleBufferLoopStage::Main: {
           // Handle cpAsyncBulk type LoadStoreOp that is registered with
           //  token smem TVs as it requires synchronization
-          if (expr->isA<LoadStoreOp>() &&
-              gpu_lower->ldstMBarrierTokenMap().count(expr) != 0) {
-            // cpAsyncBulk for double-buffered tensor has assigned
-            //  a placeholder for token objects
+          if (expr->isA<LoadStoreOp>() && mbarrier_token_exists) {
+            // cpAsyncBulk for double-buffered tensor has assigned a placeholder
+            // for token objects
 
-            unsigned int stage_depth =
+            int64_t stage_depth =
                 GpuLower::current()->doubleBufferInfo().getStageDepthFor(
                     double_buffer_loop_->iter_domain());
 
-            if (curr_stage_index_ == nullptr) {
-              curr_stage_index_ = IrBuilder::modExpr(
+            if (current_stage_index_ == nullptr) {
+              current_stage_index_ = IrBuilder::modExpr(
                   double_buffer_loop_->index(),
                   IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-              kir::Allocate* curr_stage_index_alloc =
+              kir::Allocate* current_stage_index_alloc =
                   IrBuilder::create<kir::Allocate>(
-                      curr_stage_index_,
+                      current_stage_index_,
                       MemoryType::Local,
                       IrBuilder::create<Val>(1L, PrimDataType::Index),
-                      false);
-              cloned_scopes_.back()->push_back(curr_stage_index_alloc);
-              cloned_scopes_.back()->push_back(curr_stage_index_->definition());
+                      /*zero_init=*/false);
+              cloned_scopes_.back()->push_back(current_stage_index_alloc);
+              cloned_scopes_.back()->push_back(
+                  current_stage_index_->definition());
             }
             if (next_stage_index_ == nullptr) {
               next_stage_index_ = IrBuilder::modExpr(
@@ -535,7 +531,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
                       next_stage_index_,
                       MemoryType::Local,
                       IrBuilder::create<Val>(1L, PrimDataType::Index),
-                      false);
+                      /*zero_init=*/false);
               cloned_scopes_.back()->push_back(next_stage_index_alloc);
               cloned_scopes_.back()->push_back(next_stage_index_->definition());
             }
@@ -560,14 +556,14 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
             // Register mbarrier object to be used with LoadStoreOp
             //  from main loop
-            gpu_lower->ldstMBarrierIndexMap().emplace(
+            GpuLower::current()->ldstMBarrierIndexMap().emplace(
                 ldst, mbarrier_arrive_tx->mbarrier());
 
             cloned_scopes_.back()->push_back(if_expr);
 
             // Construct mBarrier::wait for current stage
             kir::MBarrierWait* mbarrier_wait =
-                createMbarrierWait(ldst, curr_stage_index_);
+                createMbarrierWait(ldst, current_stage_index_);
             cloned_scopes_.back()->push_back(mbarrier_wait);
 #ifdef EXTRA_LOGS
             std::cout << "[DEBUG] new MBarrierArriveExpectTx node: "
@@ -577,15 +573,15 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 #endif //  EXTRA_LOGS
             break;
           }
-          if (!(isIgnorableCpAsyncBulkSmemAlloc || isIgnorableMbarrierInit ||
-                isIgnorableMbarrierInval)) {
+          if (!(is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
+                is_ignorable_mbarrier_inval)) {
             cloned_scopes_.back()->push_back(expr);
           }
           break;
         }
         case DoubleBufferLoopStage::Epilog: {
-          if (!(isIgnorableCpAsyncBulkSmemAlloc || isIgnorableMbarrierInit ||
-                isIgnorableMbarrierInval || is_double_buffer_load_expr)) {
+          if (!(is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
+                is_ignorable_mbarrier_inval || is_double_buffer_load_expr)) {
             cloned_scopes_.back()->push_back(expr);
           }
           break;
@@ -624,7 +620,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
   // Current stage, expectation:
   //  curr_stages_idx = (double_buffer_loop_idx % stages)
-  Val* curr_stage_index_ = nullptr;
+  Val* current_stage_index_ = nullptr;
   // Next stage, expectation:
   //  next_stages_idx = (double_buffer_loop_idx + (stages -1)) % stages
   Val* next_stage_index_ = nullptr;
@@ -742,12 +738,13 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
   InsertionInfo insertion_info_;
 };
 
-// Creates pre-prologue pieces of code needed for proper handling
-//  async TMA memory copies - moving allocation outside of main loop
-//  and initialization of mbarriers.
+// TODO Move to DoubleBufferLoopCloner
+// Creates pre-prologue section necessary for proper handling async TMA memory
+// operations. It moves the allocation of mbarriers and its tokens outside of
+// the main loop
 //
 // Expected result:
-//   mbarrier and token smem allocations
+//   Allocate mbarriers and tokens in shared memory
 //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
 //     for (unsigned i = 0; i < stages; ++i) {
 //       mbarrier::init(...);
@@ -774,34 +771,33 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void create() {
-    const auto gpu_lower = GpuLower::current();
-
     // Find and add smem allocations for tokens and mbarrier objects
     handle(double_buffer_loop_);
 
     // Define how many threads should arrive at the barrier
     //  we expect 0th thread to handle init/arrive & transaction config
     //  while other threads will wait for it
-    auto one_val = IrBuilder::create<Val>(1L, PrimDataType::UInt32);
+    Val* one_val = IrBuilder::create<Val>(1L, PrimDataType::UInt32);
 
     // Construct predicate
     // 'threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0'
     kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
     // Construct for loop, a body for if expression
-    auto loop = createStagesForLoop(double_buffer_loop_);
+    kir::ForLoop* loop = createStagesForLoop(double_buffer_loop_);
 
     // Construct loop body with:
     // - mBarriers' initializations for each element in smem array for
     //   each double buffered tensor
-    // - expected arrival: number of threads in the block (for now)
-    for (const auto ldst : double_buffer_load_exprs_) {
-      if (0 != gpu_lower->ldstMBarrierMap().count(ldst)) {
-        auto mbarrier = gpu_lower->ldstMBarrierMap()[ldst];
-        auto mbarrier_index =
-            IrBuilder::create<kir::TensorIndex>(mbarrier, loop->index());
-        auto mbarrier_init =
-            IrBuilder::create<kir::MBarrierInit>(mbarrier_index, one_val);
+    // - expected arrival: number of threads in the block
+    for (const Expr* ldst : double_buffer_load_exprs_) {
+      if (GpuLower::current()->ldstMBarrierMap().count(ldst) != 0) {
+        TensorView* all_mbarriers =
+            GpuLower::current()->ldstMBarrierMap()[ldst];
+        kir::TensorIndex* stage_mbarrier =
+            IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
+        kir::MBarrierInit* mbarrier_init =
+            IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, one_val);
         loop->body().push_back(mbarrier_init);
       }
     }
@@ -853,8 +849,8 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
   std::vector<Expr*> pre_prologue_exprs_;
 };
 
-// Creates post-epilogue pieces of code needed for proper handling async
-//  TMA memory copies - mbarriers release
+// Creates post-epilogue section needed for releasing mbarriers after TMA memory
+// operations.
 //
 // Expected result:
 //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -881,25 +877,24 @@ class CpAsyncBulkPostEpilogue {
         double_buffer_load_exprs_(double_buffer_load_exprs) {}
 
   void create() {
-    const auto gpu_lower = GpuLower::current();
-
     // Construct predicate
     // 'threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0'
     kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
     // Construct for loop, a body for if expressiong
-    auto loop = createStagesForLoop(double_buffer_loop_);
+    kir::ForLoop* loop = createStagesForLoop(double_buffer_loop_);
 
     // Construct loop body with:
     // - mBarriers' invalidation for each element in smem array for
     //   each double buffered tensor
-    for (const auto ldst : double_buffer_load_exprs_) {
-      if (0 != gpu_lower->ldstMBarrierMap().count(ldst)) {
-        auto mbarrier = gpu_lower->ldstMBarrierMap()[ldst];
-        auto mbarrier_index =
-            IrBuilder::create<kir::TensorIndex>(mbarrier, loop->index());
-        auto mbarrier_inval =
-            IrBuilder::create<kir::MBarrierInvalidate>(mbarrier_index);
+    for (const Expr* ldst : double_buffer_load_exprs_) {
+      if (GpuLower::current()->ldstMBarrierMap().count(ldst) != 0) {
+        TensorView* all_mbarriers =
+            GpuLower::current()->ldstMBarrierMap()[ldst];
+        kir::TensorIndex* stage_mbarrier =
+            IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
+        kir::MBarrierInvalidate* mbarrier_inval =
+            IrBuilder::create<kir::MBarrierInvalidate>(stage_mbarrier);
         loop->body().push_back(mbarrier_inval);
       }
     }
@@ -1005,27 +1000,27 @@ class DoubleBufferInserter : private kir::ExprMutator {
   void insertTma(
       kir::ForLoop* double_buffer_loop,
       const std::vector<Expr*>& loads) {
-    const bool has_cp_async_bulk = true;
+    bool has_cp_async_bulk = true;
 
     // cpAsyncBulk (with TMA) requires some operations to be done prior to
     //  prologue loop, for example:
     // - smem allocation
     // - initialization of mbarrier objects
-    auto pre_prologue_exprs =
+    std::vector<Expr*> pre_prologue_exprs =
         CpAsyncBulkPrePrologue::create(double_buffer_loop, loads);
     if (!pre_prologue_exprs.empty()) {
-      for (auto expr : pre_prologue_exprs) {
+      for (Expr* expr : pre_prologue_exprs) {
         registerInsertBefore(double_buffer_loop, expr);
       }
     }
     // cpAsyncBulk (with TMA) block sync prior to entering main loop to
     //  make smem with mbarrier objects is initialized.
     if (has_cp_async_bulk) {
-      auto sync = IrBuilder::create<kir::BlockSync>(false);
+      kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
       registerInsertBefore(double_buffer_loop, sync);
     }
 
-    auto prologue_loop = DoubleBufferLoopCloner::clone(
+    kir::ForLoop* prologue_loop = DoubleBufferLoopCloner::clone(
         double_buffer_loop,
         loads,
         DoubleBufferLoopStage::Prolog,
@@ -1040,7 +1035,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
         << "=============================================================\n";
 #endif //  EXTRA_LOGS
 
-    auto main_loop = DoubleBufferLoopCloner::clone(
+    kir::ForLoop* main_loop = DoubleBufferLoopCloner::clone(
         double_buffer_loop,
         loads,
         DoubleBufferLoopStage::Main,
@@ -1072,7 +1067,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
       // allocation.
       std::unordered_set<Expr*> alloc_in_main;
       getAllocInTrivialLoop(main_loop, alloc_in_main);
-      auto epilogue_loop = DoubleBufferLoopCloner::clone(
+      kir::ForLoop* epilogue_loop = DoubleBufferLoopCloner::clone(
           double_buffer_loop,
           loads,
           DoubleBufferLoopStage::Epilog,
@@ -1090,10 +1085,10 @@ class DoubleBufferInserter : private kir::ExprMutator {
 #endif //  EXTRA_LOGS
     }
 
-    auto post_epilogue_exprs =
+    std::vector<Expr*> post_epilogue_exprs =
         CpAsyncBulkPostEpilogue::create(double_buffer_loop, loads);
     if (!post_epilogue_exprs.empty()) {
-      for (auto expr : post_epilogue_exprs) {
+      for (Expr* expr : post_epilogue_exprs) {
         registerInsertAfter(last_for_loop, expr);
       }
     }
@@ -1102,7 +1097,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
   void insert(
       kir::ForLoop* double_buffer_loop,
       const std::vector<Expr*>& loads) {
-    static const auto has_cp_async_bulk = false;
+    bool has_cp_async_bulk = false;
 
     auto prologue_loop = DoubleBufferLoopCloner::clone(
         double_buffer_loop,
