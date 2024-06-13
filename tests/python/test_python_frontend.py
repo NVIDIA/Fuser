@@ -4086,6 +4086,29 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    # Test empty symbolic tensors can be reshaped
+    # See https://github.com/NVIDIA/Fuser/issues/2362
+    def test_empty_reshape(self):
+        inputs = [
+            torch.randint(0, 10, (0, 1, 2, 3, 4), dtype=torch.int64, device="cuda:0")
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, 1, -1, -1, -1],
+                contiguity=[False, None, True, True, True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[4, 3, 2, 1, 0],
+            )
+            S2 = fd.define_scalar(5, dtype=DataType.Int)
+            S3 = fd.define_scalar(0, dtype=DataType.Int)
+            V4 = fd.define_vector([S2, S3], dtype=DataType.Int)
+            T5 = fd.ops.reshape(T0, new_shape=V4)
+            fd.add_output(T5)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
 
 if __name__ == "__main__":
     run_tests()
