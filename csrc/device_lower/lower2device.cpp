@@ -544,7 +544,7 @@ void GpuLower::analysis(Fusion* fusion) {
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
-  if (isOptionEnabled(EnableOption::IdModel)) {
+  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
 }
