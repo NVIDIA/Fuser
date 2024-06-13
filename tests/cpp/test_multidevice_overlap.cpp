@@ -255,6 +255,7 @@ class OverlapTest : public MultiDeviceTest {
 //     sharded_axis, M, ...]
 
 TEST_F(OverlapTest, SimpleComputeComm) {
+  std::vector<c10::cuda::CUDAStream> streams;
   for (auto j : c10::irange(params.S)) {
     auto ta_j = getSlice(ta, j);
     auto tc_unreduced_j = getSlice(tc_unreduced, j);
@@ -262,8 +263,9 @@ TEST_F(OverlapTest, SimpleComputeComm) {
     auto tc_j = getSlice(tc, j);
 
     if (params.use_different_streams) {
-      setCurrentCUDAStream(c10::cuda::getStreamFromPool(
-          /*isHighPriority=*/ true, my_device_index));
+      auto new_stream = c10::cuda::getStreamFromPool(/*isHighPriority=*/true, my_device_index);
+      streams.push_back(new_stream);
+      setCurrentCUDAStream(new_stream);
     }
     // local compute
     computeATen(ta_j, tb, tc_unreduced_j, tc_partially_reduced_j);
@@ -271,6 +273,12 @@ TEST_F(OverlapTest, SimpleComputeComm) {
     getWorldCommunicator()
         ->_reduce_scatter_base(tc_j, tc_partially_reduced_j)
         ->wait();
+  }
+
+  // synchronize default stream with all other streams
+  setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream());
+  for (auto stream: streams) {
+    stream.synchronize();
   }
 
   // validation
