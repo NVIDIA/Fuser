@@ -447,8 +447,8 @@ void AliasAnalysisResult::finalize(
     // allow output tv to alias intermediate tv, then will add segment_set
     // before output tv which changes the output to be a no op for non-output
     // tv. Otherwise, walk up the chain to find an input or output root.
-    bool can_skip_walk_up = pre_segmenter_stage && alias->isFusionOutput();
-    if (!can_skip_walk_up) {
+    bool output_alias_intermediate = pre_segmenter_stage && alias->isFusionOutput();
+    if (!output_alias_intermediate) {
       while (!isSegmentInputOutput(root)) {
         const auto i = alias_to_source_.find(root);
         root = (i == alias_to_source_.end() ? nullptr : i->second.first);

@@ -2317,7 +2317,63 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
   testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, GroupNorm) {
+// segmented into 3 kernels: pointwise, normalization, and pointwise
+TEST_F(GpuViewTest, GroupNormOriginal) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  const std::vector<int64_t> input_shape_wb = {C};
+  const std::vector<int64_t> group_shape_wb = {G, C / G};  
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  auto tv2 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  // pointwise ops, e.g. cast
+  auto tv3 = castOp(DataType::Float, tv0);
+  // reshape from {N, C, H, W} to {N, G, C / G, H, W}
+  auto tv4 = reshape(tv3, input_shape, group_shape);
+  // normalization
+  auto tv5 = sum(tv4, {-1, -2, -3});
+  auto tv6 = broadcast(tv5, {false, false, true, true, true});
+  auto tv7 = div(tv4, tv6);
+  // reshape back to {N, C, H, W}
+  auto tv8 = reshape(tv7, group_shape, input_shape);
+  // pointwise ops, e.g. scale, bias, cast
+  auto tv9 = broadcast(tv1, {true, false, true, true});
+  auto tv10 = broadcast(tv2, {true, false, true, true});
+  auto tv11 = mul(tv8, tv9);
+  auto tv12 = add(tv11, tv10);
+  auto tv13 = castOp(dtype, tv12);
+  fusion->addOutput(tv13);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_wb =
+      at::TensorOptions().dtype(data_type_to_aten(DataType::Float)).device(at::kCUDA, 0);      
+  auto t0 = at::randn(input_shape, options);
+  auto tw = at::randn(input_shape_wb, options_wb);
+  auto tb = at::randn(input_shape_wb, options_wb);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto t2 = t1.sum({-1, -2, -3}).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+  auto t4 = t3.reshape(input_shape);
+  auto t5 = tw.unsqueeze(0).unsqueeze(-1).unsqueeze(-1);
+  auto t6 = tb.unsqueeze(0).unsqueeze(-1).unsqueeze(-1);
+  auto t7 = t4.mul(t5).add(t6);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t7, 1e-5, 0.01))
+      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t7).abs().max();
+}
+
+// one kernel
+TEST_F(GpuViewTest, GroupNormReshapeMovedToInputOutputNoWeightBias) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
@@ -2349,236 +2405,57 @@ TEST_F(GpuViewTest, GroupNorm) {
       << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t4).abs().max();
 }
 
-TEST_F(GpuViewTest, GroupNormMannualSegmentSet) {
+
+// one kernel
+TEST_F(GpuViewTest, GroupNormReshapeMovedToInputOutput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
   const std::vector<int64_t> input_shape = {N, C, H, W};
   const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  const std::vector<int64_t> input_shape_wb = {C};
+  const std::vector<int64_t> group_shape_wb = {G, C / G};  
   DataType dtype = DataType::Half;
   auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  auto tv2 = makeContigTensor(input_shape_wb.size(), DataType::Float);
   fusion->addInput(tv0);
-  auto tv1 = reshape(tv0, input_shape, group_shape);
-  auto tvs1 = segment_set(tv1);
-  auto tv2 = castOp(DataType::Float, tvs1);
-  auto tv3 = sum(tv2, {-1, -2, -3});
-  auto tv4 = broadcast(tv3, {false, false, true, true, true});
-  auto tv5 = div(tv2, tv4);
-  auto tv6 = castOp(dtype, tv5);
-  auto tvs2 = segment_set(tv6);
-  auto tv7 = reshape(tvs2, group_shape, input_shape);
-  fusion->addOutput(tv7);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = reshape(tv0, input_shape, group_shape);
+  auto tv4 = reshape(tv1, input_shape_wb, group_shape_wb);
+  auto tv5 = reshape(tv2, input_shape_wb, group_shape_wb);
+  auto tv6 = castOp(DataType::Float, tv3);
+  auto tv7 = sum(tv6, {-1, -2, -3});
+  auto tv8 = broadcast(tv7, {false, false, true, true, true});
+  auto tv9 = div(tv6, tv8);
+  auto tv10 = broadcast(tv4, {true, false, false, true, true});
+  auto tv11 = broadcast(tv5, {true, false, false, true, true});
+  auto tv12 = mul(tv9, tv10);
+  auto tv13 = add(tv12, tv11);
+  auto tv14 = castOp(dtype, tv13);
+  auto tv15 = reshape(tv14, group_shape, input_shape);
+  fusion->addOutput(tv15);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_wb =
+      at::TensorOptions().dtype(data_type_to_aten(DataType::Float)).device(at::kCUDA, 0);      
   auto t0 = at::randn(input_shape, options);
+  auto tw = at::randn(input_shape_wb, options_wb);
+  auto tb = at::randn(input_shape_wb, options_wb);
   auto t1 = t0.reshape(group_shape).to(at::kFloat);
   auto t2 = t1.sum({-1, -2, -3}).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1);
   auto t3 = t1 / t2;
   auto t4 = t3.reshape(input_shape);
+  auto t5 = tw.unsqueeze(0).unsqueeze(-1).unsqueeze(-1);
+  auto t6 = tb.unsqueeze(0).unsqueeze(-1).unsqueeze(-1);
+  auto t7 = t4.mul(t5).add(t6);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t4, 1e-5, 0.01))
-      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t4).abs().max();
-}
-
-// with segment_set, NoOp + Norm + NoOp, 0.01 ms, 1664 GB/s on H100
-TEST_F(GpuViewTest, ReshapePointwiseNormPointwiseReshapeWithOneSegmentSet) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  const std::vector<int64_t> input_shape = {16384, 256};
-  const std::vector<int64_t> group_shape = {512, 32, 256};
-  DataType dtype = DataType::Half;
-  auto tv0 = makeContigTensor(2, dtype);
-  fusion->addInput(tv0);
-  auto tv1 = reshape(tv0, input_shape, group_shape);
-  auto tvs1 = segment_set(tv1);
-  auto tv2 = castOp(DataType::Float, tvs1);
-  auto tv3 = sum(tv2, {1, 2});
-  auto tv4 = broadcast(tv3, {false, true, true});
-  auto tv5 = div(tv2, tv4);
-  auto tv6 = castOp(dtype, tv5);
-  auto tv7 = reshape(tv6, group_shape, input_shape);
-  fusion->addOutput(tv7);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options);
-  auto t1 = t0.reshape(group_shape).to(at::kFloat);
-  auto t2 = t1.sum({1, 2}).unsqueeze(-1).unsqueeze(-1);
-  auto t3 = t1 / t2;
-  auto t4 = t3.reshape(input_shape);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t4, 1e-5, 0.01))
-      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t4).abs().max();
-}
-
-// without segment_set, Pointwise + Norm + NoOp, 0.026 ms, 656 GB/s on H100
-TEST_F(GpuViewTest, ReshapePointwiseNormPointwiseReshapeWithoutSegmentSet) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  const std::vector<int64_t> input_shape = {16384, 256};
-  const std::vector<int64_t> group_shape = {512, 32, 256};
-  DataType dtype = DataType::Half;
-  auto tv0 = makeSymbolicTensor(2, dtype);
-  fusion->addInput(tv0);
-  auto tv1 = reshape(tv0, input_shape, group_shape);
-  auto tv2 = castOp(DataType::Float, tv1);
-  auto tv3 = sum(tv2, {1, 2});
-  auto tv4 = broadcast(tv3, {false, true, true});
-  auto tv5 = div(tv2, tv4);
-  auto tv6 = castOp(dtype, tv5);
-  auto tv7 = reshape(tv6, group_shape, input_shape);
-  fusion->addOutput(tv7);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options);
-  auto t1 = t0.reshape(group_shape).to(at::kFloat);
-  auto t2 = t1.sum({1, 2}).unsqueeze(-1).unsqueeze(-1);
-  auto t3 = t1 / t2;
-  auto t4 = t3.reshape(input_shape);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t4, 1e-5, 0.01))
-      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t4).abs().max();
-}
-
-// pointwise + norm + pointwise, 0.029 ms, 585 GB/s on H100
-TEST_F(GpuViewTest, PointwiseReshapeNormReshapePointwise) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  const std::vector<int64_t> input_shape = {16384, 256};
-  const std::vector<int64_t> group_shape = {512, 32, 256};
-  DataType dtype = DataType::Half;
-  auto tv0 = makeSymbolicTensor(2, dtype);
-  fusion->addInput(tv0);
-  auto tv1 = castOp(DataType::Float, tv0);
-  auto tv2 = reshape(tv1, input_shape, group_shape);
-  auto tv3 = sum(tv2, {1, 2});
-  auto tv4 = broadcast(tv3, {false, true, true});
-  auto tv5 = div(tv2, tv4);
-  auto tv6 = reshape(tv5, group_shape, input_shape);
-  auto tv7 = castOp(dtype, tv6);
-  fusion->addOutput(tv7);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options);
-  auto t1 = t0.reshape(group_shape).to(at::kFloat);
-  auto t2 = t1.sum({1, 2}).unsqueeze(-1).unsqueeze(-1);
-  auto t3 = t1 / t2;
-  auto t4 = t3.reshape(input_shape);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t4, 1e-5, 0.01))
-      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t4).abs().max();
-}
-
-TEST_F(GpuViewTest, PointwiseReshapeNormPointwise) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  const std::vector<int64_t> input_shape = {16384, 256};
-  const std::vector<int64_t> group_shape = {512, 32, 256};
-  DataType dtype = DataType::Half;
-  auto tv0 = makeSymbolicTensor(2, dtype);
-  fusion->addInput(tv0);
-  auto tv1 = castOp(DataType::Float, tv0);
-  auto tv2 = reshape(tv1, input_shape, group_shape);
-  auto tv3 = sum(tv2, {1, 2});
-  auto tv4 = broadcast(tv3, {false, true, true});
-  auto tv5 = div(tv2, tv4);
-  auto tv6 = castOp(dtype, tv5);
-  fusion->addOutput(tv6);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options);
-  auto t1 = t0.reshape(group_shape).to(at::kFloat);
-  auto t2 = t1.sum({1, 2}).unsqueeze(-1).unsqueeze(-1);
-  auto t3 = t1 / t2;
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t3, 1e-5, 0.01))
-      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t3).abs().max();
-}
-
-
-TEST_F(GpuViewTest, ReshapeNorm) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  const std::vector<int64_t> input_shape = {16384, 256};
-  const std::vector<int64_t> group_shape = {512, 32, 256};
-  DataType dtype = DataType::Half;
-  auto tv0 = makeSymbolicTensor(2, dtype);
-  fusion->addInput(tv0);
-  auto tv1 = reshape(tv0, input_shape, group_shape);
-  auto tv2 = castOp(DataType::Float, tv1);
-  auto tv3 = sum(tv2, {1, 2});
-  auto tv4 = broadcast(tv3, {false, true, true});
-  auto tv5 = div(tv2, tv4);
-  auto tv6 = castOp(dtype, tv5);
-  fusion->addOutput(tv6);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options);
-  auto t1 = t0.reshape(group_shape).to(at::kFloat);
-  auto t2 = t1.sum({1, 2}).unsqueeze(-1).unsqueeze(-1);
-  auto t3 = t1 / t2;
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t3, 1e-5, 0.01))
-      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t3).abs().max();
-}
-
-
-TEST_F(GpuViewTest, SimpleNoOpViewSplit) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  const std::vector<int64_t> input_shape = {16384, 256};
-  const std::vector<int64_t> output_shape = {512, 32, 256};
-  DataType dtype = DataType::Half;
-  auto tv0 = makeSymbolicTensor(2, dtype);
-  fusion->addInput(tv0);
-  auto tv1 = reshape(tv0, input_shape, output_shape);
-  fusion->addOutput(tv1);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options);
-  auto t1 = t0.reshape(output_shape);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-}
-
-
-TEST_F(GpuViewTest, SimpleNoOpViewMerge) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  const std::vector<int64_t> input_shape = {512, 32, 256} ;
-  const std::vector<int64_t> output_shape = {16384, 256};
-  DataType dtype = DataType::Half;
-  auto tv0 = makeContigTensor(3, dtype);
-  fusion->addInput(tv0);
-  auto tv1 = reshape(tv0, input_shape, output_shape);
-  fusion->addOutput(tv1);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options);
-  auto t1 = t0.reshape(output_shape);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t7, 1e-5, 0.01))
+      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t7).abs().max();
 }
 
 } // namespace nvfuser
