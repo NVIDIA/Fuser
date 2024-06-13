@@ -117,7 +117,7 @@ class OverlapTest : public MultiDeviceTest {
 
     int64_t my_device_index;
     at::TensorOptions options;
-    at::Tensor ta, tb, tc_unreduced, tc, tc_ref;
+    at::Tensor ta, tb, tc_unreduced, tc_locally_reduced, tc, tc_ref;
 
     std::unique_ptr<Fusion> fusion;
     std::unique_ptr<FusionExecutor> fe;
@@ -148,19 +148,18 @@ class OverlapTest : public MultiDeviceTest {
         ASSERT_EQ(params.M % (params.S * num_devices), 0);
         ASSERT_EQ(params.K % num_devices, 0);
 
-        // Input set-up. Define the full unsharded inputs for validation
-        std::vector<int64_t> ta_unsharded_sizes = {params.S, num_devices, params.M/params.S, params.K/num_devices, 1       };
-        std::vector<int64_t> ta_sizes           = {params.S, 1          , params.M/params.S, params.K/num_devices, 1       };
-        std::vector<int64_t> tb_unsharded_sizes = {1       , num_devices, 1                , params.K/num_devices, params.N};
-        std::vector<int64_t> tb_sizes           = {1       , 1          , 1                , params.K/num_devices, params.N};
-        std::vector<int64_t> tc_unreduced_sizes = {params.S, 1          , params.M/params.S, params.K/num_devices, params.N};
-        std::vector<int64_t> tc_unsharded_sizes = {params.S, num_devices, params.M/params.S, params.N};
-        std::vector<int64_t> tc_sizes =           {params.S, 1, params.M/(params.S*num_devices), params.N};
+        // Input set-up and buffer allocation. Define the full unsharded inputs for validation
+        std::vector<int64_t> ta_unsharded_sizes         = {params.S, num_devices, params.M/params.S, params.K/num_devices, 1       };
+        std::vector<int64_t> ta_sizes                   = {params.S, 1          , params.M/params.S, params.K/num_devices, 1       };
+        std::vector<int64_t> tb_unsharded_sizes         = {1       , num_devices, 1                , params.K/num_devices, params.N};
+        std::vector<int64_t> tb_sizes                   = {1       , 1          , 1                , params.K/num_devices, params.N};
+        std::vector<int64_t> tc_unreduced_sizes         = {params.S, 1          , params.M/params.S, params.K/num_devices, params.N};
+        std::vector<int64_t> tc_partially_reduced_sizes = {params.S, 1          , params.M/params.S, 1                   , params.N};
+        std::vector<int64_t> tc_sizes                   = {params.S, 1          , params.M/(params.S*num_devices)        , params.N};
 
         options = at::TensorOptions().dtype(at::kFloat).device(communicator->device());
         auto ta_unsharded = at::randn(ta_unsharded_sizes, options);
         auto tb_unsharded = at::randn(tb_unsharded_sizes, options);
-
         ta = at::empty(ta_sizes, options);
         ta.copy_(ta_unsharded.index({at::indexing::Slice(),
                             at::indexing::Slice(my_device_index, my_device_index+1), "..."}));
@@ -169,21 +168,33 @@ class OverlapTest : public MultiDeviceTest {
                             at::indexing::Slice(my_device_index, my_device_index+1), "..."}));
 
         tc_unreduced = at::empty(tc_unreduced_sizes, options);
+        tc_locally_reduced = at::empty(tc_partially_reduced_sizes, options);
         tc = at::empty(tc_sizes, options);
 
         // compute the expected output for validation
         // auto ta_unsharded_b = at::broadcast_to(ta_unsharded, {params.S, num_devices, params.M/params.S, params.K/num_devices, 1});
         // auto tb_unsharded_b = at::broadcast_to(tb_unsharded, {1       , num_devices, 1                , params.K/num_devices, params.N});
         auto tc_unsharded_unreduced = ta_unsharded * tb_unsharded;
-        std::cout << "tc_unsharded_unreduced.sizes()=" << tc_unsharded_unreduced.sizes() << std::endl;
         auto tc_unsharded_ref = at::sum(tc_unsharded_unreduced, {1,3});
-        std::cout << "tc_unsharded_ref.sizes()=" << tc_unsharded_ref.sizes() << std::endl;
         auto tc_unsharded_ref_reshaped = at::reshape(tc_unsharded_ref, {params.S, num_devices, params.M/(params.S*num_devices), params.N});
-        std::cout << "tc_unsharded_ref_reshaped.sizes()=" << tc_unsharded_ref_reshaped.sizes() << std::endl;
         tc_ref = tc_unsharded_ref_reshaped.index({at::indexing::Slice(),
                             at::indexing::Slice(my_device_index, my_device_index+1), "..."});
 
-        // compute_ATen(t0_unsharded, t2_ref);
+
+        if (!communicator->deviceId()) {
+            std::cout << "ta.sizes()=" << ta.sizes() << std::endl;
+            std::cout << "tb.sizes()=" << tb.sizes() << std::endl;
+            std::cout << "tc_unreduced.sizes()=" << tc_unreduced.sizes() << std::endl;
+            std::cout << "tc_locally_reduced.sizes()=" << tc_locally_reduced.sizes() << std::endl;
+            std::cout << "tc.sizes()=" << tc.sizes() << std::endl;
+            std::cout << "tc_ref.sizes()=" << tc_ref.sizes() << std::endl;
+            std::cout << "tc_unsharded_unreduced.sizes()=" << tc_unsharded_unreduced.sizes() << std::endl;
+            std::cout << "tc_unsharded_ref.sizes()=" << tc_unsharded_ref.sizes() << std::endl;
+            std::cout << "tc_unsharded_ref_reshaped.sizes()=" << tc_unsharded_ref_reshaped.sizes() << std::endl;
+        }
+
+
+        // computeATen(t0_unsharded, t2_ref);
 
 
         // if (params.compute_mode == ComputeMode::nvFuserFusionExecutor) {
@@ -220,12 +231,13 @@ class OverlapTest : public MultiDeviceTest {
         return ret;
     }
 
-    at::Tensor compute_ATen (at::Tensor& ta, at::Tensor& tb) {
-        if (!communicator->deviceId()) {
-            std::cout << ta.sizes() << std::endl;
-            std::cout << tb.sizes() << std::endl;
-        }
-        return ta;
+    at::Tensor getSlice(at::Tensor t, int64_t j) {
+        return t.index({at::indexing::Slice(j, j+1), "..."});
+    }
+
+    void computeATen(at::Tensor ta_j, at::Tensor tb_j, at::Tensor tc_unreduced_j, at::Tensor tc_partially_reduced_j) {
+        at::mul_out(tc_unreduced_j, ta_j, tb_j);
+        at::sum_out(tc_partially_reduced_j, tc_unreduced_j, {3});
         // auto [S , D ,  M_div_S , K_div_D , Nb] = ta.sizes();
         // auto [Sb, D2,  M_div_Sb, K_div_D2, N ] = tb.sizes();
         // NVF_ERROR(D==D2);
@@ -236,34 +248,34 @@ class OverlapTest : public MultiDeviceTest {
         // auto ta_b = at::broadcast_to(ta, {params.S, 1, params.M/params.S, params.K/num_devices, 1});
         // auto tb_b = at::broadcast_to(tb, {1       , 1, 1                , params.K/num_devices, params.N});
         // auto tc_unreduced = ta_b * ta_b;
-        // auto tc_partially_reduced = at::sum(tc_unreduced, {3});
+        // auto tc_locally_reduced = at::sum(tc_unreduced, {3});
         // if (!communicator->deviceId()) {
-        //     std::cout << tc_partially_reduced << std::endl;
+        //     std::cout << tc_locally_reduced << std::endl;
         // }
-        // return tc_partially_reduced;
+        // return tc_locally_reduced;
     }
 
-    void compute(at::Tensor t, at::Tensor output) {
-        std::vector<c10::IValue> inputs;
-        switch (params.compute_mode)
-        {
-        case ComputeMode::Pytorch:
-            compute_ATen(t, output);
-            break;
-        // case ComputeMode::nvFuserFusionExecutor:
-        //     inputs.push_back(t);
-        //     fe->runFusion(inputs, {output});
-        //     break;
-        default:
-            NVF_ERROR(false);
-            break;
-        }
-        return;
-    }
+//     void compute(at::Tensor t, at::Tensor output) {
+//         std::vector<c10::IValue> inputs;
+//         switch (params.compute_mode)
+//         {
+//         case ComputeMode::Pytorch:
+//             computeATen(t, output);
+//             break;
+//         // case ComputeMode::nvFuserFusionExecutor:
+//         //     inputs.push_back(t);
+//         //     fe->runFusion(inputs, {output});
+//         //     break;
+//         default:
+//             NVF_ERROR(false);
+//             break;
+//         }
+//         return;
+//     }
 };
 
 /*
-The tensor program on `num_devices` devices that we target is the following:
+The tensor program that we target is the following, assuming a setup with `num_devices` devices:
     inputs: 
        - A[M,K] sharded column-wise:
          dimension K is split by the factor `num_devices`
@@ -276,72 +288,72 @@ The tensor program on `num_devices` devices that we target is the following:
          dimension M is split by the factor `num_devices`
          so C is viewed as [num_devices, M/num_devices,N]
          and the allocation size of M is [1, M/num_devices,N]
-Up to some broadcast and view ops, a possible program to generate the output could be summarized as
-    | C_unreduced = pointwise_multiply(A,B) (with unsharded size [M,K,N], sharded on split of dimension K)
-    | C = reduce_scatter(C_unreduced, op=sum) (with unsharded size [M,K] sharded on split of dimension M)
+Up to some broadcast and view ops, a straightforward program to generate the output could be summarized as
+    | C_unreduced = pointwise_multiply(A,B) (with unsharded size [M,num_devices,K/num_devices,N], sharded on `num_devices`)
+    | C_locally_reduce = local_reduction(C_unreduced, axis=`K/num_devices`, op=sum) (with unsharded size [M,num_devices,N], sharded on `num_devices`)
+    | C = reduce_scatter(C_unreduced, op=sum) (with unsharded size [num_devices, M/num_devices, N] sharded on `num_devices`)
 We want to compare this baseline program with one that is functionnally identical but achieves more overlap between computations and communications.
 Our goal is to interlave the comms and compute using a technic called "reduce-scatter based pipelining"
-To do so, we further split the row dimension M with a factor `S` representing the number of tiles, and we apply the operations successively on tensors slices (accross S), changing stream at each iteration.
+To do so, we further split the row dimension M with a factor `S` representing the number of tiles, and we apply the operations successively on tensors slices accross S, changing stream at each iteration.
 Assuming the following shapes:
-    - A [S, M/S, num_devices, K/num_devices], sharded on num_devices
+    - A [S, num_devices, M/S, K/num_devices], sharded on num_devices
     - B [num_devices, K/num_devices, N], sharded on num_devices
     - C [S, num_devices, M/(S*num_devices), N], sharded on num_devices
 the program implementing collective-based pipelining could be summarized as:
     | for (j=0; j<S; j++) {
     |   setCurrentStream(Stream[j])
     |   C_unreduced[j] = pointwise_multiply(A[j],B)
-    |   C[j]=reduce_scatter(C_unreduced[j], op=sum)
+    |   C_locally_reduce[j] = local_reduction(C_unreduced[j], axis=`K/num_devices`, op=sum)
+    |   C[j]=reduce_scatter(C_locally_reduce[j], op=sum)
     | }
-where "[j]" referes to taking a slice onto the "S" dimension.
+where "[j]" referes to taking a slice onto the `S` dimension.
 This program achieves overlap between comms and compute
 Remarks:
-    1) it is convenient to have "S" as being the outermost dimension so C_unreduced[j] is a contiguous buffer.
-    2) The initial layout [K,M,N] is needed to match the reduce-scatter semantics, i.e., the first dimension is the reduced and the second is scattered
+    1) it is convenient to have "S" as being the outermost dimension so C_locally_reduce[j] is a contiguous buffer.
+    2) The layout needs to match the reduce-scatter semantics, i.e., the first dimension is reduced and the second is scattered. This is why we choose the layouts to be [S, sharded_axis, M, ...]
 */
 TEST_F(OverlapTest, GEMM_RS_without_overlap) {
-    // auto ta_b = at::broadcast_to(ta, {params.S, 1, params.M/params.S, params.K/num_devices, 1});
-    // auto tb_b = at::broadcast_to(tb, {1       , 1, 1                , params.K/num_devices, params.N});
     if (params.S != 1) {
         GTEST_SKIP() << "must set S to 1";
     }
 
-    auto tc_unreduced = ta * tb; // {params.S, 1 , params.M/params.S, params.K/num_devices, params.N}
-    auto tc_partially_reduced = at::sum(tc_unreduced, {3}); // {params.S, 1 , params.M/params.S, params.N}
+    tc_unreduced = ta * tb; // {params.S, 1 , params.M/params.S, params.K/num_devices, params.N}
+    auto tc_locally_reduced = at::sum(tc_unreduced, {3}); // {params.S, 1 , params.M/params.S, params.N}
     if (!communicator->deviceId()) {
         std::cout << "ta.sizes()=" << ta.sizes() << std::endl;
         std::cout << "tb.sizes()=" << tb.sizes() << std::endl;
         std::cout << "tc_unreduced.sizes()=" << tc_unreduced.sizes() << std::endl;
-        std::cout << "tc_partially_reduced.sizes()=" << tc_partially_reduced.sizes() << std::endl;
+        std::cout << "tc_locally_reduced.sizes()=" << tc_locally_reduced.sizes() << std::endl;
         std::cout << "tc.sizes()=" << tc.sizes() << std::endl;
         std::cout << "tc_ref.sizes()=" << tc_ref.sizes() << std::endl;
     }
-    getWorldCommunicator()->_reduce_scatter_base(tc, tc_partially_reduced)->wait();
+    getWorldCommunicator()->_reduce_scatter_base(tc, tc_locally_reduced)->wait();
     ASSERT_TRUE(tc.allclose(tc_ref, 1e-3, 1e-3)) <<"Unexpected results: obtained:"<< tc << "\n expected:" << tc_ref;
 }
-// TEST_F(OverlapTest, SimpleComputeComm) {
-//     if (params.compute_mode == ComputeMode::nvFuserFusionExecutor) {
-//         c10::IValue t0_ivalue = t0.index({at::indexing::Slice(0, params.tile_size), "..."});
-//         fe->compileFusion(fusion.get(), t0_ivalue);
-//     }
-//     // Iterate over the number of tiles and pipeline the comms and compute
-//     for (auto j: c10::irange(S)) {
-//         if (params.use_different_streams) {
-//             setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
-//         }
-//         // local compute
-//         compute(t0.index({at::indexing::Slice(j*params.tile_size, (j+1)*params.tile_size), "..."}),
-//                 t1.index({at::indexing::Slice(j*params.tile_size, (j+1)*params.tile_size), "..."})
-//                );
 
-//         // communication
-//         for (int k=0; k<params.tile_size; k++) {
-//             int index = j*params.tile_size + k;
-//             auto dst = t2.index({at::indexing::Slice(index, index+1), "..."});
-//             auto src = t1.index({at::indexing::Slice(index, index+1), "..."});
-//             getWorldCommunicator()->_allgather_base(dst, src)->wait();
-//         }
-//     }
-// }
+TEST_F(OverlapTest, SimpleComputeComm) {
+    // if (params.compute_mode == ComputeMode::nvFuserFusionExecutor) {
+    //     c10::IValue t0_ivalue = t0.index({at::indexing::Slice(0, params.tile_size), "..."});
+    //     fe->compileFusion(fusion.get(), t0_ivalue);
+    // }
+    // Iterate over the number of tiles and pipeline the comms and compute
+    for (auto j: c10::irange(params.S)) {
+        auto ta_j                   = getSlice(ta, j);
+        auto tc_unreduced_j         = getSlice(tc_unreduced, j);
+        auto tc_partially_reduced_j = getSlice(tc_locally_reduced, j);
+        auto tc_j                   = getSlice(tc, j);
+
+        if (params.use_different_streams) {
+            setCurrentCUDAStream(c10::cuda::getStreamFromPool(/* high priority */true, my_device_index));
+        }
+        // local compute
+        computeATen(ta_j, tb, tc_unreduced_j, tc_partially_reduced_j);
+
+        // communication
+        getWorldCommunicator()->_reduce_scatter_base(tc_j, tc_partially_reduced_j)->wait();
+    }
+    ASSERT_TRUE(tc.allclose(tc_ref, 1e-3, 1e-3)) << "Unexpected results, obtained:"<< tc << "\n expected: " << tc_ref;
+}
 
 } // namespace nvfuser
 
