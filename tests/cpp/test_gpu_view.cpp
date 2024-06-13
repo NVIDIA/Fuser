@@ -346,6 +346,11 @@ std::vector<reshape_example> all_reshape_examples = {
     {{8, 1, 1, 8, 1, 8}, {8, 2, 4, 1, 8}},
 
     {{2, 3, 2 * 2, 5}, {1, 6, 1, 2, 2, 5, 1}},
+
+    // Empty tensor reshapes
+    {{2, 3, 0, 5}, {6, 0, 5}},
+    {{2, 3, 0, 5}, {0, 7, 0}},
+    {{2, 3, 0, 5}, {0, -1, 0}},
 };
 
 TEST_F(GpuViewTest, FusionReshapeReductionShmoo) {
@@ -1196,7 +1201,7 @@ TEST_F(GpuViewTest, FusionReshapeVectorize) {
   auto lparams = schedulePointwise(&fusion, {input});
 
   auto hasVectorization = [](TensorView* tv) -> bool {
-    for (auto i : tv->getLeafDomain()) {
+    for (auto i : tv->getLoopDomain()) {
       if (i->getParallelType() == ParallelType::Vectorize) {
         return true;
       }

@@ -457,7 +457,7 @@ bool hasAnyReductionOps(Fusion* fusion) {
 }
 
 bool hasAnyMatmulOps(Fusion* fusion) {
-  return hasOpsOfType<LinearOp, MmaOp, MatmulOp>(fusion);
+  return hasOpsOfType<LinearOp, MmaOp, MatmulOp, SdpaFwdOp>(fusion);
 }
 
 namespace {
@@ -590,7 +590,7 @@ bool isReductionTvOp(const Expr* expr) {
 }
 
 bool isPointwiseTvOp(const Expr* expr) {
-  // LoadStoreOp with rfactor domain means transpose, which is not
+  // LoadStoreOp with producer projection means transpose, which is not
   // considered pointwise
   return isTvOp(expr) &&
       (expr->isOneOf<UnaryOp, BinaryOp, TernaryOp>() ||
@@ -682,10 +682,10 @@ bool isSqueezeInput(const TensorView* tv) {
 }
 
 bool isSqueezedID(const TensorView* tv, const IterDomain* id) {
-  auto root_dom = TensorDomain::noReductions(tv->getRFactorDomain());
+  auto logical_dom = TensorDomain::noReductions(tv->getLogicalDomain());
   auto squeezes = ir_utils::filterByType<SqueezeOp>(tv->uses());
-  for (auto i : c10::irange(root_dom.size())) {
-    if (root_dom[i] != id) {
+  for (auto i : c10::irange(logical_dom.size())) {
+    if (logical_dom[i] != id) {
       continue;
     }
     for (auto squeeze : squeezes) {
@@ -736,7 +736,7 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   const auto& root_domain = tv->getMaybeRootDomain();
-  const auto& domain = tv->getLeafDomain();
+  const auto& domain = tv->getLoopDomain();
   // Grab all values in the history of the tensor view's domain
   auto all_vals = DependencyCheck::getAllValsBetween(
       {root_domain.begin(), root_domain.end()}, {domain.begin(), domain.end()});
@@ -802,7 +802,7 @@ bool hasResizedRfactor(const TensorView* tv) {
   }
   auto root_to_rf_exprs = StmtSort::getExprsBetween(
       {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-      {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()});
+      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
   return std::any_of(
       root_to_rf_exprs.begin(), root_to_rf_exprs.end(), [](Expr* expr) {
         return expr->isA<Resize>();
@@ -1088,7 +1088,7 @@ bool isTensorStride(const Val* val) {
 }
 
 int64_t getVectorizeSize(const TensorView* tv) {
-  for (auto id : tv->getLeafDomain()) {
+  for (auto id : tv->getLoopDomain()) {
     if (!isParallelTypeVectorize(id->getParallelType())) {
       continue;
     }
@@ -1107,8 +1107,8 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
     return true;
   }
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
-  const std::vector<IterDomain*>& rf = tv->getRFactorDomain();
-  return TensorDomain::noBroadcasts(TensorDomain::noReductions(rf)) ==
+  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+  return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
       TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
 }
 
@@ -1186,9 +1186,9 @@ MmaOpDetails getMmaOpDetails(
     TensorView* in_a,
     TensorView* in_b) {
   const auto in_a_details =
-      getDetailsFor(TensorDomain::noDevices(in_a->getRFactorDomain()));
+      getDetailsFor(TensorDomain::noDevices(in_a->getLogicalDomain()));
   const auto in_b_details =
-      getDetailsFor(TensorDomain::noDevices(in_b->getRFactorDomain()));
+      getDetailsFor(TensorDomain::noDevices(in_b->getLogicalDomain()));
   const auto out_details =
       getDetailsFor(TensorDomain::noDevices(out->getMaybeRootDomain()));
 

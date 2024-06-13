@@ -77,7 +77,7 @@ DataType metaDataTypeOf(const Val* v) {
     return PointerType{std::make_shared<DataType>(tv->dtype())};
   }
 
-  size_t dim = TensorDomain::noReductions(tv->getRFactorDomain()).size();
+  size_t dim = TensorDomain::noReductions(tv->getLogicalDomain()).size();
   size_t alloc_dim =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
   return globalTensorMetaData(

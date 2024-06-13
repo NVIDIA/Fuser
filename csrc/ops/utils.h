@@ -16,6 +16,9 @@
 #include <vector>
 
 namespace nvfuser {
+
+enum class AttnRole { Q = 0, K, V, Mask };
+
 namespace ops {
 
 TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank);
@@ -47,7 +50,7 @@ IterType promoteIterType(IterType type1, IterType type2);
 // 3. A/B are atleast 1D and one of them is > 2D: [B, M, K] x [K, N] -> [B, M,
 // N] (Mapping A: {id_B, id_M, nullptr}, Mapping B: {nullptr, nullptr, id_N})
 // Args:
-// 1. input_domain: root/rfactor domain without reductions for any input to
+// 1. input_domain: root/logical domain without reductions for any input to
 // MatmulOp
 // 2. input_role: Specifies if the input is A / B (MatmulRole::Input_A/Input_B)
 // 3: out_size: MatmulOp output dimension (input and output may not be the same
@@ -62,7 +65,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 // (B[out_features, in_features]), the last dimension of output is out_features.
 // If bias is 1D (bias[out_features]) it maps to the last dimension of the
 // output. Args:
-// 1. input_domain: root/rfactor domain without reductions for any input to
+// 1. input_domain: root/logical domain without reductions for any input to
 // LinearOp
 // 2. input_role: Specifies if the input is A / B / Bias
 // (MatmulRole::Input_A/Input_B/Input_C) 3: out_size: LinearOp output dimension

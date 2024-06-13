@@ -1678,7 +1678,7 @@ TEST_F(ResizeTest, PadToEmptyTensor) {
           IrBuilder::create<Val>(2.0));
   fusion->addOutput(tv1);
   // set allocation domain to trigger validation check on size/stride
-  tv1->setAllocationDomain(tv1->getRFactorDomain(), true);
+  tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -2309,7 +2309,7 @@ TEST_F(ResizeTest, SliceVectorization) {
 
   // check that we vectorize 4
   bool found_vectorize = false;
-  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
+  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       EXPECT_EQ(id->extent()->evaluate(), 4);
       found_vectorize = true;
@@ -3357,17 +3357,17 @@ TEST_F(ResizeTest, AvoidVectorization) {
 
   schedulePointwise(&fusion, *params);
 
-  // Make sure tv1 is not vectorized, i.e., no leaf IterDomains are vectorized.
+  // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(
-      tv1->getLeafDomain(),
+      tv1->getLoopDomain(),
       Each(
           Property(&IterDomain::getParallelType, Not(ParallelType::Vectorize))))
       << "Unexpected vectorization: " << tv1;
 
-  // Make sure tv2 should be vectorized, i.e., at least one leaf IterDomain is
+  // Make sure tv2 should be vectorized, i.e., at least one loop IterDomain is
   // vectorized.
   EXPECT_THAT(
-      tv2->getLeafDomain(),
+      tv2->getLoopDomain(),
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv2;
 

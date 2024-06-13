@@ -496,12 +496,12 @@ void swizzleSharedMemory(TensorView* shared_mem_tv) {
   // memory.
   // TODO: This is a temporary workaround for the following issue:
   // For the mma output, we have the following schedule:
-  // rFactor: [...., X, Y] -> mma-swizzle transformations -> leaf
+  // rFactor: [...., X, Y] -> mma-swizzle transformations -> loop
   // For epilogue smem tensor, the schedule is
   // rFactor: [...., X, Y] -> split -> [...., X1, X2, X3, Y1, Y2, Y3]
   //   -> swizzle X2, Y2 -> [...., X1, X2', X3, Y1, Y2', Y3]
   //   -> merge back -> [...., X', Y']
-  //   -> mma-swizzle transformations -> leaf
+  //   -> mma-swizzle transformations -> loop
   // The mma-swizzle transformations for the mma output and epilogue smem
   // tensor are the same. In indexing, we do require {X, X'} and {Y, Y'} to be
   // mapped in CA map, however, we currently can not handle that. So we have
@@ -550,7 +550,7 @@ void scheduleProlog(
     shared_mem_tv->promoteReuse();
   }
 
-  mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
+  mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(shared_mem_tv);
 
   // Swizzle the shared memory data layout
   swizzleSharedMemory(shared_mem_tv);
@@ -649,21 +649,21 @@ void scheduleOutputTensor(
 //!  producers in the epilogue. Transformations' propagation aims at input tvs
 //!  which are not assigned to core roles, that is, are not MMA inputs.
 void scheduleFusionInputsForEpilogue(
-    const mma_utils::RolesMap& roles_map,
-    const bool with_smem_epilogue) {
+    const mma_utils::TensorRolesMap& tensor_roles,
+    bool with_smem_epilogue) {
   std::vector<TensorView*> cached_tvs;
 
   // Handling transformations in fusion input tvs with assigned INPUT_C role by
   //  propagating fusion output transformations through cached views of INPUT_C
   //  fusion input tvs and by setting vectorization of the inner most iterdomain
   //  of these cached views
-  if (roles_map.count(MatmulRole::INPUT_C)) {
-    auto& c_tvs = roles_map.at(MatmulRole::INPUT_C);
+  if (tensor_roles.count(MatmulRole::INPUT_C)) {
+    auto& c_tvs = tensor_roles.at(MatmulRole::INPUT_C);
 
     // The system supports only scenario where there is only one fusion output
     //  with assigned OUTPUT_D role, this condition is already verified so there
     //  is no need for an additional checks here
-    auto output_d = roles_map.at(MatmulRole::OUTPUT_D).front();
+    auto output_d = tensor_roles.at(MatmulRole::OUTPUT_D).front();
     for (auto* c : c_tvs) {
       cached_tvs.push_back(c->cacheAfter());
     }
@@ -762,8 +762,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   IdModel id_model(fusion);
-  std::unordered_map<ValGroup, MatmulDomain> id_roles =
-      patterns.front().getDimRoles(id_model);
+  mma_utils::DimRolesMap id_roles = patterns.front().getDimRoles(id_model);
   const auto& tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
 
@@ -880,25 +879,34 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   bcw_smem->definition()->as<LoadStoreOp>()->setCacheOp(cache_op_b);
   NVF_ERROR(acw_smem->uses().size() == 1);
   NVF_ERROR(bcw_smem->uses().size() == 1);
-  if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
-    acr = ldst->out()->as<TensorView>();
-    ldst->setOpType(LoadStoreOpType::LdMatrix);
-  } else {
-    acr = acw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
-  }
-  if (auto ldst = dynamic_cast<LoadStoreOp*>(bcw_smem->uses().at(0))) {
-    bcr = ldst->out()->as<TensorView>();
-    ldst->setOpType(LoadStoreOpType::LdMatrix);
-  } else {
-    bcr = bcw_smem->cacheAfter(LoadStoreOpType::LdMatrix);
-  }
+
+  // We add two LoadStore operators to the inputs of our fusions. The first one
+  // is for a read from global memory and the second one (below) is for
+  // a cache read. As an optimizaton, we avoid adding an operator if there's an
+  // existing LoadStoreOp present. Please note that for the second LoadStore we
+  // don't propagte the allocation domain, since the scheduler sets the
+  // allocation domain in the registers.
+  auto addSetForCacheRead = [](TensorView* tv_smem, TensorView** tv_r) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
+      *tv_r = ldst->out()->as<TensorView>();
+      ldst->setOpType(LoadStoreOpType::LdMatrix);
+    } else {
+      *tv_r = tv_smem->cacheAfter(
+          LoadStoreOpType::LdMatrix,
+          CacheOp::Unspecified,
+          /*propagate_allocation_domain=*/false);
+    }
+  };
+
+  addSetForCacheRead(acw_smem, &acr);
+  addSetForCacheRead(bcw_smem, &bcr);
 
   // Make a CTA tile
   // ------------------------------------------------------------------
   // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
   mma_utils::canonicalizeMmaTvOrdering(mma_result);
   const int64_t num_local_dims =
-      (int64_t)TensorDomain::noDevices(mma_result->getLeafDomain()).size();
+      (int64_t)TensorDomain::noDevices(mma_result->getLoopDomain()).size();
   NVF_ERROR(
       num_local_dims == 3 || num_local_dims == 4,
       "Currently, we only support B, M, N and K being a single dimension.",
@@ -1091,7 +1099,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (acr != ab) {
     //  -5  -4   -3   -2   -1
     //[8mi, 4k, 2ko, 2mo, 2ki]
-    acr->setAllocationDomain(acr->getLeafDomain(), true);
+    acr->setAllocationDomain(acr->getLoopDomain(), true);
     mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
     ab->merge(-5);
     ab->axis(-4)->parallelize(ParallelType::TIDx);
@@ -1100,7 +1108,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (bcr != bb) {
     //   -5  -4   -3   -2   -1
     // [8ni, 4k, 2ko, 1no, 2ki]
-    bcr->setAllocationDomain(bcr->getLeafDomain(), true);
+    bcr->setAllocationDomain(bcr->getLoopDomain(), true);
     mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
     bb->merge(-5);
     bb->axis(-4)->parallelize(ParallelType::TIDx);

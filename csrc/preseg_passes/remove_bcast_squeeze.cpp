@@ -55,17 +55,7 @@ void removeBcastSqueeze(Fusion* fusion) {
 } // namespace
 
 void RemoveBcastSqueeze::runPass(Fusion* fusion) {
-  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "Fusion before RemoveBcastSqueeze:" << std::endl;
-    fusion->printMath();
-  }
-
   removeBcastSqueeze(fusion);
-
-  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "Fusion after RemoveBcastSqueeze:" << std::endl;
-    fusion->printMath();
-  }
 }
 
 } // namespace nvfuser::preseg_passes

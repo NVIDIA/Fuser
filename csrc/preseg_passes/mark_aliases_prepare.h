@@ -17,7 +17,10 @@ class MarkAliasesPreparePass : public OptimizationPass<MarkAliasesPreparePass> {
   friend class OptimizationPass<MarkAliasesPreparePass>;
 
  protected:
-  NVF_API static void runPass(Fusion* fusion);
+  static void runPass(Fusion* fusion);
+  static std::string name() {
+    return "MarkAliasesPreparePass";
+  }
 };
 
 } // namespace nvfuser::preseg_passes

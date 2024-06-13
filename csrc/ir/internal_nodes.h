@@ -1616,20 +1616,13 @@ class NVF_API Split : public Expr {
  public:
   using Expr::Expr;
 
-  // start_offset and stop_offset are used to express partial
-  // split. Only the partial domain from start_offset to stop_offset
-  // is split and the outer sub-regions are ignored. Note that both
-  // start_offset and stop_offset are distance from the left end and
-  // right ends, respectively.
   Split(
       IrBuilderPasskey,
       IterDomain* outer,
       IterDomain* inner,
       IterDomain* in,
       Val* factor,
-      bool inner_split = true,
-      Val* start_offset = nullptr,
-      Val* stop_offset = nullptr);
+      bool inner_split = true);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1656,23 +1649,6 @@ class NVF_API Split : public Expr {
   bool innerSplit() const {
     return attribute<bool>(1);
   }
-
-  //! Start position of the input domain. Non-zero means partial
-  //! split. Elements until this offset are ignored.
-  Val* startOffset() const {
-    NVF_ERROR(attributeVal(2) != nullptr);
-    return attributeVal(2);
-  }
-
-  //! Offset from extent of the input domain. Non-zero means partial
-  //! split. Elements after this offset are ignored.
-  Val* stopOffset() const {
-    NVF_ERROR(attributeVal(3) != nullptr);
-    return attributeVal(3);
-  }
-
-  //! Utility function to compute the split extent.
-  static Val* extent(Val* in_extent, Val* start_offset, Val* stop_offset);
 };
 
 //! Merge the IterDomains outer and inner into one domain, outer and inner
@@ -2223,6 +2199,103 @@ class LinearOp : public Expr {
   bool has_bias() const {
     return inputs().size() == 3;
   }
+};
+
+/*
+SDPA node with same functionality at::_scaled_dot_product_flash_attention
+output = [N, H, L, Ev]
+logsumexp = [N, H, L]
+cum_seq_q = [N + 1,]
+cum_seq_k = [N + 1,]
+query_seq_len = scalar(int)
+key_seq_len = scalar(int)
+philox_seed = scalar tensor
+philox_offset = scalar tensor
+debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
+setting `return_debug_mask=False` when invoking flash attention)
+
+query = [N, H, L, E]
+key = [N, H, S, E]
+value = [N, H, S, Ev]
+dropout_p = scalar(double)
+is_causal = scalar(bool)
+scale = scalar(double)
+
+N = number of sequences / batch size
+H = num of heads
+L = query sequence length / target sequence length
+S = key/value sequence length / src sequence length
+E = query/key embd dimension
+Ev = value embd dimension
+
+For flash attention, E = Ev
+*/
+
+class SdpaFwdOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  SdpaFwdOp(
+      IrBuilderPasskey,
+      TensorView* output,
+      TensorView* log_sumexp,
+      TensorView* cum_seq_q,
+      TensorView* cum_seq_k,
+      Val* query_seq_len,
+      Val* key_seq_len,
+      TensorView* philox_seed,
+      TensorView* philox_offset,
+      TensorView* debug_attn_mask,
+      Val* query,
+      Val* key,
+      Val* value,
+      Val* dropout_p,
+      Val* is_causal,
+      Val* scale);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "SdpaFwdOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* attn_out() const {
+    return output(0);
+  }
+
+  Val* query() const {
+    return input(0);
+  }
+
+  Val* key() const {
+    return input(1);
+  }
+
+  Val* value() const {
+    return input(2);
+  }
+
+  Val* dropout_p() const {
+    return input(3);
+  }
+
+  Val* is_causal() const {
+    return input(4);
+  }
+
+  Val* scale() const {
+    if (inputs().size() > 5) {
+      return input(5);
+    }
+    return nullptr;
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 } // namespace nvfuser

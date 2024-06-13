@@ -41,7 +41,7 @@ bool IndexCompute::hasUnswitchedDependentDomains(IterDomain* id) const {
 
 void IndexCompute::initializeUnswitchDomainMap() {
   NVF_ERROR(unswitched_domain_map_.empty());
-  for (auto id : unswitched_leaf_domains_) {
+  for (auto id : unswitched_loop_domains_) {
     auto concrete_id = maybeGetExactMapConcreteID(id);
     unswitched_domain_map_.emplace(
         concrete_id,
@@ -166,7 +166,7 @@ bool IndexCompute::isModuloInvalidUnswitchedIndex(
   for (const auto& unswitched_domain_list : unswitched_domain_map_it->second) {
     NVF_ERROR(!unswitched_domain_list.empty());
 
-    // If the stride is a multiple of the inner extent, the leaf
+    // If the stride is a multiple of the inner extent, the loop
     // unswitched index remains to be a valid maximum index as the
     // module by the inner extent will be just zero. More
     // specifically, the index for this unswitched domain would be (x
@@ -434,8 +434,8 @@ void IndexCompute::handle(Resize* resize) {
   if (isZero(out_id) || hasZeroMerged(out_id)) {
     // When the out ID is (partially) zero, the in ID is not indexable. Don't
     // add any new mapping to the index and extent maps. This is fine since when
-    // a resize shows up as part of rfactor transformations, the input to the
-    // resize is not indexed as the indexing is done using the rfactor root
+    // a resize shows up as part of root to logical transformations, the input
+    // to the resize is not indexed as the indexing is done using the logical
     // domain. This could be an issue when a resize is shows up outside of
     // rfactor transfomations, but currently that only can happen when a
     // producer tensor is transformed to look like a consumer. Since inlining is
@@ -482,7 +482,7 @@ IndexCompute::IndexCompute(
     std::unordered_set<IterDomain*> zero_merged_in,
     const ContigIDs& contig_finder,
     std::unordered_set<IterDomain*> preferred_paths,
-    std::unordered_set<IterDomain*> unswitched_leaf_domains)
+    std::unordered_set<IterDomain*> unswitched_loop_domains)
     : td_(_td),
       index_map_(std::move(initial_index_map)),
       extent_map_(std::move(extent_map)),
@@ -490,7 +490,7 @@ IndexCompute::IndexCompute(
       zero_merged_in_(std::move(zero_merged_in)),
       contig_ids_{contig_finder.contigIDs()},
       preferred_paths_(std::move(preferred_paths)),
-      unswitched_leaf_domains_(std::move(unswitched_leaf_domains)) {
+      unswitched_loop_domains_(std::move(unswitched_loop_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
   // Make sure we recompute any indices we can that map to a contiguous access
   // in physical memory.
@@ -511,14 +511,14 @@ IndexCompute::IndexCompute(
     std::unordered_map<IterDomain*, Val*> initial_index_map,
     std::unordered_set<IterDomain*> zero_domains,
     std::unordered_set<IterDomain*> preferred_paths,
-    std::unordered_set<IterDomain*> unswitched_leaf_domains)
+    std::unordered_set<IterDomain*> unswitched_loop_domains)
     : td_{nullptr},
       index_map_(std::move(initial_index_map)),
       zero_domains_(std::move(zero_domains)),
       preferred_paths_(std::move(preferred_paths)),
       concrete_id_pass_{true},
       swizzle_mode_{SwizzleMode::Loop},
-      unswitched_leaf_domains_(std::move(unswitched_leaf_domains)) {
+      unswitched_loop_domains_(std::move(unswitched_loop_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
   initializeUnswitchDomainMap();
 }
@@ -624,7 +624,7 @@ void IndexCompute::updateIndexMapFromPermissiveMap(const Expr* id_expr) {
 }
 
 void IndexCompute::run() {
-  const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
+  const std::vector<Val*> domain_vals(td_->loop().begin(), td_->loop().end());
   traverseTo(domain_vals, false);
 }
 
@@ -690,8 +690,8 @@ IndexCompute IndexCompute::updateIndexCompute(
         updated_zero_merged_in.emplace(new_id);
       }
 
-      if (auto it = unswitched_leaf_domains_.find(prev_id);
-          it != unswitched_leaf_domains_.end()) {
+      if (auto it = unswitched_loop_domains_.find(prev_id);
+          it != unswitched_loop_domains_.end()) {
         updated_unswitched_domains.emplace(new_id);
       }
     }
@@ -713,7 +713,7 @@ IndexCompute IndexCompute::updateIndexCompute(
 }
 
 namespace {
-// Map indices down to the leaf domains for applying swizzle
+// Map indices down to the loop domains for applying swizzle
 class UpdateLeafIndices : public IterVisitor {
  public:
   UpdateLeafIndices(
@@ -723,7 +723,7 @@ class UpdateLeafIndices : public IterVisitor {
       : td_(td),
         index_map_(std::move(initial_index_map)),
         extent_map_(std::move(extent_map)) {
-    const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
+    const std::vector<Val*> domain_vals(td_->loop().begin(), td_->loop().end());
 
     traverseTo(domain_vals, false);
   }
@@ -942,9 +942,9 @@ void IndexSwizzle::run() {
     // At this intermediate state, the legacy swizzle implementation
     //  takes precedence, i.e. whenever swizzle_type_ is not NoSwizzle,
     //  the new swizzle op pass is disabled.
-    UpdateLeafIndices update_leaves(td_, indexMap(), extentMap());
-    index_map_ = update_leaves.indexMap();
-    extent_map_ = update_leaves.extentMap();
+    UpdateLeafIndices update_loop(td_, indexMap(), extentMap());
+    index_map_ = update_loop.indexMap();
+    extent_map_ = update_loop.extentMap();
     IndexCompute::swizzle_mode_ = SwizzleMode::Data;
     IndexCompute::run();
   }
@@ -1061,8 +1061,8 @@ bool isParallelLoopIndexSubstitutedAsZero(
   // mentioned above
   auto producer_tv = tv;
   auto it = std::find_if(
-      tv->getLeafDomain().begin(),
-      tv->getLeafDomain().end(),
+      tv->getLoopDomain().begin(),
+      tv->getLoopDomain().end(),
       [&](IterDomain* tv_id) {
         // Matching is done using the index and loop maps. See
         // validateParallelize as well.
@@ -1072,7 +1072,7 @@ bool isParallelLoopIndexSubstitutedAsZero(
 
   // There's no mapped producer ID. Zero substitution shouldn't be
   // done.
-  if (it == tv->getLeafDomain().end()) {
+  if (it == tv->getLoopDomain().end()) {
     return false;
   }
 
@@ -1217,8 +1217,8 @@ void ensureStaticIndexing(
     // the loop map, the loop index should be used for indexing of the
     // tensor, except for broadcast and reduction domains.
     auto it = std::find_if(
-        tv->getLeafDomain().begin(),
-        tv->getLeafDomain().end(),
+        tv->getLoopDomain().begin(),
+        tv->getLoopDomain().end(),
         [loop_id, &id_map](IterDomain* id) {
           if (id->isBroadcast() || id->isReduction() || id->isStride()) {
             return false;
@@ -1230,7 +1230,7 @@ void ensureStaticIndexing(
           return GpuLower::current()->caMap()->areMapped(
               loop_id, id, IdMappingMode::PERMISSIVE);
         });
-    if (it != tv->getLeafDomain().end()) {
+    if (it != tv->getLoopDomain().end()) {
       loop->requireUnroll();
     }
   }
@@ -1362,7 +1362,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
-  for (auto id : consumer_tv->getLeafDomain()) {
+  for (auto id : consumer_tv->getLoopDomain()) {
     const auto& c2p_map = replay_PasC.getReplay();
     auto c2p_it = c2p_map.find(id);
     if (c2p_it != c2p_map.end()) {
@@ -1413,7 +1413,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
       mapAllProducerDomainsToConsumer(producer_tv, consumer_tv);
 
   // Map everything we can from reference to producer using compute at index
-  // map. All producer id's don't exist in the compute at map. The rfactor axes
+  // map. All producer id's don't exist in the compute at map. The logical axes
   // all may be, but since I haven't proven that to be the case, going to do a
   // more conservative approach, which is to use the consumer as a proxy between
   // producer to reference.
@@ -1428,7 +1428,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
+      producer_tv->getLoopDomain(), consumer_tv->getLoopDomain(), c2p_root_map);
 
   c2p_index_map = replay_producer_as_consumer.getReplay();
 
@@ -1600,7 +1600,7 @@ Val* Index::getLinearLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::allocateToRFactorDomainGuard(consumer_tv, true);
+  auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, true);
   return sumVals(
       getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
 }
@@ -1609,7 +1609,7 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::allocateToRFactorDomainGuard(consumer_tv, false);
+  auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
   IndexFromIdGraph index_from_id_graph =
       getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
   return getConsumerAllocationIndices(consumer_tv, loops, index_from_id_graph);
@@ -1621,7 +1621,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  auto guard = ir_utils::allocateToRFactorDomainGuard(producer_tv, false);
+  auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
   return getProducerAllocationIndices(
       producer_tv, consumer_tv, loops, rotated_loops, override_index);
 }
@@ -1743,7 +1743,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
+      producer_tv->getLoopDomain(), consumer_tv->getLoopDomain(), c2p_root_map);
 
   auto c2p_map = replay_producer_as_consumer.getReplay();
 
@@ -1760,7 +1760,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   // example, if we have:
   //   consumer:
   //     root: I0, I1, I2
-  //     leaf: I0, I3, I4
+  //     loop: I0, I3, I4
   //   producer:
   //     root I5, I6, I7
   // where I3, I4 = swizzle(I1, I2) , then the c2p map will be I3->I6, I4->I7,
@@ -2089,13 +2089,22 @@ kir::TensorIndex* Index::getProducerIndex(
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) {
-  auto index = getProducerStridedIndices(
-      producer,
-      consumer,
-      loops,
-      rotated_loops,
-      override_index,
-      generate_pointer);
+  Val* index = nullptr;
+
+  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    index = GpuLower::current()->tensorIndexer().getLinearIndex(
+        producer, consumer->definition());
+  } else {
+    index = getProducerStridedIndices(
+        producer,
+        consumer,
+        loops,
+        rotated_loops,
+        override_index,
+        generate_pointer);
+  }
+
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
   if (ir_utils::isLdMatrixOp(consumer->definition()) &&
       at::cuda::getCurrentDeviceProperties()->major < 8) {
@@ -2170,8 +2179,16 @@ kir::TensorIndex* Index::getConsumerIndex(
     const std::unordered_map<int, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) {
-  auto index = getConsumerStridedIndices(
-      consumer, loops, rotated_loops, override_index, generate_pointer);
+  Val* index = nullptr;
+  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    index = GpuLower::current()->tensorIndexer().getLinearIndex(
+        consumer, consumer->definition());
+  } else {
+    index = getConsumerStridedIndices(
+        consumer, loops, rotated_loops, override_index, generate_pointer);
+  }
+
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
   return SimplifyingIrBuilder::create<kir::TensorIndex>(
       consumer, index, as_type);
@@ -2197,7 +2214,7 @@ struct PredicateDomainInfo {
 // only of merge operations. Only return iteration domains that are subsequently
 // fed into a split, or are in the provided domain. In other words, we don't
 // want to return every IterDomain that's contiguous, just the one closest to
-// the leaves. Predicates are not associated with physical memory so we can
+// the loop domain. Predicates are not associated with physical memory so we can
 // treat all of them as contiguous merges.
 //
 // TODO: This seems to have a large overlap with ContigIDs. Consider
@@ -2207,13 +2224,13 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
     const std::unordered_map<IterDomain*, Val*>& consumer_index_map) {
   const auto gpu_lower = GpuLower::current();
 
-  // When there's a resize expr between the root and the rfactor
-  // domains, predicate the rfactor domain. Otherwise, predicate the
+  // When there's a resize expr between the root and the logical
+  // domains, predicate the logical domain. Otherwise, predicate the
   // root domain. The actual size of an IterDomain after resize
   // changes, and the output IterDomain needs to be used to generate
   // its predicate.
   const auto& consumer_root_domain = ir_utils::hasResizedRfactor(consumer_tv)
-      ? consumer_tv->getRFactorDomain()
+      ? consumer_tv->getLogicalDomain()
       : consumer_tv->getMaybeRootDomain();
 
   if (consumer_root_domain.empty()) {
@@ -2237,7 +2254,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
   }
 
   ContigIDs contig_finder(
-      consumer_tv->getLeafDomain(),
+      consumer_tv->getLoopDomain(),
       consumer_root_domain,
       TensorDomain::getContiguityFilledWith(consumer_root_domain, true),
       final_ids,
@@ -2553,7 +2570,7 @@ namespace {
 
 int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
   auto exprs = DependencyCheck::getAllExprsBetween(
-      {smem_tv->getRFactorDomain().begin(), smem_tv->getRFactorDomain().end()},
+      {smem_tv->getLogicalDomain().begin(), smem_tv->getLogicalDomain().end()},
       {smem_tv->getMaybeAllocationDomain().begin(),
        smem_tv->getMaybeAllocationDomain().end()});
   for (auto expr : exprs) {
@@ -2644,8 +2661,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
     // This replay has to be consistent with compute at index map.
     BestEffortReplay replay_producer_as_consumer(
-        producer_tv->getLeafDomain(),
-        consumer_tv->getLeafDomain(),
+        producer_tv->getLoopDomain(),
+        consumer_tv->getLoopDomain(),
         c2p_root_map);
 
     const auto& c2p_map = replay_producer_as_consumer.getReplay();
@@ -2682,9 +2699,9 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   // tile IterDomain.
   std::deque<IterDomain*> pending;
   pending.push_back(nullptr); // use nullptr as a checkpoint
-  // Start from leaf domain, where all the bulk IterDomains in the leaf domain
+  // Start from loop domain, where all the bulk IterDomains in the loop domain
   // must be parallelized as ParallelType::Bulk.
-  for (auto id : consumer_tv->getLeafDomain()) {
+  for (auto id : consumer_tv->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Bulk) {
       id = consumer_to_gmem(id);
       bulk_ids.insert(id);

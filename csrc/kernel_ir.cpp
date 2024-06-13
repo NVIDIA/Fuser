@@ -1469,7 +1469,7 @@ int64_t GroupedGridWelford::getSmemBufferSize(
   // GroupCount
 
   int64_t group_count = 1;
-  for (auto axis : out_tv->getLeafDomain()) {
+  for (auto axis : out_tv->getLoopDomain()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
       auto extent_int = axis->extent()->value().as<int64_t>();

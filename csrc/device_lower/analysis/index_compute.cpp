@@ -52,7 +52,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
-  for (auto id : consumer_tv->getLeafDomain()) {
+  for (auto id : consumer_tv->getLoopDomain()) {
     const auto& c2p_map = replay_PasC.getReplay();
     auto c2p_it = c2p_map.find(id);
     if (c2p_it != c2p_map.end()) {
@@ -80,8 +80,8 @@ std::unordered_map<IterDomain*, IterDomain*> invertOneToOneMap(
 
 //! A struct to keep track of necessary parameters used in
 //!  configuring index compute pass.
-//! These parameters are needed to propagate the indexing from the leaf nodes of
-//! the TVs and loop nests to the TVs rfactor domain during
+//! These parameters are needed to propagate the indexing from the loop nodes of
+//! the TVs and loop nests to the TVs logical domain during
 //! index_compute.cpp::IndexCompute passes.
 //! TODO:
 //!   Would expect this list to become shorter over time,
@@ -513,9 +513,9 @@ LoopIndexing LoopIndexingAnalysis::fromLoopAndConsumer(
 
 VectorOfUniqueEntries<IterDomain*> LoopIndexingAnalysis::
     getReplayableConcreteIDs(
-        const std::vector<IterDomain*>& consumer_leaf_ids,
+        const std::vector<IterDomain*>& consumer_loop_ids,
         const TensorView* consumer_tv) {
-  LoopIndexingAnalysis analysis(consumer_leaf_ids, consumer_tv);
+  LoopIndexingAnalysis analysis(consumer_loop_ids, consumer_tv);
   return analysis.replayed_concrete_ids_;
 }
 
@@ -537,27 +537,27 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
 }
 
 LoopIndexingAnalysis::LoopIndexingAnalysis(
-    const std::vector<IterDomain*>& consumer_leaf_ids,
+    const std::vector<IterDomain*>& consumer_loop_ids,
     const TensorView* consumer_tv)
     : consumer_tv_(consumer_tv) {
   // Populate initial loop iter domains.
   std::transform(
-      consumer_leaf_ids.begin(),
-      consumer_leaf_ids.end(),
+      consumer_loop_ids.begin(),
+      consumer_loop_ids.end(),
       std::back_inserter(initial_loop_domain_ids_),
-      [&](IterDomain* consumer_leaf_id) {
-        // Make sure consumer_leaf_id is indeed a consumer leaf ID
+      [&](IterDomain* consumer_loop_id) {
+        // Make sure consumer_loop_id is indeed a consumer loop ID
         NVF_ERROR(
             std::find(
-                consumer_tv->getLeafDomain().begin(),
-                consumer_tv->getLeafDomain().end(),
-                consumer_leaf_id) != consumer_tv->getLeafDomain().end(),
-            "Not a consumer leaf ID: ",
-            consumer_leaf_id->toString(),
+                consumer_tv->getLoopDomain().begin(),
+                consumer_tv->getLoopDomain().end(),
+                consumer_loop_id) != consumer_tv->getLoopDomain().end(),
+            "Not a consumer loop ID: ",
+            consumer_loop_id->toString(),
             ", consumer: ",
             consumer_tv->toString());
         return GpuLower::current()->caMap()->getConcreteMappedID(
-            consumer_leaf_id, IdMappingMode::LOOP);
+            consumer_loop_id, IdMappingMode::LOOP);
       });
 
   run();
@@ -568,8 +568,8 @@ void LoopIndexingAnalysis::run() {
   all_consumer_id_vals_ = DependencyCheck::getAllValsBetween(
       {consumer_tv_->getMaybeRootDomain().begin(),
        consumer_tv_->getMaybeRootDomain().end()},
-      {consumer_tv_->getLeafDomain().begin(),
-       consumer_tv_->getLeafDomain().end()});
+      {consumer_tv_->getLoopDomain().begin(),
+       consumer_tv_->getLoopDomain().end()});
 
   // Resolve definition of each exact concrete id's involved in the whole loop
   // nest transform history
@@ -647,9 +647,9 @@ void LoopIndexingAnalysis::traverseFromDomainVals() {
     }
     auto expr = out_id->definition();
 
-    if (auto rfactor_id =
-            getRfactorIDToTraverse(out_id, all_consumer_id_vals_)) {
-      to_visit.emplace_front(rfactor_id);
+    if (auto logical_id =
+            getLogicalIDToTraverse(out_id, all_consumer_id_vals_)) {
+      to_visit.emplace_front(logical_id);
     }
 
     // ID's will be copied for the reference as we replay transformations. If
@@ -757,7 +757,7 @@ void LoopIndexingAnalysis::constructLoopDomains() {
         replayed_concrete_ids_.vector().end(),
         [&](IterDomain* concrete_id) {
           return
-              // Make sure the replayed_concrete_id is a leaf ID
+              // Make sure the replayed_concrete_id is a loop ID
               !concrete_id_to_consumer_.count(concrete_id) &&
               // Use permissive map so the selected ID indeed represents the
               // loop.
@@ -866,8 +866,8 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
       {consumer_root.begin(), consumer_root.end()},
-      {consumer_tv->getLeafDomain().begin(),
-       consumer_tv->getLeafDomain().end()});
+      {consumer_tv->getLoopDomain().begin(),
+       consumer_tv->getLoopDomain().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
@@ -938,7 +938,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
   // No contig indexing was done in reference indexing
   ContigIDs contig_finder(
-      target_tv->getLeafDomain(),
+      target_tv->getLoopDomain(),
       target_tv->getMaybeAllocationDomain(),
       target_tv->domain()->contiguity(),
       {},
@@ -1003,8 +1003,8 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
       {consumer_tv->getMaybeAllocationDomain().begin(),
        consumer_tv->getMaybeAllocationDomain().end()},
-      {consumer_tv->getLeafDomain().begin(),
-       consumer_tv->getLeafDomain().end()});
+      {consumer_tv->getLoopDomain().begin(),
+       consumer_tv->getLoopDomain().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
@@ -1233,11 +1233,11 @@ void LoopIndexingAnalysis::collectOutOfLineExprs() {
   //  iterdomains on the left of ca axes.
   std::unordered_set<IterDomain*> out_of_line_ids;
 
-  // Start the set with all the leaf ids.
+  // Start the set with all the loop ids.
   std::transform(
-      consumer_tv_->getLeafDomain().begin() +
+      consumer_tv_->getLoopDomain().begin() +
           consumer_tv_->getComputeAtPosition(),
-      consumer_tv_->getLeafDomain().end(),
+      consumer_tv_->getLoopDomain().end(),
       std::inserter(out_of_line_ids, out_of_line_ids.end()),
       exactConcreteId);
 
@@ -1315,7 +1315,7 @@ bool isPermissivelyMappedWithAny(IterDomain* id, const std::vector<Val*>& ids) {
     // are compatible. This is important when, for example, a tensor
     // is padded two times differently but to the same shape, and the
     // pad outputs are exactly mapped. In such a case, there're two
-    // paths from the post rfactor ID to the original input ID, and
+    // paths from the post logical ID to the original input ID, and
     // the correct path depends on the path where this producer is
     // used as a producer. See the FusionPad8 test for a concrete
     // example.
@@ -1348,8 +1348,8 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
     auto all_original_ids = DependencyCheck::getAllValsBetween(
         {original_tv->getMaybeAllocationDomain().begin(),
          original_tv->getMaybeAllocationDomain().end()},
-        {original_tv->getLeafDomain().begin(),
-         original_tv->getLeafDomain().end()});
+        {original_tv->getLoopDomain().begin(),
+         original_tv->getLoopDomain().end()});
 
     for (auto original_id :
          ir_utils::filterByType<IterDomain>(all_original_ids)) {
@@ -1419,42 +1419,42 @@ std::unordered_set<IterDomain*> buildLoopIndexingPreferredPath(
       original_tv, loop_indexing, use_replay_map, p2c_map);
 }
 
-// Get an rfactor IterDomain that is mapped with an IterDomain. If
+// Get an logical IterDomain that is mapped with an IterDomain. If
 // multiple such IDs exist, select one whose input IDs are mapped with
-// the consumer IDs. This is to ensure the path from the leaf
+// the consumer IDs. This is to ensure the path from the loop
 // IterDomains to the root matches with the consumer tensor.
-IterDomain* getRfactorIDToTraverse(
+IterDomain* getLogicalIDToTraverse(
     IterDomain* id,
     const std::vector<Val*>& consumer_all_ids) {
-  const auto& rfactor_ids =
-      GpuLower::current()->caMap()->getRfactorDomainsOfIdGroup(
+  const auto& logical_ids =
+      GpuLower::current()->caMap()->getLogicalDomainsOfIdGroup(
           id, IdMappingMode::PERMISSIVE);
-  if (rfactor_ids.empty()) {
+  if (logical_ids.empty()) {
     return nullptr;
   }
 
-  for (auto rfactor_id : rfactor_ids) {
-    auto def = rfactor_id->definition();
+  for (auto logical_id : logical_ids) {
+    auto def = logical_id->definition();
     if (def == nullptr) {
       continue;
     }
 
-    auto rfactor_id_inputs = ir_utils::filterByType<IterDomain>(def->inputs());
+    auto logical_id_inputs = ir_utils::filterByType<IterDomain>(def->inputs());
     if (std::all_of(
-            rfactor_id_inputs.begin(),
-            rfactor_id_inputs.end(),
-            [&](IterDomain* rfactor_id_input) {
+            logical_id_inputs.begin(),
+            logical_id_inputs.end(),
+            [&](IterDomain* logical_id_input) {
               return isPermissivelyMappedWithAny(
-                  rfactor_id_input, consumer_all_ids);
+                  logical_id_input, consumer_all_ids);
             })) {
-      return rfactor_id;
+      return logical_id;
     }
   }
 
   // No mapped ID found, which means the consumer is a post-view
   // tensor. In that case, it shouldn't matter which view path to
   // traverse, so just return the first one.
-  return rfactor_ids.at(0);
+  return logical_ids.at(0);
 }
 
 } // namespace nvfuser

@@ -4018,6 +4018,97 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    def test_fusion_profiler(self):
+        inputs = [
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.ops.add(T0, T1)
+            T3 = fd.ops.sum(T2, dim=-1)
+            T4 = fd.ops.sum(T3, dim=-1)
+            fd.add_output(T4)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        # Testing returning a profile without profiling, expect an error!
+        try:
+            fd.profile()
+            raise RuntimeError(
+                "fd.profile() should have raised a ValueError because profile() was called before exeute()!"
+            )
+        except ValueError:
+            pass
+
+        # Testing that the profile returns 2 segments
+        try:
+            fd.execute(inputs, profile=True)
+            prof = fd.profile()
+            self.assertEqual(prof.segments, 2)
+            self.assertEqual(len(prof.kernel_profiles), 2)
+        except Exception as e:
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
+
+    # Small repro from https://github.com/NVIDIA/Fuser/issues/2359
+    def test_reshape_squeeze_concretization(self):
+        inputs = [
+            torch.randn((100,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 5, 10), (50, 10, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T1 = fd.ops.slice(
+                T0, start_indices=[0, 0, 0], end_indices=[1, 2, 4], strides=[1, 1, 1]
+            )
+            S2 = fd.define_scalar(1, dtype=DataType.Int)
+            S3 = fd.define_scalar(8, dtype=DataType.Int)
+            V4 = fd.define_vector([S2, S3], dtype=DataType.Int)
+            V5 = fd.define_vector([S3], dtype=DataType.Int)
+            T6 = fd.ops.reshape(T1, new_shape=V4)
+            T7 = fd.ops.reshape(T6, new_shape=V5)
+            # this works fine
+            # T7 = fd.ops.reshape(T1, new_shape=V5)
+            fd.add_output(T7)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # Test empty symbolic tensors can be reshaped
+    # See https://github.com/NVIDIA/Fuser/issues/2362
+    def test_empty_reshape(self):
+        inputs = [
+            torch.randint(0, 10, (0, 1, 2, 3, 4), dtype=torch.int64, device="cuda:0")
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, 1, -1, -1, -1],
+                contiguity=[False, None, True, True, True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[4, 3, 2, 1, 0],
+            )
+            S2 = fd.define_scalar(5, dtype=DataType.Int)
+            S3 = fd.define_scalar(0, dtype=DataType.Int)
+            V4 = fd.define_vector([S2, S3], dtype=DataType.Int)
+            T5 = fd.ops.reshape(T0, new_shape=V4)
+            fd.add_output(T5)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
 
 if __name__ == "__main__":
     run_tests()

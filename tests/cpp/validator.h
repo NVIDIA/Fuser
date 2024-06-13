@@ -82,7 +82,7 @@ void testValidate(
       NVF_ERROR(
           at_tensor.dim() ==
               static_cast<int64_t>(TensorDomain::noReductions(
-                                       fusion_input_tv->getRFactorDomain())
+                                       fusion_input_tv->getLogicalDomain())
                                        .size()),
           "Dimensionality mismatch in inputs.");
     }
@@ -107,7 +107,7 @@ void testValidate(
         aten_output_tensor.dim() == fusion_output_tensor.dim() &&
             fusion_outputs[i].dim() ==
                 static_cast<int64_t>(
-                    TensorDomain::noReductions(out_tv->getRFactorDomain())
+                    TensorDomain::noReductions(out_tv->getLogicalDomain())
                         .size()),
         "Dimensionality mismatch in outputs.");
 

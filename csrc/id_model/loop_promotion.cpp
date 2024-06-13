@@ -136,7 +136,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
     callback_->postStep1(iel_promotion_map, iel_graph);
   }
 
-  // Step 2: Propagate the root promotions to intermediate and leaf groups.
+  // Step 2: Propagate the root promotions to intermediate and loop groups.
   // At this point, the promotion may not be final as the analysis is
   // localized to IEL groups. The map is used in the next step to
   // build mappings of the loop groups.
@@ -168,7 +168,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // the loop graph promotions to partially inlined domains. This time
   // only the partially inlined domains need to be considered, so we
   // first find the Step-3 promotions that are producers to partially
-  // inlined consumers. These promotions are propagated down to leaf
+  // inlined consumers. These promotions are propagated down to loop
   // domains through the IEL graph, which are then used to
   // propagate back to the loop groups in Step 5. Unlike Step 2, the
   // initial IEL promotion map is empty and is populated with the loop
@@ -657,8 +657,7 @@ namespace {
 // traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
 // at RFactor ValGroups.
 std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
-    const ValGraph& graph,
-    const std::unordered_set<IterDomain*>& view_rfactor_ids) {
+    const ValGraph& graph) {
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
   std::unordered_map<ValGroup, ValGroups> covered_ids;
@@ -690,10 +689,12 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
     }
 
     for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
-      // Don't overwrite initialized cases due to rfactor markings.
-      if (covered_ids.find(output_group) == covered_ids.end()) {
-        covered_ids[output_group] = covered;
-      }
+      // Note that pushBack must be used instead of just
+      // `covered_ids[outputGroups] = covered`. An exact group may have multiple
+      // exact expr groups and may have different coverage groups depending on
+      // the expr groups. For example, this can happen with reshape or resize.
+      // See test LoopPromotionCoverage for a concrete example.
+      covered_ids[output_group].pushBack(covered);
     }
   }
 
@@ -709,8 +710,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
         const ValGraph& loop_graph,
         const StatefulInliningInfo& inlining_info) const {
   const std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
-      computeCoveredGroups(
-          idGraph(IdMappingMode::EXACT), id_model_.viewRfactorIds());
+      computeCoveredGroups(idGraph(IdMappingMode::EXACT));
 
   // Grab terminal iter domain in the loop groups.
   const VectorOfUniqueEntries<IterDomain*> terminal_loop_ids =
@@ -765,7 +765,7 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     // it is guaranteed to represent this loop group because all the
     // domains merged into this loop_id must be non-broadcast
     // domains. A concrete example can be found in test
-    // LoopPromotionWithRfactorDomains1.
+    // LoopPromotionWithViewRFactor1.
     if (id_model_.viewRfactorIds().find(loop_id) !=
         id_model_.viewRfactorIds().end()) {
       return loop_id;
@@ -866,7 +866,7 @@ void LoopPromotionMapBuilder::sanityCheckLoopPromotionMap(
   const auto& loop_graph = idGraph(IdMappingMode::LOOP);
   for (const ValGroup& loop_group :
        loop_graph.disjointValSets().disjointSets()) {
-    // Non-leaf loop groups are not guaranteed to have valid
+    // Non-loop loop groups are not guaranteed to have valid
     // promotions. See for example FusionRepro1713, where root domains
     // are all grouped together but there's no valid promotion.
     if (loop_graph.hasUses(loop_group)) {

@@ -140,11 +140,11 @@ class AllocationInserter : public kir::ExprMutator {
   }
 
   std::vector<Val*> getGlobalAllocationSizes(AllocationInformation& info) {
-    const auto& maybe_rfactor_domain = info.buffer->getMaybeAllocationDomain();
+    const auto& allocation_domain = info.buffer->getMaybeAllocationDomain();
 
     std::vector<Val*> alloc_dims;
 
-    for (const auto id : maybe_rfactor_domain) {
+    for (const auto id : allocation_domain) {
       if (id->isReduction() || id->isStride()) {
         continue;
       } else if (id->isBroadcast() || id->isDeviceDim()) {
