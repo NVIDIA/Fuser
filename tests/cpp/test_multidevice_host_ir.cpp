@@ -101,10 +101,12 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
       -1,
       communication_input,
       communication_output);
+  auto wait = IrBuilder::createInContainer<Wait>(hic.get(), communication);
 
   // [Step 6)] Define the Host program
   hic->pushBackTopLevelExprs(post_compute);
   hic->pushBackTopLevelExprs(communication);
+  hic->pushBackTopLevelExprs(wait);
 
   // [Step 7)] Define the Host program's global I/O
   hic->addInput(post_compute->inputs().back());
