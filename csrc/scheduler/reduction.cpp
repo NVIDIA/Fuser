@@ -667,12 +667,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // gradually increased iter_unroll_factor from 1 to 2, 4, 8, ensure the
     // split is divisible. This improves performance when iteration dim is not
     // power of 2, e.g. 1600 and 4800.
-    constexpr int64_t bytes_per_transaction = 128L;
-    int64_t transaction_based_vect =
-        ceilDiv(bytes_per_transaction, max_input_dtype_size * bdimx);
-    int64_t target_vect = std::max(target_unroll, transaction_based_vect);
-    int64_t max_iter_unroll_factor =
-        std::min((int64_t)vectorize_factor, std::min(iDimAvail(), target_vect));
+    int64_t max_iter_unroll_factor = std::min(
+        (int64_t)vectorize_factor, std::min(iDimAvail(), target_unroll));
     while (total_iteration_numel % (bdimx * iter_unroll_factor * 2) == 0 &&
            iter_unroll_factor * 2 <= max_iter_unroll_factor) {
       iter_unroll_factor *= 2;
@@ -703,9 +699,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     }
 
     // For reduction dim, prioritize unroll, improves perf for cases with small
-    // reduction dim e.g. 16 x 32768. If we know the computation cost is low, we
-    // can further increase [min_serial_top_unroll] which may reduce bdimy = 1
-    // to avoid block reduction which requires smem data communication.
+    // reduction dim e.g. 16 x 32768.
     inner_reduction_unroll_factor = std::min(
         rDimAvail(), scheduler_utils::safeDiv(max_unroll, iter_unroll_factor));
     bdimy = std::min(
