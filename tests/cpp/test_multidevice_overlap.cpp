@@ -7,6 +7,7 @@
 // clang-format on
 #ifdef NVFUSER_DISTRIBUTED
 #include <ATen/Functions.h>
+#include <c10/cuda/CUDAStream.h>
 #include <c10/util/ArrayRef.h>
 #include <fusion.h>
 #include <ir/utils.h>
@@ -198,15 +199,17 @@ class OverlapTest : public MultiDeviceTest {
       at::Tensor ta_j,
       at::Tensor tb_j,
       at::Tensor tc_unreduced_j,
-      at::Tensor tc_partially_reduced_j) {
+      at::Tensor tc_locally_reduced_j) {
     at::mul_out(tc_unreduced_j, ta_j, tb_j);
-    at::sum_out(tc_partially_reduced_j, tc_unreduced_j, {3});
+    at::sum_out(tc_locally_reduced_j, tc_unreduced_j, {3});
   }
 };
-
+// clang-format off
 // This test implements a reduce-scattered based pipelining overlapping technic,
 // as used in NEMO-megatron transformer, precisely at the second layer of the
-// MLP consisting of a GEMM+Reduce-scatter The tensor program that we target is
+// MLP consisting of a GEMM+Reduce-scatter.
+//
+// The tensor program that we target is
 // the following, assuming a setup with `num_devices` devices:
 //     inputs:
 //        - A[M,K] sharded column-wise:
@@ -222,12 +225,17 @@ class OverlapTest : public MultiDeviceTest {
 //          and the allocation size of M is [1, M/num_devices,N]
 // Up to some broadcast and view ops, a straightforward program to generate the
 // output could be summarized as
-//     | C_unreduced = pointwise_multiply(A,B) (with unsharded size
-//     [M,num_devices,K/num_devices,N], sharded on `num_devices`) |
-//     C_locally_reduce = local_reduction(C_unreduced, axis=`K/num_devices`,
-//     op=sum) (with unsharded size [M,num_devices,N], sharded on `num_devices`)
-//     | C = reduce_scatter(C_unreduced, op=sum) (with unsharded size
-//     [num_devices, M/num_devices, N] sharded on `num_devices`)
+//     | C_unreduced = pointwise_multiply(A,B) 
+//     | C_locally_reduce = reduction(C_unreduced, axis=`K/num_devices`, op=sum)
+//     | C = reduce_scatter(C_unreduced, op=sum)
+// where:
+// - C has unsharded size [M,num_devices,K/num_devices,N],
+//    and is sharded on `num_devices`
+// - C_locally_reduce has unsharded size [M,num_devices,N],
+//    and is sharded on `num_devices`
+// - C has unsharded size [num_devices, M/num_devices, N]
+//    and is sharded on `num_devices`
+//
 // We want to compare this baseline program with one that is functionnally
 // identical but achieves more overlap between computations and communications.
 // Our goal is to interlave the comms and compute using a technic called
@@ -242,24 +250,26 @@ class OverlapTest : public MultiDeviceTest {
 //     | for (j=0; j<S; j++) {
 //     |   setCurrentStream(Stream[j])
 //     |   C_unreduced[j] = pointwise_multiply(A[j],B)
-//     |   C_locally_reduce[j] = local_reduction(C_unreduced[j],
-//     axis=`K/num_devices`, op=sum) | C[j]=reduce_scatter(C_locally_reduce[j],
-//     op=sum) | }
+//     |   C_locally_reduce[j] = local_reduction(C_unreduced[j], axis=`K/num_devices`, op=sum)
+//     |   C[j]=reduce_scatter(C_locally_reduce[j], op=sum)
+//     | }
 // where "[j]" referes to taking a slice onto the `S` dimension.
 // This program achieves overlap between comms and compute
 // Remarks:
-//     1) it is convenient to have "S" as being the outermost dimension so
-//     C_locally_reduce[j] is a contiguous buffer. 2) The layout needs to match
-//     the reduce-scatter semantics, i.e., the first dimension is reduced and
-//     the second is scattered. This is why we choose the layouts to be [S,
-//     sharded_axis, M, ...]
-
+//   1) it is convenient to have "S" as being the outermost dimension so
+//      C_locally_reduce[j] is a contiguous buffer.
+//   2) The layout needs to match
+//      the reduce-scatter semantics, i.e., the first dimension is reduced and
+//      the second is scattered. This is why we choose the layouts to be
+//      [S, sharded_axis, M, ...]
+// clang-format on
 TEST_F(OverlapTest, SimpleComputeComm) {
   std::vector<c10::cuda::CUDAStream> streams;
   for (auto j : c10::irange(params.S)) {
+    // define the sliced tensors
     auto ta_j = getSlice(ta, j);
     auto tc_unreduced_j = getSlice(tc_unreduced, j);
-    auto tc_partially_reduced_j = getSlice(tc_locally_reduced, j);
+    auto tc_locally_reduced_j = getSlice(tc_locally_reduced, j);
     auto tc_j = getSlice(tc, j);
 
     if (params.use_different_streams) {
@@ -267,11 +277,12 @@ TEST_F(OverlapTest, SimpleComputeComm) {
       streams.push_back(new_stream);
       setCurrentCUDAStream(new_stream);
     }
+
     // local compute
-    computeATen(ta_j, tb, tc_unreduced_j, tc_partially_reduced_j);
+    computeATen(ta_j, tb, tc_unreduced_j, tc_locally_reduced_j);
     // communication
     getWorldCommunicator()
-        ->_reduce_scatter_base(tc_j, tc_partially_reduced_j)
+        ->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
         ->wait();
   }
 
