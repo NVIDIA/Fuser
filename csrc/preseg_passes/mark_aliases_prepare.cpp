@@ -29,15 +29,31 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   std::unordered_set<TensorView*> aliased_outs;
 
   for (TensorView* tv : ir_utils::allTvs(fusion)) {
-    TensorView* aliased_io = analysis.getNearestAliasedIo(tv);
-    if (aliased_io == nullptr) {
+    TensorView* aliased_root_tv = analysis.getNearestAliasedIo(tv);
+    bool is_view_op = dynamic_cast<ViewOp*>(tv->definition());
+    
+    TensorView* aliased_source_tv = nullptr;
+    if(aliased_root_tv == nullptr){
+      aliased_source_tv = is_view_op ? analysis.getAliasedSource(tv) : nullptr;
+      if(aliased_source_tv){
+        std::cout << "Aliased source tv: " << aliased_source_tv->toString() << std::endl;
+      }
+    }
+
+    if (aliased_root_tv == nullptr && aliased_source_tv == nullptr) {
       continue;
     }
 
-    if (tv->isFusionOutput() && aliased_io->isFusionOutput() &&
-        !aliased_io->isFusionInput() &&
-        analysis.getNearestAliasedIo(aliased_io) == nullptr) {
-      aliased_outs.insert(aliased_io);
+    if (aliased_root_tv && tv->isFusionOutput() && aliased_root_tv->isFusionOutput() &&
+        !aliased_root_tv->isFusionInput() &&
+        analysis.getNearestAliasedIo(aliased_root_tv) == nullptr) {
+      aliased_outs.insert(aliased_root_tv);
+    }else if(aliased_root_tv && is_view_op && aliased_root_tv->isFusionInput()){
+      aliased_outs.insert(tv);continue;
+    }
+
+    if(aliased_source_tv && is_view_op && aliased_source_tv->isFusionInput()){
+      aliased_outs.insert(tv);continue;
     }
 
     // `AliasAnalysisResult::finalize` already checked the alias-enabling layout

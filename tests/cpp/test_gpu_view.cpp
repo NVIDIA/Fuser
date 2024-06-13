@@ -2345,6 +2345,40 @@ TEST_F(GpuViewTest, ReshapePointwiseNormPointwiseReshapeWithSegmentSet) {
   EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t4, 1e-5, 0.01))
       << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t4).abs().max();
 }
+
+// with segment_set, NoOp + Norm + NoOp, 0.01 ms, 1664 GB/s on H100
+TEST_F(GpuViewTest, ReshapePointwiseNormPointwiseReshapeWithOneSegmentSet) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {16384, 256};
+  const std::vector<int64_t> group_shape = {512, 32, 256};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeSymbolicTensor(2, dtype);
+  fusion->addInput(tv0);
+  auto tv1 = reshape(tv0, input_shape, group_shape);
+  auto tvs1 = segment_set(tv1);
+  auto tv2 = castOp(DataType::Float, tvs1);
+  auto tv3 = sum(tv2, {1, 2});
+  auto tv4 = broadcast(tv3, {false, true, true});
+  auto tv5 = div(tv2, tv4);
+  auto tv6 = castOp(dtype, tv5);
+  auto tv7 = reshape(tv6, group_shape, input_shape);
+  fusion->addOutput(tv7);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto t2 = t1.sum({1, 2}).unsqueeze(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+  auto t4 = t3.reshape(input_shape);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t4, 1e-5, 0.01))
+      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t4).abs().max();
+}
+
 // without segment_set, Pointwise + Norm + NoOp, 0.026 ms, 656 GB/s on H100
 TEST_F(GpuViewTest, ReshapePointwiseNormPointwiseReshapeWithoutSegmentSet) {
   auto fusion = std::make_unique<Fusion>();
@@ -2409,4 +2443,62 @@ TEST_F(GpuViewTest, PointwiseReshapeNormReshapePointwise) {
       << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t4).abs().max();
 }
 
+TEST_F(GpuViewTest, PointwiseReshapeNormPointwise) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {16384, 256};
+  const std::vector<int64_t> group_shape = {512, 32, 256};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeSymbolicTensor(2, dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, input_shape, group_shape);
+  auto tv3 = sum(tv2, {1, 2});
+  auto tv4 = broadcast(tv3, {false, true, true});
+  auto tv5 = div(tv2, tv4);
+  auto tv6 = castOp(dtype, tv5);
+  fusion->addOutput(tv6);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto t2 = t1.sum({1, 2}).unsqueeze(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t3, 1e-5, 0.01))
+      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t3).abs().max();
+}
+
+
+TEST_F(GpuViewTest, ReshapeNorm) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {16384, 256};
+  const std::vector<int64_t> group_shape = {512, 32, 256};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeSymbolicTensor(2, dtype);
+  fusion->addInput(tv0);
+  auto tv1 = reshape(tv0, input_shape, group_shape);
+  auto tv2 = castOp(DataType::Float, tv1);
+  auto tv3 = sum(tv2, {1, 2});
+  auto tv4 = broadcast(tv3, {false, true, true});
+  auto tv5 = div(tv2, tv4);
+  auto tv6 = castOp(dtype, tv5);
+  fusion->addOutput(tv6);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto t2 = t1.sum({1, 2}).unsqueeze(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t3, 1e-5, 0.01))
+      << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t3).abs().max();
+}
 } // namespace nvfuser
