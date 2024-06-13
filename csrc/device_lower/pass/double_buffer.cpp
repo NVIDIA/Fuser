@@ -48,6 +48,8 @@ int64_t getDoubleBufferAxisPosition(const TensorView* tv) {
       "Invalid tensor to double-buffer. Valid double buffer axis not found due to Unroll. ",
       tv->toString());
 
+  std::cout << tv->toString() << std::endl;
+
   int64_t valid_pos = -1;
   // Skip parallelized or broadcast axes
   for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {

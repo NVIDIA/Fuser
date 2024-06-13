@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <ops/all_ops.h>
+#include <inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -121,6 +122,59 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   fe.compileFusion(&fusion, {t0}, {}, index32bit);
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // gmem -> smem (tma / double buffering / 1d -> 2d)
+  // smem -> gmem
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = sum(tv0, {-1});
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = div(tv0, tv2);
+
+  fusion.addInput(tv0);
+  fusion.addOutput(tv3);
+
+  auto tv4 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv4->setMemoryType(MemoryType::Shared);
+
+  auto reference = tv3;
+  constexpr size_t bulk_inner_dim = 32;
+  // [M, N] -> [M, N/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  auto tv5 = tv1->rFactor({1});
+
+  reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(reference, -1, {tv0, tv1, tv2, tv3, tv5});
+
+  inlineMost();
+
+  fusion.printMath();
+
+  // Double Buffer with TMA loads
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(-1)->parallelize(ParallelType::Bulk);
+  //tv4->doubleBuffer();
+
+  constexpr size_t batch_dim = 128;
+  constexpr size_t tensor_dim = 1024;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_dim, tensor_dim}, options);
+
+  FusionExecutor fe;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  fe.compileFusion(&fusion, {t0}, {}, index32bit);
+  auto cg_outputs = fe.runFusion({t0});
+  //testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {
