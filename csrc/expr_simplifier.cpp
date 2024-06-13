@@ -2791,6 +2791,9 @@ Val* simplifyExpr(
   std::unique_ptr<std::unordered_set<std::string>> disabled_passes = nullptr;
   if (isOptionDisabled(DisableOption::ExprSimplify)) {
     const auto& v = getDisableOptionArguments(DisableOption::ExprSimplify);
+    if (v.empty()) {
+      return value;
+    }
     disabled_passes =
         std::make_unique<std::unordered_set<std::string>>(v.begin(), v.end());
   }

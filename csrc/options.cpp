@@ -8,8 +8,6 @@
 #include <options.h>
 #include <utils.h>
 
-#include <algorithm>
-
 namespace nvfuser {
 
 namespace {
@@ -261,12 +259,20 @@ const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option) {
   return DebugDumpOptionsGuard::getCurOptions().getArgs(option);
 }
 
+bool hasDebugDumpArgument(DebugDumpOption option, const std::string& arg) {
+  return DebugDumpOptionsGuard::getCurOptions().hasArg(option, arg);
+}
+
 bool isOptionEnabled(EnableOption option) {
   return EnableOptionsGuard::getCurOptions().has(option);
 }
 
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option) {
   return EnableOptionsGuard::getCurOptions().getArgs(option);
+}
+
+bool hasEnableOptionArgument(EnableOption option, const std::string& arg) {
+  return EnableOptionsGuard::getCurOptions().hasArg(option, arg);
 }
 
 bool isOptionDisabled(DisableOption option) {
@@ -276,6 +282,10 @@ bool isOptionDisabled(DisableOption option) {
 const std::vector<std::string>& getDisableOptionArguments(
     DisableOption option) {
   return DisableOptionsGuard::getCurOptions().getArgs(option);
+}
+
+bool hasDisableOptionArguments(DisableOption option, const std::string& arg) {
+  return DisableOptionsGuard::getCurOptions().hasArg(option, arg);
 }
 
 bool isProfilerEnabled() {
@@ -294,11 +304,6 @@ bool isProfilerPrintingEnabled() {
 bool isProfilerPrintingVerbose() {
   return ProfilerOptionsGuard::getCurOptions().has(
       ProfilerOption::PrintVerbose);
-}
-
-const std::vector<std::string>& getDisableOptionArguments(
-    ProfilerOption option) {
-  return ProfilerOptionsGuard::getCurOptions().getArgs(option);
 }
 
 } // namespace nvfuser
