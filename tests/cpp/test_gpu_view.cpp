@@ -2506,4 +2506,67 @@ TEST_F(GpuViewTest, ReshapeNorm) {
   EXPECT_TRUE(at::allclose(cg_outputs[0].to(at::kFloat), t3, 1e-5, 0.01))
       << ", Max diff: " << (cg_outputs[0].to(at::kFloat) - t3).abs().max();
 }
+
+
+TEST_F(GpuViewTest, SimpleNoOpViewSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {16384, 256};
+  const std::vector<int64_t> output_shape = {512, 32, 256};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeSymbolicTensor(2, dtype);
+  fusion->addInput(tv0);
+  auto tv1 = reshape(tv0, input_shape, output_shape);
+  fusion->addOutput(tv1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(output_shape);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+}
+
+
+TEST_F(GpuViewTest, SimpleNoOpViewMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {512, 32, 256} ;
+  const std::vector<int64_t> output_shape = {16384, 256};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(3, dtype);
+  fusion->addInput(tv0);
+  auto tv1 = reshape(tv0, input_shape, output_shape);
+  fusion->addOutput(tv1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(output_shape);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+}
+
+
+TEST_F(GpuViewTest, SimpleNoOpViewMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {512, 32, 256} ;
+  const std::vector<int64_t> output_shape = {16384, 256};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(3, dtype);
+  fusion->addInput(tv0);
+  auto tv1 = reshape(tv0, input_shape, output_shape);
+  fusion->addOutput(tv1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(output_shape);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+}
 } // namespace nvfuser

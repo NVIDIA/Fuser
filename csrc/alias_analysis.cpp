@@ -169,6 +169,7 @@ void AliasFinder::handle(const ViewOp* view) {
   std::optional<Layout> out_root_layout =
       mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
   if (!out_root_layout.has_value()) {
+    std::cout << "out_root_layout has no value" << std::endl;
     return;
   }
 
@@ -180,6 +181,7 @@ void AliasFinder::handle(const ViewOp* view) {
       // broadcast IterDomain from `in_logical` when `view` splits or merges
       // that IterDomain. We return no alias when this happen; otherwise
       // AliasTest.MergeBroadcastsBetweenConcretes would fail.
+      std::cout << "MergeBroadcastsBetweenConcretes" << std::endl;
       return;
     }
     allocation_to_contiguity.pushBack(
@@ -209,6 +211,8 @@ void AliasFinder::handle(const ViewOp* view) {
       if (inner_i == allocation_to_contiguity.end() ||
           inner_i->first != merge->inner()) {
         // Outer and inner are not adjacent in allocation order.
+        std::cout << "Outer and inner are not adjacent in allocation order"
+                  << std::endl;
         return;
       }
       const auto [inner_contiguity, merge_i] =
@@ -219,6 +223,7 @@ void AliasFinder::handle(const ViewOp* view) {
           merge->inner()->hasExpandedExtent(),
           inner_contiguity);
       if (!mergeable) {
+        std::cout << "Not mergeable" << std::endl;
         return;
       }
       allocation_to_contiguity.insert(merge_i, merge->out(), contiguity);
@@ -232,6 +237,7 @@ void AliasFinder::handle(const ViewOp* view) {
     out_logical_layout.allocation_domain.push_back(allocation_id);
     out_logical_layout.contiguity.push_back(contiguity);
   }
+  std::cout << "add viewOp" << std::endl;
   analysis_.add(out, in, std::move(out_logical_layout));
 }
 
@@ -408,6 +414,21 @@ bool okToRelayout(
                                             : tv->getMaybeAllocationDomain());
   return new_layout.isCompliantWith({allocation, tv->getContiguity()});
 }
+
+bool inline isSegmentInputOutput(const TensorView* tv) {
+  auto isSegmentSet = [](const TensorView* tv) {
+    auto def = tv->definition();
+    if (auto lsop = dynamic_cast<LoadStoreOp*>(def)) {
+      if (lsop->opType() == LoadStoreOpType::SegmenterSet) {
+        return true;
+      }
+    }
+    return false;
+  };
+  return tv == nullptr || tv->isFusionInput() || tv->isFusionOutput() ||
+      isSegmentSet(tv);
+}
+
 } // namespace
 
 void AliasAnalysisResult::finalize(
@@ -415,8 +436,13 @@ void AliasAnalysisResult::finalize(
   for (auto [alias, root_and_layout] : alias_to_source_) {
     auto [root, preferred_layout] = root_and_layout;
     // Walks up the `alias_to_source_` chain.
-    while (root != nullptr && !root->isFusionInput() &&
-           !root->isFusionOutput()) {
+    // while (root != nullptr && !root->isFusionInput() &&
+    //        !root->isFusionOutput()) {
+    //   const auto i = alias_to_source_.find(root);
+    //   root = (i == alias_to_source_.end() ? nullptr : i->second.first);
+    // }
+
+    while (!isSegmentInputOutput(root)) {
       const auto i = alias_to_source_.find(root);
       root = (i == alias_to_source_.end() ? nullptr : i->second.first);
     }
