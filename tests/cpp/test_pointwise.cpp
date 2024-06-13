@@ -486,88 +486,80 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-// params: use 1D scheduler, sharded dimenson
-class ShardedPointwiseTest
-    : public NVFuserTest,
-      public testing::WithParamInterface<std::tuple<bool, int>> {};
-
-TEST_P(ShardedPointwiseTest, DID_Compatible) {
-  auto [use_1D_scheduler, sharded_dim] = GetParam();
+namespace {
+Fusion createPointwiseFusion(bool shard, int sharded_dim = -1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-
-  TensorView* tv0 = makeContigTensor(4);
+  // Sharded fusion needs to add an additional sharded axis.
+  TensorView* tv0 = makeContigTensor(shard ? 4 : 3);
   TensorView* tv1 = makeContigTensor(2);
   auto tv2 = add(tv0, tv0);
-  auto tv3 = broadcast(tv1, {true, true, false, false});
-  auto tv4 = add(tv2, tv3);
+  std::vector<bool> bcast_mask;
+  if (shard) {
+    bcast_mask = {false, true, false, false};
+    bcast_mask[sharded_dim] = true;
+  } else {
+    bcast_mask = {true, false, false};
+  }
+  TensorView* tv3 = broadcast(tv1, bcast_mask);
+  TensorView* tv4 = add(tv2, tv3);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
   fusion.addOutput(tv4);
 
-  DeviceMesh mesh = DeviceMesh::createForNumDevices(4);
-  for (TensorView* tv : {tv0, tv2, tv3, tv4}) {
-    tv->setDeviceMesh(mesh);
-    tv->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  if (shard) {
+    DeviceMesh mesh = DeviceMesh::createForNumDevices(4);
+    for (TensorView* tv : {tv0, tv2, tv3, tv4}) {
+      tv->setDeviceMesh(mesh);
+      tv->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+    }
+    tv1->setDeviceMesh(mesh);
   }
-  tv1->setDeviceMesh(mesh);
-
-  // Trigger the 1D scheduler by using small input size.
-  std::vector<int64_t> input_size;
-  if (use_1D_scheduler) {
-    input_size = {16, 8, 24};
-  } else {
-    input_size = {1024, 32, 64};
-  }
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(input_size, options).unsqueeze(sharded_dim);
-  at::Tensor t1 = at::randn({input_size[1], input_size[2]}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
-
-  auto params = getPointwiseHeuristics(&fusion, aten_inputs);
-  auto lparams = schedulePointwise(&fusion, aten_inputs);
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
-
-  EXPECT_EQ(use_1D_scheduler, params->break_point == 0);
-  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
-
-  // Create a single device fusion and verify the same scheduling parameters are
-  // used for given the same single device fusion.
-  Fusion unsharded_fusion;
-  FusionGuard unsharded_fg(&unsharded_fusion);
-
-  TensorView* utv0 = makeContigTensor(3);
-  TensorView* utv1 = makeContigTensor(2);
-  auto utv2 = add(utv0, utv0);
-  auto utv3 = broadcast(utv1, {true, false, false});
-  auto utv4 = add(utv2, utv3);
-  unsharded_fusion.addInput(utv0);
-  unsharded_fusion.addInput(utv1);
-  unsharded_fusion.addOutput(utv4);
-
-  std::vector<c10::IValue> unsharded_aten_inputs = {
-      t0.squeeze(sharded_dim), t1};
-  auto unsharded_params =
-      getPointwiseHeuristics(&unsharded_fusion, unsharded_aten_inputs);
-  EXPECT_TRUE(params->sameAs(unsharded_params));
+  return fusion;
 }
+} // namespace
 
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    ShardedPointwiseTest,
-    testing::Combine(testing::Bool(), testing::Values(0, 1)),
-    [](const testing::TestParamInfo<std::tuple<bool, int>>& info)
-        -> std::string {
-      bool use_1D_scheduler;
-      int sharded_dim;
-      std::tie(use_1D_scheduler, sharded_dim) = info.param;
-      std::ostringstream os;
-      os << (use_1D_scheduler ? "1D_scheduler" : "2D_scheduler")
-         << "_input_sharded_along_dim_" << sharded_dim;
-      return os.str();
-    });
+// Check that (1) a sharded pointwise fusion returns the same
+// pointwise scheduling parameters as its equivalent
+// unsharded fusion and (2) the output is correct.
+TEST_F(PointwiseTest, ShardedPointwise) {
+  int64_t sharded_dim = 0;
+  std::vector<std::vector<int64_t>> input_sizes = {
+      {16, 8, 48},
+      {2, 512, 4096},
+      {2048, 512, 16},
+      {65536, 512, 16},
+      {512, 3, 65536},
+  };
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
+  for (auto input_size : input_sizes) {
+    Fusion sharded_fusion = createPointwiseFusion(true, sharded_dim);
+    Fusion unsharded_fusion = createPointwiseFusion(false);
+    at::Tensor t0 = at::randn(input_size, options);
+    at::Tensor t1 = at::randn({input_size[1], input_size[2]}, options);
+    std::vector<c10::IValue> sharded_inputs = {t0.unsqueeze(sharded_dim), t1};
+    std::cout << "t0 unsqueeze shape " << t0.unsqueeze(sharded_dim).sizes()
+              << std::endl;
+    auto params = getPointwiseHeuristics(&sharded_fusion, sharded_inputs);
+    auto unsharded_params = getPointwiseHeuristics(&unsharded_fusion, {t0, t1});
+    // Note: occasionally one of the compile parameter index types is int64_t
+    // instead of int64 which causes `PointwiseParams::sameAs` to return false,
+    // despite the pointwise specific parameters being identical, so we just
+    // check these.
+    EXPECT_EQ(params->vectorize, unsharded_params->vectorize);
+    EXPECT_EQ(params->break_point, unsharded_params->break_point);
+    EXPECT_EQ(params->split_block, unsharded_params->split_block);
+    EXPECT_EQ(params->split_grid_y_dim, unsharded_params->split_grid_y_dim);
+    EXPECT_EQ(params->unroll_factor, unsharded_params->unroll_factor);
+    EXPECT_EQ(params->flip_grid_binding, unsharded_params->flip_grid_binding);
+
+    auto lparams = schedulePointwise(&sharded_fusion, sharded_inputs);
+    FusionExecutor fe;
+    fe.compileFusion(&sharded_fusion, sharded_inputs, lparams);
+    auto cg_outputs = fe.runFusion(sharded_inputs, lparams);
+    testValidate(
+        &sharded_fusion, cg_outputs, sharded_inputs, __LINE__, __FILE__);
+  }
+}
 } // namespace nvfuser

@@ -1664,7 +1664,8 @@ BroadcastMultipleInformation getBroadcastMultiples(
   for (auto in_out_tv : in_out_tvs) {
     std::vector<bool> mapped_axes(ref_root_domain.size(), false);
 
-    auto in_out_tv_domain = in_out_tv->getMaybeRootDomain();
+    auto in_out_tv_domain =
+        TensorDomain::noDevices(in_out_tv->getMaybeRootDomain());
     auto in_out_tv_domain_list = std::list<IterDomain*>(
         in_out_tv_domain.begin(), in_out_tv_domain.end());
 
