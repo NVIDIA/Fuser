@@ -2091,9 +2091,8 @@ kir::TensorIndex* Index::getProducerIndex(
     DataType as_type) {
   Val* index = nullptr;
 
-  if (GpuLower::current()->requiresIdModel() ||
-      hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
-          GpuLower::current()->isTensorIndexerEnabled()) {
+  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition());
   } else {
@@ -2181,9 +2180,8 @@ kir::TensorIndex* Index::getConsumerIndex(
     bool generate_pointer,
     DataType as_type) {
   Val* index = nullptr;
-  if (GpuLower::current()->requiresIdModel() ||
-      hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
-          GpuLower::current()->isTensorIndexerEnabled()) {
+  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         consumer, consumer->definition());
   } else {
