@@ -2089,13 +2089,22 @@ kir::TensorIndex* Index::getProducerIndex(
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) {
-  auto index = getProducerStridedIndices(
-      producer,
-      consumer,
-      loops,
-      rotated_loops,
-      override_index,
-      generate_pointer);
+  Val* index = nullptr;
+
+  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    index = GpuLower::current()->tensorIndexer().getLinearIndex(
+        producer, consumer->definition());
+  } else {
+    index = getProducerStridedIndices(
+        producer,
+        consumer,
+        loops,
+        rotated_loops,
+        override_index,
+        generate_pointer);
+  }
+
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
   if (ir_utils::isLdMatrixOp(consumer->definition()) &&
       at::cuda::getCurrentDeviceProperties()->major < 8) {
@@ -2170,8 +2179,16 @@ kir::TensorIndex* Index::getConsumerIndex(
     const std::unordered_map<int, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) {
-  auto index = getConsumerStridedIndices(
-      consumer, loops, rotated_loops, override_index, generate_pointer);
+  Val* index = nullptr;
+  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    index = GpuLower::current()->tensorIndexer().getLinearIndex(
+        consumer, consumer->definition());
+  } else {
+    index = getConsumerStridedIndices(
+        consumer, loops, rotated_loops, override_index, generate_pointer);
+  }
+
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
   return SimplifyingIrBuilder::create<kir::TensorIndex>(
       consumer, index, as_type);

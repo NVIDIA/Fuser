@@ -61,30 +61,29 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
 std::string DynamicTransformInitialInfo::toString() const {
   std::stringstream ss;
   ss << "DynamicTransformInitialInfo\n";
-  std::string indent = "  ";
-  ss << indent << "Dynamic reshaped TensorViews:\n";
+  indent(ss, 1) << "Dynamic reshaped TensorViews:\n";
   for (const auto& tv : dynamic_reshaped_tvs_) {
-    ss << indent << indent << tv->toString() << "\n";
+    indent(ss, 2) << tv->toString() << "\n";
   }
-  ss << indent << "Dynamic resized IterDomains:\n";
+  indent(ss, 1) << "Dynamic resized IterDomains:\n";
   for (const auto& id : dynamic_resized_ids_) {
-    ss << indent << indent << id->toString() << "\n";
+    indent(ss, 2) << id->toString() << "\n";
   }
-  ss << indent << "Dynamic expanded TensorViews:\n";
+  indent(ss, 1) << "Dynamic expanded TensorViews:\n";
   for (const auto& tv : dynamic_expanded_tvs_) {
-    ss << indent << indent << tv->toString() << "\n";
+    indent(ss, 2) << tv->toString() << "\n";
   }
-  ss << indent << "Dynamic factory-function output TensorViews:\n";
+  indent(ss, 1) << "Dynamic factory-function output TensorViews:\n";
   for (const auto& tv : dynamic_factory_tvs_) {
-    ss << indent << indent << tv->toString() << "\n";
+    indent(ss, 2) << tv->toString() << "\n";
   }
-  ss << indent << "Dynamic extent Vals:\n";
+  indent(ss, 1) << "Dynamic extent Vals:\n";
   for (const auto& v : maybe_zero_extents_) {
-    ss << indent << indent << v->toInlineString() << "\n";
+    indent(ss, 2) << v->toInlineString() << "\n";
   }
-  ss << indent << "Root dynamic Vals:\n";
+  indent(ss, 1) << "Root dynamic Vals:\n";
   for (const auto& v : root_dynamic_vals_) {
-    ss << indent << indent << v->toInlineString() << "\n";
+    indent(ss, 2) << v->toInlineString() << "\n";
   }
   return ss.str();
 }
@@ -554,44 +553,43 @@ bool DynamicTransformConcretizationInfo::operator==(
 std::string DynamicTransformConcretizationInfo::toString() const {
   std::stringstream ss;
   ss << "DynamicTransformConcretizationInfo\n";
-  std::string indent = "  ";
-  ss << indent << "Empty tensor extents:\n";
+  indent(ss, 1) << "Empty tensor extents:\n";
   for (const auto& i : empty_extents_) {
     auto ext = initial_info_->getMaybeZeroExtents().at(i);
-    ss << indent << indent << ext->toString() << " is zero\n";
+    indent(ss, 2) << ext->toString() << " is zero\n";
   }
-  ss << indent << "Reshape:\n";
+  indent(ss, 1) << "Reshape:\n";
   NVF_ERROR(
       reshape_transforms_.size() ==
       initial_info_->getDynamicReshapedTensorViews().size());
   for (const auto& [tv_index, view_info] : reshape_transforms_) {
     auto tv = initial_info_->getDynamicReshapedTensorViews().at(tv_index);
     if (std::holds_alternative<AnalyzeViewResult>(view_info)) {
-      ss << indent << indent << tv->toString() << " (index=" << tv_index
-         << "), " << std::get<AnalyzeViewResult>(view_info).toString() << "\n";
+      indent(ss, 2) << tv->toString() << " (index=" << tv_index << "), "
+                    << std::get<AnalyzeViewResult>(view_info).toString()
+                    << "\n";
     } else {
-      ss << indent << indent << tv->toString() << " (index=" << tv_index
-         << "), is empty. Symbolic reshape sizes: "
-         << std::get<std::vector<int64_t>>(view_info) << "\n";
+      indent(ss, 2) << tv->toString() << " (index=" << tv_index
+                    << "), is empty. Symbolic reshape sizes: "
+                    << std::get<std::vector<int64_t>>(view_info) << "\n";
     }
   }
-  ss << indent << "Resize:\n";
+  indent(ss, 1) << "Resize:\n";
   NVF_ERROR(
       resize_itertypes_.size() ==
       initial_info_->getDynamicResizedIterDomains().size());
   for (const auto& [id_index, iter_type] : resize_itertypes_) {
     auto id = initial_info_->getDynamicResizedIterDomains().at(id_index);
-    ss << indent << indent << id->toString() << " (index=" << id_index << "), "
-       << iter_type << "\n";
+    indent(ss, 2) << id->toString() << " (index=" << id_index << "), "
+                  << iter_type << "\n";
   }
-  ss << indent << "Expand:\n";
+  indent(ss, 1) << "Expand:\n";
   NVF_ERROR(
       expand_axes_.size() ==
       initial_info_->getDynamicExpandedTensorViews().size());
   for (const auto& [tv_index, expand_axes] : expand_axes_) {
     auto tv = initial_info_->getDynamicExpandedTensorViews().at(tv_index);
-    ss << indent << indent << tv->toString() << " (index=" << tv_index
-       << "), {";
+    indent(ss, 2) << tv->toString() << " (index=" << tv_index << "), {";
     bool first = true;
     for (bool e : expand_axes) {
       if (!first) {
@@ -602,17 +600,16 @@ std::string DynamicTransformConcretizationInfo::toString() const {
     }
     ss << "}\n";
   }
-  ss << indent << "Factory Output IterTypes:\n";
+  indent(ss, 1) << "Factory Output IterTypes:\n";
   NVF_ERROR(
       factory_output_itertypes_.size() ==
       initial_info_->getDynamicFactoryOutputs().size());
   for (int64_t i : c10::irange((int64_t)factory_output_itertypes_.size())) {
     TensorView* tv = initial_info_->getDynamicFactoryOutputs().at(i);
-    ss << indent << indent << tv->toString() << std::endl;
+    indent(ss, 2) << tv->toString() << std::endl;
     for (const auto& [pos, iter_type] : factory_output_itertypes_.at(i)) {
-      ss << indent << indent << indent
-         << tv->getLogicalDomain().at(pos)->toString() << " => " << iter_type
-         << std::endl;
+      indent(ss, 3) << tv->getLogicalDomain().at(pos)->toString() << " => "
+                    << iter_type << std::endl;
     }
   }
   return ss.str();
