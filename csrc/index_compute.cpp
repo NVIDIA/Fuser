@@ -2811,16 +2811,27 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   std::list<std::tuple<IterDomain*, /*contiguity*/ bool, /*stride*/ Val*>>
       frontier;
+
+  auto allocation_domain_with_broadcasts =
+      TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain());
   // Initialize frontier as the allocation domain
   auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto alloc_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
   for (auto i : c10::irange((int64_t)allocation_domain.size())) {
     auto id = allocation_domain.at(i);
+    auto it = std::find(
+        allocation_domain_with_broadcasts.begin(),
+        allocation_domain_with_broadcasts.end(),
+        id);
+    NVF_ERROR(it != allocation_domain_with_broadcasts.end());
+    int64_t pos = it - allocation_domain_with_broadcasts.begin();
     // TODO: should I use i below, or should I instead use the position of id in
     // the allocation domain with broadcast? I don't remember the detail, but
     // I will just use i for now and leave the support for broadcast for future.
-    auto stride = IrBuilder::getItemExpr(alloc_strides, i);
-    frontier.emplace_back(id, gmem_tv->getContiguity().at(i).value(), stride);
+    // auto stride = IrBuilder::getItemExpr(alloc_strides, i);
+    // frontier.emplace_back(id, gmem_tv->getContiguity().at(i).value(), stride);
+    auto stride = IrBuilder::getItemExpr(alloc_strides, pos);
+    frontier.emplace_back(id, gmem_tv->getContiguity().at(pos).value(), stride);
   }
   // Propagate forward from the allocation domain to partitioned IterDomains
   for (Expr* expr :

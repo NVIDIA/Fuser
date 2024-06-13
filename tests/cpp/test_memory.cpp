@@ -423,6 +423,22 @@ void markAllDimsExceptFirstAsBulk(const TensorView* tv) {
   }
 }
 
+void markAllDimsExceptFirstTwoAsBulk(const TensorView* tv) {
+  int skip = 0;
+  for (auto id : tv->getLoopDomain()) {
+    if (skip < 2) {
+      skip++;
+      continue;
+    }
+    id->parallelize(ParallelType::Bulk);
+  }
+}
+
+void parallelizeAllDimsExceptFirstTwoAsTIDx(TensorView* tv) {
+  tv->flatten(2);
+  tv->axis(2)->parallelize(ParallelType::TIDx);
+}
+
 void parallelizeAllDimsExceptFirstAsTIDx(TensorView* tv) {
   tv->flatten(1);
   tv->axis(1)->parallelize(ParallelType::TIDx);
@@ -875,6 +891,8 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
+  fusion.printKernel();
+
   EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
   ASSERT_TRUE(XorFinder::findXor(fe.kernel()));
@@ -889,7 +907,7 @@ TEST_F(TMAIndexingTest, SingleTile2) {
 
   const DataType dtype = DataType::Float;
   // put bcast first
-  auto tv0 = makeConcreteTensor({64, 16}, dtype);
+  auto tv0 = makeContigConcreteTensor({64, 16}, dtype);
   fusion.addInput(tv0);
 
   auto tv1 = set(tv0);
@@ -901,20 +919,94 @@ TEST_F(TMAIndexingTest, SingleTile2) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  tv1->applyMmaSwizzle(MmaInputSmemSwizzle::B32);
+  tv1->split(-1, 8);
+  tv1->split(0, 64);
+  tv2->split(-1, 8);
+  tv2->split(0, 64);
+  tv1->reorder({{1, 2}, {2, 1}});
+  tv2->reorder({{1, 2}, {2, 1}});
+  tv1->merge(-2);
+  tv2->merge(-2);
+  tv1->merge(-3);
+  tv2->merge(-3);
+
+  scheduleTMASwizzle(tv1, 2 /* swizzle_size*/);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  scheduleTMASwizzle(tv2, 2 /* swizzle_size*/);
 
-  // markAllDimsExceptFirstAsBulk(tv1);
-  for (auto id : tv1->getLoopDomain()) {
-    id->parallelize(ParallelType::Bulk);
-  }
+  markAllDimsExceptFirstAsBulk(tv1);
+  parallelizeAllDimsExceptFirstAsTIDx(tv2);
 
-  auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  // for (auto id : tv1->getLoopDomain()) {
+  //   id->parallelize(ParallelType::Bulk);
+  // }
+
+  // tv2->flatten(0);
+  // tv2->axis(0)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto inputs = at::randn({64, 16}, options);
 
   FusionExecutor fe;
-  fe.compileFusion(
-      &fusion, {inputs}, LaunchParams(), matmul_cparams);
+  fe.compileFusion(&fusion, {inputs}, {}, matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs});
+  testValidate(&fusion, cg_outputs, {inputs}, {inputs}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, SingleTile2BCast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+  // put bcast first
+  auto tv0 = makeContigConcreteTensor({1, 64, 16}, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1->split(-1, 8);
+  tv1->split(-3, 64);
+  tv2->split(-1, 8);
+  tv2->split(-3, 64);
+  tv1->reorder({{2, 3}, {3, 2}});
+  tv2->reorder({{2, 3}, {3, 2}});
+  tv1->merge(-2);
+  tv2->merge(-2);
+  tv1->merge(1);
+  tv2->merge(1);
+  // tv1->merge(0);
+  // tv2->merge(0);
+
+  scheduleTMASwizzle(tv1, 2 /* swizzle_size*/);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  scheduleTMASwizzle(tv2, 2 /* swizzle_size*/);
+
+  markAllDimsExceptFirstTwoAsBulk(tv1);
+  parallelizeAllDimsExceptFirstAsTIDx(tv2);
+
+  // for (auto id : tv1->getLoopDomain()) {
+  //   id->parallelize(ParallelType::Bulk);
+  // }
+
+  // tv2->flatten(0);
+  // tv2->axis(0)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto inputs = at::randn({1, 64, 16}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {inputs}, {}, matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs});
+  testValidate(&fusion, cg_outputs, {inputs}, {inputs}, __LINE__, __FILE__);
 }
 
 // TODO: improve validation of TMA, and add tests for invalid cases.
