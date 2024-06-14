@@ -471,6 +471,9 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     dims.back().gmem_stride_bytes = SimplifyingIrBuilder::mulExpr(*sit, itemsize);
     sit++;
   }
+  for (const auto& dim : dims) {
+    std::cout << dim.partitioned << std::endl;
+  }
   return TMAInfo(
       std::move(dims),
       getSwizzleFromBytes(
