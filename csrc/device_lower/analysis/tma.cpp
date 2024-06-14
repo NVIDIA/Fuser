@@ -430,6 +430,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       std::cout << "CB" << std::endl;
     }
   }
+  std::cout << "merge contiguous C groups and CB groups" << std::endl;
   // merge contiguous C groups and CB groups
   int64_t i = 0;
   while (i < (int64_t)tma_domain.size() - 1) {
@@ -452,6 +453,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       i++;
     }
   }
+  std::cout << "merge contiguous C with SB/CB" << std::endl;
   // merge contiguous C with SB/CB
   i = 0;
   while (i < (int64_t)tma_domain.size() - 1) {
