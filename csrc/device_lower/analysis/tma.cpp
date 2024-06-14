@@ -51,7 +51,7 @@ ExprGroups acyclicExprGroups(const ValGraph& id_graph, const ExprGroups& egs) {
     }
   break_two_loops:
     if (!cyclic) {
-      result.push_back(eg);
+      result.pushBack(eg);
     }
   }
   return result;
