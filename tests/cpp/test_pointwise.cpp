@@ -544,9 +544,9 @@ TEST_F(PointwiseTest, ShardedPointwise) {
     auto params = getPointwiseHeuristics(&sharded_fusion, sharded_inputs);
     auto unsharded_params = getPointwiseHeuristics(&unsharded_fusion, {t0, t1});
     // Note: occasionally one of the compile parameter index types is int64_t
-    // instead of int64 which causes `PointwiseParams::sameAs` to return false,
+    // instead of int which causes PointwiseParams::sameAs to return false,
     // despite the pointwise specific parameters being identical, so we just
-    // check these.
+    // explicitly check pointwise schedule params.
     EXPECT_EQ(params->vectorize, unsharded_params->vectorize);
     EXPECT_EQ(params->break_point, unsharded_params->break_point);
     EXPECT_EQ(params->split_block, unsharded_params->split_block);
