@@ -1658,10 +1658,9 @@ MmaOp* MatmulPattern::translateToMmaOp() {
   // higher precision in order avoid the round trip cast in defining an
   // epilogue that starts with MatmulOp.
   if (output->dtype() != fms->dtype()) {
-    // Redefine output as cast of MmaOp->out()
-    IrBuilder::create<UnaryOp>(UnaryOpType::Cast, output, fms);
-    // Update output so that cast is part of the epilogue
-    output = fms;
+    TensorView* old_output = output;
+    output = castOp(output->dtype(), fms);
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_output, output);
   } else {
     // No cast needed, for example the inputs might be Float
     ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
