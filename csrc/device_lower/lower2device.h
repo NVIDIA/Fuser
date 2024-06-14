@@ -196,6 +196,14 @@ class GpuLower : public NonCopyable {
     return vectorized_set_info_;
   }
 
+  bool requiresIdModel() const {
+    return requires_id_model_;
+  }
+
+  bool& requiresIdModel() {
+    return requires_id_model_;
+  }
+
   FusedReductionInfo& fusedReductionInfo() {
     return fused_reduction_info_;
   }
@@ -340,6 +348,10 @@ class GpuLower : public NonCopyable {
   std::vector<std::pair<const Val*, std::string>> validations_;
 
   Fusion* fusion_ = nullptr;
+
+  // A temporary flag which is true if the fusion uses any feature that requires
+  // the new experimental id model
+  bool requires_id_model_ = false;
 };
 
 } // namespace nvfuser
