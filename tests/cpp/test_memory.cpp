@@ -497,6 +497,62 @@ TEST_P(TMASimpleLdstTest, Load) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+class TMALoadTestWithABroadcastDim
+    : public NVFuserFixtureParamTest<
+          std::tuple<std::vector<int64_t>, DataType, MmaInputSmemSwizzle>> {
+ protected:
+  MmaInputSmemSwizzle swizzle;
+  DataType dtype;
+
+  int64_t innerDimSize() const {
+    return getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
+  }
+
+  TMALoadTestWithABroadcastDim() {
+    dtype = std::get<1>(GetParam());
+    swizzle = std::get<2>(GetParam());
+  }
+};
+
+TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto shape = std::get<0>(GetParam());
+
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  markAllDimsExceptFirstAsBulk(tv1);
+  parallelizeAllDimsExceptFirstAsTIDx(tv2);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+std::vector<std::vector<int64_t>> shapes_to_load = {{1, 64, 16}};
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TMALoadTestWithABroadcastDim,
+    testing::Combine(
+        testing::ValuesIn(shapes_to_load),
+        testing::Values(DataType::Half, DataType::Float, DataType::Double),
+        kAllSmemSwizzleModes));
+
 TEST_P(TMASimpleLdstTest, Store) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2222,7 +2278,7 @@ class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
     // requires Turing or newer
     if (cudaArchGuardShouldSkip(7, 5)) {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
-    }
+    } // namespace nvfuser
     NVFuserTest::SetUp();
   }
 };
