@@ -384,7 +384,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   global_strides.reserve(frontier.size());
   contiguity.reserve(frontier.size());
   for (auto& item : frontier) {
-    tma_domain.domain.push_back(
+    tma_domain.domain.emplace_back(
         ValGroupAndItsGraph{std::move(std::get<0>(item)), &id_graph});
     contiguity.push_back(std::get<1>(item));
     global_strides.push_back(std::get<2>(item));
@@ -425,7 +425,6 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     }
   }
   // merge contiguous C with SB/CB
-  i = 0;
   for (auto i : c10::irange((int64_t)tma_domain.size() - 1)) {
     if (!contiguity[i]) {
       continue;
