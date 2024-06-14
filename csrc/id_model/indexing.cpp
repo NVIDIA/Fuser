@@ -264,6 +264,7 @@ bool IdGraphIndexCompute::isForward(Expr* expr) const {
 }
 
 void IdGraphIndexCompute::handle(Split* split) {
+  std::cout << "handle: " << split->toString() << std::endl;
   const bool is_forward = isForward(split);
 
   auto inner_extent = split->inner()->extent();
@@ -284,6 +285,7 @@ void IdGraphIndexCompute::handle(Split* split) {
 }
 
 void IdGraphIndexCompute::handle(Merge* merge) {
+  std::cout << "handle: " << merge->toString() << std::endl;
   const bool is_forward = isForward(merge);
 
   auto inner_ext = merge->inner()->extent();
