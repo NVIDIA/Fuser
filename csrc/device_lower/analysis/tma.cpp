@@ -204,8 +204,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   // is a box dimension defined by compositing.
   std::vector<ValGroup> tma_groups;
   std::unordered_map<ValGroup, ValGroup> tma_g_to_box_g;
-  std::unordered_map<ValGroup, ValGroup> tma_g_to_tile_g;
-  std::unordered_map<ValGroup, ValGroup> tma_g_to_stride_g;
+  std::unordered_map<ValGroup, std::pair<ValGroup, ValGroup>>
+      tma_g_to_tile_stride_g;
   std::unordered_set<ValGroup> partitioned_groups;
   for (const auto& tile_g : tile_groups) {
     const auto& defs =
@@ -241,8 +241,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     tma_groups.push_back(tma_g);
     tma_g_to_box_g[tma_g] = box_g;
     if (stride_g != nullptr) {
-      tma_g_to_tile_g[tma_g] = tile_g;
-      tma_g_to_stride_g[tma_g] = stride_g;
+      tma_g_to_tile_stride_g[tma_g] = {tile_g, stride_g};
     }
     if (partitioned_g != nullptr) {
       partitioned_groups.insert(partitioned_g);
@@ -346,7 +345,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       std::get<1>(frontier.back()),
       "The innermost dimension of the TMA domain must be contiguous");
   NVF_ERROR(
-      tma_g_to_stride_g.count(std::get<0>(frontier.back())) == 0,
+      tma_g_to_tile_stride_g.count(std::get<0>(frontier.back())) == 0,
       "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
       "(this is always the case for nvFuser now)",
       ", the first element of elementStrides must be one.");
@@ -400,8 +399,9 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     const auto& g = tma_domain[i].as<ValGroupAndItsGraph>().group;
     return partitioned_groups.count(g)
         ? P
-        : (!tma_g_to_box_g.count(g) ? C
-                                    : (tma_g_to_stride_g.count(g) ? SB : CB));
+        : (!tma_g_to_box_g.count(g)
+               ? C
+               : (tma_g_to_tile_stride_g.count(g) ? SB : CB));
   };
   // merge contiguous C groups and CB groups
   int64_t i = 0;
@@ -439,9 +439,9 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       global_strides.erase(global_strides.begin() + i);
       auto g = tma_domain[i].as<ValGroupAndItsGraph>().group;
       tma_g_to_box_g.emplace(g, b);
-      if (tma_g_to_stride_g.count(b)) {
-        tma_g_to_stride_g.emplace(g, tma_g_to_stride_g.at(b));
-        tma_g_to_tile_g.emplace(g, tma_g_to_tile_g.at(b));
+      if (auto it = tma_g_to_tile_stride_g.find(b);
+          it != tma_g_to_tile_stride_g.end()) {
+        tma_g_to_tile_stride_g.emplace(g, it->second);
       }
     }
   }
@@ -450,22 +450,22 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   std::vector<TMADim> dims;
   auto sit = global_strides.rbegin();
   for (auto it = tma_domain.domain.rbegin(); it != tma_domain.domain.rend();
-       it++) {
+       it++, sit++) {
     auto g = it->as<ValGroupAndItsGraph>().group;
     dims.emplace_back();
     dims.back().tma = g;
-    if (tma_g_to_box_g.count(g)) {
-      dims.back().box = tma_g_to_box_g.at(g);
+    if (auto it = tma_g_to_box_g.find(g); it != tma_g_to_box_g.end()) {
+      dims.back().box = it->second;
     }
-    if (tma_g_to_stride_g.count(g)) {
-      dims.back().stride = tma_g_to_stride_g.at(g);
-      dims.back().tile = tma_g_to_tile_g.at(g);
+    if (auto it = tma_g_to_tile_stride_g.find(g);
+        it != tma_g_to_tile_stride_g.end()) {
+      dims.back().tile = it->second.first;
+      dims.back().stride = it->second.second;
     } else {
       dims.back().tile = dims.back().box;
     }
     dims.back().gmem_stride_bytes =
         SimplifyingIrBuilder::mulExpr(*sit, itemsize);
-    sit++;
   }
   return TMAInfo(
       std::move(dims),
