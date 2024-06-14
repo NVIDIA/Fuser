@@ -550,7 +550,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
-    // Replace the index of a vectorized domain with zero. Note that
+    // Replace the index of a vectorized/bulk domain with zero. Note that
     // vectorized domains may need to use N-1, where N is the extent
     // of the domain, for predication, so the replacement is not
     // always done with zero.
