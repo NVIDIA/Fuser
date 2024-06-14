@@ -206,7 +206,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   std::unordered_map<ValGroup, ValGroup> tma_g_to_box_g;
   std::unordered_map<ValGroup, ValGroup> tma_g_to_tile_g;
   std::unordered_map<ValGroup, ValGroup> tma_g_to_stride_g;
-  std::unordered_map<ValGroup, ValGroup> tma_g_to_partitioned_g;
+  std::unordered_set<ValGroup> partitioned_groups;
   for (const auto& tile_g : tile_groups) {
     const auto& defs =
         acyclicExprGroups(id_graph, id_graph.getDefinitions(tile_g));
@@ -245,7 +245,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       tma_g_to_stride_g[tma_g] = stride_g;
     }
     if (partitioned_g != nullptr) {
-      tma_g_to_partitioned_g[tma_g] = partitioned_g;
+      partitioned_groups.insert(partitioned_g);
     }
   }
 
@@ -398,7 +398,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   enum IDType { P, C, SB, CB };
   auto gtype = [&](int64_t i) {
     const auto& g = tma_domain[i].as<ValGroupAndItsGraph>().group;
-    return tma_g_to_partitioned_g.count(g)
+    return partitioned_groups.count(g)
         ? P
         : (!tma_g_to_box_g.count(g) ? C
                                     : (tma_g_to_stride_g.count(g) ? SB : CB));
@@ -426,9 +426,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   }
   // merge contiguous C with SB/CB
   i = 0;
-  while (i < (int64_t)tma_domain.size() - 1) {
+  for (auto i : c10::irange((int64_t)tma_domain.size() - 1)) {
     if (!contiguity[i]) {
-      i++;
       continue;
     }
     bool this_is_c = (gtype(i) == C);
@@ -444,16 +443,14 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
         tma_g_to_stride_g.emplace(g, tma_g_to_stride_g.at(b));
         tma_g_to_tile_g.emplace(g, tma_g_to_tile_g.at(b));
       }
-      tma_g_to_partitioned_g.emplace(g, g);
-    } else {
-      i++;
     }
   }
 
   // As required by the hardware, tensors used by TMA must be in column major
   std::vector<TMADim> dims;
   auto sit = global_strides.rbegin();
-  for (auto it = tma_domain.domain.rbegin(); it != tma_domain.domain.rend(); it++) {
+  for (auto it = tma_domain.domain.rbegin(); it != tma_domain.domain.rend();
+       it++) {
     auto g = it->as<ValGroupAndItsGraph>().group;
     dims.emplace_back();
     dims.back().tma = g;
@@ -466,7 +463,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     } else {
       dims.back().tile = dims.back().box;
     }
-    dims.back().gmem_stride_bytes = SimplifyingIrBuilder::mulExpr(*sit, itemsize);
+    dims.back().gmem_stride_bytes =
+        SimplifyingIrBuilder::mulExpr(*sit, itemsize);
     sit++;
   }
   return TMAInfo(
