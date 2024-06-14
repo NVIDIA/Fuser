@@ -579,7 +579,7 @@ TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
   ASSERT_TRUE(outer->isA<BinaryOp>());
   auto bop = outer->as<BinaryOp>();
   EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::CeilDiv);
-  ASSERT_TRUE(bop->lhs()->sameAs(tv->getRootDomain()[2]->extent()));
+  ASSERT_TRUE(bop->lhs()->sameAs(tv->getLogicalDomain()[2]->extent()));
   ASSERT_TRUE(bop->rhs()->sameAs(IrBuilder::create<Val>(2L, DataType::Index)));
 
   IterDomain* inner = static_cast<IterDomain*>(tv->axis(3));
@@ -601,9 +601,9 @@ TEST_F(NVFuserTest, FusionTVMerge_CUDA) {
       tv->nDims() == 2 && axisOp->isA<BinaryOp>() &&
       static_cast<BinaryOp*>(axisOp)->getBinaryOpType() == BinaryOpType::Mul &&
       static_cast<BinaryOp*>(axisOp)->lhs() ==
-          tv->getRootDomain()[1]->extent() &&
+          tv->getLogicalDomain()[1]->extent() &&
       static_cast<BinaryOp*>(axisOp)->rhs() ==
-          tv->getRootDomain()[2]->extent());
+          tv->getLogicalDomain()[2]->extent());
 }
 
 TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
@@ -621,7 +621,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
   auto tv = makeSymbolicTensor(3);
   std::vector<IterDomain*> ref;
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -630,7 +630,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -639,7 +639,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_right);
   NVF_CHECK(ref[ref.size() - 1]->sameAs(tv->axis(0)));
@@ -649,7 +649,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
   tv->reorder(swap);
   NVF_CHECK(ref[0]->sameAs(tv->axis(2)));
   NVF_CHECK(ref[2]->sameAs(tv->axis(0)));
@@ -1430,13 +1430,13 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt7_CUDA) {
   tv7->axis(1)->parallelize(ParallelType::TIDx);
 
   tv0->computeAt(tv7, 1);
-  auto tv5_domain = tv5->getLeafDomain();
+  auto tv5_domain = tv5->getLoopDomain();
 
   // These computeAt transformations should not affect the TV5 domain
   tv0->computeAt(tv4, -1);
   tv2->computeAt(tv4, -1);
 
-  auto tv5_domain_current = tv5->getLeafDomain();
+  auto tv5_domain_current = tv5->getLoopDomain();
   NVF_CHECK(tv5_domain == tv5_domain_current, "Invalid TV5 domain");
 
   const int numel_x = 100;
@@ -5977,7 +5977,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
   at::Tensor t1 = at::randn({K, N}, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-  at::Tensor aten_output = matmul(t0.to(at::kDouble), t1.to(at::kDouble));
+  at::Tensor aten_output = at::matmul(t0.to(at::kDouble), t1.to(at::kDouble));
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0, t1});
@@ -6064,7 +6064,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemmCache_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({M, K}, options);
   at::Tensor t1 = at::randn({K, N}, options);
-  at::Tensor aten_output = matmul(t0.to(at::kDouble), t1.to(at::kDouble));
+  at::Tensor aten_output = at::matmul(t0.to(at::kDouble), t1.to(at::kDouble));
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 

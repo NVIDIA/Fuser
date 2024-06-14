@@ -34,7 +34,7 @@ void validateValWithConcreteValue(
         concrete_value.type().name());
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
-        (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+        (int64_t)TensorDomain::noReductions(tv->getLogicalDomain()).size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -114,18 +114,17 @@ void ExpressionEvaluator::bind_(
   }
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
-    auto rfactor_domain =
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
     NVF_ERROR(
-        t.dim() == (int64_t)rfactor_domain.size(),
+        t.dim() == (int64_t)logical_domain.size(),
         "Expected ",
         tv->toString(),
         " to be bound to a tensor of rank ",
-        rfactor_domain.size(),
+        logical_domain.size(),
         ", but got a tensor of rank ",
         t.dim());
     for (auto i : c10::irange(t.dim())) {
-      auto id = rfactor_domain[i];
+      auto id = logical_domain[i];
       if (id->hasExpandedExtent()) {
         // Verify that t is also expanded
         NVF_ERROR(
@@ -141,8 +140,8 @@ void ExpressionEvaluator::bind_(
             " in dimension ",
             i);
         bind_(
-            rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
-      } else if (rfactor_domain[i]->isDeviceDim()) {
+            logical_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
+      } else if (logical_domain[i]->isDeviceDim()) {
         // Currently we have the restrictions:
         // (1) Devices parallelized axis extent == DeviceMesh's extent
         // (2) Device parallelized axis cannot be split or merged
@@ -158,11 +157,11 @@ void ExpressionEvaluator::bind_(
             "is sharded and must have size 1, but input tensor has size ",
             t.size(i));
         bind_(
-            rfactor_domain[i]->extent(),
+            logical_domain[i]->extent(),
             (int)tv->getDeviceMesh().vector().size(),
             evaluate_validate);
       } else {
-        bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
+        bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
       }
     }
   }

@@ -966,9 +966,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
     NVF_CHECK(root_id_set.count(id), id->toString(), " not a root id.");
 
     // Categorize each original iterdomain position
-    if (id->isDeviceDim()) {
-      device_pos.push_back(idx);
-    } else if (m_id_set.count(id)) {
+    if (m_id_set.count(id)) {
       m_pos.push_back(idx);
     } else if (n_id_set.count(id)) {
       n_pos.push_back(idx);
@@ -976,7 +974,9 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
       k_pos.push_back(idx);
     } else if (id->isReduction()) {
       prev_reduction_pos.push_back(idx);
-    }  else {
+    } else if (id->isDeviceDim()) {
+      device_pos.push_back(idx);
+    } else {
       batch_pos.push_back(idx);
     }
   }

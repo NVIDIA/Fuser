@@ -1802,6 +1802,8 @@ class TestNvFuserFrontend(TestCase):
 
             _ = fd.execute(inputs)
 
+            code_len = len(fd.sched.user_schedule_ir())
+            self.assertTrue(code_len > 0, "User schedule is not defined.")
             code_len = len(fd.last_cuda_code())
             self.assertTrue(code_len > 0, "Cuda Code was not produced!")
             code_len = len(fd.last_cuda_code(intrinsic_code=True))
@@ -3825,6 +3827,263 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(t2)
 
         # Fails because vectorization 4 is set but only 1 supported
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # See https://github.com/NVIDIA/Fuser/issues/2275
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    def test_unpadded_catop_issue2275_repro1(self):
+        inputs = [
+            torch.randn((4096,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (2, 4096, 4096), (0, 0, 1)
+            ),
+            torch.randn((33554432,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (2, 4096, 4096), (16777216, 4096, 1)
+            ),
+            torch.randn((524288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (2, 32, 4096, 128), (0, 0, 128, 1)
+            ),
+            torch.randn((524288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (2, 32, 4096, 128), (0, 0, 128, 1)
+            ),
+            torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (6144, 4096), (4096, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[None, None, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T2 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, None, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T3 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, None, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T4 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T5 = fd.ops.cast(T1, dtype=DataType.Float)
+            T6 = fd.ops.mul(T5, T5)
+            T7 = fd.ops.sum(T6, dims=[2], keepdim=False, dtype=DataType.Null)
+            S8 = fd.define_scalar(2, dtype=DataType.Int)
+            S9 = fd.define_scalar(4096, dtype=DataType.Int)
+            S10 = fd.define_scalar(1, dtype=DataType.Int)
+            V11 = fd.define_vector([S8, S9, S10], dtype=DataType.Int)
+            T12 = fd.ops.broadcast_in_dim(T7, shape=V11, broadcast_dims=[0, 1])
+            S13 = fd.define_scalar(4096.00, dtype=DataType.Double)
+            S14 = fd.ops.reciprocal(S13)
+            T15 = fd.ops.mul(T12, S14)
+            S16 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
+            T17 = fd.ops.add(T15, S16)
+            T18 = fd.ops.rsqrt(T17)
+            S19 = fd.define_scalar(2, dtype=DataType.Int)
+            S20 = fd.define_scalar(4096, dtype=DataType.Int)
+            S21 = fd.define_scalar(4096, dtype=DataType.Int)
+            V22 = fd.define_vector([S19, S20, S21], dtype=DataType.Int)
+            T23 = fd.ops.broadcast_in_dim(T18, shape=V22, broadcast_dims=[0, 1, 2])
+            T24 = fd.ops.mul(T5, T23)
+            T25 = fd.ops.cast(T0, dtype=DataType.Float)
+            T26 = fd.ops.mul(T24, T25)
+            T27 = fd.ops.cast(T26, dtype=DataType.BFloat16)
+            T28 = fd.ops.linear(T27, T4)
+            S29 = fd.define_scalar(2, dtype=DataType.Int)
+            S30 = fd.define_scalar(4096, dtype=DataType.Int)
+            S31 = fd.define_scalar(8, dtype=DataType.Int)
+            S32 = fd.define_scalar(6, dtype=DataType.Int)
+            S33 = fd.define_scalar(128, dtype=DataType.Int)
+            V34 = fd.define_vector([S29, S30, S31, S32, S33], dtype=DataType.Int)
+            T35 = fd.ops.reshape(T28, new_shape=V34)
+            T36 = fd.ops.permute(T35, dims=[0, 2, 3, 1, 4])
+            T37 = fd.ops.slice(
+                T36,
+                start_indices=[0, 0, 0, 0, 0],
+                end_indices=[2, 8, 4, 4096, 128],
+                strides=[1, 1, 1, 1, 1],
+            )
+
+            S47 = fd.define_scalar(2, dtype=DataType.Int)
+            S48 = fd.define_scalar(32, dtype=DataType.Int)
+            S49 = fd.define_scalar(4096, dtype=DataType.Int)
+            S50 = fd.define_scalar(128, dtype=DataType.Int)
+            V51 = fd.define_vector([S47, S48, S49, S50], dtype=DataType.Int)
+            T52 = fd.ops.reshape(T37, new_shape=V51)
+            T59 = fd.ops.slice(
+                T52,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[2, 32, 4096, 128],
+                strides=[1, 1, 1, 1],
+            )
+            T60 = fd.ops.slice(
+                T59,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[2, 32, 4096, 64],
+                strides=[1, 1, 1, 1],
+            )
+            T61 = fd.ops.slice(
+                T59,
+                start_indices=[0, 0, 0, 64],
+                end_indices=[2, 32, 4096, 128],
+                strides=[1, 1, 1, 1],
+            )
+            T62 = fd.ops.cast(T61, dtype=DataType.Float)
+            T63 = fd.ops.neg(T62)
+            T64 = fd.ops.cast(T63, dtype=DataType.BFloat16)
+            T65 = fd.ops.cat([T64, T60], dim=-1)
+            T66 = fd.ops.cast(T59, dtype=DataType.Float)
+            T67 = fd.ops.cast(T2, dtype=DataType.Float)
+            T68 = fd.ops.mul(T66, T67)
+            T69 = fd.ops.cast(T65, dtype=DataType.Float)
+            T70 = fd.ops.cast(T3, dtype=DataType.Float)
+            T71 = fd.ops.mul(T69, T70)
+            T72 = fd.ops.add(T68, T71)
+            T73 = fd.ops.cast(T72, dtype=DataType.BFloat16)
+
+            T87 = fd.ops.slice(
+                T52,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[2, 32, 4096, 0],
+                strides=[1, 1, 1, 1],
+            )
+            T88 = fd.ops.cat([T73, T87], dim=-1)
+
+            fd.add_output(T88)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # See https://github.com/NVIDIA/Fuser/issues/2275
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    def test_unpadded_catop_issue2275_repro2(self):
+        inputs = [
+            torch.randn((2, 32, 4096, 128), dtype=torch.bfloat16, device="cuda:0")
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+
+            T1 = fd.ops.slice(
+                T0,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[2, 32, 4096, 128],
+                strides=[1, 1, 1, 1],
+            )
+            T2 = fd.ops.slice(
+                T1,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[2, 32, 4096, 64],
+                strides=[1, 1, 1, 1],
+            )
+            T3 = fd.ops.slice(
+                T1,
+                start_indices=[0, 0, 0, 64],
+                end_indices=[2, 32, 4096, 128],
+                strides=[1, 1, 1, 1],
+            )
+            T4 = fd.ops.cast(fd.ops.neg(T3), DataType.BFloat16)
+            T5 = fd.ops.cat([T4, T2], dim=-1)
+            T6 = fd.ops.add(fd.ops.sin(T5), fd.ops.cos(T5))
+            T7 = fd.ops.cast(T6, DataType.BFloat16)
+
+            T100 = fd.ops.slice(
+                T0,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[2, 32, 4096, 0],
+                strides=[1, 1, 1, 1],
+            )
+            T101 = fd.ops.cat([T7, T100], dim=-1)
+            fd.add_output(T101)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_fusion_profiler(self):
+        inputs = [
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.ops.add(T0, T1)
+            T3 = fd.ops.sum(T2, dim=-1)
+            T4 = fd.ops.sum(T3, dim=-1)
+            fd.add_output(T4)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        # Testing returning a profile without profiling, expect an error!
+        try:
+            fd.profile()
+            raise RuntimeError(
+                "fd.profile() should have raised a ValueError because profile() was called before exeute()!"
+            )
+        except ValueError:
+            pass
+
+        # Testing that the profile returns 2 segments
+        try:
+            fd.execute(inputs, profile=True)
+            prof = fd.profile()
+            self.assertEqual(prof.segments, 2)
+            self.assertEqual(len(prof.kernel_profiles), 2)
+        except Exception as e:
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
+
+    # Small repro from https://github.com/NVIDIA/Fuser/issues/2359
+    def test_reshape_squeeze_concretization(self):
+        inputs = [
+            torch.randn((100,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 5, 10), (50, 10, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T1 = fd.ops.slice(
+                T0, start_indices=[0, 0, 0], end_indices=[1, 2, 4], strides=[1, 1, 1]
+            )
+            S2 = fd.define_scalar(1, dtype=DataType.Int)
+            S3 = fd.define_scalar(8, dtype=DataType.Int)
+            V4 = fd.define_vector([S2, S3], dtype=DataType.Int)
+            V5 = fd.define_vector([S3], dtype=DataType.Int)
+            T6 = fd.ops.reshape(T1, new_shape=V4)
+            T7 = fd.ops.reshape(T6, new_shape=V5)
+            # this works fine
+            # T7 = fd.ops.reshape(T1, new_shape=V5)
+            fd.add_output(T7)
+
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
 

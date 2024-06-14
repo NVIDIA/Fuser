@@ -7,7 +7,6 @@
 // clang-format on
 #include <device_lower/analysis/predicate_elimination.h>
 
-#include <device_lower/analysis/shift.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
@@ -44,11 +43,11 @@ namespace {
 
 // Utility to check if the scheduled domain of the given
 //   TensorView represent an exact shared mem access, meaning
-//   that all the thread parallel dimensions on the leaf nodes
+//   that all the thread parallel dimensions on the loop nodes
 //   are exact so that the shared mem read/write would not
 //   run out of bound because of thread over-subscription.
 bool isExactParallelSharedMemAccess(TensorView* tv) {
-  for (auto id : tv->getLeafDomain()) {
+  for (auto id : tv->getLoopDomain()) {
     if (id->isThreadDim()) {
       // Need to predicate to avoid out of bound access
       //  because of over-subscribed block size.
@@ -76,7 +75,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
     }
     // Both tensors must be on local or shared memory. Global tensors must be
     // predicated as allocation is done based on root domains. Smem
-    // and local tensors are allocated based on leaf domains.
+    // and local tensors are allocated based on loop domains.
     // However, smem tensors are parallelized, which is highly likely, the size
     // of the parallelized axis is the actual size of the axis, not
     // the number of threads. This is currently actively checked to avoid
@@ -93,7 +92,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     ProducerConsumerPairAnalyzer analyzer(c2p);
 
-    for (auto id : consumer->getLeafDomain()) {
+    for (auto id : consumer->getLoopDomain()) {
       if (analyzer.needsPredicate(id)) {
         return true;
       }
@@ -173,7 +172,8 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
 
     auto in_extent = split->in()->extent();
 
-    if (!in_extent->isConstInt() || ((in_extent->evaluate() % factor) != 0)) {
+    if (!in_extent->isConstInt() ||
+        ((in_extent->evaluate().as<int64_t>() % factor.as<int64_t>()) != 0)) {
       needs_predicate_ = true;
       return;
     }
@@ -234,8 +234,8 @@ class PredicateChcker : public IterVisitor {
   void dispatch(Expr* expr) final {
     const bool needs_predicate_smem_access = predicateSharedMemAccess(expr);
     needs_predicate_ = predicateIntDiv(expr) ||
-        predicateMisalignedVectorize(expr) || predicateShift(expr) ||
-        needs_predicate_smem_access || predicateProducerConsumerPair(expr) ||
+        predicateMisalignedVectorize(expr) || needs_predicate_smem_access ||
+        predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleRootDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
@@ -299,10 +299,10 @@ class PredicateChcker : public IterVisitor {
         "Should never have a reduction op without a tensor view input.");
     bool found_expand = false;
     for (auto tv_input : tv_inputs) {
-      found_expand |= std::any_of(
-          tv_input->getMaybeRFactorDomain().begin(),
-          tv_input->getMaybeRFactorDomain().end(),
-          [](IterDomain* id) { return id->hasExpandedExtent(); });
+      found_expand = found_expand ||
+          std::any_of(tv_input->getLogicalDomain().begin(),
+                      tv_input->getLogicalDomain().end(),
+                      [](IterDomain* id) { return id->hasExpandedExtent(); });
     }
 
     if (!found_expand) {
@@ -342,8 +342,8 @@ class PredicateChcker : public IterVisitor {
     for (const auto& inputs_or_outputs : inputs_and_outputs) {
       for (auto tv : ir_utils::filterByType<TensorView>(*inputs_or_outputs)) {
         if (std::any_of(
-                tv->getLeafDomain().begin(),
-                tv->getLeafDomain().end(),
+                tv->getLoopDomain().begin(),
+                tv->getLoopDomain().end(),
                 [](IterDomain* axis) {
                   return axis->getParallelType() ==
                       ParallelType::MisalignedVectorize;
@@ -353,19 +353,6 @@ class PredicateChcker : public IterVisitor {
       }
     }
     RECORD_AND_RETURN(false);
-  }
-
-  // Shift is not supported yet.
-  bool predicateShift(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
-    auto halo_info = GpuLower::current()->haloInfo();
-    auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
-    RECORD_AND_RETURN(
-        halo_info->needsShiftPredicate(expr) ||
-        std::any_of(input_tvs.begin(), input_tvs.end(), [&](auto input_tv) {
-          return input_tv->definition() != nullptr &&
-              halo_info->needsShiftPredicate(input_tv->definition());
-        }));
   }
 
   // Predicates the expression if any producer-consumer pair of the
@@ -406,7 +393,7 @@ class PredicateChcker : public IterVisitor {
   //  when either producer or consumer is in shared memory.
   bool needSharedMemPredicate(TensorView* producer, TensorView* consumer)
       const {
-    // Indexing is based on consumer leaf ids so check the consumer.
+    // Indexing is based on consumer loop ids so check the consumer.
 
     // If consumer schedule contains in-exact thread parallel
     //  dimensions, need to predicate against out of bound
@@ -457,7 +444,7 @@ class PredicateChcker : public IterVisitor {
       }
     }
 
-    for (auto id : consumer->getLeafDomain()) {
+    for (auto id : consumer->getLoopDomain()) {
       // TODO: (Enable in a follow up)
       //  smem predicate removal with init would break unroll and unswitch,
       //  eg. as in issue 1133, so disabling this removal pattern for now.
@@ -482,7 +469,7 @@ class PredicateChcker : public IterVisitor {
     return false;
   }
 
-  // Utility to find the leaf iterdomains of the given
+  // Utility to find the loop iterdomains of the given
   //   tensor view that will be treated as "zero loops"
   //   in the indexing pass.
   // For details on zero loops, see indexMapFromTV in
@@ -494,10 +481,10 @@ class PredicateChcker : public IterVisitor {
         "Local or shared memory tensor is assumed: ",
         tv->toString());
     bool is_shared_mem = tv->getMemoryType() == MemoryType::Shared;
-    std::vector<Val*> zero_leaf_ids;
+    std::vector<Val*> zero_loop_ids;
     for (const auto i : c10::irange(tv->nDims())) {
-      auto leaf_id = tv->axis(i);
-      if (is_shared_mem && leaf_id->isThreadDim()) {
+      auto loop_id = tv->axis(i);
+      if (is_shared_mem && loop_id->isThreadDim()) {
         // Thread parallel axes on shared mem are never
         //  zero loops as each thread owns its share
         //  of the shared mem space.
@@ -509,16 +496,16 @@ class PredicateChcker : public IterVisitor {
           i < tv->getComputeAtPosition() ||
           // Parallel axes on local mem is zero loop.
           // Grid axes on shared mem is zero loop.
-          leaf_id->isThread() ||
+          loop_id->isThread() ||
           // Mma axes, similar to vectorization, are
           //  implicit in hardware intrinsics, and thus
           //  will be treated as a zero loop.
-          leaf_id->isMma()) {
-        zero_leaf_ids.push_back(leaf_id);
+          loop_id->isMma()) {
+        zero_loop_ids.push_back(loop_id);
       }
     }
 
-    return zero_leaf_ids;
+    return zero_loop_ids;
   }
 
   // An index can exceed the logical extent of the indexed domain if
@@ -547,13 +534,13 @@ class PredicateChcker : public IterVisitor {
     }
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       const auto all_exprs = DependencyCheck::getAllExprsBetween(
-          {output->getMaybeRFactorDomain().begin(),
-           output->getMaybeRFactorDomain().end()},
-          {output->getLeafDomain().begin(), output->getLeafDomain().end()});
+          {output->getLogicalDomain().begin(),
+           output->getLogicalDomain().end()},
+          {output->getLoopDomain().begin(), output->getLoopDomain().end()});
       std::unordered_set<Val*> split_root;
       std::copy_if(
-          output->getMaybeRFactorDomain().begin(),
-          output->getMaybeRFactorDomain().end(),
+          output->getLogicalDomain().begin(),
+          output->getLogicalDomain().end(),
           std::inserter(split_root, split_root.end()),
           [&](auto rf_root) {
             if (rf_root->isBroadcast()) {
@@ -572,12 +559,12 @@ class PredicateChcker : public IterVisitor {
       if (split_root.empty()) {
         continue;
       }
-      const auto zero_leaf_ids = getZeroLeafIds(output);
-      if (zero_leaf_ids.empty()) {
+      const auto zero_loop_ids = getZeroLeafIds(output);
+      if (zero_loop_ids.empty()) {
         RECORD_AND_RETURN(true);
       }
       const auto vals =
-          DependencyCheck::getAllValsBetween(split_root, zero_leaf_ids);
+          DependencyCheck::getAllValsBetween(split_root, zero_loop_ids);
       if (std::any_of(
               split_root.begin(),
               split_root.end(),

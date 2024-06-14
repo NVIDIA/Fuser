@@ -126,10 +126,10 @@ TEST_F(AliasAnalysisTest, Set) {
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
-  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
       alias_analysis.preferredLayout(out).allocation_domain,
-      ElementsAre(out_rfactor[1], out_rfactor[2], out_rfactor[0]));
+      ElementsAre(out_logical[1], out_logical[2], out_logical[0]));
 }
 
 TEST_F(AliasAnalysisTest, Permute) {
@@ -146,10 +146,10 @@ TEST_F(AliasAnalysisTest, Permute) {
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
-  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
       alias_analysis.preferredLayout(out).allocation_domain,
-      ElementsAre(out_rfactor[2], out_rfactor[0], out_rfactor[1]));
+      ElementsAre(out_logical[2], out_logical[0], out_logical[1]));
 }
 
 TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {

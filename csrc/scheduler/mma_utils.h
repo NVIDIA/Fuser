@@ -9,8 +9,10 @@
 
 #include <exceptions.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <mma_type.h>
 #include <scheduler/matmul_heuristic.h>
+#include <val_graph.h>
 #include <visibility.h>
 #include <array>
 #include <variant>
@@ -56,19 +58,19 @@ NVF_API void scheduleWarpTileWithNoReduction(
 void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
 
 //! Order the inner tile dimensions as the original order in
-//!  root domain. Also putting broadcast domains on the left.
-//! Eg. A[I0o,I1o,B2o,I0i,I1i,B2i] (root domain: I1,B,I0)
+//! (maybe allocation) domain. Also putting broadcast domains on the left.
+//! Eg. A[I0o,I1o,B2o,I0i,I1i,B2i] (maybe allocation domain: I1,B,I0)
 //! -> A[I0o, I1o, B2o, B2i, I1i, I0i]
 //! This is used to facilitate data layout swizzling and
 //!  defining vectorized loads.
-void orderTiledConcreteIdAsRoot(TensorView* tv);
+void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv);
 
 //! Orders the root id ordering of the given tv as
 //! [Device, Batch, Previous Reduction, M, N, K]
 //!  for easier processing of later scheduling steps.
 //!
 //! This matching works on root domain only, and
-//!  will throw if the tv has a leaf iterdomain that is
+//!  will throw if the tv has a loop iterdomain that is
 //!  not a root id.
 void canonicalizeMmaTvOrdering(TensorView* tv);
 
@@ -87,7 +89,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!   This is different from a normal scheduler utility though,
 //!      as the thread mapping within a warp are *required* to be
 //!      a specific pattern which currently translates to an enforced
-//!      requirement that all the leaf domains produced by WarpMmaSwizzler
+//!      requirement that all the loop domains produced by WarpMmaSwizzler
 //!      cannot be further transformed (split/merge/reorder etc.).
 //!
 //!   Currently WarpMmaSwizzler can be accessed by schedulers through
@@ -184,9 +186,9 @@ class WarpMmaSwizzler {
   //! that each thread uses to call ldmatrix. In nvFuser, we schedule the
   //! allocation domain of the ldmatrix output and mma inputs to be consistent
   //! with the memory layout of the output of ldmatrix, and we schedule the
-  //! leaf domain of the ldmatrix output to be consistent with the index that
+  //! loop domain of the ldmatrix output to be consistent with the index that
   //! each thread uses to call ldmatrix. This function is used to schedule the
-  //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
+  //! loop domain of the ldmatrix output. The allocation domain of the ldmatrix
   //! output and mma inputs are scheduled in scheduleOperandRead, which must be
   //! called before this function.
   static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
@@ -206,10 +208,14 @@ constexpr size_t MIN_MATMUL_INPUTS_NUMBER = 2;
 //!  TODO: extend definition for handling batch matmuls
 using ProblemIterDomains = std::array<IterDomain*, 3>;
 
+//! A mapping from ValGroup pointers to MatmulDomain. The ValGroups should
+//! correspond to IterDomain groups from an IdModel's exact graph. This
+using DimRolesMap = std::unordered_map<ValGroup, MatmulDomain>;
+
 //! An alias for mapping between TensorView instance and its role in
 //!  matmul fusion definition, some roles can be assigned to more than
 //!  a single tv, for example input for beta scaling in epilogue
-using RolesMap = std::map<MatmulRole, std::vector<TensorView*>>;
+using TensorRolesMap = std::unordered_map<MatmulRole, std::vector<TensorView*>>;
 
 //! An alias for storing data types of the tensors in the mma op
 //!  the order is INPUT_A, INPUT_B, OUTPUT_D
@@ -242,37 +248,44 @@ class DataWrapperOpt {
   }
 };
 
-// This struct hold properties of a Mul and Sum pair
-// which can possibly be replaced a Mma op. This struct
-// can be be created (partially) from a Mma op.
-struct MulSumProperties {
-  // The Mul amd Sum op which can be replaced by a Mma op.
-  struct MulAndSumOps {
-    BinaryOp* mop = nullptr;
-    ReductionOp* redop = nullptr;
-  };
+//! This represents a single matmul operation, without a prologue or epilogue.
+//! Each matmul has two inputs which might not be fusion inputs: A and B. It
+//! also has one output, which can be Float or reduced precision. For MatmulOp
+//! and LinearOp, the output is the same dtype as the inputs; so output does not
+//! necessarily correspond to the output of a translated MmaOp and it might not
+//! be a fusion output.
+struct MatmulPattern {
+  TensorView* A;
+  TensorView* B;
+  // This is not necessarily a Fusion output, but rather is the immediate output
+  // representing a matmul in the current Fusion. The definition of this tensor
+  // determines what kind of translation is needed, if any. Possible definition
+  // Expr types are: MmaOp, ReductionOp (for mul-sum patterns), MatmulOp, and
+  // LinearOp.
+  TensorView* output;
 
-  // The inputs/ouputs to the possible Mma Op or the actual Mma op.
-  struct InputsOutputs {
-    TensorView* a = nullptr;
-    TensorView* b = nullptr;
-    TensorView* out = nullptr;
-  };
+  //! If the pattern is not already represented by an MmaOp, for example if
+  //! there is a MatmulOp instead, this function modifies the fusion to insert
+  //! an MmaOp. TensorViews A and B are unchanged, but this->output might be
+  //! updated to reflect the replacement tensor.
+  MmaOp* translateToMmaOp();
 
-  // The broadcasts which feed the Mma op/Mul-Sum pair.
-  struct Broadcasts {
-    BroadcastOp* bcast_a = nullptr;
-    BroadcastOp* bcast_b = nullptr;
-  };
+  //! Given an IdModel, map groups of IterDomains to dimension roles
+  //! (MatmulDomain). Note that ValGroup is a shared_ptr to a
+  //! VectorOfUniqueEntries<Val*>. We copy these as keys so that the returned
+  //! object can safely outlive id_model.
+  DimRolesMap getDimRoles(IdModel& id_model) const;
 
-  MulAndSumOps mulsumops;
-  InputsOutputs insouts;
-  Broadcasts bcasts;
+  std::string toString() const;
 };
+
+//! Traverse the fusion to find supported matmul patterns
+std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion);
 
 using MatmulProblemLayoutOpt = DataWrapperOpt<MmaLayout>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
-using RolesMapOpt = DataWrapperOpt<RolesMap>;
+using DimRolesMapOpt = DataWrapperOpt<DimRolesMap>;
+using TensorRolesMapOpt = DataWrapperOpt<TensorRolesMap>;
 
 using DomainsDesc = std::vector<MatmulDomain>;
 using DependenciesMap = std::map<TensorView*, DomainsDesc>;
@@ -290,32 +303,22 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-NVF_API MatmulProblemLayoutOpt getMmaLayout(
-    Fusion* fusion,
-    const mma_utils::MulSumProperties::InputsOutputs& props);
+NVF_API MatmulProblemLayoutOpt getProblemLayout(
+    const IdModel& id_model,
+    const DimRolesMap& dim_roles,
+    const TensorRolesMap& tensor_roles);
 
-//! This overloaded version is just a wrapper on the above function, where
-//! the mma_utils::MulSumProperties::InputsOutputs is extracted from the fusion.
-NVF_API MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
-
-//! Returns wrapped collection of IterDomains that can be used to get
-//!  problem shape with runtime info.
-//!  Data is stored in the order in which lables are defined in MatmulDomain
-//!  enum class, that is in the following order: m, n, k.
-//!  An error message is stored in retruned object if valid data cannot
-//!  be gathered.
-//!  TODO: 4th domain must be added for batch gemm support.
-ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
-ProblemIterDomainsOpt getProblemIterDomains(
-    const mma_utils::MulSumProperties::InputsOutputs& props);
+//! This version assumes the Fusion contains a single MatmulPattern, then builds
+//! an IdModel and infers dim roles then calls the above function.
+NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
 
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
-RolesMapOpt getTensorsRoles(
+TensorRolesMapOpt getTensorRoles(
     Fusion* fusion,
-    const mma_utils::MulSumProperties::InputsOutputs& props);
-RolesMapOpt getTensorsRoles(Fusion* fusion);
+    const IdModel& id_model,
+    const DimRolesMap& dim_roles);
 
 //! Return pair of whether use shared memory epilogue or not and whether to
 //!  reuse shared memory for the prologue at the expense of an additional block
@@ -333,7 +336,7 @@ RolesMapOpt getTensorsRoles(Fusion* fusion);
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
-    const RolesMap& roles_map,
+    const TensorRolesMap& tensor_roles,
     bool ignore_occupancy_drop = false);
 
 //! This version assumes roles_map has been analyzed to determine smem datatypes
@@ -345,50 +348,6 @@ NVF_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     bool smem_a_reuse_guaranteed = false,
     bool smem_b_reuse_guaranteed = false,
     bool ignore_occupancy_drop = false);
-
-//! Go through the fusion IR to find combinations of mul-sum
-//! which can be replaced with a mma op. This class operates
-//! in two phases. It can go through the graph and find the mul-sum
-//! pairs which can be replaced by a mma op. This phase returns a vector
-//! of properties of the mma op (MulSumAsMmaProps) which would replace the
-//! the mul-sum pair. It then exposes a function to replace with mma ops.
-class CombineMulSum : public IterVisitor {
- public:
-  CombineMulSum(Fusion* fusion) : IterVisitor(), fusion_(fusion) {
-    generateMulSumCanidates();
-  };
-
-  const std::vector<MulSumProperties>& getMulSumCanidates(
-      const bool refresh_data = false);
-
-  //! Goes through the fusion to find mul-sum pairs.
-  //! If user sets the caching flags and properties have been previously
-  //! computed, then just return cached results.
-  void generateMulSumCanidates();
-
-  //! Replaces the candidate mul-sum pairs with mma ops.
-  //! Please not this will run generateMulSumCandidates again.
-  void replaceWithMmaOp();
-
-  //! Check if the fusion has a mma-op or a mul-sum pair
-  //! that can be replaced by a mma op.
-  bool isValid() {
-    return is_valid_;
-  }
-
- protected:
-  void handle(ReductionOp* stmt) override;
-
- private:
-  Fusion* fusion_;
-  //! This is the list of mul-sum pairs and the properties
-  //! of the mma op which can replace it. This is only populated
-  //! if the mul-sum pair is a valid replacement candidate.
-  std::vector<MulSumProperties> mul_sum_props_ = {};
-  //! This variable tracks if the fusion has a mul-sum pair
-  //! than can be replaced by a mma op, or has a single mma op.
-  bool is_valid_ = false;
-};
 
 //! Compute the amount of shared memory we expect to need. The actual amount
 //! allocated will be determined by aliasing (see alias_memory.cpp). This
@@ -414,6 +373,31 @@ int64_t computeExpectedSharedMemoryUsage(
 //!  C = complex<float>
 //!  Z = complex<double>
 char dtypeToChar(const DataType& dtype);
+
+//! This function helps determine if ldmatrix requires a transpose.
+bool isLdMatrixTranspose(const LoadStoreOp* ldst);
+
+//! Get a total ordering of dimensions for known tensors. All dims of a
+//! particular DimRole are adjacent in the output. We then set the order as
+//! follows:
+//! 1. Batch dimensions go first
+//! 2. K dimensions are innermost
+//! 3. M or N can be innermost, depending on the first output's allocation
+//!    domain's innermost non-batch dimension.
+//! 4. Within each DimRole, dims are ordered as follows:
+//!    a. Batch, M, and N dimensions are ordered like the allocation domain of
+//!       the first output
+//!    b. K dimensions are ordered like the allocation domain of the first
+//!       A operand
+//!
+//! NOTE: The permissive graph is used for this so that we map broadcast
+//! dimensions to non-broadcast.
+// TODO: we might want more sophisticated ordering analysis for multi-dim role
+// ordering to maximize vectorization across multiple tensors (rule 4)
+std::vector<ValGroup> canonicalDimOrdering(
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const mma_utils::DimRolesMap& dim_roles,
+    const ValGraph& permissive_graph);
 
 } // namespace mma_utils
 

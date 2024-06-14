@@ -62,7 +62,6 @@ enum class DebugDumpOption {
   SchedulerDebug, //! Dump scheduler heuristic parameters
   SchedulerVerbose, //! Dump detailed scheduler logging
   ParallelDimensions, //!< Dump known parallel dimensions
-  Halo, //! Halo information of tensors
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
@@ -91,6 +90,7 @@ enum class DebugDumpOption {
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
+  FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   IdModel, //! Enable IdModel
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling

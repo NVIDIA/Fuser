@@ -36,6 +36,7 @@ enum class ValType {
   NamedScalar,
   Predicate,
   TensorIndex,
+  Stream,
   Others
 };
 
@@ -43,8 +44,6 @@ enum class ValType {
 // Inline corresponds with PredicateCompute::getInlinePredicate
 // Unswitch corresponds with UnswitchPredicate::get
 // Misaligned - PredicateCompute::getInlinePredicate + Misaligned flag
-// Shift - ShiftPredicateInserter::getShiftPredicate
-// Padding - ShiftPredicateInserter::getPaddingPredicate
 // ReductionWrite - Same as Inline but without reduction axes
 // LoopRotation - Predicate added by loop rotation, currently always true.
 enum class PredicateType {
@@ -53,8 +52,6 @@ enum class PredicateType {
   Unswitch,
   Vectorize,
   Misaligned,
-  Shift,
-  Padding,
   ReductionWrite,
   LoopRotation
 };
@@ -756,7 +753,6 @@ enum class LoadStoreOpType {
   Set,
   SegmenterSet,
   LdMatrix,
-  LdMatrixTranspose,
   CpAsync,
   CpAsyncBulkTensorTile
 };

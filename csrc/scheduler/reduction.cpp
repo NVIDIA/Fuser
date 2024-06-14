@@ -16,7 +16,6 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
-#include <multidevice/utils.h>
 
 namespace nvfuser {
 
@@ -890,10 +889,10 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  // Fusions handled by reduction scheduler cannot have MmaOp.
-  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+  // Fusions handled by reduction scheduler cannot have matmul ops.
+  if (ir_utils::hasAnyMatmulOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no support for mma ops.");
+        heuristicType(), "no support for matmul ops.");
     return false;
   }
 
@@ -939,7 +938,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
     size_t axis_count = 0;
     auto reduction_root_size = [](TensorView* red_tv) {
       size_t count = 0;
-      for (auto id : red_tv->getRootDomain()) {
+      for (auto id : red_tv->getMaybeRootDomain()) {
         if (!id->isBroadcast()) {
           count++;
         }
@@ -955,9 +954,9 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
         if (reduction_root_size(red) != axis_count) {
           scheduler_debug_utils::canScheduleRejectReason(
               heuristicType(),
-              "Inconsistent reduction axes ",
-              red,
-              "is not ",
+              "Inconsistent reduction root size: ",
+              red->toString(),
+              ", expected: ",
               axis_count);
           return false;
         }
@@ -977,7 +976,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
             heuristicType(),
             "Un-mapped multi-reduction: ",
             reduction_tvs[it - 1]->toString(),
-            " ",
+            " and ",
             reduction_tvs[it]->toString());
         return false;
       }
@@ -1149,7 +1148,6 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
 // fusion is the input IR that will be modified by this function
 void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
-  std::cout << "Schedule reduction " << std::endl;
   FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
 
@@ -1183,7 +1181,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
     reduction_tv->reorder(
-        scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
+        scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
 
   NVF_ERROR(

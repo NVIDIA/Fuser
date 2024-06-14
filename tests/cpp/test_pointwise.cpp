@@ -42,7 +42,7 @@ bool hasVectorizationCache(TensorView* tv) {
   auto cached_input = set_expr->out()->as<TensorView>();
   NVF_CHECK(cached_input, "expects input to be cached");
 
-  for (const auto* id : cached_input->getLeafDomain()) {
+  for (const auto* id : cached_input->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       return true;
     }
@@ -319,7 +319,7 @@ TEST_F(PointwiseTest, Issue1567VectorizeAllocationDomain) {
   fe.compileFusion(fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
-  EXPECT_EQ(params->vectorize, true);
+  EXPECT_TRUE(params->vectorize);
   EXPECT_EQ(params->unroll_factor, 4);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
@@ -356,7 +356,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
   fe.compileFusion(fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
-  EXPECT_EQ(params->vectorize, true);
+  EXPECT_TRUE(params->vectorize);
   EXPECT_EQ(params->unroll_factor, 4);
   EXPECT_FALSE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
@@ -393,7 +393,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
   fe.compileFusion(fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
-  EXPECT_EQ(params->vectorize, true);
+  EXPECT_TRUE(params->vectorize);
   EXPECT_EQ(params->unroll_factor, 2);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
@@ -437,7 +437,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   fe.compileFusion(fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
-  EXPECT_EQ(params->vectorize, true);
+  EXPECT_TRUE(params->vectorize);
   EXPECT_EQ(params->unroll_factor, 4);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
@@ -478,7 +478,7 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   fe.compileFusion(fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
-  EXPECT_EQ(params->vectorize, true);
+  EXPECT_TRUE(params->vectorize);
   EXPECT_EQ(params->unroll_factor, 2);
   EXPECT_TRUE(hasVectorizationCache(tv0));
   EXPECT_TRUE(hasVectorizationCache(tv1));
@@ -486,47 +486,80 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, DIDInputTensor) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  TensorView* tv0 = makeContigTensor(3);
-  TensorView* tv1 = makeContigTensor(1);
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
+namespace {
+Fusion createPointwiseFusion(bool shard, int sharded_dim = -1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  // Sharded fusion needs to add an additional sharded axis.
+  TensorView* tv0 = makeContigTensor(shard ? 4 : 3);
+  TensorView* tv1 = makeContigTensor(2);
   auto tv2 = add(tv0, tv0);
-  auto tv3 = broadcast(tv1, {true, false});
-  auto tv4 = add(tv2, tv3);
-  fusion->addOutput(tv4);
-
-  DeviceMesh mesh = DeviceMesh::createForNumDevices(4);
-  for (TensorView* tv : {tv0, tv2, tv3, tv4}) {
-    tv->setDeviceMesh(mesh);
-    tv->axis(0)->parallelize(ParallelType::DIDx);
+  std::vector<bool> bcast_mask;
+  if (shard) {
+    bcast_mask = {false, true, false, false};
+    bcast_mask[sharded_dim] = true;
+  } else {
+    bcast_mask = {true, false, false};
   }
-  tv1->setDeviceMesh(mesh);
+  TensorView* tv3 = broadcast(tv1, bcast_mask);
+  TensorView* tv4 = add(tv2, tv3);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv4);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  fec.profile(true);
+  if (shard) {
+    DeviceMesh mesh = DeviceMesh::createForNumDevices(4);
+    for (TensorView* tv : {tv0, tv2, tv3, tv4}) {
+      tv->setDeviceMesh(mesh);
+      tv->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+    }
+    tv1->setDeviceMesh(mesh);
+  }
+  return fusion;
+}
+} // namespace
 
+// Check that (1) a sharded pointwise fusion returns the same
+// pointwise scheduling parameters as its equivalent
+// unsharded fusion and (2) the output is correct.
+TEST_F(PointwiseTest, ShardedPointwise) {
+  int64_t sharded_dim = 0;
+  std::vector<std::vector<int64_t>> input_sizes = {
+      {16, 8, 48},
+      {2, 512, 4096},
+      {2048, 512, 16},
+      {65536, 512, 16},
+      {512, 3, 65536},
+  };
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({1, 1024, 32}, options); // Note: sharded input tensor.
-  at::Tensor t1 = at::randn({32}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
-  // NOTE: force pointwise scheduler here just for testing purpose
-  auto params = getPointwiseHeuristics(fusion, aten_inputs);
-  auto lparams = schedulePointwise(fusion, aten_inputs);
-  FusionExecutor fe;
-  fe.compileFusion(fusion, aten_inputs, lparams);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+  for (auto input_size : input_sizes) {
+    Fusion sharded_fusion = createPointwiseFusion(true, sharded_dim);
+    Fusion unsharded_fusion = createPointwiseFusion(false);
+    at::Tensor t0 = at::randn(input_size, options);
+    at::Tensor t1 = at::randn({input_size[1], input_size[2]}, options);
+    std::vector<c10::IValue> sharded_inputs = {t0.unsqueeze(sharded_dim), t1};
+    std::cout << "t0 unsqueeze shape " << t0.unsqueeze(sharded_dim).sizes()
+              << std::endl;
+    auto params = getPointwiseHeuristics(&sharded_fusion, sharded_inputs);
+    auto unsharded_params = getPointwiseHeuristics(&unsharded_fusion, {t0, t1});
+    // Note: occasionally one of the compile parameter index types is int64_t
+    // instead of int which causes PointwiseParams::sameAs to return false,
+    // despite the pointwise specific parameters being identical, so we just
+    // explicitly check pointwise schedule params.
+    EXPECT_EQ(params->vectorize, unsharded_params->vectorize);
+    EXPECT_EQ(params->break_point, unsharded_params->break_point);
+    EXPECT_EQ(params->split_block, unsharded_params->split_block);
+    EXPECT_EQ(params->split_grid_y_dim, unsharded_params->split_grid_y_dim);
+    EXPECT_EQ(params->unroll_factor, unsharded_params->unroll_factor);
+    EXPECT_EQ(params->flip_grid_binding, unsharded_params->flip_grid_binding);
 
-  EXPECT_EQ(params->vectorize, true);
-  EXPECT_EQ(params->unroll_factor, 4);
-  EXPECT_TRUE(hasVectorizationCache(tv0));
-  EXPECT_TRUE(hasVectorizationCache(tv1));
-
-  testValidate(fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+    auto lparams = schedulePointwise(&sharded_fusion, sharded_inputs);
+    FusionExecutor fe;
+    fe.compileFusion(&sharded_fusion, sharded_inputs, lparams);
+    auto cg_outputs = fe.runFusion(sharded_inputs, lparams);
+    testValidate(
+        &sharded_fusion, cg_outputs, sharded_inputs, __LINE__, __FILE__);
+  }
 }
 } // namespace nvfuser

@@ -364,13 +364,14 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
       // not have
       //  a size of 1, since it would have required re-indexing.
       if (!reduction_allocate_it->second->size()->isConstInt() ||
-          reduction_allocate_it->second->size()->evaluate() != 1) {
+          reduction_allocate_it->second->size()->evaluate().as<int64_t>() !=
+              1) {
         return;
       }
 
       auto broadcast_allocate = getActiveAllocateFor(out_tv);
       if (!broadcast_allocate->size()->isConstInt() ||
-          broadcast_allocate->size()->evaluate() != 1) {
+          broadcast_allocate->size()->evaluate().as<int64_t>() != 1) {
         return;
       }
 
@@ -419,7 +420,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
 
     bool reduction_has_single_warp = false, broadcast_has_single_warp = false;
 
-    for (auto id : reduction_out_tv->getLeafDomain()) {
+    for (auto id : reduction_out_tv->getLoopDomain()) {
       if (id->isReduction() && id->isThread() && !isSingleWarp(id)) {
         return false;
       }
@@ -427,7 +428,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
         reduction_has_single_warp = true;
       }
     }
-    for (auto id : broadcast_out_tv->getLeafDomain()) {
+    for (auto id : broadcast_out_tv->getLoopDomain()) {
       if (id->isBroadcast() && id->isThread() && !isSingleWarp(id)) {
         return false;
       }

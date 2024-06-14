@@ -123,7 +123,6 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
-      {"halo", DebugDumpOption::Halo},
       {"index_type", DebugDumpOption::IndexType},
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
@@ -154,6 +153,7 @@ template <>
 std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
+      {"fuse_matmul", EnableOption::FuseMatmul},
       {"id_model", EnableOption::IdModel},
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},

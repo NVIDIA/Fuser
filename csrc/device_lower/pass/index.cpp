@@ -431,7 +431,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
       continue;
     }
     if (isParallelTypeThreadDim(pt) &&
-        std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
+        std::any_of(td->loop().begin(), td->loop().end(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -496,7 +496,7 @@ Val* getGridSyncBufferSize(
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
       continue;
     }
-    if (std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
+    if (std::any_of(td->loop().begin(), td->loop().end(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -623,8 +623,8 @@ void IndexLowering::handleSerialGridReduction(
   // to a grid or block dim.
   NVF_ERROR(
       std::none_of(
-          out_domain->leaf().begin(),
-          out_domain->leaf().end(),
+          out_domain->loop().begin(),
+          out_domain->loop().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -639,13 +639,13 @@ void IndexLowering::handleSerialGridReduction(
 
   // Allocate global work buffer TensorIndex.
   //
-  // For convenience, the global work buffer is allocated like the leaf domain
+  // For convenience, the global work buffer is allocated like the loop domain
   // of the ReductionOp output. In the future, we may want the allocation
   // domain to be different in order to enable re-use of global output buffers
   // for in-place reduction.
   std::vector<IterDomain*> work_buffer_root;
   work_buffer_root.reserve(out_tv->nDims());
-  for (IterDomain* id : out_tv->getLeafDomain()) {
+  for (IterDomain* id : out_tv->getLoopDomain()) {
     work_buffer_root.push_back(IterDomainBuilder(id).build());
   }
   auto work_buffer_domain = IrBuilder::create<TensorDomain>(work_buffer_root);
@@ -722,8 +722,8 @@ void IndexLowering::handleGridReduction(
   // to a grid or block dim.
   NVF_ERROR(
       std::none_of(
-          out_domain->leaf().begin(),
-          out_domain->leaf().end(),
+          out_domain->loop().begin(),
+          out_domain->loop().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -872,8 +872,8 @@ void IndexLowering::handleGridReduction(
   // to a grid or block dim.
   NVF_ERROR(
       std::none_of(
-          out_domain->leaf().begin(),
-          out_domain->leaf().end(),
+          out_domain->loop().begin(),
+          out_domain->loop().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -963,8 +963,8 @@ void IndexLowering::handle(const WelfordOp* wop) {
   if (has_grid_reduce) {
     NVF_ERROR(
         std::none_of(
-            out_domain->leaf().begin(),
-            out_domain->leaf().end(),
+            out_domain->loop().begin(),
+            out_domain->loop().end(),
             [](IterDomain* id) {
               return !id->isThread() && id->isReduction();
             }),
@@ -1196,13 +1196,13 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   // TIDx and BIDx must be used for non-reduction domains. TIDy and
   // BIDy must be used for reduction domains.
   ParallelTypeBitmap used_pts;
-  for (auto leaf_id : out_domain->leaf()) {
-    auto pt = leaf_id->getParallelType();
+  for (auto loop_id : out_domain->loop()) {
+    auto pt = loop_id->getParallelType();
     if (isParallelTypeThread(pt)) {
       used_pts.set(pt);
-      if ((leaf_id->isReduction() &&
+      if ((loop_id->isReduction() &&
            (pt == ParallelType::BIDy || pt == ParallelType::TIDy)) ||
-          (leaf_id->getIterType() == IterType::Iteration &&
+          (loop_id->getIterType() == IterType::Iteration &&
            (pt == ParallelType::BIDx || pt == ParallelType::TIDx))) {
         // valid pattern
         continue;
@@ -1253,7 +1253,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   }
 
   int64_t num_grouped_iterations = 1;
-  for (auto axis : out_domain->leaf()) {
+  for (auto axis : out_domain->loop()) {
     if (axis->getParallelType() == ParallelType::Group) {
       NVF_ERROR(
           axis->extent()->isConstInt(),
@@ -1309,8 +1309,8 @@ void IndexLowering::handleGroupedGridWelford(
   // to a grid or block dim.
   NVF_ERROR(
       std::none_of(
-          out_domain->leaf().begin(),
-          out_domain->leaf().end(),
+          out_domain->loop().begin(),
+          out_domain->loop().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -1473,7 +1473,7 @@ static DataType getMmaInputBType(MmaMacro macro) {
 
 static inline DataType getMmaOutType(TensorView* mma_out) {
   int64_t size = 1;
-  for (auto id : mma_out->getLeafDomain()) {
+  for (auto id : mma_out->getLoopDomain()) {
     if (id->isMma() && !id->isReduction()) {
       size *= id->extent()->evaluate().as<int64_t>();
     }
@@ -1553,11 +1553,11 @@ static Val* constructMatrixDescriptor(
 }
 
 static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  const auto& alloc_domain = tv->getRootDomain();
-  const auto& leaf_domain = tv->getLeafDomain();
+  const auto& alloc_domain = tv->getMaybeRootDomain();
+  const auto& loop_domain = tv->getLoopDomain();
   auto exprs = StmtSort::getExprsBetween(
       {alloc_domain.begin(), alloc_domain.end()},
-      {leaf_domain.begin(), leaf_domain.end()});
+      {loop_domain.begin(), loop_domain.end()});
   auto swizzle_exprs = ir_utils::filterByType<Swizzle>(exprs);
   if (swizzle_exprs.empty()) {
     return MmaInputSmemSwizzle::None;
@@ -1578,6 +1578,7 @@ void IndexLowering::handle(const MmaOp* mma) {
   constexpr int64_t core_matrix_outer_size = 8;
   Val* a = nullptr;
   Val* b = nullptr;
+  const auto& [unitdim_a, unitdim_b] = lower_utils::getMmaLayout(mma);
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
@@ -1587,15 +1588,12 @@ void IndexLowering::handle(const MmaOp* mma) {
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
-        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)
-        ? getK(mma->macro())
-        : getM(mma->macro());
+        unitdim_a == UnitDim::K ? getK(mma->macro()) : getM(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if (swizzle == MmaInputSmemSwizzle::None &&
-        (mma->layout() == MmaLayout::NT || mma->layout() == MmaLayout::NN)) {
+    if (swizzle == MmaInputSmemSwizzle::None && unitdim_a == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
@@ -1622,15 +1620,12 @@ void IndexLowering::handle(const MmaOp* mma) {
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
-        (mma->layout() == MmaLayout::TN || mma->layout() == MmaLayout::NN)
-        ? getK(mma->macro())
-        : getN(mma->macro());
+        unitdim_b == UnitDim::K ? getK(mma->macro()) : getN(mma->macro());
     int64_t stride_bytes = core_matrix_outer_size *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(inner_size * /*bytes per item*/ 2L,
                           getBytesFromSwizzle(swizzle));
-    if (swizzle == MmaInputSmemSwizzle::None &&
-        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::NT)) {
+    if (swizzle == MmaInputSmemSwizzle::None && unitdim_b == UnitDim::M_or_N) {
       // tnspA and tnspB is ignored for NoSwizzle mode
       std::swap(leading_bytes, stride_bytes);
     }
@@ -1650,8 +1645,8 @@ void IndexLowering::handle(const MmaOp* mma) {
   }
   const auto out = lowerDstIndex(
       mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
-  auto mma_indexed = IrBuilder::create<MmaOp>(
-      out, a, b, mma->init(), mma->macro(), mma->layout());
+  auto mma_indexed =
+      IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->macro());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
   if (mma->isHopper()) {
@@ -1837,7 +1832,7 @@ Val* IndexLowering::getIterationIndexForBroadcast(
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
+      producer_tv->getLoopDomain(), consumer_tv->getLoopDomain(), c2p_root_map);
 
   const auto& c2p_map = replay_producer_as_consumer.getReplay();
   const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
@@ -1869,7 +1864,7 @@ void IndexLowering::handle(const PadOp* pad) {
   auto producer_tv = pad->in()->as<TensorView>();
   auto consumer_tv = pad->out()->as<TensorView>();
   auto producer_doms =
-      TensorDomain::noReductions(producer_tv->getMaybeRFactorDomain());
+      TensorDomain::noReductions(producer_tv->getLogicalDomain());
 
   const auto in = lowerSrcIndex(pad->in(), pad->out());
   const auto out = lowerDstIndex(pad->out());
@@ -1943,7 +1938,7 @@ void IndexLowering::handle(const CatOp* cat) {
     inputs.at(i) = inp;
 
     // Note the original extent is the extent of the root domain not
-    // rfactor domain
+    // logical domain
     auto inp_concat_id = TensorDomain::noReductions(
                              cat->input(i)->as<TensorView>()->getRootDomain())
                              .at(cat->concatenatedDim());
