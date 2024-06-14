@@ -3222,8 +3222,8 @@ TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
   }
 }
 
-// Matmul test with multiple M dimensions that are discontiguous
-TEST_F(GPUTTensorCoreTest, MultipleMDims) {
+// Matmul test with multiple M dimensions that are consecutive
+TEST_F(GPUTTensorCoreTest, MultipleConsecutiveMDims) {
   int M1 = 126, N = 136, M2 = 4, K = 248;
 
   Fusion fusion;
@@ -3236,6 +3236,7 @@ TEST_F(GPUTTensorCoreTest, MultipleMDims) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
+  // M1, M2, N, K
   tv0 = broadcast(tv0, {false, false, true, false});
   tv1 = broadcast(tv1, {true, true, false, false});
 
@@ -3273,6 +3274,68 @@ TEST_F(GPUTTensorCoreTest, MultipleMDims) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+// Matmul test with multiple M dimensions that are consecutive
+// TODO: This test currently fails, but it can be run using
+//   build/test_matmul --gtest_also_run_disabled_tests
+//
+// This case fails because the allocation domain of the B smem cached tensor is
+// [N1, K, N2], which is incompatible with ldMatrix. We need to gather the
+// allocation domains for the smem tensors by role instead, so that this
+// becomes [K, N1, N2].
+TEST_F(GPUTTensorCoreTest, DISABLED_MultipleNonConsecutiveMDims) {
+  int M1 = 126, N = 136, M2 = 4, K = 248;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Note that M2 is inside K, so this is an NN layout
+  auto tv0 = makeContigTensor(3, DataType::Half); // M1, K, M2
+  auto tv1 = makeContigTensor(2, DataType::Half); // N, K
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // M1, N, K, M2
+  tv0 = broadcast(tv0, {false, true, false, false});
+  tv1 = broadcast(tv1, {true, false, true, false});
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  // Supported vec size is based on inner dim
+  params.supported_vec_size = {4, 8, 4};
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.double_buffer_options.double_buffer_smem_write = true;
+  params.double_buffer_options.double_buffer_smem_read = true;
+  params.double_buffer_options.smem_double_buffer_stage = 4;
+  scheduleMatmul(&fusion, params);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor A = at::randn({M1, K, M2}, options);
+  at::Tensor B = at::randn({N, K}, options);
+  std::vector<c10::IValue> inputs{A, B};
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  auto cg_outputs = fe.runFusion(inputs);
+  auto Apermuted = A.permute({{1, 2}}).reshape({M1 * M2, K});
+  auto tref = at::linear(Apermuted.to(at::kFloat), B.to(at::kFloat))
+                  .reshape({M1, M2, N})
+                  .permute({{1, 2}});
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
 // Matmul test with multiple N dimensions that are consecutive
 TEST_F(GPUTTensorCoreTest, MultipleConsecutiveNDims) {
   int M = 504, N1 = 68, N2 = 2, K = 248;
@@ -3287,6 +3350,7 @@ TEST_F(GPUTTensorCoreTest, MultipleConsecutiveNDims) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
+  // M, N1, N2, K
   tv0 = broadcast(tv0, {false, true, true, false});
   tv1 = broadcast(tv1, {true, false, false, false});
 
@@ -3348,6 +3412,7 @@ TEST_F(GPUTTensorCoreTest, DISABLED_MultipleNonConsecutiveNDims) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
+  // M, N1, K, N2
   tv0 = broadcast(tv0, {false, true, false, true});
   tv1 = broadcast(tv1, {true, false, false, false});
 
