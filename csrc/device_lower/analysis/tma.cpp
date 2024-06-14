@@ -413,6 +413,23 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
         : (!tma_g_to_box_g.count(g) ? C
                                     : (tma_g_to_stride_g.count(g) ? SB : CB));
   };
+  for (auto i : c10::irange((int64_t)tma_domain.size())) {
+    auto t = gtype(i);
+    auto g = tma_domain[i].as<ValGroupAndItsGraph>().group;
+    std::cout << g->toString() << " -> ";
+    if (t == P) {
+      std::cout << "P" << std::endl;
+    }
+    if (t == C) {
+      std::cout << "C" << std::endl;
+    }
+    if (t == SB) {
+      std::cout << "SB" << std::endl;
+    }
+    if (t == CB) {
+      std::cout << "CB" << std::endl;
+    }
+  }
   // merge contiguous C groups and CB groups
   int64_t i = 0;
   while (i < (int64_t)tma_domain.size() - 1) {
