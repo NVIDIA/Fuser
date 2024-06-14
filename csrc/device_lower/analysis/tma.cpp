@@ -388,7 +388,9 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   tma_domain.domain.reserve(frontier.size());
   global_strides.reserve(frontier.size());
   contiguity.reserve(frontier.size());
+  std::cout << "tma domain:" << std::endl;
   for (auto& item : frontier) {
+    std::cout << std::get<0>(item)->toString() << std::endl;
     tma_domain.domain.push_back(
         ValGroupAndItsGraph{std::move(std::get<0>(item)), &id_graph});
     contiguity.push_back(std::get<1>(item));
@@ -471,6 +473,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     dims.back().gmem_stride_bytes = SimplifyingIrBuilder::mulExpr(*sit, itemsize);
     sit++;
   }
+  std::cout << "dims:" << std::endl;
   for (const auto& dim : dims) {
     std::cout << dim.partitioned->toString() << std::endl;
   }
