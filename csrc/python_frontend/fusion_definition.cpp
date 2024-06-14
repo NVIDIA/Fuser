@@ -190,6 +190,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
   }
 
   std::vector<at::Tensor> outputs;
+  if (profile) {
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  }
 
   // NOTE: queryUserSchedule is broken, see issue:
   // https://github.com/NVIDIA/Fuser/issues/2056
@@ -200,9 +203,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
         "Inputs are not all on the same device or don't match selection!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
-      //if (isProfilerEnabledWithCupti()) {
-      //  FusionProfiler::start();
-      //}
+      if (isProfilerEnabledWithCupti()) {
+        FusionProfiler::start();
+      }
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
@@ -211,9 +214,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
         user_sched.executor->compileFusion(user_sched.schedule.get(), inputs);
       }
       outputs = user_sched.executor->runFusion(inputs);
-      //if (isProfilerEnabledWithCupti()) {
-      //  FusionProfiler::stop();
-      //}
+      if (isProfilerEnabledWithCupti()) {
+        FusionProfiler::stop();
+      }
     }
   }
 
@@ -221,16 +224,11 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // already at this point and we would not want to overwrite generated output
   // through user scheduled kernel.
   if (outputs.empty()) {
-    // NOTE: Profiling is only currently supported for auto generatoed
-    // schedules.
-    if (profile) {
-      ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
-    }
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         inputs, std::nullopt, selected_device);
-    if (profile) {
-      ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
-    }
+  }
+  if (profile) {
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
   }
 
   if (capture_debug_output) {

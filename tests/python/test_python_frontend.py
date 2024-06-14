@@ -4024,7 +4024,7 @@ class TestNvFuserFrontend(TestCase):
             torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
         ]
 
-        def fusion_func1(fd: FusionDefinition) -> None:
+        def fusion_func(fd: FusionDefinition) -> None:
             T0 = fd.from_pytorch(inputs[0])
             T1 = fd.from_pytorch(inputs[1])
             T2 = fd.ops.add(T0, T1)
@@ -4033,7 +4033,7 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T4)
 
         with FusionDefinition() as fd:
-            fusion_func1(fd)
+            fusion_func(fd)
 
         # Testing returning a profile without profiling, expect an error!
         try:
@@ -4044,10 +4044,12 @@ class TestNvFuserFrontend(TestCase):
         except ValueError:
             pass
 
+        fusion_id = -1
         # Testing that the profile returns 2 segments
         try:
             fd.execute(inputs, profile=True)
             prof = fd.profile()
+            fusion_id = prof.fusion_id
             self.assertEqual(prof.segments, 2)
             self.assertEqual(len(prof.kernel_profiles), 2)
         except Exception as e:
@@ -4055,24 +4057,23 @@ class TestNvFuserFrontend(TestCase):
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
             )
         
-        def fusion_func2(fd: FusionDefinition) -> None:
-            T0 = fd.from_pytorch(inputs[0])
-            T1 = fd.from_pytorch(inputs[1])
-            T2 = fd.ops.add(T0, T1)
-            fd.add_output(T2)
-        
         class MyFusion(FusionDefinition):
             def definition(self):
-                fusion_func2(self)
+                self.T0 = fd.from_pytorch(inputs[0])
+                self.T1 = fd.from_pytorch(inputs[1])
+                self.T2 = fd.ops.add(self.T0, self.T1)
+                fd.add_output(self.T2)
 
             def schedule(self):
                 pass
+                #fd.sched.merge(self.T2, dim=0)
+                #fd.sched.split(self.T2, dim=-1, factor=5)
 
         fd = MyFusion()
         try:
             fd.execute(inputs, profile=True)
-            prof = fd.profile()
-            self.assertEqual(prof.fusion_id, -1)
+            print("FUSION ID:", fusion_id, "New ID", fd.profile().fusion_id)
+            self.assertEqual(fd.profile().fusion_id - fusion_id, 1)
         except Exception as e:
             raise RuntimeError(
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
