@@ -491,10 +491,7 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
         index, SimplifyingIrBuilder::mulExpr(stride, idx));
   }
 
-  const auto& replacement_map =
-      getIndexReplacementMap(index_info.loop_domains, index_info.index_map);
-
-  return ir_utils::replaceValRecursively(index, replacement_map);
+  return index;
 }
 
 // Get the loop domains of a given expr, which are (potentially
@@ -531,6 +528,14 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   IndexingInfo info{loop_domains, traversal_path, index_compute.indexMap()};
+
+  const auto& replacement_map =
+      getIndexReplacementMap(loop_domains, info.index_map);
+
+  for (auto& [k, v] : info.index_map) {
+    v = ir_utils::replaceValRecursively(v, replacement_map);
+  }
+
   return info;
 }
 
