@@ -2567,7 +2567,7 @@ Val* Index::eye(
 }
 
 std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
-    LoadStoreOp* ldst,
+    const LoadStoreOp* ldst,
     Val* mbarrier,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
