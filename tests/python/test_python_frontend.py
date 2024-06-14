@@ -4234,7 +4234,7 @@ class TestNvFuserFrontend(TestCase):
 
         inputs = [
             torch.randn((8, 4), dtype=torch.float32, device='cuda:0'),
-            torch.randn((6, 2, 8,), dtype=torch.float32, device='cuda:0')
+            torch.randn((6, 2, 4,), dtype=torch.float32, device='cuda:0')
         ]
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
