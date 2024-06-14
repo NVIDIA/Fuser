@@ -453,7 +453,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
        it++, sit++) {
     auto g = it->as<ValGroupAndItsGraph>().group;
     dims.emplace_back();
-    dims.back().tma = g;
+    dims.back().partitioned = g;
     if (auto it = tma_g_to_box_g.find(g); it != tma_g_to_box_g.end()) {
       dims.back().box = it->second;
     }

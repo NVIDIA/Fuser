@@ -21,14 +21,14 @@ namespace nvfuser {
 // All ValGroups are in the traversal graph of tensor indexer
 
 struct TMADim {
-  ValGroup tma;
+  ValGroup partitioned;
   ValGroup box;
   ValGroup tile;
   ValGroup stride;
   Val* gmem_stride_bytes;
 
   Val* tensorSize() const {
-    return tma->front()->as<IterDomain>()->extent();
+    return partitioned->front()->as<IterDomain>()->extent();
   }
   Val* boxSize() const {
     return box ? box->front()->as<IterDomain>()->extent()
@@ -66,7 +66,7 @@ class TMAInfo {
         dims_.begin(),
         dims_.end(),
         std::back_inserter(result),
-        [](const auto& d) { return d.tma; });
+        [](const auto& d) { return d.partitioned; });
     return result;
   }
 
