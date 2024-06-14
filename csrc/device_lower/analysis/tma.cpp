@@ -472,7 +472,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     sit++;
   }
   for (const auto& dim : dims) {
-    std::cout << dim.partitioned << std::endl;
+    std::cout << dim.partitioned->toString() << std::endl;
   }
   return TMAInfo(
       std::move(dims),
