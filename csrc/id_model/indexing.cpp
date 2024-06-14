@@ -233,6 +233,8 @@ class IdGraphIndexCompute : public OptOutDispatch {
 
   void handle(Merge* merge) override;
 
+  void handle(Swizzle* swizzle) override;
+
   bool isForward(Expr* expr) const;
 
   bool hasIndex(IterDomain* id) const {
@@ -302,6 +304,23 @@ void IdGraphIndexCompute::handle(Merge* merge) {
     setIndex(merge->outer(), outer_idx);
     Val* inner_idx = SimplifyingIrBuilder::modExpr(out_idx, inner_ext);
     setIndex(merge->inner(), inner_idx);
+  }
+}
+
+void IdGraphIndexCompute::handle(Swizzle* swizzle) {
+  std::cout << "handle: " << swizzle->toString() << std::endl;
+  const bool is_forward = isForward(swizzle);
+
+  if (is_forward) {
+    auto x_idx = getIndex(swizzle->inX());
+    auto y_idx = getIndex(swizzle->inY());
+    setIndex(swizzle->outX(), x_idx);
+    setIndex(swizzle->outY(), y_idx);
+  } else {
+    auto x_idx = getIndex(swizzle->outX());
+    auto y_idx = getIndex(swizzle->outY());
+    setIndex(swizzle->inX(), x_idx);
+    setIndex(swizzle->inY(), y_idx);
   }
 }
 
