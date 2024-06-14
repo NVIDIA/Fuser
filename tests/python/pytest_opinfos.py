@@ -19,6 +19,7 @@ from pytest_input_generators import (
     broadcast_in_dim_error_generator,
     cat_generator,
     cat_error_generator,
+    div_input_generator,
     define_tensor_generator,
     define_tensor_error_generator,
     define_vector_constant_error_generator,
@@ -583,12 +584,7 @@ div_opinfo = OpInfo(
     lambda fd: fd.ops.div,
     "div",
     dtypes=float_complex_dtypes,
-    sample_input_generator=partial(
-        elementwise_binary_generator,
-        enable_small_value_testing=False,
-        enable_extremal_value_testing=False,
-        exclude_zero=True,
-    ),
+    sample_input_generator=div_input_generator,
     reference=_elementwise_binary_torch(torch.div),
 )
 binary_ops.append(div_opinfo)
@@ -741,12 +737,7 @@ binary_ops.append(sub_opinfo)
 truediv_opinfo = OpInfo(
     lambda fd: fd.ops.truediv,
     "truediv",
-    sample_input_generator=partial(
-        elementwise_binary_generator,
-        enable_small_value_testing=False,
-        enable_extremal_value_testing=False,
-        exclude_zero=True,
-    ),
+    sample_input_generator=div_input_generator,
     reference=_elementwise_binary_torch(torch.true_divide),
 )
 binary_ops.append(truediv_opinfo)

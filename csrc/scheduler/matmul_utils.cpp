@@ -134,7 +134,7 @@ inline bool initCoreHeuristics(
     }
   }
 
-  const auto& roleMinDtypeSize = [&tensor_roles](MatmulRole role) -> int64_t {
+  const auto roleMinDtypeSize = [&tensor_roles](MatmulRole role) -> int64_t {
     const auto op_it = tensor_roles.find(role);
     NVF_ERROR(op_it != tensor_roles.end());
     int64_t min_size_bytes = 128LL;
@@ -144,9 +144,7 @@ inline bool initCoreHeuristics(
     return min_size_bytes;
   };
   params->async_gmem_load_operands = isCpAsyncOperandLoadSupported(
-      params.get(),
-      roleMinDtypeSize(MatmulRole::INPUT_A),
-      roleMinDtypeSize(MatmulRole::INPUT_B));
+      params.get(), roleMinDtypeSize(MatmulRole::OPERAND));
 
   if (!params->async_gmem_load_operands) {
     // Circular buffering requires async load. If we cannot use async load due
@@ -243,10 +241,10 @@ std::string isMatmulFusionDefinitionSupported(
     // outputs have recognized roles
     std::set<TensorView*> tvs_with_roles;
 
-    for (MatmulRole role : {MatmulRole::INPUT_A, MatmulRole::INPUT_B}) {
-      auto entry = tensor_roles.find(role);
+    {
+      auto entry = tensor_roles.find(MatmulRole::OPERAND);
       if (entry != tensor_roles.end()) {
-        if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
+        if (2 == entry->second.size()) {
           tvs_with_roles.insert(entry->second.begin(), entry->second.end());
           for (TensorView* tv : entry->second) {
             const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
@@ -269,14 +267,14 @@ std::string isMatmulFusionDefinitionSupported(
             }
           }
         } else {
-          return "There is more than a single fusion input that can be MMA operand ";
+          return "There is other than two fusion inputs that can be MMA operands";
         }
       } else {
         return "No candidate in fusion inputs for MMA operand";
       }
     }
 
-    auto entry = tensor_roles.find(MatmulRole::OUTPUT_D);
+    auto entry = tensor_roles.find(MatmulRole::OUTPUT);
     if (entry != tensor_roles.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     } else {
@@ -284,7 +282,7 @@ std::string isMatmulFusionDefinitionSupported(
     }
 
     // Non-core input roles are optional, no requirements for definitions
-    entry = tensor_roles.find(MatmulRole::INPUT_C);
+    entry = tensor_roles.find(MatmulRole::EPILOGUE_INPUT);
     if (entry != tensor_roles.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     }
@@ -339,11 +337,8 @@ class VectorizationCalculator {
  private:
   std::vector<int64_t> operandVectorizations() {
     std::vector<int64_t> vec_sizes;
-    for (MatmulRole role : {MatmulRole::INPUT_A, MatmulRole::INPUT_B}) {
-      const auto op_it = tensor_roles_.find(role);
-      if (op_it == tensor_roles_.end()) {
-        continue;
-      }
+    const auto op_it = tensor_roles_.find(MatmulRole::OPERAND);
+    if (op_it != tensor_roles_.end()) {
       for (TensorView* tv : op_it->second) {
         vec_sizes.push_back(operandVectorization(tv));
       }
@@ -604,7 +599,7 @@ class VectorizationCalculator {
           ptrAndDTypeVec(tv), innerDimsVectorization(tv, inner_nonk_dims));
     };
 
-    const auto d_it = tensor_roles_.find(MatmulRole::OUTPUT_D);
+    const auto d_it = tensor_roles_.find(MatmulRole::OUTPUT);
     NVF_ERROR(
         d_it != tensor_roles_.end(), "Could not find any output D tensors");
     int64_t vec_size = 16l;
@@ -615,7 +610,7 @@ class VectorizationCalculator {
       }
       vec_size = std::min(vec_size, v);
     }
-    if (const auto c_it = tensor_roles_.find(MatmulRole::INPUT_C);
+    if (const auto c_it = tensor_roles_.find(MatmulRole::EPILOGUE_INPUT);
         c_it != tensor_roles_.end()) {
       for (TensorView* tv : c_it->second) {
         int64_t v = innerMostVec(tv);
@@ -755,8 +750,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
 bool isCpAsyncOperandLoadSupported(
     const MatmulParams* params,
-    int64_t dtype_size_a,
-    int64_t dtype_size_b) {
+    int64_t min_dtype_size) {
   if (!isAmpere(params->mma_macro)) {
     return false;
   }
@@ -766,9 +760,13 @@ bool isCpAsyncOperandLoadSupported(
     int64_t cp_bytes = dtype_size * vec_size;
     return cp_bytes == 16 || cp_bytes == 8 || cp_bytes == 4;
   };
+  // TODO: We should compute validCpAsyncVecSize for all the operand
+  // dtype/vec_size pairs and AND them together
   return params->double_buffer_options.smem_double_buffer_stage > 1 &&
-      validCpAsyncVecSize(dtype_size_a, params->supported_vec_size.a) &&
-      validCpAsyncVecSize(dtype_size_b, params->supported_vec_size.b);
+      validCpAsyncVecSize(
+             min_dtype_size,
+             std::min(
+                 params->supported_vec_size.a, params->supported_vec_size.b));
 }
 
 std::shared_ptr<MatmulParams> getMatmulHeuristics(

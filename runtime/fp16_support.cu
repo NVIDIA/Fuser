@@ -209,3 +209,14 @@ __device__ __inline__ __half __real_then_2half(const std::complex<float> c) {
 __device__ __inline__ __half __real_then_2half(const std::complex<double> c) {
   return __double2half(std::real(c));
 }
+
+__device__ __inline__ bool __heq(const __half a, const __half b) {
+  // From cuda_fp16.hpp
+  unsigned short val;
+  asm("{ .reg .pred __$temp3;\n"
+      "  setp.eq.f16  __$temp3, %1, %2;\n"
+      "  selp.u16 %0, 1, 0, __$temp3;}"
+      : "=h"(val)
+      : "h"(__NVFUSER_HALF_TO_CUS(a)), "h"(__NVFUSER_HALF_TO_CUS(b)));
+  return (val != 0U) ? true : false;
+}
