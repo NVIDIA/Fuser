@@ -2569,7 +2569,7 @@ IterDomain* IterDomain::merge(
       !outer->isStride() && !inner->isStride(),
       "No support for merging stride domains");
 
-  Val* merged_id_size = mul(outer->extent(), inner->extent());
+  Val* extent = mul(outer->extent(), inner->extent());
 
   IterType itype = outer->getIterType();
 
@@ -2596,20 +2596,24 @@ IterDomain* IterDomain::merge(
     } else if (outer->hasExpandedExtent() && !inner->hasExpandedExtent()) {
       if (inner->isBroadcast()) {
         expanded_extent = outer->expandedExtent();
+        extent = inner->container()->oneVal();
       } else {
-        expanded_extent = mul(outer->expandedExtent(), inner->extent());
+        // Output is Iteration resolving the expanded outer
+        extent = mul(outer->expandedExtent(), inner->extent());
       }
-    } else if (outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
+    } else if (!outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
       if (outer->isBroadcast()) {
         expanded_extent = inner->expandedExtent();
+        extent = inner->container()->oneVal();
       } else {
-        expanded_extent = mul(outer->extent(), inner->expandedExtent());
+        // Output is Iteration resolving the expanded inner
+        extent = mul(outer->extent(), inner->expandedExtent());
       }
     }
   }
 
   IterDomain* merged_id =
-      IterDomainBuilder(outer->container()->zeroVal(), merged_id_size)
+      IterDomainBuilder(outer->container()->zeroVal(), extent)
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
@@ -2640,10 +2644,13 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // outer loop IterDomain
   IterDomain* ido =
       IterDomainBuilder(
-          in->container()->zeroVal(), inner_split ? remainder : factor)
+          in->container()->zeroVal(),
+          in->hasExpandedExtent() ? in->container()->oneVal()
+                                  : (inner_split ? remainder : factor))
           .expanded_extent(
-              in->hasExpandedExtent() && inner_split ? expanded_remainder
-                                                     : nullptr)
+              in->hasExpandedExtent()
+                  ? (inner_split ? expanded_remainder : factor)
+                  : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
           .is_rfactor_domain(rfactor_domain)
@@ -2652,10 +2659,13 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // inner loop IterDomain
   IterDomain* idi =
       IterDomainBuilder(
-          in->container()->zeroVal(), inner_split ? factor : remainder)
+          in->container()->zeroVal(),
+          in->hasExpandedExtent() ? in->container()->oneVal()
+                                  : (inner_split ? factor : remainder))
           .expanded_extent(
-              in->hasExpandedExtent() && !inner_split ? expanded_remainder
-                                                      : nullptr)
+              in->hasExpandedExtent()
+                  ? (inner_split ? factor : expanded_remainder)
+                  : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
           .is_rfactor_domain(rfactor_domain)

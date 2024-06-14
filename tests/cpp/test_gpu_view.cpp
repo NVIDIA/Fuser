@@ -2317,4 +2317,103 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
   testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
+// See https://github.com/NVIDIA/Fuser/issues/1126
+TEST_F(GpuViewTest, SplitExpandedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({4, 5});
+  fusion.addInput(in);
+  TensorView* out = broadcast(in, {false, false, true});
+  out = expand(
+      out,
+      {IrBuilder::create<Val>(4),
+       IrBuilder::create<Val>(5),
+       IrBuilder::create<Val>(6)});
+  out = reshape(out, {4, 5, 6}, {4, 5, 2, 3});
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  std::vector<c10::IValue> aten_inputs{in_tensor};
+
+  LaunchParams lparams = schedulePointwise(&fusion, aten_inputs);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto outputs = fe.runFusion(aten_inputs, lparams);
+
+  EXPECT_EQ(outputs.size(), 1);
+  EXPECT_THAT(outputs[0].sizes(), testing::ElementsAre(4, 5, 2, 3));
+  EXPECT_THAT(outputs[0].strides(), testing::ElementsAre(5, 1, 0, 0));
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Reverse of SplitExpandedBroadcast
+TEST_F(GpuViewTest, MergeExpandedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({4, 5});
+  fusion.addInput(in);
+  TensorView* out = broadcast(in, {false, false, true, true});
+  out = expand(
+      out,
+      {IrBuilder::create<Val>(4),
+       IrBuilder::create<Val>(5),
+       IrBuilder::create<Val>(2),
+       IrBuilder::create<Val>(3)});
+  out = reshape(out, {4, 5, 2, 3}, {4, 5, 6});
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  std::vector<c10::IValue> aten_inputs{in_tensor};
+
+  LaunchParams lparams = schedulePointwise(&fusion, aten_inputs);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto outputs = fe.runFusion(aten_inputs, lparams);
+
+  EXPECT_EQ(outputs.size(), 1);
+  EXPECT_THAT(outputs[0].sizes(), testing::ElementsAre(4, 5, 6));
+  EXPECT_THAT(outputs[0].strides(), testing::ElementsAre(5, 1, 0));
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Merge an expanded Broadcast with an Iteration IterDomain
+TEST_F(GpuViewTest, MergeExpandedWithIteration) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({4, 5, 2});
+  fusion.addInput(in);
+  TensorView* out = broadcast(in, {false, false, false, true});
+  out = expand(
+      out,
+      {IrBuilder::create<Val>(4),
+       IrBuilder::create<Val>(5),
+       IrBuilder::create<Val>(2),
+       IrBuilder::create<Val>(3)});
+  out = reshape(out, {4, 5, 2, 3}, {4, 5, 6});
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::randn({4, 5, 2}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  std::vector<c10::IValue> aten_inputs{in_tensor};
+
+  LaunchParams lparams = schedulePointwise(&fusion, aten_inputs);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto outputs = fe.runFusion(aten_inputs, lparams);
+
+  EXPECT_EQ(outputs.size(), 1);
+  EXPECT_THAT(outputs[0].sizes(), testing::ElementsAre(4, 5, 6));
+  // The output should not be expanded
+  EXPECT_THAT(outputs[0].strides(), testing::ElementsAre(30, 6, 1));
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
