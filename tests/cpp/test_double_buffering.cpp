@@ -101,18 +101,27 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   // [M/bod, bod, N/bid, bid] -> [M/bod, N/bid, bod, bid]
   reference->reorder({{-2, -3}});
 
+  // Propagate TMA transform
   TransformPropagatorWithCheck propagator(reference);
   MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
 
+  // Apply computeAt for TMA cache
   tv0->computeAt(tv1, 2);
 
+  // Merge TMA tile and Parallelize
+  reference->merge(-2, -1);
+  reference->split(-1, 128);
+  reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(-1)->parallelize(ParallelType::TIDx);
+
   // Double Buffer with TMA loads
-  tv2->doubleBuffer();
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->axis(-2)->parallelize(ParallelType::Bulk);
+  tv2->doubleBuffer();
 
-  constexpr size_t tensor_outer_dim = 4;
-  constexpr size_t tensor_inner_dim = 128;
+  constexpr size_t tensor_outer_dim = 128;
+  constexpr size_t tensor_inner_dim = 1024;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
   auto t1 = at::exp(t0);
@@ -122,6 +131,68 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   fe.compileFusion(&fusion, {t0}, {}, index32bit);
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_F(DoubleBufferingTest, TmaDoubleBufferingPointwise) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // gmem -> smem (tma / double buffering / 1d -> 2d)
+  // smem -> gmem
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+  auto tv2 = add(tv0, tv1);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv2);
+
+  auto tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  auto tv4 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv4->setMemoryType(MemoryType::Shared);
+
+  auto reference = tv2;
+  constexpr size_t bulk_inner_dim = 32;
+  // [M, N] -> [M, N/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  tv0->computeAt(tv2, 2);
+  tv1->computeAt(tv2, 2);
+
+  fusion.printMath();
+
+  // Double Buffer with TMA loads
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(2)->parallelize(ParallelType::Bulk);
+  tv3->doubleBuffer();
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(2)->parallelize(ParallelType::Bulk);
+  tv4->doubleBuffer();
+
+  // split reference to parallelize TMA tile
+  reference->split(-1, 32);
+  reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(-1)->parallelize(ParallelType::TIDx);
+
+  constexpr size_t batch_dim = 128;
+  constexpr size_t tensor_dim = 1024;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_dim, tensor_dim}, options);
+  auto t1 = at::randn({batch_dim, tensor_dim}, options);
+  auto t2 = t0 + t1;
+
+  FusionExecutor fe;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  fe.compileFusion(&fusion, {t0, t1}, {}, index32bit);
+  auto cg_outputs = fe.runFusion({t0, t1});
+  testValidate(&fusion, cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
 TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
