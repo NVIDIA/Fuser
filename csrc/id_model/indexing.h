@@ -81,6 +81,9 @@ class TensorIndexer {
   // getLinearIndex.
   IndexingInfo computeIndex(
       const Expr* expr,
+      const std::vector<ValGroup>& index_groups) const;
+  IndexingInfo computeIndex(
+      const Expr* expr,
       const std::vector<IterDomain*>& index_domains) const;
 
   // Check if the loop index of a loop group should be always
