@@ -241,13 +241,11 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     // I will just use i for now and leave the support for broadcast for future.
     auto stride = IrBuilder::getItemExpr(alloc_strides, i);
     frontier.emplace_back(
-        id_graph.toGroup(id),
-        gmem_tv->getContiguity().at(i).value(),
-        stride);
+        id_graph.toGroup(id), gmem_tv->getContiguity().at(i).value(), stride);
   }
   // Propagate forward from the gmem allocation domain to TMA ValGroups
-  for (auto [expr, direction] : ValGraphBFS::getExprsBetween(
-           id_graph, gmem_alloc_groups, tma_groups)) {
+  for (auto [expr, direction] :
+       ValGraphBFS::getExprsBetween(id_graph, gmem_alloc_groups, tma_groups)) {
     NVF_ERROR(!expr->empty());
     NVF_ERROR(
         direction == Direction::Forward,

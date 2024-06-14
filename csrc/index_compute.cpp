@@ -2567,12 +2567,14 @@ Val* Index::eye(
 }
 
 std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
-    TensorView* producer_tv,
-    TensorView* consumer_tv,
+    LoadStoreOp* ldst,
     Val* mbarrier,
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
   FUSER_PERF_SCOPE("Index::getCpAsyncBulkGmemIndex");
+
+  TensorView* producer_tv = ldst->in()->as<TensorView>();
+  TensorView* consumer_tv = ldst->out()->as<TensorView>();
 
   bool is_load = false;
   TensorView* gmem_tv = nullptr;
@@ -2594,63 +2596,15 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   const TMAInfo& tma_info =
       GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
 
-  std::unordered_map<IterDomain*, Val*> index_map;
-
-  if (is_load) {
-    // Replay producer to look like consumer so we can index on producer since
-    // our loop nests look like consumer
-    auto pairwise_map =
-        PairwiseRootDomainMap(producer_tv, consumer_tv).mapBroadcast(true);
-
-    TensorDomain* producerAsC = TransformReplay::replayPasC(
-                                    producer_tv,
-                                    consumer_tv,
-                                    -1,
-                                    pairwise_map,
-                                    TransformReplayOptions().replayResize())
-                                    .first;
-
-    // Make the producer_tv look like consumer while performing indexing math
-    ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
-
-    // Map sent to best effort replay needs to match the exact incantation for
-    // compute_at_mode.cpp with MappingMode::Index
-    auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
-                            .mapBroadcast(false)
-                            .mapConsumerToProducer();
-
-    // This replay has to be consistent with compute at index map.
-    BestEffortReplay replay_producer_as_consumer(
-        producer_tv->getLoopDomain(),
-        consumer_tv->getLoopDomain(),
-        c2p_root_map);
-
-    const auto& c2p_map = replay_producer_as_consumer.getReplay();
-
-    const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
-        loops, rotated_loops, consumer_tv, producer_tv, true, c2p_map);
-
-    index_map = producer_indexing_from_idgraph.index.indexMap();
-    for (auto [cid, pid] : c2p_map) {
-      auto it = index_map.find(pid);
-      if (it != index_map.end()) {
-        index_map.emplace(cid, it->second);
-      }
+  ValGroups groups_to_index;
+  for (const auto& dim : tma_info.dims()) {
+    for (const auto& g : dim.partitioned) {
+      groups_to_index.pushBack(b);
     }
-  } else {
-    auto index_from_id_graph =
-        getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
-    index_map = index_from_id_graph.index.indexMap();
   }
 
-  auto get_index_for_group = [&](const ValGroup& g) {
-    for (auto [id, index] : index_map) {
-      if (g->has(id)) {
-        return index;
-      }
-    }
-    NVF_ERROR(false, "Can not find index for: ", g->toString());
-  };
+  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+  auto index_map = indexer.computeIndex(ldst, groups_to_index).index_map;
 
   int64_t dim = (int64_t)tma_info.dims().size();
 
@@ -2659,9 +2613,11 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     Val* dim_index = nullptr;
     Val* stride = nullptr;
     for (const auto& g : dim.partitioned) {
+      auto it = index_map.find(g);
+      NVF_ERROR(
+          it != index_map.end(), "Unable to find index for ", g->toString());
       dim_index = SimplifyingIrBuilder::addExpr(
-          dim_index,
-          SimplifyingIrBuilder::mulExpr(stride, get_index_for_group(g)));
+          dim_index, SimplifyingIrBuilder::mulExpr(stride, it->second));
       stride = SimplifyingIrBuilder::mulExpr(
           stride, g->front()->as<IterDomain>()->extent());
     }

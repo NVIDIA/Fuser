@@ -1415,7 +1415,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
   // gmem indexing and expect_bytes for mbarrier
   auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
-      in_tv, out_tv, mbarrier_index, for_loops_, rotated_loop_);
+      ldst, mbarrier_index, for_loops_, rotated_loop_);
 
   // arrive and expect_tx mbarrier
   auto state = IrBuilder::create<Val>(DataType::UInt);
@@ -1444,8 +1444,8 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
   auto in_tv = ldst->in()->as<TensorView>();
   auto out_tv = ldst->out()->as<TensorView>();
-  auto [out, _] = Index::getCpAsyncBulkGmemIndex(
-      in_tv, out_tv, nullptr, for_loops_, rotated_loop_);
+  auto [out, _] =
+      Index::getCpAsyncBulkGmemIndex(ldst, nullptr, for_loops_, rotated_loop_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());
