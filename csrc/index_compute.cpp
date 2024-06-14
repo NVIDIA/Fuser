@@ -2606,6 +2606,11 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
   auto index_map = indexer.computeIndex(ldst, groups_to_index).index_map;
 
+  std::cout << "index_map:" << std::endl;
+  for (auto [k, v] : index_map) {
+    std::cout << k->toString() << " -> " << v->toInlineString() << std::endl;
+  }
+
   int64_t dim = (int64_t)tma_info.dims().size();
 
   std::vector<Val*> indices_inner_to_outer;
