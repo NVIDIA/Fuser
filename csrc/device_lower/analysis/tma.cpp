@@ -210,10 +210,6 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   for (const auto& tile_g : tile_groups) {
     const auto& defs =
         acyclicExprGroups(id_graph, id_graph.getDefinitions(tile_g));
-    // std::cout << "defs: " << std::endl;
-    // for (auto eg : defs) {
-    //   std::cout << eg->toString() << std::endl;
-    // }
     NVF_ERROR(
         defs.size() <= 1,
         "Having multiple definitions of tile group is not supported");
@@ -251,10 +247,6 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     if (partitioned_g != nullptr) {
       tma_g_to_partitioned_g[tma_g] = partitioned_g;
     }
-  }
-  std::cout << "tma_groups:" << std::endl;
-  for (auto g : tma_groups) {
-    std::cout << g->toString() << std::endl;
   }
 
   // Stpe 3: Propagate from the gmen tensor's allocation domain to the TMA
@@ -392,9 +384,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   tma_domain.domain.reserve(frontier.size());
   global_strides.reserve(frontier.size());
   contiguity.reserve(frontier.size());
-  std::cout << "tma domain:" << std::endl;
   for (auto& item : frontier) {
-    std::cout << std::get<0>(item)->toString() << std::endl;
     tma_domain.domain.push_back(
         ValGroupAndItsGraph{std::move(std::get<0>(item)), &id_graph});
     contiguity.push_back(std::get<1>(item));
@@ -413,24 +403,6 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
         : (!tma_g_to_box_g.count(g) ? C
                                     : (tma_g_to_stride_g.count(g) ? SB : CB));
   };
-  for (auto i : c10::irange((int64_t)tma_domain.size())) {
-    auto t = gtype(i);
-    auto g = tma_domain[i].as<ValGroupAndItsGraph>().group;
-    std::cout << g->toString() << " -> ";
-    if (t == P) {
-      std::cout << "P" << std::endl;
-    }
-    if (t == C) {
-      std::cout << "C" << std::endl;
-    }
-    if (t == SB) {
-      std::cout << "SB" << std::endl;
-    }
-    if (t == CB) {
-      std::cout << "CB" << std::endl;
-    }
-  }
-  std::cout << "merge contiguous C groups and CB groups" << std::endl;
   // merge contiguous C groups and CB groups
   int64_t i = 0;
   while (i < (int64_t)tma_domain.size() - 1) {
@@ -440,8 +412,6 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     }
     bool is_c = (gtype(i) == C && gtype(i + 1) == C);
     bool is_cb = (gtype(i) == CB && gtype(i + 1) == CB);
-    std::cout << "is_c: " << is_c << std::endl;
-    std::cout << "is_cb: " << is_cb << std::endl;
     if (is_c || is_cb) {
       tma_domain.merge(i);
       contiguity.erase(contiguity.begin() + i);
@@ -454,7 +424,6 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       i++;
     }
   }
-  std::cout << "merge contiguous C with SB/CB" << std::endl;
   // merge contiguous C with SB/CB
   i = 0;
   while (i < (int64_t)tma_domain.size() - 1) {
@@ -464,8 +433,6 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     }
     bool this_is_c = (gtype(i) == C);
     bool next_is_b = (gtype(i + 1) == SB || gtype(i + 1) == CB);
-    std::cout << "this_is_c: " << this_is_c << std::endl;
-    std::cout << "next_is_b: " << next_is_b << std::endl;
     if (this_is_c && next_is_b) {
       auto b = tma_domain[i + 1].as<ValGroupAndItsGraph>().group;
       tma_domain.merge(i);
@@ -501,10 +468,6 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     }
     dims.back().gmem_stride_bytes = SimplifyingIrBuilder::mulExpr(*sit, itemsize);
     sit++;
-  }
-  std::cout << "dims:" << std::endl;
-  for (const auto& dim : dims) {
-    std::cout << dim.partitioned->toString() << std::endl;
   }
   return TMAInfo(
       std::move(dims),
