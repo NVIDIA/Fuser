@@ -79,7 +79,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     should_run_[group] = involvedDevices(expr).count(comm_.deviceId());
   }
   // prepare the order in which to launch the kernels/comms
-  prepareRuntimeOrder(staged_fusion_.get(), workspace);
+  prepareRuntimeOrder(staged_fusion_.get(), workspace_);
 
   // Allocator setup
   // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
@@ -217,7 +217,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   }
 
   // Run through the groups to launch kernels and comms
-  for (auto group : workspace.group_run_order) {
+  for (auto group : workspace_.group_run_order) {
     if (!is_resharding_.at(group)) {
       postKernel(group, launch_params);
     } else {
@@ -261,7 +261,7 @@ std::string MultiDeviceExecutor::validate() const {
 std::ostream& MultiDeviceExecutor::print() {
   int compute_segment_counter = 0;
   int communication_counter = 0;
-  for (auto group : workspace.group_run_order) {
+  for (auto group : workspace_.group_run_order) {
     if (is_resharding_[group]) {
       debug() << "Communication " << communication_counter << ": "
               << group->exprs().at(0) << "\n";
@@ -275,6 +275,20 @@ std::ostream& MultiDeviceExecutor::print() {
     }
   }
   return debug();
+}
+
+std::vector<FusionExecutorCache*> MultiDeviceExecutor::
+    getFusionExecutorCaches() {
+  NVF_CHECK(
+      params_.use_fusion_executor_cache,
+      "MultideviceExecutor must be configured to use FusionExecutorCache");
+  std::vector<FusionExecutorCache*> fecs;
+  for (SegmentedGroup* group : workspace_.group_run_order) {
+    if (!is_resharding_.at(group)) {
+      fecs.push_back(&(fec_.at(group)));
+    }
+  }
+  return fecs;
 }
 
 } // namespace nvfuser
