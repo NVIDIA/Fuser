@@ -288,8 +288,7 @@ std::vector<Communication*> lowerCommunication(
   bool is_reduction = c->isA<ReductionOp>();
 
   if (is_reduction) {
-    BinaryOpType op_type =
-        output_tv->definition()->as<ReductionOp>()->getReductionOpType();
+    BinaryOpType op_type = c->as<ReductionOp>()->getReductionOpType();
     NVF_ERROR(
         is_input_sharded || sender_mesh.size() == 1,
         "the comm input must be sharded in case of reduce.",
