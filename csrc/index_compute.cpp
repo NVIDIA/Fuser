@@ -2573,8 +2573,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
   FUSER_PERF_SCOPE("Index::getCpAsyncBulkGmemIndex");
 
-  ldst->fusion()->print();
-
   TensorView* producer_tv = ldst->in()->as<TensorView>();
   TensorView* consumer_tv = ldst->out()->as<TensorView>();
 
@@ -2607,11 +2605,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
   auto index_map = indexer.computeIndex(ldst, groups_to_index).index_map;
-
-  std::cout << "index_map:" << std::endl;
-  for (auto [k, v] : index_map) {
-    std::cout << k->toString() << " -> " << v->toInlineString() << std::endl;
-  }
 
   int64_t dim = (int64_t)tma_info.dims().size();
 
