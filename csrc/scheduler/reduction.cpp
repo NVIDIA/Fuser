@@ -588,7 +588,10 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           || target_blocks < device_multiprocessor_count * n_waves
           // There's a place to put it in unrolling
           || target_unroll < max_unroll)) {
-    std::cout << "target_unroll: " << target_unroll << " target_blocks: " << target_blocks << " target_threads_in_block: " << target_threads_in_block << std::endl;
+    std::cout << "target_unroll: " << target_unroll
+              << " target_blocks: " << target_blocks
+              << " target_threads_in_block: " << target_threads_in_block
+              << std::endl;
     if (target_threads_in_block <
         ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4)) {
       target_threads_in_block *= 2;
@@ -599,8 +602,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       target_blocks *= 2;
     }
 
-    // Delay increasing unroll until we have more than one block per SM.
-    // Assuming each SM can take more than one block.
+    // Delay increasing unroll until we have at least one block per SM.
     if (target_blocks >= device_multiprocessor_count &&
         target_unroll < max_unroll && available_parallelism() > 1) {
       target_unroll *= 2;
@@ -613,7 +615,10 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   }
 
   target_unroll = scheduler_utils::lastPow2(target_unroll);
-  std::cout << "target_unroll: " << target_unroll << " target_blocks: " << target_blocks << " target_threads_in_block: " << target_threads_in_block << std::endl;
+  std::cout << "target_unroll: " << target_unroll
+            << " target_blocks: " << target_blocks
+            << " target_threads_in_block: " << target_threads_in_block
+            << std::endl;
   // To get to target threads:
   // Prioritize
   // (1) x dim in iter domain
@@ -649,32 +654,45 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
         total_reduction_numel, grdim * bdimy * inner_reduction_unroll_factor);
   };
 
-
   // Try to use block reduction, if can't efficiently use a high fraction of SMs
   // go to grid reduction. Block reduction doesn't require expensive global
   // memory communications and leads to better performance if SM usage is high.
+    // Parallelization strategy:
+    // iteration dim: iter_unroll (vectorization), bdimx, gdimx
+    // reduction dim: redu_unroll, bdimy, serial  
   bool has_good_block_reduction_heuristics = false;
+  const int64_t max_block_reduction_numel = ;
   {
-    // move from target blocks to target unroll
-    int64_t blk_target_unroll = target_unroll;
-    int64_t blk_target_blocks = target_blocks;
-    while(blk_target_blocks / 2 >= device_multiprocessor_count && blk_target_unroll * 2 <= max_unroll) {
-      blk_target_unroll *= 2;
-      blk_target_blocks /= 2;
-    }
-    // Block reduction requires high SM usage ratio.
+
+
+    // Assumptions:
+    // (1) block reduction is done with 1 block per sm to ensure it is finished
+    // within 1 wave. The number of threads per block is set to 1024 to achieve
+    // an occupancy of 50% which is important for compute-bound kernels.
+    const int64_t max_threads_per_block = 1024L;
+    const int64_t gidim_max = device_multiprocessor_count;
+
+    // (2) Block reduction requires high SM usage ratio.
     // The general threshold is set to 0.88 which ensures A100 uses at least 96
     // blocks and H100 uses at least 118 blocks, based on empirical data. The
     // actual threshold depends on the cost of fused ops or ratio between
     // computation and communication.
-    float sm_usage_threshold = 0.88f;
-    int64_t required_blocks =
+    constexpr float sm_usage_threshold = 0.88f;
+    const int64_t gidim_min =
         (int64_t)(sm_usage_threshold * (float)device_multiprocessor_count);
 
-    // block reduction is done with 1 block per sm to ensure it is finished
-    // within 1 wave. The number of threads per block is set to 1024 to achieve
-    // an occupancy of 50% which is important for compute-bound kernels.
-    const int64_t max_threads_per_block = 1024L;
+    // Step 1: Adjust target unroll.
+    // If the current target blocks is larger than gidim_max and target unroll
+    // is smaller than max_unroll, move from target blocks to target unroll.
+    // For example, input is 512 x 512, target_unroll = 4, target_blocks = 264,
+    // target threads = 256. 
+    int64_t blk_target_unroll = target_unroll;
+    int64_t blk_target_blocks = target_blocks;
+    while (blk_target_blocks / 2 >= gidim_min &&
+           blk_target_unroll * 2 <= max_unroll) {
+      blk_target_blocks /= 2;
+      blk_target_unroll *= 2;
+    }
 
     // start from a small bdimx to leave a large bdimy for reduction
     bdimx = 8;
@@ -695,7 +713,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // If reduction dim is small, try to use more blocks at the cost of reducing
     // iter_unroll_factor.
     if (total_reduction_numel <= 512) {
-      while (gidim * 2 <= device_multiprocessor_count && iter_unroll_factor >= 2) {
+      while (gidim * 2 <= device_multiprocessor_count &&
+             iter_unroll_factor >= 2) {
         iter_unroll_factor /= 2;
         gidim *= 2;
       }
@@ -729,10 +748,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // only prioritize to use use block reduction when SM usage is high or the
     // reduction dim is very small
     has_good_block_reduction_heuristics =
-        (gidim >= required_blocks && gidim <= device_multiprocessor_count) || total_reduction_numel <= 512;
+        (gidim >= required_blocks && gidim <= device_multiprocessor_count) ||
+        total_reduction_numel <= 512;
     std::cout << "bdimx: " << bdimx << ", vect: " << iter_unroll_factor
-              << ", gdimx: "
-              << gidim << ", block reduction? " << has_good_block_reduction_heuristics << std::endl;
+              << ", gdimx: " << gidim << ", block reduction? "
+              << has_good_block_reduction_heuristics << std::endl;
   }
 
   // grid reduction or block reduction
@@ -804,10 +824,10 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     // Move parallelization into unrolling the reduction dimension if
     // parallelizing iteration dimension didn't take the available unroll
     // factor.
-    if (iter_unroll_factor < target_unroll && rDimAvail() > 2) {
+    if (iter_unroll_factor < max_unroll && rDimAvail() > 2) {
       inner_reduction_unroll_factor = std::min(
           rDimAvail(),
-          scheduler_utils::safeDiv(target_unroll, iter_unroll_factor));
+          scheduler_utils::safeDiv(max_unroll, iter_unroll_factor));
 
       inner_reduction_unroll_factor =
           scheduler_utils::lastPow2(inner_reduction_unroll_factor);
