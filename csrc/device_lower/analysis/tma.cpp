@@ -459,7 +459,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       continue;
     }
     bool this_is_c = (gtype(i) == C);
-    bool next_is_b = (gtype(i + 1) == SB && gtype(i + 1) == CB);
+    bool next_is_b = (gtype(i + 1) == SB || gtype(i + 1) == CB);
     std::cout << "this_is_c: " << this_is_c << std::endl;
     std::cout << "next_is_b: " << next_is_b << std::endl;
     if (this_is_c && next_is_b) {
