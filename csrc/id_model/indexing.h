@@ -79,9 +79,8 @@ class TensorIndexer {
   // Returns the index map as well as its traversal path of given
   // index domains appearing in a given expr. Used by
   // getLinearIndex.
-  IndexingInfo computeIndex(
-      const Expr* expr,
-      const ValGroups& index_groups) const;
+  IndexingInfo computeIndex(const Expr* expr, const ValGroups& index_groups)
+      const;
   IndexingInfo computeIndex(
       const Expr* expr,
       const std::vector<IterDomain*>& index_domains) const;
