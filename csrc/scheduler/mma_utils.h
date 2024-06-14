@@ -218,7 +218,7 @@ using DimRolesMap = std::unordered_map<ValGroup, MatmulDomain>;
 using TensorRolesMap = std::unordered_map<MatmulRole, std::vector<TensorView*>>;
 
 //! An alias for storing data types of the tensors in the mma op
-//!  the order is INPUT_A, INPUT_B, OUTPUT_D
+//!  the order is A, B, OUTPUT
 using MmaDataTypes = std::array<DataType, 3>;
 
 //! A wrapper for data containers with optional error message stored if

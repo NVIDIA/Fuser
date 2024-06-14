@@ -653,17 +653,17 @@ void scheduleFusionInputsForEpilogue(
     bool with_smem_epilogue) {
   std::vector<TensorView*> cached_tvs;
 
-  // Handling transformations in fusion input tvs with assigned INPUT_C role by
-  //  propagating fusion output transformations through cached views of INPUT_C
-  //  fusion input tvs and by setting vectorization of the inner most iterdomain
-  //  of these cached views
-  if (tensor_roles.count(MatmulRole::INPUT_C)) {
-    auto& c_tvs = tensor_roles.at(MatmulRole::INPUT_C);
+  // Handling transformations in fusion input tvs with assigned EPILOGUE_INPUT
+  //  role by propagating fusion output transformations through cached views of
+  //  EPILOGUE_INPUT fusion input tvs and by setting vectorization of the inner
+  //  most iterdomain of these cached views
+  if (tensor_roles.count(MatmulRole::EPILOGUE_INPUT)) {
+    auto& c_tvs = tensor_roles.at(MatmulRole::EPILOGUE_INPUT);
 
     // The system supports only scenario where there is only one fusion output
-    //  with assigned OUTPUT_D role, this condition is already verified so there
+    //  with assigned OUTPUT role, this condition is already verified so there
     //  is no need for an additional checks here
-    auto output_d = tensor_roles.at(MatmulRole::OUTPUT_D).front();
+    auto output_d = tensor_roles.at(MatmulRole::OUTPUT).front();
     for (auto* c : c_tvs) {
       cached_tvs.push_back(c->cacheAfter());
     }
@@ -684,7 +684,7 @@ void scheduleFusionInputsForEpilogue(
     scheduler_utils::parallelizeAllLike(
         output_d, -1, cached_tvs, parallel_types);
 
-    // The cached INPUT_C tvs are not needed anymore
+    // The cached EPILOGUE_INPUT tvs are not needed anymore
     cached_tvs.clear();
   }
 }
@@ -776,8 +776,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(inner_dims.isValid(), inner_dims.getErrorMsg());
 
   // Core roles: there can be only one... TV with assigned core role
-  TensorView* a = tensor_roles.at(MatmulRole::INPUT_A).front();
-  TensorView* b = tensor_roles.at(MatmulRole::INPUT_B).front();
+  const std::vector<TensorView*>& operands =
+      tensor_roles.at(MatmulRole::OPERAND);
+  NVF_ERROR(operands.size() == 2, "We currently require exactly two operands");
+  TensorView* a = operands.front();
+  TensorView* b = operands.back();
 
   const auto& gemm_tile = params.tile_sizes;
 
@@ -786,7 +789,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
   const bool has_fusion_c_roles =
-      (0 != tensor_roles.count(MatmulRole::INPUT_C));
+      (0 != tensor_roles.count(MatmulRole::EPILOGUE_INPUT));
   const bool has_non_mma_input_tvs = has_epilogue && has_fusion_c_roles;
 
   // Including current tensor naming convention for reference,

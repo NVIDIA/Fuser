@@ -89,11 +89,14 @@ uint8_t innerDimsToByte(const mma_utils::MatmulOperandInnerDims& inner_dims) {
 std::string rolesToPrecisionString(
     const mma_utils::TensorRolesMap& tensor_roles) {
   std::string precision = "   ";
-  TensorView* a = tensor_roles.at(MatmulRole::INPUT_A).front();
-  TensorView* b = tensor_roles.at(MatmulRole::INPUT_B).front();
+  const std::vector<TensorView*>& operands =
+      tensor_roles.at(MatmulRole::OPERAND);
+  NVF_ERROR(operands.size() == 2, "We currently require exactly two operands");
+  TensorView* a = operands.front();
+  TensorView* b = operands.back();
   NVF_CHECK(
       a->dtype() == b->dtype(), "Differing A and B dtypes not yet supported");
-  TensorView* d = tensor_roles.at(MatmulRole::OUTPUT_D).front();
+  TensorView* d = tensor_roles.at(MatmulRole::OUTPUT).front();
   precision[0] = mma_utils::dtypeToChar(a->dtype());
   // NOTE: this assumes compute type is Float
   precision[1] = 'S';
