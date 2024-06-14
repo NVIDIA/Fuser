@@ -181,17 +181,18 @@ IterType promoteIterType(IterType type1, IterType type2) {
 //! index.
 std::vector<IterDomain*> mapMatmulOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
-    MatmulRole input_role,
+    int64_t input_position,
     size_t out_size) {
   NVF_ERROR(
-      input_role == MatmulRole::INPUT_A || input_role == MatmulRole::INPUT_B,
-      "Unexpected input type.");
+      input_position == 0 || input_position == 1,
+      "Input position must be 0 or 1. Found ",
+      input_position);
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = (int64_t)input_domain.size();
 
   // Input A to matmul: {*, M, K}
   // Input B to matmul: {*, K, N}
-  auto kpos = input_role == MatmulRole::INPUT_A ? inp_size - 1 : inp_size - 2;
+  auto kpos = input_position == 0 ? inp_size - 1 : inp_size - 2;
 
   if (inp_size == 1) {
     // Only reduction axis {K}
@@ -222,16 +223,21 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 
 std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
-    MatmulRole input_role,
+    int64_t input_position,
     size_t out_size) {
   std::vector<IterDomain*> mapping(out_size, nullptr);
   auto inp_size = input_domain.size();
 
+  NVF_ERROR(
+      input_position == 0 || input_position == 1 || input_position == 2,
+      "Input position must be 0, 1, or 2. Found ",
+      input_position);
+
   // Input A: {*, M, K}
   // Input B: {*, N, K} / {K}
   // Bias: {N} / {}
-  switch (input_role) {
-    case MatmulRole::INPUT_A: {
+  switch (input_position) {
+    case 0: {
       // Linear output is same as input for all but the last dimension
       for (auto inx : c10::irange(inp_size - 1)) {
         mapping[inx] = input_domain[inx];
@@ -239,14 +245,14 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
       mapping[out_size - 1] = input_domain.back();
       break;
     }
-    case MatmulRole::INPUT_B: {
+    case 1: {
       for (auto inx : c10::irange(inp_size)) {
         // Map N, K to the last two positions of the output.
         mapping[out_size - 1 - inx] = input_domain[inp_size - 1 - inx];
       }
       break;
     }
-    case MatmulRole::INPUT_C: {
+    case 2: {
       if (inp_size > 0) {
         // Bias is 1D tensor of shape {out_features}
         mapping[out_size - 2] = input_domain[0];
