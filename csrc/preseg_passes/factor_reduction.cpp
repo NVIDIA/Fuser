@@ -49,33 +49,35 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
           }),
       "Cannot rfactor axes that are not reduction axes.");
 
-  std::vector<IterDomain*> original_td_root = original_td->root();
+  std::vector<IterDomain*> original_td_logical = original_td->logical();
 
   // Put in a set to make searching easy
-  std::unordered_set<IterDomain*> rfactor_root_axes;
+  std::unordered_set<IterDomain*> rfactor_logical_axes;
   std::transform(
       axes.begin(),
       axes.end(),
-      std::inserter(rfactor_root_axes, rfactor_root_axes.begin()),
-      [&original_td_root](int64_t pos) { return original_td_root.at(pos); });
+      std::inserter(rfactor_logical_axes, rfactor_logical_axes.begin()),
+      [&original_td_logical](int64_t pos) {
+        return original_td_logical.at(pos);
+      });
 
-  // Generate a new TensorDomain and set up map from one root to this one.
-  std::vector<IterDomain*> new_producer_root;
-  new_producer_root.reserve(original_td_root.size());
+  // Generate a new TensorDomain and set up map from one logical to this one.
+  std::vector<IterDomain*> new_producer_logical;
+  new_producer_logical.reserve(original_td_logical.size());
 
   std::transform(
-      original_td_root.begin(),
-      original_td_root.end(),
-      std::back_inserter(new_producer_root),
+      original_td_logical.begin(),
+      original_td_logical.end(),
+      std::back_inserter(new_producer_logical),
       [&](IterDomain* id) {
-        // If this is an rfactor root, it will be a reduction in this stage
-        if (rfactor_root_axes.find(id) != rfactor_root_axes.end()) {
+        // If this is an rfactor logical, it will be a reduction in this stage
+        if (rfactor_logical_axes.find(id) != rfactor_logical_axes.end()) {
           return IterDomainBuilder(id->start(), id->extent())
               .stop_offset(id->stopOffset())
               .iter_type(IterType::Reduction)
               .build();
-          // If this is not an rfactor root, but a reduction root, it should be
-          // turned into an iteration domain
+          // If this is not an rfactor logical, but a reduction logical, it
+          // should be turned into an iteration domain
         } else if (id->isReduction()) {
           return IterDomainBuilder(id->start(), id->extent())
               .stop_offset(id->stopOffset())
@@ -86,22 +88,22 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
       });
 
   TensorDomain* producer_domain = IrBuilder::create<TensorDomain>(
-      new_producer_root,
-      TensorDomain::getContiguityFilledWith(new_producer_root, true));
+      new_producer_logical,
+      TensorDomain::getContiguityFilledWith(new_producer_logical, true));
 
-  std::vector<IterDomain*> new_consumer_root;
-  new_consumer_root.reserve(original_td_root.size() - axes.size());
-  for (IterDomain* id : original_td_root) {
-    // If this is an rfactor root, skip it at this stage
-    if (rfactor_root_axes.find(id) != rfactor_root_axes.end()) {
+  std::vector<IterDomain*> new_consumer_logical;
+  new_consumer_logical.reserve(original_td_logical.size() - axes.size());
+  for (IterDomain* id : original_td_logical) {
+    // If this is an rfactor logical, skip it at this stage
+    if (rfactor_logical_axes.find(id) != rfactor_logical_axes.end()) {
       continue;
     }
-    new_consumer_root.push_back(id->cloneWithoutRFactor());
+    new_consumer_logical.push_back(id->cloneWithoutRFactor());
   }
 
   TensorDomain* consumer_domain = IrBuilder::create<TensorDomain>(
-      new_consumer_root,
-      TensorDomain::getContiguityFilledWith(new_consumer_root, true));
+      new_consumer_logical,
+      TensorDomain::getContiguityFilledWith(new_consumer_logical, true));
 
   return std::make_pair(producer_domain, consumer_domain);
 }
@@ -268,8 +270,31 @@ std::vector<TensorView*> findAmaxReductionDependencies(
   NVF_ERROR(
       amax_reduction != nullptr &&
       findReductionDefinition(amax_reduction, BinaryOpType::Max));
-  std::vector<TensorView*> compatible_reductions;
-  return compatible_reductions;
+
+  std::vector<TensorView*> upstream_reductions;
+
+  std::vector<TensorView*> reduction_tvs =
+      scheduler_utils::getReductionTvs(fusion);
+  if (reduction_tvs.size() <= 1) {
+    return upstream_reductions;
+  }
+
+  std::copy_if(
+      reduction_tvs.begin(),
+      reduction_tvs.end(),
+      std::back_inserter(upstream_reductions),
+      [amax_reduction](TensorView* tv) {
+        if (tv == amax_reduction) {
+          return false;
+        }
+        if (!DependencyCheck::isDependencyOf(
+                /*dependency=*/tv, /*of=*/amax_reduction)) {
+          return false;
+        }
+        return true;
+      });
+
+  return upstream_reductions;
 }
 
 void FactorReductionPass::runPass(Fusion* fusion) {
@@ -301,11 +326,99 @@ void FactorReductionPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    // Avoid matmul pattern
-
     // Given TensorViews, partition reduction axes into compatible sets.
+    FusionGuard fg(fusion);
+    IdModel id_model(
+        fusion, /*build_graphs=*/false, /*allow_self_mapping=*/true);
+    id_model.buildExactGraph();
+    ValGraph exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+    const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
 
-    // Factor amax reduction into multiple partial reductions.
+    // Common reduction iterDomains for reference TensorView
+    std::unordered_set<IterDomain*> id_subset;
+    std::copy_if(
+        amax_reduction->getLogicalDomain().begin(),
+        amax_reduction->getLogicalDomain().end(),
+        std::inserter(id_subset, id_subset.begin()),
+        [](IterDomain* id) { return id->isReduction(); });
+
+    std::cout << amax_reduction->toString() << std::endl;
+    std::cout << amax_reduction->getLogicalDomain().size() << std::endl;
+    std::cout << "!!\t" << id_subset.size() << std::endl;
+
+    for (TensorView* tv : dependency_tvs) {
+      const std::vector<IterDomain*>& tv_logical_domain =
+          tv->getLogicalDomain();
+
+      // Collect reduction ids for this TensorView
+      std::vector<IterDomain*> reduction_ids;
+      std::copy_if(
+          tv_logical_domain.begin(),
+          tv_logical_domain.end(),
+          std::back_inserter(reduction_ids),
+          [](IterDomain* id) { return id->isReduction(); });
+
+      // Get intersection from reference subset and this TensorView
+      //  * Keep reference id if any of this TensorView's reduction ids are
+      //    mapped via Exact IdGraph.
+      std::unordered_set<IterDomain*> intersection;
+      std::copy_if(
+          id_subset.begin(),
+          id_subset.end(),
+          std::inserter(intersection, intersection.begin()),
+          [&](IterDomain* subset_id) {
+            return std::any_of(
+                reduction_ids.begin(),
+                reduction_ids.end(),
+                [&](IterDomain* id) {
+                  return val_sets.permissiveAreMapped(subset_id, id);
+                });
+          });
+
+      // Update subsets if this TensorView has any common reduction axes
+      if (!intersection.empty()) {
+        id_subset.swap(intersection);
+      }
+    }
+
+    std::cout << "!!\t" << id_subset.size() << std::endl;
+
+    // Factor amax reduction into partial reductions.
+    // Map common reduction iterDomains to integer axes
+
+    // Get reduction indices to factor from current TensorView
+    //  * Scan through reference ids
+    //  * Find corresponding match for this TensorView
+    //  * Return position for reduction id in this TensorView
+    std::vector<int64_t> rfactor_indices;
+    rfactor_indices.reserve(id_subset.size());
+    std::transform(
+        id_subset.begin(),
+        id_subset.end(),
+        std::back_inserter(rfactor_indices),
+        [&](IterDomain* subset_id) {
+          auto iter = std::find_if(
+              amax_reduction->getLogicalDomain().begin(),
+              amax_reduction->getLogicalDomain().end(),
+              [&](IterDomain* id) {
+                return val_sets.permissiveAreMapped(subset_id, id);
+              });
+          return std::distance(
+              amax_reduction->getLogicalDomain().begin(), iter);
+        });
+
+    size_t num_reduction_ids = std::count_if(
+        amax_reduction->getLogicalDomain().begin(),
+        amax_reduction->getLogicalDomain().end(),
+        [](IterDomain* id) { return id->isReduction(); });
+
+    // Skip if all ids are used for this TensorView
+    if (rfactor_indices.size() < num_reduction_ids) {
+      std::cout << rfactor_indices << std::endl;
+      factorReductionTensorView(amax_reduction, rfactor_indices);
+      // Only apply partial rfactor once
+      return;
+    }
   }
 }
 
@@ -335,13 +448,13 @@ void factorCommonReductionAxes(Fusion* fusion) {
   const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
 
   for (TensorView* tv : reduction_tvs) {
-    const std::vector<IterDomain*>& tv_root_domain = tv->getRootDomain();
+    const std::vector<IterDomain*>& tv_logical_domain = tv->getLogicalDomain();
 
     // Initialize reference subset if empty
     if (tv_subset.empty()) {
       std::copy_if(
-          tv_root_domain.begin(),
-          tv_root_domain.end(),
+          tv_logical_domain.begin(),
+          tv_logical_domain.end(),
           std::inserter(id_subset, id_subset.begin()),
           [](IterDomain* id) { return id->isReduction(); });
       tv_subset.push_back(tv);
@@ -351,8 +464,8 @@ void factorCommonReductionAxes(Fusion* fusion) {
     // Collect reduction ids for this TensorView
     std::vector<IterDomain*> reduction_ids;
     std::copy_if(
-        tv_root_domain.begin(),
-        tv_root_domain.end(),
+        tv_logical_domain.begin(),
+        tv_logical_domain.end(),
         std::back_inserter(reduction_ids),
         [](IterDomain* id) { return id->isReduction(); });
 
@@ -386,7 +499,7 @@ void factorCommonReductionAxes(Fusion* fusion) {
 
   // Map common reduction iterDomains to integer axes
   for (TensorView* tv : tv_subset) {
-    const std::vector<IterDomain*>& tv_root_domain = tv->getRootDomain();
+    const std::vector<IterDomain*>& tv_logical_domain = tv->getLogicalDomain();
 
     // Get reduction indices to factor from current TensorView
     //  * Scan through reference ids
@@ -400,16 +513,16 @@ void factorCommonReductionAxes(Fusion* fusion) {
         std::back_inserter(rfactor_indices),
         [&](IterDomain* subset_id) {
           auto iter = std::find_if(
-              tv_root_domain.begin(),
-              tv_root_domain.end(),
+              tv_logical_domain.begin(),
+              tv_logical_domain.end(),
               [&](IterDomain* id) {
                 return val_sets.permissiveAreMapped(subset_id, id);
               });
-          return std::distance(tv_root_domain.begin(), iter);
+          return std::distance(tv_logical_domain.begin(), iter);
         });
 
     size_t num_reduction_ids = std::count_if(
-        tv_root_domain.begin(), tv_root_domain.end(), [](IterDomain* id) {
+        tv_logical_domain.begin(), tv_logical_domain.end(), [](IterDomain* id) {
           return id->isReduction();
         });
 
