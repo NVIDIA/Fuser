@@ -184,6 +184,10 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   std::unordered_map<ValGroup, ValGroup> tma_g_to_partitioned_g;
   for (const auto& tile_g : tile_groups) {
     const auto& defs = id_graph.getDefinitions(tile_g);
+    std::cout << "defs: " << std::endl;
+    for (auto eg : defs) {
+      std::cout << eg->toString() << std::endl;
+    }
     NVF_ERROR(
         defs.size() <= 1,
         "Having multiple definitions of tile group is not supported");
