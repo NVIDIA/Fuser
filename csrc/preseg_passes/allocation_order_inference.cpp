@@ -300,7 +300,15 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
   // mark output TensorViews as propagation destinations
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-  std::vector<TensorView*> dsts(output_tvs.begin(), output_tvs.end());
+  std::vector<TensorView*> dsts();
+  dsts.reserve(output_tvs.size());
+  for (TensorView* output : output_tvs) {
+    if (output->isDefinitionType<LinearOp>() || output->isDefinitionType<MatmulOp>() ||
+    output->isDefinitionType<MmaOp>()) {
+      continue;
+    }
+    dsts.push_back(output);
+  }
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
 }
