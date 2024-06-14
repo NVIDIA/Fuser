@@ -252,6 +252,10 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       tma_g_to_partitioned_g[tma_g] = partitioned_g;
     }
   }
+  std::cout << "tma_groups:" << std::endl;
+  for (auto g : tma_groups) {
+    std::cout << g->toString() << std::endl;
+  }
 
   // Stpe 3: Propagate from the gmen tensor's allocation domain to the TMA
   // domain, compute the order, contiguity, and stride of partitioned
