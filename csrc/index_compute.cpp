@@ -2598,9 +2598,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   ValGroups groups_to_index;
   for (const auto& dim : tma_info.dims()) {
-    for (const auto& g : dim.partitioned) {
-      groups_to_index.pushBack(g);
-    }
+    groups_to_index.pushBack(dim.partitioned);
   }
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
@@ -2610,18 +2608,10 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   std::vector<Val*> indices_inner_to_outer;
   for (const auto& dim : tma_info.dims()) {
-    Val* dim_index = nullptr;
-    Val* stride = nullptr;
-    for (const auto& g : dim.partitioned) {
-      auto it = index_map.find(g);
-      NVF_ERROR(
-          it != index_map.end(), "Unable to find index for ", g->toString());
-      dim_index = SimplifyingIrBuilder::addExpr(
-          dim_index, SimplifyingIrBuilder::mulExpr(stride, it->second));
-      stride = SimplifyingIrBuilder::mulExpr(
-          stride, g->front()->as<IterDomain>()->extent());
-    }
-    indices_inner_to_outer.push_back(dim_index);
+    auto it = index_map.find(dim.partitioned);
+    NVF_ERROR(
+        it != index_map.end(), "Unable to find index for ", dim.partitioned->toString());
+    indices_inner_to_outer.push_back(it->second);
   }
 
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);

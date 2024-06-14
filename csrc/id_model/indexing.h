@@ -43,7 +43,7 @@ struct IndexingInfo {
 // domains may be promoted.
 class TensorIndexer {
  public:
-  TensorIndexer(const IdModel& id_model);
+  TensorIndexer(IdModel& id_model);
 
   // Get a linear index of a given tensor appearing in a given expr, either
   // as a consumer or a producer. The predicate indexing will have a
@@ -64,7 +64,7 @@ class TensorIndexer {
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
-  const ValGraph& traversalGraph() const {
+  ValGraph& traversalGraph() const {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
 
@@ -108,7 +108,7 @@ class TensorIndexer {
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
  private:
-  const IdModel& id_model_;
+  IdModel& id_model_;
 
   // Mappings from loop groups to their indices. Serial loops will
   // be mapped a unique loop index Val. Parallel loops will be mapped
