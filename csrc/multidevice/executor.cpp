@@ -284,7 +284,7 @@ std::vector<FusionExecutorCache*> MultiDeviceExecutor::
       "MultideviceExecutor must be configured to use FusionExecutorCache");
   std::vector<FusionExecutorCache*> fecs;
   for (SegmentedGroup* group : workspace_.group_run_order) {
-    if (!is_resharding_.at(group)) {
+    if (fec_.count(group) > 0) {
       fecs.push_back(&(fec_.at(group)));
     }
   }
