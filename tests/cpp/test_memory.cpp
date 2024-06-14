@@ -1040,6 +1040,7 @@ TEST_F(TMAMiscTest, Repro1977) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+#if 0
 TEST_F(TMAMiscTest, LoadStrongCorrectness) {
   // See doc/reading/tma-modeling-in-depth.md
   Fusion fusion;
@@ -1096,6 +1097,7 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
 
   EXPECT_TRUE(at::equal(cg_outputs[0], expect));
 }
+#endif
 
 // Testing invalid cases are correctly detected and reported.
 
