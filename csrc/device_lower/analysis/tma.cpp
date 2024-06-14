@@ -417,6 +417,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     }
     bool is_c = (gtype(i) == C && gtype(i + 1) == C);
     bool is_cb = (gtype(i) == CB && gtype(i + 1) == CB);
+    std::cout << "is_c: " << is_c << std::endl;
+    std::cout << "is_cb: " << is_cb << std::endl;
     if (is_c || is_cb) {
       tma_domain.merge(i);
       contiguity.erase(contiguity.begin() + i);
@@ -437,6 +439,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     }
     bool this_is_c = (gtype(i) == C);
     bool next_is_b = (gtype(i + 1) == SB && gtype(i + 1) == CB);
+    std::cout << "this_is_c: " << this_is_c << std::endl;
+    std::cout << "next_is_b: " << next_is_b << std::endl;
     if (this_is_c && next_is_b) {
       auto b = tma_domain[i + 1].as<ValGroupAndItsGraph>().group;
       tma_domain.merge(i);
