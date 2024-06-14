@@ -4220,7 +4220,7 @@ class TestNvFuserFrontend(TestCase):
                 ), f"At least three entries match in {output}"
 
     def test_matmul_issue_2354(self):
-        def fusion_fn(fd: FusionDefinition):
+        def fusion_func(fd: FusionDefinition):
             T0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
             T1 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0])
             T2 = fd.ops.linear(T1, T0)
