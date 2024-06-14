@@ -745,7 +745,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
   // #5
   const auto input_layout_opt =
-      mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
+      mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
   if (!input_layout_opt.isValid()) {
     return input_layout_opt.getErrorMsg();
   }
@@ -819,10 +819,11 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
       runtime_info);
 
   if (matmul_heuristic_plugin::hasPlugin()) {
-    const mma_utils::MatmulProblemLayoutOpt layout_opt =
-        mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
-    NVF_ERROR(layout_opt.isValid(), layout_opt.getErrorMsg());
-    const MmaLayout layout = layout_opt.getData();
+    const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
+        mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
+    NVF_ERROR(inner_dims_opt.isValid(), inner_dims_opt.getErrorMsg());
+    const mma_utils::MatmulOperandInnerDims inner_dims =
+        inner_dims_opt.getData();
 
     // Fill in proper values using plugin
     matmul_heuristic_plugin::updateMatmulParams(
@@ -831,7 +832,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
         problem_shape[(size_t)MatmulDomain::N],
         problem_shape[(size_t)MatmulDomain::K],
         problem_shape[(size_t)MatmulDomain::Batch],
-        layout,
+        inner_dims,
         tensor_roles);
   } else {
     TORCH_WARN_ONCE(
