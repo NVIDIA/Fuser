@@ -303,8 +303,9 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   std::vector<TensorView*> dsts();
   dsts.reserve(output_tvs.size());
   for (TensorView* output : output_tvs) {
-    if (output->isDefinitionType<LinearOp>() || output->isDefinitionType<MatmulOp>() ||
-    output->isDefinitionType<MmaOp>()) {
+    if (output->isDefinitionType<LinearOp>() ||
+        output->isDefinitionType<MatmulOp>() ||
+        output->isDefinitionType<MmaOp>()) {
       continue;
     }
     dsts.push_back(output);
