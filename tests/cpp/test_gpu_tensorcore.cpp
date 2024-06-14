@@ -3149,16 +3149,13 @@ TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
 
           fusion->addOutput(tv2);
 
-          const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+          const MmaLayout fusion_layout = getMatmulProblemLayout(fusion.get());
           NVF_CHECK(
-              fusion_layout.isValid(),
-              "failed to get decide matmul layout through fusion definition");
-          NVF_CHECK(
-              fusion_layout.getData() == layout,
+              fusion_layout == layout,
               "mismatch between test layout (",
               toString(layout),
               ") and layout inferred from fusion definition (",
-              toString(fusion_layout.getData()),
+              toString(fusion_layout),
               ")");
 
           // determine supported vectorization of an ATen tensor that will be

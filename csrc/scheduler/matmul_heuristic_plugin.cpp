@@ -81,10 +81,9 @@ uint8_t innerDimsToByte(const mma_utils::MatmulOperandInnerDims& inner_dims) {
     return 1;
   } else if (!A_K_inner && B_K_inner) {
     return 2;
-  } else if (!A_K_inner && !B_K_inner) {
+  } else {
     return 3;
   }
-  return 255; // This should be unreachable
 }
 
 std::string rolesToPrecisionString(
