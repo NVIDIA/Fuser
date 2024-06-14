@@ -456,7 +456,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   for (auto it = tma_domain.domain.rbegin(); it != tma_domain.domain.rend(); it++) {
     auto g = it->as<ValGroupAndItsGraph>().group;
     dims.emplace_back();
-    dims.back().partitioned = g;
+    dims.back().tma = g;
     if (tma_g_to_box_g.count(g)) {
       dims.back().box = tma_g_to_box_g.at(g);
     }
