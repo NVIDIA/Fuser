@@ -33,6 +33,30 @@ int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
   return 1;
 }
 
+// TODO: We should use utilities in val_graph_visitor.h so that we don't have
+// to manually filter out cyclic expr groups
+ExprGroups acyclicExprGroups(const ValGraph& id_graph, const ExprGroups& egs) {
+  ExprGroups result;
+  for (const auto& eg : egs) {
+    auto inputs = id_graph.inputGroups(eg);
+    auto outputs = id_graph.outputGroups(eg);
+    bool cyclic = false;
+    for (const auto& i : inputs) {
+      for (const auto& o : outputs) {
+        if (i == o) {
+          cyclic = true;
+          goto break_two_loops;
+        }
+      }
+    }
+  break_two_loops:
+    if (!cyclic) {
+      results.push_back(eg);
+    }
+  }
+  return result;
+}
+
 // Analyze the schedule of the TMA expression, find the ValGroups for each role.
 // We first need to infer the TMA domain based on the schedule, which is done by
 // finding tile ValGroups first and analyze their definitions.
@@ -183,11 +207,12 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   std::unordered_map<ValGroup, ValGroup> tma_g_to_stride_g;
   std::unordered_map<ValGroup, ValGroup> tma_g_to_partitioned_g;
   for (const auto& tile_g : tile_groups) {
-    const auto& defs = id_graph.getDefinitions(tile_g);
-    std::cout << "defs: " << std::endl;
-    for (auto eg : defs) {
-      std::cout << eg->toString() << std::endl;
-    }
+    const auto& defs =
+        acyclicExprGroups(id_graph, id_graph.getDefinitions(tile_g));
+    // std::cout << "defs: " << std::endl;
+    // for (auto eg : defs) {
+    //   std::cout << eg->toString() << std::endl;
+    // }
     NVF_ERROR(
         defs.size() <= 1,
         "Having multiple definitions of tile group is not supported");
@@ -202,7 +227,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     ValGroup stride_g =
         (striding_split != nullptr ? id_graph.outputGroups(striding_split)[1]
                                    : nullptr);
-    const ExprGroups& defs2 = id_graph.getDefinitions(box_g);
+    const ExprGroups& defs2 =
+        acyclicExprGroups(id_graph, id_graph.getDefinitions(box_g));
     NVF_ERROR(
         defs2.size() <= 1,
         "Having multiple definitions of box group is not supported");
