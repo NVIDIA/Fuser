@@ -4230,7 +4230,7 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T4)
 
         with FusionDefinition() as fd:
-                fusion_fn(fd)
+            fusion_func(fd)
 
         inputs = [
             torch.randn((8, 4), dtype=torch.float32, device='cuda:0'),
