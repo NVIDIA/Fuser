@@ -31,10 +31,12 @@ struct TMADim {
     return partitioned->front()->as<IterDomain>()->extent();
   }
   Val* boxSize() const {
-    return box->front()->as<IterDomain>()->extent();
+    return box ? box->front()->as<IterDomain>()->extent()
+               : gmem_stride_bytes->fusion()->oneVal();
   }
   Val* tileSize() const {
-    return tile->front()->as<IterDomain>()->extent();
+    return tile ? tile->front()->as<IterDomain>()->extent()
+                : gmem_stride_bytes->fusion()->oneVal();
   }
   Val* elementStride() const {
     return stride ? stride->front()->as<IterDomain>()->extent()

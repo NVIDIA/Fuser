@@ -459,7 +459,9 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     auto g = it->as<ValGroupAndItsGraph>().group;
     dims.emplace_back();
     dims.back().partitioned = g;
-    dims.back().box = tma_g_to_box_g.at(g);
+    if (tma_g_to_box_g.count(g)) {
+      dims.back().box = tma_g_to_box_g.at(g);
+    }
     if (tma_g_to_stride_g.count(g)) {
       dims.back().stride = tma_g_to_stride_g.at(g);
       dims.back().tile = tma_g_to_tile_g.at(g);
