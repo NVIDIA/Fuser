@@ -781,9 +781,9 @@ MmaLayout getMatmulProblemLayout(Fusion* fusion) {
   } else if (A_K_inner && !B_K_inner) {
     return MmaLayout::TT;
   } else if (!A_K_inner && B_K_inner) {
-    return MmaLayout::NT;
-  } else {
     return MmaLayout::NN;
+  } else {
+    return MmaLayout::NT;
   }
 }
 
