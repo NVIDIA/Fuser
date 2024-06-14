@@ -81,7 +81,7 @@ class TensorIndexer {
   // getLinearIndex.
   IndexingInfo computeIndex(
       const Expr* expr,
-      const std::vector<ValGroup>& index_groups) const;
+      const ValGroups& index_groups) const;
   IndexingInfo computeIndex(
       const Expr* expr,
       const std::vector<IterDomain*>& index_domains) const;
