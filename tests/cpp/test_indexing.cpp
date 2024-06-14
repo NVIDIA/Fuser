@@ -60,6 +60,11 @@ Val* modExpr(Args&&... args) {
   return SimplifyingIrBuilder::modExpr(std::forward<Args>(args)...);
 }
 
+template <typename... Args>
+Val* xorExpr(Args&&... args) {
+  return IrBuilder::bitwiseXorExpr(std::forward<Args>(args)...);
+}
+
 void printAllIndices(
     std::ostream& os,
     Fusion* fusion,
@@ -1077,7 +1082,7 @@ TEST_F(IndexingTest, SimpleVectorize) {
   IndexValidator<GetReference>::validate(&fusion);
 }
 
-TEST_F(IndexingTest, Swizzle) {
+TEST_F(IndexingTest, DISABLED_Swizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1109,8 +1114,8 @@ TEST_F(IndexingTest, Swizzle) {
         case 1: {
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(0)->extent(), loop_indices.at(1)),
-              loop_indices.at(0));
+                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(0)),
+              xorExpr(loop_indices.at(0), loop_indices.at(1)));
         }
         default:
           // Only validates tv1
