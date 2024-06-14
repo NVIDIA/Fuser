@@ -1406,9 +1406,6 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
 }
 
 void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
-  auto out_tv = ldst->out()->as<TensorView>();
-  auto in_tv = ldst->in()->as<TensorView>();
-
   // indexing mbarrier
   auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
   auto mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
@@ -1442,8 +1439,6 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
       std::vector<Val*>{},
       kir::Asm::Options{/*volatile=*/true}));
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-  auto in_tv = ldst->in()->as<TensorView>();
-  auto out_tv = ldst->out()->as<TensorView>();
   auto [out, _] =
       Index::getCpAsyncBulkGmemIndex(ldst, nullptr, for_loops_, rotated_loop_);
   auto new_ldst =

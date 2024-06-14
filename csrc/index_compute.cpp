@@ -2599,7 +2599,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   ValGroups groups_to_index;
   for (const auto& dim : tma_info.dims()) {
     for (const auto& g : dim.partitioned) {
-      groups_to_index.pushBack(b);
+      groups_to_index.pushBack(g);
     }
   }
 
