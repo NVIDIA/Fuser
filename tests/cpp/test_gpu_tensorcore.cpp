@@ -3274,7 +3274,7 @@ TEST_F(GPUTTensorCoreTest, MultipleConsecutiveMDims) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
-// Matmul test with multiple M dimensions that are consecutive
+// Matmul test with multiple M dimensions that are non-consecutive
 // TODO: This test currently fails, but it can be run using
 //   build/test_matmul --gtest_also_run_disabled_tests
 //
@@ -3391,7 +3391,7 @@ TEST_F(GPUTTensorCoreTest, MultipleConsecutiveNDims) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
-// Matmul test with multiple N dimensions that are discontiguous
+// Matmul test with multiple N dimensions that are non-consecutive
 // TODO: This test currently fails, but it can be run using
 //   build/test_matmul --gtest_also_run_disabled_tests
 //
