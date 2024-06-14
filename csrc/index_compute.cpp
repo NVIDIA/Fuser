@@ -2573,6 +2573,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     const std::unordered_set<kir::ForLoop*>& rotated_loops) {
   FUSER_PERF_SCOPE("Index::getCpAsyncBulkGmemIndex");
 
+  ldst->fusion()->print();
+
   TensorView* producer_tv = ldst->in()->as<TensorView>();
   TensorView* consumer_tv = ldst->out()->as<TensorView>();
 
