@@ -307,7 +307,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   // rather than a semantic requirement coming from computation definition.
   // Scheduler/segmenter would be able to coordinate and discard optimization
   // hint, but they should respect semantic requirement.
-  // see issue: https://github.com/NVIDIA/Fuser/pull/2426
+  // see issue: https://github.com/NVIDIA/Fuser/pull/2425
   for (TensorView* output : output_tvs) {
     if (output->isDefinitionType<LinearOp>() ||
         output->isDefinitionType<MatmulOp>() ||
