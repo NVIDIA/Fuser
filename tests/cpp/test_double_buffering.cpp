@@ -130,6 +130,22 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   CompileParams index32bit{DataType::Int32, 255, false};
   fe.compileFusion(&fusion, {t0}, {}, index32bit);
   auto cg_outputs = fe.runFusion({t0});
+  {
+    auto ref_cpu_data = t1.cpu();
+    auto res_cpu_data = cg_outputs.front().cpu();
+
+    auto ref_cpu = ref_cpu_data.accessor<float, 2>();
+    auto res_cpu = res_cpu_data.accessor<float, 2>();
+
+    for (size_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
+      for (size_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+        if (fabs((double)res_cpu[out_pos][in_pos] - (double)ref_cpu[out_pos][in_pos]) > 0.0001) {
+          std::cout << "[" << out_pos << ", " << in_pos << "] - result: " << res_cpu[out_pos][in_pos]
+                    << " | ref: " << ref_cpu[out_pos][in_pos] << std::endl;
+        }
+      }
+    }
+  }
   testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
