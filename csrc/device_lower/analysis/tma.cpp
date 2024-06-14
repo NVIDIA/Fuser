@@ -53,8 +53,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
 
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
-  const IdModel& id_model = GpuLower::current()->idModel();
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+  const ValGraph& id_graph = indexer.traversalGraph();
 
   auto gmem_alloc_dom = TensorDomain::noBroadcasts(
       TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain()));
@@ -63,7 +63,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       gmem_alloc_dom.begin(),
       gmem_alloc_dom.end(),
       std::back_inserter(gmem_alloc_groups_vec),
-      [&](IterDomain* id) { return exact_graph.toGroup(id); });
+      [&](IterDomain* id) { return id_graph.toGroup(id); });
   ValGroups gmem_alloc_groups(gmem_alloc_groups_vec);
   std::unordered_set<ValGroup> gmem_alloc_groups_set;
   gmem_alloc_groups_set.reserve(gmem_alloc_dom.size());
@@ -71,7 +71,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       gmem_alloc_dom.begin(),
       gmem_alloc_dom.end(),
       std::inserter(gmem_alloc_groups_set, gmem_alloc_groups_set.end()),
-      [&](IterDomain* id) { return exact_graph.toGroup(id); });
+      [&](IterDomain* id) { return id_graph.toGroup(id); });
 
   // Step 1: Get all bulk ValGroups and tile ValGroups.
   // An ValGroup is considered "bulk" if it contains an IterDomain that has
@@ -88,7 +88,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   // must be parallelized as ParallelType::Bulk.
   for (auto id : consumer_tv->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Bulk) {
-      auto g = exact_graph.toGroup(id);
+      auto g = id_graph.toGroup(id);
       bulk_groups.insert(g);
       pending.push_back(g);
     }
@@ -115,7 +115,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       }
     }
 
-    auto defs = exact_graph.getDefinitions(g);
+    auto defs = id_graph.getDefinitions(g);
     NVF_ERROR(
         gmem_alloc_groups_set.count(g) || !defs.empty(),
         "Allocation domain of the gmem tensor is unreachable");
@@ -125,11 +125,11 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       for (const ExprGroup& def : defs) {
         // We only continue propagating if we have not reached the allocation
         // domain of the gmem tensor yet.
-        if (bulk_groups.count(exact_graph.inputGroups(def)[0])) {
+        if (bulk_groups.count(id_graph.inputGroups(def)[0])) {
           // already processed from another path
           continue;
         }
-        auto output_groups = exact_graph.outputGroups(def);
+        auto output_groups = id_graph.outputGroups(def);
         bool should_propagate = std::all_of(
             output_groups.begin(),
             output_groups.end(),
@@ -137,7 +137,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
 
         if (should_propagate) {
           updated = true;
-          for (const auto& gg : exact_graph.inputGroups(def)) {
+          for (const auto& gg : id_graph.inputGroups(def)) {
             if (bulk_groups.insert(gg).second) {
               pending.push_back(gg);
             }
@@ -183,22 +183,22 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   std::unordered_map<ValGroup, ValGroup> tma_g_to_stride_g;
   std::unordered_map<ValGroup, ValGroup> tma_g_to_partitioned_g;
   for (const auto& tile_g : tile_groups) {
-    const auto& defs = exact_graph.getDefinitions(tile_g);
+    const auto& defs = id_graph.getDefinitions(tile_g);
     NVF_ERROR(
         defs.size() <= 1,
         "Having multiple definitions of tile group is not supported");
     ExprGroup striding_split = nullptr;
-    if (!defs.empty() && exact_graph.outputGroups(defs.front())[0] == tile_g &&
+    if (!defs.empty() && id_graph.outputGroups(defs.front())[0] == tile_g &&
         defs.front()->front()->isA<Split>()) {
       striding_split = defs.front();
     }
     ValGroup box_g =
-        (striding_split != nullptr ? exact_graph.inputGroups(striding_split)[0]
+        (striding_split != nullptr ? id_graph.inputGroups(striding_split)[0]
                                    : tile_g);
     ValGroup stride_g =
-        (striding_split != nullptr ? exact_graph.outputGroups(striding_split)[1]
+        (striding_split != nullptr ? id_graph.outputGroups(striding_split)[1]
                                    : nullptr);
-    const ExprGroups& defs2 = exact_graph.getDefinitions(box_g);
+    const ExprGroups& defs2 = id_graph.getDefinitions(box_g);
     NVF_ERROR(
         defs2.size() <= 1,
         "Having multiple definitions of box group is not supported");
@@ -207,7 +207,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       boxing_split = defs2.front();
     }
     ValGroup partitioned_g =
-        (boxing_split != nullptr ? exact_graph.inputGroups(boxing_split)[0]
+        (boxing_split != nullptr ? id_graph.inputGroups(boxing_split)[0]
                                  : nullptr);
     ValGroup tma_g = (partitioned_g != nullptr ? partitioned_g : box_g);
 
@@ -241,20 +241,20 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     // I will just use i for now and leave the support for broadcast for future.
     auto stride = IrBuilder::getItemExpr(alloc_strides, i);
     frontier.emplace_back(
-        exact_graph.toGroup(id),
+        id_graph.toGroup(id),
         gmem_tv->getContiguity().at(i).value(),
         stride);
   }
   // Propagate forward from the gmem allocation domain to TMA ValGroups
   for (auto [expr, direction] : ValGraphBFS::getExprsBetween(
-           exact_graph, gmem_alloc_groups, tma_groups)) {
+           id_graph, gmem_alloc_groups, tma_groups)) {
     NVF_ERROR(!expr->empty());
     NVF_ERROR(
         direction == Direction::Forward,
         "Backward propagation from allocation domain to TMA domain is not supported yet.");
     if (expr->front()->isA<Split>()) {
       Split* split = expr->front()->as<Split>();
-      auto in = exact_graph.inputGroups(expr)[0];
+      auto in = id_graph.inputGroups(expr)[0];
       auto in_it =
           std::find_if(frontier.begin(), frontier.end(), [in](auto tuple) {
             return std::get<0>(tuple) == in;
@@ -277,13 +277,13 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       frontier.insert(
           in_it,
           std::make_tuple(
-              exact_graph.outputGroups(expr)[0],
+              id_graph.outputGroups(expr)[0],
               true,
               SimplifyingIrBuilder::mulExpr(
                   std::get<2>(*in_it), split->factor())));
-      std::get<0>(*in_it) = exact_graph.outputGroups(expr)[1];
+      std::get<0>(*in_it) = id_graph.outputGroups(expr)[1];
     } else if (expr->front()->isA<Merge>()) {
-      auto outer = exact_graph.inputGroups(expr)[0];
+      auto outer = id_graph.inputGroups(expr)[0];
       auto outer_it =
           std::find_if(frontier.begin(), frontier.end(), [outer](auto tuple) {
             return std::get<0>(tuple) == outer;
@@ -293,7 +293,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
           "The TMA domain must be equivalent to the allocation domain of the gmem tensor, but ",
           outer->toString(),
           " is not on the path.");
-      auto inner = exact_graph.inputGroups(expr)[1];
+      auto inner = id_graph.inputGroups(expr)[1];
       auto inner_it = std::next(outer_it);
       NVF_ERROR(
           inner_it != frontier.end(),
@@ -306,7 +306,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
           outer->toString(),
           " is merged with ",
           inner->toString());
-      std::get<0>(*inner_it) = exact_graph.outputGroups(expr)[0];
+      std::get<0>(*inner_it) = id_graph.outputGroups(expr)[0];
       frontier.erase(outer_it);
     } else {
       NVF_ERROR(
