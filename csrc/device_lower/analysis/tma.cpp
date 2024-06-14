@@ -435,6 +435,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   int64_t i = 0;
   while (i < (int64_t)tma_domain.size() - 1) {
     if (!contiguity[i]) {
+      i++;
       continue;
     }
     bool is_c = (gtype(i) == C && gtype(i + 1) == C);
@@ -458,6 +459,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   i = 0;
   while (i < (int64_t)tma_domain.size() - 1) {
     if (!contiguity[i]) {
+      i++;
       continue;
     }
     bool this_is_c = (gtype(i) == C);
