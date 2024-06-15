@@ -274,7 +274,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // Sharding: A, B are sharded along K. C is replicated.
   // Tests local matmul + allreduce
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator->size());
 
@@ -335,7 +335,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // A, B are sharded on K. C is sharded on M
   // Tests local matmul + reduce scatter
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator->size());
 
