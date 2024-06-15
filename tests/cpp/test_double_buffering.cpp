@@ -6,8 +6,8 @@
  */
 // clang-format on
 
-#include <ops/all_ops.h>
 #include <inlining.h>
+#include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -139,8 +139,11 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
 
     for (size_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
       for (size_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
-        if (fabs((double)res_cpu[out_pos][in_pos] - (double)ref_cpu[out_pos][in_pos]) > 0.0001) {
-          std::cout << "[" << out_pos << ", " << in_pos << "] - result: " << res_cpu[out_pos][in_pos]
+        if (fabs(
+                (double)res_cpu[out_pos][in_pos] -
+                (double)ref_cpu[out_pos][in_pos]) > 0.0001) {
+          std::cout << "[" << out_pos << ", " << in_pos
+                    << "] - result: " << res_cpu[out_pos][in_pos]
                     << " | ref: " << ref_cpu[out_pos][in_pos] << std::endl;
         }
       }
@@ -250,7 +253,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
   // Double Buffer with TMA loads
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(-1)->parallelize(ParallelType::Bulk);
-  //tv4->doubleBuffer();
+  // tv4->doubleBuffer();
 
   constexpr size_t batch_dim = 128;
   constexpr size_t tensor_dim = 1024;
@@ -261,7 +264,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
   CompileParams index32bit{DataType::Int32, 255, false};
   fe.compileFusion(&fusion, {t0}, {}, index32bit);
   auto cg_outputs = fe.runFusion({t0});
-  //testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+  // testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {

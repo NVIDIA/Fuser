@@ -453,16 +453,9 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
               LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
-              int64_t stage_depth =
-                  GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-                      double_buffer_loop_->iter_domain());
-
-              Val* index = (stage_depth == 2)
-                  ? IrBuilder::create<Val>(0L, PrimDataType::UInt)
-                  : cloned_top_level_loop_->index();
-
               kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
-                  createMbarrierArriveExpectTx(ldst, index);
+                  createMbarrierArriveExpectTx(
+                      ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
               body.push_back(mbarrier_arrive_tx);
 
               // Clone LoadStoreOp & map it to mbarrier alloc
