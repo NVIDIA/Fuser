@@ -304,8 +304,8 @@ target_link_libraries(codegen_internal PUBLIC
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
-  target_link_options(codegen_internal PUBLIC -fsanitize=address)
-  target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
+  target_link_options(codegen_internal PUBLIC -fsanitize=address -static-libasan)
+  target_link_options(nvfuser_codegen PUBLIC -fsanitize=address -static-libasan)
 endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
