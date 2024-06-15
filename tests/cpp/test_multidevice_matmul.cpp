@@ -295,189 +295,6 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
       __LINE__,
       __FILE__);
 }
-TEST_F(DistributedMatmulTest, MLP_Layer) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
-
-  int64_t sb = 64; // sequence * batch
-  int64_t h = 128;
-  int64_t h4 = 4 * h;
-
-  TensorView* x = makeContigConcreteTensor(
-      {sb, h}, DataType::BFloat16); // Unsharded (sb, h)
-  TensorView* w0 = makeContigConcreteTensor(
-      {num_devices_, h4 / num_devices_, h},
-      DataType::BFloat16); // (h4, h) -> sharded: (D, h4/D, h)
-  TensorView* b0 = makeContigConcreteTensor(
-      {num_devices_, h4 / num_devices_},
-      DataType::BFloat16); // (h4) -> (D, h4/D)
-  // TODO: initially had this as {h, num_devices_, h4/num_devices} with a
-  // reorder in the compute graph, but that caused some issues. Look into what
-  // went wrong.
-  TensorView* w1 = makeContigConcreteTensor(
-      {num_devices_, h, h4 / num_devices_},
-      DataType::BFloat16); // (h, h4) -> (D, h, h4/D)
-  TensorView* b1 =
-      makeContigConcreteTensor({h}, DataType::BFloat16); // Unsharded (h)
-  fusion->addInput(x);
-  fusion->addInput(w0);
-  fusion->addInput(b0);
-  fusion->addInput(w1);
-  fusion->addInput(b1);
-
-  // Linear #1
-  // Notes: Manually breaking down the linear layer into nvfuser primitives
-  TensorView* linear_int0 =
-      broadcast(x, {true, false, true, false}); // b, sb, b, h
-  TensorView* linear_int1 =
-      broadcast(w0, {false, true, false, false}); // D, b, h4/D, h
-  TensorView* linear_int2 = mul(linear_int0, linear_int1); // D, sb, h4/D, h
-  TensorView* linear_int3 = sum(linear_int2, {-1}); // D, sb, h4/D, r
-  TensorView* linear_int4 = broadcast(b0, {false, true, false});
-  TensorView* linear1 = add(linear_int3, linear_int4); // D, sb, h4/D
-  linear1 = segment_set(linear1);
-
-  // GeLU (taken from tanh_gelu composite.cpp)
-  // TODO: use the tanh_gelu node when we are confident with sharding
-  // propagation
-  const double kBeta = M_SQRT2 * M_2_SQRTPI * 0.5;
-  const double kKappa = 0.044715;
-  TensorView* gelu0 = castOp(DataType::Float, linear1); // x
-  TensorView* gelu1 = mul(gelu0, gelu0); // x^2
-  TensorView* gelu2 = mul(gelu1, gelu0); // x^3
-  TensorView* gelu3 = mul(gelu0, IrBuilder::create<Val>(0.5)); // x * 0.5
-  TensorView* gelu4 =
-      mul(gelu2, IrBuilder::create<Val>(kKappa)); // x^3 * 0.0447150
-  TensorView* gelu5 = add(gelu0, gelu4); // x + x^3 * 0.0447150
-  TensorView* gelu6 =
-      mul(gelu5,
-          IrBuilder::create<Val>(kBeta)); // (x + x^3 * 0.0447150) * .0.797885
-  TensorView* gelu7 = tanh(gelu6); // tanh((x + x^3 * 0.0447150) * .0.797885)
-  TensorView* gelu8 =
-      add(gelu7,
-          IrBuilder::create<Val>(
-              1.0)); // 1 + tanh((x + x^3 * 0.0447150) * .0.797885)
-  TensorView* gelu = mul(
-      gelu3, gelu8); // x * 0.5 * (1 + tanh((x + x^3 * 0.0447150) * .0.797885))
-  TensorView* gelu_ = castOp(DataType::BFloat16, gelu); // D, sb, h4/D
-  gelu_ = segment_set(gelu_);
-
-  // Linear #2
-  // TODO: canonicalize inputs to push DID axis to front. Technically this
-  // doesn't need a reorder since the D axis isn't materialized.
-  TensorView* linear2_int0 =
-      broadcast(gelu_, {false, false, true, false}); // D, sb, b, h4/D
-  TensorView* linear2_int1 =
-      broadcast(w1, {false, true, false, false}); // D, b, h, h4/D
-  TensorView* linear2_int2 = mul(linear2_int0, linear2_int1); // D, sb, h, h4/D
-  TensorView* linear2_int3 = sum(linear2_int2, {-1}); // D, sb, h, r
-  TensorView* linear2_int4 = sum(linear2_int3, {0}); // Allreduce sum // r sb, h
-  TensorView* linear2_int5 = broadcast(b1, {true, false}); // b, h
-  TensorView* linear2 = add(linear2_int4, linear2_int5); // sb, h
-
-  TensorView* linear2_ = castOp(DataType::Float, linear2);
-  // // Dropout (taken from composite.cpp)
-  const double kProb = 0.1;
-  const double kScale = 1.0 / (1.0 - kProb);
-  Val* philox_seed = fusion->zeroVal();
-  Val* philox_offset = fusion->zeroVal();
-  TensorView* rand_vals = rand_like(linear2_, philox_seed, philox_offset);
-  TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(1.0 - kProb));
-  TensorView* apply_mask = mul(linear2_, mask);
-  TensorView* dropout = mul(apply_mask, IrBuilder::create<Val>(kScale));
-
-  fusion->addOutput(linear1);
-  fusion->addOutput(gelu);
-  fusion->addOutput(linear2);
-  fusion->addOutput(dropout);
-
-  auto tv_inputs = {
-      x,
-      b1,
-      linear2_int4,
-      linear2_int5,
-      linear2,
-      linear2_,
-      rand_vals,
-      mask,
-      apply_mask,
-      dropout};
-  for (auto tv : tv_inputs) {
-    tv->setDeviceMesh(mesh);
-  }
-
-  auto tvs = {w0,           b0,           w1,           linear_int0,
-              linear_int1,  linear_int2,  linear_int3,  linear_int4,
-              linear1,      gelu0,        gelu1,        gelu2,
-              gelu3,        gelu4,        gelu5,        gelu6,
-              gelu7,        gelu8,        gelu,         gelu_,
-              linear2_int0, linear2_int1, linear2_int2, linear2_int3};
-  for (auto tv : tvs) {
-    tv->setDeviceMesh(mesh);
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-  }
-
-  const auto options = at::TensorOptions()
-                           .dtype(c10::ScalarType::BFloat16)
-                           .device(at::kCUDA, communicator->local_rank());
-  auto x_ = at::randn({sb, h}, options);
-  auto w0_ = at::randn({h4, h}, options);
-  auto b0_ = at::randn({h4}, options);
-  auto w1_ = at::randn({h, h4}, options);
-  auto b1_ = at::randn({h}, options);
-
-  std::vector<c10::IValue> inputs = {
-      x_,
-      shardTensor(
-          w0_.view({num_devices_, h4 / num_devices_, h}),
-          w0,
-          communicator->deviceId()),
-      shardTensor(
-          b0_.view({num_devices_, h4 / num_devices_}),
-          b0,
-          communicator->deviceId()),
-      shardTensor(
-          w1_.view({h, num_devices_, h4 / num_devices_}).transpose(1, 0),
-          w1,
-          communicator->deviceId()),
-      b1_};
-  at::manual_seed(0);
-  auto linear1_aten =
-      at::linear(x_.to(at::kFloat), w0_.to(at::kFloat), b0_.to(at::kFloat));
-  auto gelu_aten = at::gelu(linear1_aten, "tanh");
-  auto linear2_aten = at::linear(
-      gelu_aten.to(at::kBFloat16).to(at::kFloat),
-      w1_.to(at::kFloat),
-      b1_.to(at::kFloat));
-  auto dropout_aten = at::dropout(linear2_aten.to(at::kFloat), kProb, true);
-  std::vector<at::Tensor> expected_outputs = {
-      shardTensor(
-          at::transpose(
-              linear1_aten.view({sb, num_devices_, h4 / num_devices_}), 1, 0),
-          linear1,
-          communicator->deviceId()),
-      shardTensor(
-          at::transpose(
-              gelu_aten.view({sb, num_devices_, h4 / num_devices_}), 1, 0),
-          gelu,
-          communicator->deviceId()),
-      linear2_aten,
-      dropout_aten};
-  at::manual_seed(0);
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator, executor_params_);
-
-  auto outputs = runtime.runWithInput(inputs);
-
-  testValidate(
-      runtime.completeFusion(),
-      outputs,
-      inputs,
-      expected_outputs,
-      __LINE__,
-      __FILE__);
-}
 
 TEST_F(DistributedMatmulTest, MLP_Layer) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -517,7 +334,6 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
   TensorView* linear_int3 = sum(linear_int2, {-1}); // D, sb, h4/D, r
   TensorView* linear_int4 = broadcast(b0, {false, true, false});
   TensorView* linear1 = add(linear_int3, linear_int4); // D, sb, h4/D
-  linear1 = segment_set(linear1);
 
   TensorView* gelu = tanh_gelu(linear1);
   TensorView* gelu_ = castOp(DataType::BFloat16, gelu); // D, sb, h4/D
@@ -530,13 +346,14 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
       broadcast(w1, {false, true, false, false}); // D, b, h, h4/D
   TensorView* linear2_int2 = mul(linear2_int0, linear2_int1); // D, sb, h, h4/D
   TensorView* linear2_int3 = sum(linear2_int2, {-1}); // D, sb, h, r
-  TensorView* linear2_int4 = sum(linear2_int3, {0}); // Allreduce sum // r sb, h
-  TensorView* linear2_int5 = broadcast(b1, {true, false}); // b, h
-  TensorView* linear2 = add(linear2_int4, linear2_int5); // sb, h
+  TensorView* matmul2 = sum(linear2_int3, {0}); // Allreduce sum // r sb, h
+  TensorView* bcast_bias = broadcast(b1, {true, false}); // b, h
+  TensorView* linear2 = add(matmul2, bcast_bias); // sb, h
 
-  TensorView* linear2_ = castOp(DataType::Float, linear2);
+  // Dropout
   // Note: Propagation breaks at rand_like because it creates a fresh TV.
   // Temporarily this prevents us from using dropout composite node.
+  TensorView* linear2_ = castOp(DataType::Float, linear2);
   const double kProb = 0.1;
   const double kScale = 1.0 / (1.0 - kProb);
   Val* philox_seed = fusion->zeroVal();
@@ -548,18 +365,18 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
 
   fusion->addOutput(linear1);
   fusion->addOutput(gelu);
-  fusion->addOutput(linear2);
-  fusion->addOutput(dropout);
+  fusion->addOutput(matmul2);
+  // fusion->addOutput(dropout);
 
   // Manually shard inputs: x, w0, b0, w1, b1
   // outputs: linear1, gelu, linear2, dropout
-  // TVs where sharding changes: linear2_int4
+  // TVs where sharding changes: matmul2
   // (TODO) TVs where sharding propagation breaks down:
   //  linear_int0 = broadcasts where a device dim axis is broadcasted.
   //  rand_vals => rand_like creates a fresh new TV.
 
   // TVs replicated on each device.
-  auto tv_inputs = {x, b1, linear2_int4, linear2, rand_vals, dropout};
+  auto tv_inputs = {x, b1, matmul2, rand_vals, dropout};
   for (auto tv : tv_inputs) {
     tv->setDeviceMesh(mesh);
   }
@@ -620,6 +437,138 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
   at::manual_seed(0);
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator, executor_params_);
+  auto outputs = runtime.runWithInput(inputs);
+
+  testValidate(
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      expected_outputs,
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(DistributedMatmulTest, MLP_Layer_Manual) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
+
+  int64_t sb = 64; // sequence * batch 
+  int64_t h = 128;
+  int64_t h4 = 4 * h;
+
+  TensorView* x = makeContigConcreteTensor({sb, h}, DataType::BFloat16); // Unsharded (sb, h)
+  TensorView* w0 = makeContigConcreteTensor({num_devices_, h4/num_devices_, h}, DataType::BFloat16); // (h4, h) -> sharded: (D, h4/D, h)
+  TensorView* b0 = makeContigConcreteTensor({num_devices_, h4/num_devices_}, DataType::BFloat16); // (h4) -> (D, h4/D)
+  // TODO: initially had this as {h, num_devices_, h4/num_devices} with a reorder in the compute graph, but that caused
+  // some issues. Look into what went wrong. 
+  TensorView* w1 = makeContigConcreteTensor({num_devices_, h, h4/num_devices_}, DataType::BFloat16); // (h, h4) -> (D, h, h4/D)
+  TensorView* b1 = makeContigConcreteTensor({h}, DataType::BFloat16); // Unsharded (h)
+  fusion->addInput(x);
+  fusion->addInput(w0);
+  fusion->addInput(b0);
+  fusion->addInput(w1);
+  fusion->addInput(b1);
+
+  // Linear #1
+  // Notes: Manually breaking down the linear layer into nvfuser primitives
+  TensorView* linear_int0 = broadcast(x, {true, false, true, false}); // b, sb, b, h
+  TensorView* linear_int1 = broadcast(w0, {false, true, false, false}); // D, b, h4/D, h
+  TensorView* linear_int2 = mul(linear_int0, linear_int1); // D, sb, h4/D, h
+  TensorView* linear_int3 = sum(linear_int2, {-1}); // D, sb, h4/D, r 
+  TensorView* linear_int4 = broadcast(b0, {false, true, false});
+  TensorView* linear1 = add(linear_int3, linear_int4); // D, sb, h4/D
+  linear1 = segment_set(linear1);
+
+  // GeLU (taken from tanh_gelu composite.cpp)
+  // TODO: use the tanh_gelu node when we are confident with sharding propagation
+  const double kBeta = M_SQRT2 * M_2_SQRTPI * 0.5;
+  const double kKappa = 0.044715;
+  TensorView* gelu0 = castOp(DataType::Float, linear1); // x
+  TensorView* gelu1 = mul(gelu0, gelu0); // x^2
+  TensorView* gelu2 = mul(gelu1, gelu0); // x^3
+  TensorView* gelu3 = mul(gelu0, IrBuilder::create<Val>(0.5)); // x * 0.5
+  TensorView* gelu4 = mul(gelu2, IrBuilder::create<Val>(kKappa)); // x^3 * 0.0447150
+  TensorView* gelu5 = add(gelu0, gelu4); // x + x^3 * 0.0447150
+  TensorView* gelu6 = mul(gelu5, IrBuilder::create<Val>(kBeta)); // (x + x^3 * 0.0447150) * .0.797885
+  TensorView* gelu7 = tanh(gelu6); // tanh((x + x^3 * 0.0447150) * .0.797885)
+  TensorView* gelu8 = add(gelu7, IrBuilder::create<Val>(1.0)); // 1 + tanh((x + x^3 * 0.0447150) * .0.797885)
+  TensorView* gelu = mul(gelu3, gelu8); // x * 0.5 * (1 + tanh((x + x^3 * 0.0447150) * .0.797885))
+  TensorView* gelu_ = castOp(DataType::BFloat16, gelu); // D, sb, h4/D
+  gelu_ = segment_set(gelu_);
+
+  // Linear #2
+  // TODO: canonicalize inputs to push DID axis to front. Technically this doesn't need a reorder since 
+  // the D axis isn't materialized.
+  TensorView* linear2_int0 = broadcast(gelu_, {false, false, true, false}); // D, sb, b, h4/D
+  TensorView* linear2_int1 = broadcast(w1, {false, true, false, false}); // D, b, h, h4/D
+  TensorView* linear2_int2 = mul(linear2_int0, linear2_int1); // D, sb, h, h4/D
+  TensorView* linear2_int3 = sum(linear2_int2, {-1}); // D, sb, h, r
+  TensorView* linear2_int4 = sum(linear2_int3, {0}); // Allreduce sum // r sb, h
+  TensorView* linear2_int5 = broadcast(b1, {true, false}); // b, h
+  TensorView* linear2 = add(linear2_int4, linear2_int5); // sb, h
+
+  TensorView* linear2_ = castOp(DataType::Float, linear2);
+  // // Dropout (taken from composite.cpp)
+  // // TODO use droupout node when we are confident with sharding propagation
+  const double kProb = 0.1;
+  const double kScale = 1.0 / (1.0 - kProb);
+  Val* philox_seed = fusion->zeroVal();
+  Val* philox_offset =fusion->zeroVal();
+  TensorView* rand_vals = rand_like(linear2_, philox_seed, philox_offset);
+  TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(1.0 - kProb));
+  TensorView* apply_mask = mul(linear2_, mask);
+  TensorView* dropout = mul(apply_mask, IrBuilder::create<Val>(kScale));
+
+  fusion->addOutput(linear1);
+  fusion->addOutput(gelu);
+  fusion->addOutput(linear2);
+  fusion->addOutput(dropout);
+
+  auto tv_inputs = {x, b1,
+    linear2_int4, linear2_int5, linear2,
+    linear2_, rand_vals, mask, apply_mask, dropout};
+  for (auto tv : tv_inputs) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  auto tvs = {w0, b0, w1, linear_int0, linear_int1, linear_int2, linear_int3, linear_int4, linear1,
+    gelu0, gelu1, gelu2, gelu3, gelu4, gelu5, gelu6, gelu7, gelu8, gelu,
+    gelu_, linear2_int0, linear2_int1, linear2_int2, linear2_int3};
+  for (auto tv : tvs) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  const auto options =
+      at::TensorOptions().dtype(c10::ScalarType::BFloat16).device(at::kCUDA, communicator->local_rank());
+  auto x_ = at::randn({sb, h}, options);
+  auto w0_ = at::randn({h4, h}, options);
+  auto b0_ = at::randn({h4}, options);
+  auto w1_ = at::randn({h, h4}, options);
+  auto b1_ = at::randn({h}, options);
+
+  std::vector<c10::IValue> inputs = {
+      x_,
+      shardTensor(w0_.view({num_devices_, h4/num_devices_, h}), w0, communicator->deviceId()),
+      shardTensor(b0_.view({num_devices_, h4/num_devices_}), b0, communicator->deviceId()),
+      shardTensor(w1_.view({h, num_devices_, h4/num_devices_}).transpose(1, 0), w1, communicator->deviceId()),
+      b1_};
+  at::manual_seed(0);
+  auto linear1_aten = at::linear(x_.to(at::kFloat), w0_.to(at::kFloat), b0_.to(at::kFloat));
+  auto gelu_aten = at::gelu(linear1_aten, "tanh");
+  auto linear2_aten = at::linear(gelu_aten.to(at::kBFloat16).to(at::kFloat), w1_.to(at::kFloat), b1_.to(at::kFloat));
+  auto dropout_aten = at::dropout(linear2_aten.to(at::kFloat), kProb, true);
+  std::vector<at::Tensor> expected_outputs = {
+    shardTensor(at::transpose(linear1_aten.view({sb, num_devices_, h4/num_devices_}), 1, 0), linear1, communicator->deviceId()),
+    shardTensor(at::transpose(gelu_aten.view({sb, num_devices_, h4/num_devices_}), 1, 0), gelu, communicator->deviceId()),
+    linear2_aten,
+    dropout_aten
+    };
+  at::manual_seed(0);
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator, executor_params_);
+  
   auto outputs = runtime.runWithInput(inputs);
 
   testValidate(
