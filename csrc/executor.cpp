@@ -268,7 +268,7 @@ void FusionExecutor::compileFusion(
   if (isProfilerEnabled()) {
     NVF_CHECK(
         group_id >= 0,
-        "An invalid segment id is passed to FusinProfiler!:",
+        "An invalid segment id is passed to FusionProfiler!:",
         group_id);
     FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
   }
@@ -1891,9 +1891,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (isProfilerEnabled()) {
     NVF_CHECK(
         group_id_ >= 0,
-        "An invalid segment id is passed to FusinProfiler!:",
+        "An invalid segment id is passed to FusionProfiler!:",
         group_id_);
-    auto& sprof = FusionProfiler::segment(group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
     sprof.inputBytesAccessed(inputBytesProcessed(args));
     sprof.scheduler(toString(heuristic_));
     sprof.startKernel(args.getDeviceIndex());
