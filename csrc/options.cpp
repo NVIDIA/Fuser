@@ -292,9 +292,11 @@ bool isProfilerEnabled() {
   return ProfilerOptionsGuard::getCurOptions().hasAny();
 }
 bool isProfilerEnabledWithCupti() {
-  return ProfilerOptionsGuard::getCurOptions().hasAny() && 
-      !(ProfilerOptionsGuard::getCurOptions().has( ProfilerOption::EnableNocupti) ||
-      ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::PrintNocupti));
+  return ProfilerOptionsGuard::getCurOptions().hasAny() &&
+      !(ProfilerOptionsGuard::getCurOptions().has(
+            ProfilerOption::EnableNocupti) ||
+        ProfilerOptionsGuard::getCurOptions().has(
+            ProfilerOption::PrintNocupti));
 }
 bool isProfilerPrintingEnabled() {
   return ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::Print) ||

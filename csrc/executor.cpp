@@ -262,11 +262,14 @@ void FusionExecutor::compileFusion(
     fusion_ = std::make_unique<Fusion>(*fusion);
     return;
   }
- 
+
   // NOTE: Profiling needs to be started below the isExpressionEvaluated query
   // given the conditional can exit early from compilation.
   if (isProfilerEnabled()) {
-    NVF_CHECK(group_id >= 0, "An invalid segment id is passed to FusinProfiler!:", group_id);
+    NVF_CHECK(
+        group_id >= 0,
+        "An invalid segment id is passed to FusinProfiler!:",
+        group_id);
     FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
   }
 
@@ -1886,7 +1889,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
 
   if (isProfilerEnabled()) {
-    NVF_CHECK(group_id_ >= 0, "An invalid segment id is passed to FusinProfiler!:", group_id_);
+    NVF_CHECK(
+        group_id_ >= 0,
+        "An invalid segment id is passed to FusinProfiler!:",
+        group_id_);
     auto& sprof = FusionProfiler::segment(group_id_);
     sprof.inputBytesAccessed(inputBytesProcessed(args));
     sprof.scheduler(toString(heuristic_));
@@ -2167,7 +2173,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     debug() << kernel()->profile().toString(profile_buffer);
   }
-  
+
   if (isProfilerEnabled()) {
     auto& sprof = FusionProfiler::segment(group_id_);
     sprof.stopKernel();

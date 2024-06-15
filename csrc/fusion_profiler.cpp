@@ -666,6 +666,12 @@ void FusionProfiler::createSegments(size_t num) {
   }
 }
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
+  NVF_CHECK(
+      get()->segments_.size() > idx,
+      "FusionProfiler: You are attempting to access non-existent segments! Segments: ",
+      get()->segments_.size(),
+      " Idx: ",
+      idx);
   return get()->segments_.at(idx);
 }
 
