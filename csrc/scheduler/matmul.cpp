@@ -771,9 +771,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(tensor_roles_opt.isValid(), tensor_roles_opt.getErrorMsg());
   const auto tensor_roles = tensor_roles_opt.getData();
 
-  const mma_utils::MatmulProblemLayoutOpt fusion_layout =
-      mma_utils::getProblemLayout(id_model, id_roles, tensor_roles);
-  NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
+  const mma_utils::MatmulOperandInnerDimsOpt inner_dims =
+      mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
+  NVF_ERROR(inner_dims.isValid(), inner_dims.getErrorMsg());
 
   // Core roles: there can be only one... TV with assigned core role
   const std::vector<TensorView*>& operands =
