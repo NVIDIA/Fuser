@@ -100,7 +100,7 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
   // TODO: If c's allocation domain isn't set, it will fail validation at
   // csrc/device_lower/validation.cpp:419, Vectorized dim for consumer has to be
   // from a contiguous inner most position.
-  c->setAllocationDomain(c->getLeafDomain(), true);
+  c->setAllocationDomain(c->getLoopDomain(), true);
   auto [in0, in1, out] = getInputsAndReferenceOutputs(
       MmaLayout::TN, M, N, K, /*dtype=*/at::kFloat);
   in0 = in0.view({Mo, Mi, K});
@@ -118,6 +118,19 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
       {expected_output},
       __LINE__,
       __FILE__);
+
+  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  EXPECT_EQ(fecs.size(), 1);
+
+  const FusionKernelRuntime* kernel_runtime =
+      fecs.front()->getMostRecentKernelRuntime();
+  EXPECT_FALSE(kernel_runtime->isSegmented());
+
+  ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
+                                    ->heuristicsList()
+                                    .front()
+                                    ->heuristic();
+  EXPECT_EQ(heuristic, ScheduleHeuristic::Matmul);
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
@@ -178,6 +191,16 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
 
   std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
+
+  const FusionKernelRuntime* kernel_runtime =
+      fecs.front()->getMostRecentKernelRuntime();
+  EXPECT_TRUE(kernel_runtime->isSegmented());
+
+  ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
+                                    ->heuristicsList()
+                                    .at(1)
+                                    ->heuristic();
+  EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
@@ -235,6 +258,16 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
 
   std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
+
+  const FusionKernelRuntime* kernel_runtime =
+      fecs.front()->getMostRecentKernelRuntime();
+  EXPECT_TRUE(kernel_runtime->isSegmented());
+
+  ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
+                                    ->heuristicsList()
+                                    .at(1)
+                                    ->heuristic();
+  EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
@@ -286,6 +319,16 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
 
   std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
+
+  const FusionKernelRuntime* kernel_runtime =
+      fecs.front()->getMostRecentKernelRuntime();
+  EXPECT_TRUE(kernel_runtime->isSegmented());
+
+  ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
+                                    ->heuristicsList()
+                                    .at(1)
+                                    ->heuristic();
+  EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
@@ -350,5 +393,15 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
 
   std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
+
+  const FusionKernelRuntime* kernel_runtime =
+      fecs.front()->getMostRecentKernelRuntime();
+  EXPECT_TRUE(kernel_runtime->isSegmented());
+
+  ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
+                                    ->heuristicsList()
+                                    .at(1)
+                                    ->heuristic();
+  EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
 }
 } // namespace nvfuser
