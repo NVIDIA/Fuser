@@ -403,6 +403,9 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
           (expr->isA<kir::MBarrierInit>() && mbarrier_token_exists);
       bool is_ignorable_mbarrier_inval =
           (expr->isA<kir::MBarrierInvalidate>() && mbarrier_token_exists);
+      int64_t stage_depth =
+          GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+              double_buffer_loop_->iter_domain());
 
       // Target:
       // pre-prolog:
@@ -458,7 +461,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
                       ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
               body.push_back(mbarrier_arrive_tx);
 
-              // Clone LoadStoreOp & map it to mbarrier alloc
+              // Clone LoadStoreOp and map it to mbarrier alloc
               Expr* new_ldst =
                   IrBuilder::create<LoadStoreOp>(
                       ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
@@ -493,10 +496,6 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
           if (expr->isA<LoadStoreOp>() && mbarrier_token_exists) {
             // cpAsyncBulk for double-buffered tensor has assigned a placeholder
             // for token objects
-
-            int64_t stage_depth =
-                GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-                    double_buffer_loop_->iter_domain());
 
             //! Before waiting at the mbarrier for the current stage, we
             //! launch the load operation for the next available stage. The
@@ -584,6 +583,20 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
           break;
         }
         case DoubleBufferLoopStage::Epilog: {
+          if (expr->isA<LoadStoreOp>() && mbarrier_token_exists) {
+            // Construct mBarrier::wait for last stage
+            LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+            Val* last_index = IrBuilder::subExpr(
+                double_buffer_loop_->stop(),
+                GpuLower::current()->kernel()->oneVal());
+            Val* last_compute_stage = IrBuilder::modExpr(
+                last_index,
+                IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+            kir::MBarrierWait* mbarrier_wait =
+                createMbarrierWait(ldst, last_compute_stage);
+            cloned_scopes_.back()->push_back(mbarrier_wait);
+            break;
+          }
           if (!(is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
                 is_ignorable_mbarrier_inval || is_double_buffer_load_expr)) {
             cloned_scopes_.back()->push_back(expr);
