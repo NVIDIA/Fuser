@@ -278,6 +278,8 @@ std::vector<Communication*> lowerCommunication(
     DeviceIdxType my_device_index, // TODO: my_device_index shouldn't be used at
                                    // compile time.
     Expr* c) {
+  FusionGuard fg(c->fusion());
+
   std::vector<Communication*> comms;
   NVF_ERROR(
       c->inputs().size() == 1 && c->input(0)->isA<TensorView>() &&
