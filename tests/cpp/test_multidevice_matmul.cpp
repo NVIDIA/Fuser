@@ -53,20 +53,74 @@ class DistributedMatmulTest : public MultiDeviceTest {
       MmaLayout layout,
       int M,
       int N,
-      int K) {
+      int K,
+      c10::ScalarType dtype) {
     int local_rank = communicator->local_rank();
     c10::ScalarType type = c10::ScalarType::Half;
     auto a = matmulAtInput2D(
         layout, TensorMatmulPos::A, type, M, N, K, 0, local_rank);
     auto b = matmulAtInput2D(
         layout, TensorMatmulPos::B, type, M, N, K, 0, local_rank);
-    auto c =
-        atMatmul(a.to(at::kDouble), b.to(at::kDouble), layout).to(at::kHalf);
+    auto c = atMatmul(a.to(at::kDouble), b.to(at::kDouble), layout).to(dtype);
     return std::make_tuple(a, b, c);
   }
 };
 
-TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
+TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
+  // MmaLayout::TN A(T), B(N), C(T)
+  // A and C are sharded on dimension M
+  // Tests local matmul with no communication
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
+  int M = 256, N = 64, K = 64;
+  int Mo = num_devices_;
+  int Mi = M / Mo;
+  std::vector<int> a_shape = {Mo, Mi, K};
+  std::vector<int> b_shape = {N, K};
+
+  TensorView* a = makeContigTensor(3, DataType::Half); // (Mo,Mi,K)
+  TensorView* b = makeContigTensor(2, DataType::Half); // (N,K)
+  TensorView* a_b = broadcast(a, {false, false, true, false}); // (Mo,Mi,b,K)
+  TensorView* b_b = broadcast(b, {true, true, false, false}); // (b,b,N,K)
+  TensorView* ab = mul(a_b, b_b); // (Mo,Mi,N,K)
+  TensorView* c = sum(ab, {-1}); // (Mo,Mi,N,r)
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(c);
+
+  // Sharding M dimension
+  auto all_sharded_tvs = {a, a_b, b_b, ab, c};
+  for (auto tv : all_sharded_tvs) {
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setDeviceMesh(mesh);
+  }
+  b->setDeviceMesh(mesh);
+  // TODO: If c's allocation domain isn't set, it will fail validation at
+  // csrc/device_lower/validation.cpp:419, Vectorized dim for consumer has to be
+  // from a contiguous inner most position.
+  c->setAllocationDomain(c->getLeafDomain(), true);
+  auto [in0, in1, out] = getInputsAndReferenceOutputs(
+      MmaLayout::TN, M, N, K, /*dtype=*/at::kFloat);
+  in0 = in0.view({Mo, Mi, K});
+  out = out.view({Mo, Mi, N});
+  std::vector<c10::IValue> inputs = {
+      shardTensor(in0, a, communicator->deviceId()), in1};
+  auto expected_output = shardTensor(out, c, communicator->deviceId());
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator, executor_params_);
+  auto outputs = runtime.runWithInput(inputs);
+  testValidate(
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {expected_output},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
   // MmaLayout::TN A(T), B(N), C(T)
   // A and C are sharded on dimension M
   // Tests local matmul with no communication
@@ -102,7 +156,8 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   // from a contiguous inner most position.
   c->setAllocationDomain(c->getLoopDomain(), true);
 
-  auto [in0, in1, out] = getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
+  auto [in0, in1, out] =
+      getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K, /*dtype=*/at::kHalf);
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
   std::vector<c10::IValue> inputs = {
@@ -125,7 +180,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
   EXPECT_EQ(fecs.size(), 1);
 }
 
-TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
+TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
   // MmaLayout::TN matmul A(T), B(N), C(T)
   // A is sharded on dimension M
   // Tests local matmul + allgather
@@ -158,7 +213,8 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   b->setDeviceMesh(mesh);
   c->setDeviceMesh(mesh);
 
-  auto [in0, in1, out] = getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K);
+  auto [in0, in1, out] =
+      getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K, /*dtype=*/at::kHalf);
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
 
@@ -181,7 +237,7 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
   EXPECT_EQ(fecs.size(), 1);
 }
 
-TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
+TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // Sharding: A, B are sharded along K. C is replicated.
   // Tests local matmul + allreduce
@@ -213,7 +269,8 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   }
   c->setDeviceMesh(mesh);
 
-  auto [in0, in1, out] = getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
+  auto [in0, in1, out] =
+      getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K, /*dtype=*/at::kHalf);
   in0 = in0.view({Ko, Ki, M});
   in1 = in1.view({Ko, Ki, N});
   std::vector<c10::IValue> inputs = {
@@ -231,7 +288,7 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   EXPECT_EQ(fecs.size(), 1);
 }
 
-TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
+TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   // MmaLayout::NT matmul A(N), B(T), C(T)
   // A, B are sharded on K. C is sharded on M
   // Tests local matmul + reduce scatter
@@ -269,7 +326,8 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
   c->setDeviceMesh(mesh);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  auto [in0, in1, out] = getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K);
+  auto [in0, in1, out] =
+      getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K, /*dtype=*/at::kHalf);
   in0 = in0.view({Ko, Ki, M});
   in1 = in1.view({Ko, Ki, N});
   out = out.view({Mo, Mi, N});
