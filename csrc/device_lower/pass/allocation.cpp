@@ -522,13 +522,11 @@ class AllocationInserter : public kir::ExprMutator {
       auto init_expr = createInitExpr(allocation, init);
 
       // Find the largest circular buffer depth; Used for tma buffer allocation
-      if (out_tv->isDoubleBuffered()) {
-        if (out_tv->isCircularBuffered()) {
-          circular_buffer_depth =
-              std::max(circular_buffer_depth, out_tv->circularBufferDepth());
-        } else {
-          circular_buffer_depth = std::max(circular_buffer_depth, 2l);
-        }
+      if (out_tv->isCircularBuffered()) {
+        circular_buffer_depth =
+            std::max(circular_buffer_depth, out_tv->circularBufferDepth());
+      } else if (out_tv->isDoubleBuffered()) {
+        circular_buffer_depth = std::max(circular_buffer_depth, 2l);
       }
 
       // Write information to GPULower

@@ -45,7 +45,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering1d) {
 
   // Double Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
-  tv2->doubleBuffer();
+  tv2->circularBuffer(/*stage=*/3);
 
   constexpr size_t tensor_dim = 128;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -118,7 +118,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->axis(-2)->parallelize(ParallelType::Bulk);
-  tv2->doubleBuffer();
+  tv2->circularBuffer(/*stage=*/3);
 
   constexpr size_t tensor_outer_dim = 128;
   constexpr size_t tensor_inner_dim = 1024;
@@ -184,16 +184,14 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPointwise) {
   tv0->computeAt(tv2, 2);
   tv1->computeAt(tv2, 2);
 
-  fusion.printMath();
-
   // Double Buffer with TMA loads
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(2)->parallelize(ParallelType::Bulk);
-  tv3->doubleBuffer();
+  tv3->circularBuffer(/*stage=*/2);
 
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(2)->parallelize(ParallelType::Bulk);
-  tv4->doubleBuffer();
+  tv4->circularBuffer(/*stage=*/2);
 
   // split reference to parallelize TMA tile
   reference->split(-1, 32);
