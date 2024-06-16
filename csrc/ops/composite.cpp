@@ -71,14 +71,13 @@ static TensorView* newForLinear(
   auto ndims_out = input_domain.size() + weight_domain.size() - 1;
 
   const std::vector<IterDomain*>& mapping_a =
-      ops::mapLinearOpIterDomains(input_domain, MatmulRole::INPUT_A, ndims_out);
-  const std::vector<IterDomain*>& mapping_b = ops::mapLinearOpIterDomains(
-      weight_domain, MatmulRole::INPUT_B, ndims_out);
+      ops::mapLinearOpIterDomains(input_domain, 0, ndims_out);
+  const std::vector<IterDomain*>& mapping_b =
+      ops::mapLinearOpIterDomains(weight_domain, 1, ndims_out);
   std::vector<IterDomain*> mapping_bias(ndims_out, nullptr);
   if (bias != nullptr) {
     auto bias_domain = TensorDomain::noReductions(bias->getLogicalDomain());
-    mapping_bias = ops::mapLinearOpIterDomains(
-        bias_domain, MatmulRole::INPUT_C, ndims_out);
+    mapping_bias = ops::mapLinearOpIterDomains(bias_domain, 2, ndims_out);
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
@@ -348,10 +347,10 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  const std::vector<IterDomain*>& mapping_a = ops::mapMatmulOpIterDomains(
-      orig_domain_a, MatmulRole::INPUT_A, ndims_out);
-  const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
-      orig_domain_b, MatmulRole::INPUT_B, ndims_out);
+  const std::vector<IterDomain*>& mapping_a =
+      ops::mapMatmulOpIterDomains(orig_domain_a, 0, ndims_out);
+  const std::vector<IterDomain*>& mapping_b =
+      ops::mapMatmulOpIterDomains(orig_domain_b, 1, ndims_out);
 
   for (auto idx : c10::irange(ndims_out - 1)) {
     out_domain[idx] =

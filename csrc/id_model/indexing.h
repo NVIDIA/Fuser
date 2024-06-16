@@ -62,13 +62,13 @@ class TensorIndexer {
       const Expr* expr,
       const std::vector<IterDomain*>& index_domains) const;
 
- private:
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
   const ValGraph& traversalGraph() const {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
 
+ private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
   void buildLoopIndexMap();
