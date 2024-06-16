@@ -12,6 +12,7 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#include <abstract_tensor.h>
 #include <fusion.h>
 #include <id_model/id_model.h>
 #include <id_model/indexing.h>
@@ -57,6 +58,11 @@ Val* divExpr(Args&&... args) {
 template <typename... Args>
 Val* modExpr(Args&&... args) {
   return SimplifyingIrBuilder::modExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* xorExpr(Args&&... args) {
+  return IrBuilder::bitwiseXorExpr(std::forward<Args>(args)...);
 }
 
 void printAllIndices(
@@ -1135,6 +1141,51 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
       Val* tv2_producer_idx =
           addExpr(mulExpr(id19_idx, id20->extent()), id20_idx);
       return tv2_producer_idx;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
+TEST_F(IndexingTest, DISABLED_Swizzle) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({32, 32});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv2->axis(0)->parallelize(ParallelType::TIDx);
+
+  AbstractTensor alloc(tv1->getLogicalDomain());
+  alloc.swizzle(SwizzleType::XOR, 0, 1);
+  tv1->setAllocationDomain(alloc.as<IterDomain*>(), true);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      switch (tv->name()) {
+        case 1: {
+          return addExpr(
+              mulExpr(
+                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(0)),
+              xorExpr(loop_indices.at(0), loop_indices.at(1)));
+        }
+        default:
+          // Only validates tv1
+          return nullptr;
+      }
     }
   };
 
