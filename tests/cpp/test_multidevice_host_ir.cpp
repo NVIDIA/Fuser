@@ -58,9 +58,9 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   fusion->addOutput(tv1_fusion);
 
   DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_size);
-  if (with_sharding_annotations) {
-    for (auto tv : {tv0_fusion, tv1_fusion}) {
-      tv->setDeviceMesh(mesh);
+  for (auto tv : {tv0_fusion, tv1_fusion}) {
+    tv->setDeviceMesh(mesh);
+    if (with_sharding_annotations) {
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
   }
@@ -151,9 +151,9 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   fusion->addOutput(tv1_fusion);
 
   DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_size);
-  if (with_sharding_annotations) {
-    for (auto tv : {tv0_fusion, tv1_fusion}) {
-      tv->setDeviceMesh(mesh);
+  for (auto tv : {tv0_fusion, tv1_fusion}) {
+    tv->setDeviceMesh(mesh);
+    if (with_sharding_annotations) {
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
   }
