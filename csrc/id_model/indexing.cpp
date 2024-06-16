@@ -539,11 +539,10 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
-    const std::vector<IterDomain*>& index_domains) const {
+    const ValGroups& index_groups) const {
   const auto loop_domains = getLoopDomains(expr);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
-  const ValGroups index_groups = traversalGraph().toGroups(index_domains);
   const ExprPath traversal_path =
       ValGraphBFS::getExprsBetween(traversalGraph(), loop_groups, index_groups);
 
@@ -558,6 +557,12 @@ IndexingInfo TensorIndexer::computeIndex(
 
   IndexingInfo info{loop_domains, traversal_path, index_compute.indexMap()};
   return info;
+}
+
+IndexingInfo TensorIndexer::computeIndex(
+    const Expr* expr,
+    const std::vector<IterDomain*>& index_domains) const {
+  return computeIndex(expr, traversalGraph().toGroups(index_domains));
 }
 
 std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
