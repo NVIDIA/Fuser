@@ -647,10 +647,10 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
   hp.gidim = 1;
   hp.iter_unroll_factor = 1;
 
-  // (2) increase iter_unroll to its maximum.
-  // maximum is input vectorize_factor or derived by assuming a block count of
-  // `blk_gidim_min` when reduction size is small. This improves SM usage when
-  // block reduction is enforced.
+  // (2) increase iter_unroll to its maximum following two rules:
+  // (2.1) esnure divisible split
+  // (2.2) if enforced to use block reduction, leave enough parallelism for
+  //       number of blocks to saturate the device.
   const int64_t max_iter_unroll = small_reduction
       ? std::min(
             (int64_t)vectorize_factor,
@@ -662,7 +662,7 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
     hp.iter_unroll_factor *= 2;
   }
 
-  // (3) increase gdimx to SM count
+  // (3) increase gdimx to SM count, ensures enough blocks to saturate the device.
   hp.gidim = std::min(
       ceilDiv(total_iteration_numel, hp.bdimx * hp.iter_unroll_factor),
       sm_count);
