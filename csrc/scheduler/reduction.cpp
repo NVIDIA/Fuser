@@ -649,14 +649,11 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
 
   // (2) increase iter_unroll to its maximum following two rules:
   // (2.1) esnure divisible split
-  // (2.2) if enforced to use block reduction, leave enough parallelism for
-  //       number of blocks to saturate the device.
-  const int64_t max_iter_unroll = small_reduction
-      ? std::min(
+  // (2.2) leave enough blocks to saturate the device.
+  const int64_t max_iter_unroll = std::min(
             (int64_t)vectorize_factor,
             scheduler_utils::lastPow2(
-                ceilDiv(total_iteration_numel, hp.bdimx * blk_gidim_min)))
-      : (int64_t)vectorize_factor;
+                ceilDiv(total_iteration_numel, hp.bdimx * blk_gidim_min)));
   while (hp.iDimAvail() > 1 && hp.iDimAvail() % 2 == 0 &&
          hp.iter_unroll_factor * 2 <= max_iter_unroll) {
     hp.iter_unroll_factor *= 2;
@@ -741,7 +738,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // transactions per warp), then maximum bdimy = 128, assume the maximum
   // redu_unroll * serial = 64, then the max block reduction size is 128 * 64 =
   // 8192. Checked 32 and 16, performance is similar.
-  const int64_t max_serial_and_unroll = 64L;
+  const int64_t max_serial_and_unroll = 32L;
   const int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
   const int64_t blk_bdimx_min = 8;
   const int64_t blk_bdimy_max = max_threads_per_block / blk_bdimx_min;
