@@ -265,6 +265,96 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
   // testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
+TEST_F(DoubleBufferingTest, TmaSmemBlockGemmCacheDoubleBuffer) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Algorithm
+  TensorView* tv0 = makeSymbolicTensor(2); // (M, K)
+  TensorView* tv1 = makeSymbolicTensor(2); // (K, N)
+  TensorView* tv2 = broadcast(tv0, {false, false, true}); // (M, K, B)
+  TensorView* tv3 = broadcast(tv1, {true, false, false}); // (B, K, N)
+  TensorView* tv4 = mul(tv2, tv3); // M, K, N
+  TensorView* tv5 = sum(tv4, {1}); // M, R, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv5);
+
+  TensorView* tv6 = tv5->cacheBefore();
+
+  // For register double buffering
+  auto tv0_cache_local = tv0->cacheAfter();
+  auto tv1_cache_local = tv1->cacheAfter();
+
+  // For smem double buffering
+  auto tv0_cache_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv1_cache_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  const int BSX = 32;
+  const int TSX = 8;
+
+  // [M, K, N]
+  tv6->split(-1, BSX);
+  tv6->split(-1, TSX);
+  tv6->split(1, BSX);
+  tv6->split(0, BSX);
+  tv6->split(1, TSX);
+  // [M/BSX, BSX/TSX, TSX, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
+  tv6->reorder(
+      {{4, 7}, {7, 6}, {6, 5}, {2, 4}, {1, 3}, {3, 2}, {5, 1}, {0, 0}});
+  // [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX]
+
+  auto tv6_rf = tv6->rFactor({-1});
+
+  TransformPropagatorWithCheck propagator(tv6_rf);
+  MaxRootDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
+
+  tv0->computeAt(tv6, 3);
+  tv1->computeAt(tv6, 3);
+
+  tv6_rf->computeAt(tv6, -1);
+  tv0_cache_local->computeAt(tv6_rf, -1);
+  tv1_cache_local->computeAt(tv6_rf, -1);
+
+  tv0_cache_smem->setMemoryType(MemoryType::Shared);
+  tv1_cache_smem->setMemoryType(MemoryType::Shared);
+
+  tv5->axis(0)->parallelize(ParallelType::BIDx);
+  tv5->axis(1)->parallelize(ParallelType::BIDy);
+  tv5->axis(-3)->parallelize(ParallelType::TIDy);
+  tv5->axis(-1)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv5);
+
+  tv0_cache_local->circularBuffer(/*stage=*/2);
+  tv1_cache_local->circularBuffer(/*stage=*/2);
+
+  tv0_cache_smem->circularBuffer(/*stage=*/3);
+  tv1_cache_smem->circularBuffer(/*stage=*/3);
+
+  constexpr int M = 154, K = 45, N = 1524;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({M, K}, options);
+  at::Tensor t1 = at::randn({K, N}, options);
+  at::Tensor aten_output = at::matmul(t0.to(at::kDouble), t1.to(at::kDouble));
+
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  // The smem cache write in this test case is redundant predicated,
+  //   and also double buffered. Currently we are relying on WAR sync
+  //   insertion to ensure ordering of double buffered tensor access.
+  // The check below makes sure that the sync is inserted so that the
+  //   test isn't running on a race condition.
+  NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count > 0);
+}
+
 TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
