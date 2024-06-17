@@ -56,7 +56,6 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   insertReshardings(fusion.get());
   insertShardedAxisReordering(fusion.get());
   setShardedAllocationDomain(fusion.get());
-  fusion->print();
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
       .run_combine_reductions = false,
@@ -131,7 +130,6 @@ void MultiDeviceExecutor::postKernel(
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
     auto fusion = staged_fusion_->makeFusion(group).second;
-    fusion->print();
     fec_.try_emplace(
         group, std::move(fusion), 0, !params_.skip_auto_scheduling);
     outputs = fec_.at(group).runFusionWithInputs(group_input_IValues);
@@ -221,10 +219,8 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   // Run through the groups to launch kernels and comms
   for (auto group : workspace.group_run_order) {
     if (!is_resharding_.at(group)) {
-      std::cout << "Post kernel" << std::endl;
       postKernel(group, launch_params);
     } else {
-      std::cout << "Post comms" << std::endl;
       postCommunication(group);
     }
   }

@@ -88,15 +88,18 @@ void ExpressionEvaluator::bind_(
   using namespace PolymorphicValue_functions;
   NVF_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
   // TODO: There appears to be a binding issue with DID axis and 0.
-  // if (value->isConst()) {
-  //   NVF_CHECK(
-  //       value->value() == concrete_value,
-  //       "Tried to bind to a constant value: ",
-  //       toString(value->value()),
-  //       " as ",
-  //       toString(concrete_value));
-  //   return;
-  // }
+  if (value->isConst()) {
+    if (value->value() != concrete_value) {
+      std::cout << "This should match " << value->value() << " " << concrete_value << std::endl;
+    }
+    // NVF_CHECK(
+    //     value->value() == concrete_value,
+    //     "Tried to bind to a constant value: ",
+    //     toString(value->value()),
+    //     " as ",
+    //     toString(concrete_value));
+    // return;
+  }
   validateValWithConcreteValue(value, concrete_value);
   if (evaluate_validate &&
       ir_utils::dependenciesSatisfied(value, known_values_)) {
@@ -113,7 +116,13 @@ void ExpressionEvaluator::bind_(
         toString(concrete_value));
   }
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
+    auto def = tv->definition();
+    
     const auto& t = concrete_value.as<at::Tensor>();
+    if (def != nullptr) {
+      std::cout << def->toString() << std::endl;
+      std::cout << t.sizes() << std::endl;
+    }
     auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
     NVF_ERROR(
         t.dim() == (int64_t)logical_domain.size(),

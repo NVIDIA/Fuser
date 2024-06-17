@@ -563,17 +563,17 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   }
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
 
-  int64_t max_local_dims = 0;
+  int64_t max_dims = 0;
   for (auto inp : input_tvs) {
-    max_local_dims = std::max(pointwise_utils::nRootDims(inp), max_local_dims);
+    max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
   }
 
   for (auto out : output_tvs) {
-    max_local_dims = std::max(pointwise_utils::nRootDims(out), max_local_dims);
+    max_dims = std::max(pointwise_utils::nRootDims(out), max_dims);
   }
 
   // If everything is zero dim tensors, just return.
-  if (max_local_dims == 0) {
+  if (max_dims == 0) {
     return;
   }
 
@@ -811,7 +811,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     }
   } else {
     // 1D Scheduler
-    // TODO: DID aware 1D scheduler
     NVF_ERROR(rhs_i >= 0 && lhs_i == -1);
 
     // right hand side exists and is the only axis we care to schedule, move
