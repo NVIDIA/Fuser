@@ -310,12 +310,11 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingNormalize) {
   fusion->addOutput(output);
 
   // Create cache_tvs
-  auto x_cache_smem = x->cacheAfter();
+  auto x_cache_smem = x->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   x_cache_smem->setMemoryType(MemoryType::Shared);
 
-  auto x_cache_lmem = x_cache_smem->cacheAfter();
-
-  auto output_cache_lmem = output->cacheBefore();
+  x_cache_smem->cacheAfter();
+  output->cacheBefore();
 
   std::vector<TensorView*> reduction_tvs =
       scheduler_utils::getReductionTvs(fusion.get());
@@ -370,21 +369,14 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingNormalize) {
   reference_tv->axis(-1)->parallelize(ParallelType::Vectorize);
 
   // TMA Tensor
-  // x_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
+  std::cout << x_cache_smem->toString() << std::endl;
+  x_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
 
-  // ComputeAt
-  // Inline all operations except caching
-  inlineSelectedAt(
-      {all_tvs_except_cache.begin(), all_tvs_except_cache.end()},
-      reference_tv,
-      /*reference_pos=*/-1,
-      /*best_effort=*/true);
+  // InlineMost automatically handles vectorize and tma dimensions
+  inlineMost();
 
-  // TMA load from global memory to shared memory
-  inlineSelectedAt({x_cache_smem}, x_cache_lmem, 1);
-
-  // Vectorize write from registers to global memory
-  inlineSelectedAt({output_cache_lmem}, output, -2);
+  // Apply circular buffer after computeAt
+  x_cache_smem->circularBuffer(2);
 
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
