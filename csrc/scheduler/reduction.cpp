@@ -623,92 +623,7 @@ std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
   }
   return rparams;
 }
-std::optional<outerReduHeuristicParas> maybeBlockOuterReduction2(
-    int64_t vectorize_factor,
-    int64_t sm_count,
-    int64_t max_unroll,
-    int64_t max_threads_per_block,
-    int64_t total_iteration_numel,
-    int64_t total_reduction_numel) {
-  outerReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
-  // Since grid dim is only used to parallelize the iteration dim, needs to
-  // set a minimum gidim to ensure enough blocks to saturate the device. 80%
-  // is an empirical value based on H100. It allows to use 128 blocks
-  // on H100 which has 132 SMs.
-  // int64_t blk_gidim_min = (int64_t)(0.8f * (float)sm_count);
 
-  // Step-1, set iteration dim
-  // (1) start with bdimx = 8, gdimx = 1, iter_unroll = 1
-  hp.bdimx = std::min(8L, hp.iDimAvail());
-  hp.gidim = 1;
-  hp.iter_unroll_factor = 1;
-
-  // (2) increase iter_unroll to its maximum following two rules:
-  // (2.1) esnure divisible split
-  // (2.2) leave enough blocks to saturate the device.
-  // Test on H100 shows the smallest iteration dim we can fully vectorize is
-  // 4800, which corresponds to 75 or 56.8 % of SMs. For smaller iteration
-  // dims, use a factor of 8 leads to lower usage of SMs and lower
-  // performance. Here 50% is used.
-  const int64_t min_blocks_fully_vectorize = sm_count / 2;
-  const int64_t max_iter_unroll = std::min(
-      (int64_t)vectorize_factor,
-      scheduler_utils::lastPow2(scheduler_utils::safeDiv(
-          total_iteration_numel, hp.bdimx * min_blocks_fully_vectorize)));
-  while (hp.iDimAvail() > 1 && hp.iDimAvail() % 2 == 0 &&
-         hp.iter_unroll_factor * 2 <= max_iter_unroll) {
-    hp.iter_unroll_factor *= 2;
-  }
-
-  // // (3) increase gdimx to SM count, ensures enough blocks to saturate the
-  // // device.
-  // hp.gidim = std::min(
-  //     ceilDiv(total_iteration_numel, hp.bdimx * hp.iter_unroll_factor),
-  //     sm_count);
-  std::cout << "hp.gidim1: " << hp.gidim
-            << " max_iter_unroll: " << max_iter_unroll << ", limit= "
-            << scheduler_utils::lastPow2(
-                   ceilDiv(total_iteration_numel, hp.bdimx * min_blocks_fully_vectorize))
-            << std::endl;
-  // // (4) increase bdimx to its maximum
-  // hp.bdimx = scheduler_utils::roundUpPow2(
-  //     ceilDiv(total_iteration_numel, hp.gidim * hp.iter_unroll_factor));
-  // hp.bdimx = std::min(hp.bdimx, max_threads_per_block);
-
-  // (5) re-calculate gidim after bdimx to fix round up differences. Also
-  // handles extreme cases where iter dim is larger than iter_unroll_factor x
-  // max_threads_per_block x sm count
-  hp.gidim = ceilDiv(total_iteration_numel, hp.bdimx * hp.iter_unroll_factor);
-  std::cout << "hp.gidim2: " << hp.gidim << std::endl;
-  std::cout << hp.toString() << std::endl;
-
-  // Step-2, set Reduction dim
-  // (1) reduction unroll takes what is left by iter unroll
-  hp.redu_unroll_factor = std::min(
-      hp.rDimAvail(),
-      scheduler_utils::safeDiv(max_unroll, hp.iter_unroll_factor));
-
-  // (2) bdimy takes what is left by bdimx.
-  hp.bdimy = std::min(hp.rDimAvail(), max_threads_per_block / hp.bdimx);
-
-  // Step-3, final check
-  // (1) revisit bdimx just in case bdimy doesn't take all the left threads
-  int64_t sm_count_pow2 = scheduler_utils::lastPow2(sm_count);
-  while (hp.bdimy * hp.bdimx * 2 <= max_threads_per_block &&
-         hp.gidim / 2 >= sm_count_pow2) {
-    hp.bdimx *= 2;
-    hp.gidim /= 2;
-  }
-  // (2) Good heuristic if we have enough blocks to saturate the device or it's
-  // a small reduction. This cut-off is empirical based on H100.
-  return std::make_optional(hp);
-  // bool small_reduction = total_reduction_numel <= 1024;
-  // if (hp.gidim >= blk_gidim_min || small_reduction) {
-  //   return std::make_optional(hp);
-  // } else {
-  //   return std::nullopt;
-  // }
-}
 std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
     int64_t vectorize_factor,
     int64_t sm_count,
@@ -717,11 +632,6 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
     int64_t total_iteration_numel,
     int64_t total_reduction_numel) {
   outerReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
-  // Since grid dim is only used to parallelize the iteration dim, needs to
-  // set a minimum gidim to ensure enough blocks to saturate the device. 80%
-  // is an empirical value based on H100. It allows to use 128 blocks
-  // on H100 which has 132 SMs.
-  // int64_t blk_gidim_min = (int64_t)(0.8f * (float)sm_count);
 
   // Step-1, set iteration dim
   // (1) start with bdimx = 8, gdimx = 1, iter_unroll = 1
@@ -751,7 +661,7 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
   hp.gidim = std::min(
       ceilDiv(total_iteration_numel, hp.bdimx * hp.iter_unroll_factor),
       sm_count);
-  std::cout << "hp.gidim1: " << hp.gidim << std::endl;
+
   // (4) increase bdimx to its maximum
   hp.bdimx = scheduler_utils::roundUpPow2(
       ceilDiv(total_iteration_numel, hp.gidim * hp.iter_unroll_factor));
@@ -761,8 +671,6 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
   // handles extreme cases where iter dim is larger than iter_unroll_factor x
   // max_threads_per_block x sm count
   hp.gidim = ceilDiv(total_iteration_numel, hp.bdimx * hp.iter_unroll_factor);
-  std::cout << "hp.gidim2: " << hp.gidim << std::endl;
-  std::cout << hp.toString() << std::endl;
 
   // Step-2, set Reduction dim
   // (1) reduction unroll takes what is left by iter unroll
@@ -773,6 +681,8 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
   // (2) bdimy takes what is left by bdimx.
   hp.bdimy = std::min(hp.rDimAvail(), max_threads_per_block / hp.bdimx);
 
+  std::cout << hp.toString() << std::endl;
+
   // Step-3, final check
   // (1) revisit bdimx just in case bdimy doesn't take all the left threads
   int64_t sm_count_pow2 = scheduler_utils::lastPow2(sm_count);
@@ -781,15 +691,17 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
     hp.bdimx *= 2;
     hp.gidim /= 2;
   }
+  std::cout << hp.toString() << std::endl;
+
   // (2) Good heuristic if we have enough blocks to saturate the device or it's
   // a small reduction. This cut-off is empirical based on H100.
-  return std::make_optional(hp);
-  // bool small_reduction = total_reduction_numel <= 1024;
-  // if (hp.gidim >= blk_gidim_min || small_reduction) {
-  //   return std::make_optional(hp);
-  // } else {
-  //   return std::nullopt;
-  // }
+  int64_t blk_gidim_min = (int64_t)(0.88f * sm_count);
+  bool small_reduction = total_reduction_numel <= 1024;
+  if (hp.gidim >= blk_gidim_min || small_reduction) {
+    return std::make_optional(hp);
+  } else {
+    return std::nullopt;
+  }
 }
 
 std::shared_ptr<ReductionParams> outerReductionHeuristic(
@@ -827,28 +739,17 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
 
   // Try block reduction
-  // The max threds per block is 1024, assume the minimum bdimx = 8 (4
-  // transactions per warp), then maximum bdimy = 128, assume the maximum
-  // redu_unroll * serial = 128, then the max block reduction size is 128 * 128
-  // = 16384.
-  // const int64_t max_serial_and_unroll = 128L;
   const int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
-  // const int64_t blk_bdimx_min = 8;
-  // const int64_t blk_bdimy_max = max_threads_per_block / blk_bdimx_min;
-  // const int64_t blk_max_redu_numel = blk_bdimy_max * max_serial_and_unroll;
-  // if (total_reduction_numel <= blk_max_redu_numel)
-  {
-    std::optional<outerReduHeuristicParas> maybe_blk_hp =
-        maybeBlockOuterReduction(
-            vectorize_factor,
-            device_multiprocessor_count,
-            max_unroll,
-            max_threads_per_block,
-            total_iteration_numel,
-            total_reduction_numel);
-    if (maybe_blk_hp.has_value()) {
-      return heuristicParaToSchedulerPara(maybe_blk_hp.value());
-    }
+  std::optional<outerReduHeuristicParas> maybe_blk_hp =
+      maybeBlockOuterReduction(
+          vectorize_factor,
+          device_multiprocessor_count,
+          max_unroll,
+          max_threads_per_block,
+          total_iteration_numel,
+          total_reduction_numel);
+  if (maybe_blk_hp.has_value()) {
+    return heuristicParaToSchedulerPara(maybe_blk_hp.value());
   }
 
   // grid or block reduction
