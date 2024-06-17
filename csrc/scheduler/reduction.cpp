@@ -663,8 +663,7 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
       sm_count);
   std::cout << "hp.gidim1: " << hp.gidim << std::endl;
   // (4) increase bdimx to its maximum
-  // hp.bdimx = scheduler_utils::roundUpPow2(
-  hp.bdimx = scheduler_utils::lastPow2(
+  hp.bdimx = scheduler_utils::roundUpPow2(
       ceilDiv(total_iteration_numel, hp.gidim * hp.iter_unroll_factor));
   hp.bdimx = std::min(hp.bdimx, max_threads_per_block);
 
@@ -742,7 +741,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // redu_unroll * serial = 128, then the max block reduction size is 128 * 128
   // = 16384.
   // const int64_t max_serial_and_unroll = 128L;
-  const int64_t max_threads_per_block = 1024;//(int64_t)dev_prop->maxThreadsPerBlock;
+  const int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
   // const int64_t blk_bdimx_min = 8;
   // const int64_t blk_bdimy_max = max_threads_per_block / blk_bdimx_min;
   // const int64_t blk_max_redu_numel = blk_bdimy_max * max_serial_and_unroll;
