@@ -221,60 +221,52 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
   // smem -> gmem
   auto tv0 = makeContigTensor(2);
   auto tv1 = sum(tv0, {-1});
-  auto tv2 = broadcast(tv1, {false, true});
-  auto tv3 = div(tv0, tv2);
 
   fusion.addInput(tv0);
-  fusion.addOutput(tv3);
+  fusion.addOutput(tv1);
 
-  auto tv4 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
-  tv4->setMemoryType(MemoryType::Shared);
+  auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
 
-  auto reference = tv3;
-  constexpr size_t bulk_inner_dim = 128;
-  // [M, N] -> [M, N/bid, bid]
+  auto reference = tv1;
+  // TODO If examples_per_cta == num_stages, then cuda kernel is malformed.
+  constexpr size_t examples_per_cta = 4;
+  constexpr size_t bulk_inner_dim = 256;
+  // [M, N] -> [M/epc, epc, N]
+  reference->split(0, examples_per_cta);
+  // [M/epc, epc, N] -> [M/epc, epc, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
   TransformPropagatorWithCheck propagator(reference);
   MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
 
-  // [M, N] -> [M, N/bid, 1, 128]
-  reference->split(-1, 128);
-
-  std::vector<TensorView*> all_tvs_except_tma =
-      ir_utils::allTvsExcept(&fusion, {tv4});
-  std::unordered_set<TensorView*> all_tvs_except_tma_set(
-      all_tvs_except_tma.begin(), all_tvs_except_tma.end());
-  SetSelector selector(all_tvs_except_tma_set);
-  MaxRootDomainInfoSpanningTree(reference, &selector).traverse(&propagator);
-
-  // Manual split
-  tv1->split(-1, 128);
-  auto tv5 = tv1->rFactor({1, 2});
+  // [M/epc, epc, N/bid, bid] -> [M/epc, epc, N]
+  reference->merge(-2, -1);
+  // [M/epc, epc, N] -> [M/epc, epc, N/tdx, tdx]
+  constexpr size_t tdx = 128;
+  reference->split(-1, tdx);
 
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
-  scheduler_utils::parallelizeAllLike(reference, -1, {tv0, tv1, tv2, tv3, tv5});
 
   inlineMost();
 
-  tv1->axis(-1)->parallelize(ParallelType::TIDx);
-
   // Double Buffer with TMA loads
-  tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->axis(-1)->parallelize(ParallelType::Bulk);
-  tv4->circularBuffer(2);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->circularBuffer(/*stage=*/2);
 
   constexpr size_t batch_dim = 128;
   constexpr size_t tensor_dim = 1024;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({batch_dim, tensor_dim}, options);
+  auto t1 = sum(t0, {-1});
 
   FusionExecutor fe;
   CompileParams index32bit{DataType::Int32, 255, false};
   fe.compileFusion(&fusion, {t0}, {}, index32bit);
   auto cg_outputs = fe.runFusion({t0});
-  // testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_F(DoubleBufferingTest, TmaDoubleBufferingNormalize) {
@@ -325,10 +317,12 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingNormalize) {
   constexpr int64_t width = 256;
   constexpr int64_t vectorize = 4;
   constexpr int64_t elem_per_compute_thread = dim1 / width / vectorize;
+  constexpr int64_t examples_per_cta = 4;
 
   // Define TMA Box
   // split: [I0, I2, 256]
   // load entire example in shared memory
+  x_cache_smem->split(0, examples_per_cta);
   x_cache_smem->split(-1, 256);
 
   // Schedule reference_tv
@@ -341,6 +335,8 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingNormalize) {
   reference_tv->split(-2, 1);
   //         reorder: [I1, I2/V/EPCT (tdx), EPCT, U, V]
   reference_tv->reorder({{-4, -3}, {-3, -4}});
+  //         reorder: [I1/EPC, EPC, I2/V/EPCT (tdx), EPCT, U, V]
+  reference_tv->split(0, examples_per_cta);
 
   TransformPropagator propagator(reference_tv);
   auto all_tvs_except_cache =
@@ -361,22 +357,22 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingNormalize) {
 
   // Define Parallelization Schema
   reference_tv->axis(0)->parallelize(ParallelType::BIDx);
-  reference_tv->axis(1)->parallelize(ParallelType::TIDx);
+  reference_tv->axis(2)->parallelize(ParallelType::TIDx);
   reference_tv->axis(-2)->parallelize(ParallelType::Unroll);
   scheduler_utils::parallelizeAllLike(reference_tv);
 
   // Vectorize Cache
   reference_tv->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  // TMA Tensor
-  std::cout << x_cache_smem->toString() << std::endl;
-  x_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
-
   // InlineMost automatically handles vectorize and tma dimensions
   inlineMost();
 
+  // Handle TMA Tensor
   // Apply circular buffer after computeAt
-  x_cache_smem->circularBuffer(2);
+  x_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
+  if (examples_per_cta > 1) {
+    x_cache_smem->circularBuffer(/*stages=*/2);
+  }
 
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
