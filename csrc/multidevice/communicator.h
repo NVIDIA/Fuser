@@ -87,8 +87,8 @@ class Communicator {
 
   // returns the backend associated with a team
   // the argument "prefix" is prepended to the key used to retrieve preexisting
-  // backends. This allow us to have a fine-grained control on how the backends
-  // are cached.
+  // backends. Prefix is used to distinguish between different backends with the
+  // same team
   c10d::Backend* getBackendForTeam(
       const Team& team,
       std::optional<CommunicatorBackend> backend,
