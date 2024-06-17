@@ -385,12 +385,16 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
   if (my_device_index == sender) {
     tensors = {input_tensor};
     return backend->send(
-        tensors, getRelativeIndex(communication->team(), receiver), /*tag=*/0);
+        tensors,
+        static_cast<int>(getRelativeIndex(communication->team(), receiver)),
+        /*tag=*/0);
   } else {
     NVF_ERROR(my_device_index == receiver);
     tensors = {output_tensor};
     return backend->recv(
-        tensors, getRelativeIndex(communication->team(), sender), /*tag=*/0);
+        tensors,
+        static_cast<int>(getRelativeIndex(communication->team(), sender)),
+        /*tag=*/0);
   }
 }
 } // namespace
