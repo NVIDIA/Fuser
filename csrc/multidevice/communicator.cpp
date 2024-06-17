@@ -159,7 +159,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
   if (backend == CommunicatorBackend::ucc) {
     constexpr auto timeout = std::chrono::milliseconds(30 * 60 * 1000);
     return c10d::ProcessGroupUCC::createProcessGroupUCC(
-        store, rank, size, timeout);
+        store, static_cast<int>(rank), static_cast<int>(size), timeout);
   }
 #endif
   NVF_ERROR(false, "no distributed backend available");
