@@ -216,9 +216,10 @@ Communicator::Communicator(
 
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
-    std::optional<CommunicatorBackend> backend) {
+    std::optional<CommunicatorBackend> backend,
+    const std::string& prefix) {
   CommunicatorBackend b = getBackend(backend);
-  std::string team_key = getTeamKey(team, b);
+  std::string team_key = prefix + getTeamKey(team, b);
   // check if backend associated with the team is present in the cache
   if (backends_.find(team_key) ==
       backends_.end()) { // create the backend and cache it

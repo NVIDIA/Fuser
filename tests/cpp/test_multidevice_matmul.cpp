@@ -124,6 +124,9 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
       {expected_output},
       __LINE__,
       __FILE__);
+
+  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  EXPECT_EQ(fecs.size(), 1);
 }
 
 TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
@@ -179,6 +182,9 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
       {expected_output},
       __LINE__,
       __FILE__);
+
+  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  EXPECT_EQ(fecs.size(), 1);
 }
 
 TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
@@ -230,6 +236,9 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
 
   testValidate(
       runtime.completeFusion(), outputs, inputs, {out}, __LINE__, __FILE__);
+
+  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  EXPECT_EQ(fecs.size(), 1);
 }
 
 TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
@@ -294,6 +303,9 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
       {expected_output},
       __LINE__,
       __FILE__);
+
+  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  EXPECT_EQ(fecs.size(), 1);
 }
 
 TEST_F(DistributedMatmulTest, MLP_Layer_aten) {

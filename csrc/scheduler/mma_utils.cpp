@@ -1121,7 +1121,7 @@ inline void resolveTvToMatmulDomainsMapping(
 
 } // anonymous namespace
 
-MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion) {
+MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
   const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
   if (patterns.size() != 1) {
     std::stringstream ss;
@@ -1136,10 +1136,10 @@ MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion) {
   if (!tensor_roles_opt.isValid()) {
     return {tensor_roles_opt.getErrorMsg()};
   }
-  return getProblemLayout(id_model, id_roles, tensor_roles_opt.getData());
+  return getOperandInnerDims(id_model, id_roles, tensor_roles_opt.getData());
 }
 
-MatmulProblemLayoutOpt getProblemLayout(
+MatmulOperandInnerDimsOpt getOperandInnerDims(
     const IdModel& id_model,
     const DimRolesMap& dim_roles,
     const TensorRolesMap& tensor_roles) {
@@ -1154,9 +1154,9 @@ MatmulProblemLayoutOpt getProblemLayout(
   // constructor for DataWrapperOpt to prevent inadvertent copying. To avoid
   // this complication I'm using an unwrapped variant for the lambda's result
   // type.
-  using UnitDimOpt = std::variant<std::string, UnitDim>;
-  const auto findUnitDim = [&dim_roles,
-                            &permissive_graph](TensorView* tv) -> UnitDimOpt {
+  using MatmulDomainOpt = std::variant<std::string, MatmulDomain>;
+  const auto findInnerDim =
+      [&dim_roles, &permissive_graph](TensorView* tv) -> MatmulDomainOpt {
     IterDomain* inner_id =
         TensorDomain::noReductions(tv->getMaybeAllocationDomain()).back();
     const ValGroup& g = permissive_graph.toGroup(inner_id);
@@ -1164,7 +1164,7 @@ MatmulProblemLayoutOpt getProblemLayout(
     if (g_it == dim_roles.end()) {
       return "Inner domain of tensor was not mapped to a MatmulDomain";
     }
-    return g_it->second == MatmulDomain::K ? UnitDim::K : UnitDim::M_or_N;
+    return g_it->second;
   };
   const auto it = tensor_roles.find(MatmulRole::OPERAND);
   NVF_ERROR(
@@ -1174,29 +1174,20 @@ MatmulProblemLayoutOpt getProblemLayout(
   TensorView* a = operands.front();
   TensorView* b = operands.back();
 
-  const UnitDimOpt unitdim_a_opt = findUnitDim(a);
-  if (std::holds_alternative<std::string>(unitdim_a_opt)) {
-    std::string err = std::get<std::string>(unitdim_a_opt);
+  const MatmulDomainOpt innerdim_a_opt = findInnerDim(a);
+  if (std::holds_alternative<std::string>(innerdim_a_opt)) {
+    std::string err = std::get<std::string>(innerdim_a_opt);
     return err;
   }
-  const UnitDimOpt unitdim_b_opt = findUnitDim(b);
-  if (std::holds_alternative<std::string>(unitdim_b_opt)) {
-    std::string err = std::get<std::string>(unitdim_b_opt);
+  const MatmulDomainOpt innerdim_b_opt = findInnerDim(b);
+  if (std::holds_alternative<std::string>(innerdim_b_opt)) {
+    std::string err = std::get<std::string>(innerdim_b_opt);
     return err;
   }
-  const UnitDim unitdim_a = std::get<UnitDim>(unitdim_a_opt);
-  const UnitDim unitdim_b = std::get<UnitDim>(unitdim_b_opt);
+  const MatmulDomain innerdim_a = std::get<MatmulDomain>(innerdim_a_opt);
+  const MatmulDomain innerdim_b = std::get<MatmulDomain>(innerdim_b_opt);
 
-  if (unitdim_a == UnitDim::K && unitdim_b == UnitDim::K) {
-    return MmaLayout::TN;
-  } else if (unitdim_a == UnitDim::K && unitdim_b == UnitDim::M_or_N) {
-    return MmaLayout::TT;
-  } else if (unitdim_a == UnitDim::M_or_N && unitdim_b == UnitDim::M_or_N) {
-    return MmaLayout::NT;
-  } else if (unitdim_a == UnitDim::M_or_N && unitdim_b == UnitDim::K) {
-    return MmaLayout::NN;
-  }
-  NVF_ERROR(false, "Reached unreachable section of getProblemLayout");
+  return std::vector<MatmulDomain>{innerdim_a, innerdim_b};
 }
 
 TensorRolesMapOpt getTensorRoles(
