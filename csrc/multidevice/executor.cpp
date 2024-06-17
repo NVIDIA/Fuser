@@ -165,13 +165,15 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
       expr->outputs().size() == 1,
       "Communication must have exactly one output");
 
-  hir::HostIrContainer& container = communication_containers_[group];
-  if (container.topLevelExprs().empty()) {
-    IrCloner cloner = Fusion::copy(group->getFusion(), &container);
+  std::unique_ptr<hir::HostIrContainer>& container =
+      communication_containers_[group];
+  if (container == nullptr) {
+    container.reset(new hir::HostIrContainer());
+    IrCloner cloner = Fusion::copy(group->getFusion(), container.get());
     std::vector<Communication*> communications =
         lowerCommunication(comm_.deviceId(), cloner.clone(expr));
     for (auto* communication : communications) {
-      container.pushBackTopLevelExprs(communication);
+      container->pushBackTopLevelExprs(communication);
     }
   }
 
@@ -188,7 +190,7 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   }
 
   // post and wait communications
-  for (Expr* lowered : container.topLevelExprs()) {
+  for (Expr* lowered : container->topLevelExprs()) {
     auto* communication = lowered->as<Communication>();
     c10d::Backend* backend =
         comm_.getBackendForTeam(communication->team(), std::nullopt);
