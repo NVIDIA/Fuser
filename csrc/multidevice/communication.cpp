@@ -149,11 +149,16 @@ Communication::Communication(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
 
+namespace {
+int64_t getRelativeIndex(const Team& team, const DeviceIdxType rank) {
+  auto i = std::find(team.begin(), team.end(), rank);
+  NVF_ERROR(i != team.end(), "Unable to find rank ", rank, " in team ", team);
+  return std::distance(team.begin(), i);
+}
+} // namespace
+
 int64_t Communication::getRootRelativeIndex() {
-  auto i = std::find(team().begin(), team().end(), root());
-  NVF_ERROR(
-      i != team().end(), "Unable to find root ", root(), " in team ", team());
-  return std::distance(team().begin(), i);
+  return getRelativeIndex(team(), root());
 }
 
 std::string Communication::toString(const int indent_size) const {
@@ -379,11 +384,13 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
   std::vector<at::Tensor> tensors;
   if (my_device_index == sender) {
     tensors = {input_tensor};
-    return backend->send(tensors, static_cast<int>(receiver), /*tag=*/0);
+    return backend->send(
+        tensors, getRelativeIndex(communication->team(), receiver), /*tag=*/0);
   } else {
     NVF_ERROR(my_device_index == receiver);
     tensors = {output_tensor};
-    return backend->recv(tensors, static_cast<int>(sender), /*tag=*/0);
+    return backend->recv(
+        tensors, getRelativeIndex(communication->team(), sender), /*tag=*/0);
   }
 }
 } // namespace
