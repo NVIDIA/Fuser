@@ -92,7 +92,7 @@ class Communicator {
   c10d::Backend* getBackendForTeam(
       const Team& team,
       std::optional<CommunicatorBackend> backend,
-      std::string prefix = "");
+      const std::string& prefix = "");
 
   // returns the device associated with the current process
   auto device() const {
