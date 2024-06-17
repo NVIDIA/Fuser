@@ -65,8 +65,9 @@ class IrBuilder {
   // Binary operations
   NVF_API static Val* logicalAndExpr(Val* lhs, Val* rhs);
   NVF_API static Val* logicalOrExpr(Val* lhs, Val* rhs);
-  static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
-  static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
+  NVF_API static Val* bitwiseXorExpr(Val* lhs, Val* rhs);
   NVF_API static Val* lShiftExpr(Val* lhs, Val* rhs);
   NVF_API static Val* rShiftExpr(Val* lhs, Val* rhs);
   NVF_API static Val* eqExpr(Val* lhs, Val* rhs);
