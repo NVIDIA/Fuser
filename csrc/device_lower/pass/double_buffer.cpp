@@ -48,8 +48,6 @@ int64_t getDoubleBufferAxisPosition(const TensorView* tv) {
       "Invalid tensor to double-buffer. Valid double buffer axis not found due to Unroll. ",
       tv->toString());
 
-  std::cout << tv->toString() << std::endl;
-
   int64_t valid_pos = -1;
   // Skip parallelized or broadcast axes
   for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {
@@ -327,9 +325,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
     } else if (loop_type_ == DoubleBufferLoopStage::Epilog) {
       NVF_ERROR(requireEpilogue(double_buffer_load_exprs_));
       start = IrBuilder::subExpr(
-          double_buffer_loop_->stop(),
-          SimplifyingIrBuilder::create<Val>(
-              int64_t(stage_depth - 1), DataType::Index));
+          double_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
     }
 
     cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
