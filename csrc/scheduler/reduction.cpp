@@ -634,7 +634,6 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
     int64_t total_iteration_numel,
     int64_t total_reduction_numel) {
   outerReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
-  bool small_reduction = total_reduction_numel <= 1024;
 
   // Step-1, set iteration dim
   // (1) start with bdimx = 8, gdimx = 1, iter_unroll = 1
@@ -643,18 +642,18 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
   hp.iter_unroll_factor = 1;
 
   // (2) increase iter_unroll to its maximum following two rules:
-  // (2.1) esnure divisible split
+  // (2.1) ensure divisible split
   // (2.2) leave enough blocks to saturate the device.
   // Test on H100 shows the smallest iteration dim we can fully vectorize is
-  // 4800, which corresponds to 75 or 56.8 % of SMs. For smaller iteration
-  // dims, use a factor of 8 leads to lower usage of SMs and lower
-  // performance. Here 50% is used.
+  // 4800, which corresponds to 75 or 56.8 % of SMs. Here 50% is used.
   const int64_t min_blocks_fully_vectorize = sm_count / 2;
   int64_t max_iter_unroll = vectorize_factor;
   // only allow this adjustment when there is only one output tensor
   // or it's a small reduction where block reduction is enforced.
-  // cpp benchmark of gelu backward has 2 outputs (thunder.jit generated fusion
-  // has only 1), needs this adjustment to avoid regressions.
+  // When has multiple outputs, reduce vectorization leads to regression,
+  // see cpp benchmark of gelu backward which has 2 outputs ( does't seem like a
+  // common usage since thunder.jit generated fusion has only 1).
+  bool small_reduction = total_reduction_numel <= 1024;
   if (n_tensor_outputs == 1 || small_reduction) {
     max_iter_unroll = std::min(
         max_iter_unroll,
@@ -691,8 +690,6 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
   // (2) bdimy takes what is left by bdimx.
   hp.bdimy = std::min(hp.rDimAvail(), max_threads_per_block / hp.bdimx);
 
-  std::cout << hp.toString() << std::endl;
-
   // Step-3, final check
   // (1) revisit bdimx just in case bdimy doesn't take all the left threads
   int64_t sm_count_pow2 = scheduler_utils::lastPow2(sm_count);
@@ -701,7 +698,6 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
     hp.bdimx *= 2;
     hp.gidim /= 2;
   }
-  std::cout << hp.toString() << std::endl;
 
   // (2) Good heuristic if we have enough blocks to saturate the device or it's
   // a small reduction. This cut-off is empirical based on H100.
