@@ -168,7 +168,7 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   std::unique_ptr<hir::HostIrContainer>& container =
       communication_containers_[group];
   if (container == nullptr) {
-    container.reset(new hir::HostIrContainer());
+    container = std::make_unique<hir::HostIrContainer>();
     IrCloner cloner = Fusion::copy(group->getFusion(), container.get());
     std::vector<Communication*> communications =
         lowerCommunication(comm_.deviceId(), cloner.clone(expr));
