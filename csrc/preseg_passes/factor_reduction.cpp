@@ -90,7 +90,8 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
 
   TensorDomain* producer_domain = IrBuilder::create<TensorDomain>(
       new_producer_logical,
-      TensorDomain::getContiguityFilledWith(new_producer_logical, /*fill_value=*/true));
+      TensorDomain::getContiguityFilledWith(
+          new_producer_logical, /*fill_value=*/true));
 
   std::vector<IterDomain*> new_consumer_logical;
   new_consumer_logical.reserve(original_td_logical.size() - axes.size());
@@ -104,11 +105,15 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
 
   TensorDomain* consumer_domain = IrBuilder::create<TensorDomain>(
       new_consumer_logical,
-      TensorDomain::getContiguityFilledWith(new_consumer_logical, /*fill_value=*/true));
+      TensorDomain::getContiguityFilledWith(
+          new_consumer_logical, /*fill_value=*/true));
 
   return std::make_pair(producer_domain, consumer_domain);
 }
 
+// This function is derived from TensorView::rfactor. It is used as a
+// pre-scheduling operation, so there is not transformation replay for producer
+// and consumer TensorViews.
 void factorReductionTensorView(
     TensorView* consumer,
     const std::vector<int64_t>& axes) {
@@ -178,7 +183,7 @@ bool findReductionDefinition(TensorView* tv, BinaryOpType op_type) {
   return true;
 }
 
-// We are using a state machine to detect amax pattern.
+// Detect amax pattern using a state machine.
 //
 // Start -> Cast
 // Start -> MaxReduction
@@ -270,7 +275,8 @@ std::vector<TensorView*> findAmaxReductionDependencies(
     TensorView* amax_reduction) {
   NVF_ERROR(
       amax_reduction != nullptr &&
-      findReductionDefinition(amax_reduction, BinaryOpType::Max));
+          findReductionDefinition(amax_reduction, BinaryOpType::Max),
+      "Expected max reduction TensorView");
 
   std::vector<TensorView*> upstream_reductions;
 
@@ -298,6 +304,85 @@ std::vector<TensorView*> findAmaxReductionDependencies(
   return upstream_reductions;
 }
 
+std::unordered_set<IterDomain*> findIdSubset(
+    const DisjointSets<Val*>& exact_val_sets,
+    TensorView* tv,
+    TensorView* amax_reduction) {
+  // Common reduction iterDomains for reference TensorView
+  std::unordered_set<IterDomain*> id_subset;
+  std::copy_if(
+      amax_reduction->getLogicalDomain().begin(),
+      amax_reduction->getLogicalDomain().end(),
+      std::inserter(id_subset, id_subset.begin()),
+      [](IterDomain* id) { return id->isReduction(); });
+
+  std::cout << amax_reduction->toString() << std::endl;
+  std::cout << amax_reduction->getLogicalDomain().size() << std::endl;
+  std::cout << "!!\t" << id_subset.size() << std::endl;
+
+  const std::vector<IterDomain*>& tv_logical_domain = tv->getLogicalDomain();
+
+  // Collect reduction ids for this TensorView
+  std::vector<IterDomain*> reduction_ids;
+  std::copy_if(
+      tv_logical_domain.begin(),
+      tv_logical_domain.end(),
+      std::back_inserter(reduction_ids),
+      [](IterDomain* id) { return id->isReduction(); });
+
+  // Get intersection from reference subset and this TensorView
+  //  * Keep reference id if any of this TensorView's reduction ids are
+  //    mapped via Exact IdGraph.
+  std::unordered_set<IterDomain*> intersection;
+  std::copy_if(
+      id_subset.begin(),
+      id_subset.end(),
+      std::inserter(intersection, intersection.begin()),
+      [&](IterDomain* subset_id) {
+        return std::any_of(
+            reduction_ids.begin(), reduction_ids.end(), [&](IterDomain* id) {
+              return exact_val_sets.permissiveAreMapped(subset_id, id);
+            });
+      });
+
+  // Update subsets if this TensorView has any common reduction axes
+  if (!intersection.empty()) {
+    id_subset.swap(intersection);
+  }
+  std::cout << "!!\t" << id_subset.size() << std::endl;
+  return id_subset;
+}
+
+// Factor amax reduction into partial reductions.
+// Map common reduction iterDomains to integer axes
+
+// Get reduction indices to factor from current TensorView
+//  * Scan through reference ids
+//  * Find corresponding match for this TensorView
+//  * Return position for reduction id in this TensorView
+std::vector<int64_t> convertIterDomainToInteger(
+    const DisjointSets<Val*>& exact_val_sets,
+    const std::unordered_set<IterDomain*>& id_set,
+    TensorView* tv) {
+  std::vector<int64_t> indices;
+  indices.reserve(id_set.size());
+  std::transform(
+      id_set.begin(),
+      id_set.end(),
+      std::back_inserter(indices),
+      [&](IterDomain* id_from_set) {
+        auto iter = std::find_if(
+            tv->getLogicalDomain().begin(),
+            tv->getLogicalDomain().end(),
+            [&](IterDomain* id_from_tv) {
+              return exact_val_sets.permissiveAreMapped(
+                  id_from_set, id_from_tv);
+            });
+        return std::distance(tv->getLogicalDomain().begin(), iter);
+      });
+  return indices;
+}
+
 void FactorReductionPass::runPass(Fusion* fusion) {
   std::vector<Val*> output_tvs;
 
@@ -317,10 +402,11 @@ void FactorReductionPass::runPass(Fusion* fusion) {
     }
 
     // Detect dependency chain between amax and some reduction operation
+    // Stop if we cannot find any compatible reduction tvs
     std::vector<TensorView*> dependency_tvs =
         findAmaxReductionDependencies(fusion, amax_reduction);
-    // Stop if we cannot find any compatible reduction tvs
-    if (dependency_tvs.empty()) {
+    TensorView* upstream_tv = dependency_tvs.front();
+    if (upstream_tv == nullptr && upstream_tv != amax_reduction) {
       std::cout
           << "Failed to compatible reduction TensorView for amax reduction pattern"
           << std::endl;
@@ -333,80 +419,17 @@ void FactorReductionPass::runPass(Fusion* fusion) {
         fusion, /*build_graphs=*/false, /*allow_self_mapping=*/true);
     id_model.buildExactGraph();
     ValGraph exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-    const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
+    const DisjointSets<Val*>& exact_val_sets = exact_graph.disjointValSets();
 
-    // Common reduction iterDomains for reference TensorView
-    std::unordered_set<IterDomain*> id_subset;
-    std::copy_if(
-        amax_reduction->getLogicalDomain().begin(),
-        amax_reduction->getLogicalDomain().end(),
-        std::inserter(id_subset, id_subset.begin()),
-        [](IterDomain* id) { return id->isReduction(); });
+    std::unordered_set<IterDomain*> reduction_id_subset =
+        findIdSubset(exact_val_sets, upstream_tv, amax_reduction);
+    NVF_ERROR(std::all_of(
+        reduction_id_subset.begin(),
+        reduction_id_subset.end(),
+        [](IterDomain* id) { return id->isReduction(); }));
 
-    std::cout << amax_reduction->toString() << std::endl;
-    std::cout << amax_reduction->getLogicalDomain().size() << std::endl;
-    std::cout << "!!\t" << id_subset.size() << std::endl;
-
-    for (TensorView* tv : dependency_tvs) {
-      const std::vector<IterDomain*>& tv_logical_domain =
-          tv->getLogicalDomain();
-
-      // Collect reduction ids for this TensorView
-      std::vector<IterDomain*> reduction_ids;
-      std::copy_if(
-          tv_logical_domain.begin(),
-          tv_logical_domain.end(),
-          std::back_inserter(reduction_ids),
-          [](IterDomain* id) { return id->isReduction(); });
-
-      // Get intersection from reference subset and this TensorView
-      //  * Keep reference id if any of this TensorView's reduction ids are
-      //    mapped via Exact IdGraph.
-      std::unordered_set<IterDomain*> intersection;
-      std::copy_if(
-          id_subset.begin(),
-          id_subset.end(),
-          std::inserter(intersection, intersection.begin()),
-          [&](IterDomain* subset_id) {
-            return std::any_of(
-                reduction_ids.begin(),
-                reduction_ids.end(),
-                [&](IterDomain* id) {
-                  return val_sets.permissiveAreMapped(subset_id, id);
-                });
-          });
-
-      // Update subsets if this TensorView has any common reduction axes
-      if (!intersection.empty()) {
-        id_subset.swap(intersection);
-      }
-    }
-
-    std::cout << "!!\t" << id_subset.size() << std::endl;
-
-    // Factor amax reduction into partial reductions.
-    // Map common reduction iterDomains to integer axes
-
-    // Get reduction indices to factor from current TensorView
-    //  * Scan through reference ids
-    //  * Find corresponding match for this TensorView
-    //  * Return position for reduction id in this TensorView
-    std::vector<int64_t> rfactor_indices;
-    rfactor_indices.reserve(id_subset.size());
-    std::transform(
-        id_subset.begin(),
-        id_subset.end(),
-        std::back_inserter(rfactor_indices),
-        [&](IterDomain* subset_id) {
-          auto iter = std::find_if(
-              amax_reduction->getLogicalDomain().begin(),
-              amax_reduction->getLogicalDomain().end(),
-              [&](IterDomain* id) {
-                return val_sets.permissiveAreMapped(subset_id, id);
-              });
-          return std::distance(
-              amax_reduction->getLogicalDomain().begin(), iter);
-        });
+    std::vector<int64_t> rfactor_indices = convertIterDomainToInteger(
+        exact_val_sets, reduction_id_subset, amax_reduction);
 
     size_t num_reduction_ids = std::count_if(
         amax_reduction->getLogicalDomain().begin(),
