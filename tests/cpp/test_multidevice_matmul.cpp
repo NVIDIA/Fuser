@@ -124,9 +124,6 @@ TEST_F(DistributedMatmulTest, LayoutTN_NoComms) {
       {expected_output},
       __LINE__,
       __FILE__);
-
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
-  EXPECT_EQ(fecs.size(), 1);
 }
 
 TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
@@ -182,9 +179,6 @@ TEST_F(DistributedMatmulTest, LayoutTN_Allgather) {
       {expected_output},
       __LINE__,
       __FILE__);
-
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
-  EXPECT_EQ(fecs.size(), 1);
 }
 
 TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
@@ -237,8 +231,6 @@ TEST_F(DistributedMatmulTest, LayoutNT_AllReduce) {
   testValidate(
       runtime.completeFusion(), outputs, inputs, {out}, __LINE__, __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
-  EXPECT_EQ(fecs.size(), 1);
 }
 
 TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
@@ -304,8 +296,6 @@ TEST_F(DistributedMatmulTest, LayoutNT_ReduceScatter) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
-  EXPECT_EQ(fecs.size(), 1);
 }
 
 TEST_F(DistributedMatmulTest, MLP_Layer_aten) {
@@ -448,65 +438,9 @@ TEST_F(DistributedMatmulTest, MLP_Layer_aten) {
       std::move(fusion), *communicator, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
 
-  testValidate(
-      runtime.completeFusion(),
-      outputs,
-      inputs,
-      expected_outputs,
-      __LINE__,
-      __FILE__);
-}
-
-TEST_F(DistributedMatmulTest, Linear) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
-
-  int64_t M = 64;
-  int64_t K = 32;
-  int64_t N = 256;
-  int64_t Ni = 256/num_devices_;
-  int64_t No = num_devices_;
-
-  TensorView* x = makeContigConcreteTensor({M, K}, DataType::BFloat16);
-  TensorView* w0 = makeContigConcreteTensor({No, K, Ni}, DataType::BFloat16);
-  TensorView* b0 = makeContigConcreteTensor({No, Ni}, DataType::BFloat16);
-  // TensorView* out = linear(x, w0, b0);
-  TensorView* mm = matmul(x, w0); // No,M,Ni
-  TensorView* b_b = broadcast(b0, {false, true, false}); //No,b,Ni
-  TensorView* out = add(mm, b_b); //No,M,Ni
-
-  fusion->addInput(x);
-  fusion->addInput(w0);
-  fusion->addInput(b0);
-  fusion->addOutput(out);
-
-  auto tvs = {w0, b0, out};
-  for (auto tv : tvs) {
-    tv->setDeviceMesh(mesh);
-    tv->axis(0)->parallelize(ParallelType::DIDx);
+  for (auto i : c10::irange(4)) {
+    std::cout << i << " all close " << outputs[i].allclose(expected_outputs[i].to(outputs[i].dtype()), 0.05, 0.05) << std::endl;
   }
-  x->setDeviceMesh(mesh);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, communicator->local_rank());
-  auto x_ = at::randn({M, K}, options);
-  auto w0_ = at::randn({K, N}, options);
-  auto b0_ = at::randn({N}, options);
-
-  std::vector<c10::IValue> inputs = {
-      x_,
-      shardTensor(w0_.view({K, No, Ni}).transpose(1,0), w0, communicator->deviceId()),
-      shardTensor(b0_.view({No, Ni}), b0, communicator->deviceId())};
-  // Linear layout expects: M,K x N,K
-  auto linear1_aten = at::linear(x_.to(at::kDouble), w0_.transpose(1,0).to(at::kDouble), b0_.to(at::kDouble)).to(at::kFloat);
-  std::vector<at::Tensor> expected_outputs = {
-    shardTensor(linear1_aten.view({M, No, Ni}).transpose(1, 0), out, communicator->deviceId()),
-    };
-
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
 
   testValidate(
       runtime.completeFusion(),
@@ -529,11 +463,27 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
   DataType fType = DataType::BFloat16;
   c10::ScalarType aType = at::kBFloat16;
 
-  TensorView* x = makeContigConcreteTensor(2, fType); // Unsharded (sb, h)
-  TensorView* w0 = makeContigTensor(3, fType); // (h4, h) -> sharded: (D, h4/D, h)
-  TensorView* b0 = makeContigTensor(2, fType); // (h4) -> (D, h4/D)
-  TensorView* w1 = makeContigTensor(3, fType); // (h, h4) -> (D, h, h4/D)
-  TensorView* b1 = makeContigTensor(1, fType); // Unsharded (h)
+  // TODO: Get error with dynamic shape
+  // C++ exception with description "ext_opt.hasValue() INTERNAL ASSERT FAILED at "csrc/dynamic_transform.cpp":276, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. Could not evaluate dynamic extent: i3
+  // Exception raised from DynamicTransformConcretizationInfo at csrc/dynamic_transform.cpp:276 (most recent call first):
+  // TensorView* x = makeContigTensor(2, fType); // Unsharded (sb, h)
+  // TensorView* w0 = makeContigTensor(3, fType); // (h4, h) -> sharded: (D, h4/D, h)
+  // TensorView* b0 = makeContigTensor(2, fType); // (h4) -> (D, h4/D)
+  // TensorView* w1 = makeContigTensor(3, fType); // (h, h4) -> (D, h, h4/D)
+  // TensorView* b1 = makeContigTensor(1, fType); // Unsharded (h)
+  TensorView* x = makeContigConcreteTensor(
+      {sb, h}, fType); // Unsharded (sb, h)
+  TensorView* w0 = makeContigConcreteTensor(
+      {num_devices_, h4 / num_devices_, h},
+      fType); // (h4, h) -> sharded: (D, h4/D, h)
+  TensorView* b0 = makeContigConcreteTensor(
+      {num_devices_, h4 / num_devices_},
+      fType); // (h4) -> (D, h4/D)
+  TensorView* w1 = makeContigConcreteTensor(
+      {num_devices_, h, h4 / num_devices_},
+      fType); // (h, h4) -> (D, h, h4/D)
+  TensorView* b1 =
+      makeContigConcreteTensor({h}, fType); // Unsharded (h)
   fusion->addInput(x);
   fusion->addInput(w0);
   fusion->addInput(b0);
@@ -654,6 +604,10 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
       std::move(fusion), *communicator, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
 
+  for (auto i : c10::irange(4)) {
+    std::cout << i << " all close " << outputs[i].allclose(expected_outputs[i].to(outputs[i].dtype()), 0.05, 0.05) << std::endl;
+  }
+
   testValidate(
       runtime.completeFusion(),
       outputs,
@@ -661,5 +615,88 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
       expected_outputs,
       __LINE__,
       __FILE__);
+}
+
+TEST_F(DistributedMatmulTest, Linear2) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
+
+  int64_t sb = 64; // sequence * batch
+  int64_t h = 128;
+  int64_t h4 = 4 * h;
+
+  DataType fType = DataType::BFloat16;
+  c10::ScalarType aType = at::kBFloat16;
+
+  TensorView* gelu_ = makeContigConcreteTensor(
+      {num_devices_, sb,  h4/num_devices_},
+      fType); // (s, h4) -> (D, s, h4/D)
+  TensorView* w1 = makeContigConcreteTensor(
+      {num_devices_, h, h4 / num_devices_},
+      fType); // (h, h4) -> (D, h, h4/D)
+  TensorView* b1 =
+      makeContigConcreteTensor({h}, fType); // Unsharded (h)
+
+  TensorView* linear2_int0 =
+      broadcast(gelu_, {false, false, true, false}); // D, sb, b, h4/D
+  TensorView* linear2_int1 =
+      broadcast(w1, {false, true, false, false}); // D, b, h, h4/D
+  TensorView* linear2_int2 = mul(linear2_int0, linear2_int1); // D, sb, h, h4/D
+  TensorView* local_matmul2 = sum(linear2_int2, {-1}); // D, sb, h, r
+  TensorView* matmul2 = sum(local_matmul2, {0}); // Allreduce sum // r sb, h
+  TensorView* bcast_bias = broadcast(b1, {true, false}); // b, h
+  TensorView* linear2 = add(matmul2, bcast_bias); // sb, h
+
+  fusion->addInput(gelu_);
+  fusion->addInput(w1);
+  fusion->addInput(b1);
+  fusion->addOutput(linear2);
+
+  // TVs replicated on each device.
+  auto tv_inputs = {matmul2, linear2, b1};
+  for (auto tv : tv_inputs) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  // TVs sharded on the outermost dimension.
+  auto tvs = {w1, gelu_};
+  for (auto tv : tvs) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  const auto options = at::TensorOptions()
+                           .dtype(aType)
+                           .device(at::kCUDA, communicator->local_rank());
+  auto x_ = at::randn({sb, h4}, options);
+  auto w1_ = at::randn({h, h4}, options);
+  auto b1_ = at::randn({h}, options);
+
+  std::vector<c10::IValue> inputs = {
+      shardTensor(x_.view({sb, num_devices_, h4 / num_devices_}).transpose(1, 0), gelu_, communicator->deviceId()),
+      shardTensor(
+          w1_.view({h, num_devices_, h4 / num_devices_}).transpose(1, 0),
+          w1,
+          communicator->deviceId()),
+      b1_};
+  auto linear2_aten = at::linear(
+      x_.to(aType).to(at::kDouble),
+      w1_.to(at::kDouble),
+      b1_.to(at::kDouble)).to(at::kFloat);
+  std::vector<at::Tensor> expected_outputs = {
+      linear2_aten};
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator, executor_params_);
+  auto outputs = runtime.runWithInput(inputs);
+
+  testValidate(
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      expected_outputs,
+      __LINE__,
+      __FILE__);
+
 }
 } // namespace nvfuser

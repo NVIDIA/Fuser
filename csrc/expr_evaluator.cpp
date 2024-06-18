@@ -115,14 +115,8 @@ void ExpressionEvaluator::bind_(
         ") as ",
         toString(concrete_value));
   }
-  if (auto tv = dynamic_cast<const TensorView*>(value)) {
-    auto def = tv->definition();
-    
+  if (auto tv = dynamic_cast<const TensorView*>(value)) {    
     const auto& t = concrete_value.as<at::Tensor>();
-    if (def != nullptr) {
-      std::cout << def->toString() << std::endl;
-      std::cout << t.sizes() << std::endl;
-    }
     auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
     NVF_ERROR(
         t.dim() == (int64_t)logical_domain.size(),

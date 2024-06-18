@@ -1173,6 +1173,8 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
   NVF_ERROR(operands.size() == 2, "Exactly two operands are expected");
   TensorView* a = operands.front();
   TensorView* b = operands.back();
+  std::cout << "a " << a->toString() << std::endl;
+  std::cout << "b " << b->toString() << std::endl;
 
   const MatmulDomainOpt innerdim_a_opt = findInnerDim(a);
   if (std::holds_alternative<std::string>(innerdim_a_opt)) {
@@ -1221,7 +1223,7 @@ TensorRolesMapOpt getTensorRoles(
 
   const auto findDims = [&dim_roles, &permissive_graph](TensorView* tv) {
     DimPresence has;
-    for (IterDomain* id : TensorDomain::noReductions(tv->getLogicalDomain())) {
+    for (IterDomain* id : TensorDomain::noDevices(TensorDomain::noReductions(tv->getLogicalDomain()))) {
       if (id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }
@@ -1239,14 +1241,17 @@ TensorRolesMapOpt getTensorRoles(
     return has;
   };
 
+  tensor_roles[MatmulRole::OPERAND].resize(2);
   for (TensorView* tv : mma_input_candidates) {
     DimPresence has = findDims(tv);
     if (has.unmapped) {
       // Don't map TVs to roles if they have unmapped dims
       continue;
     }
-    if (has.k) {
-      tensor_roles[MatmulRole::OPERAND].push_back(tv);
+    if (has.k && has.m) {
+      tensor_roles[MatmulRole::OPERAND].at(0) = tv;
+    } else if (has.k && has.n) {
+      tensor_roles[MatmulRole::OPERAND].at(1) = tv;
     } else {
       tensor_roles[MatmulRole::EPILOGUE_INPUT].push_back(tv);
       continue;
@@ -1277,16 +1282,16 @@ TensorRolesMapOpt getTensorRoles(
     tensor_roles[MatmulRole::OUTPUT] = storage;
   }
 
-  for (auto& [role, tvs] : tensor_roles) {
-    // NOTE: sort role tvs in descending order by uses() size, and
-    //  if equal then by name() to ensure the stable ordering of tensor
-    //  views in collections assigned to the supported roles
-    std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
-      return (a->uses().size() == b->uses().size())
-          ? (a->name() < b->name())
-          : (a->uses().size() > b->uses().size());
-    });
-  }
+  // for (auto& [role, tvs] : tensor_roles) {
+  //   // NOTE: sort role tvs in descending order by uses() size, and
+  //   //  if equal then by name() to ensure the stable ordering of tensor
+  //   //  views in collections assigned to the supported roles
+  //   std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+  //     return (a->uses().size() == b->uses().size())
+  //         ? (a->name() < b->name())
+  //         : (a->uses().size() > b->uses().size());
+  //   });
+  // }
 
   return tensor_roles;
 }
