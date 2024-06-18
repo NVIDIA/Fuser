@@ -49,14 +49,23 @@ class Communication : public Expr {
   // Only specify `root` for types that have root.
   // Only specify `red_op` for reduction types.
   // Only specify `scattered_axis` for ReduceScatter.
-  //
-  // TODO: pass in input/output TV and compute root, mesh and scatteredAxis from
-  // them.
   Communication(
       IrBuilderPasskey passkey,
       CommunicationType type,
       TensorView* out,
       TensorView* in,
+      Team team, // All devices involved in this communication. It must include
+                 // `root`. It can be a subset of `root`+`mesh` in case of 2D
+                 // sharding.
+      DeviceIdxType root = -1,
+      RedOpType red_op = RedOpType::UNUSED,
+      int64_t scattered_axis = -1);
+
+  // Currently, only used for MultiDeviceExecutor.
+  Communication(
+      IrBuilderPasskey passkey,
+      CommunicationType type,
+      DeviceMesh mesh,
       Team team, // All devices involved in this communication. It must include
                  // `root`. It can be a subset of `root`+`mesh` in case of 2D
                  // sharding.
@@ -90,33 +99,37 @@ class Communication : public Expr {
   }
 
   const DeviceMesh& senderMesh() const {
-    return in()->getDeviceMesh();
+    return inputs().empty() ? attribute<DeviceMesh>(1) : in()->getDeviceMesh();
   }
 
   const DeviceMesh& receiverMesh() const {
-    return out()->getDeviceMesh();
+    return outputs().empty() ? attribute<DeviceMesh>(1)
+                             : out()->getDeviceMesh();
   }
 
   const Team& team() const {
-    return attribute<Team>(1);
+    return attribute<Team>(2);
   }
 
   DeviceIdxType root() const {
-    return attribute<DeviceIdxType>(2);
+    return attribute<DeviceIdxType>(3);
   }
 
   RedOpType reduceOp() const {
-    return attribute<RedOpType>(3);
+    return attribute<RedOpType>(4);
   }
 
   int64_t scatteredAxis() const {
-    return attribute<int64_t>(4);
+    return attribute<int64_t>(5);
   }
 
   // PyTorch's process group expects the root to be specified
   // as an integer between 0 and world_size-1. We choose it to be
   // the device's relative index within the team
   int64_t getRootRelativeIndex();
+
+ private:
+  void validate();
 };
 
 // The method "post" triggers the execution of the communication. This call is

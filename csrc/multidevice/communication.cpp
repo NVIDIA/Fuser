@@ -150,23 +150,50 @@ Communication::Communication(
   NVF_ERROR(
       out->getDeviceMesh().size() > 0,
       "The output mesh size must be greater than 0.");
-  NVF_ERROR(
-      hasRoot(type) == (root >= 0),
-      "Root ",
-      root,
-      " is not expected by CommunicationType ",
-      type);
-  NVF_ERROR(isReduction(type) == (red_op != RedOpType::UNUSED))
-  NVF_ERROR(
-      (type == CommunicationType::ReduceScatter) == (scattered_axis >= 0));
 
   addInput(in);
   addOutput(out);
   addDataAttribute(type);
+  addDataAttribute(DeviceMesh());
   addDataAttribute(team);
   addDataAttribute(root);
   addDataAttribute(red_op);
   addDataAttribute(scattered_axis);
+
+  validate();
+}
+
+Communication::Communication(
+    IrBuilderPasskey passkey,
+    CommunicationType type,
+    DeviceMesh mesh,
+    Team team,
+    DeviceIdxType root,
+    RedOpType red_op,
+    int64_t scattered_axis)
+    : Expr(passkey) {
+  NVF_ERROR(mesh.size() > 0, "The mesh size must be greater than 0.");
+
+  addDataAttribute(type);
+  addDataAttribute(mesh);
+  addDataAttribute(team);
+  addDataAttribute(root);
+  addDataAttribute(red_op);
+  addDataAttribute(scattered_axis);
+
+  validate();
+}
+
+void Communication::validate() {
+  NVF_ERROR(
+      hasRoot(type()) == (root() >= 0),
+      "Root ",
+      root(),
+      " is not expected by CommunicationType ",
+      type());
+  NVF_ERROR(isReduction(type()) == (reduceOp() != RedOpType::UNUSED))
+  NVF_ERROR(
+      (type() == CommunicationType::ReduceScatter) == (scatteredAxis() >= 0));
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
