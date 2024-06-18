@@ -1183,7 +1183,9 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
     reduction_tv->reorder(
         scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
-
+  std::cout << "========= after propagateReshapeTransforms ===========" << std::endl;
+  std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
+  fusion->print();
   NVF_ERROR(
       !(rparams.schedule_3D && isSharded(reduction_tv)),
       "Multidevice nvFuser does not support 3D reduction schedules");

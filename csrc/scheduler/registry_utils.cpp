@@ -395,6 +395,8 @@ bool reductionInterferingView(
     Fusion* fusion,
     const ComputeAtMap& ca_map,
     TensorView* reduction_reference) {
+
+  // return false;
   // Make sure the view doesn't interfere with how we'll want to schedule
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.
@@ -413,6 +415,7 @@ bool reductionInterferingView(
   };
 
   std::vector<IterDomain*> dims = reduction_reference->getLogicalDomain();
+  reduction_reference->printTransforms();
 
   // The disjoint groups we need for this scheduler
   std::vector<std::vector<IterDomain*>> groups;
@@ -440,6 +443,11 @@ bool reductionInterferingView(
       processed.emplace(dims[dim_i]);
     }
 
+    std::cout << "========= dimension: " << dimension << " =========\n current_dims:" << std::endl;
+    for (auto id : current_dims) {
+      std::cout << id->toString() << std::endl;
+    }
+
     // Don't add empty group (would happen if it's a 2D scheduler not 3D)
     if (!current_dims.empty()) {
       groups.push_back(current_dims);
@@ -454,6 +462,14 @@ bool reductionInterferingView(
   auto disjoint_rfactor_sets = scheduler_utils::disjointLogicalSets(fusion);
   auto disjoint_set_information = scheduler_utils::getDisjointLogicalSetsOf(
       fusion, reduction_reference, disjoint_rfactor_sets);
+
+  std::cout << "disjointLogicalSets:\n" << disjoint_rfactor_sets.toString() << std::endl;
+  std::cout << "disjoint_set_ids: ";
+  for(auto id : disjoint_set_information.disjoint_set_ids) {
+    std::cout << id << " ";
+  }
+  std::cout << std::endl;
+
 
   // Convert id's in groups to disjoint_set_ids of disjoint_set_information
   std::vector<std::vector<int64_t>> disjoint_groups;
@@ -476,9 +492,15 @@ bool reductionInterferingView(
               (int64_t)disjoint_set_information.disjoint_set_ids.size(),
           "Error computing disjoint group on the logical domain of ",
           reduction_reference->toString());
+      std::cout << "id: " << id->toString() << ", logical_pos: " << logical_pos << std::endl;
       disjoint_id_sets.push_back(
           disjoint_set_information.disjoint_set_ids[logical_pos]);
     }
+    std::cout << "disjoint_id_sets: ";
+    for(auto id : disjoint_id_sets) {
+      std::cout << id << " ";
+    }
+    std::cout << std::endl;
     disjoint_groups.push_back(disjoint_id_sets);
   }
 
@@ -486,6 +508,7 @@ bool reductionInterferingView(
   // will interfere with the schedule. TODO: Make this better complexity,
   // since it should be relatively small int vectors of a small total nDims,
   // not too worried about it now.
+  return false;
 
   for (auto first_dim_i : c10::irange(disjoint_groups.size())) {
     for (auto second_dim_i = first_dim_i + 1;

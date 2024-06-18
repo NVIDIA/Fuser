@@ -36,7 +36,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
-  OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
+  // OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);

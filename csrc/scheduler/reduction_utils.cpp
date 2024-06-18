@@ -334,8 +334,17 @@ void multiReductionInliner(
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
     std::vector<TensorView*> dummy_outputs) {
+  // // don't propagate transformations to input of view ops
+  std::unordered_set<TensorView*> boundaryNodesSet;
+  // // Loop over all used tvs and add input of view ops to boundaryNodesSet
+  // for (auto tv : ir_utils::allTvs(fusion)) {
+  //   if (auto view_op = dynamic_cast<ViewOp*>(tv->definition())) {
+  //     boundaryNodesSet.emplace(view_op->in());
+  //   }
+  // }
+
   // Propagate transformations before we rfactor the other reductions
-  propagateTransformation(reference_tv);
+  propagateTransformation(reference_tv, boundaryNodesSet);
   // If reduction_tv is rfactored, rfactor all reductions.
   if (reference_tv != reduction_tv) {
     propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
