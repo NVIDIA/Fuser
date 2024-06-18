@@ -23,21 +23,21 @@ namespace nvfuser::preseg_passes {
 std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
     TensorDomain* original_td,
     const std::vector<int64_t>& axes) {
-  NVF_CHECK(!axes.empty(), "No axes provided to rfactor replay.");
+  NVF_CHECK(!axes.empty(), "No axes provided to factorReductionDomain.");
 
-  const int64_t kNumDims = original_td->nDims();
+  int64_t num_dims = original_td->nDims();
 
-  NVF_CHECK((int64_t)axes.size() < kNumDims);
+  NVF_CHECK((int64_t)axes.size() < num_dims);
 
   // Check that axes are valid
-  std::for_each(axes.begin(), axes.end(), [kNumDims](int64_t i) {
+  std::for_each(axes.begin(), axes.end(), [num_dims](int64_t i) {
     NVF_CHECK(
-        i >= -kNumDims && i < kNumDims,
-        "Rfactor received an axis outside the number of dims in the tensor.",
-        " Acceptable inclusive range is ",
-        -kNumDims,
+        i >= -num_dims && i < num_dims,
+        "factorReductionDomaain received an axis outside the number of dims in",
+        "the tensor. Acceptable inclusive range is ",
+        -num_dims,
         " to ",
-        kNumDims - 1);
+        num_dims - 1);
   });
 
   NVF_CHECK(
@@ -49,9 +49,9 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
           }),
       "Cannot rfactor axes that are not reduction axes.");
 
-  std::vector<IterDomain*> original_td_logical = original_td->logical();
+  const std::vector<IterDomain*>& original_td_logical = original_td->logical();
 
-  // Put in a set to make searching easy
+  // Place iterDomain axes in a set to make searching easy
   std::unordered_set<IterDomain*> rfactor_logical_axes;
   std::transform(
       axes.begin(),
@@ -61,7 +61,7 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
         return original_td_logical.at(pos);
       });
 
-  // Generate a new TensorDomain and set up map from one logical to this one.
+  // Generate a new TensorDomain and set up a map from one logical to this one.
   std::vector<IterDomain*> new_producer_logical;
   new_producer_logical.reserve(original_td_logical.size());
 
@@ -70,15 +70,16 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
       original_td_logical.end(),
       std::back_inserter(new_producer_logical),
       [&](IterDomain* id) {
-        // If this is an rfactor logical, it will be a reduction in this stage
         if (rfactor_logical_axes.find(id) != rfactor_logical_axes.end()) {
+          // If this is a rfactor axis, it will be a reduction iterDomain in the
+          // producer.
           return IterDomainBuilder(id->start(), id->extent())
               .stop_offset(id->stopOffset())
               .iter_type(IterType::Reduction)
               .build();
-          // If this is not an rfactor logical, but a reduction logical, it
-          // should be turned into an iteration domain
         } else if (id->isReduction()) {
+          // If this is a reduction iterDomain but not a rfactor axis, convert
+          // it to an iteration domain.
           return IterDomainBuilder(id->start(), id->extent())
               .stop_offset(id->stopOffset())
               .build();
@@ -89,12 +90,12 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
 
   TensorDomain* producer_domain = IrBuilder::create<TensorDomain>(
       new_producer_logical,
-      TensorDomain::getContiguityFilledWith(new_producer_logical, true));
+      TensorDomain::getContiguityFilledWith(new_producer_logical, /*fill_value=*/true));
 
   std::vector<IterDomain*> new_consumer_logical;
   new_consumer_logical.reserve(original_td_logical.size() - axes.size());
   for (IterDomain* id : original_td_logical) {
-    // If this is an rfactor logical, skip it at this stage
+    // If this is an rfactor axis, skip it at the consumer.
     if (rfactor_logical_axes.find(id) != rfactor_logical_axes.end()) {
       continue;
     }
@@ -103,7 +104,7 @@ std::pair<TensorDomain*, TensorDomain*> factorReductionDomain(
 
   TensorDomain* consumer_domain = IrBuilder::create<TensorDomain>(
       new_consumer_logical,
-      TensorDomain::getContiguityFilledWith(new_consumer_logical, true));
+      TensorDomain::getContiguityFilledWith(new_consumer_logical, /*fill_value=*/true));
 
   return std::make_pair(producer_domain, consumer_domain);
 }
