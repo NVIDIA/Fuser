@@ -403,7 +403,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       InnerOuterPersistentKernelScheduler::threads_per_block_max);
   int64_t available_smem =
       (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
-  int64_t available_regs = scheduler_utils::register_file_size_full;
+  int64_t available_regs = scheduler_utils::register_file_size_56k;
   buffer_params.smem_overhead = smem_overhead;
 
   // (1) init the buffer_params by putting all the persistent tensors in
