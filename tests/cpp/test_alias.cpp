@@ -1220,4 +1220,31 @@ TEST_F(AliasTest, NoKernelsAreLaunched) {
   }
 }
 
+// While most use cases go through FusionExecutorCache, nvFuser also supports
+// evaluating an alias via FusionExecutor.
+TEST_F(AliasTest, FusionExecutor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({10, 10});
+  TensorView* out = slice(in, {0, 0}, {5, 5});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  // Sanity-check that `out` is a valid alias of `in`.
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+
+  // Mark them alias so FusionExecutor::runFusion expression-evaluates the
+  // output on the host instead of launching a CUDA kernel.
+  fusion.aliasOutputToInput(out, in, AllocationType::Evaluate);
+
+  FusionExecutor fe;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({10, 10}, options);
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
+}
+
 } // namespace nvfuser
