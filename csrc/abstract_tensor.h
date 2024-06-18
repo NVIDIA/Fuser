@@ -118,6 +118,9 @@ struct AbstractTensor {
 
   AbstractTensor() = default;
   AbstractTensor(std::vector<AbstractId> domain) : domain(std::move(domain)) {}
+  AbstractTensor(std::vector<IterDomain*> domain)
+      : domain(domain.begin(), domain.end()) {}
+  AbstractTensor(std::initializer_list<AbstractId> domain) : domain(domain) {}
 
   template <typename T>
   std::vector<T> as() const {

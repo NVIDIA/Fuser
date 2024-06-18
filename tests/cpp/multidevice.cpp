@@ -27,6 +27,9 @@ MultiDeviceTest::MultiDeviceTest() {
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
   disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 
+  // NVFUSER_MULTIDEVICE_WAIT_DEBUGGER_AT_RANK can be used to attach gdb to one
+  // of the processes for debugging.
+  //
   // When an mpirun fails, it usually prints out something like
   // ```
   // mpirun detected that one or more processes exited with non-zero status,
@@ -36,7 +39,12 @@ MultiDeviceTest::MultiDeviceTest() {
   //   Exit code:    1
   // ```
   // The last bit of the process name (0 in this case) is the rank of the first
-  // failing process.
+  // failing process, and usually the rank to debug.
+  //
+  // Sometimes, multiple processes fail, and a failed, non-gdb'ed process can
+  // cause `mpirun` to terminate the entire job including the process being
+  // gdb'ed. For that, I use `mpirun -continuous` so `mpirun` keeps running the
+  // process being gdb'ed.
   char* rank_to_debug_str = getNvFuserEnv("MULTIDEVICE_WAIT_DEBUGGER_AT_RANK");
   if (rank_to_debug_str != nullptr) {
     const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);

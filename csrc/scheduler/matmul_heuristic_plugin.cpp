@@ -66,19 +66,23 @@ thread_local KernelConfigFactory config_factory = defaultConfigFactory;
 // overridden.
 thread_local bool config_factory_modified = false;
 
-//! Utility to standardize conversion of MmaLayout to uint8_t
-uint8_t layoutToByte(MmaLayout layout) {
-  switch (layout) {
-    case MmaLayout::NN:
-      return 0;
-    case MmaLayout::NT:
-      return 1;
-    case MmaLayout::TN:
-      return 2;
-    case MmaLayout::TT:
-      return 3;
-    default:
-      return 255;
+//! Utility to standardize conversion of inner dimensions to uint8_t
+//! This uses the 2-operand layout format:
+//!   NN: 0
+//!   NT: 1
+//!   TN: 2
+//!   TT: 3
+uint8_t innerDimsToByte(const mma_utils::MatmulOperandInnerDims& inner_dims) {
+  bool A_K_inner = inner_dims.empty() || inner_dims.front() == MatmulDomain::K;
+  bool B_K_inner = inner_dims.empty() || inner_dims.back() == MatmulDomain::K;
+  if (A_K_inner && B_K_inner) {
+    return 0;
+  } else if (A_K_inner && !B_K_inner) {
+    return 1;
+  } else if (!A_K_inner && B_K_inner) {
+    return 2;
+  } else {
+    return 3;
   }
 }
 
@@ -106,14 +110,14 @@ void fillProblemDescription(
     int64_t n,
     int64_t k,
     int64_t batch_size,
-    MmaLayout layout,
+    const mma_utils::MatmulOperandInnerDims& inner_dims,
     const char* precision) {
   problem.m = (uint32_t)m;
   problem.n = (uint32_t)n;
   problem.k = (uint32_t)k;
   problem.batch_size = (uint32_t)batch_size;
   problem.layout =
-      KernelConfig::ProblemDescription::Layout(layoutToByte(layout));
+      KernelConfig::ProblemDescription::Layout(innerDimsToByte(inner_dims));
   problem.precision = precision;
 }
 
@@ -196,7 +200,7 @@ bool updateMatmulParams(
     int64_t n,
     int64_t k,
     int64_t batch_size,
-    MmaLayout layout,
+    const mma_utils::MatmulOperandInnerDims& inner_dims,
     const mma_utils::TensorRolesMap& tensor_roles) {
   if (!hasPlugin()) {
     return false;
@@ -211,7 +215,7 @@ bool updateMatmulParams(
   // The heuristic must know the input shapes, precision, and layout.
   std::string precision = rolesToPrecisionString(tensor_roles);
   fillProblemDescription(
-      config->problem, m, n, k, batch_size, layout, precision.c_str());
+      config->problem, m, n, k, batch_size, inner_dims, precision.c_str());
 
   // Execute the user-provided heuristic
   config->configure();
