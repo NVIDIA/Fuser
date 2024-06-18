@@ -1173,8 +1173,6 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
   NVF_ERROR(operands.size() == 2, "Exactly two operands are expected");
   TensorView* a = operands.front();
   TensorView* b = operands.back();
-  std::cout << "a " << a->toString() << std::endl;
-  std::cout << "b " << b->toString() << std::endl;
 
   const MatmulDomainOpt innerdim_a_opt = findInnerDim(a);
   if (std::holds_alternative<std::string>(innerdim_a_opt)) {
@@ -1223,7 +1221,8 @@ TensorRolesMapOpt getTensorRoles(
 
   const auto findDims = [&dim_roles, &permissive_graph](TensorView* tv) {
     DimPresence has;
-    for (IterDomain* id : TensorDomain::noDevices(TensorDomain::noReductions(tv->getLogicalDomain()))) {
+    for (IterDomain* id : TensorDomain::noDevices(
+             TensorDomain::noReductions(tv->getLogicalDomain()))) {
       if (id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }

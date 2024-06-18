@@ -87,18 +87,14 @@ void ExpressionEvaluator::bind_(
     bool evaluate_validate) {
   using namespace PolymorphicValue_functions;
   NVF_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
-  // TODO: There appears to be a binding issue with DID axis and 0.
   if (value->isConst()) {
-    if (value->value() != concrete_value) {
-      std::cout << "This should match " << value->value() << " " << concrete_value << std::endl;
-    }
-    // NVF_CHECK(
-    //     value->value() == concrete_value,
-    //     "Tried to bind to a constant value: ",
-    //     toString(value->value()),
-    //     " as ",
-    //     toString(concrete_value));
-    // return;
+    NVF_CHECK(
+        value->value() == concrete_value,
+        "Tried to bind to a constant value: ",
+        toString(value->value()),
+        " as ",
+        toString(concrete_value));
+    return;
   }
   validateValWithConcreteValue(value, concrete_value);
   if (evaluate_validate &&
@@ -115,7 +111,7 @@ void ExpressionEvaluator::bind_(
         ") as ",
         toString(concrete_value));
   }
-  if (auto tv = dynamic_cast<const TensorView*>(value)) {    
+  if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
     auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
     NVF_ERROR(
@@ -159,9 +155,14 @@ void ExpressionEvaluator::bind_(
             id->toString(),
             "is sharded and must have size 1, but input tensor has size ",
             t.size(i));
+        NVF_CHECK(
+            tv->getDeviceMesh().size() > 0,
+            "TV ",
+            tv->toString(),
+            " has an empty DeviceMesh with DID parallelization")
         bind_(
             logical_domain[i]->extent(),
-            (int)tv->getDeviceMesh().vector().size(),
+            (int)tv->getDeviceMesh().size(),
             evaluate_validate);
       } else {
         bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
