@@ -240,8 +240,8 @@ std::vector<TensorView*> getOuterBroadcastTvs(
   std::vector<TensorView*> outer_broadcast_tvs;
   for (auto tv : ir_utils::allTvs(fusion)) {
     if (std::any_of(
-            tv->getLeafDomain().begin(),
-            tv->getLeafDomain().end(),
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
             [](IterDomain* id) { return id->isBroadcast(); })) {
       if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
         if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {

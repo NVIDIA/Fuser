@@ -23,6 +23,8 @@
 #include <exceptions.h>
 #include <executor_params.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model.h>
+#include <id_model/indexing.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
@@ -108,6 +110,30 @@ class GpuLower : public NonCopyable {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
   }
 
+  IdModel& idModel() {
+    NVF_ERROR(id_model_.get());
+    return *id_model_;
+  }
+
+  const IdModel& idModel() const {
+    NVF_ERROR(id_model_.get());
+    return *id_model_;
+  }
+
+  bool isTensorIndexerEnabled() const {
+    return tensor_indexer_.get() != nullptr;
+  }
+
+  TensorIndexer& tensorIndexer() {
+    NVF_ERROR(tensor_indexer_.get());
+    return *tensor_indexer_;
+  }
+
+  const TensorIndexer& tensorIndexer() const {
+    NVF_ERROR(tensor_indexer_.get());
+    return *tensor_indexer_;
+  }
+
   const ParallelDimensionMap& parallelDimensionMap() const {
     return parallel_dimension_map_;
   }
@@ -168,6 +194,14 @@ class GpuLower : public NonCopyable {
 
   auto& vectorizedSetInfo() {
     return vectorized_set_info_;
+  }
+
+  bool requiresIdModel() const {
+    return requires_id_model_;
+  }
+
+  bool& requiresIdModel() {
+    return requires_id_model_;
   }
 
   FusedReductionInfo& fusedReductionInfo() {
@@ -291,6 +325,8 @@ class GpuLower : public NonCopyable {
   kir::KernelPerformanceProfile profile_;
   std::unordered_set<Split*> divisible_splits_;
   CompileParams cparams_;
+  std::unique_ptr<IdModel> id_model_;
+  std::unique_ptr<TensorIndexer> tensor_indexer_;
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size
@@ -312,6 +348,10 @@ class GpuLower : public NonCopyable {
   std::vector<std::pair<const Val*, std::string>> validations_;
 
   Fusion* fusion_ = nullptr;
+
+  // A temporary flag which is true if the fusion uses any feature that requires
+  // the new experimental id model
+  bool requires_id_model_ = false;
 };
 
 } // namespace nvfuser

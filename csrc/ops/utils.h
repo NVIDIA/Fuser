@@ -16,6 +16,9 @@
 #include <vector>
 
 namespace nvfuser {
+
+enum class AttnRole { Q = 0, K, V, Mask };
+
 namespace ops {
 
 TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank);
@@ -49,12 +52,12 @@ IterType promoteIterType(IterType type1, IterType type2);
 // Args:
 // 1. input_domain: root/logical domain without reductions for any input to
 // MatmulOp
-// 2. input_role: Specifies if the input is A / B (MatmulRole::Input_A/Input_B)
+// 2. input_position: Specifies if the input is A / B (0 or 1)
 // 3: out_size: MatmulOp output dimension (input and output may not be the same
 // size).
 std::vector<IterDomain*> mapMatmulOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
-    MatmulRole input_role,
+    int64_t input_position,
     size_t out_size);
 
 // For LinearOp, the output is the same as the first input (A[*,
@@ -64,12 +67,12 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 // output. Args:
 // 1. input_domain: root/logical domain without reductions for any input to
 // LinearOp
-// 2. input_role: Specifies if the input is A / B / Bias
+// 2. input_position: Specifies if the input is A / B / Bias (0, 1, or 2)
 // (MatmulRole::Input_A/Input_B/Input_C) 3: out_size: LinearOp output dimension
 // (input and output may not be the same size).
 std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
-    MatmulRole input_role,
+    int64_t input_position,
     size_t out_size);
 
 // Takes a vector of aligned input iterdomains to create the output iterdomain.

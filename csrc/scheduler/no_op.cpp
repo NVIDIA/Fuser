@@ -77,7 +77,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Check that all outputs are either broadcast or ignored reduction.
   for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
     auto concrete_dimension = TensorDomain::noReductions(
-        TensorDomain::noBroadcasts(out_tv->getLeafDomain()));
+        TensorDomain::noBroadcasts(out_tv->getLoopDomain()));
     if (!concrete_dimension.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
           heuristicType(), "output has a concrete dimension");

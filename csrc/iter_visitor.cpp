@@ -70,7 +70,7 @@ class MemberStatements : public OptOutDispatch {
 
   void handle(TensorDomain* stmt) final {
     next_stmts_.insert(
-        next_stmts_.end(), stmt->leaf().begin(), stmt->leaf().end());
+        next_stmts_.end(), stmt->loop().begin(), stmt->loop().end());
   }
 
   void handle(TensorView* tv) final {

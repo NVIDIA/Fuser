@@ -129,7 +129,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
   std::vector<IterDomain*> allocation_dom = td->hasAllocation()
       ? updateIdVec(td->allocation())
       : std::vector<IterDomain*>();
-  std::vector<IterDomain*> domain = updateIdVec(td->leaf());
+  std::vector<IterDomain*> domain = updateIdVec(td->loop());
 
   if (!mutated) {
     return;

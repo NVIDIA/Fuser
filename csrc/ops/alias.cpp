@@ -62,6 +62,32 @@ TensorView* reshape(
       TensorDomain::noReductions(x->getLogicalDomain()).size() ==
       original_sizes.size());
 
+  // handle empty reshapes by converting to full
+  if (std::any_of(original_sizes.begin(), original_sizes.end(), [](int64_t s) {
+        return s == 0l;
+      })) {
+    // The original
+    bool has_dynamic_axis = false;
+    bool has_zero_output_size = false;
+    std::vector<Val*> new_shape;
+    new_shape.reserve(new_sizes.size());
+    for (int64_t s : new_sizes) {
+      if (s == -1l) {
+        NVF_CHECK(!has_dynamic_axis, "Only one dimension can be inferred");
+        has_dynamic_axis = true;
+        s = 0l;
+      }
+      if (s == 0l) {
+        has_zero_output_size = true;
+      }
+      new_shape.push_back(IrBuilder::create<Val>(s, DataType::Index));
+    }
+    NVF_CHECK(
+        has_zero_output_size,
+        "Output shape must have at least one 0 when input shape does");
+    return full(new_shape, x->fusion()->zeroVal(x->dtype()), x->dtype());
+  }
+
   auto view_analysis = analyzeView(x, original_sizes, new_sizes);
 
   return reshape(x, view_analysis);

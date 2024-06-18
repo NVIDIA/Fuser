@@ -118,7 +118,9 @@ Communication::Communication(
     Team team,
     DeviceIdxType root,
     RedOpType red_op,
-    int64_t scattered_axis)
+    int64_t scattered_axis,
+    TensorView* input_tv,
+    TensorView* output_tv)
     : Expr(passkey) {
   NVF_ERROR(mesh.size() > 0, "The mesh size must be greater than 0.");
   NVF_ERROR(
@@ -131,6 +133,12 @@ Communication::Communication(
   NVF_ERROR(
       (type == CommunicationType::ReduceScatter) == (scattered_axis >= 0));
 
+  if (input_tv != nullptr) {
+    addInput(input_tv);
+  }
+  if (output_tv != nullptr) {
+    addOutput(output_tv);
+  }
   addDataAttribute(type);
   addDataAttribute(mesh);
   addDataAttribute(team);
@@ -241,13 +249,16 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  std::vector<at::Tensor> input_tensors({input_tensor});
-  std::vector<std::vector<at::Tensor>> output_tensors(1);
-  output_tensors[0] = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
+  auto splits = at::split(output_tensor, /*split_size=*/1, /*dim=*/0);
+  assertBufferCount(splits, communication->team().size());
+  assertBuffersHaveSameSize({input_tensor}, splits);
 
-  assertBufferCount(output_tensors[0], communication->team().size());
-  assertBuffersHaveSameSize(input_tensors, output_tensors[0]);
-  return backend->allgather(output_tensors, input_tensors, {});
+  // allgather primitive in c10d induces extra buffering time to copy out the
+  // received tensors into user buffer. It is therefore always preferable to use
+  // _allgather_base, which does not perform any extra copy at the cost of
+  // assuming that the receive buffers are placed contiguously. See #2384 for an
+  // illustration.
+  return backend->_allgather_base(output_tensor, input_tensor, {});
 }
 
 c10::intrusive_ptr<c10d::Work> postScatter(

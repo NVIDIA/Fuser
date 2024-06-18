@@ -79,7 +79,7 @@ class ValidateSiblings : public IterVisitor {
 
       auto replay =
           BestEffortReplay(
-              sibling->getLeafDomain(), ref_output->getLeafDomain(), id_map)
+              sibling->getLoopDomain(), ref_output->getLoopDomain(), id_map)
               .getIterDomainEquivalence();
 
       for (const auto i : c10::irange(ref_ndims)) {
@@ -159,7 +159,7 @@ void validateIterDomainUsage(Fusion* fusion) {
 
 void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   for (auto tv : tvs) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (id->getParallelType() == ParallelType::Bulk) {
         NVF_ERROR(
             ir_utils::isCpAsyncBulk(tv->definition()),
@@ -327,7 +327,7 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  // Given the vectorized leaf ID in a tensor, find its innermost ancestors in
+  // Given the vectorized loop ID in a tensor, find its innermost ancestors in
   // the allocation domain.
   static IterDomain* getVectorizedIdInAllocationDomain(
       IterDomain* v_id,
@@ -430,7 +430,7 @@ class VectorizeValidator : public OptInDispatch {
   static void validate(TensorView* tv) {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (isParallelTypeVectorize(id->getParallelType())) {
         NVF_ERROR(
             v_id == nullptr,
@@ -511,7 +511,7 @@ class VectorizeValidator : public OptInDispatch {
     // vectorized set operations, so the word size is the size of this
     // specific vectorized set.
     vectorized_set_info.word_size = vector_word_size;
-    vectorized_set_info.vectorized_leaf_id = v_id;
+    vectorized_set_info.vectorized_loop_id = v_id;
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
@@ -727,7 +727,7 @@ void validateMmaTensors(MmaOp* mma) {
   }
 
   for (auto tv : to_validate) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       auto ptype = id->getParallelType();
       if (ptype == ParallelType::TIDx) {
         NVF_ERROR(
@@ -780,8 +780,8 @@ void validateMmaTensors(MmaOp* mma) {
 
     NVF_ERROR(
         std::all_of(
-            tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
-            tv->getLeafDomain().end(),
+            tv->getLoopDomain().begin() + tv->getComputeAtPosition(),
+            tv->getLoopDomain().end(),
             [](IterDomain* id) {
               return id->isMmaSwizzled() ||
                   // MMA instructions can only take inputs from registers,
@@ -813,7 +813,7 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 
   int64_t byte_size = 1;
   auto output = ldst->out()->as<TensorView>();
-  for (auto id : output->getLeafDomain()) {
+  for (auto id : output->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       byte_size = id->extent()->evaluate().as<int64_t>();
       break;
@@ -856,19 +856,19 @@ void validateMma(Fusion* fusion) {
 namespace {
 
 // Utility function to validate a loop swizzle:
-//  1. Throws an error if any output of the swizzle is not in leaf_domain set.
+//  1. Throws an error if any output of the swizzle is not in loop_domain set.
 //  2. Warns if any output of the swizzle is not the concrete id of the loop
 //  map.
 // The second case would make the codegen ignore this swizzle, as if it was not
 // there at all.
 void validateLoopSwizzle(
     Expr* swizzle_expr,
-    std::unordered_set<IterDomain*>& leaf_domains) {
+    std::unordered_set<IterDomain*>& loop_domains) {
   for (auto out_id :
        ir_utils::filterByType<IterDomain>(swizzle_expr->outputs())) {
     NVF_ERROR(
-        leaf_domains.count(out_id),
-        "Loop swizzle can only be direct producer of leaf domains.");
+        loop_domains.count(out_id),
+        "Loop swizzle can only be direct producer of loop domains.");
     if (GpuLower::current()->caMap()->getConcreteMappedID(
             out_id, IdMappingMode::LOOP) != out_id) {
       TORCH_WARN_ONCE("Ignored loop swizzle :", swizzle_expr->toString());
@@ -882,19 +882,19 @@ void validateSwizzle(Fusion* fusion) {
   auto used_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     if (tv->hasSwizzleOp()) {
-      std::unordered_set<IterDomain*> tv_leaf_domain_set(
-          tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      std::unordered_set<IterDomain*> tv_loop_domain_set(
+          tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
       // Make sure no swizzle op is inlined:
       auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
           tv->getLogicalDomain(),
-          {tv->getLeafDomain().begin(),
-           tv->getLeafDomain().begin() + tv->getMaxComputePosition()});
+          {tv->getLoopDomain().begin(),
+           tv->getLoopDomain().begin() + tv->getMaxComputePosition()});
 
       auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
           tv->getLogicalDomain(),
-          {tv->getLeafDomain().begin() + tv->getMaxComputePosition(),
-           tv->getLeafDomain().end()});
+          {tv->getLoopDomain().begin() + tv->getMaxComputePosition(),
+           tv->getLoopDomain().end()});
 
       // Check inlined swizzles: only loop swizzles can be inlined currently
       //  as inlining data swizzles would require addtional support of unswizzle
@@ -903,7 +903,7 @@ void validateSwizzle(Fusion* fusion) {
         NVF_ERROR(
             swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop,
             "Only support inlining loop swizzles");
-        validateLoopSwizzle(swizzle_expr, tv_leaf_domain_set);
+        validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
       }
 
       std::unordered_set<Expr*> inlined_swizzle_set(
@@ -920,7 +920,7 @@ void validateSwizzle(Fusion* fusion) {
             "Cannot partially inline across swizzle domains.",
             swizzle_expr->toString());
         if (swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop) {
-          validateLoopSwizzle(swizzle_expr, tv_leaf_domain_set);
+          validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
         }
       }
     }
@@ -1047,7 +1047,7 @@ void validateGroupedReductions(Fusion* fusion) {
           grouped_reduction_op->numHorizontallyGroupedExprs();
       int64_t num_grouped_iterations = 1;
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
-      for (auto axis : out_tv->getLeafDomain()) {
+      for (auto axis : out_tv->getLoopDomain()) {
         if (axis->getParallelType() == ParallelType::Group) {
           num_grouped_iterations *= axis->extent()->value().as<int64_t>();
         }
@@ -1078,14 +1078,14 @@ void validateResize(Fusion* fusion) {
   auto fusion_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     // Make sure resize is only used as part of root to logical transformations
-    auto rf_to_leaf_exprs = StmtSort::getExprsBetween(
+    auto rf_to_loop_exprs = StmtSort::getExprsBetween(
         {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
-        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
 
     NVF_ERROR(
         std::none_of(
-            rf_to_leaf_exprs.begin(),
-            rf_to_leaf_exprs.end(),
+            rf_to_loop_exprs.begin(),
+            rf_to_loop_exprs.end(),
             [](Expr* expr) { return expr->isA<Resize>(); }),
         "Invalid use of resize detected with ",
         tv->toString(),

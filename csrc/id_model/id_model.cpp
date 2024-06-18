@@ -288,7 +288,7 @@ void IdModel::buildExactGraph() {
 
     for (auto other_tv_output : other_tv_outputs) {
       // Sibling tv's must be exactly mapped with eachother so simply zip
-      // their leaf iter domains.
+      // their loop iter domains.
 
       NVF_ERROR(
           other_tv_output->getMaybeRootDomain().size() ==
@@ -506,7 +506,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
     for (auto producer_tv :
          ir_utils::filterByType<TensorView>(expr->inputs())) {
       const auto& producer_logical = producer_tv->getLogicalDomain();
-      const auto& producer_domain = producer_tv->domain()->leaf();
+      const auto& producer_domain = producer_tv->domain()->loop();
 
       // Grab all iteration domains in producer that its compute at iter domains
       // depend on.
@@ -619,7 +619,7 @@ void IdModel::buildLoopGraph() {
       *this, inlining_info, loop_promotion_map_builder_callback_);
 
   // New domains are added. Make sure there's still no self mapping in
-  // the leaf domains
+  // the loop domains
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
@@ -839,16 +839,16 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
 
 void IdModel::validateLoopGraphHasNoSelfMappedLeafDomains() const {
   for (auto tv : tvs_) {
-    auto self_mappped_leaf_pair =
-        detectSelfMapping(tv->domain()->leaf(), idGraph(IdMappingMode::LOOP));
+    auto self_mappped_loop_pair =
+        detectSelfMapping(tv->domain()->loop(), idGraph(IdMappingMode::LOOP));
     NVF_ERROR(
-        !self_mappped_leaf_pair.has_value(),
-        "Detected leaf domains are mapped in the loop graph. Tensor: ",
+        !self_mappped_loop_pair.has_value(),
+        "Detected loop domains are mapped in the loop graph. Tensor: ",
         tv->toString(),
-        ". Mapped leaf domains: ",
-        self_mappped_leaf_pair->first->toString(),
+        ". Mapped loop domains: ",
+        self_mappped_loop_pair->first->toString(),
         " and ",
-        self_mappped_leaf_pair->second->toString());
+        self_mappped_loop_pair->second->toString());
   }
 }
 
@@ -873,6 +873,30 @@ std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
         nvfuser::toString(new_groups.front()));
   }
   return new_map;
+}
+
+// Mostly just copied from ComputeAtMap::validateAndPropagatePType
+void IdModel::validateAndPropagatePType() {
+  for (const ValGroup& loop_group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    ParallelType common_ptype = ParallelType::Serial;
+    for (Val* id : *loop_group) {
+      auto id_ptype = id->as<IterDomain>()->getParallelType();
+      NVF_ERROR(
+          id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
+              common_ptype == ParallelType::Serial,
+          "Issue validating parallel type disjoint ptype is, ",
+          common_ptype,
+          " but found in the set the id: ",
+          id->toString());
+      common_ptype =
+          common_ptype == ParallelType::Serial ? id_ptype : common_ptype;
+    }
+
+    for (auto id : *loop_group) {
+      id->as<IterDomain>()->parallelize(common_ptype);
+    }
+  }
 }
 
 } // namespace nvfuser

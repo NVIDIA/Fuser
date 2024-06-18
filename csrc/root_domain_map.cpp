@@ -182,9 +182,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
-    MatmulRole input_role = producer_tv_->sameAs(op->inA())
-        ? MatmulRole::INPUT_A
-        : MatmulRole::INPUT_B;
+    int64_t input_position = producer_tv_->sameAs(op->inA()) ? 0 : 1;
     auto out_size = consumer_root.size();
 
     // For MatmulOp, the input iterdomains at a given index do not necessarily
@@ -196,7 +194,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // 2. `B, M, K] x [K, N] -> [B, M, N]`: For  input B, the second iterdomain
     // maps to the third output iterdomain.
     const std::vector<IterDomain*>& aligned_producer_ids =
-        ops::mapMatmulOpIterDomains(producer_logical, input_role, out_size);
+        ops::mapMatmulOpIterDomains(producer_logical, input_position, out_size);
     pairwiseMapAllIds(aligned_producer_ids, consumer_root);
     return dom_map;
   }
@@ -205,27 +203,56 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     auto out_size = consumer_root.size();
 
     // Check if the producer is A, B or bias.
-    std::optional<MatmulRole> input_role = std::nullopt;
+    int64_t input_position = -1;
     if (producer->sameAs(op->inA()->as<TensorView>()->domain())) {
-      input_role = MatmulRole::INPUT_A;
+      input_position = 0;
     } else if (producer->sameAs(op->inB()->as<TensorView>()->domain())) {
-      input_role = MatmulRole::INPUT_B;
+      input_position = 1;
     } else if (producer->sameAs(op->bias()->as<TensorView>()->domain())) {
-      input_role = MatmulRole::INPUT_C;
+      input_position = 2;
     } else {
       NVF_ERROR(false, "Producer did not match any LinearOp input.")
     }
 
     // LinearOp:
-    // inputs (INPUT_A) = {*, in_features}
-    // weight (INPUT_B) = {out_features, in_features} / {in_features}
-    // bias (INPUT_C) = {out_features} / {}
+    // inputs (0) = {*, in_features}
+    // weight (1) = {out_features, in_features} / {in_features}
+    // bias (2) = {out_features} / {}
     // output = {*, out_features} / {*}
 
     const std::vector<IterDomain*>& aligned_producer_ids =
-        ops::mapLinearOpIterDomains(
-            producer_logical, input_role.value(), out_size);
+        ops::mapLinearOpIterDomains(producer_logical, input_position, out_size);
     pairwiseMapAllIds(aligned_producer_ids, consumer_root);
+    return dom_map;
+  }
+
+  if (SdpaFwdOp* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())) {
+    // Producers:
+    //   query = [N, H, L, E]
+    //   key = [N, H, S, E]
+    //   value = [N, H, S, Ev]
+    // Consumers:
+    //   output = [N, H, L, Ev]
+    //   logsumexp = [N, H, L]
+    //   cum_seq_q/k = [N + 1]
+
+    // Map N, H from any input (query/key/value)
+    for (auto idx : c10::irange(consumer_root.size())) {
+      if (idx < 2) {
+        updatePairwiseRootDomainMap(
+            producer_logical.at(idx), consumer_root.at(idx));
+      }
+      // Map L, E from query and value respectively
+      if (idx == 2 && producer_tv_->sameAs(op->query())) {
+        updatePairwiseRootDomainMap(
+            producer_logical.at(2), consumer_root.at(2));
+      }
+      // Map Ev from value to output
+      if (idx == 3 && producer_tv_->sameAs(op->value())) {
+        updatePairwiseRootDomainMap(
+            producer_logical.at(3), consumer_root.at(3));
+      }
+    }
     return dom_map;
   }
 
