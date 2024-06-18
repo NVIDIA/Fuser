@@ -544,8 +544,7 @@ struct outerReduHeuristicParas {
        << "total_iteration_numel: " << total_iteration_numel << "\n"
        << "vectorize_factor: " << iter_unroll_factor << "\n"
        << "redu_unroll_factor: " << redu_unroll_factor << "\n"
-       << "grid(" << gidim << ", " << grdim << ", 1)"
-       << "\n"
+       << "grid(" << gidim << ", " << grdim << ", 1)" << "\n"
        << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
     return ss.str();
   }
@@ -672,8 +671,11 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
       sm_count);
 
   // (4) increase bdimx to its maximum
-  hp.bdimx = scheduler_utils::roundUpPow2(
-      ceilDiv(total_iteration_numel, hp.gidim * hp.iter_unroll_factor));
+  // If round up bdimx to pow2, then gidim should be pow2 for popular pow2
+  // sizes. However, A100 has 108 SMs, using 64 or 128 blocks are not efficient.
+  // So, if block reduction is enforced, round up to pow2 or multiply of 8.
+  hp.bdimx = ceilDiv(total_iteration_numel, hp.gidim * hp.iter_unroll_factor);
+  hp.bdimx = scheduler_utils::roundUpPow2(hp.bdimx);
   hp.bdimx = std::min(hp.bdimx, max_threads_per_block);
 
   // (5) re-calculate gidim after bdimx to fix round up differences. Also
@@ -701,8 +703,11 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
 
   // (2) Good heuristic if we have enough blocks to saturate the device or it's
   // a small reduction. This cut-off is empirical based on H100.
-  int64_t blk_gidim_min = (int64_t)(0.88f * (float)sm_count);
-  if (hp.gidim >= blk_gidim_min || small_reduction) {
+    return std::make_optional(hp);
+  const float min_sm_efficiency = small_reduction ? 0.60f : 0.88f;
+  float f_wave = (float)hp.gidim / (float)sm_count;
+  float sm_efficiency = f_wave / std::ceil(f_wave);
+  if (sm_efficiency >= min_sm_efficiency) {
     return std::make_optional(hp);
   } else {
     return std::nullopt;
