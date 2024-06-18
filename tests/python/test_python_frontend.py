@@ -4220,6 +4220,19 @@ class TestNvFuserFrontend(TestCase):
                 ), f"At least three entries match in {output}"
 
     def test_matmul_issue_2354(self):
+        inputs = [
+            torch.randn((8, 4), dtype=torch.float32, device="cuda:0"),
+            torch.randn(
+                (
+                    6,
+                    2,
+                    4,
+                ),
+                dtype=torch.float32,
+                device="cuda:0",
+            ),
+        ]
+
         def fusion_func(fd: FusionDefinition):
             T0 = fd.define_tensor(
                 shape=[-1, -1],
@@ -4240,22 +4253,6 @@ class TestNvFuserFrontend(TestCase):
             T4 = fd.ops.mul(T2, S3)
             fd.add_output(T2)
             fd.add_output(T4)
-
-        with FusionDefinition() as fd:
-            fusion_func(fd)
-
-        inputs = [
-            torch.randn((8, 4), dtype=torch.float32, device="cuda:0"),
-            torch.randn(
-                (
-                    6,
-                    2,
-                    4,
-                ),
-                dtype=torch.float32,
-                device="cuda:0",
-            ),
-        ]
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
