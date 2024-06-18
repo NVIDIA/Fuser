@@ -353,19 +353,17 @@ std::unordered_set<IterDomain*> findIdSubset(
   return id_subset;
 }
 
-// Factor amax reduction into partial reductions.
-// Map common reduction iterDomains to integer axes
-
 // Get reduction indices to factor from current TensorView
-//  * Scan through reference ids
+//  * Scan through selected iterDomains
 //  * Find corresponding match for this TensorView
-//  * Return position for reduction id in this TensorView
+//  * Return position for iterDomain in this TensorView
 std::vector<int64_t> convertIterDomainToInteger(
     const DisjointSets<Val*>& exact_val_sets,
     const std::unordered_set<IterDomain*>& id_set,
     TensorView* tv) {
   std::vector<int64_t> indices;
   indices.reserve(id_set.size());
+
   std::transform(
       id_set.begin(),
       id_set.end(),
@@ -380,26 +378,29 @@ std::vector<int64_t> convertIterDomainToInteger(
             });
         return std::distance(tv->getLogicalDomain().begin(), iter);
       });
+
   return indices;
 }
 
 void FactorReductionPass::runPass(Fusion* fusion) {
-  std::vector<Val*> output_tvs;
-
-  // start from outputs tvs
+  // Factor each multiple amax reductions TensorViews
+  std::vector<Val*> amax_reduction_vals;
   std::copy_if(
       fusion->outputs().begin(),
       fusion->outputs().end(),
-      std::back_inserter(output_tvs),
-      [](Val* v) { return v->isA<TensorView>(); });
+      std::back_inserter(amax_reduction_vals),
+      [](Val* v) {
+        return v->isA<TensorView>() && detectAmaxPattern(v->as<TensorView>());
+      });
 
-  for (Val* output_tv : output_tvs) {
-    TensorView* amax_reduction = detectAmaxPattern(output_tv->as<TensorView>());
-    // Stop if we cannot find amax reduction pattern
-    if (amax_reduction == nullptr) {
-      std::cout << "Failed to find amax reduction pattern" << std::endl;
-      continue;
-    }
+  // Stop if we cannot find amax reduction pattern
+  if (amax_reduction_vals.empty()) {
+    std::cout << "Failed to find any amax reduction pattern." << std::endl;
+    return;
+  }
+
+  for (Val* amax_reduction_val : amax_reduction_vals) {
+    TensorView* amax_reduction = amax_reduction_val->as<TensorView>();
 
     // Detect dependency chain between amax and some reduction operation
     // Stop if we cannot find any compatible reduction tvs
@@ -413,7 +414,7 @@ void FactorReductionPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    // Given TensorViews, partition reduction axes into compatible sets.
+    // Create Exact Id Graph
     FusionGuard fg(fusion);
     IdModel id_model(
         fusion, /*build_graphs=*/false, /*allow_self_mapping=*/true);
@@ -421,6 +422,7 @@ void FactorReductionPass::runPass(Fusion* fusion) {
     ValGraph exact_graph = id_model.idGraph(IdMappingMode::EXACT);
     const DisjointSets<Val*>& exact_val_sets = exact_graph.disjointValSets();
 
+    // Partition amax reduction axes into partial reduction.
     std::unordered_set<IterDomain*> reduction_id_subset =
         findIdSubset(exact_val_sets, upstream_tv, amax_reduction);
     NVF_ERROR(std::all_of(
@@ -428,6 +430,7 @@ void FactorReductionPass::runPass(Fusion* fusion) {
         reduction_id_subset.end(),
         [](IterDomain* id) { return id->isReduction(); }));
 
+    // Map selected reduction iterDomains to integer axes
     std::vector<int64_t> rfactor_indices = convertIterDomainToInteger(
         exact_val_sets, reduction_id_subset, amax_reduction);
 
@@ -436,13 +439,12 @@ void FactorReductionPass::runPass(Fusion* fusion) {
         amax_reduction->getLogicalDomain().end(),
         [](IterDomain* id) { return id->isReduction(); });
 
-    // Skip if all ids are used for this TensorView
-    if (rfactor_indices.size() < num_reduction_ids) {
-      std::cout << rfactor_indices << std::endl;
-      factorReductionTensorView(amax_reduction, rfactor_indices);
-      // Only apply partial rfactor once
-      return;
+    if (rfactor_indices.size() == num_reduction_ids) {
+      // Skip if all ids are used for this TensorView
+      continue;
     }
+
+    factorReductionTensorView(amax_reduction, rfactor_indices);
   }
 }
 
