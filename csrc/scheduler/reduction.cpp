@@ -706,7 +706,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   // Try to hit a wave by going cross reduction
   grdim = std::min(rDimAvail(), ceilDiv(device_multiprocessor_count, gidim));
-  // // Extend to go to target blocks
+  // Extend to go to target blocks
   if (gidim * grdim < target_blocks) {
     // What should we use out of the reduction factor to hit target blocks? Make
     // sure we have 2 reductions per thread beyond what's already set as we
