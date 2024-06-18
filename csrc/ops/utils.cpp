@@ -197,7 +197,7 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
   }
 
   // Input A to matmul: {*, M, K}
-  // Input B to matmul: {*, K, N} 
+  // Input B to matmul: {*, K, N}
   auto kpos = input_position == 0 ? inp_size - 1 : inp_size - 2;
 
   // Last position is a reduction dimension mapping to K

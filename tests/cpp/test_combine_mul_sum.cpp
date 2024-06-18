@@ -271,7 +271,8 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
   }
 }
 
-// Parameters: [A_dim, B_dim, enable_fusion, transpose_a_alloc, expect_segmented, SchedulerHeuristic]
+// Parameters: [A_dim, B_dim, enable_fusion, transpose_a_alloc,
+// expect_segmented, SchedulerHeuristic]
 using MatmulNodeTranslationTestParams =
     std::tuple<int64_t, int64_t, bool, bool, bool, ScheduleHeuristic>;
 using MatmulNodeTranslationTest =
@@ -396,13 +397,7 @@ INSTANTIATE_TEST_SUITE_P(
         // Size-1 input combinations
         std::make_tuple(1l, 2l, true, false, true, ScheduleHeuristic::ExprEval),
         std::make_tuple(2l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
-        std::make_tuple(
-            1l,
-            1l,
-            true,
-            false,
-            true,
-            ScheduleHeuristic::ExprEval),
+        std::make_tuple(1l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
         // Batch dims
         std::make_tuple(3l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
         std::make_tuple(3l, 3l, true, false, false, ScheduleHeuristic::Matmul),
