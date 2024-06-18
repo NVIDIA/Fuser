@@ -554,7 +554,8 @@ if(BUILD_TEST)
   target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 endif()
 
-function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
+  message("add_test_without_main: ${TEST_NAME} ${TEST_SRC} ${ADDITIONAL_LINK}")
   list(APPEND TEST_SRC ${NVFUSER_ROOT}/tests/cpp/utils.cpp)
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
@@ -571,7 +572,7 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
     codegen_internal
     ${ADDITIONAL_LINK}
     dynamic_type
-    GTest::gtest_main GTest::gmock
+    GTest::gtest GTest::gmock
     flatbuffers
     ${TORCH_LIBRARIES}
   )
@@ -581,6 +582,11 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
       -Wall -Wno-unused-function -Werror
     )
   endif()
+endfunction()
+
+function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+  list(APPEND ADDITIONAL_LINK "GTest::gtest_main")
+  add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
 endfunction()
 
 if(BUILD_TEST)
@@ -626,6 +632,8 @@ if(BUILD_TEST)
 
   add_test(test_host_ir "${NVFUSER_ROOT}/tests/cpp/test_host_irs.cpp" "")
   list(APPEND TEST_BINARIES test_host_ir)
+
+  add_test_without_main(test_custom_main "${NVFUSER_ROOT}/tests/cpp/test_custom_main.cpp" "")
 
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
