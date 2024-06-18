@@ -147,11 +147,13 @@ def correctness_test_fn(
         return jax_correctness_test_fn(_fd_fn, nvf_op, sample)
     elif reference_type == ReferenceType.Python:
         return python_correctness_test_fn(_fd_fn, nvf_op, sample)
+    elif reference_type == ReferenceType.Numpy:
+        pytest.xfail("Numpy feference functions are not supported.")
     else:
-        return None
+        pytest.xfail("Reference function is not defined for this correctness test.")
 
 
-@create_op_test(tuple(op for op in opinfos if op.reference is not None))
+@create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, dtype):
         result = correctness_test_fn(op.reference_type, op, sample)

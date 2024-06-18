@@ -81,8 +81,8 @@ define_tensor_opinfo = OpInfo(
     "define_tensor",
     sample_input_generator=define_tensor_generator,
     error_input_generator=define_tensor_error_generator,
-    fd_correctness_fn=tensor_input_fd_fn,
     fd_error_input_fn=tensor_input_fd_fn,
+    reference_type=ReferenceType.Undefined,
 )
 fusion_input_ops.append(define_tensor_opinfo)
 

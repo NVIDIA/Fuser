@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+import pytest
 import torch
 from torch.testing import make_tensor
 from typing import Optional
@@ -23,7 +24,7 @@ def requiresJAX(fn):
     @wraps(fn)
     def _fn(*args, **kwargs):
         if not JAX_AVAILABLE:
-            pytest.skip("Requires JAX")
+            pytest.xfail("Requires JAX")
         return fn(*args, **kwargs)
 
     return _fn
