@@ -2549,7 +2549,6 @@ class SdpaBwdOp : public Expr {
       TensorView* grad_query,
       TensorView* grad_key,
       TensorView* grad_value,
-      
       TensorView* grad_output,
       TensorView* query,
       TensorView* key,
@@ -2572,7 +2571,7 @@ class SdpaBwdOp : public Expr {
     return "SdpaBwdOp";
   }
 
-  // std::string toString(int indent_size = 0) const override;
+  std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,

@@ -232,4 +232,95 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
     }
   }
 }
+
+TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> q_shape({n, h, l, e});
+  std::vector<int64_t> k_shape({n, h, s, e});
+  std::vector<int64_t> v_shape({n, h, s, e});
+  std::vector<int64_t> attn_shape({n, h, l, e});
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor q = at::randn(q_shape, options);
+  at::Tensor k = at::randn(k_shape, options);
+  at::Tensor v = at::randn(v_shape, options);
+
+  double scale = 1.0 / std::sqrt(e);
+  auto
+      [output,
+       log_sumexp,
+       cum_seq_q,
+       cum_seq_k,
+       query_seq_len,
+       key_seq_len,
+       philox_seed,
+       philox_offset,
+       debug_attn_mask] = at::_scaled_dot_product_flash_attention(
+      q,
+      k,
+      v,
+      /*dropout_p=*/0.0,
+      /*is_causal=*/false,
+      /*return_debug_mask=*/false,
+      scale);
+
+  auto tv_grad_output = makeSymbolicTensor(attn_shape, DataType::Half);
+  auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
+  auto tvk = makeSymbolicTensor(k_shape, DataType::Half);
+  auto tvv = makeSymbolicTensor(k_shape, DataType::Half);
+  auto tv_output = makeSymbolicTensor(attn_shape, DataType::Half);
+  auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
+  auto tv_cumq = makeSymbolicTensor(1, DataType::Int);
+  auto tv_cumk = makeSymbolicTensor(1, DataType::Int);
+  auto tv_seed = makeSymbolicTensor({}, DataType::Int);
+  auto tv_offset = makeSymbolicTensor({}, DataType::Int);
+
+  fusion->addInput(tv_grad_output);
+  fusion->addInput(tvq);
+  fusion->addInput(tvk);
+  fusion->addInput(tvv);
+  fusion->addInput(tv_output);
+  fusion->addInput(tv_logsumexp);
+  fusion->addInput(tv_cumq);
+  fusion->addInput(tv_cumk);
+  fusion->addInput(tv_seed);
+  fusion->addInput(tv_offset);
+
+  auto tvgrad = sdpfa_bwd(
+      tv_grad_output,
+      tvq,
+      tvk,
+      tvv,
+      tv_output,
+      tv_logsumexp,
+      tv_cumq,
+      tv_cumk,
+      /*max_q=*/IrBuilder::create<Val>(*query_seq_len.maybe_as_int()),
+      /*max_k=*/IrBuilder::create<Val>(*key_seq_len.maybe_as_int()),
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(false),
+      tv_seed,
+      tv_offset,
+      /*scale=*/nullptr);
+
+  fusion->addOutput(tvgrad.grad_query);
+  fusion->addOutput(tvgrad.grad_key);
+  fusion->addOutput(tvgrad.grad_value);
+
+  at::Tensor grad_out = at::randn(attn_shape, options);
+
+  std::vector<c10::IValue> sdpa_bwd_inputs = {grad_out, q, k, v, output, log_sumexp, cum_seq_q, cum_seq_k, philox_seed, philox_offset};
+  FusionExecutor fe;
+  std::for_each(
+    fusion->outputs().begin(),
+    fusion->outputs().end(),
+    [&](Val* out){fusion->aliasOutputToInput(
+      out, /*input=*/nullptr, AllocationType::Evaluate);});
+  
+  fe.compileFusion(fusion.get(), sdpa_bwd_inputs);
+  auto out = fe.runFusion(sdpa_bwd_inputs);
+
+}
 } // namespace nvfuser

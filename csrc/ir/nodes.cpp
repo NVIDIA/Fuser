@@ -4794,6 +4794,12 @@ SdpaBwdOp::SdpaBwdOp(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaBwdOp)
 
+std::string SdpaBwdOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "sdpa_bwd" << "\n";
+  return ss.str();
+}
+
 std::string SdpaBwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }

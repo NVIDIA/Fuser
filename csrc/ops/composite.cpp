@@ -581,17 +581,14 @@ SdpfaBwdResult sdpfa_bwd(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
 
   // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
-  // N, H are mapped for all inputs to outputs. L is mapped from query to
-  // output. Ev is mapped from value to output. Note: There is no mapping for S,
-  // E. This may change in the future if we add additional reduction ids to the
-  // output.
-  auto ndims_out = query_domain.size();
-
-  TensorView* grad_query = newOutputTV({query}, query->dtype());
-  TensorView* grad_key = newOutputTV({key}, key->dtype());
-  TensorView* grad_value = newOutputTV({value}, value->dtype());
+  TensorView* grad_query = ops::newOutputTV({query}, query->dtype());
+  TensorView* grad_key = ops::newOutputTV({key}, key->dtype());
+  TensorView* grad_value = ops::newOutputTV({value}, value->dtype());
 
   IrBuilder::create<SdpaBwdOp>(
+    grad_query,
+    grad_key,
+    grad_value,
     grad_output,
     query,
     key,
