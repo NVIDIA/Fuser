@@ -101,11 +101,11 @@ static TensorView* newForLinear(
 
 TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
   auto input_ndims =
-      TensorDomain::noDevices(TensorDomain::noReductions(input->getLogicalDomain())).size();
+      TensorDomain::noReductions(input->getLogicalDomain()).size();
   NVF_CHECK(input_ndims > 0, "Input A must be atleast 1D.");
 
   auto weight_ndims =
-      TensorDomain::noDevices(TensorDomain::noReductions(weight->getLogicalDomain())).size();
+      TensorDomain::noReductions(weight->getLogicalDomain()).size();
   NVF_CHECK(
       weight_ndims == 1 || weight_ndims == 2,
       "Input B must be a 1D / 2D tensor.");

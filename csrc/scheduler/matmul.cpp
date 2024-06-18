@@ -738,6 +738,7 @@ void scheduleSplitKSum(
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   FusionGuard fg(fusion);
+
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
