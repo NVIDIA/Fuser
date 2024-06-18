@@ -60,72 +60,42 @@ void checkMatmulOpIdMapping(
 
   // If K is Broadcast then we will not have a reduction dim
   bool k_bcast = A->axis(-1)->isBroadcast();
-  int64_t red_dims = k_bcast ? 0 : 1;
+  auto out_ndims = std::max(A->nDims(), B->nDims()) + 1;
+  if (std::min(A->nDims(), B->nDims()) == 1) {
+    out_ndims = std::max(A->nDims(), B->nDims());
+  }
+  ASSERT_EQ(output->nDims(), out_ndims);
 
-  if (A->nDims() == 1 && B->nDims() == 1) {
-    // [K] @ [K] = []
-    // Note there is no IterType::Reduction dim ever in this case because we
-    // translate to a mul+sum+cast
-    EXPECT_EQ(output->nDims(), 0);
-    // When K is Broadcast, we squeeze then multiply then cast instead
-    if (!k_bcast) {
-      EXPECT_TRUE(checkMapped(vg, A->axis(0), B->axis(0))); // K
+  if (A->nDims() > 1) {
+    int out_mpos = B->nDims() > 1 ? -3 : -2;
+    EXPECT_TRUE(checkMapped(vg, A->axis(-2), output->axis(out_mpos))); // M
+  }
+
+  if (B->nDims() > 1) {
+    EXPECT_TRUE(checkMapped(vg, B->axis(-1), output->axis(-2))); // N
+  }
+
+  if (!k_bcast) {
+    int b_kpos = B->nDims() > 1 ? -2 : -1; // {..iK, iN} or {iK}
+    EXPECT_TRUE(checkMapped(vg, A->axis(-1), B->axis(b_kpos))); // K
+    EXPECT_TRUE(checkMapped(vg, A->axis(-1), output->axis(-1))); // K
+  }
+
+  // Check that batch dims are mapped
+  // Note that A and B can have different dimensions, so here we count
+  // backwards from the innermost batch dimension. Then we check that the axis
+  // exists (is not negative) and is not Broadcast before checking mapping.
+  int batch_ndims = output->nDims() - (B->nDims() > 1) - (A->nDims() > 1) - 1;
+  for (int64_t i : c10::irange(batch_ndims)) {
+    int64_t i_a = A->nDims() - 3 - i;
+    int64_t i_b = B->nDims() - 3 - i;
+    int64_t i_out = batch_ndims - 1 - i;
+    if (i_a >= 0 && !A->axis(i_a)->isBroadcast()) {
+      EXPECT_TRUE(checkMapped(vg, A->axis(i_a), output->axis(i_out)));
     }
-  } else if (A->nDims() > 1 && B->nDims() == 1) {
-    // [..., iM, iK] @ [iK] = [..., iM, rK]
-    ASSERT_EQ(output->nDims(), A->nDims() + red_dims - 1);
-    EXPECT_TRUE(checkMapped(vg, A->axis(-2), output->axis(-1 - red_dims))); // M
-    if (!k_bcast) {
-      EXPECT_TRUE(checkMapped(vg, A->axis(-1), B->axis(0))); // K
-      EXPECT_TRUE(checkMapped(vg, A->axis(-1), output->axis(-1))); // K
+    if (i_b >= 0 && !B->axis(i_b)->isBroadcast()) {
+      EXPECT_TRUE(checkMapped(vg, B->axis(i_b), output->axis(i_out)));
     }
-    // Check that batch dims are mapped
-    for (int64_t i : c10::irange(output->nDims() - red_dims - 1)) {
-      if (!A->axis(i)->isBroadcast()) {
-        EXPECT_TRUE(checkMapped(vg, A->axis(i), output->axis(i)));
-      }
-    }
-  } else if (A->nDims() == 1 && B->nDims() > 1) {
-    // [iK] @ [..., iK, iN] = [..., iN, rK]
-    ASSERT_EQ(output->nDims(), B->nDims() + red_dims - 1);
-    EXPECT_TRUE(checkMapped(vg, B->axis(-1), output->axis(-1 - red_dims))); // N
-    if (!k_bcast) {
-      EXPECT_TRUE(checkMapped(vg, A->axis(0), B->axis(-2))); // K
-      EXPECT_TRUE(checkMapped(vg, A->axis(0), output->axis(-1))); // K
-    }
-    // Check that batch dims are mapped
-    for (int64_t i : c10::irange(output->nDims() - red_dims - 1)) {
-      if (!B->axis(i)->isBroadcast()) {
-        EXPECT_TRUE(checkMapped(vg, B->axis(i), output->axis(i)));
-      }
-    }
-  } else if (A->nDims() > 1 && B->nDims() > 1) {
-    // [..., iM, iK] @ [..., iK, iN] = [..., iM, iN, rK]
-    ASSERT_EQ(output->nDims(), std::max(A->nDims(), B->nDims()) + red_dims);
-    EXPECT_TRUE(checkMapped(vg, A->axis(-2), output->axis(-2 - red_dims))); // M
-    EXPECT_TRUE(checkMapped(vg, B->axis(-1), output->axis(-1 - red_dims))); // N
-    if (!k_bcast) {
-      EXPECT_TRUE(checkMapped(vg, A->axis(-1), B->axis(-2))); // K
-      EXPECT_TRUE(checkMapped(vg, A->axis(-1), output->axis(-1))); // K
-    }
-    // Check that batch dims are mapped
-    // Note that A and B can have different dimensions, so here we count
-    // backwards from the innermost batch dimension. Then we check that the axis
-    // exists (is not negative) and is not Broadcast before checking mapping.
-    for (int64_t i : c10::irange(output->nDims() - red_dims - 2)) {
-      int64_t i_a = A->nDims() - 3 - i;
-      int64_t i_b = B->nDims() - 3 - i;
-      int64_t i_out = output->nDims() - red_dims - 3 - i;
-      if (i_a >= 0 && !A->axis(i_a)->isBroadcast()) {
-        EXPECT_TRUE(checkMapped(vg, A->axis(i_a), output->axis(i_out)));
-      }
-      if (i_b >= 0 && !B->axis(i_b)->isBroadcast()) {
-        EXPECT_TRUE(checkMapped(vg, B->axis(i_b), output->axis(i_out)));
-      }
-    }
-  } else {
-    std::cerr << "Unhandled set of input dimensions" << std::endl;
-    EXPECT_TRUE(false);
   }
 }
 
