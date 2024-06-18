@@ -51,11 +51,10 @@ class SampleInput:
 
     def jax(self):
         from pytest_utils import JAX_AVAILABLE
+
         if JAX_AVAILABLE:
-            import jax
             import torch_to_jax_dtype_map
             import jax.numpy as jnp
-
 
         def to_jax(t):
             if isinstance(t, torch.Tensor):

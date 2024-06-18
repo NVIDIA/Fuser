@@ -64,6 +64,7 @@ from pytest_utils import (
 from functools import partial
 
 from pytest_utils import JAX_AVAILABLE
+
 if JAX_AVAILABLE:
     import jax
 

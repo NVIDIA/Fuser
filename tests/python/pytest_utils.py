@@ -10,11 +10,14 @@ from functools import wraps
 from enum import Enum, auto
 
 try:
+    # flake8: noqa
     import jax
+
     JAX_AVAILABLE = True
 except ImportError as e:
     JAX_AVAILABLE = False
     pass
+
 
 def requiresJAX(fn):
     @wraps(fn)
@@ -24,6 +27,7 @@ def requiresJAX(fn):
         return fn(*args, **kwargs)
 
     return _fn
+
 
 class ArgumentType(Enum):
     # a symbolic value requires an input argument during kernel execution
@@ -83,7 +87,6 @@ map_dtype_to_str = {
 
 _torch_to_jax_dtype_map = None
 if JAX_AVAILABLE:
-    import jax
     import jax.numpy as jnp
 
     _torch_to_jax_dtype_map = {

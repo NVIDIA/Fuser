@@ -10,7 +10,6 @@ from pytest_utils import map_dtype_to_str
 import pytest
 
 
-
 def _instantiate_opinfo_test_template(
     template: Callable, *, opinfo, dtype: torch.dtype
 ) -> Callable:
