@@ -1221,8 +1221,7 @@ TensorRolesMapOpt getTensorRoles(
 
   const auto findDims = [&dim_roles, &permissive_graph](TensorView* tv) {
     DimPresence has;
-    for (IterDomain* id : TensorDomain::noDevices(
-             TensorDomain::noReductions(tv->getLogicalDomain()))) {
+    for (IterDomain* id : TensorDomain::noReductions(tv->getLogicalDomain())) {
       if (id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }

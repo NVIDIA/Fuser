@@ -328,7 +328,7 @@ void propagateShardings(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    if (inputs.size() == 0) {
+    if (inputs.empty()) {
       continue;
     }
     TensorView* input_with_mesh = nullptr;
