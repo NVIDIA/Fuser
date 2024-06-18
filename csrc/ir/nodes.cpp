@@ -2553,13 +2553,13 @@ IterDomain* IterDomain::merge(
     IterDomain* outer,
     IterDomain* inner,
     bool rfactor_domain) {
-  // NVF_CHECK(
-  //     outer->isReduction() == inner->isReduction(),
-  //     "Merging IterDomains requires that their iteration types match. ",
-  //     "Outer: ",
-  //     outer->toString(),
-  //     ", Inner: ",
-  //     inner->toString());
+  NVF_CHECK(
+      outer->isReduction() == inner->isReduction(),
+      "Merging IterDomains requires that their iteration types match. ",
+      "Outer: ",
+      outer->toString(),
+      ", Inner: ",
+      inner->toString());
   NVF_CHECK(
       (outer->isGather() && inner->isGather()) ||
           (!outer->isGather() && !inner->isGather()),

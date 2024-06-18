@@ -13,11 +13,6 @@
 
 namespace nvfuser::preseg_passes {
 
-// TODO: other special ops?
-bool isViewOp(TensorView* tv) {
-  return tv->definition() != nullptr && tv->definition()->isA<ViewOp>();
-}
-
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   const AliasAnalysisResult analysis =
       findAliases(fusion, /*can_override_empty_allocation_domain=*/true);
@@ -31,8 +26,6 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   // forward an input). Code will later add `segment_set` before them so aliases
   // are separated from non-aliases and more likely to be accepted by the no-op
   // scheduler.
-  std::unordered_set<TensorView*> tvs_aliased_to_inputs;
-  std::unordered_set<TensorView*> output_aliased_to_intermediates;
   std::unordered_set<TensorView*> aliased_outs;
 
   for (TensorView* tv : ir_utils::allTvs(fusion)) {
@@ -45,13 +38,6 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
         !aliased_io->isFusionInput() &&
         analysis.getNearestAliasedIo(aliased_io) == nullptr) {
       aliased_outs.insert(aliased_io);
-    } else if (
-        aliased_io->isFusionInput() && !tv->isFusionOutput() && isViewOp(tv)) {
-      tvs_aliased_to_inputs.insert(tv);
-    } else if (
-        tv->isFusionOutput() && !aliased_io->isFusionOutput() &&
-        !aliased_io->isFusionInput() && isViewOp(tv)) {
-      output_aliased_to_intermediates.insert(aliased_io);
     }
 
     // `AliasAnalysisResult::finalize` already checked the alias-enabling layout
@@ -116,29 +102,6 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     //
     // and then put a `segment_set` on N/M->M1.
     aliased_out->cacheBefore(LoadStoreOpType::SegmenterSet);
-  }
-
-  for (TensorView* tv : tvs_aliased_to_inputs) {
-    // Rarely, if `tv` is already defined by `segment_set`, don't
-    // create another `segment_set`.
-    if (LoadStoreOp* def = dynamic_cast<LoadStoreOp*>(tv->definition())) {
-      if (def != nullptr && def->opType() == LoadStoreOpType::SegmenterSet) {
-        continue;
-      }
-    }
-    tv->cacheAfter(LoadStoreOpType::SegmenterSet);
-  }
-
-  for (TensorView* aliased_root : output_aliased_to_intermediates) {
-    // Rarely, if `aliased_root` is already defined by `segment_set`, don't
-    // create another `segment_set`.
-    if (LoadStoreOp* def =
-            dynamic_cast<LoadStoreOp*>(aliased_root->definition())) {
-      if (def != nullptr && def->opType() == LoadStoreOpType::SegmenterSet) {
-        continue;
-      }
-    }
-    aliased_root->cacheAfter(LoadStoreOpType::SegmenterSet);
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {

@@ -412,22 +412,14 @@ bool okToRelayout(
 
 void AliasAnalysisResult::finalize(
     const bool can_override_empty_allocation_domain) {
-  bool pre_segmenter_stage = can_override_empty_allocation_domain;
   for (auto [alias, root_and_layout] : alias_to_source_) {
     auto [root, preferred_layout] = root_and_layout;
-    // allow output tv to alias intermediate tv, then will add segment_set
-    // before output tv which changes the output to be a no op for non-output
-    // tv. Otherwise, walk up the chain to find an input or output root.
-    bool output_alias_intermediate =
-        pre_segmenter_stage && alias->isFusionOutput();
-    if (!output_alias_intermediate) {
-      while (root != nullptr && !root->isFusionInput() &&
-             !root->isFusionOutput()) {
-        const auto i = alias_to_source_.find(root);
-        root = (i == alias_to_source_.end() ? nullptr : i->second.first);
-      }
+    // Walks up the `alias_to_source_` chain.
+    while (root != nullptr && !root->isFusionInput() &&
+           !root->isFusionOutput()) {
+      const auto i = alias_to_source_.find(root);
+      root = (i == alias_to_source_.end() ? nullptr : i->second.first);
     }
-
     if (root == nullptr) {
       continue;
     }

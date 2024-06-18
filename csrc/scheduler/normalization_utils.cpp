@@ -1382,10 +1382,7 @@ TensorView* scheduleReductionGeneral(
     reduction_tv->reorder(
         scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
-  std::cout << "========= after propagateReshapeTransforms ===========" << std::endl;
-  std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
-  fusion->print();
-  
+
   if (schedule_heuristic == ScheduleHeuristic::OuterPersistent &&
       rparams.cross_grid_inner_reduction && reduction_tvs.size() > 1) {
     groupReductions(reduction_tvs, false);
