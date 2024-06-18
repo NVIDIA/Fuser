@@ -85,11 +85,11 @@ map_dtype_to_str = {
     torch.complex128: "complex128",
 }
 
-_torch_to_jax_dtype_map = None
+torch_to_jax_dtype_map = None
 if JAX_AVAILABLE:
     import jax.numpy as jnp
 
-    _torch_to_jax_dtype_map = {
+    torch_to_jax_dtype_map = {
         torch.bool: jnp.bool_,
         torch.uint8: jnp.uint8,
         torch.int8: jnp.int8,
