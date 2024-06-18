@@ -544,7 +544,8 @@ struct outerReduHeuristicParas {
        << "total_iteration_numel: " << total_iteration_numel << "\n"
        << "vectorize_factor: " << iter_unroll_factor << "\n"
        << "redu_unroll_factor: " << redu_unroll_factor << "\n"
-       << "grid(" << gidim << ", " << grdim << ", 1)" << "\n"
+       << "grid(" << gidim << ", " << grdim << ", 1)"
+       << "\n"
        << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
     return ss.str();
   }
@@ -703,11 +704,10 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
 
   // (2) Good heuristic if we have enough blocks to saturate the device or it's
   // a small reduction. This cut-off is empirical based on H100.
-    return std::make_optional(hp);
-  const float min_sm_efficiency = small_reduction ? 0.60f : 0.88f;
+  const float min_sm_efficiency = 0.9f;
   float f_wave = (float)hp.gidim / (float)sm_count;
   float sm_efficiency = f_wave / std::ceil(f_wave);
-  if (sm_efficiency >= min_sm_efficiency) {
+  if (sm_efficiency >= min_sm_efficiency || small_reduction) {
     return std::make_optional(hp);
   } else {
     return std::nullopt;
