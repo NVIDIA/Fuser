@@ -15,11 +15,10 @@ from dataclasses import dataclass, field
 
 
 class ReferenceType(Enum):
-    Undefined = 0
-    Pytorch = 1
-    Jax = 2
-    Numpy = 3
-    Python = 4
+    Pytorch = 0
+    Jax = 1
+    Numpy = 2
+    Python = 3
 
 
 @dataclass

@@ -19,7 +19,6 @@ from pytest_input_generators import (
     cat_generator,
     cat_error_generator,
     div_input_generator,
-    define_tensor_generator,
     define_tensor_error_generator,
     define_vector_constant_error_generator,
     elementwise_binary_generator,
@@ -79,10 +78,8 @@ fusion_input_ops = []
 define_tensor_opinfo = OpInfo(
     lambda fd: fd.define_tensor,
     "define_tensor",
-    sample_input_generator=define_tensor_generator,
     error_input_generator=define_tensor_error_generator,
     fd_error_input_fn=tensor_input_fd_fn,
-    reference_type=ReferenceType.Undefined,
 )
 fusion_input_ops.append(define_tensor_opinfo)
 
@@ -92,7 +89,6 @@ fusion_input_ops.append(define_tensor_opinfo)
 define_vector_constant_opinfo = OpInfo(
     lambda fd: fd.define_vector,
     "define_vector_constant",
-    sample_input_generator=None,
     error_input_generator=define_vector_constant_error_generator,
     fd_error_input_fn=api_test_fd_fn,
 )
