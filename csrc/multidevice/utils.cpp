@@ -544,4 +544,26 @@ int64_t getShardedAxis(TensorView* tv) {
   return -1;
 }
 
+void reorderDIDToFront(TensorView* tv) {
+  // new position to old position
+  std::unordered_map<int64_t, int64_t> order_map;
+  int64_t current_pos = 0;
+
+  for (auto pos : c10::irange(tv->nDims())) {
+    if (tv->axis(pos)->isDeviceDim()) {
+      order_map[current_pos] = pos;
+      current_pos++;
+    }
+  }
+
+  for (auto pos : c10::irange(tv->nDims())) {
+    if (!tv->axis(pos)->isDeviceDim()) {
+      order_map[current_pos] = pos;
+      current_pos++;
+    }
+  }
+
+  tv->reorder(order_map);
+}
+
 } // namespace nvfuser
