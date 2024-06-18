@@ -11,10 +11,11 @@ from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definit
 from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
-from pytest_utils import ArgumentType, is_tensor
+from pytest_utils import ArgumentType, is_tensor, requiresJAX
 from typing import Callable
 
 from nvfuser import FusionDefinition
+
 
 
 def is_pre_volta():
@@ -66,6 +67,7 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     )
 
 
+@requiresJAX
 def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
         fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)

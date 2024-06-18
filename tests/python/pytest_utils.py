@@ -4,12 +4,26 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-import jax.numpy as jnp
 from torch.testing import make_tensor
 from typing import Optional
-
+from functools import wraps
 from enum import Enum, auto
 
+try:
+    import jax
+    JAX_AVAILABLE = True
+except ImportError as e:
+    JAX_AVAILABLE = False
+    pass
+
+def requiresJAX(fn):
+    @wraps(fn)
+    def _fn(*args, **kwargs):
+        if not JAX_AVAILABLE:
+            pytest.skip("Requires JAX")
+        return fn(*args, **kwargs)
+
+    return _fn
 
 class ArgumentType(Enum):
     # a symbolic value requires an input argument during kernel execution
@@ -67,20 +81,25 @@ map_dtype_to_str = {
     torch.complex128: "complex128",
 }
 
-torch_to_jax_dtype_map = {
-    torch.bool: jnp.bool_,
-    torch.uint8: jnp.uint8,
-    torch.int8: jnp.int8,
-    torch.int16: jnp.int16,
-    torch.int32: jnp.int32,
-    torch.int64: jnp.int64,
-    torch.bfloat16: jnp.bfloat16,
-    torch.float16: jnp.float16,
-    torch.float32: jnp.float32,
-    torch.float64: jnp.float64,
-    torch.complex64: jnp.complex64,
-    torch.complex128: jnp.complex128,
-}
+_torch_to_jax_dtype_map = None
+if JAX_AVAILABLE:
+    import jax
+    import jax.numpy as jnp
+
+    _torch_to_jax_dtype_map = {
+        torch.bool: jnp.bool_,
+        torch.uint8: jnp.uint8,
+        torch.int8: jnp.int8,
+        torch.int16: jnp.int16,
+        torch.int32: jnp.int32,
+        torch.int64: jnp.int64,
+        torch.bfloat16: jnp.bfloat16,
+        torch.float16: jnp.float16,
+        torch.float32: jnp.float32,
+        torch.float64: jnp.float64,
+        torch.complex64: jnp.complex64,
+        torch.complex128: jnp.complex128,
+    }
 
 torch_to_python_dtype_map = {
     torch.bool: bool,
