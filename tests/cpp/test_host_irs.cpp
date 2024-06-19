@@ -377,8 +377,9 @@ TEST_P(HostIrTest, ThreeFusions) {
   GTEST_EXPECT_TRUE(torch::allclose(tv2_2_ref, outputs.at(0)));
 }
 
-// This unit test the for-loop IR by implementing a program that could be summarized as
-//   |  int64_t buf = kInitialValue;
+// This unit test the for-loop IR by implementing a program that could be
+// summarized as
+//   |  int buf = kInitialValue;
 //   |  for (int j = kForLoopStart; j < kForLoopStop; j += kForLoopStep) {
 //   |    buf += j;
 //   |  }
