@@ -1241,8 +1241,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // [r.., merged_dim, 1, tile1, tile2]
 
   // parallelize non-tile dimensions
-  reference1->axis(1)->parallelize(ParallelType::Unswitch);
-  reference1->axis(0)->parallelize(ParallelType::BIDx);
+  reference1->axis(rhs_i + 1)->parallelize(ParallelType::Unswitch);
+  reference1->axis(rhs_i)->parallelize(ParallelType::BIDx);
   // [BIDx, Unswitch, tile1, tile2]
 
   // Propagate transformations so far to the entire DAG
