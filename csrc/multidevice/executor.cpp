@@ -178,8 +178,8 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   }
 
   // Compute input_tensor and output_tensor.
-  auto input_val = expr->input(0);
-  auto output_val = expr->output(0);
+  Val* input_val = expr->input(0);
+  Val* output_val = expr->output(0);
   at::Tensor input_tensor;
   if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
     input_tensor = val_to_IValue_.at(input_val).toTensor();
