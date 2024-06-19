@@ -2643,7 +2643,7 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
   // example, the heuristics set index type to int32 and the max vectorization
   // factor is 4, if compile para is not passed to compileFusion, the lowering
   // pass uses int64 as index type, so the max vectorization factor is 16 bytes
-  // / sizeof(int64) = 2, which is wrong since the actual index type is int32
+  // sizeof(int64) = 2, which is wrong since the actual index type is int32
   // and the max vectorization factor is 4.
   fe.compileFusion(&fusion, {aten_input}, lparams, cparams);
   auto outputs = fe.runFusion({aten_input}, lparams);
