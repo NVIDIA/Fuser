@@ -23,6 +23,8 @@ Reference: [Wikipedia](https://en.wikipedia.org/wiki/Monotonic_function)
 
 **<summary>Proof:</summary>**
 
+TODO: link lean file
+
 $x < y \implies f(x) < f(y)$ by definition.
 
 $x \le y \implies f(x) \le f(y)$:

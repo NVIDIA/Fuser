@@ -18,6 +18,8 @@ Therefore, $p \land q \Rightarrow p \land r$.
 The other direction can be proved similarily.
 $\square$
 
+See: [logic.lean/t1](logic.lean)
+
 </details>
 
 Theorem 1 tells us that, when simplifying boolean predicates like
