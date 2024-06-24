@@ -362,7 +362,8 @@ Scalar FusionDefinition::defineScalar() {
 Tensor FusionDefinition::addTensor(TensorView* tv) {
   FUSER_PERF_SCOPE("FusionDefinition::addTensor");
   NVF_CHECK(
-      trie_node_ != nullptr, "addTensor() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      trie_node_ != nullptr,
+      "addTensor() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   Tensor output = defineTensor(tv->nDims());
   NVF_CHECK(
       output.index == numFusionStates(),
