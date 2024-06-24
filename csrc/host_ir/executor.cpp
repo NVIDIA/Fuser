@@ -131,15 +131,22 @@ void HostIrExecutor::handle(Communication* communication) {
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), std::nullopt);
-  c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+  works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),
       backend,
       input_tensor,
       output_tensor);
+}
+
+void HostIrExecutor::handle(Wait* wait) {
+  Communication* communication = wait->communication();
+  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
+  auto& work = works_.at(communication);
   if (work != nullptr) {
     work->wait();
   }
+  works_.erase(communication);
 }
 
 } // namespace hir

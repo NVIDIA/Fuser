@@ -686,4 +686,9 @@ int64_t getNumSMs();
 
 bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y);
 
+// This uses mma_utils::getOperandInnerDims(fusion) to get the inner allocation
+// dimensions of fusion operands and translate that into one of the MmaOp
+// layouts TT, TN, NT, or NN.
+MmaLayout getMatmulProblemLayout(Fusion* fusion);
+
 } // namespace nvfuser
