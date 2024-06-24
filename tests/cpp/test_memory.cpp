@@ -504,8 +504,45 @@ class TMALoadTestWithABroadcastDim
   MmaInputSmemSwizzle swizzle;
   DataType dtype;
 
-  int64_t innerDimSize() const {
-    return getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
+  void schedule(TensorView* tv) {
+    // We move the broadcast dim to be the left most.
+    moveInnerBroadcastLeft(tv);
+
+    // {B, N, K}
+    // {B, NO, N_dim, K}
+    tv->split(-2, tv->axis(-2)->extent());
+
+    // {B, NO, N_dim, K0, KI (32/64/128)}
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+
+    // {B, NO, K0, N_dim, KI }
+    tv->reorder({{2, 3}, {3, 2}});
+
+    // {B, NO * KO, N_dim, KI}
+    tv->merge(1);
+
+    // {B, NO * KO, N_dim_O, N_128/(32, 64, 128),  KI}
+    tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
+
+    // {B, NO * KO, N_dim_O, N_128/(32, 64, 128),  KIO, KII}
+    tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
+
+    // split N_dim_O by N/16 N =swizzle size (32/64/128)
+    // {B, NO * KO, N_dim_O/(swizzle_size/16), N_128/(32, 64, 128),  KIO, KII}
+    tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
+
+    tv->swizzle(SwizzleType::XOR, -4, -2);
+  }
+
+  void markAllDimsExceptFirstTwoAsBulk(const TensorView* tv) {
+    int skip = 0;
+    for (auto id : tv->getLoopDomain()) {
+      if (skip < 2) {
+        skip++;
+        continue;
+      }
+      id->parallelize(ParallelType::Bulk);
+    }
   }
 
   TMALoadTestWithABroadcastDim() {
@@ -529,9 +566,14 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
+  schedule(tv1);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  markAllDimsExceptFirstAsBulk(tv1);
-  parallelizeAllDimsExceptFirstAsTIDx(tv2);
+  markAllDimsExceptFirstTwoAsBulk(tv1);
+
+  schedule(tv2);
+  // Naively parallelize an outer dim of tv2.
+  // We use a single CTA. Inputs are small enough not to error out.
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
@@ -543,7 +585,8 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-std::vector<std::vector<int64_t>> shapes_to_load = {{1, 64, 16}};
+std::vector<std::vector<int64_t>> shapes_to_load =
+    {{1, 64, 16}, {1, 16, 64}, {1, 128, 64}, {1, 256, 128}, {64, 1, 16}};
 
 INSTANTIATE_TEST_SUITE_P(
     ,
@@ -551,7 +594,10 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::ValuesIn(shapes_to_load),
         testing::Values(DataType::Half, DataType::Float, DataType::Double),
-        kAllSmemSwizzleModes));
+        testing::Values(
+            MmaInputSmemSwizzle::B128,
+            MmaInputSmemSwizzle::B64,
+            MmaInputSmemSwizzle::B32)));
 
 TEST_P(TMASimpleLdstTest, Store) {
   Fusion fusion;
