@@ -282,10 +282,12 @@ std::string isMatmulFusionDefinitionSupported(
       NVF_ERROR(it != id_roles.end());
       role_order.pushBack(it->second);
     }
-    NVF_ERROR(
-        role_order.size() == 3 || role_order.size() == 4,
-        "Expected either {B,M,N,K} roles or {M,N,K} but role_order.size()=",
-        role_order.size());
+    if (role_order.size() != 3 && role_order.size() != 4) {
+      std::stringstream ss;
+      ss << "Expected either {B,M,N,K} roles or {M,N,K} but role_order.size()="
+         << role_order.size();
+      return ss.str();
+    }
     if (role_order.back() != MatmulDomain::K) {
       return "Canonical dim order must be BMNK";
     }
