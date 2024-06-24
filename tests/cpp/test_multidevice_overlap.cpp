@@ -113,11 +113,11 @@ class OverlapTest : public MultiDeviceTest {
     // Define I/O and intermediate Tensor shapes
     // clang-format off
         std::vector<int64_t> ta_unsharded_sizes       = {params.S, num_devices_, params.M/params.S, params.K/num_devices_, 1       };
-        std::vector<int64_t> ta_sizes                 = {params.S, 1          , params.M/params.S, params.K/num_devices_, 1       };
+        std::vector<int64_t> ta_sizes                 = {params.S, 1           , params.M/params.S, params.K/num_devices_, 1       };
         std::vector<int64_t> tb_unsharded_sizes       = {1       , num_devices_, 1                , params.K/num_devices_, params.N};
-        std::vector<int64_t> tb_sizes                 = {1       , 1          , 1                , params.K/num_devices_, params.N};
-        std::vector<int64_t> tc_locally_reduced_sizes = {params.S, 1          , params.M/params.S,                       params.N};
-        std::vector<int64_t> tc_sizes                 = {params.S, 1          , params.M/(params.S*num_devices_)        , params.N};
+        std::vector<int64_t> tb_sizes                 = {1       , 1           , 1                , params.K/num_devices_, params.N};
+        std::vector<int64_t> tc_locally_reduced_sizes = {params.S, 1           , params.M/params.S,                        params.N};
+        std::vector<int64_t> tc_sizes                 = {params.S, 1           , params.M/(params.S*num_devices_)        , params.N};
     // clang-format on
 
     // Set up input tensors. We create the full unsharded tensors and define the
