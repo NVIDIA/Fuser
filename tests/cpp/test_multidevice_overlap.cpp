@@ -107,8 +107,8 @@ class OverlapTest : public MultiDeviceTest {
     // Setup the world communicators
     std::vector<int64_t> devices(num_devices_);
     std::iota(devices.begin(), devices.end(), 0);
-    world_communicator_ = communicator->getBackendForTeam(
-        devices, params.backend_type);
+    world_communicator_ =
+        communicator->getBackendForTeam(devices, params.backend_type);
 
     // Define I/O and intermediate Tensor shapes
     // clang-format off
@@ -145,8 +145,12 @@ class OverlapTest : public MultiDeviceTest {
     auto tc_unsharded_expected = at::sum(tc_unsharded_unreduced, {1, 3});
     auto tc_unsharded_expected_reshaped = at::reshape(
         tc_unsharded_expected,
-        {params.S, num_devices_, params.M / (params.S * num_devices_), params.N});
-    tc_expected_ = tc_unsharded_expected_reshaped.slice(1, my_device_index_, my_device_index_ + 1);
+        {params.S,
+         num_devices_,
+         params.M / (params.S * num_devices_),
+         params.N});
+    tc_expected_ = tc_unsharded_expected_reshaped.slice(
+        1, my_device_index_, my_device_index_ + 1);
 
     // Debug print
     if (communicator->deviceId() == 0 && params.debug_print) {
@@ -168,10 +172,20 @@ class OverlapTest : public MultiDeviceTest {
       at::Tensor tb_j,
       at::Tensor tc_locally_reduced_j) {
     // we unsqueeze the output tensor to avoid a torch warning:
-    // "W624 08:13:32.342934752 Resize.cpp:28] Warning: An output with one or more elements was resized since it had shape [1, 1, 8, 16], which does not match the required output shape [1, 1, 8, 1, 1, 1, 1, 16]. This behavior is deprecated, and in a future PyTorch release outputs will not be resized unless they have zero elements. You can explicitly reuse an out tensor t by resizing it, inplace, to zero elements with t.resize_(0). (function _resize_output_check)"
-    auto unsqueezed_tc_locally_reduced_j = tc_locally_reduced_j.unsqueeze(3).unsqueeze(4).unsqueeze(5).unsqueeze(6);
+    // "W624 08:13:32.342934752 Resize.cpp:28] Warning: An output with one or
+    // more elements was resized since it had shape [1, 1, 8, 16], which does
+    // not match the required output shape [1, 1, 8, 1, 1, 1, 1, 16]. This
+    // behavior is deprecated, and in a future PyTorch release outputs will not
+    // be resized unless they have zero elements. You can explicitly reuse an
+    // out tensor t by resizing it, inplace, to zero elements with t.resize_(0).
+    // (function _resize_output_check)"
+    auto unsqueezed_tc_locally_reduced_j =
+        tc_locally_reduced_j.unsqueeze(3).unsqueeze(4).unsqueeze(5).unsqueeze(
+            6);
     // we check that no unnecessary copy is performed
-    EXPECT_EQ(tc_locally_reduced_j.data_ptr(), unsqueezed_tc_locally_reduced_j.data_ptr()); 
+    EXPECT_EQ(
+        tc_locally_reduced_j.data_ptr(),
+        unsqueezed_tc_locally_reduced_j.data_ptr());
     at::tensordot_out(unsqueezed_tc_locally_reduced_j, ta_j, tb_j, {3}, {3});
   }
 };
