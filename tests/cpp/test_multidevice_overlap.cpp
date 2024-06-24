@@ -15,20 +15,6 @@
 
 namespace nvfuser {
 
-int parseEnvVariable(const char* env_name) {
-  const std::string prefix = "NVFUSER_OVERLAP_";
-  auto prefixed_name = prefix + env_name;
-  auto env = std::getenv(prefixed_name.c_str());
-  if (!env) {
-    return -1;
-  }
-  return std::atoi(env);
-}
-
-bool isEnvVariableDefined(const char* env_name) {
-  return parseEnvVariable(env_name) != -1;
-}
-
 struct OverlapTestParams {
   // Tensors sizes
   int64_t M = std::pow(2, 6);
@@ -41,28 +27,7 @@ struct OverlapTestParams {
 
   // overlap optimization parameters
   bool use_different_streams =
-      false; // whether to change CUDA stream at each iteration
-
-  void parseEnv() {
-    if (isEnvVariableDefined("LOG2_M")) {
-      M = std::pow(2, parseEnvVariable("LOG2_M"));
-    }
-    if (isEnvVariableDefined("LOG2_K")) {
-      K = std::pow(2, parseEnvVariable("LOG2_K"));
-    }
-    if (isEnvVariableDefined("LOG2_N")) {
-      N = std::pow(2, parseEnvVariable("LOG2_N"));
-    }
-    if (isEnvVariableDefined("LOG2_S")) {
-      S = std::pow(2, parseEnvVariable("LOG2_S"));
-    }
-    if (isEnvVariableDefined("USE_UCC")) {
-      backend_type = CommunicatorBackend::ucc;
-    }
-    if (isEnvVariableDefined("USE_DIFFERENT_STREAMS")) {
-      use_different_streams = true;
-    }
-  }
+      true; // whether to change CUDA stream at each iteration
 };
 
 std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
@@ -92,7 +57,6 @@ class OverlapTest : public MultiDeviceTest {
   void SetUp() {
     MultiDeviceTest::SetUp();
 
-    params.parseEnv();
     num_devices_ = communicator->size();
     my_device_index_ = communicator->deviceId();
     ASSERT_EQ(params.M % (params.S * num_devices_), 0);
