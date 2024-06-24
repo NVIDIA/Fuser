@@ -70,7 +70,7 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
 void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv);
 
 //! Orders the leaf ID canonically, and merges dims of the same role
-//! The return value gives the role of each leaf IterDomain in tv.
+//! The return value gives the role of each loop IterDomain in tv.
 std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
     TensorView* tv,
     const ValGraph& permissive_graph,
