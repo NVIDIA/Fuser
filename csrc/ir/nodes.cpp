@@ -4797,8 +4797,28 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaBwdOp)
 
 std::string SdpaBwdOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "sdpa_bwd"
-                          << "\n";
+  indent(ss, indent_size) << grad_query()->toString() << ",\n";
+  indent(ss, indent_size) << grad_key()->toString() << ",\n";
+  indent(ss, indent_size) << grad_value()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = sdpa_bwd(" << grad_attn()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << query()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << attn_out()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          logsum_exp = " << logsumexp()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          cum_seq_q = " << cum_seq_q()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          cum_seq_k = " << cum_seq_k()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          max_q = " << max_q()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          max_k = " << max_k()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1) << "          is_causal = " << is_causal()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1) << "          philox_seed = " << philox_seed()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          philox_offset = " << philox_offset()->toString() << ",\n";
+  if (scale() != nullptr) {
+    indent(ss, indent_size + 1)
+        << ",\n          scale = " << scale()->toInlineString();
+  }
+  indent(ss, indent_size + 1) << ")\n";
   return ss.str();
 }
 

@@ -2573,6 +2573,82 @@ class SdpaBwdOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  Val* grad_query() const {
+    return output(0);
+  }
+
+  Val* grad_key() const {
+    return output(1);
+  }
+
+  Val* grad_value() const {
+    return output(2);
+  }
+
+  Val* grad_attn() const {
+    return input(0);
+  }
+
+  Val* query() const {
+    return input(1);
+  }
+
+  Val* key() const {
+    return input(2);
+  }
+
+  Val* value() const {
+    return input(3);
+  }
+
+  Val* attn_out() const {
+    return input(4);
+  }
+
+  Val* logsumexp() const {
+    return input(5);
+  }
+
+  Val* cum_seq_q() const {
+    return input(6);
+  }
+
+  Val* cum_seq_k() const {
+    return input(7);
+  }
+
+  Val* max_q() const {
+    return input(8);
+  }
+
+  Val* max_k() const {
+    return input(9);
+  }
+
+  Val* dropout_p() const {
+    return input(10);
+  }
+
+  Val* is_causal() const {
+    return input(11);
+  }
+
+  Val* philox_seed() const {
+    return input(12);
+  }
+
+  Val* philox_offset() const {
+    return input(13);
+  }
+
+  Val* scale() const {
+    if (inputs().size() > 14) {
+      return input(14);
+    }
+    return nullptr;
+  }
+
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
