@@ -2317,56 +2317,53 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
   testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, ReductionReshapeInputNoMergedIds) {
-  auto test = [](const std::vector<int64_t> reduction_axes) {
-    auto fusion = std::make_unique<Fusion>();
-    FusionGuard fg(fusion.get());
-    const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
-    const std::vector<int64_t> input_shape = {N, C, H, W};
-    const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
-    DataType dtype = DataType::Half;
-    auto tv0 = makeContigTensor(input_shape.size(), dtype);
-    fusion->addInput(tv0);
-    auto tv1 = castOp(DataType::Float, tv0);
-    auto tv2 = reshape(tv1, input_shape, group_shape);
-    auto tv3 = sum(tv2, {reduction_axes});
-    fusion->addOutput(tv3);
+using ViewReductionParamType = std::vector<int64_t>;
+class ViewReductionParametrizedTest
+    : public NVFuserFixtureParamTest<ViewReductionParamType> {};
 
-    auto options = at::TensorOptions()
-                       .dtype(data_type_to_aten(dtype))
-                       .device(at::kCUDA, 0);
-    auto t0 = at::randn(input_shape, options);
-    auto t1 = t0.reshape(group_shape).to(at::kFloat);
-    auto ref = t1.sum({reduction_axes});
+TEST_P(ViewReductionParametrizedTest, ReductionReshapeInputNoMergedIds) {
+  auto reduction_axes = GetParam();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, input_shape, group_shape);
+  auto tv3 = sum(tv2, {reduction_axes});
+  fusion->addOutput(tv3);
 
-    FusionExecutorCache executor_cache(std::move(fusion));
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-    // should have only 1 segment group
-    auto seg_groups =
-        executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-    EXPECT_EQ(seg_groups.size(), 1);
-    testValidate(
-        executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
-  };
-  std::vector<std::vector<int64_t>> test_cases;
-  // dims of reduction input, {N, G, C / G, H, W}
-  //                           0, 1, 2,     3, 4
-  // outer reductions
-  test_cases.push_back({0});
-  test_cases.push_back({0, 1});
-  test_cases.push_back({0, 1, 2});
-  // inner reductions
-  test_cases.push_back({-1});
-  test_cases.push_back({-1, -2});
-  test_cases.push_back({-1, -2, -3});
-  // 3D reductions
-  test_cases.push_back({0, 2, 4});
-  // outer reduction with non-neighbor axes
-  test_cases.push_back({1, 3});
-  for (const auto& reduction_axes : test_cases) {
-    test(reduction_axes);
-  }
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto ref = t1.sum({reduction_axes});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have only 1 segment group
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 1);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ViewReduction,
+    ViewReductionParametrizedTest,
+    ::testing::Values(
+        std::vector<int64_t>{0},
+        std::vector<int64_t>{0, 1},
+        std::vector<int64_t>{0, 1, 2},
+        std::vector<int64_t>{-1},
+        std::vector<int64_t>{-1, -2},
+        std::vector<int64_t>{-1, -2, -3},
+        std::vector<int64_t>{0, 2, 4},
+        std::vector<int64_t>{1, 3}));
 
 TEST_F(GpuViewTest, NormalizationReshapeInputNoMergedIds) {
   auto fusion = std::make_unique<Fusion>();

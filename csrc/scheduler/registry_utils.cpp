@@ -390,19 +390,18 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
 }
 
 namespace {
-bool isSplitOnlyReshapeTransform(Fusion* fusion) {
-  const auto& view_ops = ir_utils::getViewOps(fusion);
-  for (auto view_op : view_ops) {
-    auto tv = view_op->out();
-    for (auto expr : StmtSort::getExprsTo(
-             {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
-      if (!expr->isA<Split>()) {
-        return false;
-      }
+
+bool isSplitOnly(ViewOp* view_op) {
+  for (auto expr : StmtSort::getExprsTo(
+           {view_op->out()->getLogicalDomain().begin(),
+            view_op->out()->getLogicalDomain().end()})) {
+    if (!expr->isA<Split>()) {
+      return false;
     }
   }
   return true;
 }
+
 } // namespace
 
 // Returns if view interferes with how we want to treat the reference, being at
@@ -412,9 +411,13 @@ bool reductionInterferingView(
     const ComputeAtMap& ca_map,
     TensorView* reduction_reference) {
   // If reshape transform only has split, it shouldn't influence reduction.
-  if (isSplitOnlyReshapeTransform(fusion)) {
+  const auto& view_ops = ir_utils::getViewOps(fusion);
+  if (std::all_of(view_ops.begin(), view_ops.end(), [](ViewOp* view) {
+        return isSplitOnly(view);
+      })) {
     return false;
   }
+
   // Make sure the view doesn't interfere with how we'll want to schedule
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.
