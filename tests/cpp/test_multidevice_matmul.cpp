@@ -424,8 +424,8 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
   TensorView* x = makeContigConcreteTensor({sb, h}, DataType::BFloat16);
   TensorView* w0 = makeContigConcreteTensor(
       {num_devices_, h4 / num_devices_, h}, DataType::BFloat16);
-  TensorView* b0 = makeContigConcreteTensor({num_devices_, h4 / num_devices_},
-                                            DataType::BFloat16);
+  TensorView* b0 = makeContigConcreteTensor(
+      {num_devices_, h4 / num_devices_}, DataType::BFloat16);
   TensorView* w1 = makeContigConcreteTensor(
       {num_devices_, h, h4 / num_devices_}, DataType::BFloat16);
   TensorView* b1 = makeContigConcreteTensor({h}, DataType::BFloat16);
