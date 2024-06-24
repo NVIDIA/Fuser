@@ -4018,8 +4018,8 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-            # See https://github.com/NVIDIA/Fuser/issues/2317
-    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    # See https://github.com/NVIDIA/Fuser/issues/2317
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")    
     def test_reduction_transpose_sched_issue2317(self):
         inputs = [
                 torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
@@ -4031,6 +4031,19 @@ class TestNvFuserFrontend(TestCase):
             T0 = fd.from_pytorch(inputs[0])
             T1 = fd.from_pytorch(inputs[1])
             T2 = fd.from_pytorch(inputs[2])
+
+            T10 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+            T11 = fd.ops.stride_order(T10, stride_order=[3, 2, 1, 0])
+            T16 = fd.ops.reshape(T11, new_shape=T1.shape())
+            T17 = fd.ops.linear(T16, T2)
+            T33 = fd.ops.add(T17, T1)
+
+            T33 = fd.ops.cast(T33, dtype=DataType.BFloat16)
+            T34 = fd.ops.linear(T33, T2)
+            T35 = fd.ops.add(T34, T33)
+            fd.add_output(T35)
+        nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inputs=inputs), inputs)
+
 
     def test_fusion_profiler(self):
         inputs = [
