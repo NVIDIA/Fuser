@@ -244,7 +244,10 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   at::Tensor k = at::randn(k_shape, options);
   at::Tensor v = at::randn(v_shape, options);
 
+  double dropout_p = 0.0;
+  bool is_causal = false;
   double scale = 1.0 / std::sqrt(e);
+
   auto
       [output,
        log_sumexp,
@@ -254,14 +257,15 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
        key_seq_len,
        philox_seed,
        philox_offset,
-       debug_attn_mask] = at::_scaled_dot_product_flash_attention(
-      q,
-      k,
-      v,
-      /*dropout_p=*/0.0,
-      /*is_causal=*/false,
-      /*return_debug_mask=*/false,
-      scale);
+       debug_attn_mask] =
+          at::_scaled_dot_product_flash_attention(
+              q,
+              k,
+              v,
+              /*dropout_p=*/0.0,
+              /*is_causal=*/false,
+              /*return_debug_mask=*/false,
+              scale);
 
   auto tv_grad_output = makeSymbolicTensor(attn_shape, DataType::Half);
   auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
@@ -310,16 +314,51 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
 
   at::Tensor grad_out = at::randn(attn_shape, options);
 
-  std::vector<c10::IValue> sdpa_bwd_inputs = {grad_out, q, k, v, output, log_sumexp, cum_seq_q, cum_seq_k, philox_seed, philox_offset};
+  std::vector<c10::IValue> sdpa_bwd_inputs = {
+      grad_out,
+      q,
+      k,
+      v,
+      output,
+      log_sumexp,
+      cum_seq_q,
+      cum_seq_k,
+      philox_seed,
+      philox_offset};
   FusionExecutor fe;
   std::for_each(
-    fusion->outputs().begin(),
-    fusion->outputs().end(),
-    [&](Val* out){fusion->aliasOutputToInput(
-      out, /*input=*/nullptr, AllocationType::Evaluate);});
-  
+      fusion->outputs().begin(), fusion->outputs().end(), [&](Val* out) {
+        fusion->aliasOutputToInput(
+            out, /*input=*/nullptr, AllocationType::Evaluate);
+      });
+
   fe.compileFusion(fusion.get(), sdpa_bwd_inputs);
   auto out = fe.runFusion(sdpa_bwd_inputs);
 
+  auto [ref_grad_query, ref_grad_key, ref_grad_value] =
+      at::_scaled_dot_product_flash_attention_backward(
+          grad_out,
+          q,
+          k,
+          v,
+          output,
+          log_sumexp,
+          cum_seq_q,
+          cum_seq_k,
+          /*max_q=*/*query_seq_len.maybe_as_int(),
+          /*max_k=*/*key_seq_len.maybe_as_int(),
+          /*dropout_p=*/dropout_p,
+          /*is_causal=*/is_causal,
+          philox_seed,
+          philox_offset,
+          /*scale=*/scale);
+
+  testValidate(
+      fusion.get(),
+      out,
+      sdpa_bwd_inputs,
+      {ref_grad_query, ref_grad_key, ref_grad_value},
+      __LINE__,
+      __FILE__);
 }
 } // namespace nvfuser

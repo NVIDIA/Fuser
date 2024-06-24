@@ -4769,7 +4769,8 @@ SdpaBwdOp::SdpaBwdOp(
     Val* is_causal,
     TensorView* philox_seed,
     TensorView* philox_offset,
-    Val* scale) : Expr(passkey) {
+    Val* scale)
+    : Expr(passkey) {
   addOutput(grad_query);
   addOutput(grad_key);
   addOutput(grad_value);
@@ -4796,7 +4797,8 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaBwdOp)
 
 std::string SdpaBwdOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "sdpa_bwd" << "\n";
+  indent(ss, indent_size) << "sdpa_bwd"
+                          << "\n";
   return ss.str();
 }
 
@@ -4807,10 +4809,10 @@ std::string SdpaBwdOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-
-  // Backward tensor inputs: grad_input, query, key, value, output, logsumexp, cum_seq_q/k
+  // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
+  // cum_seq_q/k
   std::vector<at::Tensor> bwd_inputs;
-  for (auto idx: c10::irange(8)){
+  for (auto idx : c10::irange(8)) {
     bwd_inputs.emplace_back(inputs.at(idx).as<at::Tensor>());
   }
   const auto max_q = inputs.at(8).as<int64_t>();
@@ -4835,30 +4837,27 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
 
   // Conmpute scale using original size of last dimension
   double scale = inputs.size() > 14 ? inputs.back().as<double>()
-                                   : 1.0 / std::sqrt(last_dim_size);
+                                    : 1.0 / std::sqrt(last_dim_size);
 
   // ATen reference:
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
-  auto
-      [grad_query,
-      grad_key,
-      grad_value] =
-          at::_scaled_dot_product_flash_attention_backward(
-              /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
-              /*query=*/pad_last_dim(bwd_inputs[1], 8),
-              /*key=*/pad_last_dim(bwd_inputs[2], 8),
-              /*value=*/pad_last_dim(bwd_inputs[3], 8),
-              /*output=*/pad_last_dim(bwd_inputs[4], 8),
-              /*logsumexp=*/bwd_inputs[5],
-              /*cum_seq_q=*/bwd_inputs[6],
-              /*cum_seq_k=*/bwd_inputs[7],
-              /*max_q=*/max_q,
-              /*max_k=*/max_k,
-              /*dropout_p=*/dropout_p,
-              /*is_causal=*/is_causal,
-              /*philox_seed=*/philox_seed,
-              /*philox_offset=*/philox_offset,
-              /*scale=*/scale);
+  auto [grad_query, grad_key, grad_value] =
+      at::_scaled_dot_product_flash_attention_backward(
+          /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
+          /*query=*/pad_last_dim(bwd_inputs[1], 8),
+          /*key=*/pad_last_dim(bwd_inputs[2], 8),
+          /*value=*/pad_last_dim(bwd_inputs[3], 8),
+          /*output=*/pad_last_dim(bwd_inputs[4], 8),
+          /*logsumexp=*/bwd_inputs[5],
+          /*cum_seq_q=*/bwd_inputs[6],
+          /*cum_seq_k=*/bwd_inputs[7],
+          /*max_q=*/max_q,
+          /*max_k=*/max_k,
+          /*dropout_p=*/dropout_p,
+          /*is_causal=*/is_causal,
+          /*philox_seed=*/philox_seed,
+          /*philox_offset=*/philox_offset,
+          /*scale=*/scale);
 
   // If the inputs were padded, slice the gradsto restore the original size
   auto slice_last_dim = [last_dim_size](at::Tensor output) -> at::Tensor {
@@ -4871,8 +4870,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   return {
       slice_last_dim(grad_query),
       slice_last_dim(grad_key),
-      slice_last_dim(grad_value)
-  };
+      slice_last_dim(grad_value)};
 }
 
 } // namespace nvfuser
