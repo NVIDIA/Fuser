@@ -16,6 +16,7 @@
 #include <ir/builder.h>
 #include <ir/graphviz.h>
 #include <ir/utils.h>
+#include <swizzle.h>
 #include <val_graph_visitor.h>
 
 #include <algorithm>
@@ -233,6 +234,8 @@ class IdGraphIndexCompute : public OptOutDispatch {
 
   void handle(Merge* merge) override;
 
+  void handle(Swizzle* swizzle) override;
+
   bool isForward(Expr* expr) const;
 
   bool hasIndex(IterDomain* id) const {
@@ -300,6 +303,29 @@ void IdGraphIndexCompute::handle(Merge* merge) {
     setIndex(merge->outer(), outer_idx);
     Val* inner_idx = SimplifyingIrBuilder::modExpr(out_idx, inner_ext);
     setIndex(merge->inner(), inner_idx);
+  }
+}
+
+void IdGraphIndexCompute::handle(Swizzle* swizzle) {
+  const bool is_forward = isForward(swizzle);
+
+  auto x_ext = swizzle->inX()->extent();
+  auto y_ext = swizzle->inY()->extent();
+
+  if (is_forward) {
+    auto x_idx = getIndex(swizzle->inX());
+    auto y_idx = getIndex(swizzle->inY());
+    auto [result_x, result_y] =
+        dispatchUnSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
+    setIndex(swizzle->outX(), result_x);
+    setIndex(swizzle->outY(), result_y);
+  } else {
+    auto x_idx = getIndex(swizzle->outX());
+    auto y_idx = getIndex(swizzle->outY());
+    auto [result_x, result_y] =
+        dispatchSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
+    setIndex(swizzle->inX(), result_x);
+    setIndex(swizzle->inY(), result_y);
   }
 }
 
@@ -510,11 +536,10 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
-    const std::vector<IterDomain*>& index_domains) const {
+    const ValGroups& index_groups) const {
   const auto loop_domains = getLoopDomains(expr);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
-  const ValGroups index_groups = traversalGraph().toGroups(index_domains);
   const ExprPath traversal_path =
       ValGraphBFS::getExprsBetween(traversalGraph(), loop_groups, index_groups);
 
@@ -537,6 +562,12 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   return info;
+}
+
+IndexingInfo TensorIndexer::computeIndex(
+    const Expr* expr,
+    const std::vector<IterDomain*>& index_domains) const {
+  return computeIndex(expr, traversalGraph().toGroups(index_domains));
 }
 
 std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
