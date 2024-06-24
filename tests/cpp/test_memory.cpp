@@ -2328,7 +2328,7 @@ class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
     // requires Turing or newer
     if (cudaArchGuardShouldSkip(7, 5)) {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
-    } // namespace nvfuser
+    }
     NVFuserTest::SetUp();
   }
 };
