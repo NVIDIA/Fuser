@@ -158,9 +158,9 @@ void HostIrExecutor::handle(kir::ForLoop* for_loop) {
   auto stop = for_loop->stop()->value().as<int64_t>();
 
   for (auto i = start; i < stop; i += step) {
-    for (auto j : c10::irange(for_loop->body().size())) {
+    for (Expr* expr : for_loop->body().exprs()) {
       val_to_IValue_[for_loop->index()] = at::Scalar(i);
-      dispatch(for_loop->body().at(j));
+      dispatch(expr);
     }
   }
 }
