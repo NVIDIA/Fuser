@@ -957,12 +957,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
 }
 
-int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
-  auto i = std::find(fusion->inputs().begin(), fusion->inputs().end(), in);
-  NVF_ERROR(i != fusion->inputs().end());
-  return std::distance(fusion->inputs().begin(), i);
-}
-
 // Allocate an `at::Tensor` for `out_info` or compute it as an alias.
 at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
