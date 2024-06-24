@@ -43,9 +43,6 @@ struct OverlapTestParams {
   bool use_different_streams =
       false; // whether to change CUDA stream at each iteration
 
-  // debug
-  bool debug_print = false;
-
   void parseEnv() {
     if (isEnvVariableDefined("LOG2_M")) {
       M = std::pow(2, parseEnvVariable("LOG2_M"));
@@ -64,9 +61,6 @@ struct OverlapTestParams {
     }
     if (isEnvVariableDefined("USE_DIFFERENT_STREAMS")) {
       use_different_streams = true;
-    }
-    if (isEnvVariableDefined("DEBUG_PRINT")) {
-      debug_print = true;
     }
   }
 };
@@ -153,7 +147,7 @@ class OverlapTest : public MultiDeviceTest {
         1, my_device_index_, my_device_index_ + 1);
 
     // Debug print
-    if (communicator->deviceId() == 0 && params.debug_print) {
+    if (communicator->deviceId() == 0 && debug_print) {
       std::cout << params << std::endl;
       std::cout << "ta_.sizes()=" << ta_.sizes() << std::endl;
       std::cout << "tb_.sizes()=" << tb_.sizes() << std::endl;
