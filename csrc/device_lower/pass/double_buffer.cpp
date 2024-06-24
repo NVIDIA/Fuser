@@ -501,6 +501,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
+    std::cout << ite->toString() << std::endl;
     NVF_ERROR(false, "No IfThenElse should exist yet");
   }
 
@@ -585,37 +586,34 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
             //    cpAsyncBulk(mbarrier[loop_idx],...)
             //
             // Where loop_idx is in range 0...stages-1
-
-            kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-            kir::Scope& body = if_expr->thenBody();
-
             LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-
             kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
                 createMbarrierArriveExpectTx(
                     ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
-            body.push_back(mbarrier_arrive_tx);
 
-            // Clone LoadStoreOp and map it to mbarrier alloc
-            Expr* new_ldst =
-                IrBuilder::create<LoadStoreOp>(
-                    ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
-                    ->withPredicate(ldst->predicate());
+	    {
+              kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+              kir::Scope& body = if_expr->thenBody();
+              body.push_back(mbarrier_arrive_tx);
+	      cloned_top_level_loop_->body().push_back(if_expr);
+	    }
 
-            body.push_back(new_ldst);
+	    {
+              kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+              kir::Scope& body = if_expr->thenBody();
+              // Clone LoadStoreOp and map it to mbarrier alloc
+              Expr* new_ldst =
+                  IrBuilder::create<LoadStoreOp>(
+                      ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
+                      ->withPredicate(ldst->predicate());
+              body.push_back(new_ldst);
+              cloned_scopes_.back()->push_back(if_expr);
 
-            // Register mbarrier object to be used with new LoadStoreOp
-            //  from prolog loop
-            GpuLower::current()->ldstMBarrierIndexMap().emplace(
+              // Register mbarrier object to be used with new LoadStoreOp
+              //  from prolog loop
+              GpuLower::current()->ldstMBarrierIndexMap().emplace(
                 new_ldst, mbarrier_arrive_tx->mbarrier());
-
-            cloned_scopes_.back()->push_back(if_expr);
-#ifdef EXTRA_LOGS
-            std::cout << "[DEBUG] new MBarrierArriveExpectTx node: "
-                      << mbarrier_arrive_tx->toString();
-            std::cout << "[DEBUG] new LoadStoreOp node: "
-                      << new_ldst->toString();
-#endif //  EXTRA_LOGS
+	    }
             break;
           } else if (is_double_buffer_load_expr) {
             // NOTE: that there can be multiple exprs defining double buffered
