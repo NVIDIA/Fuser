@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#ifdef NVFUSER_DISTRIBUTED
 #include <ATen/Functions.h>
 #include <c10/cuda/CUDAStream.h>
 #include <c10/util/ArrayRef.h>
@@ -63,7 +62,7 @@ struct OverlapTestParams {
     if (isEnvVariableDefined("USE_UCC")) {
       backend_type = CommunicatorBackend::ucc;
     }
-    if (isEnvVariableDefined("USE_STREAMS")) {
+    if (isEnvVariableDefined("USE_DIFFERENT_STREAMS")) {
       use_different_streams = true;
     }
     if (isEnvVariableDefined("DEBUG_PRINT")) {
@@ -90,36 +89,35 @@ class OverlapTest : public MultiDeviceTest {
  protected:
   OverlapTestParams params;
 
-  int64_t num_devices;
-  int64_t my_device_index;
-  at::Tensor ta, tb, tc_unreduced, tc_locally_reduced, tc, tc_expected;
+  int64_t num_devices_;
+  int64_t my_device_index_;
+  at::Tensor ta_, tb_, tc_locally_reduced_, tc_, tc_expected_;
   // stores the backend
-  c10d::Backend* world_communicator;
+  c10d::Backend* world_communicator_;
 
   void SetUp() {
     MultiDeviceTest::SetUp();
 
     params.parseEnv();
-    num_devices = communicator->size();
-    my_device_index = communicator->deviceId();
-    ASSERT_EQ(params.M % (params.S * num_devices), 0);
-    ASSERT_EQ(params.K % num_devices, 0);
+    num_devices_ = communicator->size();
+    my_device_index_ = communicator->deviceId();
+    ASSERT_EQ(params.M % (params.S * num_devices_), 0);
+    ASSERT_EQ(params.K % num_devices_, 0);
 
     // Setup the world communicators
-    std::vector<int64_t> devices(num_devices);
+    std::vector<int64_t> devices(num_devices_);
     std::iota(devices.begin(), devices.end(), 0);
-    world_communicator = communicator->getBackendForTeam(
-        devices, /*backend=*/params.backend_type);
+    world_communicator_ = communicator->getBackendForTeam(
+        devices, params.backend_type);
 
     // Define I/O and intermediate Tensor shapes
     // clang-format off
-        std::vector<int64_t> ta_unsharded_sizes         = {params.S, num_devices, params.M/params.S, params.K/num_devices, 1       };
-        std::vector<int64_t> ta_sizes                   = {params.S, 1          , params.M/params.S, params.K/num_devices, 1       };
-        std::vector<int64_t> tb_unsharded_sizes         = {1       , num_devices, 1                , params.K/num_devices, params.N};
-        std::vector<int64_t> tb_sizes                   = {1       , 1          , 1                , params.K/num_devices, params.N};
-        std::vector<int64_t> tc_unreduced_sizes         = {params.S, 1          , params.M/params.S, params.K/num_devices, params.N};
-        std::vector<int64_t> tc_partially_reduced_sizes = {params.S, 1          , params.M/params.S,                       params.N};
-        std::vector<int64_t> tc_sizes                   = {params.S, 1          , params.M/(params.S*num_devices)        , params.N};
+        std::vector<int64_t> ta_unsharded_sizes       = {params.S, num_devices_, params.M/params.S, params.K/num_devices_, 1       };
+        std::vector<int64_t> ta_sizes                 = {params.S, 1          , params.M/params.S, params.K/num_devices_, 1       };
+        std::vector<int64_t> tb_unsharded_sizes       = {1       , num_devices_, 1                , params.K/num_devices_, params.N};
+        std::vector<int64_t> tb_sizes                 = {1       , 1          , 1                , params.K/num_devices_, params.N};
+        std::vector<int64_t> tc_locally_reduced_sizes = {params.S, 1          , params.M/params.S,                       params.N};
+        std::vector<int64_t> tc_sizes                 = {params.S, 1          , params.M/(params.S*num_devices_)        , params.N};
     // clang-format on
 
     // Set up input tensors. We create the full unsharded tensors and define the
@@ -131,58 +129,50 @@ class OverlapTest : public MultiDeviceTest {
         at::TensorOptions().dtype(at::kFloat).device(communicator->device());
     auto ta_unsharded = at::randn(ta_unsharded_sizes, options);
     auto tb_unsharded = at::randn(tb_unsharded_sizes, options);
-    ta = at::empty(ta_sizes, options);
-    ta.copy_(ta_unsharded.index(
-        {at::indexing::Slice(),
-         at::indexing::Slice(my_device_index, my_device_index + 1),
-         "..."}));
-    tb = at::empty(tb_sizes, options);
-    tb.copy_(tb_unsharded.index(
-        {at::indexing::Slice(),
-         at::indexing::Slice(my_device_index, my_device_index + 1),
-         "..."}));
+    ta_ = at::empty(ta_sizes, options);
+    ta_.copy_(ta_unsharded.slice(1, my_device_index_, my_device_index_ + 1));
+    tb_ = at::empty(tb_sizes, options);
+    tb_.copy_(tb_unsharded.slice(1, my_device_index_, my_device_index_ + 1));
 
     // We pre-allocate the output and some intermediate buffers so we do not
     // rely on torch allocator, which do not behave well with multi-stream
     // programming.
-    tc_unreduced = at::empty(tc_unreduced_sizes, options);
-    tc_locally_reduced = at::empty(tc_partially_reduced_sizes, options);
-    tc = at::empty(tc_sizes, options);
+    tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, options);
+    tc_ = at::empty(tc_sizes, options);
 
     // compute the expected output for data correctness validation
     auto tc_unsharded_unreduced = ta_unsharded * tb_unsharded;
     auto tc_unsharded_expected = at::sum(tc_unsharded_unreduced, {1, 3});
     auto tc_unsharded_expected_reshaped = at::reshape(
         tc_unsharded_expected,
-        {params.S, num_devices, params.M / (params.S * num_devices), params.N});
-    tc_expected = tc_unsharded_expected_reshaped.index(
-        {at::indexing::Slice(),
-         at::indexing::Slice(my_device_index, my_device_index + 1),
-         "..."});
+        {params.S, num_devices_, params.M / (params.S * num_devices_), params.N});
+    tc_expected_ = tc_unsharded_expected_reshaped.slice(1, my_device_index_, my_device_index_ + 1);
 
     // Debug print
-    if (!communicator->deviceId() && params.debug_print) {
+    if (communicator->deviceId() == 0 && params.debug_print) {
       std::cout << params << std::endl;
-      std::cout << "ta.sizes()=" << ta.sizes() << std::endl;
-      std::cout << "tb.sizes()=" << tb.sizes() << std::endl;
-      std::cout << "tc_unreduced.sizes()=" << tc_unreduced.sizes() << std::endl;
-      std::cout << "tc_locally_reduced.sizes()=" << tc_locally_reduced.sizes()
+      std::cout << "ta_.sizes()=" << ta_.sizes() << std::endl;
+      std::cout << "tb_.sizes()=" << tb_.sizes() << std::endl;
+      std::cout << "tc_locally_reduced_.sizes()=" << tc_locally_reduced_.sizes()
                 << std::endl;
-      std::cout << "tc.sizes()=" << tc.sizes() << std::endl;
+      std::cout << "tc_.sizes()=" << tc_.sizes() << std::endl;
     }
   }
 
   at::Tensor getSlice(at::Tensor t, int64_t j) {
-    return t.index({at::indexing::Slice(j, j + 1), "..."});
+    return t.slice(0, j, j + 1);
   }
 
   void computeATen(
       at::Tensor ta_j,
       at::Tensor tb_j,
-      at::Tensor tc_unreduced_j,
       at::Tensor tc_locally_reduced_j) {
-    at::mul_out(tc_unreduced_j, ta_j, tb_j);
-    at::sum_out(tc_locally_reduced_j, tc_unreduced_j, {3});
+    // we unsqueeze the output tensor to avoid a torch warning:
+    // "W624 08:13:32.342934752 Resize.cpp:28] Warning: An output with one or more elements was resized since it had shape [1, 1, 8, 16], which does not match the required output shape [1, 1, 8, 1, 1, 1, 1, 16]. This behavior is deprecated, and in a future PyTorch release outputs will not be resized unless they have zero elements. You can explicitly reuse an out tensor t by resizing it, inplace, to zero elements with t.resize_(0). (function _resize_output_check)"
+    auto unsqueezed_tc_locally_reduced_j = tc_locally_reduced_j.unsqueeze(3).unsqueeze(4).unsqueeze(5).unsqueeze(6);
+    // we check that no unnecessary copy is performed
+    EXPECT_EQ(tc_locally_reduced_j.data_ptr(), unsqueezed_tc_locally_reduced_j.data_ptr()); 
+    at::tensordot_out(unsqueezed_tc_locally_reduced_j, ta_j, tb_j, {3}, {3});
   }
 };
 // clang-format off
@@ -191,31 +181,31 @@ class OverlapTest : public MultiDeviceTest {
 // MLP consisting of a GEMM+Reduce-scatter.
 //
 // The tensor program that we target is
-// the following, assuming a setup with `num_devices` devices:
+// the following, assuming a setup with `num_devices_` devices:
 //     inputs:
 //        - A[M,K] sharded column-wise:
-//          dimension K is split by the factor `num_devices`
-//          so A is viewed as [M, num_devices, K/num_devices]
-//          and the allocation size of A is [M, 1, K/num_devices]
+//          dimension K is split by the factor `num_devices_`
+//          so A is viewed as [M, num_devices_, K/num_devices_]
+//          and the allocation size of A is [M, 1, K/num_devices_]
 //        - B[K,N] sharded row-wise:
-//          locally of size [1, K/num_devices, N]
+//          locally of size [1, K/num_devices_, N]
 //     output:
 //        - C[M,N]=matmul(A,B), sharded on dimension M:
-//          dimension M is split by the factor `num_devices`
-//          so C is viewed as [num_devices, M/num_devices,N]
-//          and the allocation size of M is [1, M/num_devices,N]
+//          dimension M is split by the factor `num_devices_`
+//          so C is viewed as [num_devices_, M/num_devices_,N]
+//          and the allocation size of M is [1, M/num_devices_,N]
 // Up to some broadcast and view ops, a straightforward program to generate the
 // output could be summarized as
 //     | C_unreduced = pointwise_multiply(A,B)
-//     | C_locally_reduce = reduction(C_unreduced, axis=`K/num_devices`, op=sum)
+//     | C_locally_reduce = reduction(C_unreduced, axis=`K/num_devices_`, op=sum)
 //     | C = reduce_scatter(C_unreduced, op=sum)
 // where:
-// - C has unsharded size [M,num_devices,K/num_devices,N],
-//    and is sharded on `num_devices`
-// - C_locally_reduce has unsharded size [M,num_devices,N],
-//    and is sharded on `num_devices`
-// - C has unsharded size [num_devices, M/num_devices, N]
-//    and is sharded on `num_devices`
+// - C has unsharded size [M,num_devices_,K/num_devices_,N],
+//    and is sharded on `num_devices_`
+// - C_locally_reduce has unsharded size [M,num_devices_,N],
+//    and is sharded on `num_devices_`
+// - C has unsharded size [num_devices_, M/num_devices_, N]
+//    and is sharded on `num_devices_`
 //
 // We want to compare this baseline program with one that is functionnally
 // identical but achieves more overlap between computations and communications.
@@ -224,14 +214,14 @@ class OverlapTest : public MultiDeviceTest {
 // dimension M with a factor `S` representing the number of tiles, and we apply
 // the operations successively on tensors slices accross S, changing stream at
 // each iteration. Assuming the following shapes:
-//     - A [S, num_devices, M/S, K/num_devices], sharded on num_devices
-//     - B [num_devices, K/num_devices, N], sharded on num_devices
-//     - C [S, num_devices, M/(S*num_devices), N], sharded on num_devices
+//     - A [S, num_devices_, M/S, K/num_devices_], sharded on num_devices_
+//     - B [num_devices_, K/num_devices_, N], sharded on num_devices_
+//     - C [S, num_devices_, M/(S*num_devices_), N], sharded on num_devices_
 // the program could be summarized as:
 //     | for (j=0; j<S; j++) {
 //     |   setCurrentStream(Stream[j])
 //     |   C_unreduced[j] = pointwise_multiply(A[j],B)
-//     |   C_locally_reduce[j] = local_reduction(C_unreduced[j], axis=`K/num_devices`, op=sum)
+//     |   C_locally_reduce[j] = local_reduction(C_unreduced[j], axis=`K/num_devices_`, op=sum)
 //     |   C[j]=reduce_scatter(C_locally_reduce[j], op=sum)
 //     | }
 // where "[j]" referes to taking a slice onto the `S` dimension.
@@ -247,22 +237,21 @@ TEST_F(OverlapTest, SimpleComputeComm) {
   std::vector<c10::cuda::CUDAStream> streams;
   for (auto j : c10::irange(params.S)) {
     // define the sliced tensors
-    auto ta_j = getSlice(ta, j);
-    auto tc_unreduced_j = getSlice(tc_unreduced, j);
-    auto tc_locally_reduced_j = getSlice(tc_locally_reduced, j);
-    auto tc_j = getSlice(tc, j);
+    auto ta_j = getSlice(ta_, j);
+    auto tc_locally_reduced_j = getSlice(tc_locally_reduced_, j);
+    auto tc_j = getSlice(tc_, j);
 
     if (params.use_different_streams) {
       auto new_stream = c10::cuda::getStreamFromPool(
-          /*isHighPriority=*/true, my_device_index);
+          /*isHighPriority=*/true, my_device_index_);
       streams.push_back(new_stream);
       setCurrentCUDAStream(new_stream);
     }
 
     // local compute
-    computeATen(ta_j, tb, tc_unreduced_j, tc_locally_reduced_j);
+    computeATen(ta_j, tb_, tc_locally_reduced_j);
     // communication
-    world_communicator->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
+    world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
         ->wait();
   }
 
@@ -273,11 +262,9 @@ TEST_F(OverlapTest, SimpleComputeComm) {
   }
 
   // validation
-  ASSERT_TRUE(tc.allclose(tc_expected, 1e-3, 1e-3))
-      << "Unexpected results, obtained:" << tc
-      << "\n expected: " << tc_expected;
+  EXPECT_TRUE(tc_.allclose(tc_expected_, 1e-3, 1e-3))
+      << "Unexpected results, obtained:" << tc_
+      << "\n expected: " << tc_expected_;
 }
 
 } // namespace nvfuser
-
-#endif
