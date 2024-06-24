@@ -4834,7 +4834,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   };
 
   // Conmpute scale using original size of last dimension
-  double scale = inputs.size() > 5 ? inputs.back().as<double>()
+  double scale = inputs.size() > 14 ? inputs.back().as<double>()
                                    : 1.0 / std::sqrt(last_dim_size);
 
   // ATen reference:

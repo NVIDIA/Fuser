@@ -48,7 +48,7 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
 
   auto tvq = makeConcreteTensor(q_shape, DataType::Half);
   auto tvk = makeConcreteTensor(k_shape, DataType::Half);
-  auto tvv = makeConcreteTensor(k_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(v_shape, DataType::Half);
 
   fusion->addInput(tvq);
   fusion->addInput(tvk);
@@ -77,7 +77,6 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
       /*is_causal=*/false,
       /*return_debug_mask=*/false,
       scale);
-  ;
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({q, k, v});
@@ -123,7 +122,6 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
       /*is_causal=*/false,
       /*return_debug_mask=*/false,
       scale);
-  ;
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({q, k, v});
@@ -168,7 +166,6 @@ TEST_F(SDPATest, CausalAttn) {
       /*is_causal=*/true,
       /*return_debug_mask=*/false,
       /*scale=*/1e-3);
-  ;
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({q, k, v});
@@ -272,10 +269,12 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   auto tvv = makeSymbolicTensor(k_shape, DataType::Half);
   auto tv_output = makeSymbolicTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
-  auto tv_cumq = makeSymbolicTensor(1, DataType::Int);
-  auto tv_cumk = makeSymbolicTensor(1, DataType::Int);
+  auto tv_cumq = makeSymbolicTensor(1, DataType::Null);
+  auto tv_cumk = makeSymbolicTensor(1, DataType::Null);
   auto tv_seed = makeSymbolicTensor({}, DataType::Int);
+  tv_seed->setCpuScalar(true);
   auto tv_offset = makeSymbolicTensor({}, DataType::Int);
+  tv_offset->setCpuScalar(true);
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);
