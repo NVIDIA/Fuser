@@ -225,8 +225,8 @@ class FusionDefinition(_C._FusionDefinition):
                 capture_debug_output=capture_debug_output,
                 profile=profile,
             )
+            print(self.getReproErrorString("executing", inputs))
         except Exception as err:
-            logger.exception(self.getReproErrorString("executing", inputs))
             raise
 
         return result
