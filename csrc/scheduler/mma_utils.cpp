@@ -34,13 +34,8 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
     }
     NVF_ERROR(false, "Get MMA Tensor data type failed!");
   };
-  const auto it = tensor_roles.find(MatmulRole::OPERAND);
-  NVF_ERROR(
-      it != tensor_roles.end(), "Could not find any tensors with role OPERAND");
-  const std::vector<TensorView*>& operands = it->second;
-  NVF_ERROR(operands.size() == 2, "Exactly two operands are expected");
-  const auto a_type = operands.front()->dtype();
-  const auto b_type = operands.back()->dtype();
+  const auto a_type = getMMADataType(MatmulRole::OPERAND_A);
+  const auto b_type = getMMADataType(MatmulRole::OPERAND_B);
   const auto c_type = getMMADataType(MatmulRole::OUTPUT);
   return mma_utils::MmaDataTypes{a_type, b_type, c_type};
 }
@@ -181,6 +176,16 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       promote_prologue_smem_reuse};
 }
 
+TensorView* getOperandTv(const TensorRolesMap& tensor_roles, MatmulRole role) {
+  const auto it = tensor_roles.find(role);
+  NVF_ERROR(it != tensor_roles.end(), "Could not find any tensors with role");
+  const std::vector<TensorView*>& operands = it->second;
+  NVF_ERROR(
+      operands.size() == 1,
+      "Exactly one operand is expected in each A and B role");
+  return operands.front();
+}
+
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
@@ -220,13 +225,8 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // cases, we check that there is no re-use when there is more than one use of
   // either a or b. If there are multiple uses we might wind up re-using memory,
   // but in that case the calculation below will be overly conservative.
-  const auto it = tensor_roles.find(MatmulRole::OPERAND);
-  NVF_ERROR(
-      it != tensor_roles.end(), "Could not find any tensors with role OPERAND");
-  const std::vector<TensorView*>& operands = it->second;
-  NVF_ERROR(operands.size() == 2, "Exactly two operands are expected");
-  const TensorView* a = operands.front();
-  const TensorView* b = operands.back();
+  const TensorView* a = getOperandTv(tensor_roles, MatmulRole::OPERAND_A);
+  const TensorView* b = getOperandTv(tensor_roles, MatmulRole::OPERAND_B);
   bool smem_a_reuse_guaranteed = a->uses().size() == 1;
   bool smem_b_reuse_guaranteed = b->uses().size() == 1;
 
@@ -1166,13 +1166,8 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
     }
     return g_it->second;
   };
-  const auto it = tensor_roles.find(MatmulRole::OPERAND);
-  NVF_ERROR(
-      it != tensor_roles.end(), "Could not find any tensors with role OPERAND");
-  const std::vector<TensorView*>& operands = it->second;
-  NVF_ERROR(operands.size() == 2, "Exactly two operands are expected");
-  TensorView* a = operands.front();
-  TensorView* b = operands.back();
+  TensorView* a = getOperandTv(tensor_roles, MatmulRole::OPERAND_A);
+  TensorView* b = getOperandTv(tensor_roles, MatmulRole::OPERAND_B);
 
   const MatmulDomainOpt innerdim_a_opt = findInnerDim(a);
   if (std::holds_alternative<std::string>(innerdim_a_opt)) {
@@ -1239,17 +1234,15 @@ TensorRolesMapOpt getTensorRoles(
     return has;
   };
 
-  tensor_roles[MatmulRole::OPERAND].resize(2);
   for (TensorView* tv : mma_input_candidates) {
     DimPresence has = findDims(tv);
     if (has.unmapped) {
       // Don't map TVs to roles if they have unmapped dims
       continue;
     }
-    if (has.k && has.m) {
-      tensor_roles[MatmulRole::OPERAND].at(0) = tv;
-    } else if (has.k && has.n) {
-      tensor_roles[MatmulRole::OPERAND].at(1) = tv;
+    if (has.k) {
+      tensor_roles[has.m ? MatmulRole::OPERAND_A : MatmulRole::OPERAND_B]
+          .push_back(tv);
     } else {
       tensor_roles[MatmulRole::EPILOGUE_INPUT].push_back(tv);
       continue;
@@ -1280,16 +1273,16 @@ TensorRolesMapOpt getTensorRoles(
     tensor_roles[MatmulRole::OUTPUT] = storage;
   }
 
-  // for (auto& [role, tvs] : tensor_roles) {
-  //   // NOTE: sort role tvs in descending order by uses() size, and
-  //   //  if equal then by name() to ensure the stable ordering of tensor
-  //   //  views in collections assigned to the supported roles
-  //   std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
-  //     return (a->uses().size() == b->uses().size())
-  //         ? (a->name() < b->name())
-  //         : (a->uses().size() > b->uses().size());
-  //   });
-  // }
+  for (auto& [role, tvs] : tensor_roles) {
+    // NOTE: sort role tvs in descending order by uses() size, and
+    //  if equal then by name() to ensure the stable ordering of tensor
+    //  views in collections assigned to the supported roles
+    std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+      return (a->uses().size() == b->uses().size())
+          ? (a->name() < b->name())
+          : (a->uses().size() > b->uses().size());
+    });
+  }
 
   return tensor_roles;
 }
@@ -1781,7 +1774,10 @@ std::vector<ValGroup> canonicalDimOrdering(
   // M/N ordering has been determined.
   int64_t n_inside_m = 0;
   for (MatmulRole tv_role :
-       {MatmulRole::OUTPUT, MatmulRole::OPERAND, MatmulRole::EPILOGUE_INPUT}) {
+       {MatmulRole::OUTPUT,
+        MatmulRole::OPERAND_A,
+        MatmulRole::OPERAND_B,
+        MatmulRole::EPILOGUE_INPUT}) {
     const auto it = tensor_roles.find(tv_role);
     if (it == tensor_roles.end()) {
       continue;
@@ -1821,7 +1817,8 @@ std::vector<ValGroup> canonicalDimOrdering(
               break;
             case MatmulDomain::K:
               // Order K dimensions like operands, and all others like outputs
-              if (tv_role == MatmulRole::OPERAND) {
+              if (tv_role == MatmulRole::OPERAND_A ||
+                  tv_role == MatmulRole::OPERAND_B) {
                 k_dims.pushBack(g);
               }
               break;
