@@ -149,7 +149,6 @@ class FusionDefinition(_C._FusionDefinition):
                 capture_debug_output=capture_debug_output,
                 profile=profile,
             )
-        except Exception as err:
             msg = (
                 f"An error occurred while executing nvFuser FusionDefinition {self.id()}.\n"
                 "If you believe this is a bug or need assistance, please file an issue at "
@@ -202,7 +201,8 @@ class FusionDefinition(_C._FusionDefinition):
             msg += "]"
             msg += "\nfd.execute(inputs)\n"
             msg += "```\n"
-            logger.exception(msg)
+            print(msg)
+        except Exception as err:
             raise
 
         return result
