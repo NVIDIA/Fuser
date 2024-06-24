@@ -12,9 +12,11 @@
 #include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <multidevice/communicator.h>
 #include <scheduler/heuristic_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
@@ -53,6 +55,9 @@ class FusionExecutor : public NonCopyable {
     bool resets_to_zero = false;
     bool is_profile_buffer = false;
   };
+
+  explicit FusionExecutor(Communicator* communicator = nullptr)
+      : communicator_(communicator) {}
 
   // Unsafe compilation that's useful for debugging kernels, iterating over
   // slight modifications of a generated kernel
@@ -172,9 +177,10 @@ class FusionExecutor : public NonCopyable {
 
   // Function to query whether compilation was attempted for a `FusionExecutor`
   bool isCompiled() const {
-    // Check at most one of fusion_ and lowered_ is null.
-    NVF_ERROR(!(fusion_ && lowered_));
-    return fusion_ || lowered_;
+    int num_compiled_artifacts = (fusion_ != nullptr) + (lowered_ != nullptr) +
+        (host_ir_container_ != nullptr);
+    NVF_ERROR(num_compiled_artifacts <= 1);
+    return num_compiled_artifacts == 1;
   };
 
   // function to query whether a `FusionExecutor` has a compiled kernel to
@@ -183,7 +189,7 @@ class FusionExecutor : public NonCopyable {
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
       NVF_ERROR(
-          !fusion_,
+          fusion_ == nullptr,
           "fusion_ should only be initialized when using expression evaluator.");
     }
     return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
@@ -227,10 +233,17 @@ class FusionExecutor : public NonCopyable {
   }
 
   Fusion* fusion() const {
-    NVF_ERROR(
-        (lowered_ && !fusion_) || (!lowered_ && fusion_),
-        "Expected one and only one of fusion_ and lowered_ to be initialized.");
-    return lowered_ ? lowered_->kernel()->as<Fusion>() : fusion_.get();
+    NVF_ERROR(isCompiled());
+    if (fusion_ != nullptr) {
+      return fusion_.get();
+    }
+    if (lowered_ != nullptr) {
+      return lowered_->kernel()->as<Fusion>();
+    }
+    if (host_ir_container_ != nullptr) {
+      return host_ir_container_->as<Fusion>();
+    }
+    NVF_ERROR(false, "unreachable because of the isCompiled check");
   }
 
   const ThreadPredicateMap& threadPredMap() const {
@@ -587,6 +600,8 @@ class FusionExecutor : public NonCopyable {
   // Initialized for non-compiled fusions
   std::unique_ptr<Fusion> fusion_;
 
+  std::unique_ptr<hir::HostIrContainer> host_ir_container_;
+
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
   int64_t block_size_high_water_mark_ = 1;
@@ -647,6 +662,8 @@ class FusionExecutor : public NonCopyable {
   // Post-lowering hooks that are called to modify the kernel after lowering.
   // The main use case is for unit tests to modify the kernel.
   std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
+
+  Communicator* communicator_;
 };
 
 } // namespace nvfuser

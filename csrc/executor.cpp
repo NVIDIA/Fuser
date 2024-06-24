@@ -20,6 +20,9 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
+#include <multidevice/communication.h>
+#include <multidevice/communicator.h>
+#include <multidevice/lower_communication.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <serde/utils.h>
@@ -257,8 +260,27 @@ void FusionExecutor::compileFusion(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
+  // TODO: refactor the options_ passed through
+  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+
   if (isExpressionEvaluated(fusion)) {
     fusion_ = std::make_unique<Fusion>(*fusion);
+    return;
+  }
+
+  const auto& exprs = fusion->exprs();
+  if (std::all_of(exprs.begin(), exprs.end(), [](Expr* e) {
+        return isLowerableToCommunication(e);
+      })) {
+    host_ir_container_ = std::make_unique<hir::HostIrContainer>();
+    IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
+    for (Expr* e : exprs) {
+      std::vector<Communication*> communications =
+          lowerCommunication(cloner.clone(e));
+      for (auto* communication : communications) {
+        host_ir_container_->pushBackTopLevelExprs(communication);
+      }
+    }
     return;
   }
 
@@ -297,9 +319,6 @@ void FusionExecutor::compileFusion(
   } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
     fusion->printMath();
   }
-
-  // TODO: refactor the options_ passed through
-  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
 
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
@@ -1860,6 +1879,19 @@ std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
   return outputs;
 }
 
+namespace {
+at::Tensor findBufferForFusionOutput(
+    const std::vector<at::Tensor>& out_tensors,
+    const Val* fusion_out,
+    const Fusion* fusion) {
+  auto i =
+      std::find(fusion->outputs().begin(), fusion->outputs().end(), fusion_out);
+  NVF_ERROR(i != fusion->outputs().end());
+  auto index = std::distance(fusion->outputs().begin(), i);
+  return out_tensors[index];
+}
+} // namespace
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -1892,10 +1924,37 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     inputBytesProcessed(args);
   }
 
-  if (!hasCompiledKernel()) {
+  if (isExpressionEvaluated(fusion())) {
     outputs = evaluateFusionOutputs(args, outputs, expr_eval);
     if (measure_kernel_time) {
       outputBytesProcessed(outputs);
+    }
+    return outputs;
+  }
+
+  if (host_ir_container_ != nullptr) {
+    if (outputs.empty()) {
+      std::vector<GlobalBufferInfo> output_info = getOutputBufferInfo(
+          args, expr_eval, PrimDataType::Int, host_ir_container_.get());
+      outputs = allocateOutputs(
+          host_ir_container_.get(), output_info, options_.device, expr_eval);
+    }
+    for (Expr* e : host_ir_container_->topLevelExprs()) {
+      auto* communication = e->as<Communication>();
+      c10d::Backend* backend =
+          communicator_->getBackendForTeam(communication->team(), std::nullopt);
+      auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
+      at::Tensor out_tensor = findBufferForFusionOutput(
+          outputs, communication->out(), host_ir_container_.get());
+      c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+          communication,
+          communicator_->deviceId(),
+          backend,
+          in_tensor,
+          out_tensor);
+      if (work != nullptr) {
+        work->wait();
+      }
     }
     return outputs;
   }
