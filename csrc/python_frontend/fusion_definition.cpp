@@ -353,7 +353,7 @@ Scalar FusionDefinition::defineScalar() {
   FUSER_PERF_SCOPE("FusionDefinition::defineScalar");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "defineScalar must be called inside a 'with' block");
+      "define_scalar() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   Scalar out(recording_state_.size(), this);
   recording_state_.emplace_back(out(), serde::StateType::Scalar);
   return out;
@@ -362,7 +362,7 @@ Scalar FusionDefinition::defineScalar() {
 Tensor FusionDefinition::addTensor(TensorView* tv) {
   FUSER_PERF_SCOPE("FusionDefinition::addTensor");
   NVF_CHECK(
-      trie_node_ != nullptr, "AddTensor must be called inside a 'with' block");
+      trie_node_ != nullptr, "addTensor() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   Tensor output = defineTensor(tv->nDims());
   NVF_CHECK(
       output.index == numFusionStates(),
@@ -375,7 +375,7 @@ Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "defineTensor must be called inside a 'with' block");
+      "define_tensor() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   Tensor out(recording_state_.size(), dims, this);
   recording_state_.emplace_back(out(), serde::StateType::Tensor);
   return out;
@@ -385,7 +385,7 @@ Vector FusionDefinition::defineVector(size_t size) {
   FUSER_PERF_SCOPE("FusionDefinition::defineVector");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "defineVector must be called inside a 'with' block");
+      "define_vector() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   Vector out(recording_state_.size(), size, this);
   recording_state_.emplace_back(out(), serde::StateType::Vector);
   return out;
@@ -395,7 +395,7 @@ void FusionDefinition::defineRecord(RecordFunctor* record) {
   FUSER_PERF_SCOPE("FusionDefinition::defineRecord");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "defineRecord must be called inside a 'with' block");
+      "defineRecord() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   NVF_CHECK(
       (recording_.size() + 1) <= max_length_,
       "The fusion definition has exceeded ",
