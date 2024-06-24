@@ -492,9 +492,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
   for (const auto& g : index_groups) {
     auto it = info.index_map.find(g);
     NVF_ERROR(
-        it != info.index_map.end(),
-        "Index not found for ",
-        g->toString());
+        it != info.index_map.end(), "Index not found for ", g->toString());
     result.push_back(
         ir_utils::replaceValRecursively(it->second, replacement_map));
   }
@@ -517,7 +515,8 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   const auto [allocation_domains, strides] =
       getAllocationDomains(tv, id_model_);
 
-  auto indices = getIndexFor(expr, traversalGraph().toGroups(allocation_domains));
+  auto indices =
+      getIndexFor(expr, traversalGraph().toGroups(allocation_domains));
   NVF_ERROR(indices.size() == allocation_domains.size());
 
   // Linearize the indices with strides.
