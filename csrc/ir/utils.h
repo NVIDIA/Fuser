@@ -416,7 +416,7 @@ std::vector<ViewOp*> getViewOps(Fusion*);
 template <typename T>
 std::string toString(const T& nodes) {
   std::stringstream ss;
-  for (const Statement* stmt : nodes) {
+  for (auto stmt : nodes) {
     if (ss.tellp() != 0) {
       ss << ", ";
     }
@@ -428,7 +428,7 @@ std::string toString(const T& nodes) {
 template <typename T>
 std::string toInlineString(const T& nodes) {
   std::stringstream ss;
-  for (const Statement* stmt : nodes) {
+  for (auto stmt : nodes) {
     if (ss.tellp() != 0) {
       ss << ", ";
     }

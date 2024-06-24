@@ -186,10 +186,11 @@ TEST_P(CommunicationTest, SendRecv) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
-  constexpr DeviceIdxType sender = 0;
-  constexpr DeviceIdxType receiver = 1;
-  if (communicator->deviceId() > 1) {
-    // Only devices 0 and 1 participate.
+  constexpr DeviceIdxType sender = 1;
+  constexpr DeviceIdxType receiver = 0;
+
+  const DeviceIdxType rank = communicator->deviceId();
+  if (rank != sender && rank != receiver) {
     return;
   }
 
@@ -202,27 +203,25 @@ TEST_P(CommunicationTest, SendRecv) {
 
   at::Tensor input_tensor;
   at::Tensor output_tensor;
-  if (communicator->deviceId() == sender) {
+  if (rank == sender) {
     input_tensor = at::empty({kTensorSize}, tensor_options);
   } else {
-    NVF_ERROR(communicator->deviceId() == receiver);
+    NVF_ERROR(rank == receiver);
     output_tensor = at::empty({kTensorSize}, tensor_options);
   }
 
+  c10d::Backend* backend =
+      communicator->getBackendForTeam(communication->team(), GetParam());
   for (auto repetition : c10::irange(kNumRepetitions)) {
-    if (communicator->deviceId() == sender) {
+    if (rank == sender) {
       input_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition);
     }
 
     auto work = postSingleCommunication(
-        communication,
-        communicator->deviceId(),
-        backend_,
-        input_tensor,
-        output_tensor);
+        communication, rank, backend, input_tensor, output_tensor);
     work->wait();
 
-    if (communicator->deviceId() == receiver) {
+    if (rank == receiver) {
       auto ref = at::arange(kTensorSize, tensor_options) + repetition;
       validate(output_tensor, ref);
     }
@@ -246,13 +245,15 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
   at::Tensor input_tensor = at::empty({kTensorSize}, tensor_options);
   at::Tensor output_tensor = at::empty_like(input_tensor);
 
+  c10d::Backend* backend =
+      communicator->getBackendForTeam(communication->team(), GetParam());
   for (auto repetition : c10::irange(kNumRepetitions)) {
     input_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition);
 
     postSingleCommunication(
         communication,
         communicator->deviceId(),
-        backend_,
+        backend,
         input_tensor,
         output_tensor);
 

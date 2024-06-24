@@ -140,7 +140,8 @@ class Val;
 #define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
   f(HostUnit);                        \
   f(PostOnStream);                    \
-  f(SetCurrentStream);
+  f(SetCurrentStream);                \
+  f(Wait);
 
 // Forward declarations for all Val and Expr types
 
