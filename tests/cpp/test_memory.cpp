@@ -512,6 +512,9 @@ class TMALoadTestWithABroadcastDim
     // {B, NO, N_dim, K}
     tv->split(-2, tv->axis(-2)->extent());
 
+    if (swizzle == MmaInputSmemSwizzle::None) {
+      return;
+    }
     // {B, NO, N_dim, K0, KI (32/64/128)}
     tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
 
@@ -586,7 +589,7 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
 }
 
 std::vector<std::vector<int64_t>> shapes_to_load =
-    {{1, 64, 16}, {1, 16, 64}, {1, 128, 64}, {1, 256, 128}, {64, 1, 16}};
+    {{1, 64, 16}, {1, 16, 64}, {1, 128, 64}, {1, 128, 128}, {64, 1, 16}};
 
 INSTANTIATE_TEST_SUITE_P(
     ,
@@ -595,6 +598,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::ValuesIn(shapes_to_load),
         testing::Values(DataType::Half, DataType::Float, DataType::Double),
         testing::Values(
+            MmaInputSmemSwizzle::None,
             MmaInputSmemSwizzle::B128,
             MmaInputSmemSwizzle::B64,
             MmaInputSmemSwizzle::B32)));
