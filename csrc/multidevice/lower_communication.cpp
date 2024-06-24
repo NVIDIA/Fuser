@@ -263,8 +263,8 @@ std::vector<Communication*> lowerCommunication(
       c->inputs().size() == 1 && c->inputs().at(0)->isA<TensorView>() &&
           c->outputs().size() == 1 && c->outputs().at(0)->isA<TensorView>(),
       "I/O must be TensorViews");
-  TensorView* input_tv = c->inputs().at(0)->as<TensorView>();
-  TensorView* output_tv = c->outputs().at(0)->as<TensorView>();
+  TensorView* input_tv = c->input(0)->as<TensorView>();
+  TensorView* output_tv = c->output(0)->as<TensorView>();
   at::Tensor dummy;
 
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
@@ -276,21 +276,19 @@ std::vector<Communication*> lowerCommunication(
   const bool is_output_sharded =
       isSharded(output_tv) && receiver_mesh.size() > 1;
 
-  auto original_expr = output_tv->definition();
   NVF_ERROR(
-      isLowerableToCommunication(original_expr),
+      isLowerableToCommunication(c),
       "Lowering expression ",
-      original_expr->toString(),
+      c->toString(),
       " to communication is not supported");
   NVF_ERROR(
-      !isInnerResharding(original_expr),
+      !isInnerResharding(c),
       "Resharding on an inner axis is not lowerable ",
-      original_expr->toString());
-  bool is_reduction = original_expr->isA<ReductionOp>();
+      c->toString());
+  bool is_reduction = c->isA<ReductionOp>();
 
   if (is_reduction) {
-    BinaryOpType op_type =
-        output_tv->definition()->as<ReductionOp>()->getReductionOpType();
+    BinaryOpType op_type = c->as<ReductionOp>()->getReductionOpType();
     NVF_ERROR(
         is_input_sharded || sender_mesh.size() == 1,
         "the comm input must be sharded in case of reduce.",

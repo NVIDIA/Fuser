@@ -33,6 +33,7 @@ int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
   return 1;
 }
 
+// Detect the pattern x = expr(..., x, ...), exclude this expr from the result.
 // TODO: We should use utilities in val_graph_visitor.h so that we don't have
 // to manually filter out cyclic expr groups
 ExprGroups acyclicExprGroups(const ValGraph& id_graph, const ExprGroups& egs) {
@@ -209,10 +210,6 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   for (const auto& tile_g : tile_groups) {
     const auto& defs =
         acyclicExprGroups(id_graph, id_graph.getDefinitions(tile_g));
-    // std::cout << "defs: " << std::endl;
-    // for (auto eg : defs) {
-    //   std::cout << eg->toString() << std::endl;
-    // }
     NVF_ERROR(
         defs.size() <= 1,
         "Having multiple definitions of tile group is not supported");

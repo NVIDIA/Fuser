@@ -218,7 +218,7 @@ using DimRolesMap = std::unordered_map<ValGroup, MatmulDomain>;
 using TensorRolesMap = std::unordered_map<MatmulRole, std::vector<TensorView*>>;
 
 //! An alias for storing data types of the tensors in the mma op
-//!  the order is INPUT_A, INPUT_B, OUTPUT_D
+//!  the order is A, B, OUTPUT
 using MmaDataTypes = std::array<DataType, 3>;
 
 //! A wrapper for data containers with optional error message stored if
@@ -282,7 +282,10 @@ struct MatmulPattern {
 //! Traverse the fusion to find supported matmul patterns
 std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion);
 
-using MatmulProblemLayoutOpt = DataWrapperOpt<MmaLayout>;
+//! This is a vector of roles describing the inner dimension of each operand
+using MatmulOperandInnerDims = std::vector<MatmulDomain>;
+
+using MatmulOperandInnerDimsOpt = DataWrapperOpt<MatmulOperandInnerDims>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
 using DimRolesMapOpt = DataWrapperOpt<DimRolesMap>;
 using TensorRolesMapOpt = DataWrapperOpt<TensorRolesMap>;
@@ -290,8 +293,8 @@ using TensorRolesMapOpt = DataWrapperOpt<TensorRolesMap>;
 using DomainsDesc = std::vector<MatmulDomain>;
 using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 
-//! Returns wrapped matmul input layout data, if supported, otherwise returned
-//!  object contains a message with failure root cause.
+//! Returns wrapped matmul input memory layout data, if supported, otherwise
+//! returned object contains a message with failure root cause.
 //!
 //! Matmul layout depends only on fusion definition while mma layout relies on
 //!  HW implementation to handle input layout from fusion definition. Detailed
@@ -303,14 +306,14 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-NVF_API MatmulProblemLayoutOpt getProblemLayout(
+NVF_API MatmulOperandInnerDimsOpt getOperandInnerDims(
     const IdModel& id_model,
     const DimRolesMap& dim_roles,
     const TensorRolesMap& tensor_roles);
 
 //! This version assumes the Fusion contains a single MatmulPattern, then builds
 //! an IdModel and infers dim roles then calls the above function.
-NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
+NVF_API MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion);
 
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
