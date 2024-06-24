@@ -212,6 +212,14 @@ std::string isMatmulFusionDefinitionSupported(
       return "MMA output TV has no reduction domain";
     }
 
+    // Check that there is a single K dimension
+    if (std::count_if(
+            mma_output->getLogicalDomain().begin(),
+            mma_output->getLogicalDomain().end(),
+            [](IterDomain* id) { return id->isReduction(); }) != 1) {
+      return "MMA output TV must have exactly one reduction (K) dimension";
+    }
+
     // Fusion should contain at least two inputs (for now)
     if (minimal_number_of_inputs > fusion_inputs.size()) {
       return "Fusion inputs contain at least one non-TensorView object";
