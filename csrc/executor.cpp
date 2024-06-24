@@ -299,8 +299,7 @@ void FusionExecutor::compileFusion(
   }
 
   // TODO: refactor the options_ passed through
-  options_.device =
-      c10::Device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
+  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
 
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
