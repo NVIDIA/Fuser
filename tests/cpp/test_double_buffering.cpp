@@ -269,7 +269,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
   testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
-TEST_F(DoubleBufferingTest, TmaDoubleBufferingNormalize) {
+TEST_F(DoubleBufferingTest, TmaDoubleBufferingPersistent) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   constexpr int dim0 = 1024, dim1 = 4096;
