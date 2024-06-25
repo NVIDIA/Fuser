@@ -58,9 +58,9 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   fusion->addOutput(tv1_fusion);
 
   DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_size);
-  if (with_sharding_annotations) {
-    for (auto tv : {tv0_fusion, tv1_fusion}) {
-      tv->setDeviceMesh(mesh);
+  for (auto tv : {tv0_fusion, tv1_fusion}) {
+    tv->setDeviceMesh(mesh);
+    if (with_sharding_annotations) {
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
   }
@@ -94,13 +94,9 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto communication = IrBuilder::createInContainer<Communication>(
       hic.get(),
       CommunicationType::Allgather,
-      mesh,
-      mesh.vector(),
-      -1,
-      RedOpType::UNUSED,
-      -1,
+      communication_output,
       communication_input,
-      communication_output);
+      mesh.vector());
   auto wait = IrBuilder::createInContainer<Wait>(hic.get(), communication);
 
   // [Step 6)] Define the Host program
@@ -155,9 +151,9 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   fusion->addOutput(tv1_fusion);
 
   DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_size);
-  if (with_sharding_annotations) {
-    for (auto tv : {tv0_fusion, tv1_fusion}) {
-      tv->setDeviceMesh(mesh);
+  for (auto tv : {tv0_fusion, tv1_fusion}) {
+    tv->setDeviceMesh(mesh);
+    if (with_sharding_annotations) {
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
   }
@@ -190,13 +186,9 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   auto communication = IrBuilder::createInContainer<Communication>(
       hic.get(),
       CommunicationType::Allgather,
-      mesh,
-      mesh.vector(),
-      -1,
-      RedOpType::UNUSED,
-      -1,
+      communication_output,
       communication_input,
-      communication_output);
+      mesh.vector());
   auto wait = IrBuilder::createInContainer<Wait>(hic.get(), communication);
 
   // [Step 6)] Define the Host program
