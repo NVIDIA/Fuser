@@ -408,7 +408,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
 TEST_F(DistributedMatmulTest, MLP_Layer) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator->size());
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
 
   int64_t sb = 64; // sequence * batch
   int64_t h = 128;
@@ -497,7 +497,7 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
 
   const auto options = at::TensorOptions()
                            .dtype(c10::ScalarType::BFloat16)
-                           .device(at::kCUDA, communicator->local_rank());
+                           .device(at::kCUDA, communicator_->local_rank());
   auto x_ = at::randn({sb, h}, options);
   auto w0_ = at::randn({h4, h}, options);
   auto b0_ = at::randn({h4}, options);
@@ -509,15 +509,15 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
       shardTensor(
           w0_.view({num_devices_, h4 / num_devices_, h}),
           w0,
-          communicator->deviceId()),
+          communicator_->deviceId()),
       shardTensor(
           b0_.view({num_devices_, h4 / num_devices_}),
           b0,
-          communicator->deviceId()),
+          communicator_->deviceId()),
       shardTensor(
           w1_.view({h, num_devices_, h4 / num_devices_}).transpose(1, 0),
           w1,
-          communicator->deviceId()),
+          communicator_->deviceId()),
       b1_};
   at::manual_seed(0);
   auto linear1_aten =
@@ -533,18 +533,18 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
           at::transpose(
               linear1_aten.view({sb, num_devices_, h4 / num_devices_}), 1, 0),
           linear1,
-          communicator->deviceId()),
+          communicator_->deviceId()),
       shardTensor(
           at::transpose(
               gelu_aten.view({sb, num_devices_, h4 / num_devices_}), 1, 0),
           gelu,
-          communicator->deviceId()),
+          communicator_->deviceId()),
       linear2_aten,
       dropout_aten};
 
   at::manual_seed(0);
   MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator, executor_params_);
+      std::move(fusion), *communicator_, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
 
   // Bump up the tolerance - the second matmul carries
