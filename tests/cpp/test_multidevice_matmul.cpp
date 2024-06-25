@@ -447,6 +447,7 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
   TensorView* gelu_ = castOp(DataType::BFloat16, gelu);
 
   // Linear #2
+  // segment_set required to ensure the matmul scheduler is called
   gelu_ = segment_set(gelu_);
   TensorView* linear2_int0 = broadcast(gelu_, {false, false, true, false});
   TensorView* linear2_int1 = broadcast(w1, {false, true, false, false});

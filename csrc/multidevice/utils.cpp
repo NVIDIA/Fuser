@@ -525,12 +525,10 @@ void unshard(Fusion* fusion) {
 
 std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   std::set<DeviceIdxType> ret;
-  for (const auto& tvs : {expr->inputs(), expr->outputs()}) {
-    for (auto val : tvs) {
-      if (!val->isA<TensorView>()) {
-        continue;
-      }
-      auto tv = val->as<TensorView>();
+  for (const auto& tvs :
+       {ir_utils::filterByType<TensorView>(expr->inputs()),
+        ir_utils::filterByType<TensorView>(expr->outputs())}) {
+    for (auto* tv : tvs) {
       NVF_ERROR(
           tv->hasDeviceMesh(),
           "the TensorView has no device mesh: ",
