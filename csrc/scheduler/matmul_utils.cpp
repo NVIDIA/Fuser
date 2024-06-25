@@ -193,7 +193,8 @@ std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
     const mma_utils::MatmulPattern& pattern,
     const mma_utils::TensorRolesMap& tensor_roles,
-    const mma_utils::DimRolesMap& id_roles) {
+    const mma_utils::DimRolesMap& id_roles,
+    const ValGraph& permissive_graph) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   std::vector<TensorView*> mma_inputs = {pattern.A, pattern.B};
@@ -208,27 +209,18 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Quick checks
   {
-    // Check if matmul pattern represents gemm (requires M/N/K == 1, B == 0)
-    //  or bgemm (requires M/N/K/B == 1)
-    std::array<int64_t, 4> num_axes{};
-    for (const auto& [g, dom] : id_roles) {
-      num_axes[(size_t)dom]++;
-    }
-    constexpr int64_t expected_axes_numbers = 1;
-    if (num_axes[(size_t)MatmulDomain::M] != expected_axes_numbers ||
-        num_axes[(size_t)MatmulDomain::N] != expected_axes_numbers ||
-        num_axes[(size_t)MatmulDomain::K] != expected_axes_numbers ||
-        num_axes[(size_t)MatmulDomain::Batch] > expected_axes_numbers) {
-      return "Matmul pattern has unsupported number of one of M/N/K/Batch axes";
-    }
-
     if (!mma_output->hasReduction()) {
       return "MMA output TV has no reduction domain";
     }
-  }
 
-  // Quick checks - Fusion
-  {
+    // Check that there is a single K dimension
+    if (std::count_if(
+            mma_output->getLogicalDomain().begin(),
+            mma_output->getLogicalDomain().end(),
+            [](IterDomain* id) { return id->isReduction(); }) != 1) {
+      return "MMA output TV must have exactly one reduction (K) dimension";
+    }
+
     // Fusion should contain at least two inputs (for now)
     if (minimal_number_of_inputs > fusion_inputs.size()) {
       return "Fusion inputs contain at least one non-TensorView object";
@@ -237,9 +229,6 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
-    // We will check that all operands have same dimension
-    int64_t operand_dim = -1;
-
     // Track TensorViews with assigned roles so we can check that all inputs and
     // outputs have recognized roles
     std::set<TensorView*> tvs_with_roles;
@@ -250,26 +239,6 @@ std::string isMatmulFusionDefinitionSupported(
         if (entry != tensor_roles.end()) {
           if (1 == entry->second.size()) {
             tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-            for (TensorView* tv : entry->second) {
-              const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-              int64_t ndims = (int64_t)std::count_if(
-                  logical.begin(), logical.end(), [](IterDomain* id) {
-                    return !id->isReduction() && !id->isDeviceDim();
-                  });
-              if (operand_dim == -1) {
-                operand_dim = ndims;
-              } else if (ndims != operand_dim) {
-                // We cannot always handle differently sized inputs, such as
-                // those we encounter when translating MatmulOp and LinearOp.
-                // This is because in those cases one of the operands will have
-                // new Broadcast dimensions where the other operand has
-                // Iteration batch dimensions, meaning these new dims are
-                // actually M or N dimensions. Multiple M and N dimension
-                // support is planned but for now we must reject these patterns
-                // before attempting to translate them.
-                return "All operands must have the same no-devices dimension.";
-              }
-            }
           } else {
             return "There is other than one fusion input that can be MMA operand";
           }
@@ -296,6 +265,51 @@ std::string isMatmulFusionDefinitionSupported(
         fusion_inputs_tvs.size() + fusion_outputs_tvs.size();
     if (in_out_tvs_count != tvs_with_roles.size()) {
       return "Detected input/output TVs without assigned roles";
+    }
+  }
+
+  // Check that canonical dim order is (B)MNK
+  // TODO: Remove this check once we are confident that non-standard orders are
+  // properly handled
+  {
+    std::vector<ValGroup> dim_ordering = mma_utils::canonicalDimOrdering(
+        tensor_roles, id_roles, permissive_graph);
+    VectorOfUniqueEntries<MatmulDomain> role_order;
+    for (const ValGroup& g : dim_ordering) {
+      const auto it = id_roles.find(g);
+      NVF_ERROR(it != id_roles.end());
+      role_order.pushBack(it->second);
+    }
+    if (role_order.size() != 3 && role_order.size() != 4) {
+      std::stringstream ss;
+      ss << "Expected either {B,M,N,K} roles or {M,N,K} but role_order.size()="
+         << role_order.size();
+      return ss.str();
+    }
+    if (role_order.back() != MatmulDomain::K) {
+      return "Canonical dim order must be BMNK";
+    }
+    if (role_order.at(role_order.size() - 2) != MatmulDomain::N) {
+      return "Canonical dim order must be BMNK";
+    }
+    if (role_order.at(role_order.size() - 3) != MatmulDomain::M) {
+      return "Canonical dim order must be BMNK";
+    }
+
+    // Also check that dims within each role are consecutive with one another
+    // for this pattern.
+    // TODO: Lift this requirement by modifying the definition or setting
+    // allocation domains to support this setting in MmaOp
+    NVF_ERROR(pattern.output->definition() != nullptr);
+    if (pattern.output->definition()->isA<MatmulOp>()) {
+      if (TensorDomain::noReductions(
+              TensorDomain::noDevices(pattern.B->getLogicalDomain()))
+              .size() >
+          TensorDomain::noReductions(
+              TensorDomain::noDevices(pattern.A->getLogicalDomain()))
+              .size()) {
+        return "Implicit broadcast in MatmulOp causes new non-consecutive N dimension";
+      }
     }
   }
 
@@ -742,7 +756,11 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // #4
   {
     auto support_status = isMatmulFusionDefinitionSupported(
-        fusion, patterns.front(), tensor_roles, id_roles);
+        fusion,
+        patterns.front(),
+        tensor_roles,
+        id_roles,
+        id_model.idGraph(IdMappingMode::PERMISSIVE));
     if (!support_status.empty()) {
       return support_status;
     }
