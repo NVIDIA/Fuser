@@ -515,10 +515,10 @@ class TMALoadTestWithABroadcastDim
     if (swizzle == MmaInputSmemSwizzle::None) {
       return;
     }
-    // {B, NO, N_dim, K0, KI (32/64/128)}
+    // {B, NO, N_dim, KO, KI (32/64/128)}
     tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
 
-    // {B, NO, K0, N_dim, KI }
+    // {B, NO, KO, N_dim, KI }
     tv->reorder({{2, 3}, {3, 2}});
 
     // {B, NO * KO, N_dim, KI}

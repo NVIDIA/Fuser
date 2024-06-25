@@ -235,9 +235,9 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto alloc_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
   // All allocation domains including broadcasts and reductions.
-  auto all_allocation_domains = gmem_tv->getMaybeAllocationDomain();
-  for (auto i : c10::irange((int64_t)gmem_alloc_dom.size())) {
-    auto id = gmem_alloc_dom.at(i);
+  auto all_allocation_domains =
+      TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain());
+  for (auto id : gmem_alloc_dom) {
     auto it = std::find(
         all_allocation_domains.begin(), all_allocation_domains.end(), id);
     NVF_ERROR(it != all_allocation_domains.end());
