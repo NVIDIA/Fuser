@@ -171,7 +171,7 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
     container = std::make_unique<hir::HostIrContainer>();
     IrCloner cloner(container.get());
     std::vector<Communication*> communications =
-        lowerCommunication(comm_.deviceId(), cloner.clone(expr));
+        lowerCommunication(cloner.clone(expr));
     for (auto* communication : communications) {
       container->pushBackTopLevelExprs(communication);
     }

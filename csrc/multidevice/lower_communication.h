@@ -17,10 +17,7 @@ namespace nvfuser {
 // of communication.
 bool isLowerableToCommunication(Expr* expr);
 
-// Lower a PipelineCommunication into a series of Communication, given a
-// device_index.
-std::vector<Communication*> lowerCommunication(
-    DeviceIdxType device_index,
-    Expr* c);
+// Lower a PipelineCommunication into a series of Communication.
+std::vector<Communication*> lowerCommunication(Expr* c);
 
 } // namespace nvfuser
