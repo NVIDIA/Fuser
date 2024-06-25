@@ -8266,22 +8266,24 @@ TEST_F(NVFuserTest, DecoupledDomains) {
     dom1.split(0, 256);
     return std::make_pair(dom0.as<IterDomain*>(), dom1.as<IterDomain*>());
   };
+  auto [logical_xx0, logical_xx1] = create_xx_shape_structure();
   auto [root_xx0, root_xx1] = create_xx_shape_structure();
   auto [alloc_xx0, alloc_xx1] = create_xx_shape_structure();
   auto [loop_xx0, loop_xx1] = create_xx_shape_structure();
 
-  auto concat = [](auto x, auto y, auto z) {
+  auto concat = [](auto x, auto y, auto z, auto q) {
     std::vector<IterDomain*> result;
-    result.reserve(x.size() + y.size() + z.size());
+    result.reserve(x.size() + y.size() + z.size() + q.size());
     result.insert(result.end(), x.begin(), x.end());
     result.insert(result.end(), y.begin(), y.end());
     result.insert(result.end(), z.begin(), z.end());
+    result.insert(result.end(), q.begin(), q.end());
     return result;
   };
-  auto logical_domain = concat(root_xx0, alloc_xx0, loop_xx0);
-  auto root_domain = concat(root_xx1, alloc_xx0, loop_xx0);
-  auto allocation_domain = concat(root_xx0, alloc_xx1, loop_xx0);
-  auto loop_domain = concat(root_xx0, alloc_xx0, loop_xx1);
+  auto logical_domain = concat(logical_xx1, root_xx0, alloc_xx0, loop_xx0);
+  auto root_domain = concat(logical_xx0, root_xx1, alloc_xx0, loop_xx0);
+  auto allocation_domain = concat(logical_xx0, root_xx0, alloc_xx1, loop_xx0);
+  auto loop_domain = concat(logical_xx0, root_xx0, alloc_xx0, loop_xx1);
   std::vector<std::optional<bool>> contiguity(allocation_domain.size(), true);
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
