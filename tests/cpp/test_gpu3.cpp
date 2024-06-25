@@ -8242,13 +8242,13 @@ TEST_F(NVFuserTest, DecoupledDomains) {
 
   // XX shape structure:
   //
-  // domain 0: [I0, I1...    I4  I5} domain 1
+  // domain 0: [I0, I1...    I2  I3} domain 1
   //             \  /         \  /
   //            merge         merge
   //             /  \         /  \.
-  // domain 1: {I2  I3    ...I6, I7] domain 0
+  // domain 1: {I4  I5    ...I6, I7] domain 0
   // where domain 0 is [I0, I1, I6, I7], and
-  //       domain 1 is [I2, I3, I4, I5]
+  //       domain 1 is [I4, I5, I2, I3]
   auto create_xx_shape_structure = []() {
     auto s0 = IrBuilder::create<Val>(DataType::Index);
     auto s1 = IrBuilder::create<Val>(DataType::Index);
