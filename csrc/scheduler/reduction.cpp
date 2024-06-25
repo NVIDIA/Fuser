@@ -672,9 +672,6 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
       sm_count);
 
   // (4) increase bdimx to its maximum
-  // If round up bdimx to pow2, then gidim should be pow2 for popular pow2
-  // sizes. However, A100 has 108 SMs, using 64 or 128 blocks are not efficient.
-  // So, if block reduction is enforced, round up to pow2 or multiply of 8.
   hp.bdimx = ceilDiv(total_iteration_numel, hp.gidim * hp.iter_unroll_factor);
   hp.bdimx = scheduler_utils::roundUpPow2(hp.bdimx);
   hp.bdimx = std::min(hp.bdimx, max_threads_per_block);
