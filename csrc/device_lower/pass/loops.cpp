@@ -118,8 +118,8 @@ void LoopNestGenerator::handle(Expr* expr) {
   }
 
   for (auto loop : loop_structure) {
-    auto find_it = std::find_if(
-        for_loops_.begin(), for_loops_.end(), [loop](ForLoop* fl) {
+    auto find_it =
+        std::find_if(for_loops_.begin(), for_loops_.end(), [loop](ForLoop* fl) {
           return fl->iter_domain() == loop;
         });
     if (find_it == for_loops_.end()) {

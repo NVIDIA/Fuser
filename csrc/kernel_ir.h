@@ -718,7 +718,6 @@ class UpdateMagicZero final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 };
 
-
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its
 //! body are considered inside the scope of the if statement. In the future the
 //! implementation should look quite different so that we can do proper

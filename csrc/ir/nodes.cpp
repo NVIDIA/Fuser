@@ -4394,7 +4394,6 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
       debug_attn_mask};
 }
 
-
 std::string Scope::toString(int indent_size) const {
   std::stringstream ss;
   for (auto expr : exprs()) {

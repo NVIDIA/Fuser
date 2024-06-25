@@ -593,9 +593,7 @@ class Index {
 // to loop indices as well as a set of loops that do not contribute to
 // indexing.
 // TODO: could be cleaned up further.
-std::pair<
-    std::unordered_map<ForLoop*, Val*>,
-    std::unordered_set<ForLoop*>>
+std::pair<std::unordered_map<ForLoop*, Val*>, std::unordered_set<ForLoop*>>
 indexMapFromTV(
     const TensorView* tv,
     const std::vector<ForLoop*>& loops,

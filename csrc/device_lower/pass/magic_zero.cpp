@@ -105,10 +105,7 @@ Val* maybeUnwrapMagicZero(Val* val) {
   }
 }
 
-bool needsMagicZero(
-    ForLoop* loop,
-    IterDomain* reference_domain,
-    Val* ind) {
+bool needsMagicZero(ForLoop* loop, IterDomain* reference_domain, Val* ind) {
   if (ind->isConstScalar()) {
     return false;
   }

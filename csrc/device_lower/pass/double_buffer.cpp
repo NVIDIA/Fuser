@@ -421,9 +421,7 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
 
 namespace {
 
-void getAllocInTrivialLoop(
-    ForLoop* fl,
-    std::unordered_set<Expr*>& output) {
+void getAllocInTrivialLoop(ForLoop* fl, std::unordered_set<Expr*>& output) {
   if (!fl->isTrivial()) {
     return;
   }
@@ -487,9 +485,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
     insertion_info_.erase(loop);
   }
 
-  void insert(
-      ForLoop* double_buffer_loop,
-      const std::vector<Expr*>& loads) {
+  void insert(ForLoop* double_buffer_loop, const std::vector<Expr*>& loads) {
     auto prologue_loop = DoubleBufferLoopCloner::clone(
         double_buffer_loop, loads, DoubleBufferLoopStage::Prolog);
     registerInsertBefore(double_buffer_loop, prologue_loop);

@@ -148,9 +148,7 @@ class UnswitchPredicate {
     Info stop;
   };
 
-  UnswitchPredicate(
-      std::vector<ForLoop*> outer_loops,
-      ForLoop* unrolled_loop);
+  UnswitchPredicate(std::vector<ForLoop*> outer_loops, ForLoop* unrolled_loop);
 
   void predicateOn(Expr*);
 

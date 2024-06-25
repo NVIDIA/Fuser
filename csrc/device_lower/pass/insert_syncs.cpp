@@ -341,9 +341,7 @@ class WarSyncInserter : private kir::ExprMutator {
 class ValidatePlacementAfterWrites : private kir::IrVisitor {
  public:
   //! Validate no expr in writes found under loop
-  static void validate(
-      ForLoop* loop,
-      const std::unordered_set<Expr*>& writes) {
+  static void validate(ForLoop* loop, const std::unordered_set<Expr*>& writes) {
     ValidatePlacementAfterWrites validator(writes);
     validator.handle(loop);
   }

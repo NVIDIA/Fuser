@@ -749,7 +749,6 @@ std::string UpdateMagicZero::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
 
-
 IfThenElse::IfThenElse(IrBuilderPasskey passkey, Predicate* cond)
     : Expr(passkey) {
   setPredicate(cond);

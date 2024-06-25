@@ -431,9 +431,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   }
 
   // Add all expressions except for loops to new parent for loop
-  void copyExprsExceptForLoops(
-      const ForLoop* for_loop,
-      ForLoop* new_loop) {
+  void copyExprsExceptForLoops(const ForLoop* for_loop, ForLoop* new_loop) {
     std::vector<ForLoop*> loops;
     for (auto expr : for_loop->body().exprs()) {
       if (!expr->isA<ForLoop>()) {

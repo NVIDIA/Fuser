@@ -69,8 +69,8 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   for (auto top_level_loop :
        ir_utils::filterByType<ForLoop>(kernel->topLevelExprs())) {
     auto innermost_loop = top_level_loop;
-    while (auto first_expr_loop = dynamic_cast<ForLoop*>(
-               innermost_loop->body().exprs().at(0))) {
+    while (auto first_expr_loop =
+               dynamic_cast<ForLoop*>(innermost_loop->body().exprs().at(0))) {
       innermost_loop = first_expr_loop;
     }
     const auto& exprs = innermost_loop->body().exprs();

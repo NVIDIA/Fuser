@@ -108,9 +108,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
 }
 
 // Get the key for `common_scalar_map_`
-ForLoop* getLoopAtPos(
-    const std::vector<ForLoop*>& loops,
-    int64_t position) {
+ForLoop* getLoopAtPos(const std::vector<ForLoop*>& loops, int64_t position) {
   // position < 0 refers to the top level exprs (no corresponding loop)
   if (position < 0) {
     return nullptr;
@@ -378,9 +376,7 @@ Val* CommonScalarMap::hoistScalar(
       .first;
 }
 
-Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
-    Val* value,
-    ForLoop* loop) {
+Val* CommonScalarMap::reuseScalarIfAlreadyComputed(Val* value, ForLoop* loop) {
   // Find if value is computed on the host.
   if (auto host_val = reuseValsKnownToKernel(value)) {
     return host_val;
