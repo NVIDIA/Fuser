@@ -487,21 +487,21 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
         ? cloned_top_level_loop_
         : IrBuilder::create<kir::ForLoop>(fl);
 
-    cloned_scopes_.push_back(&cloned_loop->body());
+    cloned_for_loop_.push_back(cloned_loop);
 
     kir::IrVisitor::handle(fl);
 
-    cloned_scopes_.pop_back();
+    cloned_for_loop_.pop_back();
 
     // Add the cloned loop into the parent loop body only when the
     // cloned loop contains expressions.
-    if (!cloned_loop->body().empty() && !cloned_scopes_.empty()) {
-      cloned_scopes_.back()->push_back(cloned_loop);
+    if (!cloned_loop->body().empty() && !cloned_for_loop_.empty()) {
+      cloned_for_loop_.back()->body().push_back(cloned_loop);
     }
 
     // Add mbarrier wait after launching tma operations
-    if (mbarrier_wait != nullptr && cloned_scopes_.size() == 1) {
-      NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
+    if (mbarrier_wait != nullptr && cloned_for_loop_.size() == 1) {
+      NVF_ERROR(cloned_for_loop_.front() == cloned_top_level_loop_);
       cloned_top_level_loop_->body().push_back(mbarrier_wait);
       mbarrier_wait = nullptr;
     }
@@ -522,7 +522,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
       return;
     }
 
-    NVF_ERROR(!cloned_scopes_.empty());
+    NVF_ERROR(!cloned_for_loop_.empty());
 
     auto out_tv = ir_utils::getTvOutput(expr);
     const auto is_double_buffer_load_expr = std::any_of(
@@ -614,7 +614,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
                       ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
                       ->withPredicate(ldst->predicate());
               body.push_back(new_ldst);
-              cloned_scopes_.back()->push_back(if_expr);
+              cloned_for_loop_.back()->body().push_back(if_expr);
 
               // Register mbarrier object to be used with new LoadStoreOp
               //  from prolog loop
@@ -625,7 +625,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
           } else if (is_double_buffer_load_expr) {
             // NOTE: that there can be multiple exprs defining double buffered
             // TVs (e.g., buffer initialization).
-            cloned_scopes_.back()->push_back(expr);
+            cloned_for_loop_.back()->body().push_back(expr);
           }
         }
         break;
@@ -707,7 +707,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
             kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
             kir::Scope& body = if_expr->thenBody();
             body.push_back(ldst);
-            cloned_scopes_.back()->push_back(if_expr);
+            cloned_for_loop_.back()->body().push_back(if_expr);
 	  }
 
           // Construct mBarrier::wait for current stage
@@ -719,7 +719,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
         }
         if (!(is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
               is_ignorable_mbarrier_inval)) {
-          cloned_scopes_.back()->push_back(expr);
+          cloned_for_loop_.back()->body().push_back(expr);
         }
         break;
       }
@@ -735,12 +735,12 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
               IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
           kir::MBarrierWait* mbarrier_wait =
               createMbarrierWait(ldst, last_compute_stage);
-          cloned_scopes_.back()->push_back(mbarrier_wait);
+          cloned_for_loop_.back()->body().push_back(mbarrier_wait);
           break;
         }
         if (!(is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
               is_ignorable_mbarrier_inval || is_double_buffer_load_expr)) {
-          cloned_scopes_.back()->push_back(expr);
+          cloned_for_loop_.back()->body().push_back(expr);
         }
         break;
       }
@@ -759,7 +759,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
   kir::MBarrierWait* mbarrier_wait = nullptr;
 
   kir::ForLoop* cloned_top_level_loop_ = nullptr;
-  std::deque<kir::Scope*> cloned_scopes_;
+  std::deque<kir::ForLoop*> cloned_for_loop_;
   const std::unordered_set<Expr*>& exclude_;
 
   // Current stage, expectation:
