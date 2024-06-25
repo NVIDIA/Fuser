@@ -2116,7 +2116,7 @@ Val* Index::getProducerStridedIndices2(
       ", producer: ",
       producer->toString());
 
-  return tensor_indexer->getIndex(producer, expr, loops);
+  return tensor_indexer->getLinearIndex(producer, expr, loops);
 }
 
 // Producer is the inputs of an expression
@@ -2235,7 +2235,7 @@ Val* Index::getConsumerStridedIndices2(
 
   NVF_ERROR(tensor_indexer != nullptr);
 
-  return tensor_indexer->getIndex(consumer, expr, loops);
+  return tensor_indexer->getLinearIndex(consumer, expr, loops);
 }
 
 // Consumer is the output of an expression
