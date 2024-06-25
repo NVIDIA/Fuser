@@ -16,6 +16,7 @@
 #include <ir/builder.h>
 #include <ir/graphviz.h>
 #include <ir/utils.h>
+#include <swizzle.h>
 #include <val_graph_visitor.h>
 
 #include <algorithm>
@@ -233,6 +234,8 @@ class IdGraphIndexCompute : public OptOutDispatch {
 
   void handle(Merge* merge) override;
 
+  void handle(Swizzle* swizzle) override;
+
   bool isForward(Expr* expr) const;
 
   bool hasIndex(IterDomain* id) const {
@@ -300,6 +303,29 @@ void IdGraphIndexCompute::handle(Merge* merge) {
     setIndex(merge->outer(), outer_idx);
     Val* inner_idx = SimplifyingIrBuilder::modExpr(out_idx, inner_ext);
     setIndex(merge->inner(), inner_idx);
+  }
+}
+
+void IdGraphIndexCompute::handle(Swizzle* swizzle) {
+  const bool is_forward = isForward(swizzle);
+
+  auto x_ext = swizzle->inX()->extent();
+  auto y_ext = swizzle->inY()->extent();
+
+  if (is_forward) {
+    auto x_idx = getIndex(swizzle->inX());
+    auto y_idx = getIndex(swizzle->inY());
+    auto [result_x, result_y] =
+        dispatchUnSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
+    setIndex(swizzle->outX(), result_x);
+    setIndex(swizzle->outY(), result_y);
+  } else {
+    auto x_idx = getIndex(swizzle->outX());
+    auto y_idx = getIndex(swizzle->outY());
+    auto [result_x, result_y] =
+        dispatchSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
+    setIndex(swizzle->inX(), result_x);
+    setIndex(swizzle->inY(), result_y);
   }
 }
 
@@ -454,6 +480,25 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   return initial_index_map;
 }
 
+std::vector<Val*> TensorIndexer::getIndexFor(
+    const Expr* expr,
+    const ValGroups& index_groups) const {
+  auto info = computeIndex(expr, index_groups);
+  const auto& replacement_map =
+      getIndexReplacementMap(info.loop_domains, info.index_map);
+
+  std::vector<Val*> result;
+  result.reserve(index_groups.size());
+  for (const auto& g : index_groups) {
+    auto it = info.index_map.find(g);
+    NVF_ERROR(
+        it != info.index_map.end(), "Index not found for ", g->toString());
+    result.push_back(
+        ir_utils::replaceValRecursively(it->second, replacement_map));
+  }
+  return result;
+}
+
 Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
@@ -470,31 +515,20 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   const auto [allocation_domains, strides] =
       getAllocationDomains(tv, id_model_);
 
-  const auto& index_info = computeIndex(expr, allocation_domains);
-  const auto& index_map = index_info.index_map;
+  auto indices =
+      getIndexFor(expr, traversalGraph().toGroups(allocation_domains));
+  NVF_ERROR(indices.size() == allocation_domains.size());
 
   // Linearize the indices with strides.
   // TODO: Contiguous indexing
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
-    IterDomain* allocation_domain = allocation_domains.at(i);
-
     Val* stride = strides.at(i);
-
-    auto idx_it = index_map.find(traversalGraph().toGroup(allocation_domain));
-    NVF_ERROR(
-        idx_it != index_map.end(),
-        "Index not found for ",
-        allocation_domain->toString());
-    Val* idx = idx_it->second;
     index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(stride, idx));
+        index, SimplifyingIrBuilder::mulExpr(stride, indices.at(i)));
   }
 
-  const auto& replacement_map =
-      getIndexReplacementMap(index_info.loop_domains, index_info.index_map);
-
-  return ir_utils::replaceValRecursively(index, replacement_map);
+  return index;
 }
 
 // Get the loop domains of a given expr, which are (potentially
@@ -513,11 +547,10 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
-    const std::vector<IterDomain*>& index_domains) const {
+    const ValGroups& index_groups) const {
   const auto loop_domains = getLoopDomains(expr);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
-  const ValGroups index_groups = traversalGraph().toGroups(index_domains);
   const ExprPath traversal_path =
       ValGraphBFS::getExprsBetween(traversalGraph(), loop_groups, index_groups);
 

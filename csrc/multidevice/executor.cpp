@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
+#include <host_ir/container.h>
 #include <ir/utils.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/executor.h>
@@ -164,11 +165,21 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
       expr->outputs().size() == 1,
       "Communication must have exactly one output");
 
-  auto communications = lowerCommunication(comm_.deviceId(), expr);
+  std::unique_ptr<hir::HostIrContainer>& container =
+      communication_containers_[group];
+  if (container == nullptr) {
+    container = std::make_unique<hir::HostIrContainer>();
+    IrCloner cloner(container.get());
+    std::vector<Communication*> communications =
+        lowerCommunication(cloner.clone(expr));
+    for (auto* communication : communications) {
+      container->pushBackTopLevelExprs(communication);
+    }
+  }
 
   // Compute input_tensor and output_tensor.
-  auto input_val = expr->inputs().at(0);
-  auto output_val = expr->outputs().at(0);
+  Val* input_val = expr->input(0);
+  Val* output_val = expr->output(0);
   at::Tensor input_tensor;
   if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
     input_tensor = val_to_IValue_.at(input_val).toTensor();
@@ -179,7 +190,8 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   }
 
   // post and wait communications
-  for (Communication* communication : communications) {
+  for (Expr* lowered : container->topLevelExprs()) {
+    auto* communication = lowered->as<Communication>();
     c10d::Backend* backend =
         comm_.getBackendForTeam(communication->team(), std::nullopt);
     c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(

@@ -53,16 +53,26 @@ class TensorIndexer {
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
 
- private:
+  // Get the index of the given ID groups
+  std::vector<Val*> getIndexFor(const Expr* expr, const ValGroups& index_groups)
+      const;
+
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
   const ValGraph& traversalGraph() const {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
 
+ private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
   void buildLoopIndexMap();
+
+  // Returns the index map as well as its traversal path of given
+  // index domains appearing in a given expr. Used by
+  // getIndexFor.
+  IndexingInfo computeIndex(const Expr* expr, const ValGroups& index_groups)
+      const;
 
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
@@ -75,13 +85,6 @@ class TensorIndexer {
   // function may return the loop domains of a producer for
   // producer-based indexing.
   std::vector<IterDomain*> getLoopDomains(const Expr* expr) const;
-
-  // Returns the index map as well as its traversal path of given
-  // index domains appearing in a given expr. Used by
-  // getLinearIndex.
-  IndexingInfo computeIndex(
-      const Expr* expr,
-      const std::vector<IterDomain*>& index_domains) const;
 
   // Check if the loop index of a loop group should be always
   // just zero. For example, a loop group with an extent of one, i.e.,
