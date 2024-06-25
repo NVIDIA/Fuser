@@ -203,9 +203,12 @@ kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
     Val* loop_index) {
   TensorView* ldst_out_tv = ldst->out()->as<TensorView>();
   Val* expect_bytes =
-      IrBuilder::create<Val>(dataTypeSize(ldst_out_tv->dtype()));
-  for (IterDomain* id : ldst_out_tv->getLeafDomain()) {
-    if (id->getParallelType() == ParallelType::Bulk) {
+	      IrBuilder::create<Val>(dataTypeSize(ldst_out_tv->dtype()));
+  const std::vector<IterDomain*>& leaf_domain = ldst_out_tv->getLeafDomain();
+
+  for (size_t idx = ldst_out_tv->getComputeAtPosition(); idx < leaf_domain.size(); ++idx) {
+    IterDomain* id = leaf_domain.at(idx);
+    if (id->getParallelType() == ParallelType::Serial || id->getParallelType() == ParallelType::Bulk) {
       expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
     }
   }
