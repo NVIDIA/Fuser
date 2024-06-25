@@ -232,6 +232,7 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
 
 TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  at::manual_seed(0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
@@ -244,7 +245,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   at::Tensor k = at::randn(k_shape, options);
   at::Tensor v = at::randn(v_shape, options);
 
-  double dropout_p = 0.0;
+  double dropout_p = 0.2;
   bool is_causal = false;
   double scale = 1.0 / std::sqrt(e);
 
@@ -262,8 +263,8 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
               q,
               k,
               v,
-              /*dropout_p=*/0.0,
-              /*is_causal=*/false,
+              /*dropout_p=*/dropout_p,
+              /*is_causal=*/is_causal,
               /*return_debug_mask=*/false,
               scale);
 
@@ -302,8 +303,8 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       tv_cumk,
       /*max_q=*/IrBuilder::create<Val>(*query_seq_len.maybe_as_int()),
       /*max_k=*/IrBuilder::create<Val>(*key_seq_len.maybe_as_int()),
-      /*dropout_p=*/IrBuilder::create<Val>(0.0),
-      /*is_causal=*/IrBuilder::create<Val>(false),
+      /*dropout_p=*/IrBuilder::create<Val>(dropout_p),
+      /*is_causal=*/IrBuilder::create<Val>(is_causal),
       tv_seed,
       tv_offset,
       /*scale=*/nullptr);
@@ -364,6 +365,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
 
 TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  at::manual_seed(0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
@@ -376,7 +378,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   at::Tensor k = at::randn(k_shape, options);
   at::Tensor v = at::randn(v_shape, options);
 
-  double dropout_p = 0.0;
+  double dropout_p = 0.2;
   bool is_causal = false;
   double scale = 1.0 / std::sqrt(e);
 
@@ -394,8 +396,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
               q,
               k,
               v,
-              /*dropout_p=*/0.0,
-              /*is_causal=*/false,
+              dropout_p,
+              is_causal,
               /*return_debug_mask=*/false,
               scale);
 
@@ -434,8 +436,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
       tv_cumk,
       /*max_q=*/IrBuilder::create<Val>(*query_seq_len.maybe_as_int()),
       /*max_k=*/IrBuilder::create<Val>(*key_seq_len.maybe_as_int()),
-      /*dropout_p=*/IrBuilder::create<Val>(0.0),
-      /*is_causal=*/IrBuilder::create<Val>(false),
+      /*dropout_p=*/IrBuilder::create<Val>(dropout_p),
+      /*is_causal=*/IrBuilder::create<Val>(is_causal),
       tv_seed,
       tv_offset,
       /*scale=*/nullptr);
@@ -479,8 +481,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
           cum_seq_k,
           /*max_q=*/*query_seq_len.maybe_as_int(),
           /*max_k=*/*key_seq_len.maybe_as_int(),
-          /*dropout_p=*/dropout_p,
-          /*is_causal=*/is_causal,
+          dropout_p,
+          is_causal,
           philox_seed,
           philox_offset,
           /*scale=*/scale);
