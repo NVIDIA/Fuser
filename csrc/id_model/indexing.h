@@ -43,6 +43,8 @@ struct IndexingInfo {
 // domains may be promoted.
 class TensorIndexer {
  public:
+  // Using non-const references of IdModel because traversalGraph() returns a
+  // non-const reference
   TensorIndexer(IdModel& id_model);
 
   // Get a linear index of a given tensor appearing in a given expr, either
@@ -59,6 +61,8 @@ class TensorIndexer {
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
+  // Returns non-const reference because the the ValGraph could be modified by
+  // some analysis to create temporary group for indexing.
   ValGraph& traversalGraph() const {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
@@ -109,6 +113,8 @@ class TensorIndexer {
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
  private:
+  // Using non-const references of IdModel because traversalGraph() returns a
+  // non-const reference
   IdModel& id_model_;
 
   // Mappings from loop groups to their indices. Serial loops will
