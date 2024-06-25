@@ -461,8 +461,8 @@ TEST_F(DistributedMatmulTest, MLP_Layer) {
   // Note: Propagation breaks at rand_like because it creates a fresh TV.
   // Temporarily this prevents us from using dropout composite node.
   TensorView* linear2_ = castOp(DataType::Float, linear2);
-  const double kProb = 0.1;
-  const double kScale = 1.0 / (1.0 - kProb);
+  constexpr double kProb = 0.1;
+  constexpr double kScale = 1.0 / (1.0 - kProb);
   Val* philox_seed = fusion->zeroVal();
   Val* philox_offset = fusion->zeroVal();
   TensorView* rand_vals = rand_like(linear2_, philox_seed, philox_offset);
