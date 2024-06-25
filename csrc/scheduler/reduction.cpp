@@ -760,6 +760,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           n_tensor_outputs,
           total_iteration_numel,
           total_reduction_numel);
+  // If a valid block reduction heuristic is returned, use it.
+  // otherwise, use the default heuristic which usually generates grid reduction
+  // but may also generate block reduction.
   if (maybe_blk_hp.has_value()) {
     return heuristicParaToSchedulerPara(maybe_blk_hp.value());
   }
