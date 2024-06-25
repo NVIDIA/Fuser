@@ -229,10 +229,6 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
-    // For MatmulOp and LinearOp patterns, we will check that all operands have
-    // same dimension
-    int64_t operand_dim = -1;
-
     // Track TensorViews with assigned roles so we can check that all inputs and
     // outputs have recognized roles
     std::set<TensorView*> tvs_with_roles;
@@ -243,28 +239,6 @@ std::string isMatmulFusionDefinitionSupported(
         if (entry != tensor_roles.end()) {
           if (1 == entry->second.size()) {
             tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-            for (TensorView* tv : entry->second) {
-              const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-              int64_t ndims = (int64_t)std::count_if(
-                  logical.begin(), logical.end(), [](IterDomain* id) {
-                    return !id->isReduction() && !id->isDeviceDim();
-                  });
-              if (operand_dim == -1) {
-                operand_dim = ndims;
-              } else if (
-                  mma_output->definition()->isOneOf<MatmulOp, LinearOp>() &&
-                  ndims != operand_dim) {
-                // We cannot always handle differently sized inputs, such as
-                // those we encounter when translating MatmulOp and LinearOp.
-                // This is because in those cases one of the operands will have
-                // new Broadcast dimensions where the other operand has
-                // Iteration batch dimensions, meaning these new dims are
-                // actually M or N dimensions. Multiple M and N dimension
-                // support is planned but for now we must reject these patterns
-                // before attempting to translate them.
-                return "All operands must have the same no-devices dimension.";
-              }
-            }
           } else {
             return "There is other than one fusion input that can be MMA operand";
           }
@@ -328,8 +302,13 @@ std::string isMatmulFusionDefinitionSupported(
     // allocation domains to support this setting in MmaOp
     NVF_ERROR(pattern.output->definition() != nullptr);
     if (pattern.output->definition()->isA<MatmulOp>()) {
-      if (pattern.B->nDims() > pattern.A->nDims()) {
-        return "Implicit broadcasts cause new non-consecutive N dimensions";
+      if (TensorDomain::noReductions(
+              TensorDomain::noDevices(pattern.B->getLogicalDomain()))
+              .size() >
+          TensorDomain::noReductions(
+              TensorDomain::noDevices(pattern.A->getLogicalDomain()))
+              .size()) {
+        return "Implicit broadcast in MatmulOp causes new non-consecutive N dimension";
       }
     }
   }
