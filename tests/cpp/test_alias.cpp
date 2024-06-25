@@ -1049,7 +1049,43 @@ TEST_F(AliasTest, SegmentBoundary) {
           HeuristicIs(ScheduleHeuristic::PointWise)));
 }
 
-TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
+TEST_F(AliasTest, ReuseBuffer) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeContigTensor(1);
+  TensorView* out = add(in, IrBuilder::create<Val>(1.0));
+  fusion->addInput(in);
+  fusion->addOutput(out);
+  fusion->aliasOutputToInput(out, in, AllocationType::ReuseBuffer);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto tensor = at::randn({10}, options);
+  auto expected_tensor = tensor + 1.0;
+
+  FusionExecutorCache fec(std::move(fusion));
+  fec.runFusionWithInputs({tensor});
+  EXPECT_TRUE(tensor.allclose(expected_tensor));
+}
+
+TEST_F(AliasTest, ReuseBuffer_FusionExecutor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeContigTensor(1);
+  TensorView* out = add(in, IrBuilder::create<Val>(1.0));
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto tensor = at::randn({10}, options);
+  auto expected_tensor = tensor + 1.0;
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {tensor});
+  fe.runFusion({tensor}, {tensor});
+  EXPECT_TRUE(tensor.allclose(expected_tensor));
+}
+
+TEST_F(AliasTest, ReuseBuffer_AliasAcrossSegments) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
