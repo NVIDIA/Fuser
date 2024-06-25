@@ -441,6 +441,117 @@ TEST_P(HopperRS, SingleTile) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+void scheduleTMALoad(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
+    DataType dtype) {
+  // We move the broadcast dim to be the left most.
+  moveInnerBroadcastLeft(tv);
+
+  // {B, N, K}
+  // {B, NO, N_dim, K}
+  tv->split(-2, tv->axis(-2)->extent());
+
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    return;
+  }
+  // {B, NO, N_dim, KO, KI (32/64/128)}
+  tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+
+  // {B, NO, KO, N_dim, KI }
+  tv->reorder({{2, 3}, {3, 2}});
+
+  // {B, NO * KO, N_dim, KI}
+  tv->merge(1);
+
+  // {B, NO * KO, N_dim_O, N_128/(32, 64, 128),  KI}
+  tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
+
+  // {B, NO * KO, N_dim_O, N_128/(32, 64, 128),  KIO, KII}
+  tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
+
+  // split N_dim_O by N/16 N =swizzle size (32/64/128)
+  // {B, NO * KO, N_dim_O/(swizzle_size/16), N_128/(32, 64, 128),  KIO, KII}
+  tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
+
+  tv->swizzle(SwizzleType::XOR, -4, -2);
+}
+
+TEST_P(HopperRS, SingleTileWithTMALoad) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  scheduleTMALoad(tv1, swizzle_b, dtype);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+
+  int skip = 0;
+  for (auto id : tv1->getLoopDomain()) {
+    if (skip < 2) {
+      skip++;
+      continue;
+    }
+    id->parallelize(ParallelType::Bulk);
+  }
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
+  }
+
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 std::string testNameHopperRS(
     const testing::TestParamInfo<HopperMmaRSTestParams>& info) {
   std::ostringstream os;
@@ -460,7 +571,7 @@ INSTANTIATE_TEST_SUITE_P(
         all_hopper_macros,
         all_dtypes,
         testing::Values(MmaLayout::TT, MmaLayout::TN),
-        kAllSmemSwizzleModes),
+        kAllSmemSwizzleModes2),
     testNameHopperRS);
 
 using HopperMmaSSTestParams = std::tuple<

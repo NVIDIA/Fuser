@@ -597,6 +597,11 @@ static auto kAllSmemSwizzleModes = testing::Values(
     MmaInputSmemSwizzle::B64,
     MmaInputSmemSwizzle::B32);
 
+static auto kAllSmemSwizzleModes2 = testing::Values(
+    MmaInputSmemSwizzle::B128,
+    MmaInputSmemSwizzle::B64,
+    MmaInputSmemSwizzle::B32);
+
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
