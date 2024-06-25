@@ -493,23 +493,29 @@ bool hasResizedRfactor(const TensorView* tv);
 // Returns tvs that have symbolic axes
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 
-//! Validate derived_domain completely covers initial_domain with no
-//! redundancy. Consider derived_domains as a different view of the
-//! same logical domain as initial_domain with affine
-//! transformations. This validation makes sure both sets
-//! of domains represent the same logical space.
+//! Validate dom0 and dom1 completely covers each other with no
+//! redundancy. When they are equivalent, we can consider them as a different
+//! view of the each other with affine transformations.
 //!
-//! It is intended to be used to validate rfactor and loop domains
-//! of a tensor root domain.
+//! For example, if we have
+//!  I0  I1  I2  I3
+//!   \  /    \  /
+//!    I4      I5
+//! then [I0, I1, I2, I3] is equivalent to [I4, I5], but [I1, I2, I3] is not
+//! equivalent to [I4, I5].
 //!
-//! For example, it's an error if a initial ID is split and
-//! only one of the outputs is included in the ids vector. It is
-//! also an error if both a producer and consumer ID are included in
-//! ids as they partially have the same dependency with the initial
-//! domain.
+//! Another example, if we have
+//!  I0  I1  I2  I3
+//!   \  /    \  /
+//!    I4      I5
+//!   /  \    /  \.
+//!  I6  I7  I8  I9
+//! Then [I0, I1, I8, I9] is equivalent to [I6, I7, I2, I3]. [I0, I1, I2, I3] is
+//! equivalent to [I6, I7, I8, I9]. But [I0, I1, I8, I3] is NOT equivalent to
+//! [I6, I7, I2, I9]
 NVF_API void validateDomainEquivalence(
-    const std::vector<IterDomain*>& initial_domain,
-    const std::vector<IterDomain*>& derived_domain);
+    const std::vector<IterDomain*>& dom0,
+    const std::vector<IterDomain*>& dom1);
 
 //! Check if all the inputs required to compute needed_val are known
 template <
