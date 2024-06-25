@@ -328,18 +328,13 @@ namespace {
 std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   std::vector<std::vector<Val*>> mapped_ids;
   if (auto merge = dynamic_cast<Merge*>(expr)) {
-    // Merge with broadcast should be always trivial. Repro1713 has a
-    // merge with a broadcast domain of extent 32. If not trivial, an
-    // index for the extent-32 broadcast domain is required, but
-    // there's no index for the broadcast domain. We may also want to
-    // consider making broadcast domains always having a size-1
-    // extent.
-    if (merge->inner()->extent()->isOneInt() ||
-        (false && merge->inner()->isBroadcast())) {
+    // Size-one domains should be broadcast, so just checking
+    // isBroadcast should be sufficient, but just in case if there's
+    // any missing conversion to broadcast
+    if (merge->inner()->isBroadcast() || merge->inner()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->outer(), merge->out()});
     }
-    if (merge->outer()->extent()->isOneInt() ||
-        (false && merge->outer()->isBroadcast())) {
+    if (merge->outer()->isBroadcast() || merge->outer()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {

@@ -109,15 +109,6 @@ class IndexingTraversal : public ValGraphBFS {
 
   using ValGraphBFS::isVisited;
 
-  bool isDependencySatisfied(const GroupType& group) const override {
-    if (const ValGroup* vg = std::get_if<ValGroup>(&group);
-        vg != nullptr && (*vg)->front()->as<IterDomain>()->isBroadcast()) {
-      VERBOSE() << "Dependency satisfied as it's broadcast" << std::endl;
-      return true;
-    }
-    return ValGraphBFS::isDependencySatisfied(group);
-  }
-
   bool excludeFromTraversal(const GroupType& group) const override {
     if (const ExprGroup* eg = std::get_if<ExprGroup>(&group)) {
       if ((*eg)->empty()) {
@@ -136,23 +127,6 @@ class IndexingTraversal : public ValGraphBFS {
     }
     return false;
   }
-
-  // This isn't necessary anymore as taken care by isDependencySatisfied
-#if 0
-  void traverse() override {
-    // Set all broadcast groups as visited before traversal as there's
-    // no need to actually visit them to get indices. Do not add their
-    // neighbors to the to-visit list, though. Traversal paths should
-    // still be discovered from the starting groups.
-    for (const ValGroup& id_group : graph_.disjointValSets().disjointSets()) {
-      if (id_group->at(0)->as<IterDomain>()->isBroadcast()) {
-        //setVisited(id_group);
-      }
-    }
-
-    ValGraphBFS::traverse();
-  }
-#endif
 
  private:
   const std::unordered_set<Resize*>& resize_paths_;
