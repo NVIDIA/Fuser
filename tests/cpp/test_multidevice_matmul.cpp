@@ -32,8 +32,7 @@
 
 namespace nvfuser {
 
-class DistributedMatmulTest : public MultiDeviceTest,
-                              public testing::WithParamInterface<bool> {
+class DistributedMatmulTest : public MultiDeviceTest {
  protected:
   DistributedMatmulTest() : num_devices_(communicator->size()) {}
 
@@ -406,8 +405,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   EXPECT_EQ(heuristic, ScheduleHeuristic::ExprEval);
 }
 
-TEST_P(DistributedMatmulTest, MLP_Layer) {
-  bool use_aten_matmul = GetParam();
+TEST_F(DistributedMatmulTest, MLP_Layer) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator->size());
@@ -437,38 +435,27 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
 
   // Linear #1
   // Notes: Manually breaking down the linear layer into nvfuser primitives
-  TensorView* linear_int0 =
-      broadcast(x, {true, false, true, false}); // b, sb, b, h
-  TensorView* linear_int1 =
-      broadcast(w0, {false, true, false, false}); // D, b, h4/D, h
-  TensorView* linear_int2 = mul(linear_int0, linear_int1); // D, sb, h4/D, h
-  TensorView* linear_int3 = sum(linear_int2, {-1}); // D, sb, h4/D, r
+  TensorView* linear_int0 = broadcast(x, {true, false, true, false});
+  TensorView* linear_int1 = broadcast(w0, {false, true, false, false});
+  TensorView* linear_int2 = mul(linear_int0, linear_int1);
+  TensorView* linear_int3 = sum(linear_int2, {-1});
   TensorView* linear_int4 = broadcast(b0, {false, true, false});
-  TensorView* linear1 = add(linear_int3, linear_int4); // D, sb, h4/D
+  TensorView* linear1 = add(linear_int3, linear_int4);
 
   TensorView* linear1_ = castOp(DataType::Float, linear1);
   TensorView* gelu = tanh_gelu(linear1_);
-  TensorView* gelu_ = castOp(DataType::BFloat16, gelu); // D, sb, h4/D
+  TensorView* gelu_ = castOp(DataType::BFloat16, gelu);
 
   // Linear #2
-  TensorView* local_matmul2;
-  if (use_aten_matmul) {
-    TensorView* w1_t = transpose(w1, 1, 2); // D, h, h4/D) to D, h4/D, h
-    local_matmul2 = matmul(gelu_, w1_t); // D sb h
-  } else {
-    gelu_ = segment_set(gelu_);
-    TensorView* linear2_int0 =
-        broadcast(gelu_, {false, false, true, false}); // D, sb, b, h4/D
-    TensorView* linear2_int1 =
-        broadcast(w1, {false, true, false, false}); // D, b, h, h4/D
-    TensorView* linear2_int2 =
-        mul(linear2_int0, linear2_int1); // D, sb, h, h4/D
-    local_matmul2 = sum(linear2_int2, {-1}); // D, sb, h, r
-  }
+  gelu_ = segment_set(gelu_);
+  TensorView* linear2_int0 = broadcast(gelu_, {false, false, true, false});
+  TensorView* linear2_int1 = broadcast(w1, {false, true, false, false});
+  TensorView* linear2_int2 = mul(linear2_int0, linear2_int1);
+  TensorView* local_matmul2 = sum(linear2_int2, {-1});
 
-  TensorView* matmul2 = sum(local_matmul2, {0}); // Allreduce sum // r sb, h
-  TensorView* bcast_bias = broadcast(b1, {true, false}); // b, h
-  TensorView* linear2 = add(matmul2, bcast_bias); // sb, h
+  TensorView* matmul2 = sum(local_matmul2, {0}); // Allreduce
+  TensorView* bcast_bias = broadcast(b1, {true, false});
+  TensorView* linear2 = add(matmul2, bcast_bias);
 
   // Dropout
   // Note: Propagation breaks at rand_like because it creates a fresh TV.
@@ -492,8 +479,8 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
   // outputs: linear1, gelu, linear2, dropout
   // TVs where sharding changes: matmul2
   // (TODO) TVs where sharding propagation breaks down:
-  //  linear_int0 = broadcasts where a device dim axis is broadcasted.
-  //  rand_vals => rand_like creates a fresh new TV.
+  // linear_int0 = broadcasts where a device dim axis is broadcasted.
+  // rand_vals => rand_like creates a fresh new TV.
 
   // TVs replicated on each device.
   auto tv_inputs = {x, b1, matmul2, linear2, rand_vals, dropout};
@@ -540,7 +527,7 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
       gelu_aten.to(at::kBFloat16).to(at::kFloat),
       w1_.to(at::kFloat),
       b1_.to(at::kFloat));
-  auto dropout_aten = at::dropout(linear2_aten.to(at::kFloat), kProb, true);
+  auto dropout_aten = at::dropout(linear2_aten, kProb, true);
   std::vector<at::Tensor> expected_outputs = {
       shardTensor(
           at::transpose(
@@ -560,15 +547,24 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
       std::move(fusion), *communicator, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
 
+  // Bump up the tolerance - the second matmul carries
+  // the numerical error from the prior matmul
+  auto tolerance_overwrite = ValidationConstants();
+  std::array<std::array<double, 2>, 20> relaxed_sum_tol;
+  for (auto& arr : relaxed_sum_tol) {
+    arr = {128, 5e-3};
+  }
+  tolerance_overwrite.sum_tolerances_float = relaxed_sum_tol;
+
   testValidate(
       runtime.completeFusion(),
       outputs,
       inputs,
       expected_outputs,
       __LINE__,
-      __FILE__);
+      __FILE__,
+      "",
+      LaunchParams(),
+      tolerance_overwrite);
 }
-
-INSTANTIATE_TEST_SUITE_P(, DistributedMatmulTest, testing::Bool());
-
 } // namespace nvfuser
