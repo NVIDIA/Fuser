@@ -78,16 +78,6 @@ struct MatmulInputs {
   std::vector<bool> bias_bcast_flags = {};
 };
 
-//! Matches the following matmul patterns.
-//! Matmul: A x B, alpha * A x B
-//! Matmul + Bias (addmm): A x B + C,  alpha * A x B + C, A x B + beta * C,
-//!   alpha * A x B  + beta * C
-//! Linear: A x B / A x B + C
-//! Assumptions:
-//! 1. For simplicity, we assume the MmaOp to be in the first operand.
-//! 2. For linear ([M, K], [N, K]), alpha, beta parameters are nullptr.
-bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp);
-
 } // namespace nvfuser::MmaOpUtils
 
 namespace nvfuser::ir_utils {
