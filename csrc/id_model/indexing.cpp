@@ -575,12 +575,6 @@ IndexingInfo TensorIndexer::computeIndex(
   return info;
 }
 
-IndexingInfo TensorIndexer::computeIndex(
-    const Expr* expr,
-    const std::vector<IterDomain*>& index_domains) const {
-  return computeIndex(expr, traversalGraph().toGroups(index_domains));
-}
-
 std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     const std::vector<IterDomain*>& loop_domains,
     const std::unordered_map<ValGroup, Val*>& index_map) const {
