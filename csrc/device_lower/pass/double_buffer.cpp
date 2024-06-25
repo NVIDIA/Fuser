@@ -288,8 +288,6 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void clone() {
-    const auto gpu_lower = GpuLower::current();
-
     // Cloning the double buffer loop as follows:
     //
     // Prologue: 0 to 1
@@ -300,7 +298,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         double_buffer_loop_->iter_domain(), loop_type_);
     auto start = double_buffer_loop_->start();
     auto stop = double_buffer_loop_->stop();
-    auto stage_depth = gpu_lower->doubleBufferInfo().getStageDepthFor(
+    auto stage_depth = GpuLower::current()->doubleBufferInfo().getStageDepthFor(
         double_buffer_loop_->iter_domain());
 
     if (loop_type_ == DoubleBufferLoopStage::Prolog) {
@@ -311,7 +309,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         loop_type_ == DoubleBufferLoopStage::Main &&
         requireEpilogue(double_buffer_load_exprs_)) {
       stop = IrBuilder::subExpr(
-          double_buffer_loop_->stop(), gpu_lower->kernel()->oneVal());
+          double_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
     } else if (loop_type_ == DoubleBufferLoopStage::Epilog) {
       NVF_ERROR(requireEpilogue(double_buffer_load_exprs_));
       start = IrBuilder::subExpr(
@@ -325,7 +323,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
         index,
         start,
         stop,
-        gpu_lower->kernel()->oneVal(),
+        GpuLower::current()->kernel()->oneVal(),
         false,
         nullptr,
         double_buffer_loop_->isUnrollRequired(),
@@ -830,8 +828,6 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
   // Collect double buffer related information on a expr
   //  that is a memory load, i.e. a LoadStore or a Set.
   void handlePossibleLoadExpr(Expr* expr) {
-    const auto gpu_lower = GpuLower::current();
-
     auto out_tv = ir_utils::getTvOutput(expr);
 
     if (out_tv == nullptr) {
@@ -845,7 +841,7 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
     }
 
     auto double_buffer_loop =
-        gpu_lower->doubleBufferInfo().getDoubleBufferLoop(out_tv, for_loops_);
+        GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(out_tv, for_loops_);
 
     NVF_ERROR(
         double_buffer_loop != nullptr,
