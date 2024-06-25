@@ -466,11 +466,10 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   const Team& team = communication->team();
-  NVF_ERROR(
-      std::find(team.begin(), team.end(), my_device_index) != team.end(),
-      "current device index ",
-      my_device_index,
-      " must be present in the communication's team");
+  if (std::find(team.begin(), team.end(), my_device_index) == team.end()) {
+    return nullptr;
+  }
+  NVF_ERROR(backend != nullptr);
 
   switch (communication->type()) {
     case CommunicationType::Gather:
