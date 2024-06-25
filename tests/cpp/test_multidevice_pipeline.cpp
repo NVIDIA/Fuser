@@ -152,10 +152,10 @@ TEST_P(PipelineTestTwoStages, Communication) {
        do_reduction,
        sharded_dim,
        use_fusion_executor_cache] = GetParam();
-  if (!disable_skip && !communicator->isBackendAvailable(backend)) {
+  if (!disable_skip && !communicator_->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }
-  communicator->setDefaultBackend(backend);
+  communicator_->setDefaultBackend(backend);
 
   if (mesh1.vector().empty()) {
     mesh1 = mesh0;
@@ -477,7 +477,7 @@ class PipelineTestStagedReduction
 TEST_P(PipelineTestStagedReduction, StagedReduction) {
   auto scheduling_mode = GetParam();
 
-  int num_devices = communicator->size();
+  int num_devices = communicator_->size();
   int A = num_devices;
   int B = 8;
   int C = 64;

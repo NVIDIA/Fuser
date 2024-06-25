@@ -144,7 +144,10 @@ inline bool initCoreHeuristics(
     return min_size_bytes;
   };
   params->async_gmem_load_operands = isCpAsyncOperandLoadSupported(
-      params.get(), roleMinDtypeSize(MatmulRole::OPERAND));
+      params.get(),
+      std::min(
+          roleMinDtypeSize(MatmulRole::OPERAND_A),
+          roleMinDtypeSize(MatmulRole::OPERAND_B)));
 
   if (!params->async_gmem_load_operands) {
     // Circular buffering requires async load. If we cannot use async load due
@@ -226,7 +229,8 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
-    // We will check that all operands have same dimension
+    // For MatmulOp and LinearOp patterns, we will check that all operands have
+    // same dimension
     int64_t operand_dim = -1;
 
     // Track TensorViews with assigned roles so we can check that all inputs and
@@ -234,25 +238,39 @@ std::string isMatmulFusionDefinitionSupported(
     std::set<TensorView*> tvs_with_roles;
 
     {
-      auto entry = tensor_roles.find(MatmulRole::OPERAND);
-      if (entry != tensor_roles.end()) {
-        if (2 == entry->second.size()) {
-          tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-          for (TensorView* tv : entry->second) {
-            const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-            int64_t ndims = (int64_t)std::count_if(
-                logical.begin(), logical.end(), [](IterDomain* id) {
-                  return !id->isReduction() && !id->isDeviceDim();
-                });
-            if (operand_dim == -1) {
-              operand_dim = ndims;
+      for (MatmulRole role : {MatmulRole::OPERAND_A, MatmulRole::OPERAND_B}) {
+        auto entry = tensor_roles.find(role);
+        if (entry != tensor_roles.end()) {
+          if (1 == entry->second.size()) {
+            tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+            for (TensorView* tv : entry->second) {
+              const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+              int64_t ndims = (int64_t)std::count_if(
+                  logical.begin(), logical.end(), [](IterDomain* id) {
+                    return !id->isReduction() && !id->isDeviceDim();
+                  });
+              if (operand_dim == -1) {
+                operand_dim = ndims;
+              } else if (
+                  mma_output->definition()->isOneOf<MatmulOp, LinearOp>() &&
+                  ndims != operand_dim) {
+                // We cannot always handle differently sized inputs, such as
+                // those we encounter when translating MatmulOp and LinearOp.
+                // This is because in those cases one of the operands will have
+                // new Broadcast dimensions where the other operand has
+                // Iteration batch dimensions, meaning these new dims are
+                // actually M or N dimensions. Multiple M and N dimension
+                // support is planned but for now we must reject these patterns
+                // before attempting to translate them.
+                return "All operands must have the same no-devices dimension.";
+              }
             }
+          } else {
+            return "There is other than one fusion input that can be MMA operand";
           }
         } else {
-          return "There is other than two fusion inputs that can be MMA operands";
+          return "No candidate in fusion inputs for MMA operand";
         }
-      } else {
-        return "No candidate in fusion inputs for MMA operand";
       }
     }
 
@@ -316,7 +334,8 @@ std::string isMatmulFusionDefinitionSupported(
     }
   }
 
-  // Check that no non-trivial allocation domains are set on inputs or outputs.
+  // Check that no non-trivial allocation domains are set on inputs or
+  // outputs.
   // TODO: Lift this requirement once we have proper allocation domain support
   for (Val* inp : fusion->inputs()) {
     if (auto tv = dynamic_cast<TensorView*>(inp);
@@ -351,15 +370,19 @@ class VectorizationCalculator {
             permissive_graph_)) {}
 
   MatmulParams::SupportedVectorization compute() {
-    const std::vector<int64_t> op_vecs = operandVectorizations();
-    NVF_ERROR(op_vecs.size() == 2, "Expected exactly two operands");
-    return {op_vecs[0], op_vecs[1], epilogueVectorization()};
+    const std::vector<int64_t> a_vecs =
+        operandVectorizations(MatmulRole::OPERAND_A);
+    NVF_ERROR(a_vecs.size() == 1, "Expected exactly one A operand");
+    const std::vector<int64_t> b_vecs =
+        operandVectorizations(MatmulRole::OPERAND_B);
+    NVF_ERROR(b_vecs.size() == 1, "Expected exactly one B operand");
+    return {a_vecs[0], b_vecs[0], epilogueVectorization()};
   }
 
  private:
-  std::vector<int64_t> operandVectorizations() {
+  std::vector<int64_t> operandVectorizations(MatmulRole role) {
     std::vector<int64_t> vec_sizes;
-    const auto op_it = tensor_roles_.find(MatmulRole::OPERAND);
+    const auto op_it = tensor_roles_.find(role);
     if (op_it != tensor_roles_.end()) {
       for (TensorView* tv : op_it->second) {
         vec_sizes.push_back(operandVectorization(tv));
@@ -376,10 +399,10 @@ class VectorizationCalculator {
   }
 
   int64_t ptrAndDTypeVec(TensorView* tv) const {
-    // TODO: ptrOf returns a fully aligned value of 16 for non-inputs. However,
-    // we might be provided an output tensor. We should verify once preallocated
-    // outputs are fully plumbed in that misaligned pointers are respected in
-    // this calculation.
+    // TODO: ptrOf returns a fully aligned value of 16 for non-inputs.
+    // However, we might be provided an output tensor. We should verify once
+    // preallocated outputs are fully plumbed in that misaligned pointers are
+    // respected in this calculation.
     const int64_t data_ptr_int = (int64_t)runtime_info_.ptrOf(tv);
     int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
     vec_size = std::min(vec_size, 16l);
@@ -389,15 +412,15 @@ class VectorizationCalculator {
   }
 
   //! To analyze vectorization, we need to know pointer alignment, sizes, and
-  //! strides. SchedulerRuntimeInfo contains all this info about fusion inputs,
-  //! but fusion outputs are allocated by FusionExecutor so they are absent from
-  //! SchedulerRuntimeInfo.
+  //! strides. SchedulerRuntimeInfo contains all this info about fusion
+  //! inputs, but fusion outputs are allocated by FusionExecutor so they are
+  //! absent from SchedulerRuntimeInfo.
   //!
-  //! This function just extracts sizes and strides from runtime_info_ when the
-  //! argument is a fusion input. When the input is a fusion output, we respect
-  //! the contiguity marked in the allocation domain. For discontiguous
-  //! dimensions, we return a stride that has been padded to an odd value, which
-  //! is the worst case scenario for vectorization.
+  //! This function just extracts sizes and strides from runtime_info_ when
+  //! the argument is a fusion input. When the input is a fusion output, we
+  //! respect the contiguity marked in the allocation domain. For
+  //! discontiguous dimensions, we return a stride that has been padded to an
+  //! odd value, which is the worst case scenario for vectorization.
   //!
   //! Note that this function is non-const because we use
   //! runtime_info_.expressionEvaluator() which caches intermediate values
@@ -413,9 +436,9 @@ class VectorizationCalculator {
         "getSizesAndStrides should only be called with fusion inputs or outputs. Found ",
         tv->toString());
     // For outputs, compute sizes using ExpressionEvaluator, then compute
-    // strides based on allocation domain, assuming contiguity as marked in the
-    // TensorView. For discontiguous dimensions, we compute a stride that is
-    // least favorable to vectorization, by padding to an odd value.
+    // strides based on allocation domain, assuming contiguity as marked in
+    // the TensorView. For discontiguous dimensions, we compute a stride that
+    // is least favorable to vectorization, by padding to an odd value.
     std::vector<int64_t> sizes, strides;
     std::vector<bool> concrete_contig;
     for (size_t i : c10::irange(tv->getMaybeAllocationDomain().size())) {
@@ -451,13 +474,13 @@ class VectorizationCalculator {
     return {sizes, strides};
   }
 
-  // Given a TensorView and a vector of dimension ValGroups find vectorization.
-  // The vector of dimensions indicates how the tensor will be scheduled;
-  // dimensions in tv will be reordered if needed then the vector of dimensions
-  // will be merged. We check the allocation domain of tv to tell how the
-  // resulting merged TV can be vectorized. If the tensor does not have any
-  // inner_dims, then it cannot be vectorized. In that case we return 0 so that
-  // this tensor can be ignored in later computation.
+  // Given a TensorView and a vector of dimension ValGroups find
+  // vectorization. The vector of dimensions indicates how the tensor will be
+  // scheduled; dimensions in tv will be reordered if needed then the vector
+  // of dimensions will be merged. We check the allocation domain of tv to
+  // tell how the resulting merged TV can be vectorized. If the tensor does
+  // not have any inner_dims, then it cannot be vectorized. In that case we
+  // return 0 so that this tensor can be ignored in later computation.
   int64_t innerDimsVectorization(
       TensorView* tv,
       const std::vector<ValGroup>& inner_dims) {
@@ -466,8 +489,8 @@ class VectorizationCalculator {
 
     // Position of the outermost vectorizable dimension, in allocation domain
     size_t inner_dim_pos = tv->getMaybeAllocationDomain().size();
-    // Product of sizes of all vectorizable dims; i.e. the number of elements in
-    // the merged vectorized dimension.
+    // Product of sizes of all vectorizable dims; i.e. the number of elements
+    // in the merged vectorized dimension.
     int64_t inner_dims_numel = 1;
     std::vector<ValGroup> remaining_inner_dims(inner_dims);
     for (int64_t i = (int64_t)tv->getMaybeAllocationDomain().size() - 1; i >= 0;
@@ -534,10 +557,10 @@ class VectorizationCalculator {
   // vectorization width.
   //
   // We canonicalize dimensions by reordering them with the given ordering
-  // before merging all dimensions that have the same role. For a given operand,
-  // this might mean that the inner-most dimension gets reordered to be outer,
-  // even if it has the same role as the innermost dimension in the canonical
-  // ordering.
+  // before merging all dimensions that have the same role. For a given
+  // operand, this might mean that the inner-most dimension gets reordered to
+  // be outer, even if it has the same role as the innermost dimension in the
+  // canonical ordering.
   int64_t operandVectorization(TensorView* tv) {
     // Check data pointer alignment
     int64_t vec_size = ptrAndDTypeVec(tv);
@@ -608,8 +631,8 @@ class VectorizationCalculator {
     if (!inner_nonk_role.has_value() ||
         inner_nonk_role.value() == MatmulDomain::Batch) {
       // If the innermost non-K dimension is a batch dimension, then we cannot
-      // vectorize the outputs since we parallelize batch dimensions across the
-      // grid.
+      // vectorize the outputs since we parallelize batch dimensions across
+      // the grid.
       return 1l;
     }
 
