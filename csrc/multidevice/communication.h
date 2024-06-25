@@ -61,7 +61,10 @@ class Communication : public Expr {
       RedOpType red_op = RedOpType::UNUSED,
       int64_t scattered_axis = -1);
 
-  // Currently, only used for MultiDeviceExecutor.
+  // Currently, it's only used by CommuniationTest for conciseness. In the
+  // future, it may be used to construct `Communication`s inside a
+  // `PostOnStream`, which if needed can take I/O TVs from the containing
+  // `PostOnStream`.
   Communication(
       IrBuilderPasskey passkey,
       CommunicationType type,

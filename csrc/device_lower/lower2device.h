@@ -14,6 +14,7 @@
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/analysis/thread_predicate.h>
+#include <device_lower/analysis/tma.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/double_buffer.h>
@@ -260,6 +261,15 @@ class GpuLower : public NonCopyable {
     return passes_;
   }
 
+  std::unordered_map<TensorView*, const TMAInfo>& consumerToTMAInfo() {
+    return consumer_to_tma_info_;
+  }
+
+  const std::unordered_map<TensorView*, const TMAInfo>& consumerToTMAInfo()
+      const {
+    return consumer_to_tma_info_;
+  }
+
   // Register a boolean Val as a predicate to validate at the run time. Optional
   // validation error messages can be given as args.
   template <typename... Args>
@@ -327,6 +337,7 @@ class GpuLower : public NonCopyable {
   CompileParams cparams_;
   std::unique_ptr<IdModel> id_model_;
   std::unique_ptr<TensorIndexer> tensor_indexer_;
+  std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size

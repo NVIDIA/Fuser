@@ -42,10 +42,10 @@ Supported compilers:
 **GCC:**
 
 We support all "supported releases" of gcc as specified in [the official site](https://gcc.gnu.org/).
-As of 5/3/2024, they are:
+As of 6/20/2024, they are:
 
 - gcc 11.4
-- gcc 12.3
+- gcc 12.4
 - gcc 13.2
 - gcc 14.1
 
