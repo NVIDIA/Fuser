@@ -271,6 +271,8 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
   }
 }
 
+// Parameters: [A_dim, B_dim, enable_fusion, transpose_a_alloc,
+// expect_segmented, SchedulerHeuristic]
 using MatmulNodeTranslationTestParams =
     std::tuple<int64_t, int64_t, bool, bool, bool, ScheduleHeuristic>;
 using MatmulNodeTranslationTest =
@@ -388,33 +390,33 @@ INSTANTIATE_TEST_SUITE_P(
         std::
             make_tuple(2l, 2l, false, false, true, ScheduleHeuristic::ExprEval),
         std::make_tuple(2l, 2l, false, true, true, ScheduleHeuristic::ExprEval),
+
         // Tests with fusion enabled
+
         std::make_tuple(2l, 2l, true, false, false, ScheduleHeuristic::Matmul),
         // We cannot yet handle allocation domain in matmul scheduler
         std::make_tuple(2l, 2l, true, true, true, ScheduleHeuristic::ExprEval),
         // Size-1 input combinations
         std::make_tuple(1l, 2l, true, false, true, ScheduleHeuristic::ExprEval),
         std::make_tuple(2l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
-        // We fuse this case using the Reduction scheduler
-        std::make_tuple(
-            1l,
-            1l,
-            true,
-            false,
-            false,
-            ScheduleHeuristic::Reduction),
+        std::make_tuple(1l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
         // Batch dims
+
+        // mat-vec handled by ExprEval
         std::make_tuple(3l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
         std::make_tuple(3l, 3l, true, false, false, ScheduleHeuristic::Matmul),
+
+        std::make_tuple(3l, 2l, true, false, false, ScheduleHeuristic::Matmul),
+        std::make_tuple(4l, 4l, true, false, false, ScheduleHeuristic::Matmul),
+
         // TODO: mixed length inputs via broadcasted batch dims
-        // We currently reject differently-sized inputs since these translate to
-        // multiple M or N dims
-        std::make_tuple(3l, 2l, true, false, true, ScheduleHeuristic::ExprEval),
+        // When different numbers of M or N dimensions exist, they must be
+        // consecutive. However, these examples lead to [M, B, M, K] and [N, B,
+        // N, K] patterns which we don't yet support.
         std::make_tuple(2l, 3l, true, false, true, ScheduleHeuristic::ExprEval),
-        // TODO: More than one batch dimension is not yet supported in Matmul
-        // scheduler
         std::
-            make_tuple(4l, 4l, true, false, true, ScheduleHeuristic::ExprEval)),
+            make_tuple(3l, 4l, true, false, true, ScheduleHeuristic::ExprEval)),
+
     [](const testing::TestParamInfo<MatmulNodeTranslationTestParams>& info) {
       std::ostringstream os;
       os << std::get<0>(info.param) << "dA";
@@ -576,7 +578,9 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(1l, 1l, -1l, false, false, true),
         std::make_tuple(3l, 2l, 1l, false, false, true),
         std::make_tuple(4l, 2l, 1l, false, false, true),
+
         // Enable fusion
+
         std::make_tuple(2l, 2l, -1l, true, false, false),
         // We cannot yet handle allocation domain in matmul scheduler
         std::make_tuple(2l, 2l, -1l, true, true, true),
@@ -586,19 +590,14 @@ INSTANTIATE_TEST_SUITE_P(
         // Check that zero-dim output fusion is not claimed by NoOp scheduler
         std::make_tuple(1l, 1l, -1l, true, false, true),
         // Batch dims in input
-        // TODO: mixed length inputs via broadcasted batch dims
-        // We currently reject differently-sized inputs since these translate to
-        // multiple M or N dims
-        std::make_tuple(3l, 2l, -1l, true, false, true),
-        // TODO: We don't yet support multiple batch dims in matmul scheduler
-        std::make_tuple(4l, 2l, -1l, true, false, true),
+        // mixed length inputs via broadcasted batch dims
+        std::make_tuple(3l, 2l, -1l, true, false, false),
+        std::make_tuple(4l, 2l, -1l, true, false, false),
         // Bias cases
         std::make_tuple(2l, 2l, 0l, true, false, false),
         std::make_tuple(2l, 2l, 1l, true, false, false),
-        // TODO: Mixed-length inputs are rejected with bias also
-        std::make_tuple(3l, 2l, 1l, true, false, true),
-        // TODO: We don't yet support multiple batch dims in matmul scheduler
-        std::make_tuple(4l, 2l, 1l, true, false, true)),
+        std::make_tuple(3l, 2l, 1l, true, false, false),
+        std::make_tuple(4l, 2l, 1l, true, false, false)),
     [](const testing::TestParamInfo<LinearNodeTranslationTestParams>& info) {
       std::ostringstream os;
       os << std::get<0>(info.param) << "dA";

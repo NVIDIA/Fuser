@@ -25,6 +25,10 @@ namespace mma_utils {
 //! Utilities in this namespace facilitates scheduling matmul kernels with
 //!  hierarchichal tiling specified in MatMulTileOptions.
 
+//! A mapping from ValGroup pointers to MatmulDomain. The ValGroups should
+//! correspond to IterDomain groups from an IdModel's exact graph. This
+using DimRolesMap = std::unordered_map<ValGroup, MatmulDomain>;
+
 //! Schedule utility for matmul prolog:
 //!   Use all the threads on a CTA tile to load matmul operands
 //!  into shared memory with the given vectorization word.
@@ -65,14 +69,13 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
 //!  defining vectorized loads.
 void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv);
 
-//! Orders the root id ordering of the given tv as
-//! [Device, Batch, Previous Reduction, M, N, K]
-//!  for easier processing of later scheduling steps.
-//!
-//! This matching works on root domain only, and
-//!  will throw if the tv has a leaf iterdomain that is
-//!  not a root id.
-void canonicalizeMmaTvOrdering(TensorView* tv);
+//! Orders the leaf ID canonically, and merges dims of the same role
+//! The return value gives the role of each loop IterDomain in tv.
+std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
+    TensorView* tv,
+    const ValGraph& permissive_graph,
+    const DimRolesMap& dim_roles,
+    const std::vector<ValGroup>& ordering);
 
 //! [WarpMmaSwizzler]:
 //!   This class is used to implement the thread swizzle format
@@ -89,7 +92,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!   This is different from a normal scheduler utility though,
 //!      as the thread mapping within a warp are *required* to be
 //!      a specific pattern which currently translates to an enforced
-//!      requirement that all the leaf domains produced by WarpMmaSwizzler
+//!      requirement that all the loop domains produced by WarpMmaSwizzler
 //!      cannot be further transformed (split/merge/reorder etc.).
 //!
 //!   Currently WarpMmaSwizzler can be accessed by schedulers through
@@ -186,9 +189,9 @@ class WarpMmaSwizzler {
   //! that each thread uses to call ldmatrix. In nvFuser, we schedule the
   //! allocation domain of the ldmatrix output and mma inputs to be consistent
   //! with the memory layout of the output of ldmatrix, and we schedule the
-  //! leaf domain of the ldmatrix output to be consistent with the index that
+  //! loop domain of the ldmatrix output to be consistent with the index that
   //! each thread uses to call ldmatrix. This function is used to schedule the
-  //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
+  //! loop domain of the ldmatrix output. The allocation domain of the ldmatrix
   //! output and mma inputs are scheduled in scheduleOperandRead, which must be
   //! called before this function.
   static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
@@ -208,17 +211,13 @@ constexpr size_t MIN_MATMUL_INPUTS_NUMBER = 2;
 //!  TODO: extend definition for handling batch matmuls
 using ProblemIterDomains = std::array<IterDomain*, 3>;
 
-//! A mapping from ValGroup pointers to MatmulDomain. The ValGroups should
-//! correspond to IterDomain groups from an IdModel's exact graph. This
-using DimRolesMap = std::unordered_map<ValGroup, MatmulDomain>;
-
 //! An alias for mapping between TensorView instance and its role in
 //!  matmul fusion definition, some roles can be assigned to more than
 //!  a single tv, for example input for beta scaling in epilogue
 using TensorRolesMap = std::unordered_map<MatmulRole, std::vector<TensorView*>>;
 
 //! An alias for storing data types of the tensors in the mma op
-//!  the order is INPUT_A, INPUT_B, OUTPUT_D
+//!  the order is A, B, OUTPUT
 using MmaDataTypes = std::array<DataType, 3>;
 
 //! A wrapper for data containers with optional error message stored if
@@ -282,7 +281,10 @@ struct MatmulPattern {
 //! Traverse the fusion to find supported matmul patterns
 std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion);
 
-using MatmulProblemLayoutOpt = DataWrapperOpt<MmaLayout>;
+//! This is a vector of roles describing the inner dimension of each operand
+using MatmulOperandInnerDims = std::vector<MatmulDomain>;
+
+using MatmulOperandInnerDimsOpt = DataWrapperOpt<MatmulOperandInnerDims>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
 using DimRolesMapOpt = DataWrapperOpt<DimRolesMap>;
 using TensorRolesMapOpt = DataWrapperOpt<TensorRolesMap>;
@@ -290,8 +292,8 @@ using TensorRolesMapOpt = DataWrapperOpt<TensorRolesMap>;
 using DomainsDesc = std::vector<MatmulDomain>;
 using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 
-//! Returns wrapped matmul input layout data, if supported, otherwise returned
-//!  object contains a message with failure root cause.
+//! Returns wrapped matmul input memory layout data, if supported, otherwise
+//! returned object contains a message with failure root cause.
 //!
 //! Matmul layout depends only on fusion definition while mma layout relies on
 //!  HW implementation to handle input layout from fusion definition. Detailed
@@ -303,14 +305,14 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-NVF_API MatmulProblemLayoutOpt getProblemLayout(
+NVF_API MatmulOperandInnerDimsOpt getOperandInnerDims(
     const IdModel& id_model,
     const DimRolesMap& dim_roles,
     const TensorRolesMap& tensor_roles);
 
 //! This version assumes the Fusion contains a single MatmulPattern, then builds
 //! an IdModel and infers dim roles then calls the above function.
-NVF_API MatmulProblemLayoutOpt getProblemLayout(Fusion* fusion);
+NVF_API MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion);
 
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot

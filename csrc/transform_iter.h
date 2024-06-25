@@ -83,14 +83,14 @@ class ReplayTransformations : public IterVisitor {
     return id_map_;
   }
 
-  // Returns leaf_ids_ the size_t marks the order in which they were put into
+  // Returns loop_ids_ the size_t marks the order in which they were put into
   // the map, this is part of the structure because it's used to generate the
   // order from 'getLeafIDs'
   const std::unordered_map<IterDomain*, size_t>& getUnorderedLeafIDs() {
     if (!ran_replay_) {
       runReplay();
     }
-    return leaf_ids_;
+    return loop_ids_;
   }
 
   // Returns all terminating IDs that resulted from the replay. Leaf IDs are run
@@ -99,7 +99,7 @@ class ReplayTransformations : public IterVisitor {
     if (!ran_replay_) {
       runReplay();
     }
-    return leaf_vec_;
+    return loop_vec_;
   }
 
  protected:
@@ -131,7 +131,7 @@ class ReplayTransformations : public IterVisitor {
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   std::unordered_map<IterDomain*, IterDomain*> id_map_;
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
-  std::unordered_map<IterDomain*, size_t> leaf_ids_;
+  std::unordered_map<IterDomain*, size_t> loop_ids_;
 
  private:
   bool error_on_failure_ = true;
@@ -155,7 +155,7 @@ class ReplayTransformations : public IterVisitor {
 
   size_t counter_ = 0;
 
-  std::vector<IterDomain*> leaf_vec_;
+  std::vector<IterDomain*> loop_vec_;
 
   bool ran_replay_ = false; // Mark if replay has been run
 };
@@ -176,7 +176,7 @@ class ReplayTransformations : public IterVisitor {
 // compliment_map would have the entry i0->b1i and i0*b1i->b2o
 //
 // The first is to fast forward transformations in consumer involving broadcast
-// axes not in producer. The compliment map is to use later to compute what leaf
+// axes not in producer. The compliment map is to use later to compute what loop
 // nodes we may have after the forwarding process is finished. Leaf nodes are
 // only important for replayCasP, so look there to see how this is done. Forward
 // map is used for replayCasP and replayPasC.
@@ -191,7 +191,7 @@ class ForwardingInfo {
 
   // Given a forward id map id_input -> id_forwarded
   // Track the other inputs in the expr that id_input is an input to. These will
-  // be used to adjust the replay's leaf tracking. Don't need to track one to
+  // be used to adjust the replay's loop tracking. Don't need to track one to
   // many as currently transformations on IterDomains can only have maximum 2
   // inputs, but maybe in the future we'll have more.
   std::unordered_map<IterDomain*, std::vector<IterDomain*>>
@@ -246,7 +246,7 @@ class ForwardingInfo {
  * Side note potentially for the future: In theory we could actually disconnect
  * T4's view from it's logical domain. This would allow logical domains to be
  * "reversible". The way this would have to be implemented is that there just
- * needs to be a path of transformations from a tensors leaf domains, to its
+ * needs to be a path of transformations from a tensors loop domains, to its
  * root domains, and its logical domain. It shouldn't really matter if those
  * connections are forward or backward through transformations. The only thing
  * that really matters is they're connected. This is left for future work as it
@@ -320,22 +320,22 @@ class BestEffortReplay {
   std::unordered_map<IterDomain*, IterDomain*> target2replay_id_map_;
   std::unordered_map<IterDomain*, IterDomain*> replay_forward_id_map_;
   std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map_;
-  std::unordered_map<IterDomain*, size_t> leaf_ids_;
+  std::unordered_map<IterDomain*, size_t> loop_ids_;
   std::vector<IterDomain*> forwarded_ids_;
   std::unordered_map<IterDomain*, IterDomain*> skipped_resize_id_map_;
 
   // Need to track which id's have been forwarded. Later will need to make sure
-  // leaf nodes to produce "compliment" axes are properly tracked. i.e.
+  // loop nodes to produce "compliment" axes are properly tracked. i.e.
   // T[i0, b1, b2, i3]
   // -> T[i0, b1o, b1i, b2o, b2i, i3]
   // -> T[i0*b1i*b2o, b1o, b2i, i3]
   // -> T[i0*b1i*b2o*i3, b1o, b2i]
   // If we forwarded i0 -> i0*b1i*b2o*i3, we need to know that b1o and b2i
-  // are leaf nodes even though their split wasn't part of targets replay. These
+  // are loop nodes even though their split wasn't part of targets replay. These
   // are important IterDomains to track for transformation replays as otherwise
   // we could easily drop axes we need by accident
 
-  // Counter to make sure best effort replay leaf_ids can be grabbed
+  // Counter to make sure best effort replay loop_ids can be grabbed
   // deterministicly, important to make sure replays are run to run
   // deterministic.
   size_t counter = 0;
@@ -408,7 +408,7 @@ class BestEffortReplay {
     }
   }
 
-  //! Adds complimenting IDs of forwarded IDs to the leaf map
+  //! Adds complimenting IDs of forwarded IDs to the loop map
   void addComplimentLeafIDs(
       const std::unordered_map<IterDomain*, IterDomain*>& forwarding_map,
       const std::unordered_map<IterDomain*, std::vector<IterDomain*>>&
@@ -448,24 +448,24 @@ class BestEffortReplay {
 
   // ids in replay that did not have matching transforms in target_domain
   const std::unordered_map<IterDomain*, size_t>& getUnorderedLeafIDs() {
-    return leaf_ids_;
+    return loop_ids_;
   }
 
   // Returned ordered set of IDs in getUnorderedLeafIDs
   std::vector<IterDomain*> getLeafIDs() {
     std::set<std::pair<IterDomain*, size_t>, id_int_lt> ordered_set;
-    for (auto entry : leaf_ids_) {
+    for (auto entry : loop_ids_) {
       ordered_set.emplace(entry);
     }
 
-    std::vector<IterDomain*> leaf_vec_;
-    leaf_vec_.resize(ordered_set.size());
+    std::vector<IterDomain*> loop_vec_;
+    loop_vec_.resize(ordered_set.size());
     std::transform(
         ordered_set.begin(),
         ordered_set.end(),
-        leaf_vec_.begin(),
+        loop_vec_.begin(),
         [](std::pair<IterDomain*, size_t> entry) { return entry.first; });
-    return leaf_vec_;
+    return loop_vec_;
   }
 
   // Get a disjoint sets representing the equivalence of IterDomains. The

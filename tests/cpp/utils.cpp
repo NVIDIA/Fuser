@@ -8,6 +8,7 @@
 #include <tests/cpp/utils.h>
 
 #include <ops/all_ops.h>
+#include <scheduler/mma_utils.h>
 
 #include <regex>
 #include <sstream>
@@ -588,7 +589,7 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       tensor->nDims());
 
   const auto concrete = TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tensor->getLeafDomain()));
+      TensorDomain::noBroadcasts(tensor->getLoopDomain()));
 
   TensorView *biasb = nullptr, *biased = nullptr;
 
@@ -748,6 +749,42 @@ int64_t getNumSMs() {
     num_SMs[dev_idx] = prop.multiProcessorCount;
   }
   return num_SMs[dev_idx];
+}
+
+bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y) {
+  if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
+    return false;
+  }
+  const ValGroup& gx = vg.toGroup(x);
+  const ValGroup& gy = vg.toGroup(y);
+  return gx.get() == gy.get();
+};
+
+MmaLayout getMatmulProblemLayout(Fusion* fusion) {
+  const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
+      mma_utils::getOperandInnerDims(fusion);
+
+  NVF_ERROR(
+      inner_dims_opt.isValid(),
+      "Could not get operand inner dims: ",
+      inner_dims_opt.getErrorMsg());
+
+  const mma_utils::MatmulOperandInnerDims inner_dims = inner_dims_opt.getData();
+
+  NVF_ERROR(inner_dims.size() == 2, "Found other than two operands");
+
+  const bool A_K_inner = inner_dims.front() == MatmulDomain::K;
+  const bool B_K_inner = inner_dims.back() == MatmulDomain::K;
+
+  if (A_K_inner && B_K_inner) {
+    return MmaLayout::TN;
+  } else if (A_K_inner && !B_K_inner) {
+    return MmaLayout::TT;
+  } else if (!A_K_inner && B_K_inner) {
+    return MmaLayout::NN;
+  } else {
+    return MmaLayout::NT;
+  }
 }
 
 } // namespace nvfuser

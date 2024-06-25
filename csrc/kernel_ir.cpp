@@ -9,6 +9,7 @@
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <host_ir/container.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/iostream.h>
@@ -833,8 +834,9 @@ ForLoop::ForLoop(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
+      passkey.ir_container_->isA<kir::Kernel>() ||
+          passkey.ir_container_->isA<hir::HostIrContainer>(),
+      "IR type only valid for Kernel or Host container.");
   NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
   addInput(iter_domain);
@@ -1469,7 +1471,7 @@ int64_t GroupedGridWelford::getSmemBufferSize(
   // GroupCount
 
   int64_t group_count = 1;
-  for (auto axis : out_tv->getLeafDomain()) {
+  for (auto axis : out_tv->getLoopDomain()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
       auto extent_int = axis->extent()->value().as<int64_t>();

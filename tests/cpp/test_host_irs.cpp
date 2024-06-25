@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <iostream>
 
+#include <c10/cuda/CUDAStream.h>
+
 namespace nvfuser {
 
 namespace hir {
@@ -375,6 +377,95 @@ TEST_P(HostIrTest, ThreeFusions) {
   GTEST_EXPECT_TRUE(torch::allclose(tv2_2_ref, outputs.at(0)));
 }
 
+// This unit test the for-loop IR by implementing a program that could be
+// summarized as
+//   |  int buf = kInitialValue;
+//   |  for (int j = kForLoopStart; j < kForLoopStop; j += kForLoopStep) {
+//   |    buf += j;
+//   |  }
+// where buf is the ouput.
+TEST_P(HostIrTest, ForLoops) {
+  constexpr int64_t kInitialValue = 21;
+  constexpr int64_t kForLoopStart = 1;
+  constexpr int64_t kForLoopStop = 7;
+  constexpr int64_t kForLoopStep = 2;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  auto* index = IrBuilder::create<Val>(DataType::Index);
+  auto* start = IrBuilder::create<Val>(kForLoopStart, DataType::Index);
+  auto* stop = IrBuilder::create<Val>(kForLoopStop, DataType::Index);
+  auto* step = IrBuilder::create<Val>(kForLoopStep, DataType::Index);
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
+      /*IterDomain=*/makeContigConcreteTensor({0})->axis(0), // unused
+      index,
+      start,
+      stop,
+      step,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      DoubleBufferLoopStage::NotApplicable);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto arange = iota(
+      IrBuilder::create<Val>(kForLoopStop),
+      IrBuilder::create<Val>(0),
+      IrBuilder::create<Val>(1),
+      DataType::Int);
+  auto* i = IrBuilder::create<Val>(DataType::Index);
+  Slice s = {i, add(i, IrBuilder::create<Val>(1)), IrBuilder::create<Val>(1)};
+  auto n = slice(arange, {s});
+  auto acc_in = makeContigConcreteTensor({1}, DataType::Int);
+  auto acc_out = add(acc_in, n);
+
+  fusion->addInput(i);
+  fusion->addInput(acc_in);
+  fusion->addOutput(acc_out);
+
+  FusionGuard::setCurFusion(hic.get());
+
+  IrCloner ir_cloner(hic.get());
+  std::vector<Val*> post_on_stream_inputs = {index, ir_cloner.clone(acc_in)};
+  std::vector<Val*> post_on_stream_outputs = {ir_cloner.clone(acc_in)};
+  auto* host_unit = IrBuilder::create<HostUnit>(std::move(fusion));
+  auto* post_on_stream = IrBuilder::create<PostOnStream>(
+      host_unit, post_on_stream_inputs, post_on_stream_outputs);
+
+  for_loop->body().push_back(post_on_stream);
+
+  hic->addInput(post_on_stream->inputs().at(1));
+  hic->addOutput(post_on_stream->outputs().at(0));
+  hic->pushBackTopLevelExprs(for_loop);
+
+  HostIrExecutorParams params;
+  auto [use_fusion_executor_cache] = GetParam();
+  if (!use_fusion_executor_cache) {
+    GTEST_SKIP()
+        << "not supported for now because of concretization issue, getting the error: dynamic_tvs.empty() INTERNAL ASSERT FAILED at /opt/pytorch/Fuser/csrc/device_lower/validation.cpp:187, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. Tensor with dynamic transform must be concretized before lowering: T1_l[ ?S2{( ( ( -( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ) ) + 10 ) + ( ( fmax(( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ), ( fmin(10, ( where(( ( i7 + 1 ) < 0 ), ( ( i7 + 1 ) + 10 ), ( i7 + 1 )) )) )) ) - 10 ) )}rf ], T3_g[ ?S4{( ( ( -( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ) ) + 10 ) + ( ( fmax(( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ), ( fmin(10, ( where(( ( i7 + 1 ) < 0 ), ( ( i7 + 1 ) + 10 ), ( i7 + 1 )) )) )) ) - 10 ) )} ]";
+  }
+  params.use_fusion_executor_cache = use_fusion_executor_cache;
+  HostIrExecutor hie(std::move(hic), /*communicator=*/nullptr, params);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor acc_in_at = torch::tensor({kInitialValue}, options);
+
+  auto outputs =
+      hie.runWithInput({{post_on_stream->inputs().at(1), acc_in_at}});
+
+  // Compute expected result for validation
+  int64_t expected_result_data = kInitialValue;
+  for (int j = kForLoopStart; j < kForLoopStop; j += kForLoopStep) {
+    expected_result_data += j;
+  }
+  at::Tensor expected_result = torch::tensor({expected_result_data}, options);
+
+  EXPECT_TRUE(expected_result.equal(outputs.at(0)));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     Manual,
     HostIrTest,
@@ -382,6 +473,135 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<std::tuple<bool>>& info) -> std::string {
       return std::get<0>(info.param) ? "useFusionExecutorCache"
                                      : "useFusionExecutor";
+    });
+
+// The following test simply demonstrate how to change current CUDA stream in
+// the host program
+TEST_F(NVFuserTest, HostIrSetStream) {
+  auto hic = std::make_unique<HostIrContainer>();
+  auto stream = IrBuilder::createInContainer<Stream>(hic.get());
+  auto set_stream =
+      IrBuilder::createInContainer<SetCurrentStream>(hic.get(), stream);
+  hic->pushBackTopLevelExprs(set_stream);
+
+  HostIrExecutor hie(std::move(hic));
+  setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
+  hie.runWithInput({});
+  EXPECT_NE(
+      c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+}
+
+using StreamHostIrTestParams = std::tuple<bool, int, int>;
+using StreamHostIrTest = NVFuserFixtureParamTest<StreamHostIrTestParams>;
+
+// The following test execute the same fusion `n_iterations` times by posting
+// the kernels on `n_streams` different streams in a Round-Robin fashion. We
+// thus produce `n_iterations` outputs from the same input, with a potential
+// overlap of n_streams/n_iterations
+TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
+  auto [use_fusion_executor_cache, n_streams, n_iterations] = GetParam();
+
+  // [Step 1)] Define the Fusion we want to execute
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> input_sizes = {4, 8, 32};
+
+  auto tv0 = makeConcreteTensor(input_sizes);
+  auto tv1 = add(tv0, tv0);
+  auto tv2 = sum(tv1, {0});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+
+  // [Step 2)] Instantiate an HostIroCntainer
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  // Create N different Streams
+  std::vector<Stream*> streams;
+  for (int i = 0; i < n_streams; i++) {
+    streams.push_back(IrBuilder::createInContainer<Stream>(hic.get()));
+  }
+
+  // [Step 3)] Create a HostUnit Ir holding the created fusion
+  auto host_unit =
+      IrBuilder::createInContainer<HostUnit>(hic.get(), std::move(fusion));
+
+  // [Step 4)] Create TensorViews representing the Fusion's inputs at the Host
+  // level
+  IrCloner ir_cloner_input(hic.get());
+  std::vector<Val*> post_on_stream_inputs = {
+      ir_cloner_input.clone(host_unit->fusion_to_execute()->inputs().at(0))};
+  hic->addInput(post_on_stream_inputs.at(0));
+
+  for (int i = 0; i < n_iterations; i++) {
+    // [Step 4)] Create TensorViews representing the Fusion's ouputs at the Host
+    // level
+    IrCloner ir_cloner_output(hic.get());
+    std::vector<Val*> post_on_stream_outputs = {ir_cloner_output.clone(
+        host_unit->fusion_to_execute()->outputs().at(0))};
+
+    // [Step 5)] Create a PostOnStream Ir representing executing the Fusion with
+    // given I/O
+    auto post_on_stream = IrBuilder::createInContainer<PostOnStream>(
+        hic.get(), host_unit, post_on_stream_inputs, post_on_stream_outputs);
+
+    // Set the Stream
+    auto set_stream = IrBuilder::createInContainer<SetCurrentStream>(
+        hic.get(), streams[i % streams.size()]);
+
+    // [Step 6)] Define the Host program by adding PostOnStream to the
+    // container's top level expression
+    hic->pushBackTopLevelExprs(set_stream);
+    hic->pushBackTopLevelExprs(post_on_stream);
+
+    // [Step 7)] Define the Host program's global I/O
+    hic->addOutput(post_on_stream->outputs().at(0));
+  }
+
+  // [Step 8)] Execute the Host program
+  HostIrExecutorParams params;
+  params.use_fusion_executor_cache = use_fusion_executor_cache;
+  HostIrExecutor hie(std::move(hic), nullptr, params);
+
+  // define concrete inputs and compute ref output for validation
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  c10::IValue input = at::randn(input_sizes, options);
+  auto ref_output = at::sum(input.toTensor() * 2, {0});
+
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {post_on_stream_inputs.at(0), input}};
+
+  setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
+
+  auto outputs = hie.runWithInput(concrete_input_buffers);
+
+  // validate the obtained results
+  for (int i = 0; i < n_iterations; i++) {
+    GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(i)));
+  }
+  EXPECT_NE(
+      c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    StreamHostIrTest,
+    testing::Combine(
+        testing::Values(true),
+        testing::Values(1, 4),
+        testing::Values(1, 8)),
+    [](const testing::TestParamInfo<StreamHostIrTestParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss
+          << (std::get<0>(info.param) ? "useFusionExecutorCache"
+                                      : "useFusionExecutor");
+      ss << "_";
+      ss << "NStreams" << std::get<1>(info.param);
+      ss << "_";
+      ss << "NIterations" << std::get<2>(info.param);
+      return ss.str();
     });
 
 } // namespace hir

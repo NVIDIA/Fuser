@@ -19,7 +19,7 @@ Val* numFeatures(
   Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
   for (const auto dim : dims) {
     const int64_t axis = wrapDim(dim, ndims);
-    num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
+    num_features = mul(num_features, x->getLoopDomain()[axis]->extent());
   }
   return num_features;
 }
@@ -267,7 +267,7 @@ auto norm_properties_from_num_dims(
     const int64_t axis = kNumberOfDims - 1 - idx;
     inner_reduction_axes[idx] = axis;
     inner_broadcast_mask[axis] = true;
-    num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
+    num_features = mul(num_features, x->getLoopDomain()[axis]->extent());
   }
   struct result {
     std::vector<int64_t> outer_reduction_axes;
@@ -514,7 +514,7 @@ ForwardNormResult batch_norm(
     if (axis != c_axis) {
       reduction_axes.push_back(axis);
       broadcast_mask[axis] = true;
-      num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
+      num_features = mul(num_features, x->getLoopDomain()[axis]->extent());
     }
   }
 
@@ -662,10 +662,10 @@ BackwardNormResult batch_norm_backward(
       broadcast_mask[axis] = true;
       if (num_features == nullptr) {
         num_features =
-            castOp(DataType::Double, input->getLeafDomain()[axis]->extent());
+            castOp(DataType::Double, input->getLoopDomain()[axis]->extent());
       } else {
         num_features =
-            mul(num_features, input->getLeafDomain()[axis]->extent());
+            mul(num_features, input->getLoopDomain()[axis]->extent());
       }
     }
   }
@@ -767,11 +767,11 @@ ForwardNormResult instance_norm(
     if (axis != kBatchDim && axis != kChannelsDim) {
       x_reduction_axes.push_back(axis);
       x_broadcast_mask[axis] = true;
-      N = mul(N, x->getLeafDomain()[axis]->extent());
+      N = mul(N, x->getLoopDomain()[axis]->extent());
     }
   }
   Val* B = IrBuilder::createInContainer<Val>(x->container(), 1.0);
-  B = mul(B, x->getLeafDomain()[kBatchDim]->extent());
+  B = mul(B, x->getLoopDomain()[kBatchDim]->extent());
 
   std::vector<bool> channels_only_broadcast_mask(kNumberOfDims, false);
   for (const auto axis : c10::irange(kNumberOfDims)) {
@@ -931,10 +931,10 @@ BackwardNormResult instance_norm_backward(
         broadcast_mask[axis] = true;
         if (num_features == nullptr) {
           num_features =
-              castOp(DataType::Double, input->getLeafDomain()[axis]->extent());
+              castOp(DataType::Double, input->getLoopDomain()[axis]->extent());
         } else {
           num_features =
-              mul(num_features, input->getLeafDomain()[axis]->extent());
+              mul(num_features, input->getLoopDomain()[axis]->extent());
         }
       }
     }

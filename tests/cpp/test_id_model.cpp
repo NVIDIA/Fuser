@@ -2064,7 +2064,7 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   // Fully inline tv10 to tv11 without merging
   tv10->inlineAt(-1);
 
-  // Due to the compliment mapping, the leaf domains of tv10 and tv11
+  // Due to the compliment mapping, the loop domains of tv10 and tv11
   // are loop mapped, which is invalid.
   //
   // Specifically, here are the tv10 and tv11 tensors:
@@ -2072,11 +2072,11 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   // T10_l[ iS22{7}, iS23{8}, iS24{9} ] ca_pos( 3 )
   // root domain : (iS22{7}, iS23{8}, iS24{9})
   // contiguity: t t t
-  // leaf domain : (iS22{7}, iS23{8}, iS24{9})
+  // loop domain : (iS22{7}, iS23{8}, iS24{9})
   // T11_g[ iS25{7}, iS26{8}, iS27{9} ] produce_pos( 3 )
   // root domain : (iS25{7}, iS26{8}, iS27{9})
   // contiguity: t t t
-  // leaf domain : (iS25{7}, iS26{8}, iS27{9})
+  // loop domain : (iS25{7}, iS26{8}, iS27{9})
   //
   // Here's the loop graph for tv10 and tv11:
   // idg{22 23 24 25 26 27}
@@ -2085,7 +2085,7 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   EXPECT_THAT(
       [&]() { IdModel id_model(&fusion, true, false, false); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Detected leaf domains are mapped in the loop graph")));
+          "Detected loop domains are mapped in the loop graph")));
 
   // Enable the below validation once the above problem is resolved.
   //
@@ -2198,35 +2198,35 @@ TEST_F(IdModelTest, ValGraphBFS1) {
   const IdModel id_model(fusion.get());
   const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  ValGroups tv0_leaf_groups = graph.toGroups(tv0->getLeafDomain());
-  ValGroups tv1_leaf_groups = graph.toGroups(tv1->getLeafDomain());
-  ValGroups tv2_leaf_groups = graph.toGroups(tv2->getLeafDomain());
+  ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
+  ValGroups tv1_loop_groups = graph.toGroups(tv1->getLoopDomain());
+  ValGroups tv2_loop_groups = graph.toGroups(tv2->getLoopDomain());
 
-  // Since the leaf domains of tv0 and tv1 are grouped together, the
+  // Since the loop domains of tv0 and tv1 are grouped together, the
   // path between them is empty
   ExprPath tv1_to_tv0 =
-      ValGraphBFS::getExprsBetween(graph, tv1_leaf_groups, tv0_leaf_groups);
+      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups);
   EXPECT_TRUE(tv1_to_tv0.empty());
 
   // Traversal should fail if not all dependencies are met
-  ValGroups incomplete_tv1_leaf_groups;
-  incomplete_tv1_leaf_groups.pushBack(
-      graph.toGroup(tv1->getLeafDomain().at(0)));
+  ValGroups incomplete_tv1_loop_groups;
+  incomplete_tv1_loop_groups.pushBack(
+      graph.toGroup(tv1->getLoopDomain().at(0)));
   EXPECT_THAT(
       [&]() {
         ValGraphBFS::getExprsBetween(
-            graph, incomplete_tv1_leaf_groups, tv0_leaf_groups);
+            graph, incomplete_tv1_loop_groups, tv0_loop_groups);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("BFS traversal could not visit some nodes")));
 
-  // On the other hand, the leaf domains of tv2 are produced through
-  // the reverse merge, so they aren't mapped with the tv1 leaf
+  // On the other hand, the loop domains of tv2 are produced through
+  // the reverse merge, so they aren't mapped with the tv1 loop
   // domains. The path between them should look like traversing from
-  // tv2 leaves backward to its root and then forward from tv1 root to
-  // tv1 leaves.
+  // tv2 loop domain backward to its root and then forward from tv1 root to
+  // tv1 loop domain.
   ExprPath tv2_to_tv1 =
-      ValGraphBFS::getExprsBetween(graph, tv2_leaf_groups, tv1_leaf_groups);
+      ValGraphBFS::getExprsBetween(graph, tv2_loop_groups, tv1_loop_groups);
 
   ExprPath tv2_to_tv1_ref;
   tv2_to_tv1_ref.emplace_back(
@@ -2265,13 +2265,13 @@ TEST_F(IdModelTest, ValGraphBFS2) {
   const IdModel id_model(fusion.get());
   const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  ValGroups tv0_leaf_groups = graph.toGroups(tv0->getLeafDomain());
-  ValGroups tv1_leaf_groups = graph.toGroups(tv1->getLeafDomain());
+  ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
+  ValGroups tv1_loop_groups = graph.toGroups(tv1->getLoopDomain());
 
-  // Since the leaf domains of tv0 and tv1 are grouped together, the
+  // Since the loop domains of tv0 and tv1 are grouped together, the
   // path between them is empty
   ExprPath tv1_to_tv0 =
-      ValGraphBFS::getExprsBetween(graph, tv1_leaf_groups, tv0_leaf_groups);
+      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups);
 
   ExprPath tv1_to_tv0_ref;
   tv1_to_tv0_ref.emplace_back(
@@ -2288,7 +2288,7 @@ TEST_F(IdModelTest, ValGraphBFS2) {
   tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(1)));
   tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(2)));
   ExprPath tv1_to_tv0_partial =
-      ValGraphBFS::getExprsBetween(graph, tv1_leaf_groups, tv0_partial_groups);
+      ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_partial_groups);
 
   EXPECT_EQ(tv1_to_tv0_partial, tv1_to_tv0_ref);
 }
@@ -2324,8 +2324,8 @@ TEST_F(IdModelTest, ValGraphBFS3) {
   const IdModel id_model(fusion.get());
   const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  ValGroups tv4_groups = graph.toGroups(tv4->getLeafDomain());
-  ValGroups tv0_groups = graph.toGroups(tv0->getLeafDomain());
+  ValGroups tv4_groups = graph.toGroups(tv4->getLoopDomain());
+  ValGroups tv0_groups = graph.toGroups(tv0->getLoopDomain());
 
   ExprPath tv4_to_tv0 =
       ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups);
@@ -2370,8 +2370,8 @@ TEST_F(IdModelTest, ValGraphBFS4) {
   const IdModel id_model(fusion.get());
   const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  ValGroups tv4_groups = graph.toGroups(tv4->getLeafDomain());
-  ValGroups tv0_groups = graph.toGroups(tv0->getLeafDomain());
+  ValGroups tv4_groups = graph.toGroups(tv4->getLoopDomain());
+  ValGroups tv0_groups = graph.toGroups(tv0->getLoopDomain());
 
   // Traversal from tv4 to tv0 can go through the reshape ops of tv2
   // and tv3, but the shortest path should be just one merge for tv1
@@ -2558,7 +2558,7 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
   auto reference_promotion = tv10->axis(0);
 
   // All tvs except for inptus should be just a 1D tensor and be
-  // promoted to a domain that is exactly mappd with the leaf domain
+  // promoted to a domain that is exactly mappd with the loop domain
   // of tv10.
   for (const auto tv : ir_utils::allTvs(&fusion)) {
     if (tv->isFusionInput()) {
@@ -2583,6 +2583,35 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
         << ". Expected: " << reference_promotion->toString()
         << ". Actual: " << promotion_id->toString();
   }
+}
+
+TEST_F(IdModelTest, ParallelTypePropagation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(0, 4);
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  IdModel id_model(&fusion);
+  id_model.validateAndPropagatePType();
+
+  EXPECT_EQ(tv1->axis(0)->getParallelType(), tv2->axis(0)->getParallelType())
+      << "Parallel type propagation failed";
+  EXPECT_EQ(tv1->axis(1)->getParallelType(), tv2->axis(1)->getParallelType())
+      << "Parallel type propagation failed";
 }
 
 } // namespace nvfuser

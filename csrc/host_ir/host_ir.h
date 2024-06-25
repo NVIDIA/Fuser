@@ -11,6 +11,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
+#include <atomic>
 
 namespace nvfuser {
 
@@ -111,6 +112,73 @@ class PostOnStream : public Expr {
 
   Expr* hostOpToPost() const {
     return attributes_.at(0)->as<Expr>();
+  }
+};
+
+class Stream : public Val {
+ public:
+  Stream(IrBuilderPasskey passkey);
+  Stream(const Stream* src, IrCloner* ir_cloner);
+  bool sameAs(const Statement* other) const override;
+
+  NVFUSER_DECLARE_CLONE
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+ private:
+  // the class contains a unique ID counter accross instances that is mainly
+  // useful for debug print
+  const int64_t idx_;
+  static std::atomic<int64_t> running_counter_;
+};
+
+class SetCurrentStream : public Expr {
+ public:
+  using Expr::Expr;
+  SetCurrentStream(IrBuilderPasskey passkey, Stream* stream);
+
+  SetCurrentStream(const SetCurrentStream& other) = delete;
+  SetCurrentStream& operator=(const SetCurrentStream& other) = delete;
+  SetCurrentStream(SetCurrentStream&& other) = delete;
+  SetCurrentStream& operator=(SetCurrentStream&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::SetCurrentStream";
+  }
+
+  bool sameAs(const Statement* other) const override;
+
+  Stream* stream() const {
+    return attributes_.at(0)->as<Stream>();
+  }
+};
+
+class Wait : public Expr {
+ public:
+  using Expr::Expr;
+  Wait(IrBuilderPasskey passkey, Communication* communication);
+
+  Wait(const Wait& other) = delete;
+  Wait& operator=(const Wait& other) = delete;
+  Wait(Wait&& other) = delete;
+  Wait& operator=(Wait&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::Wait";
+  }
+
+  bool sameAs(const Statement* other) const override;
+
+  Communication* communication() const {
+    return attributes_.at(0)->as<Communication>();
   }
 };
 
