@@ -700,7 +700,7 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
   }
 
   // (2) Good heuristic if we have enough blocks to saturate the device or it's
-  // a small reduction. This cut-off is empirical based on H100.
+  // a small reduction. This cut-off is empirical based on A100 and H100.
   const float min_sm_efficiency = 0.9f;
   float f_wave = (float)hp.gidim / (float)sm_count;
   float sm_efficiency = f_wave / std::ceil(f_wave);
