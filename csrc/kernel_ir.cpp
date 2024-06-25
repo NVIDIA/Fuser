@@ -9,6 +9,7 @@
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <host_ir/container.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/iostream.h>
@@ -833,8 +834,9 @@ ForLoop::ForLoop(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
+      passkey.ir_container_->isA<kir::Kernel>() ||
+          passkey.ir_container_->isA<hir::HostIrContainer>(),
+      "IR type only valid for Kernel or Host container.");
   NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
   addInput(iter_domain);

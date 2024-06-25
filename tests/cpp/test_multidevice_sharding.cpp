@@ -26,7 +26,7 @@ TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
   auto [creates_concrete_tensor, sharded_dim] = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  int num_devices = communicator->size();
+  int num_devices = communicator_->size();
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
   std::vector<int64_t> input_size = {2, 3, 2, 4};
   int sharded_output_dim = 3;
@@ -56,11 +56,11 @@ TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
 
   auto x0 = at::randn(input_size, tensor_options);
   std::vector<c10::IValue> inputs = {x0};
-  auto x1 = shardTensor(x0, tv1, communicator->deviceId());
+  auto x1 = shardTensor(x0, tv1, communicator_->deviceId());
   auto x2 = x1 + x1;
   auto x3 = shardTensor(
-      at::sum(x0 + x0, {sharded_dim}), tv3, communicator->deviceId());
-  MultiDeviceExecutor runtime(std::move(fusion), *communicator);
+      at::sum(x0 + x0, {sharded_dim}), tv3, communicator_->deviceId());
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
       runtime.completeFusion(),
@@ -77,7 +77,7 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
   auto [creates_concrete_tensor, sharded_dim] = GetParam();
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  int num_devices = communicator->size();
+  int num_devices = communicator_->size();
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
   std::vector<int64_t> unsharded_input_size = {3, 2, 5};
   unsharded_input_size[sharded_dim] = num_devices;
@@ -100,9 +100,9 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
 
   auto x1 = at::randn(unsharded_input_size, tensor_options);
   std::vector<c10::IValue> inputs = {
-      shardTensor(x1, tv0, communicator->deviceId())};
+      shardTensor(x1, tv0, communicator_->deviceId())};
   auto x2 = x1 * 2;
-  MultiDeviceExecutor runtime(std::move(fusion), *communicator);
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
       runtime.completeFusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
