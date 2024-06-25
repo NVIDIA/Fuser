@@ -748,14 +748,20 @@ void IndexLowering::handleGridReduction(
   auto work_buffer = allocateUniqueBuffer(
       buffer_size_info.size_of_privatized_buffer,
       out_tv->dtype(),
-      false,
+      /*zero_init=*/false,
+      /*resets_to_zero=*/false,
       out_tv,
       work_buffer_map_);
 
   auto sync_buffer_size =
       getGridSyncBufferSize(out_domain, for_loops_, is_persistent);
   auto sync_buffer = allocateUniqueBuffer(
-      sync_buffer_size, DataType::Int, true, out_tv, sync_buffer_map_);
+      sync_buffer_size,
+      DataType::Int,
+      /*zero_init=*/true,
+      /*resets_to_zero=*/true, // grid_reduction only uses this for grid_sync
+      out_tv,
+      sync_buffer_map_);
 
   const auto entrance_ind = !is_persistent
       ? getEntranceLinIndGridReduce(for_loops_)
@@ -896,7 +902,8 @@ void IndexLowering::handleGridReduction(
         return allocateUniqueBuffer(
             work_buf_size_info.size_of_privatized_buffer,
             output->dtype(),
-            false,
+            /*zero_init=*/false,
+            /*resets_to_zero=*/false,
             output->as<kir::TensorIndex>()->view(),
             work_buffer_map_);
       });
@@ -904,7 +911,12 @@ void IndexLowering::handleGridReduction(
   auto sync_buffer_size =
       getGridSyncBufferSize(out_domain, for_loops_, is_persistent);
   auto sync_buffer = allocateUniqueBuffer(
-      sync_buffer_size, DataType::Int, true, out_tv, sync_buffer_map_);
+      sync_buffer_size,
+      DataType::Int,
+      /*zero_init=*/true,
+      /*resets_to_zero=*/true, // grid_reduction only uses this for grid_sync
+      out_tv,
+      sync_buffer_map_);
 
   const auto entrance_ind = !is_persistent
       ? getEntranceLinIndGridReduce(for_loops_)
@@ -1039,26 +1051,34 @@ void IndexLowering::handleGridWelford(WelfordOp* indexed_wop) {
   auto out_avg_buffer = allocateUniqueBuffer(
       work_buffer_size,
       indexed_wop->outAvg()->dtype(),
-      false,
+      /*zero_init=*/false,
+      /*resets_to_zero=*/false,
       indexed_wop->outAvg()->as<kir::TensorIndex>()->view(),
       work_buffer_map_);
   auto out_var_buffer = allocateUniqueBuffer(
       work_buffer_size,
       indexed_wop->outVar()->dtype(),
-      false,
+      /*zero_init=*/false,
+      /*resets_to_zero=*/false,
       indexed_wop->outVar()->as<kir::TensorIndex>()->view(),
       work_buffer_map_);
   auto out_N_buffer = allocateUniqueBuffer(
       work_buffer_size,
       indexed_wop->outN()->dtype(),
-      false,
+      /*zero_init=*/false,
+      /*resets_to_zero=*/false,
       indexed_wop->outN()->as<kir::TensorIndex>()->view(),
       work_buffer_map_);
 
   auto sync_buffer_size =
       getGridSyncBufferSize(out_domain, for_loops_, is_persistent);
   auto sync_buffer = allocateUniqueBuffer(
-      sync_buffer_size, DataType::Int, true, out_tv, sync_buffer_map_);
+      sync_buffer_size,
+      DataType::Int,
+      /*zero_init=*/true,
+      /*resets_to_zero=*/true, // grid welford only uses this for grid_sync
+      out_tv,
+      sync_buffer_map_);
 
   const auto entrance_ind = !is_persistent
       ? getEntranceLinIndGridReduce(for_loops_)
@@ -1173,7 +1193,8 @@ std::vector<kir::Allocate*> IndexLowering::allocateWelfordWorkBuffer(
         return allocateUniqueBuffer(
             buffer_size,
             output.get(name)->dtype(),
-            false,
+            /*zero_init=*/false,
+            /*resets_to_zero=*/false,
             output.get(name)->as<TensorView>(),
             work_buffer_map_);
       });
@@ -1340,7 +1361,12 @@ void IndexLowering::handleGroupedGridWelford(
   auto sync_buffer_size =
       getGridSyncBufferSize(out_domain, for_loops_, is_persistent);
   auto sync_buffer = allocateUniqueBuffer(
-      sync_buffer_size, DataType::Int, true, out_tv, sync_buffer_map_);
+      sync_buffer_size,
+      DataType::Int,
+      /*zero_init=*/true,
+      /*resets_to_zero=*/true, // grid welford only uses this for grid_sync
+      out_tv,
+      sync_buffer_map_);
 
   const auto entrance_ind = !is_persistent
       ? getEntranceLinIndGridReduce(for_loops_)
@@ -1689,11 +1715,21 @@ void IndexLowering::handle(const BroadcastOp* bop) {
           .size_of_privatized_buffer;
 
   auto work_buffer = allocateUniqueBuffer(
-      work_buffer_size, out->dtype(), false, out_tv, work_buffer_map_);
+      work_buffer_size,
+      out->dtype(),
+      /*zero_init=*/false,
+      /*resets_to_zero=*/false,
+      out_tv,
+      work_buffer_map_);
 
   auto sync_buffer_size = getGridSyncBufferSize(out_domain, for_loops_, true);
   auto sync_buffer = allocateUniqueBuffer(
-      sync_buffer_size, DataType::Int, true, out_tv, sync_buffer_map_);
+      sync_buffer_size,
+      DataType::Int,
+      /*zero_init=*/false,
+      /*resets_to_zero=*/false,
+      out_tv,
+      sync_buffer_map_);
 
   auto grid_broadcast = IrBuilder::create<kir::GridBroadcast>(
       indexed_expr, work_buffer, sync_buffer);
@@ -1752,6 +1788,7 @@ kir::Allocate* IndexLowering::allocateUniqueBuffer(
     Val* buffer_size,
     DataType dtype,
     bool zero_init,
+    bool resets_to_zero,
     TensorView* out_tv,
     std::unordered_map<TensorView*, kir::Allocate*>& alloc_map) {
   // Return an existing allocation if exists
@@ -1761,8 +1798,8 @@ kir::Allocate* IndexLowering::allocateUniqueBuffer(
   }
 
   // No existing allocation found. Create a new one
-  auto new_buffer =
-      lower_utils::allocGlobalBufferForGridComm(buffer_size, dtype, zero_init);
+  auto new_buffer = lower_utils::allocGlobalBufferForGridComm(
+      buffer_size, dtype, zero_init, resets_to_zero);
 
   // Keep track of the allocation
   alloc_map.emplace(out_tv, new_buffer);

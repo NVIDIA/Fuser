@@ -75,6 +75,10 @@ __device__ void sync(
       }
 #endif
     }
+    if (last_block) {
+      // Clean up semaphore for re-use in next iteration
+      semaphore = 0ULL;
+    }
   }
 
   // Sync block to make sure all other threads are waiting on the sync
@@ -141,6 +145,8 @@ __device__ void sync(
         }
 #endif
       }
+      // Clean up semaphore for reuse
+      semaphore = 0ULL;
     } else {
       auto old = atomicAdd(reinterpret_cast<uint64_t*>(&semaphore), 1);
     }

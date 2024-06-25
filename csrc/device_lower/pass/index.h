@@ -154,6 +154,7 @@ class IndexLowering : private OptOutConstDispatch {
       Val* buffer_size,
       DataType dtype,
       bool zero_init,
+      bool resets_to_zero,
       TensorView* out_tv,
       std::unordered_map<TensorView*, kir::Allocate*>& alloc_map);
 
