@@ -1572,29 +1572,20 @@ DisjointLogicalSetInfo getDisjointLogicalSetsOf(
   int64_t ref_dim_i = (int64_t)logical_dom.size() - 1;
 
   while (ref_dim_i >= 0) {
-    std::cout << "ref_dim_i: " << ref_dim_i
-              << ", id: " << logical_dom[ref_dim_i]->toString() << std::endl;
     if (disjoint_group_ids[ref_dim_i] != -1) {
       // Already put in a group, continue
-      std::cout << "Already put in a group, continue" << std::endl;
       ref_dim_i--;
       continue;
     }
 
     const auto& ref_group =
         disjoint_logical_set.getDisjointSetOf(logical_dom[ref_dim_i]);
-    std::cout << "ref_group: " << ref_group.toString() << std::endl;
+
     int64_t other_dim_i = ref_dim_i;
     while (other_dim_i >= 0) {
-      std::cout << "other_dim_i: " << other_dim_i
-                << ", id: " << logical_dom[other_dim_i]->toString()
-                << std::endl;
       const auto& other_group =
           disjoint_logical_set.getDisjointSetOf(logical_dom[other_dim_i]);
-      std::cout << "other_group: " << other_group.toString() << std::endl;
       if (&ref_group == &other_group) {
-        std::cout << "ref_group == other_group, current_group_id: "
-                  << current_group_id << std::endl;
         disjoint_group_ids[other_dim_i] = current_group_id;
         disjoint_set_of_id[other_dim_i] = &ref_group;
       }
@@ -1991,8 +1982,7 @@ DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion) {
   // Start from the exact iter domain graph of the fusion
   IterDomainGraph id_graph(fusion);
   auto disjoint_logical_ids = id_graph.exactNodes();
-  std::cout << "initial disjoint_logical_ids: "
-            << disjoint_logical_ids.toString() << std::endl;
+
   // If iter domains are involved in any transformation from root domains to
   // logical domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
@@ -2226,17 +2216,9 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
 
     // Propagate the view transformations
-    std::cout << "Propagate current transformations from0: " << tv->toString()
-              << std::endl;
     tv->reorder(old2new);
-    std::cout << "Propagate current transformations from1: " << tv->toString()
-              << ", pos= " << old2new.size() << std::endl;
     //! Propagate current transformations on from_tv to all graphs
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
-
-    // auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-    // scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-    //     tv, (int64_t)old2new.size(), {output_tvs.begin(), output_tvs.end()});
   }
 }
 
