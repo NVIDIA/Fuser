@@ -69,14 +69,22 @@ class OverlapTest : public MultiDeviceTest {
         communicator->getBackendForTeam(devices, params.backend_type);
 
     // Define I/O and intermediate Tensor shapes
-    // clang-format off
-        std::vector<int64_t> ta_unsharded_sizes       = {params.S, num_devices_, params.M/params.S, params.K/num_devices_, 1       };
-        std::vector<int64_t> ta_sizes                 = {params.S, 1           , params.M/params.S, params.K/num_devices_, 1       };
-        std::vector<int64_t> tb_unsharded_sizes       = {1       , num_devices_, 1                , params.K/num_devices_, params.N};
-        std::vector<int64_t> tb_sizes                 = {1       , 1           , 1                , params.K/num_devices_, params.N};
-        std::vector<int64_t> tc_locally_reduced_sizes = {params.S, 1           , params.M/params.S,                        params.N};
-        std::vector<int64_t> tc_sizes                 = {params.S, 1           , params.M/(params.S*num_devices_)        , params.N};
-    // clang-format on
+    std::vector<int64_t> ta_unsharded_sizes = {
+        params.S,
+        num_devices_,
+        params.M / params.S,
+        params.K / num_devices_,
+        1};
+    std::vector<int64_t> ta_sizes = {
+        params.S, 1, params.M / params.S, params.K / num_devices_, 1};
+    std::vector<int64_t> tb_unsharded_sizes = {
+        1, num_devices_, 1, params.K / num_devices_, params.N};
+    std::vector<int64_t> tb_sizes = {
+        1, 1, 1, params.K / num_devices_, params.N};
+    std::vector<int64_t> tc_locally_reduced_sizes = {
+        params.S, 1, params.M / params.S, params.N};
+    std::vector<int64_t> tc_sizes = {
+        params.S, 1, params.M / (params.S * num_devices_), params.N};
 
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
@@ -88,9 +96,9 @@ class OverlapTest : public MultiDeviceTest {
     auto ta_unsharded = at::randn(ta_unsharded_sizes, options);
     auto tb_unsharded = at::randn(tb_unsharded_sizes, options);
     ta_ = at::empty(ta_sizes, options);
-    ta_.copy_(ta_unsharded.slice(1, my_device_index_, my_device_index_ + 1));
+    ta_.copy_(getSlice(ta_unsharded, 1, my_device_index_));
     tb_ = at::empty(tb_sizes, options);
-    tb_.copy_(tb_unsharded.slice(1, my_device_index_, my_device_index_ + 1));
+    tb_.copy_(getSlice(tb_unsharded, 1, my_device_index_));
 
     // We pre-allocate the output and some intermediate buffers so we do not
     // rely on torch allocator, which do not behave well with multi-stream
@@ -107,8 +115,8 @@ class OverlapTest : public MultiDeviceTest {
          num_devices_,
          params.M / (params.S * num_devices_),
          params.N});
-    tc_expected_ = tc_unsharded_expected_reshaped.slice(
-        1, my_device_index_, my_device_index_ + 1);
+    tc_expected_ =
+        getSlice(tc_unsharded_expected_reshaped, 1, my_device_index_);
 
     // Debug print
     if (communicator->deviceId() == 0 && debug_print) {
@@ -121,8 +129,8 @@ class OverlapTest : public MultiDeviceTest {
     }
   }
 
-  at::Tensor getSlice(at::Tensor t, int64_t j) {
-    return t.slice(0, j, j + 1);
+  at::Tensor getSlice(at::Tensor t, int64_t axis, int64_t index) {
+    return t.slice(axis, index, index + 1);
   }
 
   void computeATen(
@@ -209,9 +217,9 @@ TEST_F(OverlapTest, SimpleComputeComm) {
   std::vector<c10::cuda::CUDAStream> streams;
   for (auto j : c10::irange(params.S)) {
     // define the sliced tensors
-    auto ta_j = getSlice(ta_, j);
-    auto tc_locally_reduced_j = getSlice(tc_locally_reduced_, j);
-    auto tc_j = getSlice(tc_, j);
+    auto ta_j = getSlice(ta_, 0, j);
+    auto tc_locally_reduced_j = getSlice(tc_locally_reduced_, 0, j);
+    auto tc_j = getSlice(tc_, 0, j);
 
     if (params.use_different_streams) {
       auto new_stream = c10::cuda::getStreamFromPool(
