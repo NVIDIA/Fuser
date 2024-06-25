@@ -27,6 +27,9 @@ namespace nvfuser {
 
 class IrBuilderPasskey;
 
+class Scope;
+class ForLoop;
+
 namespace kir {
 class Kernel;
 
@@ -50,7 +53,6 @@ class AsyncWait;
 class AsyncCommit;
 class InitMagicZero;
 class UpdateMagicZero;
-class ForLoop;
 class IfThenElse;
 class GridReduction;
 class GroupedGridReduction;
@@ -60,7 +62,6 @@ class GroupedGridWelford;
 class AllocateFusedReduction;
 
 // Expr container
-class Scope;
 
 class Predicate final : public Val {
  public:
@@ -720,6 +721,8 @@ class UpdateMagicZero final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 };
 
+} // namspace kir
+
 // TODO(kir): promote to IR node
 class Scope {
  public:
@@ -930,6 +933,8 @@ class NVF_API ForLoop final : public Expr {
   //! etc.
   mutable Val* simplified_stop_ = nullptr;
 };
+
+namespace kir {
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its
 //! body are considered inside the scope of the if statement. In the future the

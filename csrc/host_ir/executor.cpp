@@ -149,7 +149,7 @@ void HostIrExecutor::handle(Wait* wait) {
   works_.erase(communication);
 }
 
-void HostIrExecutor::handle(kir::ForLoop* for_loop) {
+void HostIrExecutor::handle(ForLoop* for_loop) {
   NVF_ERROR(for_loop->start()->isConstInt());
   NVF_ERROR(for_loop->step()->isConstInt());
   NVF_ERROR(for_loop->stop()->isConstInt());

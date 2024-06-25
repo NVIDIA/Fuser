@@ -166,8 +166,8 @@ bool requireEpilogue(const std::vector<Expr*>& exprs) {
 // the loads. Main copies everything.
 class DoubleBufferLoopCloner : public kir::IrVisitor {
  public:
-  static kir::ForLoop* clone(
-      kir::ForLoop* double_buffer_loop,
+  static ForLoop* clone(
+      ForLoop* double_buffer_loop,
       const std::vector<Expr*>& double_buffer_load_exprs,
       DoubleBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude = {}) {
@@ -179,7 +179,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
  private:
   DoubleBufferLoopCloner(
-      kir::ForLoop* double_buffer_loop,
+      ForLoop* double_buffer_loop,
       const std::vector<Expr*>& double_buffer_load_exprs,
       DoubleBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude)
@@ -223,7 +223,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
               int64_t(stage_depth - 1), DataType::Index));
     }
 
-    cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
+    cloned_top_level_loop_ = IrBuilder::create<ForLoop>(
         double_buffer_loop_->iter_domain(),
         index,
         start,
@@ -237,10 +237,10 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
     handle(double_buffer_loop_);
   }
 
-  void handle(kir::ForLoop* fl) final {
-    kir::ForLoop* cloned_loop = fl == double_buffer_loop_
+  void handle(ForLoop* fl) final {
+    ForLoop* cloned_loop = fl == double_buffer_loop_
         ? cloned_top_level_loop_
-        : IrBuilder::create<kir::ForLoop>(fl);
+        : IrBuilder::create<ForLoop>(fl);
 
     cloned_scopes_.push_back(&cloned_loop->body());
 
@@ -264,7 +264,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
       return;
     }
 
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -298,16 +298,16 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
   }
 
  private:
-  kir::ForLoop* double_buffer_loop_ = nullptr;
+  ForLoop* double_buffer_loop_ = nullptr;
   const std::vector<Expr*>& double_buffer_load_exprs_;
   const DoubleBufferLoopStage loop_type_;
 
-  kir::ForLoop* cloned_top_level_loop_ = nullptr;
-  std::deque<kir::Scope*> cloned_scopes_;
+  ForLoop* cloned_top_level_loop_ = nullptr;
+  std::deque<Scope*> cloned_scopes_;
   const std::unordered_set<Expr*>& exclude_;
 };
 
-using InsertionInfo = std::unordered_map<kir::ForLoop*, std::vector<Expr*>>;
+using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
 
 class IsDoubleBufferLoadLoop : public kir::IrVisitor {
  public:
@@ -402,7 +402,7 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
     handlePossibleLoadExpr(ldst);
   }
 
-  static void validateDoubleBufferLoop(kir::ForLoop* loop) {
+  static void validateDoubleBufferLoop(ForLoop* loop) {
     NVF_ERROR(
         loop->start()->isZeroInt(), "Unsupported loop: ", loop->toString());
     NVF_ERROR(loop->step()->isOneInt(), "Unsupported loop: ", loop->toString());
@@ -422,7 +422,7 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
 namespace {
 
 void getAllocInTrivialLoop(
-    kir::ForLoop* fl,
+    ForLoop* fl,
     std::unordered_set<Expr*>& output) {
   if (!fl->isTrivial()) {
     return;
@@ -430,7 +430,7 @@ void getAllocInTrivialLoop(
   for (auto expr : fl->body().exprs()) {
     if (expr->isA<kir::Allocate>()) {
       output.emplace(expr);
-    } else if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    } else if (auto loop = dynamic_cast<ForLoop*>(expr)) {
       getAllocInTrivialLoop(loop, output);
     }
   }
@@ -468,7 +468,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(kir::ForLoop* loop) final {
+  void handle(ForLoop* loop) final {
     kir::ExprMutator::handle(loop);
 
     // If another loop is already taken care of, no more loop should
@@ -488,7 +488,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
   }
 
   void insert(
-      kir::ForLoop* double_buffer_loop,
+      ForLoop* double_buffer_loop,
       const std::vector<Expr*>& loads) {
     auto prologue_loop = DoubleBufferLoopCloner::clone(
         double_buffer_loop, loads, DoubleBufferLoopStage::Prolog);
@@ -613,7 +613,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
   // Simple conservative rule for inserting async copy wait
   //  primitive in the double buffer loop:
   void insertCpAsyncCommitWaitInMainLoop(
-      kir::ForLoop* main_loop,
+      ForLoop* main_loop,
       const std::vector<Expr*>& loads) {
     NVF_ERROR(
         !main_loop->body().empty(),
@@ -661,7 +661,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
 
  private:
   InsertionInfo& insertion_info_;
-  kir::ForLoop* processed_loop_ = nullptr;
+  ForLoop* processed_loop_ = nullptr;
 };
 
 } // namespace
@@ -756,9 +756,9 @@ unsigned int DoubleBufferInfo::getStageDepthFor(
   return maybe_depth_it->second;
 }
 
-kir::ForLoop* DoubleBufferInfo::getDoubleBufferLoop(
+ForLoop* DoubleBufferInfo::getDoubleBufferLoop(
     IterDomain* axis,
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     bool ignore_prologue) {
   auto loop_it = std::find_if(loops.begin(), loops.end(), [&](const auto loop) {
     return GpuLower::current()->caMap()->areMapped(
@@ -774,9 +774,9 @@ kir::ForLoop* DoubleBufferInfo::getDoubleBufferLoop(
   }
 }
 
-kir::ForLoop* DoubleBufferInfo::getDoubleBufferLoop(
+ForLoop* DoubleBufferInfo::getDoubleBufferLoop(
     const TensorView* tv,
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     bool ignore_prologue) {
   auto axis = getDoubleBufferAxis(tv);
 

@@ -749,6 +749,8 @@ std::string UpdateMagicZero::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
 
+}
+
 std::string Scope::toString(int indent_size) const {
   std::stringstream ss;
   for (auto expr : exprs()) {
@@ -1102,6 +1104,8 @@ bool ForLoop::isGroup() const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
+
+namespace kir {
 
 IfThenElse::IfThenElse(IrBuilderPasskey passkey, Predicate* cond)
     : Expr(passkey) {

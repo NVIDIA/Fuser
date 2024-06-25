@@ -397,7 +397,7 @@ TEST_P(HostIrTest, ForLoops) {
   auto* start = IrBuilder::create<Val>(kForLoopStart, DataType::Index);
   auto* stop = IrBuilder::create<Val>(kForLoopStop, DataType::Index);
   auto* step = IrBuilder::create<Val>(kForLoopStep, DataType::Index);
-  auto* for_loop = IrBuilder::create<kir::ForLoop>(
+  auto* for_loop = IrBuilder::create<ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({0})->axis(0), // unused
       index,
       start,
