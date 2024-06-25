@@ -480,6 +480,25 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   return initial_index_map;
 }
 
+std::vector<Val*> TensorIndexer::getIndexFor(
+    const Expr* expr,
+    const ValGroups& index_groups) const {
+  auto info = computeIndex(expr, index_groups);
+  const auto& replacement_map =
+      getIndexReplacementMap(info.loop_domains, info.index_map);
+
+  std::vector<Val*> result;
+  result.reserve(index_groups.size());
+  for (const auto& g : index_groups) {
+    auto it = info.index_map.find(g);
+    NVF_ERROR(
+        it != info.index_map.end(), "Index not found for ", g->toString());
+    result.push_back(
+        ir_utils::replaceValRecursively(it->second, replacement_map));
+  }
+  return result;
+}
+
 Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
@@ -496,31 +515,20 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   const auto [allocation_domains, strides] =
       getAllocationDomains(tv, id_model_);
 
-  const auto& index_info = computeIndex(expr, allocation_domains);
-  const auto& index_map = index_info.index_map;
+  auto indices =
+      getIndexFor(expr, traversalGraph().toGroups(allocation_domains));
+  NVF_ERROR(indices.size() == allocation_domains.size());
 
   // Linearize the indices with strides.
   // TODO: Contiguous indexing
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
-    IterDomain* allocation_domain = allocation_domains.at(i);
-
     Val* stride = strides.at(i);
-
-    auto idx_it = index_map.find(traversalGraph().toGroup(allocation_domain));
-    NVF_ERROR(
-        idx_it != index_map.end(),
-        "Index not found for ",
-        allocation_domain->toString());
-    Val* idx = idx_it->second;
     index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(stride, idx));
+        index, SimplifyingIrBuilder::mulExpr(stride, indices.at(i)));
   }
 
-  const auto& replacement_map =
-      getIndexReplacementMap(index_info.loop_domains, index_info.index_map);
-
-  return ir_utils::replaceValRecursively(index, replacement_map);
+  return index;
 }
 
 // Get the loop domains of a given expr, which are (potentially
@@ -557,12 +565,6 @@ IndexingInfo TensorIndexer::computeIndex(
 
   IndexingInfo info{loop_domains, traversal_path, index_compute.indexMap()};
   return info;
-}
-
-IndexingInfo TensorIndexer::computeIndex(
-    const Expr* expr,
-    const std::vector<IterDomain*>& index_domains) const {
-  return computeIndex(expr, traversalGraph().toGroups(index_domains));
 }
 
 std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
