@@ -42,7 +42,7 @@ class MultiDeviceHostIrTest
 TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto [use_fusion_executor_cache, with_sharding_annotations] = GetParam();
 
-  const int64_t communicator_size = communicator->size();
+  const int64_t communicator_size = communicator_->size();
   std::vector<int64_t> unsharded_input_sizes = {communicator_size, 8, 32};
   std::vector<int64_t> sharded_input_sizes = unsharded_input_sizes;
   sharded_input_sizes[0] = 1;
@@ -58,9 +58,9 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   fusion->addOutput(tv1_fusion);
 
   DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_size);
-  if (with_sharding_annotations) {
-    for (auto tv : {tv0_fusion, tv1_fusion}) {
-      tv->setDeviceMesh(mesh);
+  for (auto tv : {tv0_fusion, tv1_fusion}) {
+    tv->setDeviceMesh(mesh);
+    if (with_sharding_annotations) {
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
   }
@@ -94,13 +94,9 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto communication = IrBuilder::createInContainer<Communication>(
       hic.get(),
       CommunicationType::Allgather,
-      mesh,
-      mesh.vector(),
-      -1,
-      RedOpType::UNUSED,
-      -1,
+      communication_output,
       communication_input,
-      communication_output);
+      mesh.vector());
   auto wait = IrBuilder::createInContainer<Wait>(hic.get(), communication);
 
   // [Step 6)] Define the Host program
@@ -119,12 +115,12 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
     // sharding + autoscheduler is not supported at this point
     params.skip_auto_scheduling = true;
   }
-  HostIrExecutor hie(std::move(hic), communicator, params);
+  HostIrExecutor hie(std::move(hic), communicator_, params);
 
-  auto options = at::TensorOptions().device(communicator->device());
+  auto options = at::TensorOptions().device(communicator_->device());
   at::Tensor unsharded_input = at::randn(unsharded_input_sizes, options);
   c10::IValue input = unsharded_input.slice(
-      0, communicator->deviceId(), communicator->deviceId() + 1);
+      0, communicator_->deviceId(), communicator_->deviceId() + 1);
   at::Tensor output = at::empty(unsharded_input_sizes, options);
   auto ref_output = unsharded_input * 2;
 
@@ -139,7 +135,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
 TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   auto [use_fusion_executor_cache, with_sharding_annotations] = GetParam();
 
-  const int64_t communicator_size = communicator->size();
+  const int64_t communicator_size = communicator_->size();
   std::vector<int64_t> unsharded_input_sizes = {communicator_size, 8, 32};
   std::vector<int64_t> sharded_input_sizes = unsharded_input_sizes;
   sharded_input_sizes[0] = 1;
@@ -155,9 +151,9 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   fusion->addOutput(tv1_fusion);
 
   DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_size);
-  if (with_sharding_annotations) {
-    for (auto tv : {tv0_fusion, tv1_fusion}) {
-      tv->setDeviceMesh(mesh);
+  for (auto tv : {tv0_fusion, tv1_fusion}) {
+    tv->setDeviceMesh(mesh);
+    if (with_sharding_annotations) {
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
   }
@@ -190,13 +186,9 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   auto communication = IrBuilder::createInContainer<Communication>(
       hic.get(),
       CommunicationType::Allgather,
-      mesh,
-      mesh.vector(),
-      -1,
-      RedOpType::UNUSED,
-      -1,
+      communication_output,
       communication_input,
-      communication_output);
+      mesh.vector());
   auto wait = IrBuilder::createInContainer<Wait>(hic.get(), communication);
 
   // [Step 6)] Define the Host program
@@ -220,12 +212,12 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
     // sharding + autoscheduler is not supported at this point
     params.skip_auto_scheduling = true;
   }
-  HostIrExecutor hie(std::move(hic), communicator, params);
+  HostIrExecutor hie(std::move(hic), communicator_, params);
 
-  auto options = at::TensorOptions().device(communicator->device());
+  auto options = at::TensorOptions().device(communicator_->device());
   at::Tensor unsharded_input = at::randn(unsharded_input_sizes, options);
   c10::IValue input = unsharded_input.slice(
-      0, communicator->deviceId(), communicator->deviceId() + 1);
+      0, communicator_->deviceId(), communicator_->deviceId() + 1);
   at::Tensor output = at::empty(unsharded_input_sizes, options);
   auto ref_output = unsharded_input * 2;
 

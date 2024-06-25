@@ -543,6 +543,9 @@ void GpuLower::analysis(Fusion* fusion) {
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
+
+  consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
 }
 
 kir::Kernel* GpuLower::kernel() const {
