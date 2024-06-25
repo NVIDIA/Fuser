@@ -106,6 +106,108 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering1d) {
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
+TEST_F(DoubleBufferingTest, TmaDoubleBufferingUnroll) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(1);
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = exp(tv0);
+  fusion->addOutput(tv1);
+
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv1;
+
+  constexpr size_t unroll_dim = 4;
+  constexpr size_t bulk_inner_dim = 32;
+
+  // [M] -> [M/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+  // [M/bid, bid] -> [M/bid/unroll, unroll, bid]
+  reference->split(0, unroll_dim);
+
+  // Propagate Transformations
+  TransformPropagatorWithCheck propagator(reference);
+  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  tv0->computeAt(tv1, 1);
+
+  tv1->axis(1)->parallelize(ParallelType::Unroll);
+
+  // Double Buffer with TMA loads
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->circularBuffer(/*stage=*/3);
+
+  constexpr int64_t tensor_dim = 128;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_dim}, options);
+  at::Tensor t1 = at::exp(t0);
+
+  FusionExecutor fe;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  fe.compileFusion(fusion.get(), {t0}, {}, index32bit);
+
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_dim, cg_outputs.front(), t1);
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_F(DoubleBufferingTest, TmaDoubleBufferingUnswitch) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(1);
+  fusion->addInput(tv0);
+
+  TensorView* tv1 = exp(tv0);
+  fusion->addOutput(tv1);
+
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv1;
+
+  constexpr size_t unroll_dim = 4;
+  constexpr size_t bulk_inner_dim = 32;
+
+  // [M] -> [M/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+  // [M/bid, bid] -> [M/bid/unroll, unroll, bid]
+  reference->split(0, unroll_dim);
+
+  // Propagate Transformations
+  TransformPropagatorWithCheck propagator(reference);
+  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  tv0->computeAt(tv1, 1);
+
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  // Double Buffer with TMA loads
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  tv2->circularBuffer(/*stage=*/3);
+
+  constexpr int64_t tensor_dim = 128;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_dim}, options);
+  at::Tensor t1 = at::exp(t0);
+
+  FusionExecutor fe;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  fe.compileFusion(fusion.get(), {t0}, {}, index32bit);
+
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_dim, cg_outputs.front(), t1);
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
 TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
@@ -221,7 +323,6 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPointwise) {
   fe.compileFusion(fusion.get(), {t0, t1}, {}, index32bit);
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
@@ -269,10 +370,10 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(/*stage=*/2);
 
-  constexpr int64_t batch_dim = 128;
-  constexpr int64_t tensor_dim = 1024;
+  constexpr int64_t tensor_outer_dim = 128;
+  constexpr int64_t tensor_inner_dim = 1024;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({batch_dim, tensor_dim}, options);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
   at::Tensor t1 = sum(t0, {-1});
 
   FusionExecutor fe;
@@ -500,6 +601,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingMatmul) {
   FusionExecutor fe;
   CompileParams index32bit{DataType::Int32, 255, false};
   fe.compileFusion(fusion.get(), aten_inputs, {}, index32bit);
+
   std::vector<at::Tensor> cg_outputs = fe.runFusion(aten_inputs);
   testValidate(
       fusion.get(), cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
