@@ -514,12 +514,12 @@ struct outerReduHeuristicParas {
       : total_iteration_numel(total_iteration_numel),
         total_reduction_numel(total_reduction_numel) {}
   // iteration dim paras
-  // iteration elements = iter_unroll * bdimx * gdimx
+  // iteration elements = iter_unroll * bdimx * gidim
   int64_t iter_unroll_factor = 1;
   int64_t bdimx = 1;
   int64_t gidim = 1;
   // reduction dim paras
-  // reduction elments = redu_unroll * bdimy * gdimy * redu_serial
+  // reduction elments = redu_unroll * bdimy * grdim * redu_serial
   int64_t redu_unroll_factor = 1;
   int64_t bdimy = 1;
   int64_t grdim = 1;
@@ -636,7 +636,7 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
   outerReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
 
   // Step-1, set iteration dim
-  // (1) start with bdimx = 8, gdimx = 1, iter_unroll = 1
+  // (1) start with bdimx = 8, gidim = 1, iter_unroll = 1
   hp.bdimx = std::min(8L, hp.iDimAvail());
   hp.gidim = 1;
   hp.iter_unroll_factor = 1;
@@ -665,7 +665,7 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
     hp.iter_unroll_factor *= 2;
   }
 
-  // (3) increase gdimx to SM count, ensures enough blocks to saturate the
+  // (3) increase gidim to SM count, ensures enough blocks to saturate the
   // device.
   hp.gidim = std::min(
       ceilDiv(total_iteration_numel, hp.bdimx * hp.iter_unroll_factor),
