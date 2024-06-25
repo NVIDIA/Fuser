@@ -108,7 +108,7 @@ void record_cupti_activity_buffer(
     if (status == CUPTI_SUCCESS) {
       // Processes a valid CUPTI Activty record and records it with the
       // fusion profiling infrastructure if the record is of interest.
-      record_cupti_activity(pRecord, stdout);
+      record_cupti_activity(pRecord, pFileHandle);
     } else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
       // This case is hit every time an activity buffer is read and you reach
       // the end of the buffer activity to consume. Therefore, it is the

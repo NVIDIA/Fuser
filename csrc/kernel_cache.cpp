@@ -1200,6 +1200,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
+  executor.setGroupId(group_id);
   auto outputs = executor.runFusion(args, launch_params, compile_params);
 
   // Accumulate the kernel time of each segment
