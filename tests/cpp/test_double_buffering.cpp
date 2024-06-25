@@ -418,8 +418,10 @@ TEST_F(DoubleBufferingTest, TmaSmemBlockGemmCacheDoubleBuffer) {
   TensorView* tv1_cache_local = tv1->cacheAfter();
 
   // For smem double buffering
-  TensorView* tv0_cache_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
-  TensorView* tv1_cache_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv0_cache_smem =
+      tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv1_cache_smem =
+      tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv0_cache_smem->setMemoryType(MemoryType::Shared);
   tv1_cache_smem->setMemoryType(MemoryType::Shared);
 
