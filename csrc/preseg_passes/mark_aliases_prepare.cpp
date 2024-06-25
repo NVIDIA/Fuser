@@ -31,9 +31,10 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   // forward an input). Code will later add `segment_set` before them so aliases
   // are separated from non-aliases and more likely to be accepted by the no-op
   // scheduler.
-  std::unordered_set<TensorView*> tvs_aliased_to_inputs;
-  std::unordered_set<TensorView*> output_aliased_to_intermediates;
   std::unordered_set<TensorView*> aliased_outs;
+
+  // Fusion outputs that are views of intermediate tensors
+  std::unordered_set<TensorView*> output_view_intermediate;
 
   for (TensorView* tv : ir_utils::allTvs(fusion)) {
     TensorView* aliased_io = analysis.getNearestAliasedIo(tv);
@@ -46,12 +47,9 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
         analysis.getNearestAliasedIo(aliased_io) == nullptr) {
       aliased_outs.insert(aliased_io);
     } else if (
-        aliased_io->isFusionInput() && !tv->isFusionOutput() && isViewOp(tv)) {
-      tvs_aliased_to_inputs.insert(tv);
-    } else if (
         tv->isFusionOutput() && !aliased_io->isFusionOutput() &&
         !aliased_io->isFusionInput() && isViewOp(tv)) {
-      output_aliased_to_intermediates.insert(aliased_io);
+      output_view_intermediate.insert(aliased_io);
     }
 
     // `AliasAnalysisResult::finalize` already checked the alias-enabling layout
@@ -118,27 +116,8 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     aliased_out->cacheBefore(LoadStoreOpType::SegmenterSet);
   }
 
-  for (TensorView* tv : tvs_aliased_to_inputs) {
-    // Rarely, if `tv` is already defined by `segment_set`, don't
-    // create another `segment_set`.
-    if (LoadStoreOp* def = dynamic_cast<LoadStoreOp*>(tv->definition())) {
-      if (def != nullptr && def->opType() == LoadStoreOpType::SegmenterSet) {
-        continue;
-      }
-    }
+  for (TensorView* tv : output_view_intermediate) {
     tv->cacheAfter(LoadStoreOpType::SegmenterSet);
-  }
-
-  for (TensorView* aliased_root : output_aliased_to_intermediates) {
-    // Rarely, if `aliased_root` is already defined by `segment_set`, don't
-    // create another `segment_set`.
-    if (LoadStoreOp* def =
-            dynamic_cast<LoadStoreOp*>(aliased_root->definition())) {
-      if (def != nullptr && def->opType() == LoadStoreOpType::SegmenterSet) {
-        continue;
-      }
-    }
-    aliased_root->cacheAfter(LoadStoreOpType::SegmenterSet);
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
