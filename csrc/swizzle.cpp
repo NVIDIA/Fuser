@@ -122,4 +122,18 @@ std::pair<Val*, Val*> dispatchUnSwizzle(
   }
 }
 
+std::pair<Val*, Val*> dispatchUnSwizzle(
+    SwizzleType type,
+    Val* x,
+    Val* y,
+    Val* maybe_size_x,
+    Val* maybe_size_y) {
+  switch (type) {
+    case SwizzleType::XOR:
+      return swizzles::unXor(x, y);
+    default:
+      NVF_ERROR(false, "Unsupported swizzle type");
+  }
+}
+
 } // namespace nvfuser

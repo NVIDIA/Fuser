@@ -16,6 +16,7 @@
 #include <ir/builder.h>
 #include <ir/graphviz.h>
 #include <ir/utils.h>
+#include <swizzle.h>
 #include <val_graph_visitor.h>
 
 #include <algorithm>
@@ -308,16 +309,23 @@ void IdGraphIndexCompute::handle(Merge* merge) {
 void IdGraphIndexCompute::handle(Swizzle* swizzle) {
   const bool is_forward = isForward(swizzle);
 
+  auto x_ext = swizzle->inX()->extent();
+  auto y_ext = swizzle->inY()->extent();
+
   if (is_forward) {
     auto x_idx = getIndex(swizzle->inX());
     auto y_idx = getIndex(swizzle->inY());
-    setIndex(swizzle->outX(), x_idx);
-    setIndex(swizzle->outY(), y_idx);
+    auto [result_x, result_y] =
+        dispatchUnSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
+    setIndex(swizzle->outX(), result_x);
+    setIndex(swizzle->outY(), result_y);
   } else {
     auto x_idx = getIndex(swizzle->outX());
     auto y_idx = getIndex(swizzle->outY());
-    setIndex(swizzle->inX(), x_idx);
-    setIndex(swizzle->inY(), y_idx);
+    auto [result_x, result_y] =
+        dispatchSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
+    setIndex(swizzle->inX(), result_x);
+    setIndex(swizzle->inY(), result_y);
   }
 }
 
@@ -472,6 +480,25 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   return initial_index_map;
 }
 
+std::vector<Val*> TensorIndexer::getIndexFor(
+    const Expr* expr,
+    const ValGroups& index_groups) const {
+  auto info = computeIndex(expr, index_groups);
+  const auto& replacement_map =
+      getIndexReplacementMap(info.loop_domains, info.index_map);
+
+  std::vector<Val*> result;
+  result.reserve(index_groups.size());
+  for (const auto& g : index_groups) {
+    auto it = info.index_map.find(g);
+    NVF_ERROR(
+        it != info.index_map.end(), "Index not found for ", g->toString());
+    result.push_back(
+        ir_utils::replaceValRecursively(it->second, replacement_map));
+  }
+  return result;
+}
+
 Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
@@ -488,25 +515,17 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   const auto [allocation_domains, strides] =
       getAllocationDomains(tv, id_model_);
 
-  const auto& index_info = computeIndex(expr, allocation_domains);
-  const auto& index_map = index_info.index_map;
+  auto indices =
+      getIndexFor(expr, traversalGraph().toGroups(allocation_domains));
+  NVF_ERROR(indices.size() == allocation_domains.size());
 
   // Linearize the indices with strides.
   // TODO: Contiguous indexing
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
-    IterDomain* allocation_domain = allocation_domains.at(i);
-
     Val* stride = strides.at(i);
-
-    auto idx_it = index_map.find(traversalGraph().toGroup(allocation_domain));
-    NVF_ERROR(
-        idx_it != index_map.end(),
-        "Index not found for ",
-        allocation_domain->toString());
-    Val* idx = idx_it->second;
     index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(stride, idx));
+        index, SimplifyingIrBuilder::mulExpr(stride, indices.at(i)));
   }
 
   return index;

@@ -131,14 +131,37 @@ void HostIrExecutor::handle(Communication* communication) {
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), std::nullopt);
-  c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+  works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),
       backend,
       input_tensor,
       output_tensor);
+}
+
+void HostIrExecutor::handle(Wait* wait) {
+  Communication* communication = wait->communication();
+  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
+  auto& work = works_.at(communication);
   if (work != nullptr) {
     work->wait();
+  }
+  works_.erase(communication);
+}
+
+void HostIrExecutor::handle(kir::ForLoop* for_loop) {
+  NVF_ERROR(for_loop->start()->isConstInt());
+  NVF_ERROR(for_loop->step()->isConstInt());
+  NVF_ERROR(for_loop->stop()->isConstInt());
+  auto start = for_loop->start()->value().as<int64_t>();
+  auto step = for_loop->step()->value().as<int64_t>();
+  auto stop = for_loop->stop()->value().as<int64_t>();
+
+  for (auto i = start; i < stop; i += step) {
+    for (Expr* expr : for_loop->body().exprs()) {
+      val_to_IValue_[for_loop->index()] = at::Scalar(i);
+      dispatch(expr);
+    }
   }
 }
 
