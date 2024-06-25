@@ -389,35 +389,12 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   return false;
 }
 
-namespace {
-
-bool isSplitOnly(ViewOp* view_op) {
-  for (auto expr : StmtSort::getExprsTo(
-           {view_op->out()->getLogicalDomain().begin(),
-            view_op->out()->getLogicalDomain().end()})) {
-    if (!expr->isA<Split>()) {
-      return false;
-    }
-  }
-  return true;
-}
-
-} // namespace
-
 // Returns if view interferes with how we want to treat the reference, being at
 // least a 2D reduction schedule but maybe a 3D reduction schedule.
 bool reductionInterferingView(
     Fusion* fusion,
     const ComputeAtMap& ca_map,
     TensorView* reduction_reference) {
-  // If reshape transform only has split, it shouldn't influence reduction.
-  const auto& view_ops = ir_utils::getViewOps(fusion);
-  if (std::all_of(view_ops.begin(), view_ops.end(), [](ViewOp* view) {
-        return isSplitOnly(view);
-      })) {
-    return false;
-  }
-
   // Make sure the view doesn't interfere with how we'll want to schedule
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.
@@ -472,53 +449,36 @@ bool reductionInterferingView(
 
   NVF_ERROR(dims.empty(), "Error processing ", dims, " in registry.cpp.");
 
-  // Make sure groups are disjoint based on view
+  // Check if any view op could merge IDs in different groups
+  IdModel id_model(fusion, false, false, false);
+  id_model.buildExactGraph();
+  const auto& id_use_map = id_model.idUses();
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  auto disjoint_rfactor_sets = scheduler_utils::disjointLogicalSets(fusion);
-  auto disjoint_set_information = scheduler_utils::getDisjointLogicalSetsOf(
-      fusion, reduction_reference, disjoint_rfactor_sets);
-
-  // Convert id's in groups to disjoint_set_ids of disjoint_set_information
-  std::vector<std::vector<int64_t>> disjoint_groups;
-
-  for (const auto& group : groups) {
-    std::vector<int64_t> disjoint_id_sets;
-    for (auto id : group) {
-      auto find_it = std::find(
-          reduction_reference->getLogicalDomain().begin(),
-          reduction_reference->getLogicalDomain().end(),
-          id);
-      NVF_ERROR(
-          find_it != reduction_reference->getLogicalDomain().end(),
-          "Issue with view analysis on reduction like schedule, with reference: ",
-          reduction_reference->toString());
-      auto logical_pos = std::distance(
-          reduction_reference->getLogicalDomain().begin(), find_it);
-      NVF_ERROR(
-          logical_pos <
-              (int64_t)disjoint_set_information.disjoint_set_ids.size(),
-          "Error computing disjoint group on the logical domain of ",
-          reduction_reference->toString());
-      disjoint_id_sets.push_back(
-          disjoint_set_information.disjoint_set_ids[logical_pos]);
+  // ValGroup to group index
+  std::unordered_map<ValGroup, int> vg_to_group_idx;
+  for (auto group_id : c10::irange(groups.size())) {
+    for (auto id : groups.at(group_id)) {
+      auto vg = exact_graph.toGroup(id);
+      vg_to_group_idx[vg] = group_id;
     }
-    disjoint_groups.push_back(disjoint_id_sets);
   }
 
-  // Make sure there's no intersection between the groups, otherwise view
-  // will interfere with the schedule. TODO: Make this better complexity,
-  // since it should be relatively small int vectors of a small total nDims,
-  // not too worried about it now.
-
-  for (auto first_dim_i : c10::irange(disjoint_groups.size())) {
-    for (auto second_dim_i = first_dim_i + 1;
-         second_dim_i < disjoint_groups.size();
-         ++second_dim_i) {
-      auto first_group = disjoint_groups[first_dim_i];
-      auto second_group = disjoint_groups[second_dim_i];
-      for (auto first_disjoint_id : first_group) {
-        for (auto second_disjoint_id : second_group) {
-          if (first_disjoint_id == second_disjoint_id) {
+  // Loop through all view ops and check if they merge IDs in different groups
+  // Map through: ID --> ValGroup --> Group index
+  const auto& view_ops = ir_utils::getViewOps(fusion);
+  for (auto view : view_ops) {
+    for (auto id : view->out()->getMaybeRootDomain()) {
+      auto uses_it = id_use_map.find(id);
+      if (uses_it == id_use_map.end() || uses_it->second.empty()) {
+        continue;
+      }
+      for (auto expr : uses_it->second) {
+        if (auto merge = dynamic_cast<Merge*>(expr)) {
+          const auto& vg0 = exact_graph.toGroup(merge->inner());
+          const auto& vg1 = exact_graph.toGroup(merge->outer());
+          if (vg_to_group_idx.count(vg0) && vg_to_group_idx.count(vg1) &&
+              vg_to_group_idx.at(vg0) != vg_to_group_idx.at(vg1)) {
             return true;
           }
         }
