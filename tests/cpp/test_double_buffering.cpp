@@ -290,7 +290,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPersistent) {
   constexpr int64_t dim1 = 4096;
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   constexpr int64_t correction = 0;
-  constexpr int64_t reduction_axis = -1;
+  constexpr int64_t reduction_axis = 1;
   constexpr bool keepdim = true;
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -299,7 +299,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPersistent) {
   TensorView* x = makeContigTensor(2, aten_to_data_type(dtype));
   fusion->addInput(x);
 
-  Val* num_elem = x->getLeafDomain()[reduction_axis]->extent();
+  Val* num_elem = x->getLeafDomain().at(reduction_axis)->extent();
 
   TensorView* sum_x = sum(x, {reduction_axis}, /*keepdim=*/false);
   TensorView* mean_x = div(sum_x, num_elem);
