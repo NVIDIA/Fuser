@@ -377,6 +377,95 @@ TEST_P(HostIrTest, ThreeFusions) {
   GTEST_EXPECT_TRUE(torch::allclose(tv2_2_ref, outputs.at(0)));
 }
 
+// This unit test the for-loop IR by implementing a program that could be
+// summarized as
+//   |  int buf = kInitialValue;
+//   |  for (int j = kForLoopStart; j < kForLoopStop; j += kForLoopStep) {
+//   |    buf += j;
+//   |  }
+// where buf is the ouput.
+TEST_P(HostIrTest, ForLoops) {
+  constexpr int64_t kInitialValue = 21;
+  constexpr int64_t kForLoopStart = 1;
+  constexpr int64_t kForLoopStop = 7;
+  constexpr int64_t kForLoopStep = 2;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  auto* index = IrBuilder::create<Val>(DataType::Index);
+  auto* start = IrBuilder::create<Val>(kForLoopStart, DataType::Index);
+  auto* stop = IrBuilder::create<Val>(kForLoopStop, DataType::Index);
+  auto* step = IrBuilder::create<Val>(kForLoopStep, DataType::Index);
+  auto* for_loop = IrBuilder::create<kir::ForLoop>(
+      /*IterDomain=*/makeContigConcreteTensor({0})->axis(0), // unused
+      index,
+      start,
+      stop,
+      step,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      DoubleBufferLoopStage::NotApplicable);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto arange = iota(
+      IrBuilder::create<Val>(kForLoopStop),
+      IrBuilder::create<Val>(0),
+      IrBuilder::create<Val>(1),
+      DataType::Int);
+  auto* i = IrBuilder::create<Val>(DataType::Index);
+  Slice s = {i, add(i, IrBuilder::create<Val>(1)), IrBuilder::create<Val>(1)};
+  auto n = slice(arange, {s});
+  auto acc_in = makeContigConcreteTensor({1}, DataType::Int);
+  auto acc_out = add(acc_in, n);
+
+  fusion->addInput(i);
+  fusion->addInput(acc_in);
+  fusion->addOutput(acc_out);
+
+  FusionGuard::setCurFusion(hic.get());
+
+  IrCloner ir_cloner(hic.get());
+  std::vector<Val*> post_on_stream_inputs = {index, ir_cloner.clone(acc_in)};
+  std::vector<Val*> post_on_stream_outputs = {ir_cloner.clone(acc_in)};
+  auto* host_unit = IrBuilder::create<HostUnit>(std::move(fusion));
+  auto* post_on_stream = IrBuilder::create<PostOnStream>(
+      host_unit, post_on_stream_inputs, post_on_stream_outputs);
+
+  for_loop->body().push_back(post_on_stream);
+
+  hic->addInput(post_on_stream->inputs().at(1));
+  hic->addOutput(post_on_stream->outputs().at(0));
+  hic->pushBackTopLevelExprs(for_loop);
+
+  HostIrExecutorParams params;
+  auto [use_fusion_executor_cache] = GetParam();
+  if (!use_fusion_executor_cache) {
+    GTEST_SKIP()
+        << "not supported for now because of concretization issue, getting the error: dynamic_tvs.empty() INTERNAL ASSERT FAILED at /opt/pytorch/Fuser/csrc/device_lower/validation.cpp:187, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. Tensor with dynamic transform must be concretized before lowering: T1_l[ ?S2{( ( ( -( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ) ) + 10 ) + ( ( fmax(( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ), ( fmin(10, ( where(( ( i7 + 1 ) < 0 ), ( ( i7 + 1 ) + 10 ), ( i7 + 1 )) )) )) ) - 10 ) )}rf ], T3_g[ ?S4{( ( ( -( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ) ) + 10 ) + ( ( fmax(( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ), ( fmin(10, ( where(( ( i7 + 1 ) < 0 ), ( ( i7 + 1 ) + 10 ), ( i7 + 1 )) )) )) ) - 10 ) )} ]";
+  }
+  params.use_fusion_executor_cache = use_fusion_executor_cache;
+  HostIrExecutor hie(std::move(hic), /*communicator=*/nullptr, params);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor acc_in_at = torch::tensor({kInitialValue}, options);
+
+  auto outputs =
+      hie.runWithInput({{post_on_stream->inputs().at(1), acc_in_at}});
+
+  // Compute expected result for validation
+  int64_t expected_result_data = kInitialValue;
+  for (int j = kForLoopStart; j < kForLoopStop; j += kForLoopStep) {
+    expected_result_data += j;
+  }
+  at::Tensor expected_result = torch::tensor({expected_result_data}, options);
+
+  EXPECT_TRUE(expected_result.equal(outputs.at(0)));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     Manual,
     HostIrTest,

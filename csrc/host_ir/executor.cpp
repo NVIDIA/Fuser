@@ -149,6 +149,22 @@ void HostIrExecutor::handle(Wait* wait) {
   works_.erase(communication);
 }
 
+void HostIrExecutor::handle(kir::ForLoop* for_loop) {
+  NVF_ERROR(for_loop->start()->isConstInt());
+  NVF_ERROR(for_loop->step()->isConstInt());
+  NVF_ERROR(for_loop->stop()->isConstInt());
+  auto start = for_loop->start()->value().as<int64_t>();
+  auto step = for_loop->step()->value().as<int64_t>();
+  auto stop = for_loop->stop()->value().as<int64_t>();
+
+  for (auto i = start; i < stop; i += step) {
+    for (Expr* expr : for_loop->body().exprs()) {
+      val_to_IValue_[for_loop->index()] = at::Scalar(i);
+      dispatch(expr);
+    }
+  }
+}
+
 } // namespace hir
 
 } // namespace nvfuser
