@@ -29,13 +29,14 @@ constexpr std::string_view MATMUL_LOG_PREFIX = "[MATMUL DEBUG] ";
 enum class MatmulDomain { M = 0, N, K, Batch };
 
 //! Named descriptors of TensorView roles in fusion
-//!  OPERAND - an input to the fusion that is a producer of a matmul input
+//!  OPERAND_A - an input to the fusion that is a producer of a matmul "A" input
+//!  OPERAND_B - an input to the fusion that is a producer of a matmul "B" input
 //!  OUTPUT - fusion outputs that have the matmul as a dependency
 //!  EPILOGUE_INPUT - an input to the fusion that is a producer of an
 //!    OUTPUT, but not of an MMA input
 //!
 //!  Note: bias vector tensors will be assigned to the EPILOGUE_INPUT role.
-enum class MatmulRole { OPERAND = 0, OUTPUT, EPILOGUE_INPUT };
+enum class MatmulRole { OPERAND_A = 0, OPERAND_B, OUTPUT, EPILOGUE_INPUT };
 
 //! The expected number of occurances of core TensorView roles in fusion
 static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;

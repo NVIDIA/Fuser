@@ -3061,4 +3061,35 @@ INSTANTIATE_TEST_SUITE_P(
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
+TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  int M = 32, N = 64, K = 128;
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* b = makeContigConcreteTensor({N, K}, DataType::BFloat16);
+  TensorView* a = makeContigConcreteTensor({M, K}, DataType::BFloat16);
+
+  TensorView* bbcast = broadcast(b, {true, false, false});
+  TensorView* abcast = broadcast(a, {false, true, false});
+  TensorView* ab = mul(abcast, bbcast);
+  TensorView* mm = sum(ab, {-1});
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(mm);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto x_ref = at::randn({M, K}, options);
+  auto y_ref = at::randn({N, K}, options);
+  std::vector<c10::IValue> inputs{x_ref, y_ref};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  auto tref = at::linear(x_ref.to(at::kFloat), y_ref.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
 } // namespace nvfuser
