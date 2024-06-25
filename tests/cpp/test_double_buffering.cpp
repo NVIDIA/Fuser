@@ -17,6 +17,50 @@ namespace {
 class DoubleBufferingTest : public NVFuserTest {};
 } // anonymous namespace
 
+template <typename data_type>
+void compare(int64_t tensor_dim, at::Tensor result, at::Tensor reference) {
+  at::Tensor reference_cpu_data = reference.cpu();
+  at::Tensor result_cpu_data = result.cpu();
+
+  auto reference_cpu = reference_cpu_data.accessor<data_type, 1>();
+  auto result_cpu = result_cpu_data.accessor<data_type, 1>();
+
+  constexpr double tolerance = 1e-4;
+  for (int64_t pos = 0; pos < tensor_dim; ++pos) {
+    if (fabs((double)result_cpu[pos] - (double)reference_cpu[pos]) >
+        tolerance) {
+      std::cout << "[" << pos << "] - result: " << result_cpu[pos]
+                << " | reference: " << reference_cpu[pos] << std::endl;
+    }
+  }
+}
+
+template <typename data_type>
+void compare(
+    int64_t tensor_outer_dim,
+    int64_t tensor_inner_dim,
+    at::Tensor result,
+    at::Tensor reference) {
+  at::Tensor reference_cpu_data = reference.cpu();
+  at::Tensor result_cpu_data = result.cpu();
+
+  auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
+  auto result_cpu = result_cpu_data.accessor<data_type, 2>();
+
+  constexpr double tolerance = 1e-4;
+  for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
+    for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+      if (fabs(
+              (double)result_cpu[out_pos][in_pos] -
+              (double)result_cpu[out_pos][in_pos]) > tolerance) {
+        std::cout << "[" << out_pos << ", " << in_pos
+                  << "] - result: " << result_cpu[out_pos][in_pos]
+                  << " | ref: " << reference_cpu[out_pos][in_pos] << std::endl;
+      }
+    }
+  }
+}
+
 TEST_F(DoubleBufferingTest, TmaDoubleBuffering1d) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   Fusion fusion;
@@ -24,20 +68,22 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering1d) {
 
   // gmem -> smem (tma / double buffering / 1d -> 2d)
   // smem -> gmem
-  auto tv0 = makeContigTensor(1);
-  auto tv1 = exp(tv0);
+  TensorView* tv0 = makeContigTensor(1);
+  TensorView* tv1 = exp(tv0);
 
   fusion.addInput(tv0);
   fusion.addOutput(tv1);
 
-  auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv2->setMemoryType(MemoryType::Shared);
 
-  auto reference = tv1;
-  constexpr size_t bulk_inner_dim = 32;
+  TensorView* reference = tv1;
+
   // [M] -> [M/bid, bid]
+  constexpr size_t bulk_inner_dim = 32;
   reference->split(-1, bulk_inner_dim);
 
+  // Propagate Transformations
   TransformPropagatorWithCheck propagator(reference);
   MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
 
@@ -49,28 +95,14 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering1d) {
 
   constexpr size_t tensor_dim = 128;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({tensor_dim}, options);
-  auto t1 = at::exp(t0);
+  at::Tensor t0 = at::randn({tensor_dim}, options);
+  at::Tensor t1 = at::exp(t0);
 
   FusionExecutor fe;
   CompileParams index32bit{DataType::Int32, 255, false};
   fe.compileFusion(&fusion, {t0}, {}, index32bit);
-
-  auto cg_outputs = fe.runFusion({t0});
-  {
-    auto ref_cpu_data = t1.cpu();
-    auto res_cpu_data = cg_outputs.front().cpu();
-
-    auto ref_cpu = ref_cpu_data.accessor<float, 1>();
-    auto res_cpu = res_cpu_data.accessor<float, 1>();
-
-    for (size_t pos = 0; pos < tensor_dim; ++pos) {
-      if (fabs((double)res_cpu[pos] - (double)ref_cpu[pos]) > 0.0001) {
-        std::cout << "[" << pos << "] - result: " << res_cpu[pos]
-                  << " | ref: " << ref_cpu[pos] << std::endl;
-      }
-    }
-  }
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_dim, cg_outputs.front(), t1);
   testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -80,20 +112,18 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // gmem -> smem (tma / double buffer / 2d -> 4d)
-  // smem -> gmem
-
-  auto tv0 = makeContigTensor(2);
-  auto tv1 = exp(tv0);
+  TensorView* tv0 = makeContigTensor(2);
   fusion.addInput(tv0);
+
+  TensorView* tv1 = exp(tv0);
   fusion.addOutput(tv1);
 
-  auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv2->setMemoryType(MemoryType::Shared);
 
-  auto reference = tv1;
-  constexpr size_t tma_outer_dim = 4;
-  constexpr size_t tma_inner_dim = 32;
+  TensorView* reference = tv1;
+  constexpr int64_t tma_outer_dim = 4;
+  constexpr int64_t tma_inner_dim = 32;
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, tma_inner_dim);
   // [M, N/bid, bid] -> [M/bod, bod, N/bid, bid]
@@ -120,8 +150,8 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   tv2->axis(-2)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(/*stage=*/3);
 
-  constexpr size_t tensor_outer_dim = 128;
-  constexpr size_t tensor_inner_dim = 1024;
+  constexpr int64_t tensor_outer_dim = 128;
+  constexpr int64_t tensor_inner_dim = 1024;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
   auto t1 = at::exp(t0);
@@ -129,26 +159,8 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   FusionExecutor fe;
   CompileParams index32bit{DataType::Int32, 255, false};
   fe.compileFusion(&fusion, {t0}, {}, index32bit);
-  auto cg_outputs = fe.runFusion({t0});
-  {
-    auto ref_cpu_data = t1.cpu();
-    auto res_cpu_data = cg_outputs.front().cpu();
-
-    auto ref_cpu = ref_cpu_data.accessor<float, 2>();
-    auto res_cpu = res_cpu_data.accessor<float, 2>();
-
-    for (size_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
-      for (size_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
-        if (fabs(
-                (double)res_cpu[out_pos][in_pos] -
-                (double)ref_cpu[out_pos][in_pos]) > 0.0001) {
-          std::cout << "[" << out_pos << ", " << in_pos
-                    << "] - result: " << res_cpu[out_pos][in_pos]
-                    << " | ref: " << ref_cpu[out_pos][in_pos] << std::endl;
-        }
-      }
-    }
-  }
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(&fusion, cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -159,22 +171,22 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPointwise) {
 
   // gmem -> smem (tma / double buffering / 1d -> 2d)
   // smem -> gmem
-  auto tv0 = makeContigTensor(2);
-  auto tv1 = makeContigTensor(2);
-  auto tv2 = add(tv0, tv1);
-
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(2);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
+
+  TensorView* tv2 = add(tv0, tv1);
   fusion.addOutput(tv2);
 
-  auto tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv3->setMemoryType(MemoryType::Shared);
 
-  auto tv4 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv4 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv4->setMemoryType(MemoryType::Shared);
 
   auto reference = tv2;
-  constexpr size_t bulk_inner_dim = 32;
+  constexpr int64_t bulk_inner_dim = 32;
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -393,10 +405,10 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPersistent) {
       fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
 }
 
-TEST_F(DoubleBufferingTest, TmaSmemBlockGemmCacheDoubleBuffer) {
+TEST_F(DoubleBufferingTest, TmaDoubleBufferingMatmul) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
-  auto fusion = std::make_unique<Fusion>();
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   // Algorithm
