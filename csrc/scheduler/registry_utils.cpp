@@ -460,7 +460,7 @@ bool reductionInterferingView(
   for (auto group_id : c10::irange(groups.size())) {
     for (auto id : groups.at(group_id)) {
       auto vg = exact_graph.toGroup(id);
-      vg_to_group_idx[vg] = group_id;
+      vg_to_group_idx[vg] = (int)group_id;
     }
   }
 
