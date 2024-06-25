@@ -61,8 +61,8 @@ class TensorIndexer {
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
-  // Returns non-const reference because the the ValGraph could be modified by
-  // some analysis to create temporary group for indexing.
+  // Returns non-const reference because indexing may create new domains and
+  // need to update the graph.
   ValGraph& traversalGraph() const {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
