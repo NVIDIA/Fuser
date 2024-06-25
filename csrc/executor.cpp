@@ -1929,6 +1929,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (measure_kernel_time) {
       outputBytesProcessed(outputs);
     }
+    if (isProfilerEnabled()) {
+      auto& sprof = FusionProfiler::segment(group_id_);
+      sprof.stopKernel();
+      sprof.outputBytesAccessed(outputBytesProcessed(outputs));
+    }
     return outputs;
   }
 

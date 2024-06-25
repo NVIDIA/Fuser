@@ -351,6 +351,10 @@ class FusionExecutor : public NonCopyable {
     return global_fusion_count_.load();
   }
 
+  void setGroupId(int64_t gid) {
+    group_id_ = gid;
+  }
+
   bool validKernelId() const {
     return !kernel_id_.empty();
   }
