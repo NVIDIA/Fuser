@@ -930,11 +930,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   // Try to hit a wave by going cross reduction
   grdim = std::min(rDimAvail(), ceilDiv(device_multiprocessor_count, gidim));
-<<<<<<< HEAD
-  // // Extend to go to target blocks
-=======
   // Extend to go to target blocks
->>>>>>> main
   if (gidim * grdim < target_blocks) {
     // What should we use out of the reduction factor to hit target blocks? Make
     // sure we have 2 reductions per thread beyond what's already set as we
@@ -991,7 +987,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     }
   }
 
-<<<<<<< HEAD
   outerReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
   hp.bdimx = bdimx;
   hp.bdimy = bdimy;
@@ -1000,83 +995,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   hp.iter_unroll_factor = iter_unroll_factor;
   hp.redu_unroll_factor = inner_reduction_unroll_factor;
   return heuristicParaToSchedulerPara(hp);
-=======
-  int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
-  int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
-
-  // In these instances latency of the cleanup may be significant so flip gdimx
-  // and gdimy to try and prevent all cleanup from happening at the
-  // same time
-  // Always disabled for now.
-  // bool flip_grid = gidim > 1 && gidim < 8;
-  const bool flip_grid = false;
-  auto rparams = std::make_shared<ReductionParams>();
-  // cross grid implies cross block
-  rparams->cross_block_inner_reduction = bdimy > 1 || grdim > 1;
-  rparams->cross_grid_inner_reduction = grdim > 1;
-  if (rparams->cross_grid_inner_reduction) {
-    rparams->split_grid_dim_inner_reduction = true;
-    rparams->grid_dim_inner_reduction =
-        flip_grid ? ParallelType::BIDx : ParallelType::BIDy;
-    if (flip_grid) {
-      gdimx = std::min(grdim, scheduler_utils::x_grid_limit);
-    } else {
-      gdimy = std::min(grdim, scheduler_utils::y_grid_limit);
-    }
-  }
-  rparams->multiple_reds_per_blk = bdimx > 1 || iter_unroll_factor > 1;
-
-  if (rparams->multiple_reds_per_blk) {
-    rparams->block_dim_iter_dom = ParallelType::TIDx;
-  }
-
-  rparams->grid_dim_iter_dom =
-      flip_grid ? ParallelType::BIDy : ParallelType::BIDx;
-  if (gidim > (flip_grid ? scheduler_utils::y_grid_limit
-                         : scheduler_utils::x_grid_limit)) {
-    rparams->split_grid_dim_iter_dom_outer = true;
-    if (flip_grid) {
-      gdimy = scheduler_utils::y_grid_limit;
-    } else {
-      gdimx = scheduler_utils::x_grid_limit;
-    }
-  }
-
-  rparams->flip_grid = flip_grid;
-
-  if (rparams->cross_block_inner_reduction) {
-    if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
-      rparams->block_dim_inner_reduction = ParallelType::TIDy;
-    } else {
-      rparams->block_dim_inner_reduction = ParallelType::TIDx;
-    }
-  }
-
-  rparams->unroll_factor_inner_reduction = inner_reduction_unroll_factor;
-
-  rparams->unroll_factor_iter_dom = iter_unroll_factor;
-  rparams->vectorize_iter_dom = iter_unroll_factor > 1;
-
-  rparams->lparams = LaunchParams(
-      gdimx,
-      gdimy,
-      LaunchParams::UNINITIALIZED_VAL,
-      rparams->multiple_reds_per_blk ? bdimx : bdimy,
-      rparams->multiple_reds_per_blk ? bdimy : LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL);
-
-  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << "\n===== Reduction Stats ========\n"
-            << "total_reduction_numel: " << total_reduction_numel << "\n"
-            << "total_iteration_numel: " << total_iteration_numel << "\n"
-            << "vectorize_factor: " << iter_unroll_factor << "\n"
-            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
-    debug() << rparams->toString() << std::endl;
-  }
-  return rparams;
->>>>>>> main
 }
 
 } // namespace
