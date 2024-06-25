@@ -127,7 +127,7 @@ class IdModel : public PolymorphicBase {
       Fusion* fusion,
       bool build_graphs = true,
       bool allow_self_mapping = false,
-      bool validate = true,
+      bool validate = false,
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
 
@@ -153,8 +153,12 @@ class IdModel : public PolymorphicBase {
 
   std::string toString() const;
 
+  bool empty() const {
+    return tvs_.empty();
+  }
+
   Fusion* fusion() const {
-    return tvs_.at(0)->fusion();
+    return fusion_;
   }
 
   // Build all graphs, i.e., Exact, AlmostExact, Permissive and
@@ -207,6 +211,9 @@ class IdModel : public PolymorphicBase {
   Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
 
  protected:
+  // Fusion where iter domains belong
+  Fusion* fusion_ = nullptr;
+
   // Fills id_uses_ and id_definitions_ for all IterDomains active in the
   // fusion.
   void buildIterDomainDefinitionsAndUses();

@@ -95,6 +95,10 @@ IdModel::IdModel(
 
   tvs_ = all_tvs.vector();
 
+  NVF_ERROR(!tvs_.empty(), "No tensor to build IdModel for");
+
+  fusion_ = tvs_.front()->fusion();
+
   // Add uses and definitions to all iter domains.
   buildIterDomainDefinitionsAndUses();
 
@@ -109,7 +113,8 @@ IdModel::IdModel(
     bool allow_self_mapping,
     bool validate,
     LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback)
-    : allow_self_mapping_(allow_self_mapping),
+    : fusion_(fusion),
+      allow_self_mapping_(allow_self_mapping),
       validate_(validate),
       loop_promotion_map_builder_callback_(
           loop_promotion_map_builder_callback) {
@@ -284,7 +289,7 @@ void IdModel::buildExactGraph() {
 
     for (auto other_tv_output : other_tv_outputs) {
       // Sibling tv's must be exactly mapped with eachother so simply zip
-      // their leaf iter domains.
+      // their loop iter domains.
 
       NVF_ERROR(
           other_tv_output->getMaybeRootDomain().size() ==
@@ -631,7 +636,7 @@ void IdModel::buildLoopGraph() {
       *this, inlining_info, loop_promotion_map_builder_callback_);
 
   // New domains are added. Make sure there's still no self mapping in
-  // the leaf domains
+  // the loop domains
   validateLoopGraphHasNoSelfMappedLeafDomains();
 
   idGraph(IdMappingMode::LOOP).validateConsistency();
@@ -663,19 +668,15 @@ void IdModel::buildAllGraphs() {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
-  if (!getenv("POST")) {
-    buildAlmostExactGraph();
-    if (false && validate_) {
-      validator->checkAlmostExactGraphEquivalence(
-          idGraph(IdMappingMode::ALMOSTEXACT));
-    }
-  }
-
   // Make sure there's no self mapping in the Exact graph as that
   // would invalidate lowering assumptions.
   if (!allow_self_mapping_) {
     assertNoSelfMapping();
   }
+
+  buildAlmostExactGraph();
+  // Skip validating the almost exact graph as the IdModel graph also
+  // maps non-size-one broadcast domains
 
   buildPermissiveGraph();
   // Validation is not implemented when compliment mapping is enabled
@@ -685,24 +686,6 @@ void IdModel::buildAllGraphs() {
   }
 
   buildLoopGraph();
-
-  // Simplify the AlmostExact graph by removing trivial exprs. Note
-  // that since trivial exps are now gone, if trivial exprs are
-  // replayed, their trivial mappings won't be automatically detected.
-  // Explicit updates with the AlmostExact mapping rules will be
-  // required. For example, if this removal were done before
-  // buildLoopGraph, the resulting AlmostExact graph would include
-  // unmapped domains should be mapped according to the AlmostExact
-  // mapping rules.
-
-  if (getenv("POST")) {
-    buildAlmostExactGraph();
-    if (false && validate_) {
-      validator->checkAlmostExactGraphEquivalence(
-          idGraph(IdMappingMode::ALMOSTEXACT));
-    }
-  }
-  // idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 }
 
 void IdModel::buildGraph(IdMappingMode mode) {
