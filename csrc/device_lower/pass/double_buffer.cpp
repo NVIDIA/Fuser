@@ -15,8 +15,6 @@
 #include <iterator>
 #include <vector>
 
-#define EXTRA_LOGS
-
 namespace nvfuser {
 
 int64_t getDoubleBufferAxisPosition(const TensorView* tv) {
@@ -439,11 +437,6 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void clone() {
-#ifdef EXTRA_LOGS
-    std::cout << "[DEBUG] double_buffer_loop_ loop:\n"
-              << double_buffer_loop_->toString() << std::endl;
-#endif //  EXTRA_LOGS
-
     // Cloning the double buffer loop as follows:
     //
     // Prologue: 0 to 1
@@ -954,17 +947,6 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
     if_expr->thenBody().push_back(loop);
 
     pre_prologue_exprs_.push_back(if_expr);
-
-#ifdef EXTRA_LOGS
-    std::cout
-        << "=============================================================\n";
-    std::cout << "[INFO] Pre-prologue-exprs: \n";
-    for (const auto expr : pre_prologue_exprs_) {
-      std::cout << expr->toString(0);
-    }
-    std::cout
-        << "=============================================================\n";
-#endif //  EXTRA_LOGS
   }
 
   void handle(kir::ForLoop* fl) final {
@@ -1052,17 +1034,6 @@ class CpAsyncBulkPostEpilogue {
     if_expr->thenBody().push_back(loop);
 
     post_prologue_exprs_.push_back(if_expr);
-
-#ifdef EXTRA_LOGS
-    std::cout
-        << "=============================================================\n";
-    std::cout << "[INFO] Post-epilogue-exprs: \n";
-    for (const auto expr : post_prologue_exprs_) {
-      std::cout << expr->toString(0);
-    }
-    std::cout
-        << "=============================================================\n";
-#endif //  EXTRA_LOGS
   }
 
  private:
@@ -1170,25 +1141,10 @@ class DoubleBufferInserter : private kir::ExprMutator {
     kir::ForLoop* prologue_loop = TmaDoubleBufferLoopCloner::clone(
         double_buffer_loop, loads, DoubleBufferLoopStage::Prolog);
     registerInsertBefore(double_buffer_loop, prologue_loop);
-#ifdef EXTRA_LOGS
-    std::cout
-        << "=============================================================\n";
-    std::cout << "[DEBUG] Prologue Loop:\n"
-              << prologue_loop->toString() << std::endl;
-    std::cout
-        << "=============================================================\n";
-#endif //  EXTRA_LOGS
 
     kir::ForLoop* main_loop = TmaDoubleBufferLoopCloner::clone(
         double_buffer_loop, loads, DoubleBufferLoopStage::Main);
     registerReplace(double_buffer_loop, main_loop);
-#ifdef EXTRA_LOGS
-    std::cout
-        << "=============================================================\n";
-    std::cout << "[DEBUG] Main Loop:\n" << main_loop->toString() << std::endl;
-    std::cout
-        << "=============================================================\n";
-#endif //  EXTRA_LOGS
 
     kir::ForLoop* last_for_loop = double_buffer_loop;
 
@@ -1215,14 +1171,6 @@ class DoubleBufferInserter : private kir::ExprMutator {
           alloc_in_main);
       registerInsertAfter(double_buffer_loop, epilogue_loop);
       last_for_loop = epilogue_loop;
-#ifdef EXTRA_LOGS
-      std::cout
-          << "=============================================================\n";
-      std::cout << "[DEBUG] Epilogue Loop:\n"
-                << epilogue_loop->toString() << std::endl;
-      std::cout
-          << "=============================================================\n";
-#endif //  EXTRA_LOGS
     }
 
     std::vector<Expr*> post_epilogue_exprs =

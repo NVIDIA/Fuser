@@ -373,7 +373,6 @@ void FusionExecutor::compileFusion(
   }
 
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName());
-  std::cout << kernel_code_ << std::endl;
 
   // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
   // If the loaded external source code is empty, revert to the default codegen.
