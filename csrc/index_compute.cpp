@@ -2604,26 +2604,24 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   }
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-  auto index_map = indexer.computeIndex(ldst, groups_to_index).index_map;
 
-  int64_t dim = (int64_t)tma_info.dims().size();
+  auto indices = indexer.getIndexFor(ldst, groups_to_index);
 
   std::vector<Val*> indices_inner_to_outer;
+  int64_t i = 0;
   for (const auto& dim : tma_info.dims()) {
     Val* dim_index = nullptr;
     Val* stride = nullptr;
     for (const auto& g : dim.partitioned) {
-      auto it = index_map.find(g);
-      NVF_ERROR(
-          it != index_map.end(), "Unable to find index for ", g->toString());
       dim_index = SimplifyingIrBuilder::addExpr(
-          dim_index, SimplifyingIrBuilder::mulExpr(stride, it->second));
+          dim_index, SimplifyingIrBuilder::mulExpr(stride, indices[i++]));
       stride = SimplifyingIrBuilder::mulExpr(
           stride, g->front()->as<IterDomain>()->extent());
     }
     indices_inner_to_outer.push_back(dim_index);
   }
 
+  int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
   auto descriptor = tma_info.tensorMap();
   Val* index = nullptr;
