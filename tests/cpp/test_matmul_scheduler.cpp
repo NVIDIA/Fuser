@@ -2723,7 +2723,7 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
 }
 
 // Test that we can schedule a Fusion containing two matmuls
-TEST_P(MatmulFusionTest, Llama2FFNNoSegmentation) {
+TEST_F(MatmulSchedulerTest, Llama2FFNNoSegmentation) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
