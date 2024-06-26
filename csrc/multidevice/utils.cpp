@@ -328,6 +328,9 @@ void propagateShardings(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    if (inputs.empty()) {
+      continue;
+    }
     TensorView* input_with_mesh = nullptr;
     for (auto tv : inputs) {
       NVF_CHECK(
@@ -522,11 +525,14 @@ void unshard(Fusion* fusion) {
 
 std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   std::set<DeviceIdxType> ret;
-  for (const auto& tvs : {expr->inputs(), expr->outputs()}) {
-    for (auto val : tvs) {
-      NVF_ERROR(val->isA<TensorView>(), "Val is not a TensorView");
-      auto tv = val->as<TensorView>();
-      NVF_ERROR(tv->hasDeviceMesh(), "the TensorView has no device mesh");
+  for (const auto& tvs :
+       {ir_utils::filterByType<TensorView>(expr->inputs()),
+        ir_utils::filterByType<TensorView>(expr->outputs())}) {
+    for (auto* tv : tvs) {
+      NVF_ERROR(
+          tv->hasDeviceMesh(),
+          "the TensorView has no device mesh: ",
+          tv->toString());
       auto& mesh = tv->getDeviceMesh().vector();
       std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
     }
