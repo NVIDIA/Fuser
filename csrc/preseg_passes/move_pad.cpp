@@ -13,6 +13,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <ops/utils.h>
 #include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
@@ -148,9 +149,11 @@ Val* propagatePadToProducer(PadOp* pad_op) {
         edge.val()->getDataType().has_value(), "pad source dtype is missing");
     // NOTE: the old pad_op is going away from DCE, so it's ok to reuse its
     // domains
+    TensorView* pad_out_tv = pad_op->out()->as<TensorView>();
+    std::vector<IterDomain*> new_root = IterDomain::clone(pad_out_tv->getMaybeRootDomain()),
+    std::vector<IterDomain*> new_logical = IterDomain::clone(pad_out_tv->getLogicalDomain()),
     auto new_out = IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(
-            pad_op->out()->as<TensorView>()->domain()),
+        IrBuilder::create<TensorDomain>(new_root, new_logical, new_logical),
         edge.val()->getDataType().value());
     IrBuilder::create<PadOp>(
         new_out,
@@ -174,7 +177,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     } else if (e->isA<BinaryOp>()) {
       // Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)), replacement_map.at(e->input(1)));
       std::vector<Val*> vals = {replacement_map.at(e->input(0)), replacement_map.at(e->input(1))};
-      Val* out = ops::newOutputTV(vals, e->output(0)->getDataType());
+      Val* out = ops::newOutputTV(vals, e->output(0)->getDataType().value());
       Expr* padded_e = IrBuilder::create<BinaryOp>(e->as<BinaryOp>()->getBinaryOpType(), out, vals[0], vals[1]);
       replacement_map[e->output(0)] = padded_e->output(0);
     } else {
