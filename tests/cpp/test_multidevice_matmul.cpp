@@ -540,12 +540,12 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
       b1_};
   at::manual_seed(0);
   auto linear1_aten =
-      at::linear(x_.to(at::kDouble), w0_.to(at::kDouble), b0_.to(at::kDouble));
+      at::linear(x_.to(at::kFloat), w0_.to(at::kFloat), b0_.to(at::kFloat));
   auto gelu_aten = at::gelu(linear1_aten.to(at::kFloat), "tanh");
   auto linear2_aten = at::linear(
-      gelu_aten.to(at::kBFloat16).to(at::kDouble),
-      w1_.to(at::kDouble),
-      b1_.to(at::kDouble));
+      gelu_aten.to(at::kBFloat16).to(at::kFloat),
+      w1_.to(at::kFloat),
+      b1_.to(at::kFloat));
   auto dropout_aten = at::dropout(linear2_aten.to(at::kFloat), kProb, true);
   std::vector<at::Tensor> expected_outputs = {
       shardTensor(
@@ -571,7 +571,7 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
   auto tolerance_overwrite = ValidationConstants();
   std::array<std::array<double, 2>, 20> relaxed_sum_tol;
   for (auto& arr : relaxed_sum_tol) {
-    arr = {128, 3.0};
+    arr = {128, 5e-3};
   }
   tolerance_overwrite.sum_tolerances_float = relaxed_sum_tol;
 
