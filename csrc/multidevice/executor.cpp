@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
+#include <host_ir/container.h>
 #include <ir/utils.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/executor.h>
@@ -79,7 +80,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     should_run_[group] = involvedDevices(expr).count(comm_.deviceId());
   }
   // prepare the order in which to launch the kernels/comms
-  prepareRuntimeOrder(staged_fusion_.get(), workspace);
+  prepareRuntimeOrder(staged_fusion_.get(), workspace_);
 
   // Allocator setup
   // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
@@ -164,11 +165,21 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
       expr->outputs().size() == 1,
       "Communication must have exactly one output");
 
-  auto communications = lowerCommunication(comm_.deviceId(), expr);
+  std::unique_ptr<hir::HostIrContainer>& container =
+      communication_containers_[group];
+  if (container == nullptr) {
+    container = std::make_unique<hir::HostIrContainer>();
+    IrCloner cloner(container.get());
+    std::vector<Communication*> communications =
+        lowerCommunication(cloner.clone(expr));
+    for (auto* communication : communications) {
+      container->pushBackTopLevelExprs(communication);
+    }
+  }
 
   // Compute input_tensor and output_tensor.
-  auto input_val = expr->inputs().at(0);
-  auto output_val = expr->outputs().at(0);
+  Val* input_val = expr->input(0);
+  Val* output_val = expr->output(0);
   at::Tensor input_tensor;
   if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
     input_tensor = val_to_IValue_.at(input_val).toTensor();
@@ -179,7 +190,8 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   }
 
   // post and wait communications
-  for (Communication* communication : communications) {
+  for (Expr* lowered : container->topLevelExprs()) {
+    auto* communication = lowered->as<Communication>();
     c10d::Backend* backend =
         comm_.getBackendForTeam(communication->team(), std::nullopt);
     c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
@@ -217,7 +229,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
   }
 
   // Run through the groups to launch kernels and comms
-  for (auto group : workspace.group_run_order) {
+  for (auto group : workspace_.group_run_order) {
     if (!is_resharding_.at(group)) {
       postKernel(group, launch_params);
     } else {
@@ -261,7 +273,7 @@ std::string MultiDeviceExecutor::validate() const {
 std::ostream& MultiDeviceExecutor::print() {
   int compute_segment_counter = 0;
   int communication_counter = 0;
-  for (auto group : workspace.group_run_order) {
+  for (auto group : workspace_.group_run_order) {
     if (is_resharding_[group]) {
       debug() << "Communication " << communication_counter << ": "
               << group->exprs().at(0) << "\n";
@@ -275,6 +287,20 @@ std::ostream& MultiDeviceExecutor::print() {
     }
   }
   return debug();
+}
+
+std::vector<FusionExecutorCache*> MultiDeviceExecutor::
+    getFusionExecutorCaches() {
+  NVF_CHECK(
+      params_.use_fusion_executor_cache,
+      "MultideviceExecutor must be configured to use FusionExecutorCache");
+  std::vector<FusionExecutorCache*> fecs;
+  for (SegmentedGroup* group : workspace_.group_run_order) {
+    if (fec_.count(group) > 0) {
+      fecs.push_back(&(fec_.at(group)));
+    }
+  }
+  return fecs;
 }
 
 } // namespace nvfuser

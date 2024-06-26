@@ -11,6 +11,7 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
+#include <host_ir/container.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
@@ -110,6 +111,12 @@ class MultiDeviceExecutor {
   //! Print to default debugging output stream
   std::ostream& print();
 
+  // Returns a vector of Fusion executor caches that corresponds to
+  // each compute segment in runtime order.This is only valid if the executor
+  // was configured to use FusionExecutorCache. i.e.
+  // params.use_fusion_executor_cache = true
+  std::vector<FusionExecutorCache*> getFusionExecutorCaches();
+
  private:
   // execute locally a SegmentedGroup that does not involve inter-device
   // communication. Launch Params are used only if
@@ -129,10 +136,12 @@ class MultiDeviceExecutor {
   // 2) a Fusion comprised of one Expr, representing inter-device communication
   std::unique_ptr<SegmentedFusion> staged_fusion_;
   // Stores the order in which the pipeline's stage should be executed
-  RuntimeWorkSpace workspace;
+  RuntimeWorkSpace workspace_;
   // Cache Fusions, FusionExecutors, and Communications
   std::unordered_map<SegmentedGroup*, FusionExecutor> fe_;
   std::unordered_map<SegmentedGroup*, FusionExecutorCache> fec_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<hir::HostIrContainer>>
+      communication_containers_;
   // Cache whether a SegmentedGroup should be run by the current device
   std::unordered_map<SegmentedGroup*, bool> should_run_;
   // Cache whether a SegmentedGroup requires inter-device communication

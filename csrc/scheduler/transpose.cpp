@@ -247,11 +247,11 @@ class DomainMap : public pointwise_utils::DomainMap {
     return domain_map.getMappedAllocDimIn(ref1, innermost2) != nullptr;
   }
 
-  // scheduler assumes inner leaf dimension on tv is an exact mapping, when the
+  // scheduler assumes inner loop dimension on tv is an exact mapping, when the
   // mapping cannot be resolved, we'll return a `-1`
   int64_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
-    // TODO: ideally we should be mapping to leaf domain directly here.
-    // However, our current compute at map is constructed before leaf domain is
+    // TODO: ideally we should be mapping to loop domain directly here.
+    // However, our current compute at map is constructed before loop domain is
     // transformed. So the mapping here would require a new compute at map to be
     // constructed from the updated fusion. We'll revisit this once our id graph
     // refactor is done.
@@ -263,8 +263,8 @@ class DomainMap : public pointwise_utils::DomainMap {
         " in tensor ",
         tv);
     auto replay_exprs = StmtSort::getExprsBetween(
-        {mapped_id}, {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
-    // Project the root id to leaf id. Similar to projectIdToRFactor.
+        {mapped_id}, {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+    // Project the root id to loop id. Similar to projectIdToRFactor.
     for (auto expr : replay_exprs) {
       if (expr->isA<Split>()) {
         // Split with factor one is not supposed to be here, reshape would map
@@ -290,8 +290,8 @@ class DomainMap : public pointwise_utils::DomainMap {
         mapped_id = expr->as<Resize>()->out();
       }
     }
-    // Find the position of the leaf id
-    const auto& dom = tv->getLeafDomain();
+    // Find the position of the loop id
+    const auto& dom = tv->getLoopDomain();
     for (auto i : c10::irange(dom.size())) {
       if (dom[i] == mapped_id) {
         return static_cast<int64_t>(i);
@@ -642,11 +642,11 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     DomainMap& domain_map) {
-  auto ref_root = reference->getRFactorDomain();
+  auto ref_logical = reference->getLogicalDomain();
   std::vector<int64_t> shape_in_ref;
   shape_in_ref.reserve(reference->nDims());
   int64_t n_elems = 1;
-  for (auto id : ref_root) {
+  for (auto id : ref_logical) {
     auto concrete_id = domain_map.getComputeAtMap().getConcreteMappedID(
         id, IdMappingMode::EXACT);
     auto inferred_val =
@@ -864,7 +864,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   auto inner_most_pos1_in_ref1 = innermost_info[0];
   auto inner_most_pos2_in_ref1 = innermost_info[1];
-  // No exact innermost leaf dimension mapping on referenc1. cannot schedule
+  // No exact innermost loop dimension mapping on referenc1. cannot schedule
   if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
     return nullptr;
   }
@@ -974,7 +974,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // and merged i2/2 & 2.
   //
   // TODO: We use ContiguousInnerDimensionsMapper to compute the size of virtual
-  // innermost dimension. The analysis right now is limited on rfactor domain
+  // innermost dimension. The analysis right now is limited on logical domain
   // only, so we can't actually map the `split` iter domains, which limits the
   // vectorization width we can apply. We need to fix that.
   // TODO 2: Small transpose dimensions transformation should also consider the
@@ -1174,18 +1174,18 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   // prepare all dimensions in merge order for group1
   std::vector<int64_t> dims_group1 = params.dims_merged_with_1;
-  auto inner_leaf_index1 =
+  auto inner_loop_index1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id1);
-  NVF_ERROR(inner_leaf_index1 >= 0, "getInnerLeafDim cannot be resolved");
-  int64_t inner_most_pos1_in_ref1 = inner_leaf_index1;
+  NVF_ERROR(inner_loop_index1 >= 0, "getInnerLeafDim cannot be resolved");
+  int64_t inner_most_pos1_in_ref1 = inner_loop_index1;
   dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
 
   // prepare all dimensions in merge order for group2
   std::vector<int64_t> dims_group2 = params.dims_merged_with_2;
-  auto inner_leaf_index2 =
+  auto inner_loop_index2 =
       domain_map.getInnerLeafDim(reference1, inner_most_id2);
-  int64_t inner_most_pos2_in_ref1 = inner_leaf_index2;
-  NVF_ERROR(inner_leaf_index2 >= 0, "getInnerLeafDim cannot be resolved");
+  int64_t inner_most_pos2_in_ref1 = inner_loop_index2;
+  NVF_ERROR(inner_loop_index2 >= 0, "getInnerLeafDim cannot be resolved");
   dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
 
   // merge all dimensions in group1, while updating all indices for group2
@@ -1301,8 +1301,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> vectorized_group2_cached_inputs;
     for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
-              gin->getLeafDomain().begin(),
-              gin->getLeafDomain().end(),
+              gin->getLoopDomain().begin(),
+              gin->getLoopDomain().end(),
               [&ca_map, reference2](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference2->axis(-1), IdMappingMode::EXACT);
@@ -1323,8 +1323,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> unrolled_group2_cached_inputs;
     for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
-              gin->getLeafDomain().begin(),
-              gin->getLeafDomain().end(),
+              gin->getLoopDomain().begin(),
+              gin->getLoopDomain().end(),
               [&ca_map, reference2](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference2->axis(-3), IdMappingMode::EXACT);
@@ -1388,8 +1388,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> vectorized_group1_cached_inputs;
     for (auto gin : group1_and_cached_inputs) {
       if (std::any_of(
-              gin->getLeafDomain().begin(),
-              gin->getLeafDomain().end(),
+              gin->getLoopDomain().begin(),
+              gin->getLoopDomain().end(),
               [&ca_map, reference1](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference1->axis(-1), IdMappingMode::EXACT);
@@ -1410,8 +1410,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> unrolled_group1_cached_inputs;
     for (auto gin : group1_and_cached_inputs) {
       if (std::any_of(
-              gin->getLeafDomain().begin(),
-              gin->getLeafDomain().end(),
+              gin->getLoopDomain().begin(),
+              gin->getLoopDomain().end(),
               [&ca_map, reference1](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference1->axis(-3), IdMappingMode::EXACT);
@@ -1434,7 +1434,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // inputs
   for (auto tv : {reference1, reference2}) {
     if (tv->isFusionInput()) {
-      for (auto id : tv->getLeafDomain()) {
+      for (auto id : tv->getLoopDomain()) {
         id->parallelize(ParallelType::Serial);
       }
     }

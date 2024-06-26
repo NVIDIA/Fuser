@@ -66,29 +66,42 @@ thread_local KernelConfigFactory config_factory = defaultConfigFactory;
 // overridden.
 thread_local bool config_factory_modified = false;
 
-//! Utility to standardize conversion of MmaLayout to uint8_t
-uint8_t layoutToByte(MmaLayout layout) {
-  switch (layout) {
-    case MmaLayout::NN:
-      return 0;
-    case MmaLayout::NT:
-      return 1;
-    case MmaLayout::TN:
-      return 2;
-    case MmaLayout::TT:
-      return 3;
-    default:
-      return 255;
+//! Utility to standardize conversion of inner dimensions to uint8_t
+//! This uses the 2-operand layout format:
+//!   NN: 0
+//!   NT: 1
+//!   TN: 2
+//!   TT: 3
+uint8_t innerDimsToByte(const mma_utils::MatmulOperandInnerDims& inner_dims) {
+  bool A_K_inner = inner_dims.empty() || inner_dims.front() == MatmulDomain::K;
+  bool B_K_inner = inner_dims.empty() || inner_dims.back() == MatmulDomain::K;
+  if (A_K_inner && B_K_inner) {
+    return 0;
+  } else if (A_K_inner && !B_K_inner) {
+    return 1;
+  } else if (!A_K_inner && B_K_inner) {
+    return 2;
+  } else {
+    return 3;
   }
 }
 
-std::string rolesToPrecisionString(const mma_utils::RolesMap& roles_map) {
+std::string rolesToPrecisionString(
+    const mma_utils::TensorRolesMap& tensor_roles) {
   std::string precision = "   ";
-  TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
-  TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
+  const std::vector<TensorView*>& a_operands =
+      tensor_roles.at(MatmulRole::OPERAND_A);
+  NVF_ERROR(
+      a_operands.size() == 1, "We currently require exactly one A operand");
+  const std::vector<TensorView*>& b_operands =
+      tensor_roles.at(MatmulRole::OPERAND_B);
+  NVF_ERROR(
+      b_operands.size() == 1, "We currently require exactly one B operand");
+  TensorView* a = a_operands.front();
+  TensorView* b = b_operands.front();
   NVF_CHECK(
       a->dtype() == b->dtype(), "Differing A and B dtypes not yet supported");
-  TensorView* d = roles_map.at(MatmulRole::OUTPUT_D).front();
+  TensorView* d = tensor_roles.at(MatmulRole::OUTPUT).front();
   precision[0] = mma_utils::dtypeToChar(a->dtype());
   // NOTE: this assumes compute type is Float
   precision[1] = 'S';
@@ -102,14 +115,14 @@ void fillProblemDescription(
     int64_t n,
     int64_t k,
     int64_t batch_size,
-    MmaLayout layout,
+    const mma_utils::MatmulOperandInnerDims& inner_dims,
     const char* precision) {
   problem.m = (uint32_t)m;
   problem.n = (uint32_t)n;
   problem.k = (uint32_t)k;
   problem.batch_size = (uint32_t)batch_size;
   problem.layout =
-      KernelConfig::ProblemDescription::Layout(layoutToByte(layout));
+      KernelConfig::ProblemDescription::Layout(innerDimsToByte(inner_dims));
   problem.precision = precision;
 }
 
@@ -134,7 +147,6 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
       params.double_buffer_options.double_buffer_smem_read;
   config->rotate_ldmatrix_out_of_main_loop =
       params.rotate_ldmatrix_out_of_main_loop;
-
   config->problem.supported_vec_size.a = (uint8_t)params.supported_vec_size.a;
   config->problem.supported_vec_size.b = (uint8_t)params.supported_vec_size.b;
   config->problem.supported_vec_size.epilogue =
@@ -193,8 +205,8 @@ bool updateMatmulParams(
     int64_t n,
     int64_t k,
     int64_t batch_size,
-    MmaLayout layout,
-    const mma_utils::RolesMap& roles_map) {
+    const mma_utils::MatmulOperandInnerDims& inner_dims,
+    const mma_utils::TensorRolesMap& tensor_roles) {
   if (!hasPlugin()) {
     return false;
   }
@@ -206,9 +218,9 @@ bool updateMatmulParams(
   copyParamsToConfig(config.get(), params);
 
   // The heuristic must know the input shapes, precision, and layout.
-  std::string precision = rolesToPrecisionString(roles_map);
+  std::string precision = rolesToPrecisionString(tensor_roles);
   fillProblemDescription(
-      config->problem, m, n, k, batch_size, layout, precision.c_str());
+      config->problem, m, n, k, batch_size, inner_dims, precision.c_str());
 
   // Execute the user-provided heuristic
   config->configure();

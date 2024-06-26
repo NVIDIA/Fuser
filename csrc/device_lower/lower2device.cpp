@@ -151,7 +151,7 @@ void GpuLower::collectPaddedParallelDims() {
 
   auto used_vals = fusion_->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (tv->definition()) {
         // TODO: Support GroupedReductionOp
         if (auto reduction = dynamic_cast<ReductionOp*>(tv->definition())) {
@@ -179,7 +179,8 @@ void GpuLower::collectPaddedParallelDims() {
             size_after_padding.value() == warp_size;
 
         if (id->extent()->isConstInt() &&
-            id->extent()->evaluate() > warp_size && !padding_to_single_warp) {
+            id->extent()->evaluate().as<int64_t>() > warp_size &&
+            !padding_to_single_warp) {
           // If we see any other TIDx binding that's larger than
           //  a warp or unknown, we shouldn't lower warp reduce
           //  to a single warp type.
@@ -188,7 +189,7 @@ void GpuLower::collectPaddedParallelDims() {
         } else if (can_be_single_warp) {
           if (padding_to_single_warp ||
               (id->extent()->isConstInt() &&
-               id->extent()->evaluate() == warp_size)) {
+               id->extent()->evaluate().as<int64_t>() == warp_size)) {
             warp_pad_info_.is_tidx_single_warp = true;
           }
         }
@@ -330,6 +331,42 @@ kir::Kernel* GpuLower::run() {
   return kernel_.get();
 }
 
+bool requiresIdModel(Fusion* fusion) {
+  // TMA requires IdModel
+  for (auto expr : fusion->exprs()) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        return true;
+      }
+    }
+  }
+  // If a tensor does not have a nice root->logical/allocation->loop
+  // linear transformation history, use IdModel.
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    auto root = tv->getMaybeRootDomain();
+    auto loop = tv->getLoopDomain();
+    std::vector<Val*> loop_val(loop.begin(), loop.end());
+    auto all_ids_vec = DependencyCheck::getAllValsBetween(
+        {root.begin(), root.end()}, loop_val);
+    std::unordered_set<Val*> all_ids_set(
+        all_ids_vec.begin(), all_ids_vec.end());
+    auto alloc = tv->getMaybeAllocationDomain();
+    auto logical = tv->getLogicalDomain();
+    bool has_alloc_id_not_on_path =
+        std::any_of(alloc.begin(), alloc.end(), [&](Val* v) {
+          return !all_ids_set.count(v);
+        });
+    bool has_logical_id_not_on_path =
+        std::any_of(logical.begin(), logical.end(), [&](Val* v) {
+          return !all_ids_set.count(v);
+        });
+    if (has_alloc_id_not_on_path || has_logical_id_not_on_path) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void GpuLower::analysis(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
   NVF_ERROR(fusion != nullptr);
@@ -353,6 +390,8 @@ void GpuLower::analysis(Fusion* fusion) {
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
+
+  this->requiresIdModel() = nvfuser::requiresIdModel(fusion_);
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
@@ -395,8 +434,24 @@ void GpuLower::analysis(Fusion* fusion) {
   // names. Note computeWith should be resolved before building
   // IdModel. Otherwise computeWith inlining is not reflected in the
   // model.
-  if (true || isOptionEnabled(EnableOption::IdModel)) {
-    id_model_ = std::make_unique<IdModel>(fusion_);
+  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
+    // Enable validation in the DEBUG build mode
+#ifdef NDEBUG
+    // Not DEBUG build
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+#else
+    // DEBUG build
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/true);
+#endif
+    id_model_->validateAndPropagatePType();
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::ComputeAtMap)) {
@@ -487,15 +542,14 @@ void GpuLower::analysis(Fusion* fusion) {
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
-  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "producer_index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "unswitch_predicate") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "vectorize_predicate")) {
-    if (TensorIndexer::isSupported(fusion_)) {
-      tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
-    }
+  if (this->requiresIdModel() ||
+      (isOptionEnabled(EnableOption::IdModel) &&
+       TensorIndexer::isSupported(fusion_))) {
+    tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
+
+  consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
 }
 
 kir::Kernel* GpuLower::kernel() const {

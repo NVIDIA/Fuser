@@ -126,10 +126,10 @@ TEST_F(AliasAnalysisTest, Set) {
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
-  const std::vector<IterDomain*>& out_rfactor = out->getRFactorDomain();
+  const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
       alias_analysis.preferredLayout(out).allocation_domain,
-      ElementsAre(out_rfactor[1], out_rfactor[2], out_rfactor[0]));
+      ElementsAre(out_logical[1], out_logical[2], out_logical[0]));
 }
 
 TEST_F(AliasAnalysisTest, Permute) {
@@ -146,10 +146,10 @@ TEST_F(AliasAnalysisTest, Permute) {
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
-  const std::vector<IterDomain*>& out_rfactor = out->getRFactorDomain();
+  const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
       alias_analysis.preferredLayout(out).allocation_domain,
-      ElementsAre(out_rfactor[2], out_rfactor[0], out_rfactor[1]));
+      ElementsAre(out_logical[2], out_logical[0], out_logical[1]));
 }
 
 TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
@@ -1049,7 +1049,43 @@ TEST_F(AliasTest, SegmentBoundary) {
           HeuristicIs(ScheduleHeuristic::PointWise)));
 }
 
-TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
+TEST_F(AliasTest, ReuseBuffer) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeContigTensor(1);
+  TensorView* out = add(in, IrBuilder::create<Val>(1.0));
+  fusion->addInput(in);
+  fusion->addOutput(out);
+  fusion->aliasOutputToInput(out, in, AllocationType::ReuseBuffer);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto tensor = at::randn({10}, options);
+  auto expected_tensor = tensor + 1.0;
+
+  FusionExecutorCache fec(std::move(fusion));
+  fec.runFusionWithInputs({tensor});
+  EXPECT_TRUE(tensor.allclose(expected_tensor));
+}
+
+TEST_F(AliasTest, ReuseBuffer_FusionExecutor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeContigTensor(1);
+  TensorView* out = add(in, IrBuilder::create<Val>(1.0));
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto tensor = at::randn({10}, options);
+  auto expected_tensor = tensor + 1.0;
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {tensor});
+  fe.runFusion({tensor}, {tensor});
+  EXPECT_TRUE(tensor.allclose(expected_tensor));
+}
+
+TEST_F(AliasTest, ReuseBuffer_AliasAcrossSegments) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1218,6 +1254,33 @@ TEST_F(AliasTest, NoKernelsAreLaunched) {
   if (ProfilerState::Running == FusionProfiler::state()) {
     FusionProfiler::stop();
   }
+}
+
+// While most use cases go through FusionExecutorCache, nvFuser also supports
+// evaluating an alias via FusionExecutor.
+TEST_F(AliasTest, FusionExecutor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({10, 10});
+  TensorView* out = slice(in, {0, 0}, {5, 5});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  // Sanity-check that `out` is a valid alias of `in`.
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+
+  // Mark them alias so FusionExecutor::runFusion expression-evaluates the
+  // output on the host instead of launching a CUDA kernel.
+  fusion.aliasOutputToInput(out, in, AllocationType::Evaluate);
+
+  FusionExecutor fe;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({10, 10}, options);
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 
 } // namespace nvfuser

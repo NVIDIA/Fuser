@@ -301,7 +301,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << var_name_ss.str();
         } else {
           code_ << "Tensor<" << param->dtype() << ", "
-                << TensorDomain::noReductions(tv->getRFactorDomain()).size()
+                << TensorDomain::noReductions(tv->getLogicalDomain()).size()
                 << ", "
                 << TensorDomain::noReductions(tv->getMaybeAllocationDomain())
                        .size()
@@ -786,17 +786,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "}\n";
     auto op_type = rop->getRNGOpType();
     indent() << gen(rop->output(0)) << " = " << op_type;
-    if (needFloatSuffix(op_type) && rop->dtype() == DataType::Float) {
-      code_ << "f";
+    if (needFloatSuffix(op_type)) {
+      if (rop->dtype() == DataType::Float) {
+        code_ << "f";
+      } else if (rop->dtype() == DataType::BFloat16) {
+        code_ << "_bfloat";
+      } else if (rop->dtype() == DataType::Half) {
+        code_ << "_half";
+      }
+      // Generate other datatypes in double
     }
     code_ << "(rng_result, rng_component" << rop->name();
     switch (op_type) {
-      case RNGOpType::UniformRange: {
-        auto parameters = rop->getParameters();
-        NVF_ERROR(parameters.size() == 2);
-        code_ << ", " << gen(parameters[0]) << ", " << gen(parameters[1]);
-        break;
-      }
+      case RNGOpType::UniformRange:
       case RNGOpType::NormalGeneral: {
         auto parameters = rop->getParameters();
         NVF_ERROR(parameters.size() == 2);
@@ -1253,8 +1255,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       // dispatch mma initialization
       if (std::any_of(
-              out_tv->getLeafDomain().begin(),
-              out_tv->getLeafDomain().end(),
+              out_tv->getLoopDomain().begin(),
+              out_tv->getLoopDomain().end(),
               [&](IterDomain* id) { return id->isMma(); })) {
         auto mma = dynamic_cast<MmaOp*>(out_tv->definition());
         NVF_ERROR(mma != nullptr, "CodeGen: mma op not in mma loop");
@@ -2682,7 +2684,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       states[pt] = ReductionParallelTypeState::Iter;
     }
 
-    for (auto id : alloc_fused_reduction->out()->view()->getLeafDomain()) {
+    for (auto id : alloc_fused_reduction->out()->view()->getLoopDomain()) {
       auto pt = id->getParallelType();
       if (isParallelTypeThread(pt)) {
         auto state = id->isReduction() ? ReductionParallelTypeState::Reduce
@@ -2748,10 +2750,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         par_domains.find(ParallelType::TIDz) != par_domains.end() &&
         par_domains.at(ParallelType::TIDz)->isReduction();
 
+    NVF_ERROR(
+        !tidx && tidy && !tidz,
+        "blockIterGroupedYdimReduce only supports reduction along TIDy");
+
     const auto data_type = output->dtype();
 
     ArgumentBuilder template_args;
-    template_args.arg(tidx).arg(tidy).arg(tidz);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
 
@@ -2778,7 +2783,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     func_args.arg(genCall(data_type, genInline(init)));
 
-    indent() << genCall("blockIterGroupedReduce", template_args, func_args)
+    indent() << genCall("blockIterGroupedYdimReduce", template_args, func_args)
              << ";\n";
   }
 

@@ -172,9 +172,10 @@ void FusionDefinition::print(std::ostream& os) const {
 
 std::vector<at::Tensor> FusionDefinition::execute(
     const at::ArrayRef<c10::IValue>& inputs,
+    std::optional<int8_t> selected_device,
     bool override_user_schedule,
     bool capture_debug_output,
-    std::optional<int8_t> selected_device) const {
+    bool profile) const {
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
@@ -192,6 +193,8 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // NOTE: queryUserSchedule is broken, see issue:
   // https://github.com/NVIDIA/Fuser/issues/2056
   if (!override_user_schedule) {
+    // NOTE: Profiling is only currently supported for auto generatoed
+    // schedules.
     auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(
         inputs.empty() || device > -1,
@@ -210,8 +213,16 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // already at this point and we would not want to overwrite generated output
   // through user scheduled kernel.
   if (outputs.empty()) {
+    // NOTE: Profiling is only currently supported for auto generatoed
+    // schedules.
+    if (profile) {
+      ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+    }
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         inputs, std::nullopt, selected_device);
+    if (profile) {
+      ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+    }
   }
 
   if (capture_debug_output) {
@@ -340,6 +351,9 @@ std::optional<size_t> FusionDefinition::id() const {
 
 Scalar FusionDefinition::defineScalar() {
   FUSER_PERF_SCOPE("FusionDefinition::defineScalar");
+  NVF_CHECK(
+      trie_node_ != nullptr,
+      "define_scalar() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   Scalar out(recording_state_.size(), this);
   recording_state_.emplace_back(out(), serde::StateType::Scalar);
   return out;
@@ -347,6 +361,9 @@ Scalar FusionDefinition::defineScalar() {
 
 Tensor FusionDefinition::addTensor(TensorView* tv) {
   FUSER_PERF_SCOPE("FusionDefinition::addTensor");
+  NVF_CHECK(
+      trie_node_ != nullptr,
+      "addTensor() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   Tensor output = defineTensor(tv->nDims());
   NVF_CHECK(
       output.index == numFusionStates(),
@@ -357,6 +374,9 @@ Tensor FusionDefinition::addTensor(TensorView* tv) {
 
 Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
+  NVF_CHECK(
+      trie_node_ != nullptr,
+      "define_tensor() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   Tensor out(recording_state_.size(), dims, this);
   recording_state_.emplace_back(out(), serde::StateType::Tensor);
   return out;
@@ -364,6 +384,9 @@ Tensor FusionDefinition::defineTensor(size_t dims) {
 
 Vector FusionDefinition::defineVector(size_t size) {
   FUSER_PERF_SCOPE("FusionDefinition::defineVector");
+  NVF_CHECK(
+      trie_node_ != nullptr,
+      "define_vector() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   Vector out(recording_state_.size(), size, this);
   recording_state_.emplace_back(out(), serde::StateType::Vector);
   return out;
@@ -371,6 +394,9 @@ Vector FusionDefinition::defineVector(size_t size) {
 
 void FusionDefinition::defineRecord(RecordFunctor* record) {
   FUSER_PERF_SCOPE("FusionDefinition::defineRecord");
+  NVF_CHECK(
+      trie_node_ != nullptr,
+      "defineRecord() must be called from an initialized definition via a python context manager or a child class' definition() method.");
   NVF_CHECK(
       (recording_.size() + 1) <= max_length_,
       "The fusion definition has exceeded ",
@@ -415,6 +441,31 @@ void FusionDefinition::printMathIr() {
 
 State FusionDefinition::recordingState(size_t index) const {
   return recording_state_.at(index);
+}
+
+std::vector<Tensor> FusionDefinition::tensors() {
+  // Filter TensorView states
+  std::vector<State> tensor_states;
+  std::copy_if(
+      recording_state_.begin(),
+      recording_state_.end(),
+      std::back_inserter(tensor_states),
+      [this](const State& s) {
+        return getFusionState(s.index)->isA<TensorView>();
+      });
+
+  // Reconstruct Tensors
+  std::vector<Tensor> all_tensors;
+  all_tensors.reserve(tensor_states.size());
+  std::transform(
+      tensor_states.begin(),
+      tensor_states.end(),
+      std::back_inserter(all_tensors),
+      [this](const State& s) {
+        return Tensor(
+            s.index, getFusionState(s.index)->as<TensorView>()->nDims(), this);
+      });
+  return all_tensors;
 }
 
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(

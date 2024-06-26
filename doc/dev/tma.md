@@ -74,7 +74,7 @@ The TMA domain for the above matmul example is shown in the Figure 3 below:
 
 ![Figure 3: The TMA domain of the matmul example](tma/matmul-tma-domain.svg)
 
-Please note that the TMA domain is not a member of a TensorDomain like the root/rFactor/allocation/leaf domains.
+Please note that the TMA domain is not a member of a TensorDomain like the root/logical/allocation/loop domains.
 Instead, it is a virtual domain that only exists in the user's mind.
 
 Also note that the IterDomain expressions between the global tensor's allocation domain and the TMA domain must be a view,
@@ -260,7 +260,7 @@ the overall allocation domain is not a multiple of whole tiles.
 For TMA store, the flexibility of being able to arbitrarily view the tile can be convenient,
 because the schedule of the shared memory tensor not only defines the memory layout,
 but also defines the loop structure and the parallelization strategy on how the shared memory tensor will be written.
-With this flexibility, we can often just make the leaf domain and the allocation domain the same.
+With this flexibility, we can often just make the loop domain and the allocation domain the same.
 
 For TMA load, this is not the case.
 The schedule of the shared memory tensor defines how TMA will write shared memory.
@@ -396,10 +396,10 @@ The Figure 12 below shows an example schedule of the consumer of a TMA load of a
 ### Step 5: schedule the consumer tensor
 
 In nvFuser, the consumer dictates the loop nests and parallelization of an expression,
-and the leaf domain of the consumer has the responsibility of specifying these information.
+and the loop domain of the consumer has the responsibility of specifying these information.
 
 Most generally, when we enter this step,
-we might see the leaf domain of the consumer tensor already scheduled partially,
+we might see the loop domain of the consumer tensor already scheduled partially,
 as shown in the Figure 13 below:
 
 ![Figure 13: Consumer schedule](./tma/consumer-schedule.svg)
@@ -411,7 +411,7 @@ such as merging a tile IterDomain with a non-tile IterDomain, is an error in the
 We are not interested in further transforming the tile branch in this step,
 because TMA only cares about the boxing and striding split.
 However you transform the tile IterDomains after they are created by the boxing/striding split will just be ignored.
-So we just immediately parallelize all the IterDomains in the leaf domain from the tile branch as `ParallelType::Bulk` without doing any transformation.
+So we just immediately parallelize all the IterDomains in the loop domain from the tile branch as `ParallelType::Bulk` without doing any transformation.
 Oh, well, I may be wrong.
 Sometimes, merging all of these IterDomains first then parallelize the merged IterDomain as `ParallelType::Bulk` takes less keystrokes.
 So, maybe do the latter instead of the former.

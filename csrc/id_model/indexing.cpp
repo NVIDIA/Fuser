@@ -49,8 +49,8 @@ IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
 // loop is partitioned with respect to the memory type of the tensor
 bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
   // False if id is not a loop ID
-  if (std::find(tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id) ==
-      tv->getLeafDomain().end()) {
+  if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
+      tv->getLoopDomain().end()) {
     return false;
   }
 
@@ -127,7 +127,7 @@ std::unordered_set<ValGroup> getMaxPathLoopDomains(
   auto unswitched_loops = getMaxPathLoops(for_loops);
   std::unordered_set<ValGroup> max_path_loop_domains;
 
-  for (auto loop_domain : tv->getLeafDomain()) {
+  for (auto loop_domain : tv->getLoopDomain()) {
     const auto& loop_group = loop_graph.toGroup(loop_domain);
     auto it = std::find_if(
         unswitched_loops.begin(),
@@ -277,8 +277,8 @@ getAllocationDomainOfTransposedSmemTensor(
   // Find the dominating merge output domain
 
   std::vector<IterDomain*> non_inlined_domains{
-      tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
-      tv->getLeafDomain().end()};
+      tv->getLoopDomain().begin() + tv->getComputeAtPosition(),
+      tv->getLoopDomain().end()};
 
   if (non_inlined_domains.empty()) {
     return std::nullopt;
@@ -299,9 +299,9 @@ getAllocationDomainOfTransposedSmemTensor(
   }
 
   std::vector<IterDomain*> consumer_non_inlined_domains{
-      consumer->getLeafDomain().begin() +
+      consumer->getLoopDomain().begin() +
           (consumer->nDims() - non_inlined_domains.size()),
-      consumer->getLeafDomain().end()};
+      consumer->getLoopDomain().end()};
 
   Merge* consumer_common_merge =
       getOriginatingMerge(consumer_non_inlined_domains.front());
@@ -361,8 +361,8 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
     if (tv->getMemoryType() == MemoryType::Shared ||
         tv->getMemoryType() == MemoryType::Local) {
       if (std::is_permutation(
-              tv->getLeafDomain().begin(),
-              tv->getLeafDomain().end(),
+              tv->getLoopDomain().begin(),
+              tv->getLoopDomain().end(),
               tv->getAllocationDomain().begin())) {
         use_set_allocatin_domain = true;
       }
@@ -384,7 +384,7 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
       VERBOSE() << "Tv does not have allocation of " << tv->toString() << ", "
                 << toDelimitedString(tv->getMaybeAllocationDomain())
                 << std::endl;
-      allocation_domains = tv->getRFactorDomain();
+      allocation_domains = tv->getLogicalDomain();
       contiguity = tv->domain()->contiguity();
       NVF_ERROR(!tv->isDoubleBuffered());
     } else {
@@ -394,7 +394,7 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
       }
 
       for (const auto i : c10::irange(tv->nDims())) {
-        auto loop_id = tv->getLeafDomain().at(i);
+        auto loop_id = tv->getLoopDomain().at(i);
         auto pt = loop_id->getParallelType();
         if (!mayRequireAllocation(tv, loop_id)) {
           continue;
@@ -430,6 +430,7 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
     if (tv->getMemoryType() != MemoryType::Global) {
       IterDomain* id_to_move_back = nullptr;
       // Vectorized load
+      IterDomain* vec_load = nullptr;
       if (tv->definition() != nullptr && tv->definition()->isA<LoadStoreOp>() &&
           tv->definition()->as<LoadStoreOp>()->opType() ==
               LoadStoreOpType::Set) {
@@ -439,11 +440,19 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
             [](auto index_domain) -> bool {
               return isParallelTypeVectorize(index_domain->getParallelType());
             });
-        if (vec_it != allocation_domains.end() &&
-            *vec_it != allocation_domains.back()) {
-          id_to_move_back = *vec_it;
+        if (vec_it != allocation_domains.end()) {
+          vec_load = *vec_it;
         }
-      } else {
+      }
+
+      if (vec_load != nullptr) {
+        if (vec_load != allocation_domains.back()) {
+          id_to_move_back = vec_load;
+        }
+      }
+
+      // Vec store
+      if (!vec_load) {
         for (const auto ls_use :
              ir_utils::filterByType<LoadStoreOp>(tv->uses())) {
           if (ls_use->opType() != LoadStoreOpType::Set) {
@@ -451,13 +460,13 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
           }
           auto consumer_tv = ls_use->out()->as<TensorView>();
           auto vec_it = std::find_if(
-              consumer_tv->getLeafDomain().begin(),
-              consumer_tv->getLeafDomain().end(),
+              consumer_tv->getLoopDomain().begin(),
+              consumer_tv->getLoopDomain().end(),
               [](auto consumer_leaf_id) -> bool {
                 return isParallelTypeVectorize(
                     consumer_leaf_id->getParallelType());
               });
-          if (vec_it == consumer_tv->getLeafDomain().end()) {
+          if (vec_it == consumer_tv->getLoopDomain().end()) {
             continue;
           }
           const auto& vec_group =
@@ -470,7 +479,6 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
               *index_it == allocation_domains.back()) {
             continue;
           }
-
           id_to_move_back = *index_it;
         }
       }
@@ -550,9 +558,9 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
     // If it's a leaf domain, the promoted domain is the true domain
     // for allocation and indexing.
     bool is_leaf = std::find(
-                       tv_for_promotion->getLeafDomain().begin(),
-                       tv_for_promotion->getLeafDomain().end(),
-                       index_domain) != tv->getLeafDomain().end();
+                       tv_for_promotion->getLoopDomain().begin(),
+                       tv_for_promotion->getLoopDomain().end(),
+                       index_domain) != tv->getLoopDomain().end();
     auto actual_id =
         is_leaf ? getLoopPromotion(index_domain, id_model) : index_domain;
     VERBOSE() << "Index domain: " << index_domain->toString()
@@ -589,8 +597,8 @@ ExprPath getIndexingTraversalPath(
     auto root_to_rf_exprs = StmtSort::getExprsBetween(
         {consumer_tv->getRootDomain().begin(),
          consumer_tv->getRootDomain().end()},
-        {consumer_tv->getRFactorDomain().begin(),
-         consumer_tv->getRFactorDomain().end()});
+        {consumer_tv->getLogicalDomain().begin(),
+         consumer_tv->getLogicalDomain().end()});
     for (Expr* root_to_rf_expr : root_to_rf_exprs) {
       if (auto resize = dynamic_cast<Resize*>(root_to_rf_expr)) {
         resize_paths.insert(resize);
@@ -915,7 +923,7 @@ std::vector<IterDomain*> getPredicateDomains(
   // info does not seem to cover non-divisible reduction rfactor
   // splits.
   std::vector<IterDomain*> predicate_domains =
-      tv->hasReduction() ? tv->getMaybeRootDomain() : tv->getRFactorDomain();
+      tv->hasReduction() ? tv->getMaybeRootDomain() : tv->getLogicalDomain();
 
   // Broadcast domains should not be predicated
   predicate_domains.erase(
@@ -1020,7 +1028,7 @@ void TensorIndexer::buildLoopIndexMap() {
     // It's assumed that all sibling outputs share the same for-loops,
     // thus only one of the outputs is considered.
     auto tv_output = ir_utils::getTvOutput(expr);
-    for (auto leaf_id : tv_output->getLeafDomain()) {
+    for (auto leaf_id : tv_output->getLoopDomain()) {
       const ValGroup& loop_group =
           id_model_.idGraph(IdMappingMode::LOOP).toGroup(leaf_id);
 
@@ -1112,7 +1120,9 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   // loop_index_map_ is a map on the loop graph. For index
   // propagation, need a map for the exact graph
 
+  // If it's for predicates, it's always consumer indexing
   const bool as_consumer =
+      is_predicate ||
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
@@ -1176,8 +1186,10 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
     // index should be advanced by one except for the double-buffered
     // tensor itself
     if (for_loops.has_value() && GpuLower::hasCurrent() && !as_consumer) {
-      loop_index = adjustProducerLoopIndexForDoubleBuffering(
-          tv, ir_utils::getTvOutput(expr), for_loop, loop_index);
+      VERBOSE() << "May adjust: "
+                << tv->toString()
+                << "\n" << expr->toString();
+      loop_index = adjustProducerLoopIndexForDoubleBuffering(expr, for_loop, loop_index);
     }
 
     if (initial_index_map.find(almost_exact_group) != initial_index_map.end()) {
@@ -1344,7 +1356,7 @@ Val* TensorIndexer::getLinearIndex(
 std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // Assume consumer-based indexing. Needs to revisit for ops like
   // scatter
-  auto loop_domains = ir_utils::getTvOutput(expr)->getLeafDomain();
+  auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
 
   // If this is an expr initializing a buffer for a reduction, there
   // should be no loops for reduction domains
@@ -1475,6 +1487,7 @@ std::vector<Val*> TensorIndexer::getPerDimIndex(
   return indices;
 }
 
+#if 0
 Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
     TensorView* producer_tv,
     TensorView* consumer_tv,
@@ -1515,6 +1528,57 @@ Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
 
   return adjusted_loop_index;
 }
+#else
+Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
+    const Expr* expr,
+    const kir::ForLoop* for_loop,
+    Val* loop_index) const {
+  NVF_ERROR(for_loop != nullptr);
+
+  auto consumer_tv = ir_utils::getTvOutput(expr);
+
+  if (!consumer_tv->isDoubleBuffered()) {
+    return loop_index;
+  }
+
+  NVF_ERROR(expr->inputs().size() == 1);
+
+  auto producer_tv = expr->input(0)->as<TensorView>();
+
+  // Double-buffered tensor itself does not need this adjustment
+  if (producer_tv->isDoubleBuffered() &&
+      id_model_.idGraph(IdMappingMode::LOOP)
+          .disjointValSets()
+          .strictAreMapped(
+              getDoubleBufferAxis(producer_tv), for_loop->iter_domain())) {
+    return loop_index;
+  }
+
+  if (for_loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Main &&
+      for_loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Epilog) {
+    return loop_index;
+  }
+
+  const auto gpu_lower = GpuLower::current();
+  NVF_ERROR(
+      gpu_lower != nullptr,
+      "Double buffering info of GpuLower is required but GpuLower is missing");
+
+  auto stage_depth =
+      (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+          for_loop->iter_domain());
+
+  auto adjusted_loop_index = SimplifyingIrBuilder::addExpr(
+      loop_index,
+      SimplifyingIrBuilder::create<Val>(stage_depth - 1L, DataType::Index));
+
+  VERBOSE() << "Adjusted initial producer index: "
+            << adjusted_loop_index->toInlineString() << std::endl;
+  VERBOSE() << expr->toString();
+
+  return adjusted_loop_index;
+}
+#endif
 
 Val* TensorIndexer::adjustIndexToSwitchBuffer(
     TensorView* tv,

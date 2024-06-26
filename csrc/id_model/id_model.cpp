@@ -185,9 +185,9 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         // If the tensor domain is a view like domain, and the iteration
         // domain is marked as an rfactor product and is in the rfactor
         // domain, it's a view like rfactor iteration domain
-        const auto& rfactor_domain = tv->domain()->rfactor();
-        if (std::find(rfactor_domain.begin(), rfactor_domain.end(), id) !=
-            rfactor_domain.end()) {
+        const auto& logical_domain = tv->domain()->logical();
+        if (std::find(logical_domain.begin(), logical_domain.end(), id) !=
+            logical_domain.end()) {
           view_rfactor_ids_.emplace(id);
         }
       }
@@ -509,8 +509,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
   for (auto expr : exprs) {
     for (auto producer_tv :
          ir_utils::filterByType<TensorView>(expr->inputs())) {
-      const auto& producer_root = producer_tv->getRFactorDomain();
-      const auto& producer_domain = producer_tv->domain()->leaf();
+      const auto& producer_logical = producer_tv->getLogicalDomain();
+      const auto& producer_domain = producer_tv->domain()->loop();
 
       // Gather info on and producer-consumer
       // mappings of CA domains and broadcast resolution
@@ -519,7 +519,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
         // Grab all iteration domains in producer that its compute at iter
         // domains depend on.
         auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-            {producer_root.begin(), producer_root.end()},
+            {producer_logical.begin(), producer_logical.end()},
             {producer_domain.begin(),
              producer_domain.begin() +
                  producer_tv->getComputePosition(consumer_tv)});
@@ -774,8 +774,8 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
       id_definitions_[new_inputs.at(i)];
       id_uses_[new_inputs.at(i)];
       for (auto mode : initialized_modes) {
-        idGraph(mode).initializeVal(new_inputs.at(i), {}, {});
-        idGraph(mode).mapVals(new_inputs.at(i), tmp_inputs.at(i));
+        idGraph(mode).initializeVal(
+            new_inputs.at(i), idGraph(mode).toGroup(tmp_inputs.at(i)));
       }
     }
   }
@@ -856,16 +856,16 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
 
 void IdModel::validateLoopGraphHasNoSelfMappedLeafDomains() const {
   for (auto tv : tvs_) {
-    auto self_mappped_leaf_pair =
-        detectSelfMapping(tv->domain()->leaf(), idGraph(IdMappingMode::LOOP));
+    auto self_mappped_loop_pair =
+        detectSelfMapping(tv->domain()->loop(), idGraph(IdMappingMode::LOOP));
     NVF_ERROR(
-        !self_mappped_leaf_pair.has_value(),
-        "Detected leaf domains are mapped in the loop graph. Tensor: ",
+        !self_mappped_loop_pair.has_value(),
+        "Detected loop domains are mapped in the loop graph. Tensor: ",
         tv->toString(),
-        ". Mapped leaf domains: ",
-        self_mappped_leaf_pair->first->toString(),
+        ". Mapped loop domains: ",
+        self_mappped_loop_pair->first->toString(),
         " and ",
-        self_mappped_leaf_pair->second->toString());
+        self_mappped_loop_pair->second->toString());
   }
 }
 
@@ -911,6 +911,23 @@ void IdModel::validateAndPropagatePType() {
     }
 
     for (auto id : *loop_group) {
+      // id may not be a loop domain due to the broadcast merging,
+      // that is there's a merge expr whose output is also in this
+      // loop group.
+      bool not_a_loop_domain = false;
+      for (auto expr: id->uses()) {
+        auto merge = dynamic_cast<Merge*>(expr);
+        if (merge == nullptr) {
+          continue;
+        }
+        if (loop_group->has(merge->out())) {
+          not_a_loop_domain = true;
+          break;
+        }
+      }
+      if (not_a_loop_domain) {
+        continue;
+      }
       id->as<IterDomain>()->parallelize(common_ptype);
     }
   }

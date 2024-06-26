@@ -10,6 +10,7 @@
 #include <debug.h>
 #include <inlining.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
@@ -142,7 +143,7 @@ class DomainMap : public pointwise_utils::DomainMap {
  private:
   bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
     NVF_ERROR(tv != nullptr);
-    return (num_axes == 0 || (int64_t)tv->getRFactorDomain().size() > num_axes);
+    return (num_axes == 0 || (int64_t)tv->getLogicalDomain().size() > num_axes);
   }
 };
 
@@ -200,30 +201,30 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
         (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
   }
 
-  auto rfactor_reorder_map_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::RfactorReorderMap>(
+  auto logical_reorder_map_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>(
           data_cache, [&fusion, &largest_out]() {
-            // NOTE: rfactor_reorder_map is only applied for fusion without view
+            // NOTE: logical_reorder_map is only applied for fusion without view
             // op yet.
             if (!ir_utils::getViewOps(fusion).empty()) {
               return std::make_unique<std::unordered_map<int64_t, int64_t>>();
             }
             return std::make_unique<std::unordered_map<int64_t, int64_t>>(
-                scheduler_utils::maybeRfactorReorderAsAllocationMap(
+                scheduler_utils::maybeLogicalReorderAsAllocationMap(
                     largest_out));
           });
-  const std::unordered_map<int64_t, int64_t>& rfactor_reorder_map =
-      rfactor_reorder_map_entry.get();
+  const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
+      logical_reorder_map_entry.get();
 
-  auto ref_root = largest_out->getRFactorDomain();
-  // reorder of root to align with rfactor map should always help with indexing,
+  auto ref_root = largest_out->getLogicalDomain();
+  // reorder of root to align with logical map should always help with indexing,
   // even when vectorization isn't used.
-  if (!rfactor_reorder_map.empty()) {
-    ref_root = TensorDomain::orderedAs(ref_root, rfactor_reorder_map);
+  if (!logical_reorder_map.empty()) {
+    ref_root = TensorDomain::orderedAs(ref_root, logical_reorder_map);
   }
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  ref_root = TensorDomain::noReductions(ref_root);
+  ref_root = TensorDomain::noDevices(TensorDomain::noReductions(ref_root));
 
   std::vector<int64_t> elem_counts(ref_root.size(), 1);
   int64_t n_elems = 1;
@@ -239,8 +240,9 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   // If zero dimensional or zero size, return default parameters
-  if (TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(largest_out->getLeafDomain()))
+  if (TensorDomain::noDevices(
+          TensorDomain::noReductions(
+              TensorDomain::noBroadcasts(largest_out->getLoopDomain())))
           .empty() ||
       n_elems == 0) {
     auto vectorizable_inputs_outputs_entry = HeuristicSummaryEntry<
@@ -333,7 +335,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
   auto& broadcast_byte_multiples = broadcast_info.get().broadcast_multiples;
-
   NVF_ERROR(broadcast_byte_multiples.size() == ref_root.size());
 
   int64_t dtype_sum = 0;
@@ -456,7 +457,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
           largest_out,
           data_cache,
           break_point,
-          rfactor_reorder_map));
+          logical_reorder_map));
 
   if (vectorize_factor == 1) {
     params->vectorize = false;
@@ -489,8 +490,8 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
             << "vectorize_factor: " << vectorize_factor << std::endl
             << "\n"
-            << "rfactor_reorder_map: ";
-    for (auto [i, j] : rfactor_reorder_map) {
+            << "logical_reorder_map: ";
+    for (auto [i, j] : logical_reorder_map) {
       debug() << "(" << i << ", " << j << "), ";
     }
     debug() << "\nbroadcast_byte_multiples: ";
@@ -582,6 +583,9 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       reference_tv != nullptr,
       "Could not find a fully broadcasted output to reference schedule on.");
 
+  int64_t num_device_dims = numDeviceDims(reference_tv);
+  int64_t device_aware_break_point = params.break_point + num_device_dims;
+
   // Positions of rhs and lhs after merging all dimensions.
   int64_t rhs_i = -1;
   int64_t lhs_i = -1;
@@ -594,26 +598,28 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
     reference_tv->reorder(
-        scheduler_utils::domainReorderAsRfactorMap(reference_tv));
+        scheduler_utils::domainReorderAsLogicalMap(reference_tv));
+    // Reorder so that DeviceDims are in front
+    reorderDIDToFront(reference_tv);
 
-    // Break point is relative to rfactor domain, find the leaf domain ID's in
+    // Break point is relative to logical domain, find the loop domain ID's in
     // the left/right side, we really need the values in domain, but easiest way
     // to do this is with Dependency check which will grab all intermediate
     // values too.
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getRFactorDomain().begin(),
-         reference_tv->getRFactorDomain().begin() + params.break_point},
-        {reference_tv->getLeafDomain().begin(),
-         reference_tv->getLeafDomain().end()});
+        {reference_tv->getLogicalDomain().begin(),
+         reference_tv->getLogicalDomain().begin() + device_aware_break_point},
+        {reference_tv->getLoopDomain().begin() + num_device_dims,
+         reference_tv->getLoopDomain().end()});
 
     std::unordered_set<Val*> lhs_all_vals_set(
         lhs_all_vals.begin(), lhs_all_vals.end());
 
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getRFactorDomain().begin() + params.break_point,
-         reference_tv->getRFactorDomain().end()},
-        {reference_tv->getLeafDomain().begin(),
-         reference_tv->getLeafDomain().end()});
+        {reference_tv->getLogicalDomain().begin() + device_aware_break_point,
+         reference_tv->getLogicalDomain().end()},
+        {reference_tv->getLoopDomain().begin() + num_device_dims,
+         reference_tv->getLoopDomain().end()});
 
     std::unordered_set<Val*> rhs_all_vals_set(
         rhs_all_vals.begin(), rhs_all_vals.end());
@@ -665,14 +671,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // Don't need to worry about view transformations, just merge reference tv
     // as we normally would.
 
-    std::unordered_map<int64_t, int64_t> rfactor_reorder_map =
-        scheduler_utils::maybeRfactorReorderAsAllocationMap(reference_tv);
-    if (!rfactor_reorder_map.empty()) {
-      reference_tv->reorder(rfactor_reorder_map);
+    std::unordered_map<int64_t, int64_t> logical_reorder_map =
+        scheduler_utils::maybeLogicalReorderAsAllocationMap(reference_tv);
+    if (!logical_reorder_map.empty()) {
+      reference_tv->reorder(logical_reorder_map);
     }
+    reorderDIDToFront(reference_tv);
 
     // Merge right side of break point
-    for (int64_t i = reference_tv->nDims(); i > params.break_point; i--) {
+    for (int64_t i = reference_tv->nDims(); i > device_aware_break_point; i--) {
       auto axis_i = i - 1;
       if (rhs_i == -1) {
         rhs_i = axis_i;
@@ -687,7 +694,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     }
 
     // Merge left side of break point
-    for (int64_t i = params.break_point; i > 0; i--) {
+    for (int64_t i = device_aware_break_point; i > num_device_dims; i--) {
       auto axis_i = i - 1;
       if (lhs_i == -1) {
         lhs_i = axis_i;

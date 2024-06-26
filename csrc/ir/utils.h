@@ -78,16 +78,6 @@ struct MatmulInputs {
   std::vector<bool> bias_bcast_flags = {};
 };
 
-//! Matches the following matmul patterns.
-//! Matmul: A x B, alpha * A x B
-//! Matmul + Bias (addmm): A x B + C,  alpha * A x B + C, A x B + beta * C,
-//!   alpha * A x B  + beta * C
-//! Linear: A x B / A x B + C
-//! Assumptions:
-//! 1. For simplicity, we assume the MmaOp to be in the first operand.
-//! 2. For linear ([M, K], [N, K]), alpha, beta parameters are nullptr.
-bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp);
-
 } // namespace nvfuser::MmaOpUtils
 
 namespace nvfuser::ir_utils {
@@ -426,7 +416,7 @@ std::vector<ViewOp*> getViewOps(Fusion*);
 template <typename T>
 std::string toString(const T& nodes) {
   std::stringstream ss;
-  for (const Statement* stmt : nodes) {
+  for (auto stmt : nodes) {
     if (ss.tellp() != 0) {
       ss << ", ";
     }
@@ -438,7 +428,7 @@ std::string toString(const T& nodes) {
 template <typename T>
 std::string toInlineString(const T& nodes) {
   std::stringstream ss;
-  for (const Statement* stmt : nodes) {
+  for (auto stmt : nodes) {
     if (ss.tellp() != 0) {
       ss << ", ";
     }
@@ -487,7 +477,7 @@ bool isTorchGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 
-// Check if a tensor is resized as part of  its root to rfactor transformations
+// Check if a tensor is resized as part of its root to logical transformations
 bool hasResizedRfactor(const TensorView* tv);
 
 // Returns tvs that have symbolic axes
@@ -499,7 +489,7 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! transformations. This validation makes sure both sets
 //! of domains represent the same logical space.
 //!
-//! It is intended to be used to validate rfactor and leaf domains
+//! It is intended to be used to validate rfactor and loop domains
 //! of a tensor root domain.
 //!
 //! For example, it's an error if a initial ID is split and

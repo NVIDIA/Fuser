@@ -59,7 +59,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
       std::optional<std::vector<int64_t>> alloc_perm_opt =
           ir_utils::computePermutation(
-              TensorDomain::noReductions(input_tv->getRFactorDomain()),
+              TensorDomain::noReductions(input_tv->getLogicalDomain()),
               TensorDomain::noReductions(input_tv->getMaybeAllocationDomain()));
       if (alloc_perm_opt.has_value()) {
         // Save the strides in order of allocation domain in case the
@@ -228,8 +228,12 @@ bool checkCanSchedule(
       return checkCanSchedule<MatmulScheduler>(
           fusion, runtime_info, data_cache);
     case ScheduleHeuristic::ExprEval:
-      return checkCanSchedule<ExprEvalScheduler>(
-          fusion, runtime_info, data_cache);
+      // `ExprEval` only accepts a single op, so we don't need other checks
+      // which build a computeAt map. Note: `SdpaOp` does not work with
+      // `computeAt` since it requires all sibling outputs to have same root
+      // domain. `canSchedulerRuntime` is always true so only compile time check
+      // required here.
+      return ExprEvalScheduler::canScheduleCompileTime(fusion);
     default:
       NVF_ERROR(false, "unreachable");
       return false;
@@ -405,7 +409,7 @@ void HeuristicSummary::validate() const {
         if (!*can_schedule_transpose) {
           break;
         }
-        NVF_ERROR(entry_type_map_.count(EntryType::RFACTOR_REORDER_MAP));
+        NVF_ERROR(entry_type_map_.count(EntryType::LOGICAL_REORDER_MAP));
       }
       NVF_ERROR(entry_type_map_.count(EntryType::TRANSPOSE_DOMAIN_MAP));
       NVF_ERROR(entry_type_map_.count(
@@ -507,6 +511,6 @@ template class HeuristicSummaryEntry<HeuristicCompileTime::BroadcastMultiples>;
 template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::RfactorReorderMap>;
+template class HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>;
 
 } // namespace nvfuser

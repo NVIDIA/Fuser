@@ -178,20 +178,20 @@ class NVF_API TensorView : public Val {
     return domain()->maybeRoot();
   };
 
-  const std::vector<IterDomain*>& getRFactorDomain() const {
-    return domain()->rfactor();
+  const std::vector<IterDomain*>& getLogicalDomain() const {
+    return domain()->logical();
   };
 
   const std::vector<IterDomain*>& getAllocationDomain() const {
     return domain()->allocation();
   };
 
-  const std::vector<IterDomain*>& getLeafDomain() const {
-    return domain()->leaf();
+  const std::vector<IterDomain*>& getLoopDomain() const {
+    return domain()->loop();
   };
 
   // If allocation domain exists in domain() return it, otherwise return
-  // rfactor domain
+  // logical domain
   const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
     return domain()->maybeAllocation();
   };
@@ -312,7 +312,7 @@ class NVF_API TensorView : public Val {
       const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new);
 
   // Reorder axes based on the vector permutation.
-  // In terms of the function above, this can be seen as ol2new[index] =
+  // In terms of the function above, this can be seen as old2new[index] =
   // permutation[index]
   TensorView* reorder(const std::vector<int64_t>& permutation);
   TensorView* reorder(const std::initializer_list<int64_t>& permutation);
@@ -495,14 +495,14 @@ class NVF_API TensorView : public Val {
   // example, grouping multiple reductions.
   void updateMaxProducerPosition();
 
-  // Commit the current changes in leaf domain into rFactor domain. This
+  // Commit the current changes in loop domain into rFactor domain. This
   // function can be used to do implicit transpose and view, but today, only
   // implicit transpose is being tested. This function can be dangerous: it
   // changes the the semantics of the current tensor without updating its
   // consumers consistently, and there is no reliable way to detect this
   // inconsistency. It is the responsibility of the caller of this function to
   // ensure consistency.
-  void commitLeafToRFactor();
+  void commitLeafToLogical();
 
   //! Request that we reclaim the memory of this tv before any subsequent
   //! tensors are allocated.

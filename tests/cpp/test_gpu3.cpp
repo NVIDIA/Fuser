@@ -2054,17 +2054,17 @@ TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
 
   // They must not be mapped with anything else.
   for (auto tv : ir_utils::allTvs(&fusion)) {
-    for (auto root_id : tv->getRFactorDomain()) {
-      if (root_id == tv2_bc || root_id == tv3_bc) {
+    for (auto logical_id : tv->getLogicalDomain()) {
+      if (logical_id == tv2_bc || logical_id == tv3_bc) {
         continue;
       }
       NVF_CHECK(
-          !exact_map.areMapped(root_id, tv2_bc),
-          "Invalid exact root domain map: ",
+          !exact_map.areMapped(logical_id, tv2_bc),
+          "Invalid exact logical domain map: ",
           exact_map.toString());
       NVF_CHECK(
-          !exact_map.areMapped(root_id, tv3_bc),
-          "Invalid exact root domain map: ",
+          !exact_map.areMapped(logical_id, tv3_bc),
+          "Invalid exact logical domain map: ",
           exact_map.toString());
     }
   }
@@ -4975,7 +4975,7 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
   tv1->setMemoryType(MemoryType::Shared);
 
   // The predicate tv2 should look like (i * 4) + j < tv0.extent(0),
-  // where i and j are the loop indices of the two leaf axes,
+  // where i and j are the loop indices of the two loop axes,
   // respectively. PredChecker checks if the second loop index is
   // indeed used in the predicate of tv2.
 
@@ -5003,7 +5003,8 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
             std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
               auto int_val = inp->value();
               return int_val.hasValue() &&
-                  (int_val == vec_factor - 1 || int_val == -(vec_factor - 1));
+                  (int_val.as<int64_t>() == vec_factor - 1 ||
+                   int_val.as<int64_t>() == -(vec_factor - 1));
             });
         // If vectorized, the predicate should use (vec_factor - 1) or
         // -(vec_factor - 1) rather than the loop index.
@@ -6227,10 +6228,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
     if (tv && tv->name() == 15 && tv->getMemoryType() == MemoryType::Global) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+          thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
           predicted,
-          "Tv15 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+          "Tv15 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
       break;
     }
   }
@@ -6284,10 +6285,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
       if (tv && tv->name() == 8 && tv->getMemoryType() == MemoryType::Global) {
         const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
         bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-            thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+            thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
         NVF_CHECK(
             predicted,
-            "Tv8 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+            "Tv8 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
         break;
       }
     }
@@ -6436,10 +6437,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
     if (tv->name() == 5 || tv->name() == 6) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+          thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
           predicted,
-          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
     }
   }
 
@@ -6501,10 +6502,10 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
     if (tv->name() == 5 || tv->name() == 6) {
       const auto& thread_pred = thread_pred_map.getPredicateInfo(tv);
       bool predicted = thread_pred.redundant_types.get(ParallelType::BIDx) &&
-          thread_pred.broadcast_rd_indices_map.count(ParallelType::BIDx);
+          thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
           predicted,
-          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_rd_indices_map!");
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
     }
   }
 
@@ -6527,14 +6528,14 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->split(0, 4);
   // [I0/4, 4, I1]
 
-  // Initial domain: rfactor domain
+  // Initial domain: logical domain
   // Derived domain: [4, I1]
   // Should fail as the derived domain only partially covers the
-  // rfactor domain
+  // logical domain
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv1->getRFactorDomain(), {tv1->axis(1), tv1->axis(2)});
+            tv1->getLogicalDomain(), {tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
@@ -6542,24 +6543,24 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->merge(0);
   // [I0/4*4, I1]
 
-  // Initial domain: rfactor domain
-  // Derived domain: leaf domain
+  // Initial domain: logical domain
+  // Derived domain: loop domain
   // Should succeed.
   ir_utils::validateDomainEquivalence(
-      tv1->getRFactorDomain(), tv1->getLeafDomain());
+      tv1->getLogicalDomain(), tv1->getLoopDomain());
 
   auto tv1_intermediate_id = tv1->axis(0);
 
   tv1->split(0, 3);
   // [I0/4*4/3, 3, I1]
 
-  // Initial domain: rfactor domain
-  // Derived domain: leaf + tv1_intermediate_id
-  // Should fail as the intermediate ID and the first two leaves are redundant
+  // Initial domain: logical domain
+  // Derived domain: loop + tv1_intermediate_id
+  // Should fail as the intermediate ID and the first two loop ids are redundant
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv1->getRFactorDomain(),
+            tv1->getLogicalDomain(),
             {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
@@ -6572,7 +6573,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
        IrBuilder::create<Val>(DataType::Int)});
 
   ir_utils::validateDomainEquivalence(
-      tv2->getRootDomain(), tv2->getLeafDomain());
+      tv2->getRootDomain(), tv2->getLoopDomain());
 
   // create a 2D tensor with one symbolid and another non-symbolic
   auto tv4 = broadcast(sum(tv2, {1}), {false, true});
@@ -6583,7 +6584,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   // [S0, B0/4, 4]
 
   ir_utils::validateDomainEquivalence(
-      tv4->getRFactorDomain(), tv4->getLeafDomain());
+      tv4->getLogicalDomain(), tv4->getLoopDomain());
 
   // Initial domain: root domain
   // Derived domain: [S0, B0/4]
@@ -6592,7 +6593,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
-            tv4->getRFactorDomain(), {tv4->axis(0), tv4->axis(1)});
+            tv4->getLogicalDomain(), {tv4->axis(0), tv4->axis(1)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Invalid derived domain")));
@@ -6632,7 +6633,7 @@ TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
 }
 
 // Test for void IterDomain::parallelize(ParallelType t)
-// Only allowed to parallelize a leaf domain.
+// Only allowed to parallelize a loop domain.
 TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -6646,16 +6647,16 @@ TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
   tv1->split(1, 4);
   // [I0, I1/4, 4]
 
-  const auto& rfactor_domain = tv1->getRFactorDomain();
+  const auto& logical_domain = tv1->getLogicalDomain();
 
-  // legal, as I0 is also a leaf domain
-  rfactor_domain[0]->parallelize(ParallelType::BIDx);
+  // legal, as I0 is also a loop domain
+  logical_domain[0]->parallelize(ParallelType::BIDx);
 
-  // llegal, as I1 is not a leaf domain
+  // llegal, as I1 is not a loop domain
   EXPECT_THAT(
-      [&]() { rfactor_domain[1]->parallelize(ParallelType::BIDy); },
+      [&]() { logical_domain[1]->parallelize(ParallelType::BIDy); },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Only allowed to parallelize a leaf domain")));
+          testing::HasSubstr("Only allowed to parallelize a loop domain")));
 }
 
 // delete intermediate tensors between segments to reduce memory usage of large
@@ -6984,7 +6985,7 @@ TEST_F(NVFuserTest, Repro413_CUDA) {
       auto expect_vec_factor = std::gcd(m, k);
 
       auto getVectorizationFactor = [](TensorView* tv) -> int64_t {
-        for (auto i : tv->getLeafDomain()) {
+        for (auto i : tv->getLoopDomain()) {
           if (i->getParallelType() == ParallelType::Vectorize) {
             return i->extent()->evaluate().as<int64_t>();
           }
@@ -8157,8 +8158,8 @@ TEST_F(NVFuserTest, ReverseMerge) {
   ASSERT_EQ(tv1->nDims(), 1);
   auto merge = dynamic_cast<Merge*>(tv1->axis(0)->definition());
   ASSERT_NE(merge, nullptr);
-  ASSERT_EQ(merge->outer(), tv1->getRFactorDomain().at(1));
-  ASSERT_EQ(merge->inner(), tv1->getRFactorDomain().at(0));
+  ASSERT_EQ(merge->outer(), tv1->getLogicalDomain().at(1));
+  ASSERT_EQ(merge->inner(), tv1->getLogicalDomain().at(0));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({11, 12}, options);
@@ -8167,6 +8168,39 @@ TEST_F(NVFuserTest, ReverseMerge) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
   ASSERT_TRUE(t0.equal(cg_outputs.at(0)));
+}
+
+// Can't use CpAsync with shared memory predicate.
+// https://github.com/NVIDIA/Fuser/issues/2346
+TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int m = 33, n = 48;
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = exp(tv0);
+  fusion.addOutput(tv1);
+
+  auto tvs = tv0->cacheAfter(LoadStoreOpType::CpAsync);
+  tvs->setMemoryType(MemoryType::Shared);
+
+  tvs->split(-1, 4);
+  tvs->axis(-1)->parallelize(ParallelType::Vectorize);
+  tvs->axis(-2)->parallelize(ParallelType::TIDx);
+  tvs->axis(-3)->parallelize(ParallelType::BIDx);
+
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(-2)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({m, n}, options);
+
+  FusionExecutor fe;
+  EXPECT_THAT(
+      [&]() { fe.compileFusion(&fusion, {t0}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("unsupported use case of cp.async")));
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

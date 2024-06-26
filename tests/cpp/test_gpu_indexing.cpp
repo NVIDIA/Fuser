@@ -871,10 +871,10 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
     if (dynamic_cast<Split*>(id->definition()) != nullptr) {
       if (id->uses().empty()) {
         auto it = std::find(
-            tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id);
-        NVF_ERROR(it != tv->getLeafDomain().end());
+            tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id);
+        NVF_ERROR(it != tv->getLoopDomain().end());
         int leaf_pos =
-            static_cast<int>(std::distance(tv->getLeafDomain().begin(), it));
+            static_cast<int>(std::distance(tv->getLoopDomain().begin(), it));
         return tv10->axis(leaf_pos);
       } else {
         return tv10->axis(0)->definition()->input(0)->as<IterDomain>();
@@ -939,9 +939,9 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
 
       // If id is a leaf, make sure it isn't mapped with
       auto leaf_id_it =
-          std::find(tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id);
-      if (leaf_id_it != tv->getLeafDomain().end() &&
-          std::distance(tv->getLeafDomain().begin(), leaf_id_it) >=
+          std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id);
+      if (leaf_id_it != tv->getLoopDomain().end() &&
+          std::distance(tv->getLoopDomain().begin(), leaf_id_it) >=
               tv->getComputeAtPosition()) {
         for (auto loop_mapped_id : *loop_group) {
           if (loop_mapped_id == id) {
