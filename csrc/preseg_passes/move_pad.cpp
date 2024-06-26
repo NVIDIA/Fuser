@@ -151,8 +151,9 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // domains
     TensorView* pad_out_tv = pad_op->out()->as<TensorView>();
     std::vector<IterDomain*> new_root = IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
+    TensorDomain new_td = TransformReplay::fullSelfReplay(IrBuilder::create<TensorDomain>(new_root), pad_out_tv->domain(), true);
     auto new_out = IrBuilder::create<TensorView>(
-        TransformReplay::fullSelfReplay(IrBuilder::create<TensorDomain>(new_root), pad_out_tv->domain()),
+        new_td,
         edge.val()->getDataType().value());
     IrBuilder::create<PadOp>(
         new_out,

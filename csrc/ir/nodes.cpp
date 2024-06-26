@@ -2540,11 +2540,12 @@ IterDomain* IterDomain::cloneWithoutRFactor() const {
       domains.begin(),
       domains.end(),
       std::back_inserter(cloned_domains),
-      [](auto id) { IterDomain* new_id = id->cloneWithoutRFactor(); 
-      if (with_rfactor && id->isRFactorProduct()) {
-        new_id->is_rfactor_domain = true;
+      [&with_rfactor](auto id) {
+      if (with_rfactor) {
+        return id->cloneWithoutRFactor();
+      } else {
+        return IterDomainBuilder(id).build();
       }
-      return new_id;
       });
   return cloned_domains;
 }
