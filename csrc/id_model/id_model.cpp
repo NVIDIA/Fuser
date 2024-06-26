@@ -892,4 +892,28 @@ std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
   return new_map;
 }
 
+// Mostly just copied from ComputeAtMap::validateAndPropagatePType
+void IdModel::validateAndPropagatePType() {
+  for (const ValGroup& loop_group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    ParallelType common_ptype = ParallelType::Serial;
+    for (Val* id : *loop_group) {
+      auto id_ptype = id->as<IterDomain>()->getParallelType();
+      NVF_ERROR(
+          id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
+              common_ptype == ParallelType::Serial,
+          "Issue validating parallel type disjoint ptype is, ",
+          common_ptype,
+          " but found in the set the id: ",
+          id->toString());
+      common_ptype =
+          common_ptype == ParallelType::Serial ? id_ptype : common_ptype;
+    }
+
+    for (auto id : *loop_group) {
+      id->as<IterDomain>()->parallelize(common_ptype);
+    }
+  }
+}
+
 } // namespace nvfuser

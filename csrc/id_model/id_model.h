@@ -23,12 +23,12 @@ class ValGraph;
 class LoopPromotionMapBuilderCallback;
 
 struct StatefulInliningInfo {
-  // All producer ids within (including dependencies of) inlined leaf domains,
+  // All producer ids within (including dependencies of) inlined loop domains,
   // used for deterministic order
   VectorOfUniqueEntries<IterDomain*> ordered_p_ca_ids;
 
   // p2c mappings through the fusion within (including dependencies of) inlined
-  // leaf domains.
+  // loop domains.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
       p2c_ca_permissive_maps;
 
@@ -76,7 +76,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 // threadIdx.y{i0i}](computeAt = 1) which can easily happen when using shared
 // memory. Loop is actually defined for all iteration domains, and resembles
 // groups of iter domains that are effectively inlined with each other.
-// Therefore iter domain's that are a common dependency of inlined leaf domains
+// Therefore iter domain's that are a common dependency of inlined loop domains
 // may be loop mapped together.
 //
 // Loop promotion is a mechanism by which to capture inlined resolved
@@ -210,10 +210,12 @@ class IdModel : public PolymorphicBase {
   // replayed expression and adding potential mappings through the expression.
   Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
 
- protected:
-  // Fusion where iter domains belong
-  Fusion* fusion_ = nullptr;
+  //! Run through disjoint sets in the LOOP graph, make sure there's only one
+  //! non-serial parallel type in each disjoint set, set the parallel type of
+  //! all IterDomains in the disjoint set to that PType.
+  void validateAndPropagatePType();
 
+ protected:
   // Fills id_uses_ and id_definitions_ for all IterDomains active in the
   // fusion.
   void buildIterDomainDefinitionsAndUses();
@@ -235,11 +237,14 @@ class IdModel : public PolymorphicBase {
   void assertNoSelfMapping();
 
   // Loop graph represents the loop structure of the given fusion, so
-  // there must not be any mapping between the leaf domains of each
+  // there must not be any mapping between the loop domains of each
   // tensor.
   void validateLoopGraphHasNoSelfMappedLeafDomains() const;
 
  protected:
+  // Fusion where iter domains belong
+  Fusion* fusion_ = nullptr;
+
   // All tensor expressions that this model analyzes
   std::vector<Expr*> tv_exprs_;
 
