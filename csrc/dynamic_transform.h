@@ -295,7 +295,7 @@ class DynamicTransform {
       const DynamicTransformConcretizationInfo* info);
 
   //! Calls the above after computing concretization info from inputs
-  NVF_API static void concretizeFusion(
+  static void concretizeFusion(
       Fusion* fusion,
       const std::vector<c10::IValue>& aten_inputs);
 };
