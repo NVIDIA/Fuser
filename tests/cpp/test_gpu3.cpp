@@ -8258,18 +8258,26 @@ TEST_F(NVFuserTest, DecoupledDomains) {
     auto id1 = IterDomainBuilder(s1->fusion()->zeroVal(), s1).build();
     auto id2 = IterDomainBuilder(s2->fusion()->zeroVal(), s2).build();
     auto id3 = IterDomainBuilder(s3->fusion()->zeroVal(), s3).build();
+    std::unordered_set<IterDomain*> all_ids{id0, id1, id2, id3};
     AbstractTensor dom0({id0, id1, id2, id3});
     AbstractTensor dom1 = dom0;
     dom0.merge(2);
+    all_ids.insert(dom0[2].as<IterDomain*>());
     dom0.split(2, 256);
+    all_ids.insert(dom0[2].as<IterDomain*>());
+    all_ids.insert(dom0[3].as<IterDomain*>());
     dom1.merge(0);
+    all_ids.insert(dom1[0].as<IterDomain*>());
     dom1.split(0, 256);
-    return std::make_pair(dom0.as<IterDomain*>(), dom1.as<IterDomain*>());
+    all_ids.insert(dom1[0].as<IterDomain*>());
+    all_ids.insert(dom1[1].as<IterDomain*>());
+    return std::make_tuple(
+        dom0.as<IterDomain*>(), dom1.as<IterDomain*>(), all_ids);
   };
-  auto [logical_xx0, logical_xx1] = create_xx_shape_structure();
-  auto [root_xx0, root_xx1] = create_xx_shape_structure();
-  auto [alloc_xx0, alloc_xx1] = create_xx_shape_structure();
-  auto [loop_xx0, loop_xx1] = create_xx_shape_structure();
+  auto [logical_xx0, logical_xx1, logical_all] = create_xx_shape_structure();
+  auto [root_xx0, root_xx1, root_all] = create_xx_shape_structure();
+  auto [alloc_xx0, alloc_xx1, alloc_all] = create_xx_shape_structure();
+  auto [loop_xx0, loop_xx1, loop_all] = create_xx_shape_structure();
 
   auto concat = [](auto x, auto y, auto z, auto q) {
     std::vector<IterDomain*> result;
@@ -8278,7 +8286,7 @@ TEST_F(NVFuserTest, DecoupledDomains) {
     result.insert(result.end(), y.begin(), y.end());
     result.insert(result.end(), z.begin(), z.end());
     result.insert(result.end(), q.begin(), q.end());
-    return result;
+    return decltype(x)(result.begin(), result.end());
   };
   auto logical_domain = concat(logical_xx1, root_xx0, alloc_xx0, loop_xx0);
   auto root_domain = concat(logical_xx0, root_xx1, alloc_xx0, loop_xx0);
@@ -8288,7 +8296,11 @@ TEST_F(NVFuserTest, DecoupledDomains) {
 
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       root_domain, logical_domain, allocation_domain, loop_domain, contiguity);
-  IrBuilder::create<TensorView>(td, DataType::Float);
+  TensorView* tv = IrBuilder::create<TensorView>(td, DataType::Float);
+  auto all_ids = concat(logical_all, root_all, alloc_all, loop_all);
+  auto tv_all_vec = ir_utils::allIDsOf(tv);
+  std::unordered_set<IterDomain*> tv_all(tv_all_vec.begin(), tv_all_vec.end());
+  EXPECT_EQ(tv_all, all_ids);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
