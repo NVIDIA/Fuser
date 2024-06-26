@@ -12,6 +12,7 @@
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
+#include <ir/cloner.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
@@ -153,6 +154,9 @@ class MultiDeviceExecutor {
   std::vector<Val*> vals_to_allocate_;
 
   MultiDeviceExecutorParams params_;
+  std::unique_ptr<hir::HostIrExecutor> host_ir_executor;
+  std::unique_ptr<IrCloner> ir_cloner_;
+
 };
 
 } // namespace nvfuser

@@ -9,6 +9,8 @@
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
+#include <host_ir/host_ir.h>
+#include <ir/builder.h>
 #include <ir/utils.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/executor.h>
@@ -101,6 +103,49 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   }
   allocator_fusion_ =
       copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
+
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(hic.get());
+  ir_cloner_ = std::make_unique<IrCloner>(hic.get());
+  auto* ir_cloner_ptr = ir_cloner_.get();
+  auto clone = [ir_cloner_ptr] (const std::vector<Val*>& vals) -> std::vector<Val*> {
+    std::vector<Val*> cloned_vals;
+    for (auto val: vals) {
+      cloned_vals.push_back(ir_cloner_ptr->clone(val));
+    }
+    return cloned_vals;
+  };
+
+
+  for (auto group: workspace_.group_run_order) {
+    std::vector<Expr*> host_exprs;
+    if (!should_run_.at(group)) {
+      continue;
+    }
+    if (!is_resharding_.at(group)) {
+      auto host_unit = IrBuilder::create<hir::HostUnit>(staged_fusion_->makeFusion(group).second);
+      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
+          host_unit, clone(group->inputs()), clone(group->outputs()));
+      hic->pushBackTopLevelExprs(post_on_stream);
+    } else {
+      NVF_ERROR(
+        group->exprs().size() == 1,
+        "Communication segments must contain only one Expr");
+      std::vector<Communication*> communications = lowerCommunication(ir_cloner_->clone(group->exprs().at(0)));
+      for (Communication* communication : communications) {
+        auto wait = IrBuilder::create<hir::Wait>(communication);
+        hic->pushBackTopLevelExprs(communication);
+        hic->pushBackTopLevelExprs(wait);
+      }
+    }
+  }
+  for (auto input: staged_fusion_->inputs()) {
+      hic->addInput(ir_cloner_->clone(input));
+  }
+  for (auto output: staged_fusion_->outputs()) {
+      hic->addOutput(ir_cloner_->clone(output));
+  }
+  host_ir_executor = std::make_unique<hir::HostIrExecutor>(std::move(hic), &comm);
 }
 
 void MultiDeviceExecutor::postKernel(
@@ -228,6 +273,20 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
         inputs.at(input_idx);
   }
 
+  std::unordered_map<Val*, c10::IValue> val_to_IValue_for_hie(val_to_IValue_);
+  for (auto input_idx : c10::irange(inputs.size())) {
+    val_to_IValue_for_hie[host_ir_executor->inputs().at(input_idx)] =
+        inputs.at(input_idx);
+  }
+
+  for (auto it: val_to_IValue_) {
+    val_to_IValue_for_hie[ir_cloner_->clone(it.first)] = it.second;
+  }
+
+  for (auto it: val_to_IValue_) {
+    val_to_IValue_for_hie[it.first] = it.second;
+  }
+
   // Run through the groups to launch kernels and comms
   for (auto group : workspace_.group_run_order) {
     if (!is_resharding_.at(group)) {
@@ -246,6 +305,13 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     outputs.push_back(output);
   }
 
+  auto alternative_outputs = host_ir_executor->runWithInput(val_to_IValue_for_hie);
+  // std::cout << "Alternative_outputs"
+  NVF_ERROR(alternative_outputs.size() == outputs.size());
+  for (auto i :c10::irange(alternative_outputs.size())) {
+    NVF_ERROR( (alternative_outputs[i].numel() == 0 && outputs[i].numel() == 0) ||
+      torch::allclose(alternative_outputs[i], outputs[i]), "i=", i);
+  }
   return outputs;
 }
 
