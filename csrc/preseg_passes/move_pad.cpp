@@ -13,6 +13,7 @@
 #include <ir/internal_base_nodes.h>
 #include <transform_replay.h>
 #include <ops/alias.h>
+#include <ops/arith.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -189,24 +190,22 @@ void MovePadPass::runPass(Fusion* fusion) {
     }
     // NOTE: I'm hitting an index error with PadOp in device_lower/pass/index.cpp:1944
     Val* res = nullptr;
+    TensorView* cat_out_tv = cat->output(0)->as<TensorView>();
+    bool is_boolean = isBooleanType(cat_out_tv->getDataType().value());
     for (Val* inp : cat->inputs()) {
       if (res == nullptr) {
         res = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
       } else {
         Val* rhs = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
-
-	std::vector<IterDomain*> new_logical_domain;
-	// we need to create new id since we might have multiple intermediate outputs
-	for (IterDomain* out_logical_id : cat->output(0)->getLogicalDomain()) {
-          new_logical_domain.push_back(IterDomainBuilder(out_logical_id).build());
+	if(is_boolean) {
+	   res = bitwise_or(res, rhs);
+	} else {
+	  res = add(res, rhs);
 	}
-	Val* new_out = IrBuilder::create<TensorView>(
-            IrBuilder::create<TensorDomain>(new_logical_domain),
-            res->getDataType().value());
-	IrBuilder::create<BinaryOp>(BinaryOpType::Add, new_out, res, rhs);
-	res = new_out;
       }
     }
+    // restore data type if it's promoted by BinaryOp.
+    res = maybeCastOp(cat_out_tv->getDataType().value(), res);
 
     // TODO: We won't have it in tests yet, but would replaceValue also replace the outputs of the fusion?
     // TODO: does this invalidate the downstream exprs?
