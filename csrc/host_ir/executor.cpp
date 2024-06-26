@@ -22,7 +22,8 @@ HostIrExecutor::HostIrExecutor(
       params_(params) {}
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
-    std::unordered_map<Val*, c10::IValue> val_to_IValue, LaunchParams launch_params) {
+    std::unordered_map<Val*, c10::IValue> val_to_IValue,
+    LaunchParams launch_params) {
   // process input values
   val_to_IValue_ = std::move(val_to_IValue);
   launch_params_ = std::move(launch_params);
@@ -43,8 +44,8 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
     // auto output = val_to_IValue_.at(output_val).toTensor();
 
     auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
-      ? val_to_IValue_.at(output_val).toTensor()
-      : at::Tensor();
+        ? val_to_IValue_.at(output_val).toTensor()
+        : at::Tensor();
 
     outputs.push_back(output);
   }

@@ -71,24 +71,27 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       .run_final_merge = true,
       .only_segment_resharding_exprs = true};
   std::unique_ptr<SegmentedFusion> staged_fusion =
-      SegmentCandidateFinder::segment(std::make_unique<Fusion>(*complete_fusion_), nullptr, options);
-  // Infer a topologically ordered traversal of the segmented fusion to determine the order for launching the kernels/comms
+      SegmentCandidateFinder::segment(
+          std::make_unique<Fusion>(*complete_fusion_), nullptr, options);
+  // Infer a topologically ordered traversal of the segmented fusion to
+  // determine the order for launching the kernels/comms
   RuntimeWorkSpace workspace;
   prepareRuntimeOrder(staged_fusion.get(), workspace);
 
   // Create the HostIrContainer representing the host program
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(hic.get());
-  IrCloner ir_cloner (hic.get());
-  auto clone = [&ir_cloner] (const std::vector<Val*>& vals) -> std::vector<Val*> {
+  IrCloner ir_cloner(hic.get());
+  auto clone =
+      [&ir_cloner](const std::vector<Val*>& vals) -> std::vector<Val*> {
     std::vector<Val*> cloned_vals;
-    for (auto val: vals) {
+    for (auto val : vals) {
       cloned_vals.push_back(ir_cloner.clone(val));
     }
     return cloned_vals;
   };
 
-  for (auto group: workspace.group_run_order) {
+  for (auto group : workspace.group_run_order) {
     std::vector<Expr*> host_exprs;
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
     bool is_resharding = std::any_of(
@@ -99,15 +102,17 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       continue;
     }
     if (!is_resharding) {
-      auto host_unit = IrBuilder::create<hir::HostUnit>(staged_fusion->makeFusion(group).second);
+      auto host_unit = IrBuilder::create<hir::HostUnit>(
+          staged_fusion->makeFusion(group).second);
       auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
           host_unit, clone(group->inputs()), clone(group->outputs()));
       hic->pushBackTopLevelExprs(post_on_stream);
     } else {
       NVF_ERROR(
-        group->exprs().size() == 1,
-        "Communication segments must contain only one Expr");
-      std::vector<Communication*> communications = lowerCommunication(ir_cloner.clone(group->exprs().at(0)));
+          group->exprs().size() == 1,
+          "Communication segments must contain only one Expr");
+      std::vector<Communication*> communications =
+          lowerCommunication(ir_cloner.clone(group->exprs().at(0)));
       for (Communication* communication : communications) {
         auto wait = IrBuilder::create<hir::Wait>(communication);
         hic->pushBackTopLevelExprs(communication);
@@ -115,15 +120,16 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       }
     }
   }
-  for (auto input: staged_fusion->inputs()) {
-      hic->addInput(ir_cloner.clone(input));
+  for (auto input : staged_fusion->inputs()) {
+    hic->addInput(ir_cloner.clone(input));
   }
-  for (auto output: staged_fusion->outputs()) {
-      hic->addOutput(ir_cloner.clone(output));
+  for (auto output : staged_fusion->outputs()) {
+    hic->addOutput(ir_cloner.clone(output));
   }
 
   // Create the HostIrExecutor representing the host program
-  host_ir_executor_ = std::make_unique<hir::HostIrExecutor>(std::move(hic), &comm, std::move(params));
+  host_ir_executor_ = std::make_unique<hir::HostIrExecutor>(
+      std::move(hic), &comm, std::move(params));
 
   // Allocator setup
   // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
@@ -142,9 +148,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       }
     }
   }
-  allocator_fusion_ =
-      copyFusionAndChangeOutputs(staged_fusion->completeFusion(), vals_to_allocate_);
-
+  allocator_fusion_ = copyFusionAndChangeOutputs(
+      staged_fusion->completeFusion(), vals_to_allocate_);
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
