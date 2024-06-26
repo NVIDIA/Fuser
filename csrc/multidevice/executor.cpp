@@ -144,12 +144,13 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       auto tv = val->as<TensorView>();
       NVF_ERROR(tv->hasDeviceMesh());
       if (tv->getDeviceMesh().has(comm_.deviceId())) {
-        vals_to_allocate_.push_back(ir_cloner.clone(val));
+        vals_to_allocate_.push_back(val);
       }
     }
   }
   allocator_fusion_ = copyFusionAndChangeOutputs(
       staged_fusion->completeFusion(), vals_to_allocate_);
+  vals_to_allocate_ = clone(vals_to_allocate_);
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
