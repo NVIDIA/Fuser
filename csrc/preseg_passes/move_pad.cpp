@@ -90,28 +90,29 @@ Val* propagatePadToProducer(PadOp* pad_op) {
 
     if (def->isA<UnaryOp>()) {
       auto* uop = def->as<UnaryOp>();
-      // TODO: exception to break propagation.
+      // TODO: exception to break propagation. i.e. check op type and exclude division by 0
       if (candidate_check(uop->in())) {
         stack.emplace(uop, 0);
         replay_sequence.push_back(uop);
         continue;
       }
       // This will require us having `replayExprWithNewInput` to support binary
-      // ops. } else if (def->isA<BinaryOp>()) {
-      //   auto* bop = def->as<BinaryOp>();
-      //   // TODO: exception to break propagation.
-      //   // TODO: check for broadcast stuff.
-      //   if (candidate_check(bop->lhs()) && candidate_check(bop->rhs())) {
-      //     stack.emplace(uop, 0);
-      //     continue;
-      //   }
-
+      // ops. 
       // TODO: adding pad_op
       // } else if (def->isA<PadOp>()) {
       //   if (candidate_check(def->input(0))) {
       //     // NOTE: stopping propagation, we'll merge it with its consumer
       //     padOp frontier.emplace_back(def, 0); continue;
       //   }
+    } else if (def->isA<BinaryOp>()) {
+      auto* bop = def->as<BinaryOp>();
+      // TODO: exception to break propagation. i.e. check op type and exclude division by 0; check for broadcast stuff.
+      if (candidate_check(bop->lhs()) && candidate_check(bop->rhs())) {
+        stack.emplace(bop, 0);
+        stack.emplace(bop, 1);
+        replay_sequence.push_back(bop);
+        continue;
+      }
     }
 
     if (edge.val() != pad_op->in()) {
@@ -166,9 +167,19 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   // need to follow the reverse order from earlier stack traversal.
   std::reverse(replay_sequence.begin(), replay_sequence.end());
   for (Expr* e : replay_sequence) {
-    // TODO extend this for multiple inputs.
-    Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)));
-    replacement_map[e->output(0)] = padded_e->output(0);
+    if (e->isA<UnaryOp>()) {
+      // TODO extend this for multiple inputs.
+      Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)));
+      replacement_map[e->output(0)] = padded_e->output(0);
+    } else if (e->isA<BinaryOp>()) {
+      // Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)), replacement_map.at(e->input(1)));
+      std::vector<Val*> vals = {replacement_map.at(e->input(0)), replacement_map.at(e->input(1))};
+      Val* out = ops::newOutputTV(vals, e->output(0)->getDataType());
+      Expr* padded_e = IrBuilder::create<BinaryOp>(e->as<BinaryOp>()->getBinaryOpType(), out, vals[0], vals[1]);
+      replacement_map[e->output(0)] = padded_e->output(0);
+    } else {
+      NVF_ERROR(false, "expr type for propagation is not implemented");
+    }
   }
 
   // return the replacement input to pad_op, since we have already padded
@@ -182,7 +193,7 @@ void MovePadPass::runPass(Fusion* fusion) {
   // TODO: verify that no dead branch is traversed in exprs.
   std::vector<Expr*> exprs = fusion->exprs();
 
-  // NOTE: should we expand this optimization to general pad but not just pad
+  // TODO: should we expand this optimization to general pad but not just pad
   // within cat?
 
   // is this traversing in topo order?
