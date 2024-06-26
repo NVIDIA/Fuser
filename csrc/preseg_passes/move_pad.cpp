@@ -141,10 +141,10 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // replacement_map[edge.val()] = pad(edge.val()->as<TensorView>(), pad_width, pad_op->value());
 
     NVF_ERROR(edge.val()->getDataType().has_value(), "pad source dtype is missing");
+    // NOTE: the old pad_op is going away from DCE, so it's ok to reuse its domains
     auto new_out = IrBuilder::create<TensorView>(
     IrBuilder::create<TensorDomain>(pad_op->out()->as<TensorView>()->domain()),
     edge.val()->getDataType().value());
-
     IrBuilder::create<PadOp>(new_out, edge.val()->as<TensorView>(), pad_op->getPadWidths(), pad_op->value());
 
     replacement_map[edge.val()] = new_out;
@@ -194,11 +194,17 @@ void MovePadPass::runPass(Fusion* fusion) {
         res = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
       } else {
         Val* rhs = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
-	      Val* new_out = IrBuilder::create<TensorView>(
-          IrBuilder::create<TensorDomain>(res->as<TensorView>()->domain()),
-          res->getDataType().value());
-	      IrBuilder::create<BinaryOp>(BinaryOpType::Add, new_out, res, rhs);
-	      res = new_out;
+
+	std::vector<IterDomain*> new_logical_domain;
+	// we need to create new id since we might have multiple intermediate outputs
+	for (IterDomain* out_logical_id : cat->output(0)->getLogicalDomain()) {
+          new_logical_domain.push_back(IterDomainBuilder(out_logical_id).build());
+	}
+	Val* new_out = IrBuilder::create<TensorView>(
+            IrBuilder::create<TensorDomain>(new_logical_domain),
+            res->getDataType().value());
+	IrBuilder::create<BinaryOp>(BinaryOpType::Add, new_out, res, rhs);
+	res = new_out;
       }
     }
 
