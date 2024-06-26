@@ -372,7 +372,7 @@ std::vector<reshape_example> reshape_after_reduce_examples = {
 namespace {
 using ReshapeBeforeReduction = NVFuserFixtureParamTest<reshape_example>;
 TEST_P(ReshapeBeforeReduction, FusionReshapeBeforeReduction) {
-  auto e = GetParam();
+  const auto& [input_shape, output_shape] = GetParam();
   maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
   reductionViewAddFusion(
       e.first, e.second, true /* reshape_before_reduction */);
