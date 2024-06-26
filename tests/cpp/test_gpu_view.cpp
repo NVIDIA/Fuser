@@ -369,8 +369,8 @@ std::vector<reshape_example> reshape_after_reduce_examples = {
     {{1, 27454, 1, 2}, {1, 3922, 1, 7}},
     {{1, 7844, 1, 7}, {1, 1961, 4}}};
 
-// Parameterized test for reshape before reduction
-using ReshapeBeforeReduction =  NVFuserFixtureParamTest<reshape_example>;
+namespace {
+using ReshapeBeforeReduction = NVFuserFixtureParamTest<reshape_example>;
 TEST_P(ReshapeBeforeReduction, FusionReshapeBeforeReduction) {
   auto e = GetParam();
   maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
@@ -381,9 +381,10 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     ReshapeBeforeReduction,
     ::testing::ValuesIn(all_reshape_examples));
+} // namespace
 
-// Parameterized test for reshape after reduction
-using ReshapeAfterReduction =  NVFuserFixtureParamTest<reshape_example>;
+namespace {
+using ReshapeAfterReduction = NVFuserFixtureParamTest<reshape_example>;
 TEST_P(ReshapeAfterReduction, FusionReshapeAfterReduction) {
   auto e = GetParam();
   maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
@@ -394,6 +395,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     ReshapeAfterReduction,
     ::testing::ValuesIn(reshape_after_reduce_examples));
+} // namespace
 
 void persistentViewAddFusion(
     std::vector<int64_t>& input_shape,
