@@ -106,7 +106,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       //   }
     } else if (def->isA<BinaryOp>()) {
       auto* bop = def->as<BinaryOp>();
-      // TODO: exception to break propagation. i.e. check op type and exclude division by 0; check for broadcast stuff.
+      // TODO: exception to break propagation. i.e. check op type and exclude division by 0; check for broadcast on padded axis.
       if (candidate_check(bop->lhs()) && candidate_check(bop->rhs())) {
         stack.emplace(bop, 0);
         stack.emplace(bop, 1);
