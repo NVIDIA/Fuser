@@ -448,13 +448,22 @@ void scheduleTMALoad(
   // We move the broadcast dim to be the left most.
   moveInnerBroadcastLeft(tv);
 
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, M]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, Mo, M8]
+    tv->reorder({{-2, -3}});
+    // [Ko, Mo, K8, M8]
+    return;
+  }
+
   // {B, N, K}
   // {B, NO, N_dim, K}
   tv->split(-2, tv->axis(-2)->extent());
 
-  if (swizzle == MmaInputSmemSwizzle::None) {
-    return;
-  }
   // {B, NO, N_dim, KO, KI (32/64/128)}
   tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
 
@@ -473,6 +482,46 @@ void scheduleTMALoad(
   // split N_dim_O by N/16 N =swizzle size (32/64/128)
   // {B, NO * KO, N_dim_O/(swizzle_size/16), N_128/(32, 64, 128),  KIO, KII}
   tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
+
+  tv->swizzle(SwizzleType::XOR, -4, -2);
+}
+
+void scheduleTMALoadWhereOuterDimIsSplit(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
+    DataType dtype) {
+  // We move the broadcast dim to be the left most.
+  moveInnerBroadcastLeft(tv);
+
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, M]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, Mo, M8]
+    tv->reorder({{-2, -3}});
+    // [Ko, Mo, K8, M8]
+    return;
+  }
+
+  // {B, K, N}
+  // {B, KO, 8, N}
+  //  We use 8 because it's 128 / getBytesFromSwizzle(swizzle)  *
+  //  getBytesFromSwizzle(swizzle) / 16
+  tv->split(-2, 8);
+
+  // {B, KO, KI(8), NO(2), NI(16)}
+  tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+
+  // {B, NO, KO, KI(8), NI(16) }
+  tv->reorder({{2, 3}, {3, 2}});
+
+  // {B, NO, KO, KIO(2), KII(4),  NI(16) }
+  tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
+
+  // {B, NO, KO, KIO(2), KII(4),  NIO(2), NII(8) }
+  tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
 
   tv->swizzle(SwizzleType::XOR, -4, -2);
 }
@@ -517,12 +566,18 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  scheduleTMALoad(tv1, swizzle_b, dtype);
+  if (layout == MmaLayout::TN) {
+    scheduleTMALoad(tv1, swizzle_b, dtype);
+  } else {
+    scheduleTMALoadWhereOuterDimIsSplit(tv1, swizzle_b, dtype);
+  }
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   int skip = 0;
+  int count;
+  count = layout == MmaLayout::TN ? 2 : 3;
   for (auto id : tv1->getLoopDomain()) {
-    if (skip < 2) {
+    if (skip < count) {
       skip++;
       continue;
     }
@@ -571,7 +626,7 @@ INSTANTIATE_TEST_SUITE_P(
         all_hopper_macros,
         all_dtypes,
         testing::Values(MmaLayout::TT, MmaLayout::TN),
-        kAllSmemSwizzleModes2),
+        kAllSmemSwizzleModes),
     testNameHopperRS);
 
 using HopperMmaSSTestParams = std::tuple<
