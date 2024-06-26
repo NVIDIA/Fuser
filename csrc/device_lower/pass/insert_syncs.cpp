@@ -637,11 +637,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
 
       for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        // Double buffered tensors do not need RAW sync to be inserted
+        // Circular buffered tensors do not need RAW sync to be inserted
         // here, except for the initial load part, which is taken care
-        // separately by DoubleBufferInserter.
+        // separately by CircularBufferInserter.
         if (tv->getMemoryType() == MemoryType::Shared &&
-            !(tv->isDoubleBuffered() || tv->isCircularBuffered())) {
+            !tv->isCircularBuffered()) {
           smem[tv] = expr;
 
           // only keep track of async writes in smem_async

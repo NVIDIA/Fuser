@@ -173,8 +173,8 @@ class GpuLower : public NonCopyable {
     return divisible_splits_;
   }
 
-  DoubleBufferInfo& doubleBufferInfo() {
-    return double_buffer_info_;
+  CircularBufferInfo& circularBufferInfo() {
+    return circular_buffer_info_;
   }
 
   CommonScalarMap& commonScalarMap() {
@@ -328,7 +328,7 @@ class GpuLower : public NonCopyable {
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
-  DoubleBufferInfo double_buffer_info_;
+  CircularBufferInfo circular_buffer_info_;
   CommonScalarMap common_scalar_map_;
   FusedReductionInfo fused_reduction_info_;
   std::shared_ptr<const SyncMap> sync_map_;

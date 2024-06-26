@@ -25,42 +25,42 @@ class MatmulParams : public HeuristicParams {
   //!  parallelization will be done.
   enum class TileRasterizationOrder { RowMajor = 0, ColumnMajor = 1 };
 
-  //! A wrapper for double buffering config pieces
-  struct DoubleBufferOptions {
-    bool double_buffer_smem_write = false;
-    bool double_buffer_smem_read = false;
-    // This parameter controls the number of double buffering or circular
+  //! A wrapper for circular buffering config pieces
+  struct CircularBufferOptions {
+    bool circular_buffer_smem_write = false;
+    bool circular_buffer_smem_read = false;
+    // This parameter controls the number of circular
     // buffering stages to use when loading operands a and b.
     //
     // If this value is greater than two then it indicates circular buffering,
     // in which case async_gmem_load_operands must also be true.
     //
-    // Note that whenever double_buffer_smem_write is true, this value must be
+    // Note that whenever circular_buffer_smem_write is true, this value must be
     // greater than one. Otherwise it is ignored.
-    int smem_double_buffer_stage = 2;
+    int smem_circular_buffer_stage = 2;
 
-    bool operator==(const DoubleBufferOptions& other) const {
-      return other.double_buffer_smem_write == double_buffer_smem_write &&
-          other.double_buffer_smem_read == double_buffer_smem_read &&
-          other.smem_double_buffer_stage == smem_double_buffer_stage;
+    bool operator==(const CircularBufferOptions& other) const {
+      return other.circular_buffer_smem_write == circular_buffer_smem_write &&
+          other.circular_buffer_smem_read == circular_buffer_smem_read &&
+          other.smem_circular_buffer_stage == smem_circular_buffer_stage;
     }
 
     std::string toString() const {
       std::stringstream ss;
-      ss << "DoubleBufferOptions:\n"
-         << "  double_buffer_smem_write: "
-         << (double_buffer_smem_write ? "true" : "false") << "\n"
-         << "  double_buffer_smem_read: "
-         << (double_buffer_smem_read ? "true" : "false") << "\n"
-         << "  smem_double_buffer_stage: " << smem_double_buffer_stage;
+      ss << "CircularBufferOptions:\n"
+         << "  circular_buffer_smem_write: "
+         << (circular_buffer_smem_write ? "true" : "false") << "\n"
+         << "  circular_buffer_smem_read: "
+         << (circular_buffer_smem_read ? "true" : "false") << "\n"
+         << "  smem_circular_buffer_stage: " << smem_circular_buffer_stage;
       return ss.str();
     }
 
     size_t hash() const {
       return std::hash<size_t>{}(
-                 (static_cast<size_t>(smem_double_buffer_stage) << 2) |
-                 (static_cast<size_t>(double_buffer_smem_write)) << 1) |
-          (static_cast<size_t>(double_buffer_smem_read));
+                 (static_cast<size_t>(smem_circular_buffer_stage) << 2) |
+                 (static_cast<size_t>(circular_buffer_smem_write)) << 1) |
+          (static_cast<size_t>(circular_buffer_smem_read));
     }
   };
 
@@ -152,8 +152,8 @@ class MatmulParams : public HeuristicParams {
   //! Specify CTA rastrization order.
   TileRasterizationOrder cta_order = TileRasterizationOrder::RowMajor;
 
-  //! Specify which tensor we double buffer.
-  DoubleBufferOptions double_buffer_options = {};
+  //! Specify which tensor we circular buffer.
+  CircularBufferOptions circular_buffer_options = {};
 
   //! Swizzle factor is used to increase L2 hit rate.
   //!  It horizontally squeezes the grid so that gridDim.x is larger and
@@ -186,7 +186,7 @@ class MatmulParams : public HeuristicParams {
     ss << "\n===== Matmul Parameters ========\n"
        << (tag.empty() ? "" : "Tag: ") << tag << "\n"
        << "MMA macro: " << nvfuser::toString(mma_macro) << "\n"
-       << double_buffer_options.toString() << "\n"
+       << circular_buffer_options.toString() << "\n"
        << supported_vec_size.toString() << "\n"
        << nvfuser::toString(tile_sizes) << "\n"
        << "Rotate ldmatrix out of main loop: "
@@ -221,7 +221,7 @@ class MatmulParams : public HeuristicParams {
 
     // combined hash
     attr_hash = std::hash<size_t>{}(attr_hash) ^
-        (nvfuser::hash(mma_macro) << 1) ^ (double_buffer_options.hash() << 2) ^
+        (nvfuser::hash(mma_macro) << 1) ^ (circular_buffer_options.hash() << 2) ^
         (nvfuser::hash(tile_sizes) << 3) ^
         (std::hash<size_t>{}(static_cast<size_t>(cta_order)) << 4) ^
         (std::hash<size_t>{}(grid_swizzle_factor) << 5) ^
@@ -241,7 +241,7 @@ class MatmulParams : public HeuristicParams {
         other_casted->rotate_ldmatrix_out_of_main_loop ==
         rotate_ldmatrix_out_of_main_loop &&
         other_casted->tile_sizes == tile_sizes &&
-        other_casted->double_buffer_options == double_buffer_options &&
+        other_casted->circular_buffer_options == circular_buffer_options &&
         other_casted->supported_vec_size == supported_vec_size &&
         other_casted->cta_order == cta_order &&
         other_casted->grid_swizzle_factor == grid_swizzle_factor &&

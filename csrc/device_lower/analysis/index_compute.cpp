@@ -132,17 +132,17 @@ IndexingParameters getLinearIndexParameters(
       loop_indexing.loopDomains(),
       index_parameters.initial_concrete_id_index);
 
-  // Setup double buffer increment for producer case:
-  // TODO: could unify these double buffer index calculation
+  // Setup circular buffer increment for producer case:
+  // TODO: could unify these circular buffer index calculation
   //  in follow ups.
   if (index_producer) {
-    auto double_buffer_loop =
-        GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
+    auto circular_buffer_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
             loop_indexing.consumerTv(), loops, true);
 
     for (auto loop_idx : c10::irange(loops.size())) {
       auto loop = loops[loop_idx];
-      if (loop == double_buffer_loop) {
+      if (loop == circular_buffer_loop) {
         auto loop_id = loop_indexing.loopDomains()[loop_idx];
 
         auto concrete_loop_id =
@@ -150,7 +150,7 @@ IndexingParameters getLinearIndexParameters(
                 loop_id, IdMappingMode::EXACT);
 
         auto stage_depth =
-            (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+            (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
                 loop->iter_domain());
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
             SimplifyingIrBuilder::addExpr(
@@ -192,11 +192,11 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   std::unordered_map<kir::ForLoop*, Val*> loop_to_ind_map;
   std::unordered_set<kir::ForLoop*> zero_loops;
 
-  kir::ForLoop* double_buffer_loop = nullptr;
+  kir::ForLoop* circular_buffer_loop = nullptr;
 
   if (index_producer) {
-    double_buffer_loop =
-        GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
+    circular_buffer_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
             consumer_tv, loops, true);
   }
 
@@ -206,7 +206,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
       rotated_loops,
       alloc_info.init_for_loop,
       !index_producer,
-      double_buffer_loop);
+      circular_buffer_loop);
 
   ensureStaticIndexing(alloc_tv, alloc_info.init_for_loop, loops, alloc_id_map);
 
@@ -330,7 +330,7 @@ IndexingParameters getPredicateInitialIndexParameters(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
     kir::ForLoop* unswitch_or_vec_loop,
-    IterDomain* double_buffer_axis,
+    IterDomain* circular_buffer_axis,
     bool is_start_predicate) {
   IndexingParameters index_parameters;
   const auto& loops = loop_indexing.loops();
@@ -456,10 +456,10 @@ IndexingParameters getPredicateInitialIndexParameters(
     }
   }
 
-  // Increment double buffer loop index
-  if (double_buffer_axis != nullptr) {
-    auto db_loop = GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
-        double_buffer_axis, loops, true);
+  // Increment circular buffer loop index
+  if (circular_buffer_axis != nullptr) {
+    auto db_loop = GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
+        circular_buffer_axis, loops, true);
     if (db_loop != nullptr) {
       auto loop_to_ind_map_it = loop_to_ind_map.find(db_loop);
       NVF_ERROR(loop_to_ind_map_it != loop_to_ind_map.end());
@@ -467,9 +467,9 @@ IndexingParameters getPredicateInitialIndexParameters(
       // if cur_index is not the same as the index of db_loop, it must
       // be true that that index has been modified to support
       // unswitch. In that case, it is not necessary to move ahead the
-      // index for double buffering.
+      // index for circular buffering.
       auto stage_depth =
-          (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+          (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
               db_loop->iter_domain());
       bool is_same =
           (rotated_loops.count(db_loop)
@@ -972,7 +972,7 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
     kir::ForLoop* unswitch_or_vec_loop,
-    IterDomain* double_buffer_axis,
+    IterDomain* circular_buffer_axis,
     bool is_start_predicate) {
   // Run replay pass on the loop nest to generate the deterministic
   //  traversal info from loop structure.
@@ -986,7 +986,7 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
       rotated_loops,
       consumer_tv,
       unswitch_or_vec_loop,
-      double_buffer_axis,
+      circular_buffer_axis,
       is_start_predicate);
 
   // Run first backward traversal to generate

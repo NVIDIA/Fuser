@@ -830,7 +830,7 @@ ForLoop::ForLoop(
     bool vectorize,
     Val* vectorize_shift,
     bool unroll_required,
-    DoubleBufferLoopStage double_buffer_loop_stage)
+    CircularBufferLoopStage circular_buffer_loop_stage)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -866,7 +866,7 @@ ForLoop::ForLoop(
   addDataAttribute(vectorize);
   addAttribute(vectorize_shift);
   addDataAttribute(unroll_required);
-  addDataAttribute(double_buffer_loop_stage);
+  addDataAttribute(circular_buffer_loop_stage);
   // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
   // kernel IR does not need this feature.
   addDataAttribute(Scope(this));
@@ -876,7 +876,7 @@ ForLoop::ForLoop(
     IrBuilderPasskey passkey,
     IterDomain* iter_domain,
     Val* index,
-    DoubleBufferLoopStage double_buffer_loop_stage)
+    CircularBufferLoopStage circular_buffer_loop_stage)
     : ForLoop(
           passkey,
           iter_domain,
@@ -888,14 +888,14 @@ ForLoop::ForLoop(
               isParallelTypeVectorize(iter_domain->getParallelType()),
           nullptr,
           false,
-          double_buffer_loop_stage) {}
+          circular_buffer_loop_stage) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
     : ForLoop(
           passkey,
           iter_domain,
           GpuLower::current()->caMap()->getIndexVariable(iter_domain),
-          DoubleBufferLoopStage::NotApplicable) {}
+          CircularBufferLoopStage::NotApplicable) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
     : ForLoop(
@@ -908,7 +908,7 @@ ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
           other->vectorize(),
           other->vectorize_shift(),
           other->isUnrollRequired(),
-          other->doubleBufferLoopStage()) {}
+          other->circularBufferLoopStage()) {}
 
 std::string ForLoop::toString(int indent_size) const {
   std::stringstream ss;

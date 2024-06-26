@@ -601,7 +601,7 @@ indexMapFromTV(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     kir::ForLoop* alloc_loop,
     bool as_consumer,
-    kir::ForLoop* double_buffer_loop = nullptr);
+    kir::ForLoop* circular_buffer_loop = nullptr);
 
 //! Set "pragma unroll" required for loops that indexing of Local
 //! tensors depends on.

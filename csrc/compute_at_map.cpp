@@ -855,17 +855,17 @@ void ComputeAtMap::allocateIndexVariables() {
 
     auto concrete_loop_id = concrete_loop_id_it->second;
 
-    // Need to allocate double buffered loop differently.
-    if (GpuLower::current()->doubleBufferInfo().isDoubleBufferedIterDomain(
+    // Need to allocate circular buffered loop differently.
+    if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             concrete_loop_id)) {
-      // Allocate index variable for each stage of the double buffered loop.
-      double_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
-          std::make_unique<DoubleBufferIndices>(DoubleBufferIndices(
-              {{DoubleBufferLoopStage::Prolog,
+      // Allocate index variable for each stage of the circular buffered loop.
+      circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
+          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
+              {{CircularBufferLoopStage::Prolog,
                 IrBuilder::create<Val>(DataType::Index)},
-               {DoubleBufferLoopStage::Main,
+               {CircularBufferLoopStage::Main,
                 IrBuilder::create<Val>(DataType::Index)},
-               {DoubleBufferLoopStage::Epilog,
+               {CircularBufferLoopStage::Epilog,
                 IrBuilder::create<Val>(DataType::Index)}}));
     } else {
       // Everything now should be serial concrete loops,
@@ -878,7 +878,7 @@ void ComputeAtMap::allocateIndexVariables() {
 
 Val* ComputeAtMap::getIndexVariable(
     IterDomain* id,
-    DoubleBufferLoopStage double_buffer_loop_stage) const {
+    CircularBufferLoopStage circular_buffer_loop_stage) const {
   NVF_ERROR(
       id_graph_.loopNodes().mappingExists(id),
       "Index Variable: no index variable allocated as ",
@@ -886,22 +886,22 @@ Val* ComputeAtMap::getIndexVariable(
       " is not registered in loop map");
   const auto* loop_set = &(id_graph_.loopNodes().getDisjointSetOf(id));
 
-  // Check if this loop was modified by double buffer pass.
-  bool is_double_buffer_iterdomain =
-      GpuLower::current()->doubleBufferInfo().isDoubleBufferedIterDomain(id);
+  // Check if this loop was modified by circular buffer pass.
+  bool is_circular_buffer_iterdomain =
+      GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(id);
 
-  if (is_double_buffer_iterdomain) {
-    // Use dedicated double buffer index variable if the loop is double buffer
+  if (is_circular_buffer_iterdomain) {
+    // Use dedicated circular buffer index variable if the loop is circular buffer
     // loop
-    if (double_buffer_loop_stage == DoubleBufferLoopStage::NotApplicable) {
-      // The double buffered loop stages are created after the loop nest
+    if (circular_buffer_loop_stage == CircularBufferLoopStage::NotApplicable) {
+      // The circular buffered loop stages are created after the loop nest
       //  lowering phase so this function will be querried before the double
-      //  buffer pass. At that point, no forloop has any double buffer
+      //  buffer pass. At that point, no forloop has any circular buffer
       //  stage defined, and we just default to using the main stage index.
-      double_buffer_loop_stage = DoubleBufferLoopStage::Main;
+      circular_buffer_loop_stage = CircularBufferLoopStage::Main;
     }
-    return double_buffered_loop_index_variable_map_.at(loop_set)->at(
-        double_buffer_loop_stage);
+    return circular_buffered_loop_index_variable_map_.at(loop_set)->at(
+        circular_buffer_loop_stage);
   } else {
     return loop_index_variable_map_.at(loop_set);
   }

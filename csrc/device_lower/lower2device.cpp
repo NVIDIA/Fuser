@@ -271,7 +271,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
            {"insertWarThreadSynchronization", insertWarThreadSynchronization},
-           {"DoubleBufferPass", DoubleBufferPass::run},
+           {"CircularBufferPass", CircularBufferPass::run},
            {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
            {"processMisalignedVectorization", processMisalignedVectorization},
@@ -534,8 +534,8 @@ void GpuLower::analysis(Fusion* fusion) {
   pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
 
-  doubleBufferInfo().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build doubleBufferInfo");
+  circularBufferInfo().build(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");

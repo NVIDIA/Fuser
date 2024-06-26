@@ -52,7 +52,7 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
     kir::ForLoop* unswitch_or_vec_loop,
-    IterDomain* double_buffer_axis,
+    IterDomain* circular_buffer_axis,
     bool is_start_predicate);
 
 //! getTensorIndexFromIdGraph is the function that index_compute will call very

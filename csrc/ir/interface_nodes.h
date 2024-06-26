@@ -383,16 +383,8 @@ class NVF_API TensorView : public Val {
 
   void setMemoryType(MemoryType mt);
 
-  // Apply double buffering transformation
-  void doubleBuffer();
-
   // Apply circular buffering transformation
-  void circularBuffer(int64_t number_of_stage);
-
-  // Returns true if this tensor is double buffered.
-  bool isDoubleBuffered() const {
-    return is_double_buffered_;
-  }
+  void circularBuffer(int64_t number_of_stages);
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
@@ -559,7 +551,6 @@ class NVF_API TensorView : public Val {
   int64_t compute_at_pos_ = 0;
   int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
-  bool is_double_buffered_ = false;
 
   //! Indicates if the tensor is circular buffered.
   bool is_circular_buffered_ = false;

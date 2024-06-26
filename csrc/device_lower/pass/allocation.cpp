@@ -244,9 +244,9 @@ class AllocationInserter : public kir::ExprMutator {
       alloc_dims.push_back(info.buffer->container()->oneVal());
     }
 
-    // Double the allocation size if double-buffered. Record the
+    // Multiply the allocation size if circular-buffered. Record the
     // original size for indexing.
-    if (info.buffer->isDoubleBuffered() || info.buffer->isCircularBuffered()) {
+    if (info.buffer->isCircularBuffered()) {
       Val* original_alloc_size = nullptr;
       for (auto alloc_dim : alloc_dims) {
         if (original_alloc_size == nullptr) {
@@ -256,14 +256,11 @@ class AllocationInserter : public kir::ExprMutator {
               IrBuilder::mulExpr(original_alloc_size, alloc_dim);
         }
       }
-      GpuLower::current()->doubleBufferInfo().setOriginalAllocSize(
+      GpuLower::current()->circularBufferInfo().setOriginalAllocSize(
           info.buffer, original_alloc_size);
-      int64_t double_buffer_stage = 2L;
-      if (info.buffer->isCircularBuffered()) {
-        double_buffer_stage = (int64_t)info.buffer->circularBufferDepth();
-      }
+      int64_t circular_buffer_stage = info.buffer->circularBufferDepth();
       alloc_dims.push_back(
-          IrBuilder::create<Val>(double_buffer_stage, DataType::Index));
+          IrBuilder::create<Val>(circular_buffer_stage, DataType::Index));
     }
 
     // Create the allocation node

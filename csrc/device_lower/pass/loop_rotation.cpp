@@ -200,7 +200,7 @@ class RotateLoop : kir::ExprMutator {
   //   }
   // Pattern 2:
   //   for (...) {
-  //     unselected double buffer load
+  //     unselected circular buffer load
   //     selected
   //     selected
   //     unselected
@@ -208,7 +208,7 @@ class RotateLoop : kir::ExprMutator {
   //     unselected
   //   }
   bool validateSelection(kir::ForLoop* fl) {
-    class IsDoubleBufferLoad : public kir::IrVisitor {
+    class IsCircularBufferLoad : public kir::IrVisitor {
      public:
       bool operator()(Expr* expr) {
         result_ = true;
@@ -216,7 +216,7 @@ class RotateLoop : kir::ExprMutator {
         return result_;
       }
 
-      IsDoubleBufferLoad(kir::ForLoop* loop) : loop_(loop) {}
+      IsCircularBufferLoad(kir::ForLoop* loop) : loop_(loop) {}
 
      private:
       using kir::IrVisitor::handle;
@@ -231,7 +231,7 @@ class RotateLoop : kir::ExprMutator {
             result_ = false;
             return;
           }
-          if (GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
+          if (GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
                   tv, {loop_}) != loop_) {
             result_ = false;
             return;
@@ -243,7 +243,7 @@ class RotateLoop : kir::ExprMutator {
      private:
       bool result_ = true;
       kir::ForLoop* const loop_ = nullptr;
-    } is_double_buffer_load(fl);
+    } is_circular_buffer_load(fl);
 
     bool seen_unselected = false;
     for (auto expr : fl->body().exprs()) {
@@ -253,7 +253,7 @@ class RotateLoop : kir::ExprMutator {
         }
         continue;
       }
-      if (is_double_buffer_load(expr)) {
+      if (is_circular_buffer_load(expr)) {
         continue;
       }
       seen_unselected = true;
@@ -316,7 +316,7 @@ class RotateLoop : kir::ExprMutator {
     // of start < end, so no predicate here. In the future, if we decide that
     // we need to predicate this, then we should add an kir::IfThenElse here.
     auto prologue = IrBuilder::create<kir::ForLoop>(
-        fl->iter_domain(), fl->start(), fl->doubleBufferLoopStage());
+        fl->iter_domain(), fl->start(), fl->circularBufferLoopStage());
     std::vector<Expr*> lifted_alloc;
     for (auto expr : fl->body().exprs()) {
       if (selection_.count(expr) == 0) {
