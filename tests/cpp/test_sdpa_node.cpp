@@ -407,8 +407,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   auto tvv = makeSymbolicTensor(k_shape, DataType::Half);
   auto tv_output = makeSymbolicTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
-  auto tv_cumq = makeSymbolicTensor({1}, DataType::Null);
-  auto tv_cumk = makeSymbolicTensor({1}, DataType::Null);
+  auto tv_cumq = makeSymbolicTensor(1, DataType::Null);
+  auto tv_cumk = makeSymbolicTensor(1, DataType::Null);
   auto tv_seed = makeSymbolicTensor({}, DataType::Int);
   tv_seed->setCpuScalar(true);
   auto tv_offset = makeSymbolicTensor({}, DataType::Int);

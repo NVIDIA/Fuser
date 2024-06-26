@@ -586,28 +586,25 @@ SdpfaBwdResult sdpfa_bwd(
   TensorView* grad_value = ops::newOutputTV({value}, value->dtype());
 
   IrBuilder::create<SdpaBwdOp>(
-    grad_query,
-    grad_key,
-    grad_value,
-    grad_output,
-    query,
-    key,
-    value,
-    output,
-    log_sumexp,
-    cum_seq_q,
-    cum_seq_k,
-    query_seq_len,
-    key_seq_len,
-    dropout_p,
-    is_causal,
-    philox_seed,
-    philox_offset,
-    scale);
-  return {
       grad_query,
       grad_key,
-      grad_value};
+      grad_value,
+      grad_output,
+      query,
+      key,
+      value,
+      output,
+      log_sumexp,
+      cum_seq_q,
+      cum_seq_k,
+      query_seq_len,
+      key_seq_len,
+      dropout_p,
+      is_causal,
+      philox_seed,
+      philox_offset,
+      scale);
+  return {grad_query, grad_key, grad_value};
 }
 
 } // namespace nvfuser
