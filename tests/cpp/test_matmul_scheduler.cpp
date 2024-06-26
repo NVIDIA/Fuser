@@ -2722,6 +2722,61 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   }
 }
 
+// Test that we can schedule a Fusion containing two matmuls
+TEST_P(MatmulFusionTest, Llama2FFNNoSegmentation) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  auto tv2 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = matmul(tv0, tv1);
+  auto tv4 = matmul(tv0, tv2);
+
+  // silu
+  auto tv5 = mul(sigmoid(tv3), tv3);
+
+  auto tv6 = mul(tv5, tv4);
+
+  fusion->addOutput(tv6);
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options);
+  auto t2 = at::randn({K, N}, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2};
+
+  MatmulParams params;
+  params.supported_vec_size = {8, 8, 4};
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 64, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.double_buffer_options.double_buffer_smem_write = true;
+  params.double_buffer_options.double_buffer_smem_read = true;
+  params.double_buffer_options.smem_double_buffer_stage = 2;
+  scheduleMatmul(fusion, params);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs);
+
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     MatmulFusionTest,
