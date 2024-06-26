@@ -52,13 +52,13 @@ MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
     MultiDeviceExecutorParams params)
-    : comm_(comm), params_(params) {
+    : comm_(comm), params_(params), complete_fusion_(std::move(fusion)) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
-  propagateShardings(fusion.get());
-  insertReshardings(fusion.get());
-  insertShardedAxisReordering(fusion.get());
-  setShardedAllocationDomain(fusion.get());
+  propagateShardings(complete_fusion_.get());
+  insertReshardings(complete_fusion_.get());
+  insertShardedAxisReordering(complete_fusion_.get());
+  setShardedAllocationDomain(complete_fusion_.get());
   SegmentCandidateFinderOptions options{
       .run_translate_welford = false,
       .run_combine_reductions = false,
@@ -67,7 +67,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       .only_segment_resharding_exprs = true};
 
   staged_fusion_ =
-      SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
+      SegmentCandidateFinder::segment(std::make_unique<Fusion>(*complete_fusion_), nullptr, options);
 
   for (auto group : staged_fusion_->groups()) {
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
@@ -84,6 +84,19 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   // prepare the order in which to launch the kernels/comms
   prepareRuntimeOrder(staged_fusion_.get(), workspace_);
 
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(hic.get());
+  ir_cloner_ = std::make_unique<IrCloner>(hic.get());
+  auto* ir_cloner_ptr = ir_cloner_.get();
+  auto clone = [ir_cloner_ptr] (const std::vector<Val*>& vals) -> std::vector<Val*> {
+    std::vector<Val*> cloned_vals;
+    for (auto val: vals) {
+      cloned_vals.push_back(ir_cloner_ptr->clone(val));
+    }
+    return cloned_vals;
+  };
+
+
   // Allocator setup
   // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
   // which correspond to the destination buffers of interdevice communications.
@@ -97,24 +110,12 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       auto tv = val->as<TensorView>();
       NVF_ERROR(tv->hasDeviceMesh());
       if (tv->getDeviceMesh().has(comm_.deviceId())) {
-        vals_to_allocate_.push_back(val);
+        vals_to_allocate_.push_back(ir_cloner_->clone(val));
       }
     }
   }
   allocator_fusion_ =
       copyFusionAndChangeOutputs(completeFusion(), vals_to_allocate_);
-
-  auto hic = std::make_unique<hir::HostIrContainer>();
-  FusionGuard fg(hic.get());
-  ir_cloner_ = std::make_unique<IrCloner>(hic.get());
-  auto* ir_cloner_ptr = ir_cloner_.get();
-  auto clone = [ir_cloner_ptr] (const std::vector<Val*>& vals) -> std::vector<Val*> {
-    std::vector<Val*> cloned_vals;
-    for (auto val: vals) {
-      cloned_vals.push_back(ir_cloner_ptr->clone(val));
-    }
-    return cloned_vals;
-  };
 
 
   for (auto group: workspace_.group_run_order) {
@@ -263,7 +264,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
 
   // Make sure inputs align at global boundary.
   NVF_ERROR(
-      inputs.size() == staged_fusion_->inputs().size(),
+      inputs.size() == host_ir_executor->inputs().size(),
       "Wrong number of inputs");
 
   auto allocations =
@@ -273,12 +274,12 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     val_to_IValue_[vals_to_allocate_.at(i)] = allocations.at(i);
   }
 
-  // process input values:
-  for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue_[staged_fusion_->inputs().at(input_idx)] =
-        inputs.at(input_idx);
-  }
+  // for (auto input_idx : c10::irange(inputs.size())) {
+  //   val_to_IValue_[staged_fusion_->inputs().at(input_idx)] =
+  //       inputs.at(input_idx);
+  // }
 
+  // process input values:
   std::unordered_map<Val*, c10::IValue> val_to_IValue_for_hie(val_to_IValue_);
   for (auto input_idx : c10::irange(inputs.size())) {
     val_to_IValue_for_hie[host_ir_executor->inputs().at(input_idx)] =
@@ -289,36 +290,11 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     val_to_IValue_for_hie[ir_cloner_->clone(it.first)] = it.second;
   }
 
-  for (auto it: val_to_IValue_) {
-    val_to_IValue_for_hie[it.first] = it.second;
-  }
+  // for (auto it: val_to_IValue_) {
+  //   val_to_IValue_for_hie[it.first] = it.second;
+  // }
 
-  // Run through the groups to launch kernels and comms
-  for (auto group : workspace_.group_run_order) {
-    if (!is_resharding_.at(group)) {
-      postKernel(group, launch_params);
-    } else {
-      postCommunication(group);
-    }
-  }
-
-  // Collect global outputs from context
-  std::vector<at::Tensor> outputs;
-  for (auto output_val : staged_fusion_->outputs()) {
-    auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
-        ? val_to_IValue_.at(output_val).toTensor()
-        : at::Tensor();
-    outputs.push_back(output);
-  }
-
-  auto alternative_outputs = host_ir_executor->runWithInput(val_to_IValue_for_hie, launch_params);
-  // std::cout << "Alternative_outputs"
-  NVF_ERROR(alternative_outputs.size() == outputs.size());
-  for (auto i :c10::irange(alternative_outputs.size())) {
-    NVF_ERROR( (alternative_outputs[i].numel() == 0 && outputs[i].numel() == 0) ||
-      torch::allclose(alternative_outputs[i], outputs[i]), "i=", i);
-  }
-  return outputs;
+  return host_ir_executor->runWithInput(val_to_IValue_for_hie, launch_params);
 }
 
 std::string MultiDeviceExecutor::validate() const {

@@ -102,7 +102,7 @@ class MultiDeviceExecutor {
 
   // Returns the Fusion
   auto completeFusion() const {
-    return staged_fusion_->completeFusion();
+    return complete_fusion_.get();
   }
 
   // check if the runtime is valid returns an error msg.
@@ -154,6 +154,7 @@ class MultiDeviceExecutor {
   std::vector<Val*> vals_to_allocate_;
 
   MultiDeviceExecutorParams params_;
+  std::unique_ptr<Fusion> complete_fusion_;
   std::unique_ptr<hir::HostIrExecutor> host_ir_executor;
   std::unique_ptr<IrCloner> ir_cloner_;
 
