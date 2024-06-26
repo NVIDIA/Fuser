@@ -3364,6 +3364,14 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   return std::distance(maybeRoot().begin(), it);
 }
 
+void TensorDomain::broadcast(int64_t axis) {
+  axis = nvfuser::wrapDim(axis, nDims() + 1);
+  IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), fusion()->oneVal())
+      .iter_type(IterType::Broadcast)
+      .build();
+  loop_domain_.insert(loop_domain_.begin() + axis, id);
+}
+
 void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
   NVF_ERROR(nDims() > 0, "Tried to do split on a 0-dim domain");
   axis = wrapDim(axis);

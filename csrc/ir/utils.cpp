@@ -884,21 +884,22 @@ void validateDomainEquivalence(
       from = expr->outputs();
       to = expr->inputs();
     }
-    for (auto id : to) {
+    for (auto v : to) {
       NVF_ERROR(
-          frontier.insert(id).second,
+          frontier.insert(v).second,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Output should just show up once: ",
-          id->toString());
+          v->toString());
     }
-    for (auto id : from) {
+    for (auto v : from) {
+      bool ignorable = v->as<IterDomain>()->isBroadcast();
       NVF_ERROR(
-          frontier.erase(id) == 1,
+          frontier.erase(v) == 1 || ignorable,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Input not seen before: ",
-          id->toString());
+          v->toString());
     }
   };
   for (Expr* expr : forward_exprs) {

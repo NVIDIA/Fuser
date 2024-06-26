@@ -8303,6 +8303,40 @@ TEST_F(NVFuserTest, DecoupledDomains) {
   EXPECT_EQ(tv_all, all_ids);
 }
 
+TEST_F(NVFuserTest, BroadcastFromNowhere) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+  tv2->broadcast(0);
+  for (auto tv : {tv1, tv2, tv3, tv4}) {
+    tv->merge(0);
+    tv->split(0, 256);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  // inlineMost();
+  // for (auto tv : {tv1, tv2, tv3}) {
+  //   EXPECT_EQ(tv->getComputeAtPosition(), 2);
+  // }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1024}, options);
+  at::Tensor t1 = at::randn({256, 1024}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0, t1});
+  auto cg_outputs = fe.runFusion({t0, t1});
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
