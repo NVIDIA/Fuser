@@ -104,18 +104,11 @@ class TensorIndexer {
       const ValGroups& index_domains,
       bool is_predicate,
       bool is_unswitch) const;
-#if 0
-  Val* adjustProducerLoopIndexForDoubleBuffering(
-      TensorView* producer_tv,
-      TensorView* consumer_tv,
-      const kir::ForLoop* for_loop,
-      Val* loop_index) const;
-#else
+
   Val* adjustProducerLoopIndexForDoubleBuffering(
       const Expr* expr,
       const kir::ForLoop* for_loop,
       Val* loop_index) const;
-#endif
 
   Val* adjustIndexToSwitchBuffer(
       TensorView* tv,

@@ -1487,48 +1487,6 @@ std::vector<Val*> TensorIndexer::getPerDimIndex(
   return indices;
 }
 
-#if 0
-Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
-    TensorView* producer_tv,
-    TensorView* consumer_tv,
-    const kir::ForLoop* for_loop,
-    Val* loop_index) const {
-  NVF_ERROR(for_loop != nullptr);
-
-  // Double-buffered tensor itself does not need this adjustment
-  if (producer_tv->isDoubleBuffered() &&
-      id_model_.idGraph(IdMappingMode::LOOP)
-          .disjointValSets()
-          .strictAreMapped(
-              getDoubleBufferAxis(producer_tv), for_loop->iter_domain())) {
-    return loop_index;
-  }
-
-  if (for_loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Main &&
-      for_loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Epilog) {
-    return loop_index;
-  }
-
-  if (!consumer_tv->isDoubleBuffered()) {
-    return loop_index;
-  }
-
-  const auto gpu_lower = GpuLower::current();
-  NVF_ERROR(
-      gpu_lower != nullptr,
-      "Double buffering info of GpuLower is required but GpuLower is missing");
-
-  auto stage_depth =
-      (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-          for_loop->iter_domain());
-
-  auto adjusted_loop_index = SimplifyingIrBuilder::addExpr(
-      loop_index,
-      SimplifyingIrBuilder::create<Val>(stage_depth - 1L, DataType::Index));
-
-  return adjusted_loop_index;
-}
-#else
 Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
     const Expr* expr,
     const kir::ForLoop* for_loop,
@@ -1578,7 +1536,6 @@ Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
 
   return adjusted_loop_index;
 }
-#endif
 
 Val* TensorIndexer::adjustIndexToSwitchBuffer(
     TensorView* tv,
