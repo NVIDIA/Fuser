@@ -1956,6 +1956,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         work->wait();
       }
     }
+    if (measure_kernel_time) {
+      outputBytesProcessed(outputs);
+    }
     return outputs;
   }
 
