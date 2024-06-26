@@ -1282,8 +1282,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   if (params.circular_buffer_options.circular_buffer_smem_read) {
-    acr->circularBuffer(/*stage=*/2);
-    bcr->circularBuffer(/*stage=*/2);
+    acr->circularBuffer(/*number_of_stages=*/2);
+    bcr->circularBuffer(/*number_of_stages=*/2);
   }
 
   if (params.circular_buffer_options.circular_buffer_smem_read &&
