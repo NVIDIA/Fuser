@@ -53,7 +53,7 @@ class HostIrExecutor final : public OptInDispatch {
       Communicator* communicator = nullptr,
       HostIrExecutorParams = HostIrExecutorParams());
   std::vector<at::Tensor> runWithInput(
-      std::unordered_map<Val*, c10::IValue> val_to_IValue);
+      std::unordered_map<Val*, c10::IValue> val_to_IValue, LaunchParams launch_params = LaunchParams());
   const std::vector<Val*>& inputs();
   const std::vector<Val*>& outputs();
 
@@ -75,6 +75,7 @@ class HostIrExecutor final : public OptInDispatch {
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
   std::unordered_map<Stream*, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Communication*, c10::intrusive_ptr<c10d::Work>> works_;
+  LaunchParams launch_params_;
 };
 
 } // namespace hir

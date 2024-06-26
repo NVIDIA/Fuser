@@ -145,7 +145,13 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   for (auto output: staged_fusion_->outputs()) {
       hic->addOutput(ir_cloner_->clone(output));
   }
-  host_ir_executor = std::make_unique<hir::HostIrExecutor>(std::move(hic), &comm);
+
+  hir::HostIrExecutorParams host_ir_executor_params = {
+    .use_fusion_executor_cache = params.use_fusion_executor_cache,
+    .skip_auto_scheduling = params.skip_auto_scheduling,
+    .cache_fusion_executor = params.cache_fusion_executor
+  };
+  host_ir_executor = std::make_unique<hir::HostIrExecutor>(std::move(hic), &comm, host_ir_executor_params);
 }
 
 void MultiDeviceExecutor::postKernel(
@@ -305,7 +311,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     outputs.push_back(output);
   }
 
-  auto alternative_outputs = host_ir_executor->runWithInput(val_to_IValue_for_hie);
+  auto alternative_outputs = host_ir_executor->runWithInput(val_to_IValue_for_hie, launch_params);
   // std::cout << "Alternative_outputs"
   NVF_ERROR(alternative_outputs.size() == outputs.size());
   for (auto i :c10::irange(alternative_outputs.size())) {

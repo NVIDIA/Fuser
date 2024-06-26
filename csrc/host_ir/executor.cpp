@@ -22,9 +22,10 @@ HostIrExecutor::HostIrExecutor(
       params_(params) {}
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
-    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
+    std::unordered_map<Val*, c10::IValue> val_to_IValue, LaunchParams launch_params) {
   // process input values
   val_to_IValue_ = std::move(val_to_IValue);
+  launch_params_ = std::move(launch_params);
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
@@ -107,9 +108,9 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
     auto [it, has_emplaced] = fe_.try_emplace(hu);
     auto& fe = it->second;
     if (has_emplaced) {
-      fe.compileFusion(hu->fusion_to_execute(), input_IValues);
+      fe.compileFusion(hu->fusion_to_execute(), input_IValues, launch_params_);
     }
-    outputs = fe.runFusion(input_IValues);
+    outputs = fe.runFusion(input_IValues, launch_params_);
     if (!params_.cache_fusion_executor) {
       fe_.erase(hu);
     }
