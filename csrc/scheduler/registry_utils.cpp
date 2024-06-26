@@ -511,9 +511,11 @@ bool reductionInterferingView(
         vg_to_coalesced_ids[vg2] = it->second;
       } else {
         // Shouldn't have any other exprs between root and logical domains
-        assert(expr != nullptr); // for clangtidy
         NVF_ERROR(
-            false, "Expression type: ", expr->toString(), " not supported.");
+            false,
+            "Expression type: ",
+            expr ? expr->toString() : "nullptr",
+            " not supported.");
       }
     }
   }
