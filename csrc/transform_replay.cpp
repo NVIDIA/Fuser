@@ -159,7 +159,7 @@ class ReplaySelf : public ReplayTransformations {
         resize->leftExpand(),
         resize->rightExpand(),
         resize_out_logical,
-        keep_iter_type ? resize->out()->getIterType() : std::nullopt);
+        keep_iter_type_ ? resize->out()->getIterType() : std::nullopt);
 
     loop_ids_.erase(mapped);
 
@@ -173,10 +173,10 @@ class ReplaySelf : public ReplayTransformations {
       : ReplayTransformations(_target_domain, std::move(_id_map)), keep_iter_type_(keep_iter_type) {
     setErrorOnFailure(false);
   }
-};
 
  private:
   bool keep_iter_type_ = false;
+};
 
 } // namespace
 
