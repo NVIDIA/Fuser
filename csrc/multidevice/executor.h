@@ -33,6 +33,7 @@ namespace nvfuser {
   - Only one (non-reduction) axis is allowed to be parallelized
     with ParallelType::DIDx. Moreover, this axis cannot be split/merged.
   - We only support 1D device meshes for now
+  - We only support TensorViews in communication segments.
 
   Summary of the different steps performed by the MultiDeviceExecutor:
   I. At instantiation:
