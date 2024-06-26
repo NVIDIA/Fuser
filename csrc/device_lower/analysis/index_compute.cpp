@@ -458,8 +458,9 @@ IndexingParameters getPredicateInitialIndexParameters(
 
   // Increment circular buffer loop index
   if (circular_buffer_axis != nullptr) {
-    auto db_loop = GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
-        circular_buffer_axis, loops, true);
+    auto db_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
+            circular_buffer_axis, loops, true);
     if (db_loop != nullptr) {
       auto loop_to_ind_map_it = loop_to_ind_map.find(db_loop);
       NVF_ERROR(loop_to_ind_map_it != loop_to_ind_map.end());

@@ -888,11 +888,12 @@ Val* ComputeAtMap::getIndexVariable(
 
   // Check if this loop was modified by circular buffer pass.
   bool is_circular_buffer_iterdomain =
-      GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(id);
+      GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
+          id);
 
   if (is_circular_buffer_iterdomain) {
-    // Use dedicated circular buffer index variable if the loop is circular buffer
-    // loop
+    // Use dedicated circular buffer index variable if the loop is circular
+    // buffer loop
     if (circular_buffer_loop_stage == CircularBufferLoopStage::NotApplicable) {
       // The circular buffered loop stages are created after the loop nest
       //  lowering phase so this function will be querried before the double

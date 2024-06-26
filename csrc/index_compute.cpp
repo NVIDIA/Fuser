@@ -1990,8 +1990,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       strided_inds.size() == consumer_tv->getMaybeAllocationDomain().size());
 
   if (consumer_tv->isCircularBuffered()) {
-    auto db_loop =
-        gpu_lower->circularBufferInfo().getCircularBufferLoop(consumer_tv, loops);
+    auto db_loop = gpu_lower->circularBufferInfo().getCircularBufferLoop(
+        consumer_tv, loops);
     int64_t stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
         db_loop->iter_domain());
     bool is_circular_buffer_loop = stage_depth > 2;
@@ -2407,7 +2407,8 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
 
   const bool is_unswitch = unswitch_or_vec_loop != nullptr;
 
-  auto db_axis = gpu_lower->circularBufferInfo().getCircularBufferAxis(consumer_tv);
+  auto db_axis =
+      gpu_lower->circularBufferInfo().getCircularBufferAxis(consumer_tv);
 
   // Generate start and stop indexing from idgraph.
   //

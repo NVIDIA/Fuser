@@ -382,7 +382,8 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     }
 
     auto circular_buffer_loop =
-        gpu_lower->circularBufferInfo().getCircularBufferLoop(out_tv, for_loops_);
+        gpu_lower->circularBufferInfo().getCircularBufferLoop(
+            out_tv, for_loops_);
 
     NVF_ERROR(
         circular_buffer_loop != nullptr,
@@ -530,8 +531,8 @@ class CircularBufferInserter : private kir::ExprMutator {
                 .hasTID();
           })) {
         // If any of the circular buffered loads require sync, as indicated
-        //  by sync info map, insert the sync before entering the circular buffer
-        //  loop.
+        //  by sync info map, insert the sync before entering the circular
+        //  buffer loop.
         // TODO:
         //  Currently not supporting circular buffer in gmem, but short to mid
         //  term not yet a priority to go for this case.
@@ -623,8 +624,9 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  inserted so would need to be updated if we re-order the
     //  passes. Cleanups suggested in [Circular Buffer Sync]
     //  would resolve this dependency on pass ordering.
-    auto stage_depth = GpuLower::current()->circularBufferInfo().getStageDepthFor(
-        main_loop->iter_domain());
+    auto stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            main_loop->iter_domain());
     auto cp_async_commit =
         IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync);
     auto cp_async_wait = IrBuilder::create<kir::AsyncWait>(
@@ -639,8 +641,8 @@ class CircularBufferInserter : private kir::ExprMutator {
       }
     }
     NVF_ERROR(last_circular_buffer_load != exprs.end());
-    std::vector<Expr*>::const_iterator commit_it =
-        main_loop->body().insert(last_circular_buffer_load + 1, cp_async_commit);
+    std::vector<Expr*>::const_iterator commit_it = main_loop->body().insert(
+        last_circular_buffer_load + 1, cp_async_commit);
 
     // Check if a sync has been inserted by WAR sync pass.
     auto rend = std::make_reverse_iterator(commit_it);
@@ -688,7 +690,8 @@ bool CircularBufferInfo::isCircularBufferedIterDomain(IterDomain* id) {
   return concrete_circular_buffered_loop_id_.count(concrete_loop_id);
 }
 
-CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(const TensorView* tv) {
+CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
+    const TensorView* tv) {
   NVF_ERROR(
       tv->isCircularBuffered() || tv->isCircularBuffered(),
       "Not a circular-buffered tensor: ",
@@ -715,7 +718,9 @@ void CircularBufferInfo::setCircularBufferAxis(
   setStageDepth(axis, stage_depth);
 }
 
-void CircularBufferInfo::setStageDepth(IterDomain* id, unsigned int stage_depth) {
+void CircularBufferInfo::setStageDepth(
+    IterDomain* id,
+    unsigned int stage_depth) {
   auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
       id, IdMappingMode::LOOP);
 
