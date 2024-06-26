@@ -153,7 +153,8 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   }
 
   // propagate to update TensorProxy
-  // I think I can just follow the reverse order from earlier stack traversal.
+  // need to follow the reverse order from earlier stack traversal.
+  std::reverse(replay_sequence.begin(), replay_sequence.end());
   for (Expr* e : replay_sequence) {
     // TODO extend this for multiple inputs.
     Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)));
@@ -193,11 +194,11 @@ void MovePadPass::runPass(Fusion* fusion) {
         res = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
       } else {
         Val* rhs = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
-	Val* new_out = IrBuilder::create<TensorView>(
-    IrBuilder::create<TensorDomain>(res->as<TensorView>()->domain()),
-    res->getDataType().value());
-	IrBuilder::create<BinaryOp>(BinaryOpType::Add, new_out, res, rhs);
-	res = new_out;
+	      Val* new_out = IrBuilder::create<TensorView>(
+          IrBuilder::create<TensorDomain>(res->as<TensorView>()->domain()),
+          res->getDataType().value());
+	      IrBuilder::create<BinaryOp>(BinaryOpType::Add, new_out, res, rhs);
+	      res = new_out;
       }
     }
 
