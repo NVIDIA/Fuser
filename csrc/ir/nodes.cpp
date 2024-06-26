@@ -2534,13 +2534,18 @@ IterDomain* IterDomain::cloneWithoutRFactor() const {
 }
 
 /*static*/ std::vector<IterDomain*> IterDomain::clone(
-    const std::vector<IterDomain*>& domains) {
+    const std::vector<IterDomain*>& domains, bool with_rfactor) {
   std::vector<IterDomain*> cloned_domains;
   std::transform(
       domains.begin(),
       domains.end(),
       std::back_inserter(cloned_domains),
-      [](auto id) { return id->cloneWithoutRFactor(); });
+      [](auto id) { IterDomain* new_id = id->cloneWithoutRFactor(); 
+      if (with_rfactor && id->isRFactorProduct()) {
+        new_id->is_rfactor_domain = true;
+      }
+      return new_id;
+      });
   return cloned_domains;
 }
 

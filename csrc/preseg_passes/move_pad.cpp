@@ -150,10 +150,9 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // NOTE: the old pad_op is going away from DCE, so it's ok to reuse its
     // domains
     TensorView* pad_out_tv = pad_op->out()->as<TensorView>();
-    std::vector<IterDomain*> new_root = IterDomain::clone(pad_out_tv->getMaybeRootDomain()),
-    std::vector<IterDomain*> new_logical = IterDomain::clone(pad_out_tv->getLogicalDomain()),
+    std::vector<IterDomain*> new_root = IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
     auto new_out = IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(new_root, new_logical, new_logical),
+        TransformReplay::fullSelfReplay(IrBuilder::create<TensorDomain>(new_root), pad_out_tv->domain()),
         edge.val()->getDataType().value());
     IrBuilder::create<PadOp>(
         new_out,
