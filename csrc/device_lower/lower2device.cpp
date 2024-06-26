@@ -13,7 +13,7 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
 #include <device_lower/pass/grid_serialization.h>

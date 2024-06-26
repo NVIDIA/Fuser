@@ -17,7 +17,7 @@
 #include <device_lower/analysis/tma.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <device_lower/pass/allocation.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
