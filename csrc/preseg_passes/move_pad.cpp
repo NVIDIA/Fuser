@@ -11,9 +11,9 @@
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
-#include <transform_replay.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -43,16 +43,20 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     if (val->isFusionOutput()) {
       return false;
     }
-    if (std::any_of(pad_dependencies.begin(), pad_dependencies.end(), [val](Val* pad_dependency) {
-      return DependencyCheck::isDependencyOf(pad_dependency, val);
-    })) {
+    if (std::any_of(
+            pad_dependencies.begin(),
+            pad_dependencies.end(),
+            [val](Val* pad_dependency) {
+              return DependencyCheck::isDependencyOf(pad_dependency, val);
+            })) {
       return false;
     }
     return true;
   };
 
   // NOTE: the optimization logic assumes a zero pad_op.
-  // This is used for logic in handling binary operations, we should extend this later.
+  // This is used for logic in handling binary operations, we should extend this
+  // later.
   if (!pad_op->value()->isZero()) {
     return nullptr;
   }
@@ -74,17 +78,15 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   std::vector<Expr*> replay_sequence;
   stack.emplace(pad_op, 0);
 
-
   // tvs in stack are:
   //   1. single use;
   //   2. not an output;
   //   3. cleared dependency of `pad_depdencies;
   //   4. maybe also check aliases?!
-  while(!stack.empty()) {
+  while (!stack.empty()) {
     Edge edge = stack.top();
     Expr* def = edge.val()->definition();
     stack.pop();
-
 
     if (def->isA<UnaryOp>()) {
       auto* uop = def->as<UnaryOp>();
@@ -94,24 +96,22 @@ Val* propagatePadToProducer(PadOp* pad_op) {
         replay_sequence.push_back(uop);
         continue;
       }
-    // This will require us having `replayExprWithNewInput` to support binary ops.
-    // } else if (def->isA<BinaryOp>()) {
-    //   auto* bop = def->as<BinaryOp>();
-    //   // TODO: exception to break propagation.
-    //   // TODO: check for broadcast stuff.
-    //   if (candidate_check(bop->lhs()) && candidate_check(bop->rhs())) {
-    //     stack.emplace(uop, 0);
-    //     continue;
-    //   }
+      // This will require us having `replayExprWithNewInput` to support binary
+      // ops. } else if (def->isA<BinaryOp>()) {
+      //   auto* bop = def->as<BinaryOp>();
+      //   // TODO: exception to break propagation.
+      //   // TODO: check for broadcast stuff.
+      //   if (candidate_check(bop->lhs()) && candidate_check(bop->rhs())) {
+      //     stack.emplace(uop, 0);
+      //     continue;
+      //   }
 
-
-    // TODO: adding pad_op
-    // } else if (def->isA<PadOp>()) {
-    //   if (candidate_check(def->input(0))) {
-    //     // NOTE: stopping propagation, we'll merge it with its consumer padOp
-    //     frontier.emplace_back(def, 0);
-    //     continue;
-    //   }
+      // TODO: adding pad_op
+      // } else if (def->isA<PadOp>()) {
+      //   if (candidate_check(def->input(0))) {
+      //     // NOTE: stopping propagation, we'll merge it with its consumer
+      //     padOp frontier.emplace_back(def, 0); continue;
+      //   }
     }
 
     if (edge.val() != pad_op->in()) {
@@ -128,7 +128,8 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   // modify pad_op on frontier
   for (const Edge& edge : frontier) {
     // insert pad_op
-    // Note: operation with multiple operand would require us to support partial update in each iteration.
+    // Note: operation with multiple operand would require us to support partial
+    // update in each iteration.
 
     // const auto width_size = pad_op->inputs().size() - 2;
     // const auto num_padded_dims = width_size / 2;
@@ -139,14 +140,22 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     //   pad_width.push_back(pad_op->input((num_padded_dims - i)*2 + 1));
     // }
     // cannot use `pad` op, because it would give us symolic iter domain
-    // replacement_map[edge.val()] = pad(edge.val()->as<TensorView>(), pad_width, pad_op->value());
+    // replacement_map[edge.val()] = pad(edge.val()->as<TensorView>(),
+    // pad_width, pad_op->value());
 
-    NVF_ERROR(edge.val()->getDataType().has_value(), "pad source dtype is missing");
-    // NOTE: the old pad_op is going away from DCE, so it's ok to reuse its domains
+    NVF_ERROR(
+        edge.val()->getDataType().has_value(), "pad source dtype is missing");
+    // NOTE: the old pad_op is going away from DCE, so it's ok to reuse its
+    // domains
     auto new_out = IrBuilder::create<TensorView>(
-    IrBuilder::create<TensorDomain>(pad_op->out()->as<TensorView>()->domain()),
-    edge.val()->getDataType().value());
-    IrBuilder::create<PadOp>(new_out, edge.val()->as<TensorView>(), pad_op->getPadWidths(), pad_op->value());
+        IrBuilder::create<TensorDomain>(
+            pad_op->out()->as<TensorView>()->domain()),
+        edge.val()->getDataType().value());
+    IrBuilder::create<PadOp>(
+        new_out,
+        edge.val()->as<TensorView>(),
+        pad_op->getPadWidths(),
+        pad_op->value());
 
     replacement_map[edge.val()] = new_out;
 
@@ -162,22 +171,22 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     replacement_map[e->output(0)] = padded_e->output(0);
   }
 
-  // return the replacement input to pad_op, since we have already padded everything out.
+  // return the replacement input to pad_op, since we have already padded
+  // everything out.
   return replacement_map.at(pad_op->in());
 }
 
-}
+} // namespace
 
 void MovePadPass::runPass(Fusion* fusion) {
-  fusion->printMath();
   // TODO: verify that no dead branch is traversed in exprs.
   std::vector<Expr*> exprs = fusion->exprs();
 
-  // NOTE: should we expand this optimization to general pad but not just pad within cat?
+  // NOTE: should we expand this optimization to general pad but not just pad
+  // within cat?
 
   // is this traversing in topo order?
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
-
     std::unordered_map<Val*, Val*> replacement_map;
     for (Val* in : cat->inputs()) {
       auto* pad_op = in->definition()->as<PadOp>();
@@ -188,7 +197,8 @@ void MovePadPass::runPass(Fusion* fusion) {
     if (replacement_map.empty()) {
       continue;
     }
-    // NOTE: I'm hitting an index error with PadOp in device_lower/pass/index.cpp:1944
+    // NOTE: I'm hitting an index error with PadOp in
+    // device_lower/pass/index.cpp:1944
     Val* res = nullptr;
     TensorView* cat_out_tv = cat->output(0)->as<TensorView>();
     bool is_boolean = isBooleanType(cat_out_tv->getDataType().value());
@@ -196,18 +206,20 @@ void MovePadPass::runPass(Fusion* fusion) {
       if (res == nullptr) {
         res = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
       } else {
-        Val* rhs = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
-	if(is_boolean) {
-	   res = bitwise_or(res, rhs);
-	} else {
-	  res = add(res, rhs);
-	}
+        Val* rhs =
+            replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
+        if (is_boolean) {
+          res = bitwise_or(res, rhs);
+        } else {
+          res = add(res, rhs);
+        }
       }
     }
     // restore data type if it's promoted by BinaryOp.
     res = maybeCastOp(cat_out_tv->getDataType().value(), res);
 
-    // TODO: We won't have it in tests yet, but would replaceValue also replace the outputs of the fusion?
+    // TODO: We won't have it in tests yet, but would replaceValue also replace
+    // the outputs of the fusion?
     // TODO: does this invalidate the downstream exprs?
     // ir_utils::replaceValue(fusion, replacement_map);
     ir_utils::replaceValue(fusion, {{cat->output(0), res}});
@@ -215,10 +227,7 @@ void MovePadPass::runPass(Fusion* fusion) {
     if (cat->output(0)->isFusionOutput()) {
       fusion->replaceOutput(cat->output(0), res);
     }
-
   }
-
-  fusion->printMath();
 }
 
 } // namespace nvfuser::preseg_passes
