@@ -614,8 +614,8 @@ TEST_F(MmaTest2, SingleTile3) {
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto inputs = matmulAtInput3DHopperRS(
-      M, N, K, MmaLayout::TN, data_type_to_aten(dtype));
+  auto inputs =
+      matmulAtInput3DHopperRS(M, N, K, MmaLayout::TN, data_type_to_aten(dtype));
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -626,6 +626,129 @@ TEST_F(MmaTest2, SingleTile3) {
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
       MmaLayout::TN);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_F(MmaTest2, SingleTile4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int M, N, K;
+  M = 64;
+  N = 64;
+  K = 16;
+
+  // auto shapes = matmulAtInputShape3DHopperRS(
+  //     64, 8, 16,  MmaLayout::TN);
+
+  auto dtype = DataType::Half;
+
+  auto tv0 = makeContigConcreteTensor({M, K, 1}, dtype);
+  auto tv1 = makeContigConcreteTensor({1, K, N}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {1});
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(MmaMacro::Hopper_64_64_16);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto swizzle_b = MmaInputSmemSwizzle::B64;
+  // tv1->applyMmaSwizzle(swizzle_b);
+
+
+  // {B, K, N}
+  // {B, KO, 8, N}
+  tv1->split(1, 8);
+  
+  // {B, KO, KI(8), NO(2), NI(16)}
+  tv1->split(-1, getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype));
+  
+  // {B, NO, KO, KI(8), NI(16) }
+  tv1->reorder({{2, 3}, {3, 2}});
+  
+  // {B, NO, KO, KIO(2), KII(4),  NI(16) }
+  tv1->split(-2, (128 / (getBytesFromSwizzle(swizzle_b))));
+
+  // {B, NO, KO, KIO(2), KII(4),  NIO(2), NII(8) }
+  tv1->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
+
+  tv1->swizzle(SwizzleType::XOR, -4, -2);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+
+  // naivelyParallelize(tv1);
+  int skip = 0;
+  for (auto id : tv1->getLoopDomain()) {
+    if (skip < 3) {
+      skip++;
+      continue;
+    }
+    id->parallelize(ParallelType::Bulk);
+  }
+
+  tv2c->reorder({{-1, -2}});
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+
+  auto inputs =
+      matmulAtInput3DHopperRS(M, N, K, MmaLayout::TT, data_type_to_aten(dtype));
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto a = at::zeros({M, K}, options);
+  for (auto m = 0; m < M; m++) {
+    for (auto k = 0; k < K; k++) {
+      if (m == k) {
+        a[m][k] = 1;
+      }
+    }
+  }
+  std::cout << "printing a " << a << std::endl;
+  a = a.unsqueeze(-1);
+
+  auto b = at::zeros({K, N}, options);
+  int count = 0;
+  for (auto k = 0; k < K; k++) {
+    for (auto n = 0; n < N; n++) {
+      b[k][n] = count++;
+    }
+  }
+  std::cout << "printing b" << b << std::endl;
+  b = b.unsqueeze(0);
+
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {a, b}, LaunchParams(), matmul_cparams);
+
+  fusion.printKernel();
+
+  auto cg_outputs = fe.runFusion({a, b});
+  std::cout << "printing out " << std::endl << cg_outputs[0] << std::endl;
+  auto tref = atMatmul(
+      a.squeeze().to(at::kFloat), b.squeeze().to(at::kFloat), MmaLayout::TT);
+  std::cout << "printing tref " << std::endl << tref << std::endl;
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
