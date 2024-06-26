@@ -414,8 +414,11 @@ bool reductionInterferingView(
 
   std::vector<IterDomain*> dims = reduction_reference->getLogicalDomain();
 
-  // The disjoint groups we need for this scheduler
-  std::vector<std::vector<IterDomain*>> groups;
+  // Each vector of IDs is a group of coalesced_ids, they will be merged into
+  // one ID during the reduction schedule. If the view op involves merging IDs
+  // in different group of coalesced_ids, it would break the reduction
+  // scheduler.
+  std::vector<std::vector<IterDomain*>> vect_of_coalesced_ids;
 
   // Do this three times as we could have a 3D scheduler at maximum
   for (auto dimension : c10::irange(3)) {
@@ -442,46 +445,74 @@ bool reductionInterferingView(
 
     // Don't add empty group (would happen if it's a 2D scheduler not 3D)
     if (!current_dims.empty()) {
-      groups.push_back(current_dims);
+      vect_of_coalesced_ids.push_back(current_dims);
       dims = remove_dims(dims, processed);
     }
   }
 
   NVF_ERROR(dims.empty(), "Error processing ", dims, " in registry.cpp.");
 
-  // Check if any view op could merge IDs in different groups
+  // Check if any view op could merge IDs in different coalesced_ids.
+  // (1) Build the exact graph
   IdModel id_model(fusion, false, false, false);
   id_model.buildExactGraph();
-  const auto& id_use_map = id_model.idUses();
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  // ValGroup to group index
-  std::unordered_map<ValGroup, int> vg_to_group_idx;
-  for (auto group_id : c10::irange(groups.size())) {
-    for (auto id : groups.at(group_id)) {
-      auto vg = exact_graph.toGroup(id);
-      vg_to_group_idx[vg] = (int)group_id;
+  // (2) For each ID in vect_of_coalesced_ids, find its corresponding ValGroup
+  // and save the mapping info. ValGroup is a set of equivalent IDs.
+  // Map through: ID --> ValGroup --> coalesced_ids (index in the vector)
+  std::unordered_map<ValGroup, int> vg_to_coalesced_ids;
+  for (auto index : c10::irange(vect_of_coalesced_ids.size())) {
+    for (auto id : vect_of_coalesced_ids.at(index)) {
+      const auto& vg = exact_graph.toGroup(id);
+      vg_to_coalesced_ids[vg] = (int)index;
     }
   }
 
-  // Loop through all view ops and check if they merge IDs in different groups
-  // Map through: ID --> ValGroup --> Group index
-  const auto& view_ops = ir_utils::getViewOps(fusion);
-  for (auto view : view_ops) {
-    for (auto id : view->out()->getMaybeRootDomain()) {
-      auto uses_it = id_use_map.find(id);
-      if (uses_it == id_use_map.end() || uses_it->second.empty()) {
-        continue;
-      }
-      for (auto expr : uses_it->second) {
-        if (auto merge = dynamic_cast<Merge*>(expr)) {
-          const auto& vg0 = exact_graph.toGroup(merge->inner());
-          const auto& vg1 = exact_graph.toGroup(merge->outer());
-          if (vg_to_group_idx.count(vg0) && vg_to_group_idx.count(vg1) &&
-              vg_to_group_idx.at(vg0) != vg_to_group_idx.at(vg1)) {
-            return true;
-          }
+  // (3) Loop through all view ops and check if they merge IDs in different
+  // coalesced_ids. If happens, return true.
+  for (auto view : ir_utils::getViewOps(fusion)) {
+    auto tv = view->out();
+    // visit exprs between root and logical domains in topologically sorted
+    // order (can't use id_model.idUses() since it is not sorted).
+    // If the expr inputs exist in [vg_to_coalesced_ids], add the newly created
+    // IDs to the same coalesced_ids as the input IDs. Otherwise, do nothing
+    // since that expr is not interfering with IDs of reduction tv.
+    for (auto expr : StmtSort::getExprsTo(
+             {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
+      if (auto merge = dynamic_cast<Merge*>(expr)) {
+        const auto& vg0 = exact_graph.toGroup(merge->inner());
+        const auto& vg1 = exact_graph.toGroup(merge->outer());
+        auto it0 = vg_to_coalesced_ids.find(vg0);
+        auto it1 = vg_to_coalesced_ids.find(vg1);
+        if (it0 == vg_to_coalesced_ids.end() ||
+            it1 == vg_to_coalesced_ids.end()) {
+          continue;
         }
+        // merge of IDs in different coalesced_ids breaks the reduction
+        // scheduler
+        if (it0->second != it1->second) {
+          return true;
+        } else {
+          // add the newly created ID to the same coalesced_ids as the input
+          const auto& vg = exact_graph.toGroup(merge->out());
+          vg_to_coalesced_ids[vg] = it0->second;
+        }
+      } else if (auto split = dynamic_cast<Split*>(expr)) {
+        const auto& vg0 = exact_graph.toGroup(split->in());
+        const auto& vg1 = exact_graph.toGroup(split->outer());
+        const auto& vg2 = exact_graph.toGroup(split->inner());
+        auto it = vg_to_coalesced_ids.find(vg0);
+        if (it == vg_to_coalesced_ids.end()) {
+          continue;
+        }
+        // add the newly created ID to the same coalesced_ids as the input
+        vg_to_coalesced_ids[vg1] = it->second;
+        vg_to_coalesced_ids[vg2] = it->second;
+      } else {
+        // Shouldn't have any other exprs between root and logical domains
+        NVF_ERROR(
+            false, "Expression type: ", expr->toString(), " not supported.");
       }
     }
   }
