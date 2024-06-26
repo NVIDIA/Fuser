@@ -248,6 +248,7 @@ class FusionKernelRuntime {
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
   std::vector<at::Tensor> runKernelWithInput(
+      size_t run_order_id,
       KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
