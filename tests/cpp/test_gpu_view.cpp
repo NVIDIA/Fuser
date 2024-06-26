@@ -375,7 +375,7 @@ TEST_P(ReshapeBeforeReduction, FusionReshapeBeforeReduction) {
   const auto& [input_shape, output_shape] = GetParam();
   maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
   reductionViewAddFusion(
-      e.first, e.second, true /* reshape_before_reduction */);
+      e.first, e.second, /*reshape_before_reduction=*/true);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
