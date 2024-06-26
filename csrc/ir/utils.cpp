@@ -736,7 +736,7 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   VectorOfUniqueEntries<Val*> all_vals;
-  const auto& root_domain = tv->getMaybeRootDomain();
+  const auto& root_domain = tv->getRootDomain();
   const auto& logical_domain = tv->getLogicalDomain();
   const auto& loop_domain = tv->getLoopDomain();
   const auto& alloc_domain = tv->getAllocationDomain();
@@ -745,7 +745,13 @@ std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
       &root_domain, &logical_domain, &loop_domain, &alloc_domain};
 
   for (auto dom0 : domains) {
+    if (dom0->empty()) {
+      continue;
+    }
     for (auto dom1 : domains) {
+      if (dom1->empty()) {
+        continue;
+      }
       auto all_vals_01 = DependencyCheck::getAllValsBetween(
           {dom0->begin(), dom0->end()}, {dom1->begin(), dom1->end()});
       all_vals.pushBack(all_vals_01);
