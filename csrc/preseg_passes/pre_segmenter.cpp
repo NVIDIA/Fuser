@@ -39,8 +39,9 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   // MovePadPass needs to happen before MarkAliasPrepare and after MoveSplitCat
   OptimizationPass<MovePadPass>::runPass(fusion);
+  // NOTE vvv this doesn't really work, since our type promotion to higher precision for Add cannot be canceled out with previous cast to lower precision. Since it's not an no-op and it has a quantization effect. I'll open an issue for this and see if we want to have a more aggressive approach inside MovePadPass instead.
   // removes extra cast added from pushing pad out
-  OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
+  // OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
