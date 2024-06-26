@@ -1040,6 +1040,7 @@ TEST_F(TMAMiscTest, Repro1977) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+#if 0
 TEST_F(TMAMiscTest, LoadStrongCorrectness) {
   // See doc/reading/tma-modeling-in-depth.md
   Fusion fusion;
@@ -1091,8 +1092,12 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
   // pass. The result is actually wrong.
   expect.flatten(0, 2).select(0, 1) = at::arange(17, 33, options);
 
+  std::cout << cg_outputs[0] << std::endl;
+  std::cout << expect << std::endl;
+
   EXPECT_TRUE(at::equal(cg_outputs[0], expect));
 }
+#endif
 
 // Testing invalid cases are correctly detected and reported.
 

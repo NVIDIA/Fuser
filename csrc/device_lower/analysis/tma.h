@@ -18,7 +18,7 @@ namespace nvfuser {
 
 // See doc/dev/tma.md for design
 
-// All ValGroups are in Exact Graph
+// All ValGroups are in the traversal graph of tensor indexer
 
 class Box {
  public:
