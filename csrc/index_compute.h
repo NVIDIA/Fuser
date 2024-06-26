@@ -582,8 +582,7 @@ class Index {
   //! Compute the global index and the expected bytes for complete_tx mechanism
   //! for CpAsyncBulk.
   static std::pair<Val*, Val*> getCpAsyncBulkGmemIndex(
-      TensorView* producer_tv,
-      TensorView* consumer_tv,
+      const LoadStoreOp* ldst,
       Val* mbarrier,
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops);
