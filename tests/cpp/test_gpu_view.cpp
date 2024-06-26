@@ -370,8 +370,7 @@ std::vector<reshape_example> reshape_after_reduce_examples = {
     {{1, 7844, 1, 7}, {1, 1961, 4}}};
 
 // Parameterized test for reshape before reduction
-class ReshapeBeforeReduction : public NVFuserFixtureParamTest<reshape_example> {
-};
+using ReshapeBeforeReduction =  NVFuserFixtureParamTest<reshape_example>;
 TEST_P(ReshapeBeforeReduction, FusionReshapeBeforeReduction) {
   auto e = GetParam();
   maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
@@ -384,8 +383,7 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::ValuesIn(all_reshape_examples));
 
 // Parameterized test for reshape after reduction
-class ReshapeAfterReduction : public NVFuserFixtureParamTest<reshape_example> {
-};
+using ReshapeAfterReduction =  NVFuserFixtureParamTest<reshape_example>;
 TEST_P(ReshapeAfterReduction, FusionReshapeAfterReduction) {
   auto e = GetParam();
   maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
