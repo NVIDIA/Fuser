@@ -221,7 +221,8 @@ class MatmulParams : public HeuristicParams {
 
     // combined hash
     attr_hash = std::hash<size_t>{}(attr_hash) ^
-        (nvfuser::hash(mma_macro) << 1) ^ (circular_buffer_options.hash() << 2) ^
+        (nvfuser::hash(mma_macro) << 1) ^
+        (circular_buffer_options.hash() << 2) ^
         (nvfuser::hash(tile_sizes) << 3) ^
         (std::hash<size_t>{}(static_cast<size_t>(cta_order)) << 4) ^
         (std::hash<size_t>{}(grid_swizzle_factor) << 5) ^

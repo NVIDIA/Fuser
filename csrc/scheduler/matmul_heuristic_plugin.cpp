@@ -133,7 +133,8 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
     output[1] = gemm_tile.n;
     output[2] = gemm_tile.k;
   };
-  config->load_stages = params.circular_buffer_options.smem_circular_buffer_stage;
+  config->load_stages =
+      params.circular_buffer_options.smem_circular_buffer_stage;
   config->async_gmem_load_operands = params.async_gmem_load_operands;
   setConfigTile(config->cta_tile, params.tile_sizes.cta_tile);
   setConfigTile(config->warp_tile, params.tile_sizes.warp_tile);
@@ -163,7 +164,8 @@ void copyConfigToParams(MatmulParams& params, const KernelConfig* config) {
   setGemmTile(params.tile_sizes.cta_tile, config->cta_tile);
   setGemmTile(params.tile_sizes.warp_tile, config->warp_tile);
   setGemmTile(params.tile_sizes.instruction_tile, config->instruction_tile);
-  params.circular_buffer_options.smem_circular_buffer_stage = config->load_stages;
+  params.circular_buffer_options.smem_circular_buffer_stage =
+      config->load_stages;
   params.async_gmem_load_operands = config->async_gmem_load_operands;
   // Update mma macro if necessary to match instruction tile
   MmaMacroEncode menc(params.mma_macro); // this will record the family

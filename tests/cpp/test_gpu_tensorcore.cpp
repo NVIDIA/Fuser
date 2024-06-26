@@ -2315,9 +2315,9 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
 
       fusion.addOutput(tv2);
 
-      // The settings of cta_tile, warp_tile, and smem_circular_buffer_stage have
-      // been purposefully selected to produce a constant occupancy of 25%. This
-      // allows us to effectively evaluate the influence of the
+      // The settings of cta_tile, warp_tile, and smem_circular_buffer_stage
+      // have been purposefully selected to produce a constant occupancy of 25%.
+      // This allows us to effectively evaluate the influence of the
       // use_smem_epilogue parameter on performance, since changing its value to
       // either true or false will not affect the occupancy rate.
       MatMulTileOptions gemm_tile;
@@ -2330,7 +2330,8 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
       params.mma_macro = MmaMacro::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
-      params.circular_buffer_options.circular_buffer_smem_write = num_stages > 1;
+      params.circular_buffer_options.circular_buffer_smem_write =
+          num_stages > 1;
       params.circular_buffer_options.circular_buffer_smem_read = num_stages > 1;
       params.circular_buffer_options.smem_circular_buffer_stage = num_stages;
       mma_utils::MmaDataTypes data_types = {
