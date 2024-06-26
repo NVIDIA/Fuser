@@ -39,6 +39,8 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   // MovePadPass needs to happen before MarkAliasPrepare and after MoveSplitCat
   OptimizationPass<MovePadPass>::runPass(fusion);
+  // removes extra cast added from pushing pad out
+  OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
