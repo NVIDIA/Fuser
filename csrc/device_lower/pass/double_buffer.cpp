@@ -8,6 +8,8 @@
 #include <device_lower/lower2device.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
+#include <transform_iter.h>
+#include <transform_replay.h>
 
 #include <device_lower/pass/double_buffer.h>
 
@@ -194,27 +196,197 @@ kir::ForLoop* createStagesForLoop(kir::ForLoop* double_buffer_loop) {
   return loop;
 }
 
+// Get expected transaction count for mbarrier arriveExpectTx
+Val* getExpectedTransactionCount(LoadStoreOp* ldst) {
+  TensorView* producer_tv = ldst->in()->as<TensorView>();
+  TensorView* consumer_tv = ldst->out()->as<TensorView>();
+
+  NVF_ERROR(
+      producer_tv->getMemoryType() == MemoryType::Global &&
+          consumer_tv->getMemoryType() == MemoryType::Shared,
+      "Expected Transaction Count is necessary for load operation");
+
+  auto allocation_domain = TensorDomain::noBroadcasts(
+      TensorDomain::noReductions(producer_tv->getMaybeAllocationDomain()));
+  std::unordered_set<Val*> allocation_domain_set(
+      allocation_domain.begin(), allocation_domain.end());
+
+  // Replay producer to look like consumer so we can index on producer since
+  // our loop nests look like consumer
+  auto pairwise_map =
+      PairwiseRootDomainMap(producer_tv, consumer_tv).mapBroadcast(true);
+
+  TensorDomain* producerAsC = TransformReplay::replayPasC(
+                                  producer_tv,
+                                  consumer_tv,
+                                  -1,
+                                  pairwise_map,
+                                  TransformReplayOptions().replayResize())
+                                  .first;
+
+  // Make the producer_tv look like consumer while performing indexing math
+  // For TMA load, we need to replay the gmem tensor as consumer.
+  std::unique_ptr<ir_utils::TVDomainGuard> domain_guard =
+      std::make_unique<ir_utils::TVDomainGuard>(producer_tv, producerAsC);
+
+  // Map sent to best effort replay needs to match the exact incantation for
+  // compute_at_mode.cpp with MappingMode::Index
+  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                          .mapBroadcast(false)
+                          .mapConsumerToProducer();
+
+  // This replay has to be consistent with compute at index map.
+  BestEffortReplay replay_producer_as_consumer(
+      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
+
+  const auto& c2p_map = replay_producer_as_consumer.getReplay();
+
+  // Convert an id from the consumer tensor to its corresponding id in the
+  // gmem tensor. If the consumer tensor is already a gmem tensor, then the
+  // function is the identity function. Otherwise, the function is the
+  // consumer-to-producer map.
+  auto consumer_to_gmem = [=](IterDomain* id) -> IterDomain* {
+    return c2p_map.at(id);
+  };
+
+  // Step 1: Get all bulk IterDomains and tile IterDomains.
+  // An IterDomain is considered "bulk" if it has parallel type "Bulk" or all
+  // its children are considered "bulk".
+  // A "tile" IterDomain is a bulk IterDomain whose parents are not bulk.
+
+  // Get all bulk IterDomains
+  std::unordered_set<IterDomain*> bulk_ids;
+  // Bulk IterDomains that we need to check its definition to see if it is a
+  // tile IterDomain.
+  std::deque<IterDomain*> pending;
+  pending.push_back(nullptr); // use nullptr as a checkpoint
+  // Start from leaf domain, where all the bulk IterDomains in the leaf domain
+  // must be parallelized as ParallelType::Bulk.
+  for (auto id : consumer_tv->getLeafDomain()) {
+    if (id->getParallelType() == ParallelType::Bulk) {
+      id = consumer_to_gmem(id);
+      bulk_ids.insert(id);
+      pending.push_back(id);
+    }
+  }
+  // Use a BFS-like (not exactly BFS) algorithm to propagate back to get all
+  // bulk IterDomains
+  bool updated = true;
+  while (true) {
+    auto id = pending.front();
+    pending.pop_front();
+    if (id == nullptr) {
+      if (updated) {
+        // We discovered new bulk IterDomains in the last round, so we need to
+        // continue start a new round to see if we can discover more bulk
+        // IterDomains.
+        pending.push_back(nullptr);
+        updated = false;
+        continue;
+      } else {
+        // We have visited all IterDomains in pending for one round, but nothing
+        // has changed. This means that all IterDomains in pending are
+        // tile IterDomains, so we can no longer propagate further.
+        break;
+      }
+    }
+
+    auto def = id->definition();
+    bool should_propagate = false;
+    if (allocation_domain_set.count(id) == 0) {
+      // We only continue propagating if we have not reached the allocation
+      // domain yet.
+      NVF_ERROR(
+          def != nullptr,
+          "Allocation domain is unreachable from ",
+          id->toString());
+
+      if (bulk_ids.count(def->input(0)->as<IterDomain>()) > 0) {
+        // already processed from another path
+        continue;
+      }
+
+      should_propagate = std::all_of(
+          def->outputs().begin(), def->outputs().end(), [&](Val* out) {
+            return bulk_ids.count(out->as<IterDomain>()) > 0;
+          });
+    }
+
+    if (should_propagate) {
+      updated = true;
+      for (auto id : def->inputs()) {
+        if (bulk_ids.insert(id->as<IterDomain>()).second) {
+          pending.push_back(id->as<IterDomain>());
+        }
+      }
+    } else {
+      // Not all outputs of def are bulk IterDomains, this could be because:
+      // 1. id is a tile IterDomain
+      // 2. id is not a tile IterDomain, we just haven't visited def's other
+      //    outputs yet.
+      pending.push_back(id);
+    }
+  }
+
+  // Get tile IterDomains. Use VectorOfUniqueEntries instead of
+  // std::unordered_set to make the algorithm deterministic. However, the order
+  // here has no meaning, especially, is is not the order specifying which
+  // IterDomain is inner and which is outer. The actual order must be determined
+  // by propagating from the allocation domain.
+  VectorOfUniqueEntries<IterDomain*> tile_ids;
+  for (auto id : pending) {
+    if (id == nullptr) {
+      continue;
+    }
+    tile_ids.pushBack(id);
+  }
+
+  // Step 5: Compute the expected bytes for the complete_tx mechanism
+
+  int64_t itemsize = dataTypeSize(producer_tv->dtype());
+  Val* expected_bytes = IrBuilder::create<Val>(itemsize, DataType::Index);
+  // Note that we need to use the extents of the tile IterDomains
+  // to compute the expected bytes, not the extents of the box IterDomains.
+  // They are different when element strides are not 1.
+  for (auto id : tile_ids) {
+    expected_bytes =
+        SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
+  }
+  return expected_bytes;
+}
+
 // Creates kir::MBarrierArriveExpectTx for given LoadStoreOp and index of
 // loop in scope's which LoadStoreOp is present
 kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
     LoadStoreOp* ldst,
     Val* loop_index) {
-  TensorView* ldst_out_tv = ldst->out()->as<TensorView>();
-  Val* expect_bytes =
-      IrBuilder::create<Val>(dataTypeSize(ldst_out_tv->dtype()));
-  const std::vector<IterDomain*>& leaf_domain = ldst_out_tv->getLeafDomain();
+  Val* expected_bytes = getExpectedTransactionCount(ldst);
 
+  // For TMA load, we use the consumer for-loop structure.
+  TensorView* ldst_out_tv = ldst->out()->as<TensorView>();
+  const std::vector<IterDomain*>& leaf_domain = ldst_out_tv->getLeafDomain();
   for (size_t idx = ldst_out_tv->getComputeAtPosition();
        idx < leaf_domain.size();
        ++idx) {
     IterDomain* id = leaf_domain.at(idx);
-    if (id->getParallelType() == ParallelType::Serial ||
-        id->getParallelType() == ParallelType::Bulk) {
-      expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
+    if (!isParallelTypeThread(id->getParallelType()) &&
+        id->getParallelType() != ParallelType::Bulk) {
+      expected_bytes =
+          SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
     }
   }
-  expect_bytes =
-      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expect_bytes);
+
+  expected_bytes =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
+  auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
+      SimplifyingIrBuilder::modExpr(
+          expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
+      expected_bytes->fusion()->zeroVal());
+  GpuLower::current()->validate(
+      is_multiple_of_16B,
+      "The expected bytes must be a multiple of 16 bytes, but ",
+      expected_bytes,
+      " is not.");
 
   TensorView* all_mbarrier_tokens =
       GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
@@ -226,7 +398,7 @@ kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
       IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
 
   auto mbarrier_arrive_tx = IrBuilder::create<kir::MBarrierArriveExpectTx>(
-      stage_token, stage_mbarrier, expect_bytes);
+      stage_token, stage_mbarrier, expected_bytes);
 
   return mbarrier_arrive_tx;
 }
