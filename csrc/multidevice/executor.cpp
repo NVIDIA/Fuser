@@ -78,7 +78,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   RuntimeWorkSpace workspace;
   prepareRuntimeOrder(staged_fusion.get(), workspace);
 
-  // Create the HostIrContainer representing the host program
+  // Create the HostIrContainer representing the host program. Each segment of
+  // the segmented fusion will be translated to a HostIR
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(hic.get());
   IrCloner ir_cloner(hic.get());

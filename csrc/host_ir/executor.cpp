@@ -37,25 +37,14 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   // Collect global outputs
   std::vector<at::Tensor> outputs;
   for (auto output_val : container_->outputs()) {
-    // at::Tensor output;
-    // if (!output_val->hasDeviceMesh()
-    //     && communicator_ == nullptr
-    //     && output_val->getDeviceMesh().has(communicator_->deviceId()))
-    // auto output = val_to_IValue_.at(output_val).toTensor();
-
     auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
         ? val_to_IValue_.at(output_val).toTensor()
         : at::Tensor();
-
     outputs.push_back(output);
   }
 
   return outputs;
 }
-
-// const std::vector<Val*>& HostIrExecutor::inputs() {
-//   return container_->inputs();
-// }
 
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
   Stream* stream = set_current_stream->stream();
@@ -124,14 +113,6 @@ void HostIrExecutor::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
-  // NVF_ERROR(
-  //     std::find(
-  //         communication->team().begin(),
-  //         communication->team().end(),
-  //         communicator_->deviceId()) != communication->team().end(),
-  //     "current device index ",
-  //     communicator_->deviceId(),
-  //     " must be present in the communication's team");
 
   Val* input_val = communication->input(0);
   Val* output_val = communication->output(0);
