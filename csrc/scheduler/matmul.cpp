@@ -754,9 +754,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   std::vector<mma_utils::MatmulPattern> patterns =
       mma_utils::findMatmulPatterns(fusion);
   NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
-  NVF_ERROR(
-      patterns.size() == 1,
-      "Only a single matmul pattern can currently be fused");
   std::vector<MmaOp*> mma_ops;
   mma_ops.reserve(patterns.size());
   for (mma_utils::MatmulPattern& pattern : patterns) {
@@ -889,6 +886,13 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     acw_smems[i] = ir_utils::consumerTvsOf(a).at(0);
     acw_smems[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
     acw_smems[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op_a);
+    if (acw_smems[i]->uses().size() > 1) {
+      // There can be multiple uses for example if we have A @ B1 + A @ B2 then
+      // A will be cached to smem then it might be loaded into two separate
+      // register buffers, one for each mma. Instead, we will load it once
+      // into registers then re-use the register buffer for both mmas.
+      acw_smems[i]->cacheAfter();
+    }
     NVF_ERROR(acw_smems[i]->uses().size() == 1);
   }
   for (size_t i : c10::irange(bs.size())) {
@@ -897,6 +901,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     bcw_smems[i] = ir_utils::consumerTvsOf(b).at(0);
     bcw_smems[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
     bcw_smems[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op_b);
+    if (bcw_smems[i]->uses().size() > 1) {
+      bcw_smems[i]->cacheAfter();
+    }
     NVF_ERROR(bcw_smems[i]->uses().size() == 1);
   }
 
@@ -945,16 +952,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       num_device_dims + num_local_batch_dims;
   const int64_t num_splitk_dims = params.splitk_factor != 1 ? 1 : 0;
 
-  // Make a CTA tile
-  // ------------------------------------------------------------------
-  // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
-  std::vector<TensorView*> splitk_sums(mma_results.size(), nullptr);
-  for (size_t i : c10::irange(mma_results.size())) {
-    TensorView* mma_result = mma_results[i];
-    // We will assign these in this loop
-    TensorView*& smem_epilogue = smem_epilogues[i];
-    TensorView*& splitk_sum = splitk_sums[i];
-
+  // Canonicalize mma_result before scheduling/propagating
+  for (TensorView* mma_result : mma_results) {
     mma_utils::canonicalizeMmaTvOrdering(
         mma_result,
         id_model.idGraph(IdMappingMode::PERMISSIVE),
@@ -966,6 +965,17 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         num_local_dims == 3 || num_local_dims == 4,
         "Currently, we only support B, M, N and K being a single dimension.",
         " More general tensor contraction is not supported yet.");
+  }
+
+  // Make a CTA tile
+  // ------------------------------------------------------------------
+  // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
+  std::vector<TensorView*> splitk_sums(mma_results.size(), nullptr);
+  for (size_t i : c10::irange(mma_results.size())) {
+    TensorView* mma_result = mma_results[i];
+    // We will assign these in this loop
+    TensorView*& smem_epilogue = smem_epilogues[i];
+    TensorView*& splitk_sum = splitk_sums[i];
 
     // [... M,N,K]
     mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
@@ -1146,9 +1156,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   // We can have multiple mma op inputs (ab and bb) for each cache read (acr and
-  // bcr). For example, if we are computing A @ (B1 + B2) then A is cached once
-  // but used in two separate matmuls. Those matmuls might even have their own
-  // separate prologues.
+  // bcr). For example, if we are computing A @ B1 + A @ B2 then A is cached
+  // once but used in two separate matmuls. Those matmuls might even have their
+  // own separate prologues.
 
   // If acr != ab then there is a prologue and we need to propagate from the
   // MmaOp input ab back to the register load acr.
