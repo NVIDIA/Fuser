@@ -54,8 +54,18 @@ class HostIrExecutor final : public OptInDispatch {
       HostIrExecutorParams = HostIrExecutorParams());
   std::vector<at::Tensor> runWithInput(
       std::unordered_map<Val*, c10::IValue> val_to_IValue, LaunchParams launch_params = LaunchParams());
-  const std::vector<Val*>& inputs();
-  const std::vector<Val*>& outputs();
+
+  const std::vector<Val*>& inputs() {
+    return container_->inputs();
+  }
+
+  std::ostream& print(std::ostream& os) const {
+    return container_->print(os);
+  };
+
+  const auto& getFusionExecutorCaches() {
+    return fec_;
+  };
 
  private:
   using OptInDispatch::handle;

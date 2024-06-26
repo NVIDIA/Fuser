@@ -8,7 +8,6 @@
 #pragma once
 
 #include <fusion.h>
-#include <host_ir/executor.h>
 
 namespace nvfuser {
 

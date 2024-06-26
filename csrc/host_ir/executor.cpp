@@ -52,12 +52,9 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   return outputs;
 }
 
-const std::vector<Val*>& HostIrExecutor::inputs() {
-  return container_->inputs();
-}
-const std::vector<Val*>& HostIrExecutor::outputs() {
-  return container_->outputs();
-}
+// const std::vector<Val*>& HostIrExecutor::inputs() {
+//   return container_->inputs();
+// }
 
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
   Stream* stream = set_current_stream->stream();
