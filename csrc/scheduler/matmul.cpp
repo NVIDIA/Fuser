@@ -543,10 +543,10 @@ void scheduleProlog(
     shared_mem_tv->setMemoryType(MemoryType::Shared);
 
     // The following line allows us to reclaim the memory allocated to
-    // shared_mem_tv and reuse it for the epilogue, introducing one block sync if
-    // needed. This is not done by default as we do not insert new syncs unless
-    // requested to do so. If smem is not used for the epilogue, this call will
-    // have no effect.
+    // shared_mem_tv and reuse it for the epilogue, introducing one block sync
+    // if needed. This is not done by default as we do not insert new syncs
+    // unless requested to do so. If smem is not used for the epilogue, this
+    // call will have no effect.
     if (params.promote_prologue_smem_reuse) {
       shared_mem_tv->promoteReuse();
     }
@@ -938,11 +938,17 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // take advantage of unswizzling during the grid reduction
   std::vector<TensorView*> smem_epilogues(mma_results);
 
+  const int64_t num_device_dims = numDeviceDims(mma_results.front());
+  const int64_t num_local_batch_dims =
+      mma_results.front()->nDims() - num_device_dims - 3;
+  const int64_t num_device_and_batch_dims =
+      num_device_dims + num_local_batch_dims;
+  const int64_t num_splitk_dims = params.splitk_factor != 1 ? 1 : 0;
+
   // Make a CTA tile
   // ------------------------------------------------------------------
   // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
   std::vector<TensorView*> splitk_sums(mma_results.size(), nullptr);
-  int num_splitk_dims = 0;
   for (size_t i : c10::irange(mma_results.size())) {
     TensorView* mma_result = mma_results[i];
     // We will assign these in this loop
@@ -960,11 +966,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         num_local_dims == 3 || num_local_dims == 4,
         "Currently, we only support B, M, N and K being a single dimension.",
         " More general tensor contraction is not supported yet.");
-    const int64_t num_device_dims = numDeviceDims(mma_result);
-    const int64_t num_local_batch_dims =
-        mma_result->nDims() - num_device_dims - 3;
-    const int64_t num_device_and_batch_dims =
-        num_device_dims + num_local_batch_dims;
 
     // [... M,N,K]
     mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
@@ -982,7 +983,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         mma_result->merge(num_device_and_batch_dims);
         // [I1*factor, I2/factor]
       } else if (
-          params.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor) {
+          params.cta_order ==
+          MatmulParams::TileRasterizationOrder::ColumnMajor) {
         mma_result->split(num_device_and_batch_dims, factor);
         // [I1/factor, factor, I2]
         mma_result->reorder(
@@ -1007,8 +1009,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       // the actual MmaOp output, so here we reassign that to the intermediate.
       splitk_sum = mma_result;
       mma_result = splitk_sum->rFactor({-4, -1});
-
-      num_splitk_dims = 1;
     }
 
     // At this point we have the following schedule:
@@ -1099,14 +1099,16 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       moveInnerBroadcastLeft(ab);
       moveInnerBroadcastLeft(bb);
     }
-    
+
     ab->applyMmaSwizzle(MmaOperand::A);
     bb->applyMmaSwizzle(MmaOperand::B);
 
     // Propagate mma input swizzle up the DAG
     //  to all the tensors before mma op and after shared mem read.
-    auto propagate_mma_input_schedule_to = [&](const std::vector<TensorView*>* a_boundary,
-                                               const std::vector<TensorView*>* b_boundary) {
+    auto propagate_mma_input_schedule_to = [&](const std::vector<TensorView*>*
+                                                   a_boundary,
+                                               const std::vector<TensorView*>*
+                                                   b_boundary) {
       if (a_boundary != nullptr) {
         scheduler_utils::BoundedDirectionalTransformPropagator::backward(
             ab,
@@ -1126,14 +1128,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     };
     propagate_mma_input_schedule_to(&acw_smems, &bcw_smems);
 
-    // This does a split-reorder-merge swizzle of the last two M and N dimensions
-    // (and a possible final reduction dim).
-    // eg. [M64, N24, R]  -> [WarpGroup128, N3, M2, N2, Ro, R4, R2]
-    // Before
-    //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin iNin rKin]
+    // This does a split-reorder-merge swizzle of the last two M and N
+    // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->
+    // [WarpGroup128, N3, M2, N2, Ro, R4, R2] Before
+    //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin iNin
+    //   rKin]
     // After
     //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
-    //                              iNw iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
+    //                              iNw iMino iNino iMin2 iNin2 rKino rKin4
+    //                              rKin2]
     mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
 
     // Set parallelization:
@@ -1142,33 +1145,78 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // ------------------------------------------------------------------
   }
 
-  // We can have multiple cache reads (acr and bcr) for each cache write
-  // (acw_smem and bcw_smem). For example, if we are computing A @ (B1 + B2)
-  // then A is cached once but used in two separate matmuls. Those matmuls
-  // might even have their own separate prologues.
-  
+  // We can have multiple mma op inputs (ab and bb) for each cache read (acr and
+  // bcr). For example, if we are computing A @ (B1 + B2) then A is cached once
+  // but used in two separate matmuls. Those matmuls might even have their own
+  // separate prologues.
 
   // If acr != ab then there is a prologue and we need to propagate from the
   // MmaOp input ab back to the register load acr.
-  if (acr != ab) {
-    //  -5  -4   -3   -2   -1
-    //[8mi, 4k, 2ko, 2mo, 2ki]
-    acr->setAllocationDomain(acr->getLoopDomain(), true);
-    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
-    ab->merge(-5);
-    ab->axis(-4)->parallelize(ParallelType::TIDx);
-    propagate_mma_input_schedule_to(acr, nullptr);
+  // ab has already had applyMmaSwizzle applied, which sets allocation domain
+  // and calls scheduleLdMatrix. If acr != ab (i.e. there's a prologue), then
+  // we need schedule ab and propagate backward to acr.
+  //
+  // Clearly then, within a single main loop we cannot have some `ab`s equal to
+  // `acr` and others not equal. If we detect such a situation, we will
+  // cacheAfter `acr` and call the new cached tensor `ab`.
+  //
+  // TODO: This step assumes there's a single main loop
+
+  bool has_prologue_a =
+      std::any_of(abs.begin(), abs.end(), [&acrs](TensorView* ab) {
+        return std::find(acrs.begin(), acrs.end(), ab) == acrs.end();
+      });
+  bool has_prologue_b =
+      std::any_of(bbs.begin(), bbs.end(), [&bcrs](TensorView* bb) {
+        return std::find(bcrs.begin(), bcrs.end(), bb) == bcrs.end();
+      });
+  if (has_prologue_a) {
+    for (TensorView*& ab : abs) {
+      if (std::find(acrs.begin(), acrs.end(), ab) != acrs.end()) {
+        ab = ab->cacheAfter();
+      }
+    }
   }
-  if (bcr != bb) {
-    //   -5  -4   -3   -2   -1
-    // [8ni, 4k, 2ko, 1no, 2ki]
-    bcr->setAllocationDomain(bcr->getLoopDomain(), true);
-    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
-    bb->merge(-5);
-    bb->axis(-4)->parallelize(ParallelType::TIDx);
-    propagate_mma_input_schedule_to(nullptr, bcr);
+  if (has_prologue_b) {
+    for (TensorView*& bb : bbs) {
+      if (std::find(bcrs.begin(), bcrs.end(), bb) != bcrs.end()) {
+        bb = bb->cacheAfter();
+      }
+    }
   }
-  // TODO: UNCHANGED TO HERE
+
+  if (has_prologue_a) {
+    for (TensorView* acr : acrs) {
+      acr->setAllocationDomain(acr->getLoopDomain(), true);
+      mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
+    }
+    for (TensorView* ab : abs) {
+      ab->merge(-5);
+      ab->axis(-4)->parallelize(ParallelType::TIDx);
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          ab,
+          -1,
+          acrs,
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
+    }
+  }
+  if (has_prologue_b) {
+    for (TensorView* bcr : bcrs) {
+      bcr->setAllocationDomain(bcr->getLoopDomain(), true);
+      mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
+    }
+    for (TensorView* bb : bbs) {
+      bb->merge(-5);
+      bb->axis(-4)->parallelize(ParallelType::TIDx);
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          bb,
+          -1,
+          bcrs,
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
+    }
+  }
 
   // Parallelization strategy:
   // Here the top two rows indicate how we can index each axis. The third row
@@ -1209,90 +1257,108 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   splitk_sum
   //     [... iMo iNo rKf  iMi  iNi]
 
-  // When we have both batch dims and splitk, parallelize splitk only.
-  // If we only have batch dim, parallelize the batch dim.
-  if (num_splitk_dims != 0) {
-    mma_result->axis(num_device_and_batch_dims + 2)
-        ->parallelize(ParallelType::BIDz);
-  } else if (num_local_batch_dims > 0) {
-    mma_result->axis(num_device_dims)->parallelize(ParallelType::BIDz);
-  }
-  switch (params.cta_order) {
-    case MatmulParams::TileRasterizationOrder::RowMajor:
-      mma_result->axis(num_device_and_batch_dims)
-          ->parallelize(ParallelType::BIDx);
-      mma_result->axis(num_device_and_batch_dims + 1)
-          ->parallelize(ParallelType::BIDy);
-      break;
-    case MatmulParams::TileRasterizationOrder::ColumnMajor:
-      mma_result->axis(num_device_and_batch_dims)
-          ->parallelize(ParallelType::BIDy);
-      mma_result->axis(num_device_and_batch_dims + 1)
-          ->parallelize(ParallelType::BIDx);
-      break;
-    default:
-      NVF_ERROR(
-          false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
-  }
+  // {acr, bcr, ab, bb}
+  std::vector<TensorView*> operand_registers;
+  operand_registers.insert(operand_registers.end(), acrs.begin(), acrs.end());
+  operand_registers.insert(operand_registers.end(), bcrs.begin(), bcrs.end());
+  operand_registers.insert(operand_registers.end(), abs.begin(), abs.end());
+  operand_registers.insert(operand_registers.end(), bbs.begin(), bbs.end());
 
-  // parallelize Mwo, Nwo by thread
-  mma_result->axis(num_device_and_batch_dims + 4 + num_splitk_dims)
-      ->parallelize(ParallelType::TIDz);
-  mma_result->axis(num_device_and_batch_dims + 5 + num_splitk_dims)
-      ->parallelize(ParallelType::TIDy);
+  for (TensorView* mma_result : mma_results) {
+    // When we have both batch dims and splitk, parallelize splitk only.
+    // If we only have batch dim, parallelize the batch dim.
+    if (num_splitk_dims != 0) {
+      mma_result->axis(num_device_and_batch_dims + 2)
+          ->parallelize(ParallelType::BIDz);
+    } else if (num_local_batch_dims > 0) {
+      mma_result->axis(num_device_dims)->parallelize(ParallelType::BIDz);
+    }
+    switch (params.cta_order) {
+      case MatmulParams::TileRasterizationOrder::RowMajor:
+        mma_result->axis(num_device_and_batch_dims)
+            ->parallelize(ParallelType::BIDx);
+        mma_result->axis(num_device_and_batch_dims + 1)
+            ->parallelize(ParallelType::BIDy);
+        break;
+      case MatmulParams::TileRasterizationOrder::ColumnMajor:
+        mma_result->axis(num_device_and_batch_dims)
+            ->parallelize(ParallelType::BIDy);
+        mma_result->axis(num_device_and_batch_dims + 1)
+            ->parallelize(ParallelType::BIDx);
+        break;
+      default:
+        NVF_ERROR(
+            false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
+    }
 
-  scheduler_utils::parallelizeAllLike(
-      mma_result,
-      -1,
-      {acr, bcr, ab, bb},
-      {ParallelType::TIDy, ParallelType::TIDz});
+    // parallelize Mwo, Nwo by thread
+    mma_result->axis(num_device_and_batch_dims + 4 + num_splitk_dims)
+        ->parallelize(ParallelType::TIDz);
+    mma_result->axis(num_device_and_batch_dims + 5 + num_splitk_dims)
+        ->parallelize(ParallelType::TIDy);
+
+    scheduler_utils::parallelizeAllLike(
+        mma_result,
+        -1,
+        operand_registers,
+        {ParallelType::TIDy, ParallelType::TIDz});
+  }
 
   // handle epilogue and always vectorize Ki
   if (params.use_smem_epilogue) {
-    smem_epilogue->setMemoryType(MemoryType::Shared);
-    swizzleSharedMemory(smem_epilogue);
-    scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-        mma_result,
-        -1,
-        {smem_epilogue},
-        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-            .propagateParallelType()
-            .propagateToBoundary());
-    smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
-
-    for (auto [dc, d] : cached_outputs) {
-      // Schedule output tensor differently for better global memory access
-      // pattern.
-      scheduleOutputTensor(
-          mma_result, d, gemm_tile, params.supported_vec_size.epilogue);
-      d->axis(-1)->parallelize(ParallelType::Vectorize);
-
-      // Propagate output tensor transformations back to smem_epilogue
-      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-          d, -1, {smem_epilogue});
+    for (TensorView* smem_epilogue : smem_epilogues) {
+      smem_epilogue->setMemoryType(MemoryType::Shared);
+      swizzleSharedMemory(smem_epilogue);
     }
-  } else {
-    for (auto [dc, d] : cached_outputs) {
+    for (TensorView* mma_result : mma_results) {
       scheduler_utils::BoundedDirectionalTransformPropagator::forward(
           mma_result,
           -1,
-          {d},
+          smem_epilogues,
           scheduler_utils::BoundedDirectionalTransformPropagator::Options()
               .propagateParallelType()
               .propagateToBoundary());
-      // We might propagate an inner dimension that is not compatible with the
-      // output or bias-like inputs. In those cases, we will further split this
-      // dimension with an outer unrolled loop to achieve the proper
-      // vectorization as specified by params.supported_vec_size.epilogue.
-      NVF_ERROR(d->axis(-1)->extent()->isConst());
-      int64_t d_extent = d->axis(-1)->extent()->value().as<int64_t>();
-      if (d_extent > params.supported_vec_size.epilogue) {
-        // Should always be a divisible split
-        NVF_ERROR(d_extent % params.supported_vec_size.epilogue == 0);
-        d->split(-1, params.supported_vec_size.epilogue, /*inner_split=*/true);
-        d->axis(-2)->parallelize(ParallelType::Unroll);
+
+      for (auto [dc, d] : cached_outputs) {
+        // Schedule output tensor differently for better global memory access
+        // pattern.
+        scheduleOutputTensor(
+            mma_result, d, gemm_tile, params.supported_vec_size.epilogue);
+        d->axis(-1)->parallelize(ParallelType::Vectorize);
+
+        // Propagate output tensor transformations back to smem_epilogue
+        scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+            d, -1, smem_epilogues);
       }
-      d->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+    for (TensorView* smem_epilogue : smem_epilogues) {
+      smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+  } else {
+    for (TensorView* mma_result : mma_results) {
+      for (auto [dc, d] : cached_outputs) {
+        scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+            mma_result,
+            -1,
+            {d},
+            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                .propagateParallelType()
+                .propagateToBoundary());
+        // We might propagate an inner dimension that is not compatible with the
+        // output or bias-like inputs. In those cases, we will further split
+        // this dimension with an outer unrolled loop to achieve the proper
+        // vectorization as specified by params.supported_vec_size.epilogue.
+        NVF_ERROR(d->axis(-1)->extent()->isConst());
+        int64_t d_extent = d->axis(-1)->extent()->value().as<int64_t>();
+        if (d_extent > params.supported_vec_size.epilogue) {
+          // Should always be a divisible split
+          NVF_ERROR(d_extent % params.supported_vec_size.epilogue == 0);
+          d->split(
+              -1, params.supported_vec_size.epilogue, /*inner_split=*/true);
+          d->axis(-2)->parallelize(ParallelType::Unroll);
+        }
+        d->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
     }
   }
   // propagate output transformations to all inputs that are part of epilogue
@@ -1302,17 +1368,23 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduleFusionInputsForEpilogue(tensor_roles, params.use_smem_epilogue);
   }
 
-  scheduleSplitKSum(
-      splitk_sum, num_device_and_batch_dims, params.use_smem_epilogue);
+  for (TensorView* splitk_sum : splitk_sums) {
+    scheduleSplitKSum(
+        splitk_sum, num_device_and_batch_dims, params.use_smem_epilogue);
+  }
 
   // auto inline for all tensors except register tensors
-  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
+  const std::unordered_set<TensorView*> operand_registers_set(
+      operand_registers.begin(), operand_registers.end());
+  inlineMost(ir_utils::allTvsExcept(fusion, operand_registers_set));
 
   // if auto inline, will inline to position-7, leads to performance regression
-  inlineSelectedAt(
-      {acr, bcr, ab, bb},
-      mma_result,
-      num_device_and_batch_dims + 6 + num_splitk_dims);
+  for (TensorView* mma_result : mma_results) {
+    inlineSelectedAt(
+        operand_registers_set,
+        mma_result,
+        num_device_and_batch_dims + 6 + num_splitk_dims);
+  }
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
@@ -1325,29 +1397,43 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
           "Circular buffer only supports async load");
     }
 
-    acw_smem->circularBuffer(
-        params.double_buffer_options.smem_double_buffer_stage);
-    bcw_smem->circularBuffer(
-        params.double_buffer_options.smem_double_buffer_stage);
+    for (TensorView* acw_smem : acw_smems) {
+      acw_smem->circularBuffer(
+          params.double_buffer_options.smem_double_buffer_stage);
+    }
+    for (TensorView* bcw_smem : bcw_smems) {
+      bcw_smem->circularBuffer(
+          params.double_buffer_options.smem_double_buffer_stage);
+    }
   }
 
   if (params.double_buffer_options.double_buffer_smem_read) {
-    acr->doubleBuffer();
-    bcr->doubleBuffer();
+    for (TensorView* acr : acrs) {
+      acr->doubleBuffer();
+    }
+    for (TensorView* bcr : bcrs) {
+      bcr->doubleBuffer();
+    }
   }
 
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
     // rotate Kg loop
-    scheduler_utils::rotateLoop(
-        mma_result,
-        num_device_and_batch_dims + 2 + num_splitk_dims,
-        {acr, bcr});
+    std::unordered_set<Statement*> cache_reads;
+    cache_reads.insert(acrs.begin(), acrs.end());
+    cache_reads.insert(bcrs.begin(), bcrs.end());
+    for (TensorView* mma_result : mma_results) {
+      scheduler_utils::rotateLoop(
+          mma_result,
+          num_device_and_batch_dims + 2 + num_splitk_dims,
+          cache_reads);
+    }
   }
 
   NVF_ERROR(!cached_outputs.empty());
+  // TODO: Update smem estimate to reflect multiple mma ops
   mma_utils::MmaDataTypes data_types = {
-      as.front()->dtype(), bs.front()->dtype(), mma_result->dtype()};
+      as.front()->dtype(), bs.front()->dtype(), mma_results.front()->dtype()};
   // NOTE: Batch split-K matmuls cannot currently re-use smem due to outer
   // batch loop
   bool guaranteed_operand_reuse =
