@@ -504,6 +504,13 @@ class TMALoadTestWithABroadcastDim
   MmaInputSmemSwizzle swizzle;
   DataType dtype;
 
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+
   void schedule(TensorView* tv) {
     // We move the broadcast dim to be the left most.
     moveInnerBroadcastLeft(tv);
