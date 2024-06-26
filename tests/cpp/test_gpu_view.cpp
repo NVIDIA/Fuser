@@ -353,38 +353,49 @@ std::vector<reshape_example> all_reshape_examples = {
     {{2, 3, 0, 5}, {0, -1, 0}},
 };
 
-TEST_F(GpuViewTest, FusionReshapeReductionShmoo) {
-  for (auto e : all_reshape_examples) {
-    // Shmoo tests can occupy a lot of memory due to allocating many
-    // different tensor sizes. So in order to avoid an OOM during this
-    // test, we manually clear the allocator after it's reached a certain
-    // threshold.
-    maybeClearAllocator();
-    reductionViewAddFusion(
-        e.first, e.second, true /* reshape_before_reduction */);
-  }
-  std::vector<reshape_example> reshape_after_reduce_examples = {
-      {{19, 12, 7, 99}, {19, 3, 28}},
-      {{1, 19, 1, 12, 7, 1, 99}, {1, 19, 1, 3, 28}},
-      {{3, 17, 80, 1}, {51, 1, 2, 4, 10}},
-      {{3, 17, 80, 1, 9}, {51, 1, 2, 4, 10}},
-      {{2, 3, 4, 5}, {1, 6, 1, 2, 2, 1}},
-      {{22, 22, 2}, {22, 11, 1, 1, 2}},
-      {{37, 9, 7, 6, 10}, {333, 2, 21}},
-      {{1, 1, 333, 1}, {1, 1, 333, 1}},
-      {{8, 1, 1, 8, 1, 8}, {8, 2, 4, 1}},
-      {{1, 333, 1}, {1, 37, 9, 1}},
-      {{22, 1, 22, 1}, {484}},
-      {{1, 333, 1}, {333}},
-      {{1, 27454, 1, 2}, {1, 3922, 1, 7}},
-      {{1, 7844, 1, 7}, {1, 1961, 4}}};
+std::vector<reshape_example> reshape_after_reduce_examples = {
+    {{19, 12, 7, 99}, {19, 3, 28}},
+    {{1, 19, 1, 12, 7, 1, 99}, {1, 19, 1, 3, 28}},
+    {{3, 17, 80, 1}, {51, 1, 2, 4, 10}},
+    {{3, 17, 80, 1, 9}, {51, 1, 2, 4, 10}},
+    {{2, 3, 4, 5}, {1, 6, 1, 2, 2, 1}},
+    {{22, 22, 2}, {22, 11, 1, 1, 2}},
+    {{37, 9, 7, 6, 10}, {333, 2, 21}},
+    {{1, 1, 333, 1}, {1, 1, 333, 1}},
+    {{8, 1, 1, 8, 1, 8}, {8, 2, 4, 1}},
+    {{1, 333, 1}, {1, 37, 9, 1}},
+    {{22, 1, 22, 1}, {484}},
+    {{1, 333, 1}, {333}},
+    {{1, 27454, 1, 2}, {1, 3922, 1, 7}},
+    {{1, 7844, 1, 7}, {1, 1961, 4}}};
 
-  for (auto e : reshape_after_reduce_examples) {
-    maybeClearAllocator(); // see above
-    reductionViewAddFusion(
-        e.first, e.second, false /* reshape_before_reduction */);
-  }
+// Parameterized test for reshape before reduction
+class ReshapeBeforeReduction : public NVFuserFixtureParamTest<reshape_example> {
+};
+TEST_P(ReshapeBeforeReduction, FusionReshapeBeforeReduction) {
+  auto e = GetParam();
+  maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
+  reductionViewAddFusion(
+      e.first, e.second, true /* reshape_before_reduction */);
 }
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ReshapeBeforeReduction,
+    ::testing::ValuesIn(all_reshape_examples));
+
+// Parameterized test for reshape after reduction
+class ReshapeAfterReduction : public NVFuserFixtureParamTest<reshape_example> {
+};
+TEST_P(ReshapeAfterReduction, FusionReshapeAfterReduction) {
+  auto e = GetParam();
+  maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
+  reductionViewAddFusion(
+      e.first, e.second, false /* reshape_before_reduction */);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ReshapeAfterReduction,
+    ::testing::ValuesIn(reshape_after_reduce_examples));
 
 void persistentViewAddFusion(
     std::vector<int64_t>& input_shape,
