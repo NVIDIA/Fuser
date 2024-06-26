@@ -755,6 +755,14 @@ std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
       auto all_vals_01 = DependencyCheck::getAllValsBetween(
           {dom0->begin(), dom0->end()}, {dom1->begin(), dom1->end()});
       all_vals.pushBack(all_vals_01);
+      // Getting all vals is not sufficient, because there might be broadcasting
+      // IDs newly created during schedule.
+      auto all_exprs = DependencyCheck::getAllExprsBetween(
+          {dom0->begin(), dom0->end()}, {dom1->begin(), dom1->end()});
+      for (auto expr : all_exprs) {
+        all_vals.pushBack(expr->inputs());
+        all_vals.pushBack(expr->outputs());
+      }
     }
   }
 

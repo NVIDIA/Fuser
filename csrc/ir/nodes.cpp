@@ -3367,8 +3367,8 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
 void TensorDomain::broadcast(int64_t axis) {
   axis = nvfuser::wrapDim(axis, nDims() + 1);
   IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), fusion()->oneVal())
-      .iter_type(IterType::Broadcast)
-      .build();
+                       .iter_type(IterType::Broadcast)
+                       .build();
   loop_domain_.insert(loop_domain_.begin() + axis, id);
 }
 
