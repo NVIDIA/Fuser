@@ -92,6 +92,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/thread_predicate.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/tma.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/trivial_broadcast.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/alias_memory.cpp
@@ -304,8 +305,16 @@ target_link_libraries(codegen_internal PUBLIC
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
-  target_link_options(codegen_internal PUBLIC -fsanitize=address)
-  target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
+  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    # https://github.com/google/sanitizers/issues/796#issuecomment-292844823
+    # recommends to link asan statically. This is the default with Clang. GCC
+    # needs `-static-libasan`.
+    target_link_options(codegen_internal PUBLIC -fsanitize=address -static-libasan)
+    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address -static-libasan)
+  else()
+    target_link_options(codegen_internal PUBLIC -fsanitize=address)
+    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
+  endif()
 endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
@@ -563,7 +572,7 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
     codegen_internal
     ${ADDITIONAL_LINK}
     dynamic_type
-    GTest::gtest_main GTest::gmock_main
+    GTest::gtest_main GTest::gmock
     flatbuffers
     ${TORCH_LIBRARIES}
   )

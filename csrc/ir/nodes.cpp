@@ -3037,10 +3037,10 @@ TensorDomain::TensorDomain(
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
-  if (!logical_domain_.empty()) {
-    NVF_CHECK(!loop_domain_.empty(), "Root domain is not empty but loop is");
-    ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
-  }
+  NVF_CHECK(
+      loop_domain_.empty() == logical_domain_.empty(),
+      "logical domain and loop domain can only be both empty or neither empty");
+  ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
 
   // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
@@ -3061,13 +3061,12 @@ TensorDomain::TensorDomain(
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
+  NVF_CHECK(
+      loop_domain_.empty() == logical_domain_.empty(),
+      "logical domain and loop domain can only be both empty or neither empty");
+  ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
   if (!root_domain_.empty()) {
-    NVF_CHECK(!loop_domain_.empty(), "Root domain is not empty but loop is");
-    ir_utils::validateDomainEquivalence(root_domain_, loop_domain_);
-    if (!logical_domain_.empty()) {
-      ir_utils::validateDomainEquivalence(root_domain_, logical_domain_);
-      ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
-    }
+    ir_utils::validateDomainEquivalence(logical_domain_, root_domain_);
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
@@ -3091,17 +3090,15 @@ TensorDomain::TensorDomain(
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
+  NVF_CHECK(
+      loop_domain_.empty() == logical_domain_.empty(),
+      "logical domain and loop domain can only be both empty or neither empty");
+  ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
   if (!root_domain_.empty()) {
-    NVF_CHECK(!loop_domain_.empty(), "Root domain is not empty but loop is");
-    ir_utils::validateDomainEquivalence(root_domain_, loop_domain_);
-    if (!logical_domain_.empty()) {
-      ir_utils::validateDomainEquivalence(root_domain_, logical_domain_);
-      ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
-    }
-    if (!allocation_domain_.empty()) {
-      ir_utils::validateDomainEquivalence(root_domain_, allocation_domain_);
-      ir_utils::validateDomainEquivalence(allocation_domain_, loop_domain_);
-    }
+    ir_utils::validateDomainEquivalence(logical_domain_, root_domain_);
+  }
+  if (!allocation_domain_.empty()) {
+    ir_utils::validateDomainEquivalence(logical_domain_, allocation_domain_);
   }
 
   // resetDomains initializes other member variables, required by clang-tidy

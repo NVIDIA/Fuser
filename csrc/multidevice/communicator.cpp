@@ -159,7 +159,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
   if (backend == CommunicatorBackend::ucc) {
     constexpr auto timeout = std::chrono::milliseconds(30 * 60 * 1000);
     return c10d::ProcessGroupUCC::createProcessGroupUCC(
-        store, rank, size, timeout);
+        store, static_cast<int>(rank), static_cast<int>(size), timeout);
   }
 #endif
   NVF_ERROR(false, "no distributed backend available");
@@ -216,27 +216,30 @@ Communicator::Communicator(
 
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
-    std::optional<CommunicatorBackend> backend) {
+    std::optional<CommunicatorBackend> backend,
+    const std::string& prefix) {
   CommunicatorBackend b = getBackend(backend);
-  std::string team_key = getTeamKey(team, b);
+  // generate a string key which is unique to the team
+  // create the team and cache it
+  std::string team_key = prefix + getTeamKey(team, b);
   // check if backend associated with the team is present in the cache
   if (backends_.find(team_key) ==
       backends_.end()) { // create the backend and cache it
 #ifdef NVFUSER_DISTRIBUTED
-    // check that the caller's rank belongs to the requested team
-    auto rank_it = std::find(team.begin(), team.end(), deviceId());
-    NVF_ERROR(
-        rank_it != team.end(),
-        "only devices in the team should participate to its initialization");
-    // retrieve the caller's rank index/position in the team
-    RankType team_rank = std::distance(team.begin(), rank_it);
-    // generate a string key which is unique to the team
-    // create the team and cache it
-    backends_[team_key] = createBackend(
-        b,
-        c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
-        team_rank,
-        static_cast<int64_t>(team.size()));
+    backends_[team_key] = [&]() -> c10::intrusive_ptr<c10d::Backend> {
+      // check that the caller's rank belongs to the requested team
+      auto rank_it = std::find(team.begin(), team.end(), deviceId());
+      if (rank_it == team.end()) {
+        return nullptr;
+      }
+      // retrieve the caller's rank index/position in the team
+      RankType team_rank = std::distance(team.begin(), rank_it);
+      return createBackend(
+          b,
+          c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
+          team_rank,
+          static_cast<int64_t>(team.size()));
+    }();
 #else
     backends_[team_key] = c10::make_intrusive<c10d::Backend>();
 #endif

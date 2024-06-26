@@ -4018,6 +4018,33 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    # See https://github.com/NVIDIA/Fuser/issues/2317
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    def test_reduction_transpose_sched_issue2317(self):
+        inputs = [
+            torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((16, 128, 1600), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((1600, 1600), dtype=torch.bfloat16, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition, inputs) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.from_pytorch(inputs[2])
+
+            T10 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+            T11 = fd.ops.stride_order(T10, stride_order=[3, 2, 1, 0])
+            T16 = fd.ops.reshape(T11, new_shape=T1.shape())
+            T17 = fd.ops.linear(T16, T2)
+            T33 = fd.ops.add(T17, T1)
+
+            T33 = fd.ops.cast(T33, dtype=DataType.BFloat16)
+            T34 = fd.ops.linear(T33, T2)
+            T35 = fd.ops.add(T34, T33)
+            fd.add_output(T35)
+
+        nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inputs=inputs), inputs)
+
     def test_fusion_profiler(self):
         inputs = [
             torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
@@ -4106,6 +4133,153 @@ class TestNvFuserFrontend(TestCase):
             V4 = fd.define_vector([S2, S3], dtype=DataType.Int)
             T5 = fd.ops.reshape(T0, new_shape=V4)
             fd.add_output(T5)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # Test that the range of generated uniform values spans the proper range
+    # https://github.com/NVIDIA/Fuser/issues/1653
+    def test_uniform_range(self):
+        dtypes = [DataType.Double, DataType.Float, DataType.Half]
+        if not is_pre_ampere():
+            dtypes.append(DataType.BFloat16)
+
+        def run_test(left: float, right: float, dtype: DataType):
+            samples_per_run = 2**29
+
+            def fusion_fn(fd: FusionDefinition):
+                # Generate enough values to reasonably expect to sample the ends of the range
+                shape = fd.define_vector([samples_per_run], dtype=DataType.Int)
+                S0 = fd.define_scalar(left, dtype=DataType.Double)
+                S1 = fd.define_scalar(right, dtype=DataType.Double)
+                output = fd.ops.uniform(S0, S1, shape=shape, dtype=dtype)
+                fd.add_output(output)
+
+            with FusionDefinition() as fd:
+                fusion_fn(fd)
+
+            output = fd.execute([])[0]
+
+            x = output.amax()
+            m = output.amin()
+            mu = output.type(torch.float64).mean()
+            # Repeat to improve chances of sampling extreme values
+            num_runs = 100
+            num_samples = num_runs * samples_per_run
+            for i in range(num_runs):
+                u = fd.execute([])[0]
+                x = torch.maximum(x, u.amax())
+                m = torch.minimum(m, u.amin())
+                mu = mu + (u.type(torch.float64).mean() - mu) / (i + 2)
+
+            # round-trip cast to find expected min
+            theomin = torch.tensor(left, dtype=output.dtype).item()
+            theomu = 0.5 * (right + left)
+            theomax = torch.nextafter(
+                torch.tensor(right, dtype=output.dtype),
+                torch.tensor(left, dtype=output.dtype),
+            )
+
+            assert (
+                m.item() >= theomin
+            ), f"{output.dtype} expected min generated value {theomin} but found {m.item()}"
+            assert (
+                m.item() <= theomax
+            ), f"{output.dtype} expected max generated value {theomax} but found {x.item()}"
+
+            # uniform distribution on [0, 1) has mean 0.5 and variance 1/12
+            # The standard error of the mean is then 1/sqrt(12 *
+            # num_samples). We use the precision at 1.0 as a surrogate for
+            # the contribution of rounding to the standard error of the
+            # finite-precision mean.
+            assert abs(mu.item() - theomu) < (right - left) * max(
+                right - x.item(), 3.0 / math.sqrt(12 * num_samples)
+            ), f"{output.dtype} expected mean generated value {theomu} but found {mu.item()}"
+
+            if dtype not in [DataType.Float, DataType.Double]:
+                # For reduced precision types, check that we sample the extreme
+                # values. We don't do this for full precision types since the
+                # amount of samples required would be too large.
+                assert (
+                    m.item() == theomin
+                ), f"{output.dtype} expected min generated value {theomin} but found {m.item()}"
+                assert (
+                    x.item() == theomax
+                ), f"{output.dtype} expected max generated value {theomax} but found {x.item()}"
+
+        # test standard and non-standard uniform
+        for left, right in [[0.0, 1.0], [-1.5, 3.7]]:
+            for dtype in dtypes:
+                run_test(left, right, dtype)
+
+    def test_random_distinct_values(self):
+        dtypes = [DataType.Double, DataType.Float, DataType.Half]
+        if not is_pre_ampere():
+            dtypes.append(DataType.BFloat16)
+        for dtype, randopname in itertools.product(dtypes, ["uniform", "normal"]):
+
+            def fusion_fn(fd: FusionDefinition):
+                # generate 4 values and check that they are all distinct
+                shape = fd.define_vector([2, 2], dtype=DataType.Int)
+                randop = getattr(fd.ops, randopname)
+                S0 = fd.define_scalar(0.00000, dtype=DataType.Double)
+                S1 = fd.define_scalar(1.00000, dtype=DataType.Double)
+                output = randop(S0, S1, shape=shape, dtype=dtype)
+                fd.add_output(output)
+
+            with FusionDefinition() as fd:
+                fusion_fn(fd)
+
+            for i in range(100):
+                output = fd.execute([])[0]
+
+                # Rarely we might have a pair of matching lower precision
+                # samples. However, it is extremely rare that we would have a
+                # set of three matching elements in only 100 repeats unless we
+                # have a bug.
+
+                match = output.flatten().unsqueeze(0) == output.flatten().unsqueeze(1)
+                match_pairs = (
+                    match ^ torch.eye(4, dtype=torch.bool, device="cuda")
+                ).sum() // 2
+
+                assert (
+                    match_pairs.item() < 3
+                ), f"At least three entries match in {output}"
+
+    def test_matmul_issue_2354(self):
+        inputs = [
+            torch.randn((8, 4), dtype=torch.float32, device="cuda:0"),
+            torch.randn(
+                (
+                    6,
+                    2,
+                    4,
+                ),
+                dtype=torch.float32,
+                device="cuda:0",
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T2 = fd.ops.linear(T1, T0)
+            S3 = fd.define_scalar(1.41421, dtype=DataType.Double)
+            T4 = fd.ops.mul(T2, S3)
+            fd.add_output(T2)
+            fd.add_output(T4)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 

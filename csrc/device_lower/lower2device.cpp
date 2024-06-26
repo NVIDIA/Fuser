@@ -331,6 +331,42 @@ kir::Kernel* GpuLower::run() {
   return kernel_.get();
 }
 
+bool requiresIdModel(Fusion* fusion) {
+  // TMA requires IdModel
+  for (auto expr : fusion->exprs()) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        return true;
+      }
+    }
+  }
+  // If a tensor does not have a nice root->logical/allocation->loop
+  // linear transformation history, use IdModel.
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    auto root = tv->getMaybeRootDomain();
+    auto loop = tv->getLoopDomain();
+    std::vector<Val*> loop_val(loop.begin(), loop.end());
+    auto all_ids_vec = DependencyCheck::getAllValsBetween(
+        {root.begin(), root.end()}, loop_val);
+    std::unordered_set<Val*> all_ids_set(
+        all_ids_vec.begin(), all_ids_vec.end());
+    auto alloc = tv->getMaybeAllocationDomain();
+    auto logical = tv->getLogicalDomain();
+    bool has_alloc_id_not_on_path =
+        std::any_of(alloc.begin(), alloc.end(), [&](Val* v) {
+          return !all_ids_set.count(v);
+        });
+    bool has_logical_id_not_on_path =
+        std::any_of(logical.begin(), logical.end(), [&](Val* v) {
+          return !all_ids_set.count(v);
+        });
+    if (has_alloc_id_not_on_path || has_logical_id_not_on_path) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void GpuLower::analysis(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
   NVF_ERROR(fusion != nullptr);
@@ -354,6 +390,8 @@ void GpuLower::analysis(Fusion* fusion) {
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
+
+  this->requiresIdModel() = nvfuser::requiresIdModel(fusion_);
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
@@ -391,23 +429,24 @@ void GpuLower::analysis(Fusion* fusion) {
   // functionality should be affected. New IterDomains may be created,
   // so it is expected that generated code may use diffrent variable
   // names
-  if (isOptionEnabled(EnableOption::IdModel)) {
+  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     // Enable validation in the DEBUG build mode
 #ifdef NDEBUG
     // Not DEBUG build
-    IdModel id_model(
+    id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
 #else
     // DEBUG build
-    IdModel id_model(
+    id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/true);
 #endif
+    id_model_->validateAndPropagatePType();
   }
 
   resolveComputeWith(fusion_);
@@ -500,6 +539,13 @@ void GpuLower::analysis(Fusion* fusion) {
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
+    tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+  }
+
+  consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
 }
 
 kir::Kernel* GpuLower::kernel() const {

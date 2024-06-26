@@ -14,6 +14,7 @@
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/analysis/thread_predicate.h>
+#include <device_lower/analysis/tma.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/double_buffer.h>
@@ -23,6 +24,8 @@
 #include <exceptions.h>
 #include <executor_params.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model.h>
+#include <id_model/indexing.h>
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
@@ -108,6 +111,30 @@ class GpuLower : public NonCopyable {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
   }
 
+  IdModel& idModel() {
+    NVF_ERROR(id_model_.get());
+    return *id_model_;
+  }
+
+  const IdModel& idModel() const {
+    NVF_ERROR(id_model_.get());
+    return *id_model_;
+  }
+
+  bool isTensorIndexerEnabled() const {
+    return tensor_indexer_.get() != nullptr;
+  }
+
+  TensorIndexer& tensorIndexer() {
+    NVF_ERROR(tensor_indexer_.get());
+    return *tensor_indexer_;
+  }
+
+  const TensorIndexer& tensorIndexer() const {
+    NVF_ERROR(tensor_indexer_.get());
+    return *tensor_indexer_;
+  }
+
   const ParallelDimensionMap& parallelDimensionMap() const {
     return parallel_dimension_map_;
   }
@@ -170,6 +197,14 @@ class GpuLower : public NonCopyable {
     return vectorized_set_info_;
   }
 
+  bool requiresIdModel() const {
+    return requires_id_model_;
+  }
+
+  bool& requiresIdModel() {
+    return requires_id_model_;
+  }
+
   FusedReductionInfo& fusedReductionInfo() {
     return fused_reduction_info_;
   }
@@ -224,6 +259,15 @@ class GpuLower : public NonCopyable {
 
   std::vector<Pass>& passes() {
     return passes_;
+  }
+
+  std::unordered_map<TensorView*, const TMAInfo>& consumerToTMAInfo() {
+    return consumer_to_tma_info_;
+  }
+
+  const std::unordered_map<TensorView*, const TMAInfo>& consumerToTMAInfo()
+      const {
+    return consumer_to_tma_info_;
   }
 
   // Register a boolean Val as a predicate to validate at the run time. Optional
@@ -291,6 +335,9 @@ class GpuLower : public NonCopyable {
   kir::KernelPerformanceProfile profile_;
   std::unordered_set<Split*> divisible_splits_;
   CompileParams cparams_;
+  std::unique_ptr<IdModel> id_model_;
+  std::unique_ptr<TensorIndexer> tensor_indexer_;
+  std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size
@@ -312,6 +359,10 @@ class GpuLower : public NonCopyable {
   std::vector<std::pair<const Val*, std::string>> validations_;
 
   Fusion* fusion_ = nullptr;
+
+  // A temporary flag which is true if the fusion uses any feature that requires
+  // the new experimental id model
+  bool requires_id_model_ = false;
 };
 
 } // namespace nvfuser
