@@ -799,7 +799,7 @@ void validateMmaTensors(MmaOp* mma) {
   };
 
   validate_operand(mma->inA()->as<TensorView>(), MmaOperand::A);
-  // validate_operand(mma->inB()->as<TensorView>(), MmaOperand::B);
+  validate_operand(mma->inB()->as<TensorView>(), MmaOperand::B);
 }
 
 void validateSizeMemoryOp(LoadStoreOp* ldst) {

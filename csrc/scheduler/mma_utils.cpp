@@ -619,7 +619,7 @@ void checkDimSize(
   }
 }
 
-static void setWarpMapped(TensorView* tv, int64_t number_of_dims) {
+void setWarpMapped(TensorView* tv, int64_t number_of_dims) {
   for (int64_t id : c10::irange(number_of_dims)) {
     tv->axis(-id - 1)->toMmaSwizzled();
   }
