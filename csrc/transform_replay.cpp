@@ -159,7 +159,7 @@ class ReplaySelf : public ReplayTransformations {
         resize->leftExpand(),
         resize->rightExpand(),
         resize_out_logical,
-        keep_iter_type_ ? resize->out()->getIterType() : std::nullopt);
+        keep_iter_type_ ? std::optional<nvfuser::IterType>(resize->out()->getIterType()) : std::nullopt);
 
     loop_ids_.erase(mapped);
 
