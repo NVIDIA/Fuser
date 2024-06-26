@@ -2526,7 +2526,7 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
   ASSERT_NE(heur, nullptr);
   ASSERT_TRUE(heur->isA<MatmulParams>());
   MatmulParams* mmheur = heur->as<MatmulParams>();
-  EXPECT_EQ(mmheur->double_buffer_options.smem_double_buffer_stage, 0);
+  EXPECT_EQ(mmheur->circular_buffer_options.smem_circular_buffer_stage, 0);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
@@ -2759,9 +2759,9 @@ class AllocationDomainTest
     params.supported_vec_size = {8, 8, 4};
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
   }
 
   std::pair<TensorView*, TensorView*> getInputTVs(

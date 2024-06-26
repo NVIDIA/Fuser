@@ -1272,7 +1272,7 @@ void TensorView::circularBuffer(int64_t number_of_stages) {
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not
   // be finalized until lowering.
-  NVF_ERROR(stage > 1, "Unsupported stage number");
+  NVF_ERROR(number_of_stages > 1, "Unsupported stage number");
   validateCircularBufferedTensor(this);
   is_circular_buffered_ = true;
   circular_buffer_stage_ = number_of_stages;
