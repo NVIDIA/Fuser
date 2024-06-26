@@ -2596,30 +2596,10 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   const TMAInfo& tma_info =
       GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
 
-  ValGroups groups_to_index;
-  for (const auto& dim : tma_info.dims()) {
-    for (const auto& g : dim.partitioned) {
-      groups_to_index.pushBack(g);
-    }
-  }
+  ValGroups groups_to_index = tma_info.getTMADomain();
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-
-  auto indices = indexer.getIndexFor(ldst, groups_to_index);
-
-  std::vector<Val*> indices_inner_to_outer;
-  int64_t i = 0;
-  for (const auto& dim : tma_info.dims()) {
-    Val* dim_index = nullptr;
-    Val* stride = nullptr;
-    for (const auto& g : dim.partitioned) {
-      dim_index = SimplifyingIrBuilder::addExpr(
-          dim_index, SimplifyingIrBuilder::mulExpr(stride, indices[i++]));
-      stride = SimplifyingIrBuilder::mulExpr(
-          stride, g->front()->as<IterDomain>()->extent());
-    }
-    indices_inner_to_outer.push_back(dim_index);
-  }
+  auto indices_inner_to_outer = indexer.getIndexFor(ldst, groups_to_index);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);

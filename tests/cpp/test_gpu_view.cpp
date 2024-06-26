@@ -241,8 +241,8 @@ TEST_F(GpuViewTest, FusionReshapeFailMulitDimInference) {
 }
 
 void reductionViewAddFusion(
-    std::vector<int64_t>& input_shape,
-    std::vector<int64_t>& output_shape,
+    const std::vector<int64_t>& input_shape,
+    const std::vector<int64_t>& output_shape,
     bool reshape_before_reduction) {
   constexpr int kReductionAxis = -1;
 
@@ -294,15 +294,14 @@ void reductionViewAddFusion(
 }
 
 typedef std::vector<int64_t> shape_t;
-typedef std::pair<shape_t, shape_t> reshape_example;
-
+using ReshapeExample = std::pair<shape_t, shape_t>;
 // TODO: View examples with just 333 elements are failing validation in
 // normalization. This might just be because our tolerances aren't tuned well
 // for small sizes and the parallelization could be limited which could be
 // detected as a validation issue, though it might not actually be a correctness
 // issue. Using 3333 instead of 333 in those cases but should validate what's
 // going on in the 333 case.
-std::vector<reshape_example> all_reshape_examples = {
+std::vector<ReshapeExample> all_reshape_examples = {
     {{1, 19, 1, 3 * 4, 7, 1, 99}, {1, 19, -1, 3, 4 * 7 * 99}},
     {{1, 19, 1, 3 * 4, 7, 1, 99}, {1, 19, 1, 3, 4 * 7 * 99}},
     {{19, 3 * 4, 7, 99}, {19, 3, 4 * 7 * 99}},
@@ -353,38 +352,49 @@ std::vector<reshape_example> all_reshape_examples = {
     {{2, 3, 0, 5}, {0, -1, 0}},
 };
 
-TEST_F(GpuViewTest, FusionReshapeReductionShmoo) {
-  for (auto e : all_reshape_examples) {
-    // Shmoo tests can occupy a lot of memory due to allocating many
-    // different tensor sizes. So in order to avoid an OOM during this
-    // test, we manually clear the allocator after it's reached a certain
-    // threshold.
-    maybeClearAllocator();
-    reductionViewAddFusion(
-        e.first, e.second, true /* reshape_before_reduction */);
-  }
-  std::vector<reshape_example> reshape_after_reduce_examples = {
-      {{19, 12, 7, 99}, {19, 3, 28}},
-      {{1, 19, 1, 12, 7, 1, 99}, {1, 19, 1, 3, 28}},
-      {{3, 17, 80, 1}, {51, 1, 2, 4, 10}},
-      {{3, 17, 80, 1, 9}, {51, 1, 2, 4, 10}},
-      {{2, 3, 4, 5}, {1, 6, 1, 2, 2, 1}},
-      {{22, 22, 2}, {22, 11, 1, 1, 2}},
-      {{37, 9, 7, 6, 10}, {333, 2, 21}},
-      {{1, 1, 333, 1}, {1, 1, 333, 1}},
-      {{8, 1, 1, 8, 1, 8}, {8, 2, 4, 1}},
-      {{1, 333, 1}, {1, 37, 9, 1}},
-      {{22, 1, 22, 1}, {484}},
-      {{1, 333, 1}, {333}},
-      {{1, 27454, 1, 2}, {1, 3922, 1, 7}},
-      {{1, 7844, 1, 7}, {1, 1961, 4}}};
+std::vector<ReshapeExample> reshape_after_reduce_examples = {
+    {{19, 12, 7, 99}, {19, 3, 28}},
+    {{1, 19, 1, 12, 7, 1, 99}, {1, 19, 1, 3, 28}},
+    {{3, 17, 80, 1}, {51, 1, 2, 4, 10}},
+    {{3, 17, 80, 1, 9}, {51, 1, 2, 4, 10}},
+    {{2, 3, 4, 5}, {1, 6, 1, 2, 2, 1}},
+    {{22, 22, 2}, {22, 11, 1, 1, 2}},
+    {{37, 9, 7, 6, 10}, {333, 2, 21}},
+    {{1, 1, 333, 1}, {1, 1, 333, 1}},
+    {{8, 1, 1, 8, 1, 8}, {8, 2, 4, 1}},
+    {{1, 333, 1}, {1, 37, 9, 1}},
+    {{22, 1, 22, 1}, {484}},
+    {{1, 333, 1}, {333}},
+    {{1, 27454, 1, 2}, {1, 3922, 1, 7}},
+    {{1, 7844, 1, 7}, {1, 1961, 4}}};
 
-  for (auto e : reshape_after_reduce_examples) {
-    maybeClearAllocator(); // see above
-    reductionViewAddFusion(
-        e.first, e.second, false /* reshape_before_reduction */);
-  }
+namespace {
+using ReshapeBeforeReduction = NVFuserFixtureParamTest<ReshapeExample>;
+TEST_P(ReshapeBeforeReduction, FusionReshapeBeforeReduction) {
+  const auto& [input_shape, output_shape] = GetParam();
+  maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
+  reductionViewAddFusion(
+      input_shape, output_shape, /*reshape_before_reduction=*/true);
 }
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ReshapeBeforeReduction,
+    ::testing::ValuesIn(all_reshape_examples));
+} // namespace
+
+namespace {
+using ReshapeAfterReduction = NVFuserFixtureParamTest<ReshapeExample>;
+TEST_P(ReshapeAfterReduction, FusionReshapeAfterReduction) {
+  const auto& [input_shape, output_shape] = GetParam();
+  maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
+  reductionViewAddFusion(
+      input_shape, output_shape, /*reshape_before_reduction=*/false);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ReshapeAfterReduction,
+    ::testing::ValuesIn(reshape_after_reduce_examples));
+} // namespace
 
 void persistentViewAddFusion(
     std::vector<int64_t>& input_shape,
@@ -977,8 +987,7 @@ TEST_F(GpuViewTest, FusionExpandView2) {
 }
 
 TEST_F(GpuViewTest, FusionReshapeTransformCache) {
-  auto assert_matches = [](reshape_example example_0,
-                           reshape_example example_1) {
+  auto assert_matches = [](ReshapeExample example_0, ReshapeExample example_1) {
     NVF_ERROR(
         analyzeViewConstraint(example_0.first, example_0.second) ==
             analyzeViewConstraint(example_1.first, example_1.second),
@@ -992,8 +1001,8 @@ TEST_F(GpuViewTest, FusionReshapeTransformCache) {
         example_1.second);
   };
 
-  auto assert_does_not_match = [](reshape_example example_0,
-                                  reshape_example example_1) {
+  auto assert_does_not_match = [](ReshapeExample example_0,
+                                  ReshapeExample example_1) {
     NVF_ERROR(
         !(analyzeViewConstraint(example_0.first, example_0.second) ==
           analyzeViewConstraint(example_1.first, example_1.second)),
