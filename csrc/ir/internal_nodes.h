@@ -2389,7 +2389,7 @@ class Scope {
 //! ForLoop may represent a part of an iteration domain representend
 //! by iter_domain_. In that case, the loop extent field, extent_, may
 //! be smaller than the extent of iter_domain_.
-class NVF_API ForLoop final : public Expr {
+class ForLoop final : public Expr {
  public:
   using Expr::Expr;
 
