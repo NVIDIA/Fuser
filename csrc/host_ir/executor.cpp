@@ -89,9 +89,8 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
     }
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
-    auto [it, has_emplaced] = fe_.try_emplace(hu);
-    auto& fe = it->second;
-    if (has_emplaced) {
+    FusionExecutor& fe = fe_[hu];
+    if (!fe.isCompiled()) {
       Fusion* fusion = hu->fusion_to_execute();
       DynamicTransform::concretizeFusion(fusion, input_IValues);
       fe.compileFusion(fusion, input_IValues);
