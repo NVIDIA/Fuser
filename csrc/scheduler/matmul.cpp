@@ -926,14 +926,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   };
 
   for (size_t i : c10::irange(as.size())) {
-    TensorView* acw_smem = acw_smems[i];
-    TensorView* acr = acrs[i];
-    addSetForCacheRead(acw_smem, &acr);
+    addSetForCacheRead(acw_smems[i], &acrs[i]);
   }
   for (size_t i : c10::irange(bs.size())) {
-    TensorView* bcw_smem = bcw_smems[i];
-    TensorView* bcr = bcrs[i];
-    addSetForCacheRead(bcw_smem, &bcr);
+    addSetForCacheRead(bcw_smems[i], &bcrs[i]);
   }
 
   const std::vector<ValGroup> ordering = mma_utils::canonicalDimOrdering(
@@ -1037,10 +1033,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       smem_epilogue = mma_result->cacheAfter();
       // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
     }
+  }
 
+  for (TensorView* mma_result : mma_results) {
     // Propagate tiling globally
+    // TODO: we should avoid propagating to other mma_results here
     scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
+  }
 
+  for (TensorView* mma_result : mma_results) {
     if (params.use_smem_epilogue) {
       // Transform mma_result through the epilogue swizzle without actually
       // swizzling the axes. This is done to enable the domains
