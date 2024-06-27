@@ -930,10 +930,8 @@ bool hasRootToLoopLinearTransformations(const TensorView* tv) {
   std::unordered_set<Val*> all_ids_set(all_ids_vec.begin(), all_ids_vec.end());
   auto alloc = tv->getMaybeAllocationDomain();
   auto logical = tv->getLogicalDomain();
-  bool all_alloc_id_on_path =
-      std::all_of(alloc.begin(), alloc.end(), [&](Val* v) {
-        return all_ids_set.count(v);
-      });
+  bool all_alloc_id_on_path = std::all_of(
+      alloc.begin(), alloc.end(), [&](Val* v) { return all_ids_set.count(v); });
   bool all_logical_id_on_path =
       std::all_of(logical.begin(), logical.end(), [&](Val* v) {
         return all_ids_set.count(v);

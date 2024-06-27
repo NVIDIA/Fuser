@@ -128,7 +128,6 @@ using AbstractId = dynamic_type::DynamicType<
 //   auto ub = v.unbatch();
 // Then ub will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id2}}
 
-
 struct AbstractTensor {
   std::vector<AbstractId> domain;
 
