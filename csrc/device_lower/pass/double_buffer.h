@@ -194,17 +194,17 @@ class DoubleBufferInfo {
   //! Get a loop that matches with a given double-buffer axis. If
   //! ignore_prologue is true, a matched loop is ignored if it's a
   //! prologue loop.
-  static kir::ForLoop* getDoubleBufferLoop(
+  static ForLoop* getDoubleBufferLoop(
       IterDomain* axis,
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       bool ignore_prologue = false);
 
   //! Get a loop that matches with the double-buffer axis of a given
   //! double-buffered tensor. If ignore_prologue is true, a matched
   //! loop is ignored if it's a prologue loop.
-  kir::ForLoop* getDoubleBufferLoop(
+  ForLoop* getDoubleBufferLoop(
       const TensorView* tv,
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       bool ignore_prologue = false);
 
   void setOriginalAllocSize(const TensorView* tv, Val* size);

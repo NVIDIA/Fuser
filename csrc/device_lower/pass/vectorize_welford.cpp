@@ -474,7 +474,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     // Check all the exprs in the same scope
     for (auto expr : innermost_loop->body().exprs()) {
       // Bail out if a loop is found
-      if (expr->isA<kir::ForLoop>()) {
+      if (expr->isA<ForLoop>()) {
         return false;
       }
 
@@ -557,8 +557,8 @@ class WelfordVectorizer : public kir::ExprMutator {
   }
 
  private:
-  kir::ForLoop* innermost_loop_ = nullptr;
-  kir::Scope* scope_of_innermost_loop_ = nullptr;
+  ForLoop* innermost_loop_ = nullptr;
+  Scope* scope_of_innermost_loop_ = nullptr;
 };
 
 } // namespace

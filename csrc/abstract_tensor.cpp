@@ -22,10 +22,7 @@ struct DispatchSplit {
       Val* factor,
       bool inner_split) const {
     using IN = std::decay_t<INPUT>;
-    if constexpr (std::is_same_v<IN, std::monostate>) {
-      NVF_CHECK(false, "Unsupported type in AbstractTensor::split");
-      return {};
-    } else if constexpr (std::is_same_v<IN, IterDomain*>) {
+    if constexpr (std::is_same_v<IN, IterDomain*>) {
       return IterDomain::split(std::forward<INPUT>(in), factor, inner_split);
     } else if constexpr (std::is_same_v<IN, ValGroupAndItsGraph>) {
       auto graph = in.graph;
@@ -74,11 +71,6 @@ struct DispatchMerge {
     using L = std::decay_t<LHS>;
     using R = std::decay_t<RHS>;
     if constexpr (
-        std::is_same_v<L, std::monostate> ||
-        std::is_same_v<R, std::monostate>) {
-      NVF_CHECK(false, "Unsupported type in AbstractTensor::merge");
-      return {};
-    } else if constexpr (
         std::is_same_v<L, IterDomain*> && std::is_same_v<R, IterDomain*>) {
       return IterDomain::merge(std::forward<LHS>(lhs), std::forward<RHS>(rhs));
     } else if constexpr (
@@ -205,11 +197,6 @@ struct DispatchSwizzle {
     using L = std::decay_t<LHS>;
     using R = std::decay_t<RHS>;
     if constexpr (
-        std::is_same_v<L, std::monostate> ||
-        std::is_same_v<R, std::monostate>) {
-      NVF_CHECK(false, "Unsupported type in AbstractTensor::merge");
-      return {};
-    } else if constexpr (
         std::is_same_v<L, IterDomain*> && std::is_same_v<R, IterDomain*>) {
       auto [out_x, out_y] = IterDomain::swizzle(
           swizzle_type, std::forward<LHS>(lhs), std::forward<RHS>(rhs));
@@ -297,11 +284,6 @@ struct DispatchLegacySwizzle {
     using L = std::decay_t<LHS>;
     using R = std::decay_t<RHS>;
     if constexpr (
-        std::is_same_v<L, std::monostate> ||
-        std::is_same_v<R, std::monostate>) {
-      NVF_CHECK(false, "Unsupported type in AbstractTensor::merge");
-      return {};
-    } else if constexpr (
         std::is_same_v<L, IterDomain*> && std::is_same_v<R, IterDomain*>) {
       auto [out_x, out_y] = IterDomain::swizzle(
           swizzle_type, std::forward<LHS>(lhs), std::forward<RHS>(rhs));
