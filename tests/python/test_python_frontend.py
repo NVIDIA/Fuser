@@ -4331,6 +4331,31 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T4)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+    
+    def test_sdpa_fwd(self):
+        N = 16
+        H = 32
+        L = 64
+        S = 128
+        E = 64
+
+        inputs = [
+            torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            q = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
+            k = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
+            v = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
+            attn, *intermediate_results = fd.ops.sdpfa_fwd(q, k, v)
+            fd.add_output(attn)
+        # nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+        nvf_out = fd.execute(inputs)
+        torch.testing.assert_close(nvf_out[0], F.scaled_dot_product_attention(q, k, v))
 
     def test_reshape_dynamic(self):
         inputs = [
