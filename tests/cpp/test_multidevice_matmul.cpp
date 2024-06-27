@@ -587,6 +587,59 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
       tolerance_overwrite);
 }
 
+TEST_P(DistributedMatmulTest, Multiheaded_Attention) {
+  bool use_aten_matmul = GetParam();
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+
+  // input would be 3D (sequence, batch, embedding)
+  // to simplify we make it 2D immediately (sequence * batch, embedding)
+  int s = 16;
+  int b = 4;
+  int sb = s * b;
+  int e = 64;
+
+  TensorView* x = makeContigConcreteTensor({sb, e}, DataType::BFloat16);
+  TensorView* w0 = makeContigConcreteTensor(
+      {num_devices_, e, ??/num_devices_}, DataType::BFloat16);
+  TensorView* b0 = makeContigConcreteTensor(
+      {num_devices_, ?? / num_devices_}, DataType::BFloat16);
+  TensorView* w1 = makeContigConcreteTensor(
+      {num_devices_, h, h4 / num_devices_}, DataType::BFloat16);
+  TensorView* b1 = makeContigConcreteTensor({h}, DataType::BFloat16);
+  fusion->addInput(x);
+  fusion->addInput(w0);
+  fusion->addInput(b0);
+  fusion->addInput(w1);
+  fusion->addInput(b1);
+  // self attention (linear, sdpa), linear (sharded compute), dropout
+  // linear #1 is sharded along the columns (heads)
+  // linear #2 is sharded along the rows + allreduce to reform x
+  TensorView* qkv_ = matmul(x, proj_w);
+  TensorView* proj_bias_bcast = broadcast(proj, bias);
+  TensorView* qkv = add(qkv_, proj_bias_bcast);
+  // reshape from (sequence*batch, embedding) to (batch, sequence, embedding)
+  // note: this should be (sequence, batch, embedding), but linear layer requires 
+  // 2D input for now. 
+  TensorView* q_ = select(qkv, {0, 0, 0}, {16, 128, 1600});
+  TensorView* k_ = select(qkv, {0, 0, 1600}, {16, 128, 3200});
+  TensorView* v_ = select(qkv, {0, 0, 3200}, {16, 128, 4800});
+  TensorView* q = reshape(q_, {16, 128, 35, 64});
+  q = transpose(q, 2, 1);
+  TensorView* k = reshape(k_, {16, 128, 35, 64});
+  k = transpose(k, 2, 1);
+  TensorView* v = reshape(q_, {16, 128, 35, 64});
+  v = transpose(v, 2, 1);
+
+  constexpr double kProb = 0.1;
+  constexpr double kScale = 1.0 / (1.0 - kProb);
+  TensorView* attention = sdpfa_fwd(q, k, v, 
+    IrBuilder::create<Val>(kProb), 
+    IrBuilder::create<Val>(true), 
+    IrBuilder::create<Val>(kScale));
+};
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     DistributedMatmulTest,
