@@ -8356,7 +8356,7 @@ TEST_F(NVFuserTest, BroadcastFromNowhere) {
   all_ids.insert(tv0->axis(2));
   expect_eq(all_ids, ir_utils::allIDsOf(tv0));
 
-  while(tv0->nDims() > 1) {
+  while (tv0->nDims() > 1) {
     tv0->merge(0);
     all_ids.insert(tv0->axis(0));
     expect_eq(all_ids, ir_utils::allIDsOf(tv0));
