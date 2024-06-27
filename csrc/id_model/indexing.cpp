@@ -481,11 +481,12 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 }
 
 std::vector<Val*> TensorIndexer::getIndexFor(
+    TensorView* tv,
     const Expr* expr,
     const ValGroups& index_groups) const {
   auto info = computeIndex(expr, index_groups);
   const auto& replacement_map =
-      getIndexReplacementMap(info.loop_domains, info.index_map);
+      getIndexReplacementMap(tv, info.loop_domains, info.index_map);
 
   std::vector<Val*> result;
   result.reserve(index_groups.size());
@@ -516,7 +517,7 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
       getAllocationDomains(tv, id_model_);
 
   auto indices =
-      getIndexFor(expr, traversalGraph().toGroups(allocation_domains));
+      getIndexFor(tv, expr, traversalGraph().toGroups(allocation_domains));
   NVF_ERROR(indices.size() == allocation_domains.size());
 
   // Linearize the indices with strides.
@@ -564,18 +565,11 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   IndexingInfo info{loop_domains, traversal_path, index_compute.indexMap()};
-
-  const auto& replacement_map =
-      getIndexReplacementMap(loop_domains, info.index_map);
-
-  for (auto& [k, v] : info.index_map) {
-    v = ir_utils::replaceValRecursively(v, replacement_map);
-  }
-
   return info;
 }
 
 std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
+    TensorView* tv,
     const std::vector<IterDomain*>& loop_domains,
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
@@ -594,6 +588,31 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     NVF_ERROR(index_it != index_map.end());
     Val* cur_index = index_it->second;
     replacement_map.emplace(cur_index, cur_index->fusion()->zeroVal());
+  }
+
+  if (tv->getMemoryType() == MemoryType::Shared ||
+      tv->getMemoryType() == MemoryType::Local) {
+    replacement_map.emplace(
+        NamedScalar::getParallelIndex(ParallelType::BIDx),
+        tv->fusion()->zeroVal());
+    replacement_map.emplace(
+        NamedScalar::getParallelIndex(ParallelType::BIDy),
+        tv->fusion()->zeroVal());
+    replacement_map.emplace(
+        NamedScalar::getParallelIndex(ParallelType::BIDz),
+        tv->fusion()->zeroVal());
+  }
+
+  if (tv->getMemoryType() == MemoryType::Local) {
+    replacement_map.emplace(
+        NamedScalar::getParallelIndex(ParallelType::TIDx),
+        tv->fusion()->zeroVal());
+    replacement_map.emplace(
+        NamedScalar::getParallelIndex(ParallelType::TIDy),
+        tv->fusion()->zeroVal());
+    replacement_map.emplace(
+        NamedScalar::getParallelIndex(ParallelType::TIDz),
+        tv->fusion()->zeroVal());
   }
 
   return replacement_map;

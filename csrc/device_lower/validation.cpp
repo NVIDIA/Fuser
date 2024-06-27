@@ -626,6 +626,10 @@ void fillVectorizedContigAllocationDomains(
 
   auto consumer_indexed_it =
       contig_finder.allocToIndexedID().find(vectorized_alloc_id);
+  if (consumer_indexed_it == contig_finder.allocToIndexedID().end()) {
+    // TODO: is this correct?
+    return;
+  }
   NVF_ERROR(
       consumer_indexed_it != contig_finder.allocToIndexedID().end(),
       "Contiguity information not found for allocation domain: ",

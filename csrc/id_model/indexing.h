@@ -56,8 +56,10 @@ class TensorIndexer {
   Val* getLoopIndex(IterDomain* loop_id) const;
 
   // Get the index of the given ID groups
-  std::vector<Val*> getIndexFor(const Expr* expr, const ValGroups& index_groups)
-      const;
+  std::vector<Val*> getIndexFor(
+      TensorView* tv,
+      const Expr* expr,
+      const ValGroups& index_groups) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
@@ -109,6 +111,7 @@ class TensorIndexer {
   // predicates, and one index map would be sufficient for both
   // indices by using different replacement maps.
   std::unordered_map<Val*, Val*> getIndexReplacementMap(
+      TensorView* tv,
       const std::vector<IterDomain*>& loop_domains,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 

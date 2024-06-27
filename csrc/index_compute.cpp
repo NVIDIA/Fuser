@@ -2091,8 +2091,9 @@ kir::TensorIndex* Index::getProducerIndex(
     DataType as_type) {
   Val* index = nullptr;
 
-  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
-      GpuLower::current()->isTensorIndexerEnabled()) {
+  if (!lower_utils::hasRootToLoopLinearTransformations(producer) ||
+      (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
+       GpuLower::current()->isTensorIndexerEnabled())) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition());
   } else {
@@ -2180,8 +2181,9 @@ kir::TensorIndex* Index::getConsumerIndex(
     bool generate_pointer,
     DataType as_type) {
   Val* index = nullptr;
-  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
-      GpuLower::current()->isTensorIndexerEnabled()) {
+  if (!lower_utils::hasRootToLoopLinearTransformations(consumer) ||
+      (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
+       GpuLower::current()->isTensorIndexerEnabled())) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         consumer, consumer->definition());
   } else {
@@ -2599,7 +2601,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   ValGroups groups_to_index = tma_info.getTMADomain();
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-  auto indices_inner_to_outer = indexer.getIndexFor(ldst, groups_to_index);
+  auto indices_inner_to_outer =
+      indexer.getIndexFor(gmem_tv, ldst, groups_to_index);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);

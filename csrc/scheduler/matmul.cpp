@@ -1019,14 +1019,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
 
-  if (params.use_smem_epilogue) {
-    // Transform mma_result through the epilogue swizzle without actually
-    // swizzling the axes. This is done to enable the domains
-    // are mapped between mma_result and smem_epilogue.
-    auto swizzled_dom = swizzleSharedMemory(mma_result);
-    mma_result->setLoopDomain(swizzled_dom.as<IterDomain*>());
-  }
-
   // Schedule warp tile
   // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
   mma_utils::scheduleWarpTileWithReduction(mma_result, gemm_tile);
@@ -1215,9 +1207,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // handle epilogue and always vectorize Ki
   if (params.use_smem_epilogue) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
-    auto swizzled_dom = swizzleSharedMemory(smem_epilogue);
-    smem_epilogue->setLoopDomain(swizzled_dom.as<IterDomain*>());
-    smem_epilogue->setHasSwizzleOp();
+    auto swizzled_dom = swizzleSharedMemory<false>(smem_epilogue);
+    smem_epilogue->setAllocationDomain(swizzled_dom.as<IterDomain*>(), true);
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
         -1,
