@@ -486,9 +486,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     insertion_info_.erase(loop);
   }
 
-  void insert(
-      ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& loads) {
+  void insert(ForLoop* circular_buffer_loop, const std::vector<Expr*>& loads) {
     auto prologue_loop = CircularBufferLoopCloner::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
     registerInsertBefore(circular_buffer_loop, prologue_loop);
