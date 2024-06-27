@@ -740,9 +740,14 @@ std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   const auto& logical_domain = tv->getLogicalDomain();
   const auto& loop_domain = tv->getLoopDomain();
   const auto& alloc_domain = tv->getAllocationDomain();
+  const auto& additional_ids = tv->domain()->additionalIDs();
 
-  std::array<const std::vector<IterDomain*>*, 4> domains{
-      &root_domain, &logical_domain, &loop_domain, &alloc_domain};
+  std::array<const std::vector<IterDomain*>*, 5> domains{
+      &root_domain,
+      &logical_domain,
+      &loop_domain,
+      &alloc_domain,
+      &additional_ids};
 
   for (auto dom0 : domains) {
     if (dom0->empty()) {

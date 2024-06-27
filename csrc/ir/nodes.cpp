@@ -3371,6 +3371,7 @@ void TensorDomain::broadcast(int64_t axis) {
                        .iter_type(IterType::Broadcast)
                        .build();
   loop_domain_.insert(loop_domain_.begin() + axis, id);
+  additional_ids_.push_back(id);
 }
 
 void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {

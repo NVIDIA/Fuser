@@ -8307,6 +8307,84 @@ TEST_F(NVFuserTest, BroadcastFromNowhere) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  auto expect_eq = [&](const std::unordered_set<IterDomain*>& a,
+                       const std::vector<IterDomain*>& b) {
+    std::unordered_set<IterDomain*> bb(b.begin(), b.end());
+    EXPECT_EQ(a, bb);
+  };
+
+  std::unordered_set<IterDomain*> all_ids;
+  auto tv0 = makeSymbolicTensor(1);
+  all_ids.insert(tv0->axis(0));
+  expect_eq(all_ids, tv0->getLoopDomain());
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->broadcast(0);
+  EXPECT_TRUE(tv0->axis(0)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(0)), 0);
+  all_ids.insert(tv0->axis(0));
+  expect_eq(all_ids, tv0->getLoopDomain());
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->broadcast(2);
+  EXPECT_TRUE(tv0->axis(2)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(2)), 0);
+  all_ids.insert(tv0->axis(2));
+  expect_eq(all_ids, tv0->getLoopDomain());
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->broadcast(-1);
+  EXPECT_TRUE(tv0->axis(3)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(3)), 0);
+  all_ids.insert(tv0->axis(3));
+  expect_eq(all_ids, tv0->getLoopDomain());
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->broadcast(1);
+  EXPECT_TRUE(tv0->axis(1)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(1)), 0);
+  all_ids.insert(tv0->axis(1));
+  expect_eq(all_ids, tv0->getLoopDomain());
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->merge(1);
+  all_ids.insert(tv0->axis(1));
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->merge(2);
+  EXPECT_TRUE(tv0->axis(2)->isBroadcast());
+  all_ids.insert(tv0->axis(2));
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  while(tv0->nDims() > 1) {
+    tv0->merge(0);
+    all_ids.insert(tv0->axis(0));
+    expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+  }
+
+  auto tv1 = makeSymbolicTensor(0);
+  EXPECT_EQ(tv1->nDims(), 0);
+  expect_eq({}, tv1->getLoopDomain());
+  expect_eq({}, ir_utils::allIDsOf(tv1));
+
+  tv1->broadcast(0);
+  EXPECT_TRUE(tv1->axis(0)->isBroadcast());
+  expect_eq({tv1->axis(0)}, ir_utils::allIDsOf(tv1));
+
+  auto tv2 = makeSymbolicTensor(0);
+  EXPECT_EQ(tv2->nDims(), 0);
+  expect_eq({}, tv2->getLoopDomain());
+  expect_eq({}, ir_utils::allIDsOf(tv2));
+
+  tv2->broadcast(-1);
+  EXPECT_TRUE(tv2->axis(0)->isBroadcast());
+  expect_eq({tv2->axis(0)}, ir_utils::allIDsOf(tv2));
+}
+
+TEST_F(NVFuserTest, BroadcastFromNowhereFusion) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
   // auto tv0 = makeSymbolicTensor(2);
   auto tv0 = makeConcreteTensor({4});
   fusion.addInput(tv0);
