@@ -152,7 +152,7 @@ class DoubleBufferFusionInspector : private IterVisitor {
 
 // Creates kir::IfThenElse with the following predicate:
 // threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
-// TODO Replace with elect.sync pts
+// TODO Replace with elect.sync ptx
 kir::IfThenElse* createThreadPredicatedIfThenElse() {
   Val* zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
   Val* if_predicate_expr = IrBuilder::logicalAndExpr(
@@ -374,7 +374,7 @@ kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
   Val* expected_bytes = getExpectedTransactionCount(ldst);
 
   // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
-  // load operations launched for each circular buffer stage. We take the 
+  // load operations launched for each circular buffer stage. We take the
   // product of all coordinate TMA iterDomains to the right of the circular
   // buffer axis.
   TensorView* ldst_out_tv = ldst->out()->as<TensorView>();
@@ -670,35 +670,35 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
         ? cloned_top_level_loop_
         : IrBuilder::create<kir::ForLoop>(fl);
 
-    cloned_for_loop_.push_back(cloned_loop);
+    cloned_scopes_.push_back(&cloned_loop->body());
 
     kir::IrVisitor::handle(fl);
 
-    cloned_for_loop_.pop_back();
+    cloned_scopes_.pop_back();
 
     // Skip if cloned loop is empty or there is not an active for-loop
     // structure
-    if (cloned_loop->body().empty() || cloned_for_loop_.empty()) {
+    if (cloned_loop->body().empty() || cloned_scopes_.empty()) {
       return;
     }
 
     // Add cloned for_loop when mbarrier_arrive_tx_ is not active or
     // we are within a nested for-loop structure
-    if (mbarrier_arrive_tx_ == nullptr || cloned_for_loop_.size() > 1) {
-      cloned_for_loop_.back()->body().push_back(cloned_loop);
+    if (mbarrier_arrive_tx_ == nullptr || cloned_scopes_.size() > 1) {
+      cloned_scopes_.back()->push_back(cloned_loop);
     } else {
-      NVF_ERROR(cloned_for_loop_.front() == cloned_top_level_loop_);
+      NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
       kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
       kir::Scope& body = if_expr->thenBody();
       body.push_back(mbarrier_arrive_tx_);
       body.push_back(cloned_loop);
-      cloned_for_loop_.back()->body().push_back(if_expr);
+      cloned_scopes_.back()->push_back(if_expr);
       mbarrier_arrive_tx_ = nullptr;
     }
 
     // Add mbarrier wait after launching tma operations
-    if (mbarrier_wait_ != nullptr && cloned_for_loop_.size() == 1) {
-      NVF_ERROR(cloned_for_loop_.front() == cloned_top_level_loop_);
+    if (mbarrier_wait_ != nullptr && cloned_scopes_.size() == 1) {
+      NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
       cloned_top_level_loop_->body().push_back(mbarrier_wait_);
       mbarrier_wait_ = nullptr;
     }
@@ -718,7 +718,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
       return;
     }
 
-    NVF_ERROR(!cloned_for_loop_.empty());
+    NVF_ERROR(!cloned_scopes_.empty());
 
     auto out_tv = ir_utils::getTvOutput(expr);
     const auto is_double_buffer_load_expr = std::any_of(
@@ -790,10 +790,9 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
             //
             // Where loop_idx is in range 0...stages-1
             LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-	    NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
-            mbarrier_arrive_tx_ =
-                createMbarrierArriveExpectTx(
-                    ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
+            NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
+            mbarrier_arrive_tx_ = createMbarrierArriveExpectTx(
+                ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
 
             // Clone LoadStoreOp and map it to mbarrier alloc
             Expr* new_ldst =
@@ -806,21 +805,21 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
             GpuLower::current()->ldstMBarrierIndexMap().emplace(
                 new_ldst, mbarrier_arrive_tx_->mbarrier());
 
-	    if (cloned_for_loop_.size() == 1) {
+            if (cloned_scopes_.size() == 1) {
               kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
               kir::Scope& body = if_expr->thenBody();
               body.push_back(mbarrier_arrive_tx_);
               body.push_back(new_ldst);
-              cloned_for_loop_.back()->body().push_back(if_expr);
-	      mbarrier_arrive_tx_ = nullptr;
-	    } else {
-              cloned_for_loop_.back()->body().push_back(new_ldst);
-	    }
+              cloned_scopes_.back()->push_back(if_expr);
+              mbarrier_arrive_tx_ = nullptr;
+            } else {
+              cloned_scopes_.back()->push_back(new_ldst);
+            }
             break;
           } else if (is_double_buffer_load_expr) {
             // NOTE: that there can be multiple exprs defining double buffered
             // TVs (e.g., buffer initialization).
-            cloned_for_loop_.back()->body().push_back(expr);
+            cloned_scopes_.back()->push_back(expr);
           }
         }
         break;
@@ -887,7 +886,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
           //
           LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
-	  NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
+          NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
           mbarrier_arrive_tx_ =
               createMbarrierArriveExpectTx(ldst, current_load_stage_);
           // Register mbarrier object to be used with LoadStoreOp
@@ -895,16 +894,16 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
           GpuLower::current()->ldstMBarrierIndexMap().emplace(
               ldst, mbarrier_arrive_tx_->mbarrier());
 
-	  if (cloned_for_loop_.size() == 1) {
+          if (cloned_scopes_.size() == 1) {
             kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
             kir::Scope& body = if_expr->thenBody();
             body.push_back(mbarrier_arrive_tx_);
             body.push_back(ldst);
-            cloned_for_loop_.back()->body().push_back(if_expr);
-	    mbarrier_arrive_tx_ = nullptr;
-	  } else {
-            cloned_for_loop_.back()->body().push_back(ldst);
-	  }
+            cloned_scopes_.back()->push_back(if_expr);
+            mbarrier_arrive_tx_ = nullptr;
+          } else {
+            cloned_scopes_.back()->push_back(ldst);
+          }
 
           // Construct mBarrier::wait for current stage
           NVF_ERROR(
@@ -915,7 +914,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
         }
         if (!(is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
               is_ignorable_mbarrier_inval)) {
-          cloned_for_loop_.back()->body().push_back(expr);
+          cloned_scopes_.back()->push_back(expr);
         }
         break;
       }
@@ -931,12 +930,12 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
               IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
           kir::MBarrierWait* mbarrier_wait =
               createMbarrierWait(ldst, last_compute_stage);
-          cloned_for_loop_.back()->body().push_back(mbarrier_wait);
+          cloned_scopes_.back()->push_back(mbarrier_wait);
           break;
         }
         if (!(is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
               is_ignorable_mbarrier_inval || is_double_buffer_load_expr)) {
-          cloned_for_loop_.back()->body().push_back(expr);
+          cloned_scopes_.back()->push_back(expr);
         }
         break;
       }
@@ -958,7 +957,7 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
 
   kir::ForLoop* cloned_top_level_loop_ = nullptr;
-  std::deque<kir::ForLoop*> cloned_for_loop_;
+  std::deque<kir::Scope*> cloned_scopes_;
   const std::unordered_set<Expr*>& exclude_;
 
   // Current stage, expectation:
