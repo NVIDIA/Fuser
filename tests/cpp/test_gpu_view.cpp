@@ -244,7 +244,7 @@ void reductionViewAddFusion(
     const std::vector<int64_t>& input_shape,
     const std::vector<int64_t>& output_shape,
     const bool has_implicit_broadcast,
-    bool reshape_before_reduction) {
+    const bool reshape_before_reduction) {
   constexpr int kReductionAxis = -1;
 
   // Drop size for reduction axis from reshape_shape
