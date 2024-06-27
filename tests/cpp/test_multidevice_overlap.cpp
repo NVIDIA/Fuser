@@ -120,12 +120,12 @@ class OverlapTest : public MultiDeviceTest {
 
     // Debug print
     if (communicator->deviceId() == 0 && debug_print) {
-      std::cout << params << std::endl;
-      std::cout << "ta_.sizes()=" << ta_.sizes() << std::endl;
-      std::cout << "tb_.sizes()=" << tb_.sizes() << std::endl;
-      std::cout << "tc_locally_reduced_.sizes()=" << tc_locally_reduced_.sizes()
-                << std::endl;
-      std::cout << "tc_.sizes()=" << tc_.sizes() << std::endl;
+      debug() << params << std::endl
+              << "ta_.sizes()=" << ta_.sizes() << std::endl
+              << "tb_.sizes()=" << tb_.sizes() << std::endl
+              << "tc_locally_reduced_.sizes()=" << tc_locally_reduced_.sizes()
+              << std::endl
+              << "tc_.sizes()=" << tc_.sizes() << std::endl;
     }
   }
 
