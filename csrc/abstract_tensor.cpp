@@ -383,7 +383,7 @@ void AbstractTensor::swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y) {
 std::vector<AbstractTensor> AbstractTensor::unzip() const {
   std::vector<AbstractTensor> result;
 
-  // Check and get the size of the batch
+  // Check and get the size of each vector
   int64_t size = -1;
   for (const auto& aid : domain) {
     if (!aid.is<std::vector>()) {
