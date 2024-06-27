@@ -331,7 +331,7 @@ void IdGraphIndexCompute::handle(Swizzle* swizzle) {
 
 } // namespace
 
-TensorIndexer::TensorIndexer(const IdModel& id_model) : id_model_(id_model) {
+TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
   buildLoopIndexMap();
 }
 
