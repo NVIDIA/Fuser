@@ -76,6 +76,7 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
           pExternalCorrelationRecord->correlationId);
       break;
     }
+    case CUPTI_ACTIVITY_KIND_RUNTIME:
     case CUPTI_ACTIVITY_KIND_DRIVER:
       // NOTE: Driver activity is enabled in order to capture ext correlation
       // records but the driver activity records are not of interest to record.
@@ -100,7 +101,7 @@ void record_cupti_activity_buffer(
 
   // This is an arbitrary record limit to make sure we do not get into an
   // infinite loop;
-  const size_t max_records = 100;
+  const size_t max_records = 10000;
   bool found_max_limit = false;
 
   for (size_t i = 0; i < max_records; ++i) {
@@ -683,6 +684,7 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_RUNTIME));
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityEnable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
   }
@@ -728,6 +730,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_RUNTIME));
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
     // This will be populated by the following `cuptiActivityFlushAll` call.

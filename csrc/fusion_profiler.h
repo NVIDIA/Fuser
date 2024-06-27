@@ -266,7 +266,7 @@ class FusionProfiler {
   // CUPTI buffer size 4.0 KB
   // The original example code used an 8MB buffer.  Such a larger buffer
   // impacted host time overhead significantly.
-  static constexpr size_t cupti_activity_buffer_size{size_t(4 * 1024)};
+  static constexpr size_t cupti_activity_buffer_size{size_t(200 * 1024)};
 
  private:
   // Because this method may resize `device_descriptors_`, a call to it may

@@ -1174,7 +1174,7 @@ void FusionKernelRuntime::deserialize(
 }
 
 std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
-    size_t run_order_id, 
+    size_t run_order_id,
     KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
