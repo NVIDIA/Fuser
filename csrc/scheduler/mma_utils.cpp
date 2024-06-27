@@ -1610,9 +1610,38 @@ MmaOp* MatmulPattern::translateToMmaOp() {
   // higher precision in order avoid the round trip cast in defining an
   // epilogue that starts with MatmulOp.
   if (output->dtype() != fms->dtype()) {
-    TensorView* old_output = output;
-    output = castOp(output->dtype(), fms);
-    ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_output, output);
+    // When fms is a different dtype from output, it means we _might_ need to
+    // insert a cast. However, we can skip inserting that cast for any uses of
+    // output that are simply casts back to Float.
+
+    // This vector holds tensors that would be round-trip cast to the same
+    // dtype as fms. We first collect these Vals then we do the replacements
+    // separately in order to avoid dereferencing an Expr* that has already
+    // been replaced.
+    std::vector<Val*> round_trip_vals;
+    for (Expr* use : output->uses()) {
+      if (auto* uop = dynamic_cast<UnaryOp*>(use); uop != nullptr &&
+          uop->getUnaryOpType() == UnaryOpType::Cast &&
+          uop->out()->dtype() == fms->dtype()) {
+        round_trip_vals.push_back(uop->out());
+      }
+    }
+    // If there are any uses that were not round-trip casts, then we should
+    // insert the castOp.
+    if (output->uses().size() > round_trip_vals.size()) {
+      TensorView* old_output = output;
+      output = castOp(output->dtype(), fms);
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_output, output);
+    }
+    // if any casts are skipped, then we reset output to point to the Float
+    // output fms instead of the downcast.
+    if (!round_trip_vals.empty()) {
+      output = fms;
+    }
+    // Finally, replace the round_trip_vals with fms
+    for (Val* v : round_trip_vals) {
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(v, fms);
+    }
   } else {
     // No cast needed, for example the inputs might be Float
     ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});
