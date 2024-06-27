@@ -196,7 +196,7 @@ kir::ForLoop* createStagesForLoop(kir::ForLoop* double_buffer_loop) {
   return loop;
 }
 
-// Get expected transaction count for mbarrier arriveExpectTx
+// Get expected transaction count for given tma operation.
 Val* getExpectedTransactionCount(LoadStoreOp* ldst) {
   TensorView* producer_tv = ldst->in()->as<TensorView>();
   TensorView* consumer_tv = ldst->out()->as<TensorView>();
@@ -357,12 +357,26 @@ Val* getExpectedTransactionCount(LoadStoreOp* ldst) {
 
 // Creates kir::MBarrierArriveExpectTx for given LoadStoreOp and index of
 // loop in scope's which LoadStoreOp is present
+//
+// Example:
+// __shared__ __mbarrier_t barriers[num_stages];
+// __shared__ __mbarrier_token_t tokens[num_stages];
+// for(nvfuser_index_t stage = 0; stage < num_stages; ++stage) {
+//   if (elect_sync()) {
+//     tokens[stage] =
+//        mbarrier::arriveExpectTX(toSmem((&barriers[stage])), expected_bytes);
+//   }
+// }
 kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
     LoadStoreOp* ldst,
     Val* loop_index) {
+  // Get expected bytes for single TMA load operation
   Val* expected_bytes = getExpectedTransactionCount(ldst);
 
-  // For TMA load, we use the consumer for-loop structure.
+  // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
+  // load operations launched for each circular buffer stage. We take the 
+  // product of all coordinate TMA iterDomains to the right of the circular
+  // buffer axis.
   TensorView* ldst_out_tv = ldst->out()->as<TensorView>();
   const std::vector<IterDomain*>& leaf_domain = ldst_out_tv->getLeafDomain();
   for (size_t idx = ldst_out_tv->getComputeAtPosition();
@@ -691,7 +705,6 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    std::cout << ite->toString() << std::endl;
     NVF_ERROR(false, "No IfThenElse should exist yet");
   }
 
