@@ -57,8 +57,8 @@ class OverlapTest : public MultiDeviceTest {
   void SetUp() {
     MultiDeviceTest::SetUp();
 
-    num_devices_ = communicator->size();
-    my_device_index_ = communicator->deviceId();
+    num_devices_ = communicator_->size();
+    my_device_index_ = communicator_->deviceId();
     ASSERT_EQ(params.M % (params.S * num_devices_), 0);
     ASSERT_EQ(params.K % num_devices_, 0);
 
@@ -66,7 +66,7 @@ class OverlapTest : public MultiDeviceTest {
     std::vector<int64_t> devices(num_devices_);
     std::iota(devices.begin(), devices.end(), 0);
     world_communicator_ =
-        communicator->getBackendForTeam(devices, params.backend_type);
+        communicator_->getBackendForTeam(devices, params.backend_type);
 
     // Define I/O and intermediate Tensor shapes
     std::vector<int64_t> ta_unsharded_sizes = {
@@ -87,7 +87,7 @@ class OverlapTest : public MultiDeviceTest {
     // expected result locally, hence, this way of doing is convenient for
     // validating data correctness.
     at::TensorOptions options =
-        at::TensorOptions().dtype(at::kFloat).device(communicator->device());
+        at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
     auto ta_unsharded = at::randn(ta_unsharded_sizes, options);
     auto tb_unsharded = at::randn(tb_unsharded_sizes, options);
     ta_ = at::empty(ta_sizes, options);
@@ -115,7 +115,7 @@ class OverlapTest : public MultiDeviceTest {
         getSlice(tc_unsharded_expected_reshaped, 1, my_device_index_);
 
     // Debug print
-    if (communicator->deviceId() == 0 && debug_print) {
+    if (communicator_->deviceId() == 0 && debug_print) {
       debug() << params << std::endl
               << "ta_.sizes()=" << ta_.sizes() << std::endl
               << "tb_.sizes()=" << tb_.sizes() << std::endl
