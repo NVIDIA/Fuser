@@ -151,7 +151,10 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // domains
     TensorView* pad_out_tv = pad_op->out()->as<TensorView>();
     // TODO: test output from reduction here
-    std::vector<IterDomain*> new_root = IterDomain::clone(TensorDomain::noReductions(edge.val()->as<TensorView>()->getMaybeRootDomain()), true);
+    // std::vector<IterDomain*> new_root = IterDomain::clone(TensorDomain::noReductions(edge.val()->as<TensorView>()->getMaybeRootDomain()), true);
+    // NOTE: we use pad_out_tv instead of edge.val()->as<TensorView>() since the input tensor doesn't have its root id marked with rfactor flag.
+    std::vector<IterDomain*> new_root = IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
+    // NOTE: we cannot use the TensorDomain from fullSelfReplay, since it doesn't keep root domain.
     std::vector<IterDomain*> new_logical = TransformReplay::fullSelfReplay(IrBuilder::create<TensorDomain>(new_root), pad_out_tv->domain(), true)->logical();
     auto new_out = IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(new_root, new_logical, new_logical), 
