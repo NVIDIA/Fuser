@@ -558,7 +558,7 @@ std::vector<int64_t> getContiguousStrides(
     if (expand_flags.at(i - 1)) {
       stride = 0;
     } else if (size == 0) {
-      // If the size is 0, the stride is 1
+      // If the size is 0, the stride is 1.
       stride = 1;
     } else {
       cur_stride *= size;
@@ -943,7 +943,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   for (const auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction() || id->isStride()) {
       continue;
-    } else if (id->isDeviceDim()) {
+    }
+
+    if (id->isDeviceDim()) {
       symbolic_sizes.push_back(id->container()->oneVal());
     } else {
       symbolic_sizes.push_back(id->getMaybeExpandedExtent());
