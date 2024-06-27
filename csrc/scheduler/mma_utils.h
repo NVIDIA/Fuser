@@ -195,6 +195,11 @@ class WarpMmaSwizzler {
   //! output and mma inputs are scheduled in scheduleOperandRead, which must be
   //! called before this function.
   static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
+
+  static void scheduleTMALoad(
+      TensorView* tv,
+      MmaInputSmemSwizzle swizzle,
+      bool split_outer_dim = true);
 };
 
 void checkDimSize(
