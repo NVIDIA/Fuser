@@ -11,6 +11,7 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
+#include <host_ir/container.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
@@ -29,11 +30,10 @@ namespace nvfuser {
        parallel type ParallelType::DIDx
 
   We make the following assumptions on the Fusion:
-  - Only the outmost (non-reduction) axis is allowed to be parallelized
+  - Only one (non-reduction) axis is allowed to be parallelized
     with ParallelType::DIDx. Moreover, this axis cannot be split/merged.
   - We only support 1D device meshes for now
-  - We only support TensorView, not Scalars
-  - We only support static shapes
+  - We only support TensorViews in communication segments.
 
   Summary of the different steps performed by the MultiDeviceExecutor:
   I. At instantiation:
@@ -139,6 +139,8 @@ class MultiDeviceExecutor {
   // Cache Fusions, FusionExecutors, and Communications
   std::unordered_map<SegmentedGroup*, FusionExecutor> fe_;
   std::unordered_map<SegmentedGroup*, FusionExecutorCache> fec_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<hir::HostIrContainer>>
+      communication_containers_;
   // Cache whether a SegmentedGroup should be run by the current device
   std::unordered_map<SegmentedGroup*, bool> should_run_;
   // Cache whether a SegmentedGroup requires inter-device communication

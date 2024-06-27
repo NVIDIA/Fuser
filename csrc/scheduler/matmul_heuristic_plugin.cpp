@@ -89,11 +89,16 @@ uint8_t innerDimsToByte(const mma_utils::MatmulOperandInnerDims& inner_dims) {
 std::string rolesToPrecisionString(
     const mma_utils::TensorRolesMap& tensor_roles) {
   std::string precision = "   ";
-  const std::vector<TensorView*>& operands =
-      tensor_roles.at(MatmulRole::OPERAND);
-  NVF_ERROR(operands.size() == 2, "We currently require exactly two operands");
-  TensorView* a = operands.front();
-  TensorView* b = operands.back();
+  const std::vector<TensorView*>& a_operands =
+      tensor_roles.at(MatmulRole::OPERAND_A);
+  NVF_ERROR(
+      a_operands.size() == 1, "We currently require exactly one A operand");
+  const std::vector<TensorView*>& b_operands =
+      tensor_roles.at(MatmulRole::OPERAND_B);
+  NVF_ERROR(
+      b_operands.size() == 1, "We currently require exactly one B operand");
+  TensorView* a = a_operands.front();
+  TensorView* b = b_operands.front();
   NVF_CHECK(
       a->dtype() == b->dtype(), "Differing A and B dtypes not yet supported");
   TensorView* d = tensor_roles.at(MatmulRole::OUTPUT).front();
