@@ -260,14 +260,17 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   // Initialize frontier as the allocation domain
   auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto alloc_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
-  for (auto i : c10::irange((int64_t)gmem_alloc_dom.size())) {
-    auto id = gmem_alloc_dom.at(i);
-    // TODO: should I use i below, or should I instead use the position of id in
-    // the allocation domain with broadcast? I don't remember the detail, but
-    // I will just use i for now and leave the support for broadcast for future.
-    auto stride = IrBuilder::getItemExpr(alloc_strides, i);
+  // All allocation domains including broadcasts and reductions.
+  auto all_allocation_domains =
+      TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain());
+  for (auto id : gmem_alloc_dom) {
+    auto it = std::find(
+        all_allocation_domains.begin(), all_allocation_domains.end(), id);
+    NVF_ERROR(it != all_allocation_domains.end());
+    int64_t pos = it - all_allocation_domains.begin();
+    auto stride = IrBuilder::getItemExpr(alloc_strides, pos);
     frontier.emplace_back(
-        id_graph.toGroup(id), gmem_tv->getContiguity().at(i).value(), stride);
+        id_graph.toGroup(id), gmem_tv->getContiguity().at(pos).value(), stride);
   }
   // Propagate forward from the gmem allocation domain to TMA ValGroups
   for (auto [expr, direction] :
