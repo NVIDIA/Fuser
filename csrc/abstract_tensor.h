@@ -113,19 +113,19 @@ using AbstractId = dynamic_type::DynamicType<
 //   v.merge(0);
 // This is also equivalent to Example 5. You will get [g01].
 //
-// You can always unbatch an AbstractTensor to get a vector of AbstractTensors.
+// You can always unzip an AbstractTensor to get a vector of AbstractTensors.
 // For example:
 //
 // Example 8:
 //   IterDomain *id0, *id1, *id2, *id3;
 //   AbstractTensor v({{id0, id1}, {id2, id3}});
-//   auto ub = v.unbatch();
+//   auto ub = v.unzip();
 // Then ub will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}
 //
 // Example 9:
 //   IterDomain *id0, *id1, *id2;
 //   AbstractTensor v({{id0, id1}, id2});
-//   auto ub = v.unbatch();
+//   auto ub = v.unzip();
 // Then ub will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id2}}
 
 struct AbstractTensor {
@@ -206,7 +206,7 @@ struct AbstractTensor {
   // Unbatch the AbstractTensor to separate tensors. For example, if this
   // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], then the return value
   // will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}.
-  std::vector<AbstractTensor> unbatch() const;
+  std::vector<AbstractTensor> unzip() const;
 };
 
 } // namespace nvfuser

@@ -685,13 +685,13 @@ TEST_F(AbstractTensorTest, SwizzleValGroupWithIterDomain) {
   EXPECT_EQ(v.domain, vv.domain);
 }
 
-TEST_F(AbstractTensorTest, Unbatch) {
+TEST_F(AbstractTensorTest, Unzip) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
   auto id3 = newID();
   const AbstractTensor v({{id0, id1}, {id2, id3}});
-  auto ub = v.unbatch();
+  auto ub = v.unzip();
   ASSERT_EQ(ub.size(), 2);
   AbstractTensor expect0{id0, id2};
   AbstractTensor expect1{id1, id3};
@@ -699,12 +699,12 @@ TEST_F(AbstractTensorTest, Unbatch) {
   EXPECT_EQ(ub[1], expect1);
 }
 
-TEST_F(AbstractTensorTest, UnbatchBroadcasting) {
+TEST_F(AbstractTensorTest, UnzipBroadcasting) {
   auto id0 = newID();
   auto id1 = newID();
   auto id2 = newID();
   const AbstractTensor v({id0, {id1, id2}});
-  auto ub = v.unbatch();
+  auto ub = v.unzip();
   ASSERT_EQ(ub.size(), 2);
   AbstractTensor expect0{id0, id1};
   AbstractTensor expect1{id0, id2};

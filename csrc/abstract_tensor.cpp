@@ -380,7 +380,7 @@ void AbstractTensor::swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y) {
   std::swap(domain[y], out_y);
 }
 
-std::vector<AbstractTensor> AbstractTensor::unbatch() const {
+std::vector<AbstractTensor> AbstractTensor::unzip() const {
   std::vector<AbstractTensor> result;
 
   // Check and get the size of the batch
@@ -395,11 +395,11 @@ std::vector<AbstractTensor> AbstractTensor::unbatch() const {
     } else {
       NVF_CHECK(
           size == new_size,
-          "Can not unbatch an AbstractTensor with different sizes in its domains.");
+          "Can not unzip an AbstractTensor with different sizes in its domains.");
     }
   }
 
-  // unbatch the AbstractTensor, broadcast the non-batched items
+  // unzip the AbstractTensor, broadcast the non-batched items
   result.resize(size);
   for (const auto& aid : domain) {
     for (auto i : c10::irange(size)) {
