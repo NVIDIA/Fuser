@@ -467,7 +467,7 @@ TEST_P(HostIrTest, ForLoops) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    Manual,
+    ,
     HostIrTest,
     testing::Combine(testing::Bool()),
     [](const testing::TestParamInfo<std::tuple<bool>>& info) -> std::string {
