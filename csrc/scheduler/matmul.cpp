@@ -776,11 +776,16 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(inner_dims.isValid(), inner_dims.getErrorMsg());
 
   // Core roles: there can be only one... TV with assigned core role
-  const std::vector<TensorView*>& operands =
-      tensor_roles.at(MatmulRole::OPERAND);
-  NVF_ERROR(operands.size() == 2, "We currently require exactly two operands");
-  TensorView* a = operands.front();
-  TensorView* b = operands.back();
+  const std::vector<TensorView*>& a_operands =
+      tensor_roles.at(MatmulRole::OPERAND_A);
+  NVF_ERROR(
+      a_operands.size() == 1, "We currently require exactly one A operand");
+  TensorView* a = a_operands.front();
+  const std::vector<TensorView*>& b_operands =
+      tensor_roles.at(MatmulRole::OPERAND_B);
+  NVF_ERROR(
+      b_operands.size() == 1, "We currently require exactly one B operand");
+  TensorView* b = b_operands.back();
 
   const auto& gemm_tile = params.tile_sizes;
 
@@ -904,10 +909,17 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   addSetForCacheRead(acw_smem, &acr);
   addSetForCacheRead(bcw_smem, &bcr);
 
+  const std::vector<ValGroup> ordering = mma_utils::canonicalDimOrdering(
+      tensor_roles, id_roles, id_model.idGraph(IdMappingMode::PERMISSIVE));
+
   // Make a CTA tile
   // ------------------------------------------------------------------
   // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
-  mma_utils::canonicalizeMmaTvOrdering(mma_result);
+  mma_utils::canonicalizeMmaTvOrdering(
+      mma_result,
+      id_model.idGraph(IdMappingMode::PERMISSIVE),
+      id_roles,
+      ordering);
   const int64_t num_local_dims =
       (int64_t)TensorDomain::noDevices(mma_result->getLoopDomain()).size();
   NVF_ERROR(

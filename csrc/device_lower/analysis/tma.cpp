@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <abstract_tensor.h>
 #include <device_lower/analysis/tma.h>
 #include <device_lower/lower2device.h>
 #include <id_model/id_model.h>
@@ -33,6 +34,30 @@ int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
   return 1;
 }
 
+// TODO: We should use utilities in val_graph_visitor.h so that we don't have
+// to manually filter out cyclic expr groups
+ExprGroups acyclicExprGroups(const ValGraph& id_graph, const ExprGroups& egs) {
+  ExprGroups result;
+  for (const auto& eg : egs) {
+    auto inputs = id_graph.inputGroups(eg);
+    auto outputs = id_graph.outputGroups(eg);
+    bool cyclic = false;
+    for (const auto& i : inputs) {
+      for (const auto& o : outputs) {
+        if (i == o) {
+          cyclic = true;
+          goto break_two_loops;
+        }
+      }
+    }
+  break_two_loops:
+    if (!cyclic) {
+      result.pushBack(eg);
+    }
+  }
+  return result;
+}
+
 // Analyze the schedule of the TMA expression, find the ValGroups for each role.
 // We first need to infer the TMA domain based on the schedule, which is done by
 // finding tile ValGroups first and analyze their definitions.
@@ -53,8 +78,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
 
   int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
-  const IdModel& id_model = GpuLower::current()->idModel();
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+  ValGraph& id_graph = indexer.traversalGraph();
 
   auto gmem_alloc_dom = TensorDomain::noBroadcasts(
       TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain()));
@@ -63,7 +88,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       gmem_alloc_dom.begin(),
       gmem_alloc_dom.end(),
       std::back_inserter(gmem_alloc_groups_vec),
-      [&](IterDomain* id) { return exact_graph.toGroup(id); });
+      [&](IterDomain* id) { return id_graph.toGroup(id); });
   ValGroups gmem_alloc_groups(gmem_alloc_groups_vec);
   std::unordered_set<ValGroup> gmem_alloc_groups_set;
   gmem_alloc_groups_set.reserve(gmem_alloc_dom.size());
@@ -71,7 +96,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       gmem_alloc_dom.begin(),
       gmem_alloc_dom.end(),
       std::inserter(gmem_alloc_groups_set, gmem_alloc_groups_set.end()),
-      [&](IterDomain* id) { return exact_graph.toGroup(id); });
+      [&](IterDomain* id) { return id_graph.toGroup(id); });
 
   // Step 1: Get all bulk ValGroups and tile ValGroups.
   // An ValGroup is considered "bulk" if it contains an IterDomain that has
@@ -88,7 +113,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   // must be parallelized as ParallelType::Bulk.
   for (auto id : consumer_tv->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Bulk) {
-      auto g = exact_graph.toGroup(id);
+      auto g = id_graph.toGroup(id);
       bulk_groups.insert(g);
       pending.push_back(g);
     }
@@ -115,7 +140,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       }
     }
 
-    auto defs = exact_graph.getDefinitions(g);
+    auto defs = id_graph.getDefinitions(g);
     NVF_ERROR(
         gmem_alloc_groups_set.count(g) || !defs.empty(),
         "Allocation domain of the gmem tensor is unreachable");
@@ -125,11 +150,11 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       for (const ExprGroup& def : defs) {
         // We only continue propagating if we have not reached the allocation
         // domain of the gmem tensor yet.
-        if (bulk_groups.count(exact_graph.inputGroups(def)[0])) {
+        if (bulk_groups.count(id_graph.inputGroups(def)[0])) {
           // already processed from another path
           continue;
         }
-        auto output_groups = exact_graph.outputGroups(def);
+        auto output_groups = id_graph.outputGroups(def);
         bool should_propagate = std::all_of(
             output_groups.begin(),
             output_groups.end(),
@@ -137,7 +162,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
 
         if (should_propagate) {
           updated = true;
-          for (const auto& gg : exact_graph.inputGroups(def)) {
+          for (const auto& gg : id_graph.inputGroups(def)) {
             if (bulk_groups.insert(gg).second) {
               pending.push_back(gg);
             }
@@ -179,26 +204,28 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   // is a box dimension defined by compositing.
   std::vector<ValGroup> tma_groups;
   std::unordered_map<ValGroup, ValGroup> tma_g_to_box_g;
-  std::unordered_map<ValGroup, ValGroup> tma_g_to_tile_g;
-  std::unordered_map<ValGroup, ValGroup> tma_g_to_stride_g;
-  std::unordered_map<ValGroup, ValGroup> tma_g_to_partitioned_g;
+  std::unordered_map<ValGroup, std::pair<ValGroup, ValGroup>>
+      tma_g_to_tile_stride_g;
+  std::unordered_set<ValGroup> partitioned_groups;
   for (const auto& tile_g : tile_groups) {
-    const auto& defs = exact_graph.getDefinitions(tile_g);
+    const auto& defs =
+        acyclicExprGroups(id_graph, id_graph.getDefinitions(tile_g));
     NVF_ERROR(
         defs.size() <= 1,
         "Having multiple definitions of tile group is not supported");
     ExprGroup striding_split = nullptr;
-    if (!defs.empty() && exact_graph.outputGroups(defs.front())[0] == tile_g &&
+    if (!defs.empty() && id_graph.outputGroups(defs.front())[0] == tile_g &&
         defs.front()->front()->isA<Split>()) {
       striding_split = defs.front();
     }
     ValGroup box_g =
-        (striding_split != nullptr ? exact_graph.inputGroups(striding_split)[0]
+        (striding_split != nullptr ? id_graph.inputGroups(striding_split)[0]
                                    : tile_g);
     ValGroup stride_g =
-        (striding_split != nullptr ? exact_graph.outputGroups(striding_split)[1]
+        (striding_split != nullptr ? id_graph.outputGroups(striding_split)[1]
                                    : nullptr);
-    const ExprGroups& defs2 = exact_graph.getDefinitions(box_g);
+    const ExprGroups& defs2 =
+        acyclicExprGroups(id_graph, id_graph.getDefinitions(box_g));
     NVF_ERROR(
         defs2.size() <= 1,
         "Having multiple definitions of box group is not supported");
@@ -207,18 +234,17 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       boxing_split = defs2.front();
     }
     ValGroup partitioned_g =
-        (boxing_split != nullptr ? exact_graph.inputGroups(boxing_split)[0]
+        (boxing_split != nullptr ? id_graph.inputGroups(boxing_split)[0]
                                  : nullptr);
     ValGroup tma_g = (partitioned_g != nullptr ? partitioned_g : box_g);
 
     tma_groups.push_back(tma_g);
     tma_g_to_box_g[tma_g] = box_g;
     if (stride_g != nullptr) {
-      tma_g_to_tile_g[tma_g] = tile_g;
-      tma_g_to_stride_g[tma_g] = stride_g;
+      tma_g_to_tile_stride_g[tma_g] = {tile_g, stride_g};
     }
     if (partitioned_g != nullptr) {
-      tma_g_to_partitioned_g[tma_g] = partitioned_g;
+      partitioned_groups.insert(partitioned_g);
     }
   }
 
@@ -234,27 +260,28 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   // Initialize frontier as the allocation domain
   auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto alloc_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
-  for (auto i : c10::irange((int64_t)gmem_alloc_dom.size())) {
-    auto id = gmem_alloc_dom.at(i);
-    // TODO: should I use i below, or should I instead use the position of id in
-    // the allocation domain with broadcast? I don't remember the detail, but
-    // I will just use i for now and leave the support for broadcast for future.
-    auto stride = IrBuilder::getItemExpr(alloc_strides, i);
+  // All allocation domains including broadcasts and reductions.
+  auto all_allocation_domains =
+      TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain());
+  for (auto id : gmem_alloc_dom) {
+    auto it = std::find(
+        all_allocation_domains.begin(), all_allocation_domains.end(), id);
+    NVF_ERROR(it != all_allocation_domains.end());
+    int64_t pos = it - all_allocation_domains.begin();
+    auto stride = IrBuilder::getItemExpr(alloc_strides, pos);
     frontier.emplace_back(
-        exact_graph.toGroup(id),
-        gmem_tv->getContiguity().at(i).value(),
-        stride);
+        id_graph.toGroup(id), gmem_tv->getContiguity().at(pos).value(), stride);
   }
   // Propagate forward from the gmem allocation domain to TMA ValGroups
-  for (auto [expr, direction] : ValGraphBFS::getExprsBetween(
-           exact_graph, gmem_alloc_groups, tma_groups)) {
+  for (auto [expr, direction] :
+       ValGraphBFS::getExprsBetween(id_graph, gmem_alloc_groups, tma_groups)) {
     NVF_ERROR(!expr->empty());
     NVF_ERROR(
         direction == Direction::Forward,
         "Backward propagation from allocation domain to TMA domain is not supported yet.");
     if (expr->front()->isA<Split>()) {
       Split* split = expr->front()->as<Split>();
-      auto in = exact_graph.inputGroups(expr)[0];
+      auto in = id_graph.inputGroups(expr)[0];
       auto in_it =
           std::find_if(frontier.begin(), frontier.end(), [in](auto tuple) {
             return std::get<0>(tuple) == in;
@@ -277,13 +304,13 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       frontier.insert(
           in_it,
           std::make_tuple(
-              exact_graph.outputGroups(expr)[0],
+              id_graph.outputGroups(expr)[0],
               true,
               SimplifyingIrBuilder::mulExpr(
                   std::get<2>(*in_it), split->factor())));
-      std::get<0>(*in_it) = exact_graph.outputGroups(expr)[1];
+      std::get<0>(*in_it) = id_graph.outputGroups(expr)[1];
     } else if (expr->front()->isA<Merge>()) {
-      auto outer = exact_graph.inputGroups(expr)[0];
+      auto outer = id_graph.inputGroups(expr)[0];
       auto outer_it =
           std::find_if(frontier.begin(), frontier.end(), [outer](auto tuple) {
             return std::get<0>(tuple) == outer;
@@ -293,7 +320,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
           "The TMA domain must be equivalent to the allocation domain of the gmem tensor, but ",
           outer->toString(),
           " is not on the path.");
-      auto inner = exact_graph.inputGroups(expr)[1];
+      auto inner = id_graph.inputGroups(expr)[1];
       auto inner_it = std::next(outer_it);
       NVF_ERROR(
           inner_it != frontier.end(),
@@ -306,7 +333,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
           outer->toString(),
           " is merged with ",
           inner->toString());
-      std::get<0>(*inner_it) = exact_graph.outputGroups(expr)[0];
+      std::get<0>(*inner_it) = id_graph.outputGroups(expr)[0];
       frontier.erase(outer_it);
     } else {
       NVF_ERROR(
@@ -317,24 +344,22 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   }
 
   // Frontier is now the TMA domain
-  const auto& tma_domain = frontier;
-
   NVF_ERROR(
-      std::get<1>(tma_domain.back()),
+      std::get<1>(frontier.back()),
       "The innermost dimension of the TMA domain must be contiguous");
   NVF_ERROR(
-      tma_g_to_stride_g.count(std::get<0>(tma_domain.back())) == 0,
+      tma_g_to_tile_stride_g.count(std::get<0>(frontier.back())) == 0,
       "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
       "(this is always the case for nvFuser now)",
       ", the first element of elementStrides must be one.");
 
-  // Validate that tma_domain is a superset of tma_groups, otherwise there is
+  // Validate that frontier is a superset of tma_groups, otherwise there is
   // something wrong in the schedule.
   {
     std::unordered_set<ValGroup> seen;
     std::unordered_set<ValGroup> pending_tma_groups(
         tma_groups.begin(), tma_groups.end());
-    for (auto tuple : tma_domain) {
+    for (auto tuple : frontier) {
       auto g = std::get<0>(tuple);
       NVF_ERROR(
           seen.insert(g).second,
@@ -353,105 +378,96 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
 
   // So far, we have infered the TMA domain. The size of TMA domain is not
   // necessarily the dimensionality of TMA because we support defining box
-  // by compositing. We use a state machine to infer the dimensions of TMA.
-  //
+  // by compositing. We use AbstractTensor to further merge the TMA domain to
+  // the imagined TMA domain.
+  AbstractTensor tma_domain;
+  std::vector<bool> contiguity;
+  std::vector<Val*> global_strides;
+  tma_domain.domain.reserve(frontier.size());
+  global_strides.reserve(frontier.size());
+  contiguity.reserve(frontier.size());
+  for (auto& item : frontier) {
+    tma_domain.domain.emplace_back(
+        ValGroupAndItsGraph{std::move(std::get<0>(item)), &id_graph});
+    contiguity.push_back(std::get<1>(item));
+    global_strides.push_back(std::get<2>(item));
+  }
   // There can only be four types of ValGroups in the TMA domain:
   // -  P: partitioned ValGroup
   // -  C: coordinate ValGroup
   // - SB: strided box ValGroup
   // - CB: contiguous box ValGroup
-  //
-  // For the example of the Figure 6 in doc/dev/tma.md, the TMA domain is
-  // [I1, I2, I3, I4, I5, I6, I7, I8, I9], and the types of these IDs are
-  // [ C, CB,  P,  C, CB, CB,  C, CB, CB]
-  //
-  // The algorithm works as follows: We run a 3-state machine. The state machine
-  // is initialized as START. After setting the initial state, we loop through
-  // the TMA domain from inner to outer. During the loop, for each ValGroup we
-  // see, we take an action and change the state of the machine. The action and
-  // target state depend on the current state of the machine, and the type and
-  // contiguity of the ValGroup we encounter. The actions and transition of
-  // states are shown in the following diagram:
-  //
-  //                           P: create new dim
-  //                            .-------------.
-  //                            |             |
-  //                            '-- [START] <-'
-  //                      CB:     / ^  P:  ^ \     SB/C:
-  //                    create   / / create \ \   create
-  //                     new    / /  new dim \ \   new
-  //                     dim   / /            \ \  dim
-  //                          v /              \ v
-  //              .--- [PENDING BOX] -----> [PENDING COORD] <--.
-  //              |           ^ ^     SB/C:     | |            |
-  //              '-----------' |    create     | '------------'
-  //       CB: create new       |   new dim if  |       SB/C: create new
-  // dim if discontiguous       | discontiguous |       dim if discontiguous
-  // otherwise merge with       |     or SB     |       or SB, otherwise merge
-  //            prev dim        |               |       with prev dim
-  //                            '---------------'
-  //                           CB: create new dim
-  //
-  // There are three states in the machine. The meaning of these states are:
-  // - START: Everything clean, nothing pending merge.
-  // - PENDING BOX: Is there another contiguous box ID? I can merge it into the
-  //                current box.
-  // - PENDING COORD: Is there another coordinate ID? I can merge it into the
-  //                  current dimension.
+  enum IDType { P, C, SB, CB };
+  auto gtype = [&](int64_t i) {
+    const auto& g = tma_domain[i].as<ValGroupAndItsGraph>().group;
+    return partitioned_groups.count(g)
+        ? P
+        : (!tma_g_to_box_g.count(g)
+               ? C
+               : (tma_g_to_tile_stride_g.count(g) ? SB : CB));
+  };
+  // merge contiguous C groups and CB groups
+  int64_t i = 0;
+  while (i < (int64_t)tma_domain.size() - 1) {
+    if (!contiguity[i]) {
+      i++;
+      continue;
+    }
+    bool is_c = (gtype(i) == C && gtype(i + 1) == C);
+    bool is_cb = (gtype(i) == CB && gtype(i + 1) == CB);
+    if (is_c || is_cb) {
+      tma_domain.merge(i);
+      contiguity.erase(contiguity.begin() + i);
+      global_strides.erase(global_strides.begin() + i);
+      if (is_cb) {
+        auto g = tma_domain[i].as<ValGroupAndItsGraph>().group;
+        tma_g_to_box_g.emplace(g, g);
+      }
+    } else {
+      i++;
+    }
+  }
+  // merge contiguous C with SB/CB
+  for (auto i : c10::irange((int64_t)tma_domain.size() - 1)) {
+    if (!contiguity[i]) {
+      continue;
+    }
+    bool this_is_c = (gtype(i) == C);
+    bool next_is_b = (gtype(i + 1) == SB || gtype(i + 1) == CB);
+    if (this_is_c && next_is_b) {
+      auto b = tma_domain[i + 1].as<ValGroupAndItsGraph>().group;
+      tma_domain.merge(i);
+      contiguity.erase(contiguity.begin() + i);
+      global_strides.erase(global_strides.begin() + i);
+      auto g = tma_domain[i].as<ValGroupAndItsGraph>().group;
+      tma_g_to_box_g.emplace(g, b);
+      if (auto it = tma_g_to_tile_stride_g.find(b);
+          it != tma_g_to_tile_stride_g.end()) {
+        tma_g_to_tile_stride_g.emplace(g, it->second);
+      }
+    }
+  }
 
   // As required by the hardware, tensors used by TMA must be in column major
   std::vector<TMADim> dims;
-  enum { START, PENDING_BOX, PENDING_COORD } state = START;
-  for (auto it = tma_domain.rbegin(); it != tma_domain.rend(); it++) {
-    auto [g, contiguous, stride] = *it;
-    auto partitioned_g_it = tma_g_to_partitioned_g.find(g);
-    auto box_g_it = tma_g_to_box_g.find(g);
-    auto stride_g_it = tma_g_to_stride_g.find(g);
-    auto tile_g_it = tma_g_to_tile_g.find(g);
-    enum IDType { P, C, SB, CB };
-    IDType type =
-        (partitioned_g_it != tma_g_to_partitioned_g.end()
-             ? P
-             : (box_g_it == tma_g_to_box_g.end()
-                    ? C
-                    : (stride_g_it != tma_g_to_stride_g.end() ? SB : CB)));
-    bool should_create_new_dim =
-        !(contiguous &&
-          ((state == PENDING_BOX && (type == CB || type == C)) ||
-           (state == PENDING_COORD && type == C)));
-
-    if (should_create_new_dim) {
-      dims.emplace_back();
-      dims.back().gmem_stride_bytes =
-          SimplifyingIrBuilder::mulExpr(stride, itemsize);
-      if (type == CB) {
-        dims.back().box = std::unique_ptr<Box>(new ContiguousBox{});
-      } else if (type == SB) {
-        dims.back().box = std::unique_ptr<Box>(new StridedBox(
-            box_g_it->second, tile_g_it->second, stride_g_it->second));
-      } else if (type == P) {
-        if (stride_g_it != tma_g_to_stride_g.end()) {
-          dims.back().box = std::unique_ptr<Box>(new StridedBox(
-              box_g_it->second, tile_g_it->second, stride_g_it->second));
-        } else {
-          dims.back().box =
-              std::unique_ptr<Box>(new ContiguousBox(box_g_it->second));
-        }
-      } else {
-        NVF_ERROR(type == C);
-        dims.back().box =
-            std::unique_ptr<Box>(new ImplicitSizeOneBox(gmem_tv->fusion()));
-      }
+  auto sit = global_strides.rbegin();
+  for (auto it = tma_domain.domain.rbegin(); it != tma_domain.domain.rend();
+       it++, sit++) {
+    auto g = it->as<ValGroupAndItsGraph>().group;
+    dims.emplace_back();
+    dims.back().partitioned = g;
+    if (auto it = tma_g_to_box_g.find(g); it != tma_g_to_box_g.end()) {
+      dims.back().box = it->second;
     }
-    dims.back().partitioned.pushBack(g);
-    if (type == C) {
-      dims.back().coordinate.pushBack(g);
-    } else if (type == CB) {
-      ContiguousBox* box = dynamic_cast<ContiguousBox*>(dims.back().box.get());
-      box->box_tile.pushBack(g);
+    if (auto it = tma_g_to_tile_stride_g.find(g);
+        it != tma_g_to_tile_stride_g.end()) {
+      dims.back().tile = it->second.first;
+      dims.back().stride = it->second.second;
+    } else {
+      dims.back().tile = dims.back().box;
     }
-
-    state = (type == P ? START : (type == CB ? PENDING_BOX : PENDING_COORD));
+    dims.back().gmem_stride_bytes =
+        SimplifyingIrBuilder::mulExpr(*sit, itemsize);
   }
   return TMAInfo(
       std::move(dims),
