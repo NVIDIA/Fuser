@@ -51,7 +51,7 @@ std::unique_ptr<Fusion> copyFusionAndChangeOutputs(
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    MultiDeviceExecutorParams params)
+    hir::HostIrExecutorParams params)
     : comm_(comm), complete_fusion_(std::move(fusion)) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.

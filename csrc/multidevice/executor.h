@@ -70,14 +70,12 @@ namespace nvfuser {
      device scheduling.
 */
 
-using MultiDeviceExecutorParams = hir::HostIrExecutorParams;
-
 class MultiDeviceExecutor {
  public:
   MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
       Communicator& comm,
-      MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
+      hir::HostIrExecutorParams params = hir::HostIrExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
   std::vector<at::Tensor> runWithInput(

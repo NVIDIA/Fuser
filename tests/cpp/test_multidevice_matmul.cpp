@@ -43,7 +43,7 @@ class DistributedMatmulTest : public MultiDeviceTest {
     }
   }
 
-  MultiDeviceExecutorParams executor_params_{
+  hir::HostIrExecutorParams executor_params_{
       .use_fusion_executor_cache = true,
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
