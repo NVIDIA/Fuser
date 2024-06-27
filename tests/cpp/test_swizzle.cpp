@@ -716,7 +716,7 @@ TEST_F(SwizzleTest, Transpose1) {
   loop.merge(0);
   // BIDx, 32, 32
 
-  auto smem_alloc = loop.unbatch()[0];
+  auto smem_alloc = loop.unzip()[0];
   smem_alloc.swizzle(SwizzleType::XOR, 1, 2);
 
   std::swap(loop[1][1], loop[2][1]);
@@ -731,7 +731,7 @@ TEST_F(SwizzleTest, Transpose1) {
     id->parallelize(ParallelType::TIDx);
   }
 
-  auto ub = loop.unbatch();
+  auto ub = loop.unzip();
   tv1->setLoopDomain(ub[0].as<IterDomain*>());
   tv2->setLoopDomain(ub[1].as<IterDomain*>());
   tv1->setAllocationDomain(smem_alloc.as<IterDomain*>(), true);
