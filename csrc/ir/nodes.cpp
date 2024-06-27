@@ -3640,13 +3640,18 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
   return TransformRFactor::runReplay(this, axes_);
 }
 
+void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+  ir_utils::validateDomainEquivalence(logical_domain_, new_loop_domain);
+  loop_domain_ = std::move(new_loop_domain);
+  resetDomains();
+}
+
 void TensorDomain::setAllocationDomain(
     std::vector<IterDomain*> new_allocation_domain,
     std::vector<std::optional<bool>> new_contiguity) {
   validateContiguity(new_allocation_domain, new_contiguity);
 
-  ir_utils::validateDomainEquivalence(maybeRoot(), new_allocation_domain);
-  ir_utils::validateDomainEquivalence(new_allocation_domain, loop_domain_);
+  ir_utils::validateDomainEquivalence(logical_domain_, new_allocation_domain);
 
   allocation_domain_ = std::move(new_allocation_domain);
   contiguity_ = std::move(new_contiguity);

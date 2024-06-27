@@ -196,6 +196,10 @@ class NVF_API TensorView : public Val {
     return domain()->maybeAllocation();
   };
 
+  void setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+    domain()->setLoopDomain(std::move(new_loop_domain));
+  }
+
   void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
       std::vector<std::optional<bool>> new_contiguity) {
@@ -418,6 +422,11 @@ class NVF_API TensorView : public Val {
   //!  implementation is used and will be removed in follow ups.
   bool hasSwizzleOp() const {
     return has_swizzle_op_;
+  }
+
+  //! A temporary helper function for the transition from Swizzle2D to Swizzle
+  void setHasSwizzleOp() {
+    has_swizzle_op_ = true;
   }
 
   friend TransformPropagator;
