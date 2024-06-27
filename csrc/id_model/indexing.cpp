@@ -1098,15 +1098,15 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
       NVF_ERROR(false);
     }
 
+    // TODO: Do this as part of the post-indexing replacement
     // Even when the iter-domain is not size-1, the actual for-loop
     // can be (e.g., for double buffering). On the other hand, in the
     // case of vectorizd loops, keep the normal loop index as its
     // iniital index, which is subsequently replaced with proper
     // values by the index replacement map.
     if (for_loop != nullptr && for_loop->isTrivial() &&
-        !(is_predicate &&
-          for_loop->iter_domain()->getParallelType() ==
-              ParallelType::Vectorize)) {
+        !(for_loop->iter_domain()->getParallelType() ==
+          ParallelType::Vectorize)) {
       VERBOSE() << "Replacing a loop index with a loop start val: "
                 << for_loop->start()->toInlineString()
                 << ". Prev: " << loop_index->toInlineString() << std::endl;
@@ -1260,8 +1260,11 @@ Val* TensorIndexer::getLinearIndex(
     contig_strides.push_front(strides.at(i1));
   }
 
+  const auto& replacement_map =
+      getIndexReplacementMap(index_info.loop_domains, index_map);
+
   // Linearize the indices with strides.
-  Val* index = tv->fusion()->zeroVal();
+  Val* linear_index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(contig_alloc_groups.size())) {
     const auto& contig_domain_group = contig_alloc_groups.at(i);
     auto idx_it = index_map.find(contig_domain_group);
@@ -1272,22 +1275,23 @@ Val* TensorIndexer::getLinearIndex(
     Val* idx = idx_it->second;
     VERBOSE() << "Index of " << contig_domain_group->front()->toString() << ": "
               << idx->toInlineString() << std::endl;
+    Val* replaced_idx = ir_utils::replaceValRecursively(idx, replacement_map);
 
-    index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(idx, contig_strides.at(i)));
+    linear_index = SimplifyingIrBuilder::addExpr(
+        linear_index, SimplifyingIrBuilder::mulExpr(replaced_idx, contig_strides.at(i)));
   }
 
   // Process double buffering when for-loops are given
   if (tv->isDoubleBuffered() && for_loops.has_value() &&
       GpuLower::hasCurrent()) {
     auto adjusted_index =
-        adjustIndexToSwitchBuffer(tv, as_consumer, for_loops.value(), index);
-    index = adjusted_index;
+        adjustIndexToSwitchBuffer(tv, as_consumer, for_loops.value(), linear_index);
+    linear_index = adjusted_index;
   }
 
-  VERBOSE() << "Final index: " << index->toInlineString() << std::endl;
+  VERBOSE() << "Final index: " << linear_index->toInlineString() << std::endl;
 
-  return index;
+  return linear_index;
 }
 
 // Get the loop domains of a given expr, which are (potentially
