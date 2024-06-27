@@ -1187,7 +1187,6 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
       UnorderedElementsAre(
           Field(&KernelProfile::name, IsEmpty()),
           Field(&KernelProfile::name, Not(IsEmpty()))));
-
 }
 
 TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
@@ -1245,7 +1244,7 @@ TEST_F(AliasTest, NoKernelsAreLaunched) {
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({2, 3}, options);
   fec.runFusionWithInputs({in_tensor});
-  
+
   if (ProfilerState::Running == FusionProfiler::state()) {
     FusionProfiler::stop();
   }
@@ -1257,7 +1256,6 @@ TEST_F(AliasTest, NoKernelsAreLaunched) {
   EXPECT_THAT(
       profile.kernel_profiles,
       UnorderedElementsAre(Field(&KernelProfile::name, IsEmpty())));
-
 }
 
 // While most use cases go through FusionExecutorCache, nvFuser also supports
