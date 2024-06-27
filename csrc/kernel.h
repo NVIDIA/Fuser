@@ -171,7 +171,7 @@ class KernelPerformanceProfile {
 
   // TODO: Allow profiling of ForLoops
   //! Map profiled ForLoop to profile entry offsets
-  // std::unordered_map<const kir::ForLoop*, int64_t> loop_entry_map_;
+  // std::unordered_map<const ForLoop*, int64_t> loop_entry_map_;
 };
 
 class KernelInternalProxy;

@@ -412,15 +412,15 @@ class Index {
   static std::vector<Val*> getNonGlobalProducerStridedIndices(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   // Consumer indexing if it's in shared or local memory
   static std::vector<Val*> getNonGlobalConsumerStridedIndices(
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   // get the strides of a tensor used for the index lowering
@@ -429,15 +429,15 @@ class Index {
   // get the allocation indices of a consumer tensor
   static std::vector<Val*> getConsumerAllocationIndices(
       const TensorView* tv,
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       const IndexFromIdGraph& index_from_id_graph);
 
   // get the allocation indices of a producer tensor
   static std::vector<Val*> getProducerAllocationIndices(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
  public:
@@ -445,15 +445,15 @@ class Index {
   static std::vector<Val*> getGlobalProducerStridedIndices(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   // Consumer indexing if it's in global memory
   static std::vector<Val*> getGlobalConsumerStridedIndices(
       TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {});
 
   // Indexing functions
@@ -470,8 +470,8 @@ class Index {
   static kir::TensorIndex* getProducerIndex(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
       DataType as_type = DataType::Null);
@@ -479,8 +479,8 @@ class Index {
   // Consumer index dispatch
   static kir::TensorIndex* getConsumerIndex(
       TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {},
       bool generate_pointer = false,
       DataType as_type = DataType::Null);
@@ -492,8 +492,8 @@ class Index {
   static Val* getProducerStridedIndices(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false);
 
@@ -503,8 +503,8 @@ class Index {
   //! indexing allocation domain.
   static Val* getConsumerStridedIndices(
       TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {},
       bool generate_pointer = false);
 
@@ -514,8 +514,8 @@ class Index {
   //! rand (for Philox pseudo random sequences)
   static Val* getLinearLogicalIndex(
       TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops);
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops);
 
   //! Returns a vector of logical indices mapped onto the logical
   //! domain of a consumer tensor. The returned index is intended
@@ -523,16 +523,16 @@ class Index {
   //! eye
   static std::vector<Val*> getConsumerPerDimLogicalIndex(
       TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops);
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops);
 
   //! Returns a vector of logical indices mapped onto the logical
   //! domain of a producer tensor.
   static std::vector<Val*> getProducerPerDimLogicalIndex(
       TensorView* producer_tv,
       const TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   //! Take a consumer tensorview and loop nest and generates predicates
@@ -559,15 +559,15 @@ class Index {
   //! like predicate on the vectorized loop.
   static std::vector<RootPredicateInfo> getReferenceRootPredicates(
       TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
-      kir::ForLoop* unswitch_or_vec_loop);
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
+      ForLoop* unswitch_or_vec_loop);
 
   //! Compute the result for iota
   static Val* iota(
       TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       Val* start,
       Val* step,
       DataType dtype);
@@ -575,8 +575,8 @@ class Index {
   //! Compute the result for eye
   static Val* eye(
       TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       DataType dtype);
 
   //! Compute the global index and the expected bytes for complete_tx mechanism
@@ -584,24 +584,22 @@ class Index {
   static std::pair<Val*, Val*> getCpAsyncBulkGmemIndex(
       const LoadStoreOp* ldst,
       Val* mbarrier,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops);
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops);
 };
 
 // Used for local and shared index mapping. Returns a map from loops
 // to loop indices as well as a set of loops that do not contribute to
 // indexing.
 // TODO: could be cleaned up further.
-std::pair<
-    std::unordered_map<kir::ForLoop*, Val*>,
-    std::unordered_set<kir::ForLoop*>>
+std::pair<std::unordered_map<ForLoop*, Val*>, std::unordered_set<ForLoop*>>
 indexMapFromTV(
     const TensorView* tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    kir::ForLoop* alloc_loop,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
+    ForLoop* alloc_loop,
     bool as_consumer,
-    kir::ForLoop* double_buffer_loop = nullptr);
+    ForLoop* double_buffer_loop = nullptr);
 
 //! Set "pragma unroll" required for loops that indexing of Local
 //! tensors depends on.
@@ -612,8 +610,8 @@ indexMapFromTV(
 //! \param id_map Producer-to-consumer map in case of indexing as producer
 void ensureStaticIndexing(
     const TensorView* tv,
-    kir::ForLoop* alloc_loop,
-    const std::vector<kir::ForLoop*>& loops,
+    ForLoop* alloc_loop,
+    const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {});
 
 } // namespace nvfuser
