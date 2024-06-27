@@ -460,11 +460,12 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
       const std::unordered_set<Expr*>& exclude = {}) {
     DoubleBufferLoopCloner cloner(
         double_buffer_loop, double_buffer_load_exprs, loop_type, exclude);
-    cloner.clone();
+    cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
+  virtual ~DoubleBufferLoopCloner() = default;
 
- private:
+ protected:
   DoubleBufferLoopCloner(
       kir::ForLoop* double_buffer_loop,
       const std::vector<Expr*>& double_buffer_load_exprs,
@@ -477,7 +478,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 
   using kir::IrVisitor::handle;
 
-  void clone() {
+  void duplicate() {
     // Cloning the double buffer loop as follows:
     //
     // Prologue: 0 to 1
@@ -504,8 +505,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
       NVF_ERROR(requireEpilogue(double_buffer_load_exprs_));
       start = IrBuilder::subExpr(
           double_buffer_loop_->stop(),
-          SimplifyingIrBuilder::create<Val>(
-              int64_t(stage_depth - 1), DataType::Index));
+	  GpuLower::current()->kernel()->oneVal());
     }
 
     cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
@@ -522,7 +522,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
     handle(double_buffer_loop_);
   }
 
-  void handle(kir::ForLoop* fl) final {
+  void handle(kir::ForLoop* fl) override {
     kir::ForLoop* cloned_loop = fl == double_buffer_loop_
         ? cloned_top_level_loop_
         : IrBuilder::create<kir::ForLoop>(fl);
@@ -544,7 +544,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
     NVF_ERROR(false, "No IfThenElse should exist yet");
   }
 
-  void dispatch(Expr* expr) final {
+  void dispatch(Expr* expr) override {
     if (exclude_.count(expr) > 0) {
       return;
     }
@@ -582,7 +582,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
     }
   }
 
- private:
+ protected:
   kir::ForLoop* double_buffer_loop_ = nullptr;
   const std::vector<Expr*>& double_buffer_load_exprs_;
   const DoubleBufferLoopStage loop_type_;
@@ -596,7 +596,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 // Epilogue. Prologue only copies the load expressions of double
 // buffered tensors, whereas Epilogue does any expression other than
 // the loads. Main copies everything.
-class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
+class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
  public:
   static kir::ForLoop* clone(
       kir::ForLoop* double_buffer_loop,
@@ -605,9 +605,10 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
       const std::unordered_set<Expr*>& exclude = {}) {
     TmaDoubleBufferLoopCloner cloner(
         double_buffer_loop, double_buffer_load_exprs, loop_type, exclude);
-    cloner.clone();
+    cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
+  ~TmaDoubleBufferLoopCloner() override = default;
 
  private:
   TmaDoubleBufferLoopCloner(
@@ -615,55 +616,10 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
       const std::vector<Expr*>& double_buffer_load_exprs,
       DoubleBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude)
-      : double_buffer_loop_(double_buffer_loop),
-        double_buffer_load_exprs_(double_buffer_load_exprs),
-        loop_type_(loop_type),
-        exclude_(exclude) {}
-
-  using kir::IrVisitor::handle;
-
-  void clone() {
-    // Cloning the double buffer loop as follows:
-    //
-    // Prologue: 0 to 1
-    // Main: 0 to (extent-1)
-    // Epilogue: (extent-1) to extent
-
-    auto index = GpuLower::current()->caMap()->getIndexVariable(
-        double_buffer_loop_->iter_domain(), loop_type_);
-    auto start = double_buffer_loop_->start();
-    auto stop = double_buffer_loop_->stop();
-    auto stage_depth = GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-        double_buffer_loop_->iter_domain());
-
-    if (loop_type_ == DoubleBufferLoopStage::Prolog) {
-      NVF_ERROR(start->isZeroInt());
-      stop = SimplifyingIrBuilder::create<Val>(
-          int64_t(stage_depth - 1), DataType::Index);
-    } else if (
-        loop_type_ == DoubleBufferLoopStage::Main &&
-        requireEpilogue(double_buffer_load_exprs_)) {
-      stop = IrBuilder::subExpr(
-          double_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
-    } else if (loop_type_ == DoubleBufferLoopStage::Epilog) {
-      NVF_ERROR(requireEpilogue(double_buffer_load_exprs_));
-      start = IrBuilder::subExpr(
-          double_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
-    }
-
-    cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
-        double_buffer_loop_->iter_domain(),
-        index,
-        start,
-        stop,
-        /*step=*/GpuLower::current()->kernel()->oneVal(),
-        /*vectorize=*/false,
-        /*vectorize_shift=*/nullptr,
-        double_buffer_loop_->isUnrollRequired(),
-        loop_type_);
-
-    handle(double_buffer_loop_);
-  }
+      : DoubleBufferLoopCloner(double_buffer_loop,
+		               double_buffer_load_exprs,
+			       loop_type,
+			       exclude) {}
 
   void handle(kir::ForLoop* fl) final {
     kir::ForLoop* cloned_loop = fl == double_buffer_loop_
@@ -702,10 +658,6 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
       cloned_top_level_loop_->body().push_back(mbarrier_wait_);
       mbarrier_wait_ = nullptr;
     }
-  }
-
-  void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(false, "No IfThenElse should exist yet");
   }
 
   void dispatch(Expr* expr) final {
@@ -946,23 +898,16 @@ class TmaDoubleBufferLoopCloner : public kir::IrVisitor {
   }
 
  private:
-  kir::ForLoop* double_buffer_loop_ = nullptr;
-  const std::vector<Expr*>& double_buffer_load_exprs_;
-  const DoubleBufferLoopStage loop_type_;
-
   // Mbarrier_Wait to add to cloned_top_level_loop
   kir::MBarrierWait* mbarrier_wait_ = nullptr;
 
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
 
-  kir::ForLoop* cloned_top_level_loop_ = nullptr;
-  std::deque<kir::Scope*> cloned_scopes_;
-  const std::unordered_set<Expr*>& exclude_;
-
   // Current stage, expectation:
   //  curr_stages_idx = (double_buffer_loop_idx % stages)
   Val* current_compute_stage_ = nullptr;
+
   // Next stage, expectation:
   //  next_stages_idx = (double_buffer_loop_idx + (stages -1)) % stages
   Val* current_load_stage_ = nullptr;
