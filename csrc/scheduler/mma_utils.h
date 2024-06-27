@@ -401,6 +401,9 @@ std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::DimRolesMap& dim_roles,
     const ValGraph& permissive_graph);
 
+//! Set the number_of_dims IDs from the end to swizzled.
+void setWarpMapped(TensorView* tv, int64_t number_of_dims);
+
 } // namespace mma_utils
 
 } // namespace nvfuser
