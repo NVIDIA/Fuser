@@ -40,8 +40,8 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
-  void handle(kir::ForLoop* fl) final {
-    kir::Scope* scope = scope_.empty() ? nullptr : scope_.back();
+  void handle(ForLoop* fl) final {
+    Scope* scope = scope_.empty() ? nullptr : scope_.back();
     if (containsAnyDirectChildMisalignedVectorize(fl)) {
       for_loops_.push_back(fl);
       auto new_fl = handleMisalignedVectorize(for_loops_, fl);
@@ -138,7 +138,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
   // Create constants for handling misaligned addresses
   VectorizeData createVectorizeConstants(
-      const std::vector<kir::ForLoop*>& for_loop_structure,
+      const std::vector<ForLoop*>& for_loop_structure,
       const ReferenceTensors& tensors,
       kir::IfThenElse* parent_scope_ite) {
     // Generate vectorize index
@@ -232,7 +232,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   // Vectorized : [shift - (extent-remainder))
   // From the first to the last aligned address
   kir::IfThenElse* createVectorizeSection(
-      const std::vector<kir::ForLoop*>& child_loops,
+      const std::vector<ForLoop*>& child_loops,
       const VectorizeData& params) {
     auto vectorized_child_loops = cloneForLoops(
         child_loops, params.vector_size, nullptr, true, params.shift);
@@ -257,7 +257,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   // Initial : [0 - shift)
   // From the initial address until the first aligned address
   kir::IfThenElse* createInitialSection(
-      const std::vector<kir::ForLoop*>& child_loops,
+      const std::vector<ForLoop*>& child_loops,
       const VectorizeData& params) {
     auto pre_child_loops = cloneForLoops(
         child_loops, params.vector_size, params.shift, false, nullptr);
@@ -283,7 +283,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   // Remainder : [(extent-remainder) - extent)
   // From the last aligned address until the end of the extent
   kir::IfThenElse* createRemainderSection(
-      const std::vector<kir::ForLoop*>& child_loops,
+      const std::vector<ForLoop*>& child_loops,
       const VectorizeData& params) {
     auto post_child_loops = cloneForLoops(
         child_loops, params.vector_size, params.remainder, false, params.shift);
@@ -308,9 +308,9 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     return remainder_ite;
   }
 
-  kir::ForLoop* handleMisalignedVectorize(
-      std::vector<kir::ForLoop*> for_loop_structure,
-      const kir::ForLoop* parent_for_loop) {
+  ForLoop* handleMisalignedVectorize(
+      std::vector<ForLoop*> for_loop_structure,
+      const ForLoop* parent_for_loop) {
     auto child_loops = findChildForLoops(parent_for_loop);
 
     // Assumption: All vectorize operations have the same shift
@@ -322,7 +322,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
     // The parent_for_loop contains allocate, read, compute, write operations
     const auto new_parent_for_loop =
-        IrBuilder::create<kir::ForLoop>(parent_for_loop);
+        IrBuilder::create<ForLoop>(parent_for_loop);
 
     // Transfer all expressions except for-loops to new parent for-loop
     // All expressions are placed at the beginning of the new for-loop
@@ -360,7 +360,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
   // Determine that the expression is LoadStoreOp AND
   // the output TensorView domain is vectorized
-  bool isVectorizeSetOp(kir::ForLoop* fl, Expr* expr) {
+  bool isVectorizeSetOp(ForLoop* fl, Expr* expr) {
     if (fl->iter_domain()->getParallelType() !=
         ParallelType::MisalignedVectorize) {
       return false;
@@ -381,13 +381,13 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   // pred_stop value - Predicate loop body as (index < pred_stop) if non null
   // vectorize flag - Do not generate for loop header
   // shift value - Add shift to global indices generated within for loop
-  std::vector<kir::ForLoop*> cloneForLoops(
-      const std::vector<kir::ForLoop*>& for_loops_,
+  std::vector<ForLoop*> cloneForLoops(
+      const std::vector<ForLoop*>& for_loops_,
       Val* loop_stop,
       Val* pred_stop,
       bool vectorize,
       Val* vectorize_shift) {
-    std::vector<kir::ForLoop*> cloned_for_loops;
+    std::vector<ForLoop*> cloned_for_loops;
 
     for (auto fl : for_loops_) {
       auto first_expr = fl->body().exprs().front();
@@ -397,7 +397,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
       // it should only contain a single expression
       NVF_ERROR(!has_vectorize_op || fl->body().exprs().size() == 1);
 
-      const auto new_loop = IrBuilder::create<kir::ForLoop>(
+      const auto new_loop = IrBuilder::create<ForLoop>(
           fl->iter_domain(),
           fl->index(),
           GpuLower::current()->kernel()->zeroVal(),
@@ -431,22 +431,20 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   }
 
   // Add all expressions except for loops to new parent for loop
-  void copyExprsExceptForLoops(
-      const kir::ForLoop* for_loop,
-      kir::ForLoop* new_loop) {
-    std::vector<kir::ForLoop*> loops;
+  void copyExprsExceptForLoops(const ForLoop* for_loop, ForLoop* new_loop) {
+    std::vector<ForLoop*> loops;
     for (auto expr : for_loop->body().exprs()) {
-      if (!expr->isA<kir::ForLoop>()) {
+      if (!expr->isA<ForLoop>()) {
         new_loop->body().push_back(expr);
       }
     }
   }
 
   // Find any child for loops inside parent for loop
-  std::vector<kir::ForLoop*> findChildForLoops(const kir::ForLoop* for_loop) {
-    std::vector<kir::ForLoop*> loops;
+  std::vector<ForLoop*> findChildForLoops(const ForLoop* for_loop) {
+    std::vector<ForLoop*> loops;
     for (auto expr : for_loop->body().exprs()) {
-      if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      if (auto nested_for_loop = dynamic_cast<ForLoop*>(expr)) {
         loops.push_back(nested_for_loop);
       }
     }
@@ -457,8 +455,8 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   // Add child For-Loop to for_loop_structure
   // Enable vectorize flag in child For-Loop
   Expr* findFirstVectorizedSetOp(
-      std::vector<kir::ForLoop*>& for_loop_structure,
-      const std::vector<kir::ForLoop*>& for_loops_) {
+      std::vector<ForLoop*>& for_loop_structure,
+      const std::vector<ForLoop*>& for_loops_) {
     for (auto fl : for_loops_) {
       auto first_expr = fl->body().exprs().front();
       bool has_vectorize_op = isVectorizeSetOp(fl, first_expr);
@@ -553,7 +551,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   }
 
   Val* createNamedScalarFromValue(
-      kir::Scope& body,
+      Scope& body,
       Val* val,
       const std::string& name,
       bool address = false) {
@@ -564,7 +562,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
   }
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<kir::ForLoop*> rotated_loop_;
+  std::unordered_set<ForLoop*> rotated_loop_;
 };
 
 } // namespace
@@ -574,10 +572,10 @@ std::vector<Expr*> processMisalignedVectorization(
   return MisalignedVectorizationModifier::processMisalignedVectorization(exprs);
 }
 
-bool containsAnyDirectChildMisalignedVectorize(const kir::ForLoop* fl) {
+bool containsAnyDirectChildMisalignedVectorize(const ForLoop* fl) {
   for (auto expr : fl->body().exprs()) {
-    if (expr->isA<kir::ForLoop>()) {
-      auto child_fl = expr->as<kir::ForLoop>();
+    if (expr->isA<ForLoop>()) {
+      auto child_fl = expr->as<ForLoop>();
       if (child_fl->iter_domain()->getParallelType() ==
           ParallelType::MisalignedVectorize) {
         return true;

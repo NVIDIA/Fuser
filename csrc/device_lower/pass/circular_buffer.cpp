@@ -166,8 +166,8 @@ bool requireEpilogue(const std::vector<Expr*>& exprs) {
 // the loads. Main copies everything.
 class CircularBufferLoopCloner : public kir::IrVisitor {
  public:
-  static kir::ForLoop* clone(
-      kir::ForLoop* circular_buffer_loop,
+  static ForLoop* clone(
+      ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& circular_buffer_load_exprs,
       CircularBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude = {}) {
@@ -179,7 +179,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 
  private:
   CircularBufferLoopCloner(
-      kir::ForLoop* circular_buffer_loop,
+      ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& circular_buffer_load_exprs,
       CircularBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude)
@@ -223,7 +223,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
               int64_t(stage_depth - 1), DataType::Index));
     }
 
-    cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
+    cloned_top_level_loop_ = IrBuilder::create<ForLoop>(
         circular_buffer_loop_->iter_domain(),
         index,
         start,
@@ -237,10 +237,10 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     handle(circular_buffer_loop_);
   }
 
-  void handle(kir::ForLoop* fl) final {
-    kir::ForLoop* cloned_loop = fl == circular_buffer_loop_
+  void handle(ForLoop* fl) final {
+    ForLoop* cloned_loop = fl == circular_buffer_loop_
         ? cloned_top_level_loop_
-        : IrBuilder::create<kir::ForLoop>(fl);
+        : IrBuilder::create<ForLoop>(fl);
 
     cloned_scopes_.push_back(&cloned_loop->body());
 
@@ -264,7 +264,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       return;
     }
 
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -298,16 +298,16 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
  private:
-  kir::ForLoop* circular_buffer_loop_ = nullptr;
+  ForLoop* circular_buffer_loop_ = nullptr;
   const std::vector<Expr*>& circular_buffer_load_exprs_;
   const CircularBufferLoopStage loop_type_;
 
-  kir::ForLoop* cloned_top_level_loop_ = nullptr;
-  std::deque<kir::Scope*> cloned_scopes_;
+  ForLoop* cloned_top_level_loop_ = nullptr;
+  std::deque<Scope*> cloned_scopes_;
   const std::unordered_set<Expr*>& exclude_;
 };
 
-using InsertionInfo = std::unordered_map<kir::ForLoop*, std::vector<Expr*>>;
+using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
 
 class IsCircularBufferLoadLoop : public kir::IrVisitor {
  public:
@@ -403,7 +403,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     handlePossibleLoadExpr(ldst);
   }
 
-  static void validateCircularBufferLoop(kir::ForLoop* loop) {
+  static void validateCircularBufferLoop(ForLoop* loop) {
     NVF_ERROR(
         loop->start()->isZeroInt(), "Unsupported loop: ", loop->toString());
     NVF_ERROR(loop->step()->isOneInt(), "Unsupported loop: ", loop->toString());
@@ -422,16 +422,14 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
 
 namespace {
 
-void getAllocInTrivialLoop(
-    kir::ForLoop* fl,
-    std::unordered_set<Expr*>& output) {
+void getAllocInTrivialLoop(ForLoop* fl, std::unordered_set<Expr*>& output) {
   if (!fl->isTrivial()) {
     return;
   }
   for (auto expr : fl->body().exprs()) {
     if (expr->isA<kir::Allocate>()) {
       output.emplace(expr);
-    } else if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    } else if (auto loop = dynamic_cast<ForLoop*>(expr)) {
       getAllocInTrivialLoop(loop, output);
     }
   }
@@ -469,7 +467,7 @@ class CircularBufferInserter : private kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(kir::ForLoop* loop) final {
+  void handle(ForLoop* loop) final {
     kir::ExprMutator::handle(loop);
 
     // If another loop is already taken care of, no more loop should
@@ -489,7 +487,7 @@ class CircularBufferInserter : private kir::ExprMutator {
   }
 
   void insert(
-      kir::ForLoop* circular_buffer_loop,
+      ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
     auto prologue_loop = CircularBufferLoopCloner::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
@@ -614,7 +612,7 @@ class CircularBufferInserter : private kir::ExprMutator {
   // Simple conservative rule for inserting async copy wait
   //  primitive in the circular buffer loop:
   void insertCpAsyncCommitWaitInMainLoop(
-      kir::ForLoop* main_loop,
+      ForLoop* main_loop,
       const std::vector<Expr*>& loads) {
     NVF_ERROR(
         !main_loop->body().empty(),
@@ -663,7 +661,7 @@ class CircularBufferInserter : private kir::ExprMutator {
 
  private:
   InsertionInfo& insertion_info_;
-  kir::ForLoop* processed_loop_ = nullptr;
+  ForLoop* processed_loop_ = nullptr;
 };
 
 } // namespace
@@ -761,9 +759,9 @@ unsigned int CircularBufferInfo::getStageDepthFor(
   return maybe_depth_it->second;
 }
 
-kir::ForLoop* CircularBufferInfo::getCircularBufferLoop(
+ForLoop* CircularBufferInfo::getCircularBufferLoop(
     IterDomain* axis,
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     bool ignore_prologue) {
   auto loop_it = std::find_if(loops.begin(), loops.end(), [&](const auto loop) {
     return GpuLower::current()->caMap()->areMapped(
@@ -779,9 +777,9 @@ kir::ForLoop* CircularBufferInfo::getCircularBufferLoop(
   }
 }
 
-kir::ForLoop* CircularBufferInfo::getCircularBufferLoop(
+ForLoop* CircularBufferInfo::getCircularBufferLoop(
     const TensorView* tv,
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     bool ignore_prologue) {
   auto axis = getCircularBufferAxis(tv);
 

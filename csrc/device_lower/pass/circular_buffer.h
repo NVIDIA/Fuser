@@ -194,17 +194,17 @@ class CircularBufferInfo {
   //! Get a loop that matches with a given circular-buffer axis. If
   //! ignore_prologue is true, a matched loop is ignored if it's a
   //! prologue loop.
-  static kir::ForLoop* getCircularBufferLoop(
+  static ForLoop* getCircularBufferLoop(
       IterDomain* axis,
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       bool ignore_prologue = false);
 
   //! Get a loop that matches with the circular-buffer axis of a given
   //! circular-buffered tensor. If ignore_prologue is true, a matched
   //! loop is ignored if it's a prologue loop.
-  kir::ForLoop* getCircularBufferLoop(
+  ForLoop* getCircularBufferLoop(
       const TensorView* tv,
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       bool ignore_prologue = false);
 
   void setOriginalAllocSize(const TensorView* tv, Val* size);

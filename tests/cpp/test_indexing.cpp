@@ -1147,7 +1147,7 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
   IndexValidator<GetReference>::validate(&fusion);
 }
 
-TEST_F(IndexingTest, DISABLED_Swizzle) {
+TEST_F(IndexingTest, Swizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
