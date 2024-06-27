@@ -715,25 +715,7 @@ class IdGraphIndexCompute : public OptOutDispatch {
 };
 
 bool IdGraphIndexCompute::isForward(Expr* expr) const {
-  bool ready = true;
-  for (const auto inp : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-    if (!hasIndex(inp)) {
-      VERBOSE() << "No index for input: " << inp->toString() << std::endl;
-      ready = false;
-      break;
-    }
-  }
-  if (ready) {
-    return true;
-  }
-
-  // Can just return false here. Just make sure the outputs are
-  // already processed
-  for (const auto out : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-    NVF_ERROR(hasIndex(out), "Output index not found: ", out->toString());
-  }
-
-  return false;
+  return current_direction_ == Direction::Forward;
 }
 
 void IdGraphIndexCompute::handle(Split* split) {
