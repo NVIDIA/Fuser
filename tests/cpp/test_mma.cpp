@@ -649,7 +649,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
 
   // In this case we don't split the outer dimension, thus having
   // fewer TMA loads.
-  scheduleTMALoadWhereOuterDimIsSplit(tv1, swizzle_b, dtype);
+  scheduleTMALoadOuterDimNotSplit(tv1, swizzle_b, dtype);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   int skip = 0;
