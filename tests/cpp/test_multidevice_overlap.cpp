@@ -70,17 +70,12 @@ class OverlapTest : public MultiDeviceTest {
 
     // Define I/O and intermediate Tensor shapes
     std::vector<int64_t> ta_unsharded_sizes = {
-        params.S,
-        num_devices_,
-        params.M / params.S,
-        params.K / num_devices_,
-        1};
+        params.S, num_devices_, params.M / params.S, params.K / num_devices_};
     std::vector<int64_t> ta_sizes = {
-        params.S, 1, params.M / params.S, params.K / num_devices_, 1};
+        params.S, 1, params.M / params.S, params.K / num_devices_};
     std::vector<int64_t> tb_unsharded_sizes = {
-        1, num_devices_, 1, params.K / num_devices_, params.N};
-    std::vector<int64_t> tb_sizes = {
-        1, 1, 1, params.K / num_devices_, params.N};
+        1, num_devices_, params.K / num_devices_, params.N};
+    std::vector<int64_t> tb_sizes = {1, 1, params.K / num_devices_, params.N};
     std::vector<int64_t> tc_locally_reduced_sizes = {
         params.S, 1, params.M / params.S, params.N};
     std::vector<int64_t> tc_sizes = {
@@ -107,7 +102,8 @@ class OverlapTest : public MultiDeviceTest {
     tc_ = at::empty(tc_sizes, options);
 
     // compute the expected output for data correctness validation
-    auto tc_unsharded_unreduced = ta_unsharded * tb_unsharded;
+    auto tc_unsharded_unreduced =
+        ta_unsharded.unsqueeze(-1) * tb_unsharded.unsqueeze(-3);
     auto tc_unsharded_expected = at::sum(tc_unsharded_unreduced, {1, 3});
     auto tc_unsharded_expected_reshaped = at::reshape(
         tc_unsharded_expected,
@@ -137,22 +133,7 @@ class OverlapTest : public MultiDeviceTest {
       at::Tensor ta_j,
       at::Tensor tb_j,
       at::Tensor tc_locally_reduced_j) {
-    // we unsqueeze the output tensor to avoid a torch warning:
-    // "W624 08:13:32.342934752 Resize.cpp:28] Warning: An output with one or
-    // more elements was resized since it had shape [1, 1, 8, 16], which does
-    // not match the required output shape [1, 1, 8, 1, 1, 1, 1, 16]. This
-    // behavior is deprecated, and in a future PyTorch release outputs will not
-    // be resized unless they have zero elements. You can explicitly reuse an
-    // out tensor t by resizing it, inplace, to zero elements with t.resize_(0).
-    // (function _resize_output_check)"
-    auto unsqueezed_tc_locally_reduced_j =
-        tc_locally_reduced_j.unsqueeze(3).unsqueeze(4).unsqueeze(5).unsqueeze(
-            6);
-    // we check that no unnecessary copy is performed
-    EXPECT_EQ(
-        tc_locally_reduced_j.data_ptr(),
-        unsqueezed_tc_locally_reduced_j.data_ptr());
-    at::tensordot_out(unsqueezed_tc_locally_reduced_j, ta_j, tb_j, {3}, {3});
+    torch::matmul_out(tc_locally_reduced_j, ta_j, tb_j);
   }
 };
 // clang-format off
