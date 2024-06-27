@@ -399,7 +399,7 @@ std::vector<AbstractTensor> AbstractTensor::unzip() const {
     }
   }
 
-  // unzip the AbstractTensor, broadcast the non-batched items
+  // unzip the AbstractTensor, broadcast the non-vector items
   result.resize(size);
   for (const auto& aid : domain) {
     for (auto i : c10::irange(size)) {

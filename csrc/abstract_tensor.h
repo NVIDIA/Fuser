@@ -203,7 +203,7 @@ struct AbstractTensor {
   // This is a copy-paste of AbstractTensor::swizzle(SwizzleType
   void swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y);
 
-  // Unbatch the AbstractTensor to separate tensors. For example, if this
+  // Unzip the AbstractTensor to separate tensors. For example, if this
   // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], then the return value
   // will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}.
   std::vector<AbstractTensor> unzip() const;
