@@ -380,4 +380,37 @@ void AbstractTensor::swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y) {
   std::swap(domain[y], out_y);
 }
 
+std::vector<AbstractTensor> AbstractTensor::unbatch() const {
+  std::vector<AbstractTensor> result;
+
+  // Check and get the size of the batch
+  int64_t size = -1;
+  for (const auto& aid : domain) {
+    if (!aid.is<std::vector>()) {
+      continue;
+    }
+    int64_t new_size = (int64_t)aid.as<std::vector>().size();
+    if (size == -1) {
+      size = new_size;
+    } else {
+      NVF_CHECK(
+          size == new_size,
+          "Can not unbatch an AbstractTensor with different sizes in its domains.");
+    }
+  }
+
+  // unbatch the AbstractTensor, broadcast the non-batched items
+  result.resize(size);
+  for (const auto& aid : domain) {
+    for (auto i : c10::irange(size)) {
+      if (!aid.is<std::vector>()) {
+        result[i].domain.emplace_back(aid);
+      } else {
+        result[i].domain.emplace_back(aid[i]);
+      }
+    }
+  }
+  return result;
+}
+
 } // namespace nvfuser

@@ -685,4 +685,31 @@ TEST_F(AbstractTensorTest, SwizzleValGroupWithIterDomain) {
   EXPECT_EQ(v.domain, vv.domain);
 }
 
+TEST_F(AbstractTensorTest, Unbatch) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  const AbstractTensor v({{id0, id1}, {id2, id3}});
+  auto ub = v.unbatch();
+  ASSERT_EQ(ub.size(), 2);
+  AbstractTensor expect0{id0, id2};
+  AbstractTensor expect1{id1, id3};
+  EXPECT_EQ(ub[0], expect0);
+  EXPECT_EQ(ub[1], expect1);
+}
+
+TEST_F(AbstractTensorTest, UnbatchBroadcasting) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  const AbstractTensor v({id0, {id1, id2}});
+  auto ub = v.unbatch();
+  ASSERT_EQ(ub.size(), 2);
+  AbstractTensor expect0{id0, id1};
+  AbstractTensor expect1{id0, id2};
+  EXPECT_EQ(ub[0], expect0);
+  EXPECT_EQ(ub[1], expect1);
+}
+
 } // namespace nvfuser
