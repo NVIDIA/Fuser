@@ -2917,8 +2917,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor query,
          Tensor key,
          Tensor value,
-         Scalar dropout_p,
-         Scalar is_causal,
+         std::optional<Scalar> dropout_p,
+         std::optional<Scalar> is_causal,
          std::optional<Scalar> scale) -> decltype(auto) {
         FUSER_PERF_SCOPE("Operators.sdpfa_fwd");
         NVF_CHECK(
@@ -2935,6 +2935,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         Tensor philox_offset = fd->defineTensor(0);
         Tensor debug_attn_mask = fd->defineTensor(0);
 
+        auto dropout_p_state = dropout_p.has_value()
+            ? fd->recordingState(dropout_p.value()())
+            : State(0, serde::StateType::None);
+        auto is_causal_state = is_causal.has_value()
+            ? fd->recordingState(is_causal.value()())
+            : State(0, serde::StateType::None);
         auto scale_state = scale.has_value()
             ? fd->recordingState(scale.value()())
             : State(0, serde::StateType::None);
@@ -2943,8 +2949,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(query()),
              fd->recordingState(key()),
              fd->recordingState(value()),
-             fd->recordingState(dropout_p()),
-             fd->recordingState(is_causal()),
+             dropout_p_state,
+             is_causal_state,
              scale_state},
             {fd->recordingState(output()),
              fd->recordingState(log_sumexp()),
@@ -2969,9 +2975,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("query"),
       py::arg("key"),
       py::arg("value"),
-      py::arg("dropout_p") = 0.0,
-      py::arg("is_causal") = false,
-      py::arg("scale").none(true),
+      py::arg("dropout_p").none(true) = py::none(),
+      py::arg("is_causal").none(true) = py::none(),
+      py::arg("scale").none(true) = py::none(),
       py::return_value_policy::reference);
 
   //! The ScedOperators class is a nested class of FusionDefinition to allow the

@@ -4355,7 +4355,7 @@ class TestNvFuserFrontend(TestCase):
         with FusionDefinition() as fd:
             fusion_func(fd)
         nvf_out = fd.execute(inputs)
-        torch.testing.assert_close(nvf_out[0], F.scaled_dot_product_attention(q, k, v))
+        torch.testing.assert_close(nvf_out[0], F.scaled_dot_product_attention(*inputs))
 
     def test_reshape_dynamic(self):
         inputs = [

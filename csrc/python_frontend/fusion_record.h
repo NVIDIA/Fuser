@@ -2771,7 +2771,7 @@ struct SdpaFwdOpRecord : RecordFunctor {
       : RecordFunctor(
             std::move(args),
             std::move(outputs),
-            "ops.sdpa_fwd",
+            "ops.sdpfa_fwd",
             serde::RecordType::SdpaFwdOp){}
   ~SdpaFwdOpRecord() override = default;
   RecordFunctor* clone() final {
@@ -2782,8 +2782,12 @@ struct SdpaFwdOpRecord : RecordFunctor {
     auto query = fd.getFusionState(args_.at(0).index)->as<TensorView>();
     auto key = fd.getFusionState(args_.at(1).index)->as<TensorView>();
     auto value = fd.getFusionState(args_.at(2).index)->as<TensorView>();
-    auto dropout_p = fd.getFusionState(args_.at(3).index)->as<Val>();
-    auto is_causal = fd.getFusionState(args_.at(4).index)->as<Val>();
+    auto dropout_p = (args_.at(3).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(3).index)->as<Val>()
+        : nullptr;
+    auto is_causal = (args_.at(4).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(4).index)->as<Val>()
+        : nullptr;
     auto scale = (args_.at(5).stype == serde::StateType::Scalar)
         ? fd.getFusionState(args_.at(5).index)->as<Val>()
         : nullptr;
