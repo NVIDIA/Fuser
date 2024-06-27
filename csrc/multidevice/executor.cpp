@@ -85,10 +85,11 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   IrCloner ir_cloner(hic.get());
   auto clone =
       [&ir_cloner](const std::vector<Val*>& vals) -> std::vector<Val*> {
-    std::vector<Val*> cloned_vals;
-    for (auto val : vals) {
-      cloned_vals.push_back(ir_cloner.clone(val));
-    }
+    std::vector<Val*> cloned_vals(vals.size());
+    std::transform(
+        vals.begin(), vals.end(), cloned_vals.begin(), [&ir_cloner](Val* val) {
+          return ir_cloner.clone(val);
+        });
     return cloned_vals;
   };
 
@@ -129,8 +130,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   }
 
   // Create the HostIrExecutor representing the host program
-  host_ir_executor_ = std::make_unique<hir::HostIrExecutor>(
-      std::move(hic), &comm, std::move(params));
+  host_ir_executor_ =
+      std::make_unique<hir::HostIrExecutor>(std::move(hic), &comm, params);
 
   // Allocator setup
   // vals_to_allocate_ stores the tensors that need to be allocated at runtime,
