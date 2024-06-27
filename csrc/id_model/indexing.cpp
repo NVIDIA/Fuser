@@ -564,14 +564,6 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   IndexingInfo info{loop_domains, traversal_path, index_compute.indexMap()};
-
-  const auto& replacement_map =
-      getIndexReplacementMap(loop_domains, info.index_map);
-
-  for (auto& [k, v] : info.index_map) {
-    v = ir_utils::replaceValRecursively(v, replacement_map);
-  }
-
   return info;
 }
 
