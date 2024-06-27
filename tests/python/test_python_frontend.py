@@ -4351,10 +4351,7 @@ class TestNvFuserFrontend(TestCase):
             v = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
             attn, *intermediate_results = fd.ops.sdpfa_fwd(q, k, v)
             fd.add_output(attn)
-        # nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-        with FusionDefinition() as fd:
-            fusion_func(fd)
-        nvf_out = fd.execute(inputs)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         torch.testing.assert_close(nvf_out[0], F.scaled_dot_product_attention(*inputs))
 
     def test_reshape_dynamic(self):
