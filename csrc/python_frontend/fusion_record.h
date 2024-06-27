@@ -2764,6 +2764,48 @@ struct VectorRecord : RecordFunctor {
   PrimDataType dtype_;
 };
 
+struct SdpaFwdOpRecord : RecordFunctor {
+  SdpaFwdOpRecord(
+      std::vector<State> args,
+      std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.sdpa_fwd",
+            serde::RecordType::SdpaFwdOp){}
+  ~SdpaFwdOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new SdpaFwdOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto query = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto key = fd.getFusionState(args_.at(1).index)->as<TensorView>();
+    auto value = fd.getFusionState(args_.at(2).index)->as<TensorView>();
+    auto dropout_p = fd.getFusionState(args_.at(3).index)->as<Val>();
+    auto is_causal = fd.getFusionState(args_.at(4).index)->as<Val>();
+    auto scale = (args_.at(5).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(5).index)->as<Val>()
+        : nullptr;
+    auto output = sdpfa_fwd(
+        query,
+        key,
+        value,
+        dropout_p,
+        is_causal,
+        scale);
+    fd.setFusionState(outputs_.at(0).index, output.output);
+    fd.setFusionState(outputs_.at(1).index, output.log_sumexp);
+    fd.setFusionState(outputs_.at(2).index, output.cum_seq_q);
+    fd.setFusionState(outputs_.at(3).index, output.cum_seq_k);
+    fd.setFusionState(outputs_.at(4).index, output.query_seq_len);
+    fd.setFusionState(outputs_.at(5).index, output.key_seq_len);
+    fd.setFusionState(outputs_.at(6).index, output.philox_seed);
+    fd.setFusionState(outputs_.at(7).index, output.philox_offset);
+    fd.setFusionState(outputs_.at(8).index, output.debug_attn_mask);
+  }
+};
+
 } // namespace nvfuser::python_frontend
 
 //! Creating the template specialized hash and equal_to functions for a
