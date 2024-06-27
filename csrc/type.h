@@ -767,7 +767,7 @@ enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
 //!
 //!  TODO: unify with existing swizzle logic, currently
 //!    doesn't have the same type.
-enum class SwizzleType { NoSwizzle = 0, XOR };
+enum class SwizzleType { NoSwizzle = 0, XOR, CyclicShift };
 enum class Swizzle2DType { NoSwizzle = 0, ZShape, XOR, CyclicShift };
 
 //! Modes of swizzle, see [Note on swizzle mode].

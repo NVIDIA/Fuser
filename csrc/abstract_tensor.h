@@ -133,10 +133,12 @@ struct AbstractTensor {
   }
 
   decltype(auto) operator[](int64_t i) {
+    i = wrapDim(i, (int64_t)domain.size());
     return domain[i];
   }
 
   decltype(auto) operator[](int64_t i) const {
+    i = wrapDim(i, (int64_t)domain.size());
     return domain[i];
   }
 
@@ -177,6 +179,10 @@ struct AbstractTensor {
   void flatten(int64_t from = 0, int64_t to = -1);
 
   void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
+
+  // Temporary helper for legacy swizzle, should be removed eventually.
+  // This is a copy-paste of AbstractTensor::swizzle(SwizzleType
+  void swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y);
 };
 
 } // namespace nvfuser
