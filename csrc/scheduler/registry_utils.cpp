@@ -602,7 +602,11 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
           }
 
           // If consumer is before another reduction it doesn't need to be
-          // checked
+          // checked, e.g. softmax where the consumers of the first reduction
+          // are the inputs to the second reduction.
+          // After break from this inner loop, [ids_to_resolve] is still empty
+          // and the code breaks from this chain without doing step-2 and
+          // step-3.
           if (pre_reduction_tvs.count(forward_running_consumer)) {
             break;
           }
