@@ -956,40 +956,6 @@ void TensorIndexer::buildLoopIndexMap() {
   Fusion* fusion = id_model_.fusion();
   FusionGuard fg(fusion);
 
-  auto shouldUseZeroIndex = [&](const ValGroup& loop_group) -> bool {
-    ParallelType ptype = getParallelType(loop_group);
-    if (isParallelTypeThread(ptype)) {
-      return false;
-    }
-
-    // The device paralle type is not included in "isThread". We don't
-    // allocate any index variable for device-parallel domains.
-    if (isParallelTypeDeviceDim(ptype)) {
-      return true;
-    }
-
-    // All loops in this set are non-parallel, non-concretized broadcast
-    //  iterdomains, their "index variable" should be zero.
-    if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
-          return val->as<IterDomain>()->isBroadcast();
-        })) {
-      VERBOSE() << "All domains are broadcast: "
-                << nvfuser::toString(loop_group) << std::endl;
-      return true;
-    }
-
-    // Trivial loop
-    // TODO: consider expanded extent?
-    auto leaf_id =
-        getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
-    if (!leaf_id->maybePartial() &&
-        simplifyExpr(leaf_id->extent())->isOneInt()) {
-      return true;
-    }
-
-    return false;
-  };
-
   for (auto expr : fusion->exprs()) {
     if (!ir_utils::isTvOp(expr)) {
       continue;
@@ -997,29 +963,26 @@ void TensorIndexer::buildLoopIndexMap() {
     // It's assumed that all sibling outputs share the same for-loops,
     // thus only one of the outputs is considered.
     auto tv_output = ir_utils::getTvOutput(expr);
-    for (auto leaf_id : tv_output->getLoopDomain()) {
+    for (auto loop_id : tv_output->getLoopDomain()) {
       const ValGroup& loop_group =
-          id_model_.idGraph(IdMappingMode::LOOP).toGroup(leaf_id);
+          id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
 
       if (loop_index_map_.find(loop_group) != loop_index_map_.end()) {
         // Index already assigned
         continue;
       }
 
-      // TODO: double buffering not considered
-
       Val* loop_index = nullptr;
 
-      // First allocate thread and grid parallel indices:
-      //  The validation pass will check that the parallel bindings within the
-      //  loop nodes are consistent so all the loops within this disjoint set
-      //  will be realized implicitly using parallel index variables.
       ParallelType ptype = getParallelType(loop_group);
       if (isParallelTypeThread(ptype)) {
         loop_index = NamedScalar::getParallelIndex(ptype);
-      } else if (shouldUseZeroIndex(loop_group)) {
-        VERBOSE() << "Use zero for " << nvfuser::toString(loop_group)
-                  << std::endl;
+      } else if (
+          // TODO: Cleanup needed. ir_utils::isMemoryPartitionedAcross
+          // should be used, but that means we would need to consider
+          // multiple outputs with different memory types, though it
+          // should be uncommon in practice.
+          shouldUseZeroIndex(loop_group) || isParallelTypeDeviceDim(ptype)) {
         loop_index = fusion->zeroVal();
       } else {
         // Until the transition to the IdModel-based indexing is
