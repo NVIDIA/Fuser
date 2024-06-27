@@ -20,20 +20,7 @@
 
 namespace nvfuser {
 
-class SDPATest : public NVFuserTest {
- protected:
-  SDPATest() : optimization_guard_(false), allocation_order_guard_(false) {}
-
- private:
-  // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
-  // `SdpaFwdOp` currently does not work with ID model since it requires all
-  // sibling outputs to have the same root domain.
-  //  This will be modified in a future PR.
-  preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
-      optimization_guard_;
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      allocation_order_guard_;
-};
+using SDPATest = NVFuserTest;
 
 constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
