@@ -5390,8 +5390,8 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
 
 // data type and reduction dimension size
 using ReductionNoODimParams = std::tuple<DataType, int64_t>;
-using ReductionNoODimShmoo = NVFuserFixtureParamTest<ReductionNoODimParams>;
-TEST_P(ReductionNoODimShmoo, Test) {
+using ReductionNoODim = NVFuserFixtureParamTest<ReductionNoODimParams>;
+TEST_P(ReductionNoODim, Test) {
   auto [dtype, rdim] = GetParam();
 
   at::ScalarType aten_dtype = data_type_to_aten(dtype);
@@ -5454,7 +5454,7 @@ TEST_P(ReductionNoODimShmoo, Test) {
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
-    ReductionNoODimShmoo,
+    ReductionNoODim,
     ::testing::Combine(
         testing::ValuesIn(getFloatingDataTypes()), // data type
         testing::ValuesIn(Pow2Vals1to1Million)), // reduction dimension size
@@ -5469,7 +5469,7 @@ INSTANTIATE_TEST_SUITE_P(
 // data type, reduction dim size, iteration dim size, reduction axis
 using ReductionWithIterDimParams =
     std::tuple<DataType, int64_t, int64_t, int64_t>;
-using ReductionWithIterDimShmoo =
+using ReductionWithIterDim =
     NVFuserFixtureParamTest<ReductionWithIterDimParams>;
 TEST_P(ReductionWithIterDim, Test) {
   auto [dtype, rdim, odim, axis] = GetParam();
@@ -5535,7 +5535,7 @@ TEST_P(ReductionWithIterDim, Test) {
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    ReductionWithIterDimShmoo,
+    ReductionWithIterDim,
     ::testing::Combine(
         testing::ValuesIn(getFloatingDataTypes()), // data type
         testing::ValuesIn(Pow2Vals1to1Million), // reduction dimension size
