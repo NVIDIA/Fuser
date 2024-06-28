@@ -504,8 +504,7 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
     } else if (loop_type_ == DoubleBufferLoopStage::Epilog) {
       NVF_ERROR(requireEpilogue(double_buffer_load_exprs_));
       start = IrBuilder::subExpr(
-          double_buffer_loop_->stop(),
-	  GpuLower::current()->kernel()->oneVal());
+          double_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
     }
 
     cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
@@ -643,10 +642,11 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
       const std::vector<Expr*>& double_buffer_load_exprs,
       DoubleBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude)
-      : DoubleBufferLoopCloner(double_buffer_loop,
-		               double_buffer_load_exprs,
-			       loop_type,
-			       exclude) {}
+      : DoubleBufferLoopCloner(
+            double_buffer_loop,
+            double_buffer_load_exprs,
+            loop_type,
+            exclude) {}
 
   void handle(kir::ForLoop* fl) final {
     kir::ForLoop* cloned_loop = fl == double_buffer_loop_
@@ -670,7 +670,8 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
     if (mbarrier_arrive_tx_ == nullptr || cloned_scopes_.size() > 1) {
       cloned_scopes_.back()->push_back(cloned_loop);
     } else {
-      // mbarrier::arriveExpectTx and TMA operations occur in prologue and main loops.
+      // mbarrier::arriveExpectTx and TMA operations occur in prologue and main
+      // loops.
       //
       // Pseudo-code example:
       // if (elect_sync()) {
@@ -678,7 +679,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
       //                                                     expected_tx);
       //   for (...) {
       //     Hopper::cpAsyncBulkTensorTileG2S(
-      //       Hopper::CpAsyncBulkTensorTileG2SIndex<num_dims>{ 
+      //       Hopper::CpAsyncBulkTensorTileG2SIndex<num_dims>{
       //         tma_descriptor, global_index, mbarrier[stage] },
       //       shared_index(stage, num_stages));
       //   }
@@ -748,52 +749,67 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
 
     switch (loop_type_) {
       case DoubleBufferLoopStage::Prolog: {
-        if (expr->isA<LoadStoreOp>()) {
-          // Handle cpAsyncBulk type LoadStoreOp that is registered with
-          //  token smem TVs as it requires synchronization
-          if (mbarrier_token_exists) {
-            // See AllocationInserter for details when and how
-            //  token map is filled with data
+        // Skip if not LoadStoreOp expression
+        if (!expr->isA<LoadStoreOp>()) {
+          break;
+        }
 
-            // Replace cpAsyncBulk type LoadStoreOp with:
-            //  if (0th thread in block)
-            //    token[loop_idx] =
-            //    mbarrier::arriveExpectTx(mbarrier[loop_idx])
-            //    cpAsyncBulk(mbarrier[loop_idx],...)
-            //
-            // Where loop_idx is in range 0...stages-1
-            LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-            NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
-            mbarrier_arrive_tx_ = createMbarrierArriveExpectTx(
-                ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
+        // Skip expr if it is not circular buffer expression
+        if (!is_double_buffer_load_expr) {
+          break;
+        }
 
-            // Clone LoadStoreOp and map it to mbarrier alloc
-            Expr* new_ldst =
-                IrBuilder::create<LoadStoreOp>(
-                    ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
-                    ->withPredicate(ldst->predicate());
+        // NOTE: There can be circular buffered TVs without TMA load exprs.
+        if (!mbarrier_token_exists) {
+          cloned_scopes_.back()->push_back(expr);
+          break;
+        }
 
-            // Register mbarrier object to be used with new LoadStoreOp
-            //  from prolog loop
-            GpuLower::current()->ldstMBarrierIndexMap().emplace(
-                new_ldst, mbarrier_arrive_tx_->mbarrier());
+        // Handle cpAsyncBulk type LoadStoreOp that is registered with token
+        // smem TVs as it requires synchronization
+        //
+        // See AllocationInserter for details when and how token map is filled
+        // with data
+        //
+        // Replace cpAsyncBulk type LoadStoreOp with:
+        //  if (elect_sync()) {
+        //    for (int64_t loop_idx : irange(stages-1)) {
+        //      token[loop_idx] =
+        //        mbarrier::arriveExpectTx(mbarrier[loop_idx])
+        //      cpAsyncBulk(mbarrier[loop_idx],...)
+        //    }
+        //  }
 
-            if (cloned_scopes_.size() == 1) {
-              kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-              kir::Scope& body = if_expr->thenBody();
-              body.push_back(mbarrier_arrive_tx_);
-              body.push_back(new_ldst);
-              cloned_scopes_.back()->push_back(if_expr);
-              mbarrier_arrive_tx_ = nullptr;
-            } else {
-              cloned_scopes_.back()->push_back(new_ldst);
-            }
-            break;
-          } else if (is_double_buffer_load_expr) {
-            // NOTE: that there can be multiple exprs defining double buffered
-            // TVs (e.g., buffer initialization).
-            cloned_scopes_.back()->push_back(expr);
-          }
+        LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+
+        NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
+        mbarrier_arrive_tx_ = createMbarrierArriveExpectTx(
+            ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
+
+        // Clone LoadStoreOp and map it to mbarrier alloc
+        Expr* new_ldst =
+            IrBuilder::create<LoadStoreOp>(
+                ldst->opType(), ldst->out(), ldst->in(), ldst->cacheOp())
+                ->withPredicate(ldst->predicate());
+
+        // Register mbarrier object to be used with new LoadStoreOp
+        // from prolog loop
+        GpuLower::current()->ldstMBarrierIndexMap().emplace(
+            new_ldst, mbarrier_arrive_tx_->mbarrier());
+
+        // If last cloned scope is the cloned_top_level_loop body, then
+        // add mbarrier::arriveExpectTx and new loadStoreOp. Otherwise, we are
+        // in a nested for-loop and should wait until we return to top-level
+        // for loop.
+        if (cloned_scopes_.size() == 1) {
+          kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+          kir::Scope& body = if_expr->thenBody();
+          body.push_back(mbarrier_arrive_tx_);
+          body.push_back(new_ldst);
+          cloned_scopes_.back()->push_back(if_expr);
+          mbarrier_arrive_tx_ = nullptr;
+        } else {
+          cloned_scopes_.back()->push_back(new_ldst);
         }
         break;
       }
