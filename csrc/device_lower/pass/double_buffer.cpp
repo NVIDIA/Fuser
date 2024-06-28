@@ -797,10 +797,8 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         GpuLower::current()->ldstMBarrierIndexMap().emplace(
             new_ldst, mbarrier_arrive_tx_->mbarrier());
 
-        // If last cloned scope is the cloned_top_level_loop body, then
-        // add mbarrier::arriveExpectTx and new loadStoreOp. Otherwise, we are
-        // in a nested for-loop and should wait until we return to top-level
-        // for loop.
+        // If last cloned scope is the cloned_top_level_loop body, then add
+	// mbarrier::arriveExpectTx and new loadStoreOp.
         if (cloned_scopes_.size() == 1) {
           kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
           kir::Scope& body = if_expr->thenBody();
@@ -808,9 +806,12 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
           body.push_back(new_ldst);
           cloned_scopes_.back()->push_back(if_expr);
           mbarrier_arrive_tx_ = nullptr;
-        } else {
-          cloned_scopes_.back()->push_back(new_ldst);
+	  break;
         }
+
+	// Otherwise, we are in a nested for-loop and should wait until we
+	// return to top-level for loop.
+        cloned_scopes_.back()->push_back(new_ldst);
         break;
       }
       case DoubleBufferLoopStage::Main: {
