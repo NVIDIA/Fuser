@@ -32,6 +32,7 @@ struct Edge {
 };
 
 Val* propagatePadToProducer(PadOp* pad_op) {
+  // TODO: wait, why do I need pad_dependencies?!
   std::vector<Val*> pad_dependencies;
 
   auto candidate_check = [&pad_dependencies](Val* val) {
@@ -109,10 +110,21 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       auto* bop = def->as<BinaryOp>();
       // TODO: exception to break propagation. i.e. check op type and exclude division by 0; check for broadcast on padded axis.
       if (candidate_check(bop->lhs()) && candidate_check(bop->rhs())) {
-        stack.emplace(bop, 0);
-        stack.emplace(bop, 1);
-        replay_sequence.push_back(bop);
-        continue;
+	auto* lhs = bop->lhs()->as<TensorView>();
+	auto* rhs = bop->rhs()->as<TensorView>();
+	bool pad_on_broadcast = false;
+        for (auto i : pad_op->getPaddedAxes()) {
+	  if (lhs->getLogicalDomain()[i]->isBroadcast() || rhs->getLogicalDomain()[i]->isBroadcast()) {
+	    pad_on_broadcast = true;
+	    break;
+	  }
+	}
+	if (!pad_on_broadcast) {
+          stack.emplace(bop, 0);
+          stack.emplace(bop, 1);
+          replay_sequence.push_back(bop);
+          continue;
+	}
       }
     }
 
