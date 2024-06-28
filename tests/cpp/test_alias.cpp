@@ -279,7 +279,7 @@ TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
   fusion.addOutput(expanded_tv);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(expanded_tv), nullptr);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(expanded_tv), in);
 }
 
 using AliasTest = NVFuserTest;
