@@ -280,10 +280,12 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPointwise) {
   TensorView* tv2 = add(tv0, tv1);
   fusion->addOutput(tv2);
 
+  // Use TMA to load TV0 into shared memory
   TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv3->setMemoryType(MemoryType::Shared);
 
-  TensorView* tv4 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  // Load TV0 into shared memory
+  TensorView* tv4 = tv1->cacheAfter();
   tv4->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv2;
@@ -297,14 +299,14 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPointwise) {
   tv0->computeAt(tv2, 2);
   tv1->computeAt(tv2, 2);
 
-  // Double Buffer with TMA loads
+  // Ciruclar Buffer with TMA loads
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(2)->parallelize(ParallelType::Bulk);
-  tv3->circularBuffer(/*stage=*/2);
+  tv3->circularBuffer(/*stage=*/3);
 
+  // Ciruclar Buffer with set operation
   tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->axis(2)->parallelize(ParallelType::Bulk);
-  tv4->circularBuffer(/*stage=*/2);
+  tv4->circularBuffer(/*stage=*/3);
 
   // split reference to parallelize TMA tile
   reference->split(-1, 32);

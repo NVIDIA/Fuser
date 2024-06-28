@@ -715,12 +715,13 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
 
     NVF_ERROR(!cloned_scopes_.empty());
 
-    auto out_tv = ir_utils::getTvOutput(expr);
-    const auto is_double_buffer_load_expr = std::any_of(
+    TensorView* out_tv = ir_utils::getTvOutput(expr);
+
+    bool is_double_buffer_load_expr = std::any_of(
         double_buffer_load_exprs_.begin(),
         double_buffer_load_exprs_.end(),
-        [out_tv](const auto load_expr) {
-          auto double_buffer_tv = ir_utils::getTvOutput(load_expr);
+        [out_tv](Expr* load_expr) {
+          TensorView* double_buffer_tv = ir_utils::getTvOutput(load_expr);
           NVF_ERROR(double_buffer_tv != nullptr);
           return out_tv == double_buffer_tv;
         });
@@ -731,12 +732,16 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
     // that are not a part of double buffering, will be added to a new scope.
     bool mbarrier_token_exists =
         GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
+
     bool is_ignorable_tma_smem_alloc =
         (GpuLower::current()->mBarrierTokenSmemAllocSet().count(expr) != 0);
+
     bool is_ignorable_mbarrier_init =
         (expr->isA<kir::MBarrierInit>() && mbarrier_token_exists);
+
     bool is_ignorable_mbarrier_inval =
         (expr->isA<kir::MBarrierInvalidate>() && mbarrier_token_exists);
+
     int64_t stage_depth =
         GpuLower::current()->doubleBufferInfo().getStageDepthFor(
             double_buffer_loop_->iter_domain());
