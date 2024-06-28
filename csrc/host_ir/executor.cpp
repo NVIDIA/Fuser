@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <dynamic_transform.h>
 #include <host_ir/executor.h>
 #include <ir/utils.h>
 
@@ -88,10 +89,11 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
     }
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
-    auto [it, has_emplaced] = fe_.try_emplace(hu);
-    auto& fe = it->second;
-    if (has_emplaced) {
-      fe.compileFusion(hu->fusion_to_execute(), input_IValues);
+    FusionExecutor& fe = fe_[hu];
+    if (!fe.isCompiled()) {
+      Fusion* fusion = hu->fusion_to_execute();
+      DynamicTransform::concretizeFusion(fusion, input_IValues);
+      fe.compileFusion(fusion, input_IValues);
     }
     outputs = fe.runFusion(input_IValues);
     if (!params_.cache_fusion_executor) {
