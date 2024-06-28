@@ -92,18 +92,26 @@ Val* propagatePadToProducer(PadOp* pad_op) {
 
     if (def->isA<UnaryOp>()) {
       auto* uop = def->as<UnaryOp>();
-      // TODO: exception to break propagation. i.e. check op type and exclude division by 0
+      // TODO: exception to break propagation. i.e. check op type and exclude
+      // division by 0
       if (candidate_check(uop->in())) {
         replay_sequence.push_back(uop);
         stack.emplace(uop, 0);
         continue;
-      // TODO: this isn't right. I need to support a topology with fork, which is what rope has.
-      // } else if (uop->in()->isA<TensorView>()) {
-      //   // even though we cannot further propagate, we can still fork it here.
-      //   replay_sequence.push_back(uop);
+        // TODO: this isn't right. I need to support a topology with fork, which
+        // is what rope has. } else if (uop->in()->isA<TensorView>()) {
+        //   // even though we cannot further propagate, we can still fork it
+        //   here. replay_sequence.push_back(uop);
+      }
+      if (uop->in()->isA<TensorView>()) {
+        // even though we cannot further propagate, we'd still want to replace the use here.
+        replay_sequence.push_back(uop);
+        frontier.emplace_back(uop, 0);
+        continue;
+        // replace producer here.
       }
       // This will require us having `replayExprWithNewInput` to support binary
-      // ops. 
+      // ops.
       // TODO: adding pad_op
       // } else if (def->isA<PadOp>()) {
       //   if (candidate_check(def->input(0))) {
@@ -112,23 +120,25 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       //   }
     } else if (def->isA<BinaryOp>()) {
       auto* bop = def->as<BinaryOp>();
-      // TODO: exception to break propagation. i.e. check op type and exclude division by 0; check for broadcast on padded axis.
+      // TODO: exception to break propagation. i.e. check op type and exclude
+      // division by 0; check for broadcast on padded axis.
       if (candidate_check(bop->lhs()) && candidate_check(bop->rhs())) {
-	auto* lhs = bop->lhs()->as<TensorView>();
-	auto* rhs = bop->rhs()->as<TensorView>();
-	bool pad_on_broadcast = false;
+        auto* lhs = bop->lhs()->as<TensorView>();
+        auto* rhs = bop->rhs()->as<TensorView>();
+        bool pad_on_broadcast = false;
         for (auto i : pad_op->getPaddedAxes()) {
-	  if (lhs->getLogicalDomain()[i]->isBroadcast() || rhs->getLogicalDomain()[i]->isBroadcast()) {
-	    pad_on_broadcast = true;
-	    break;
-	  }
-	}
-	if (!pad_on_broadcast) {
+          if (lhs->getLogicalDomain()[i]->isBroadcast() ||
+              rhs->getLogicalDomain()[i]->isBroadcast()) {
+            pad_on_broadcast = true;
+            break;
+          }
+        }
+        if (!pad_on_broadcast) {
           stack.emplace(bop, 0);
           stack.emplace(bop, 1);
           replay_sequence.push_back(bop);
           continue;
-	}
+        }
       }
     }
 
@@ -167,13 +177,22 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // domains
     TensorView* pad_out_tv = pad_op->out()->as<TensorView>();
     // TODO: test output from reduction here
-    // std::vector<IterDomain*> new_root = IterDomain::clone(TensorDomain::noReductions(edge.val()->as<TensorView>()->getMaybeRootDomain()), true);
-    // NOTE: we use pad_out_tv instead of edge.val()->as<TensorView>() since the input tensor doesn't have its root id marked with rfactor flag.
-    std::vector<IterDomain*> new_root = IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
-    // NOTE: we cannot use the TensorDomain from fullSelfReplay, since it doesn't keep root domain.
-    std::vector<IterDomain*> new_logical = TransformReplay::fullSelfReplay(IrBuilder::create<TensorDomain>(new_root), pad_out_tv->domain(), true)->logical();
+    // std::vector<IterDomain*> new_root =
+    // IterDomain::clone(TensorDomain::noReductions(edge.val()->as<TensorView>()->getMaybeRootDomain()),
+    // true); NOTE: we use pad_out_tv instead of edge.val()->as<TensorView>()
+    // since the input tensor doesn't have its root id marked with rfactor flag.
+    std::vector<IterDomain*> new_root =
+        IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
+    // NOTE: we cannot use the TensorDomain from fullSelfReplay, since it
+    // doesn't keep root domain.
+    std::vector<IterDomain*> new_logical =
+        TransformReplay::fullSelfReplay(
+            IrBuilder::create<TensorDomain>(new_root),
+            pad_out_tv->domain(),
+            true)
+            ->logical();
     auto new_out = IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(new_root, new_logical, new_logical), 
+        IrBuilder::create<TensorDomain>(new_root, new_logical, new_logical),
         edge.val()->getDataType().value());
     IrBuilder::create<PadOp>(
         new_out,
@@ -192,15 +211,23 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   for (Expr* e : replay_sequence) {
     if (e->isA<UnaryOp>()) {
       // TODO extend this for multiple inputs.
-      // Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)));
-      Val* out = ops::newValLike(replacement_map.at(e->input(0)), e->output(0)->getDataType().value());
-      Expr* padded_e = IrBuilder::create<UnaryOp>(e->as<UnaryOp>()->getUnaryOpType(), out, replacement_map.at(e->input(0)));
+      // Expr* padded_e = replayExprWithNewInput(e,
+      // replacement_map.at(e->input(0)));
+      Val* out = ops::newValLike(
+          replacement_map.at(e->input(0)), e->output(0)->getDataType().value());
+      Expr* padded_e = IrBuilder::create<UnaryOp>(
+          e->as<UnaryOp>()->getUnaryOpType(),
+          out,
+          replacement_map.at(e->input(0)));
       replacement_map[e->output(0)] = padded_e->output(0);
     } else if (e->isA<BinaryOp>()) {
-      // Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)), replacement_map.at(e->input(1)));
-      std::vector<Val*> vals = {replacement_map.at(e->input(0)), replacement_map.at(e->input(1))};
+      // Expr* padded_e = replayExprWithNewInput(e,
+      // replacement_map.at(e->input(0)), replacement_map.at(e->input(1)));
+      std::vector<Val*> vals = {
+          replacement_map.at(e->input(0)), replacement_map.at(e->input(1))};
       Val* out = ops::newOutputTV(vals, e->output(0)->getDataType().value());
-      Expr* padded_e = IrBuilder::create<BinaryOp>(e->as<BinaryOp>()->getBinaryOpType(), out, vals[0], vals[1]);
+      Expr* padded_e = IrBuilder::create<BinaryOp>(
+          e->as<BinaryOp>()->getBinaryOpType(), out, vals[0], vals[1]);
       replacement_map[e->output(0)] = padded_e->output(0);
     } else {
       NVF_ERROR(false, "expr type for propagation is not implemented");
@@ -266,7 +293,8 @@ void decomposeCatOp(Fusion* fusion) {
 
 void mergeNeighboringPad(Fusion* fusion) {
   std::vector<Expr*> exprs = fusion->exprs();
-  // traverse in topo order. We'll merge current pad into its one and only consumer pad so we don't have to worry about interfering the traversal.
+  // traverse in topo order. We'll merge current pad into its one and only
+  // consumer pad so we don't have to worry about interfering the traversal.
   for (auto* producer : ir_utils::filterByType<PadOp>(exprs)) {
     Val* pad_out = producer->out();
     if (pad_out->uses().size() != 1) {
@@ -277,21 +305,29 @@ void mergeNeighboringPad(Fusion* fusion) {
     }
     auto* consumer = pad_out->uses()[0]->as<PadOp>();
     // TODO: check for pad value being equal.
-    if ((producer->value() != consumer->value()) && (!producer->value()->isZero() || !consumer->value()->isZero())) {
+    if ((producer->value() != consumer->value()) &&
+        (!producer->value()->isZero() || !consumer->value()->isZero())) {
       continue;
     }
 
     const std::vector<Val*> p_pad_widths = producer->getPadWidths();
     const std::vector<Val*> c_pad_widths = consumer->getPadWidths();
 
-    // I think this should always hold, otherwise we can relax it and continue instead.
-    NVF_ERROR(p_pad_widths.size() == c_pad_widths.size(), "expect consecutive PadOp to have the same length of pad widths");
+    // I think this should always hold, otherwise we can relax it and continue
+    // instead.
+    NVF_ERROR(
+        p_pad_widths.size() == c_pad_widths.size(),
+        "expect consecutive PadOp to have the same length of pad widths");
 
     auto* pad_inp = producer->in()->as<TensorView>();
-    const std::vector<IterDomain*> inp_dom = TensorDomain::noReductions(pad_inp->getLogicalDomain());
-    const std::vector<IterDomain*> out_dom = TensorDomain::noReductions(consumer->out()->as<TensorView>()->getLogicalDomain());
+    const std::vector<IterDomain*> inp_dom =
+        TensorDomain::noReductions(pad_inp->getLogicalDomain());
+    const std::vector<IterDomain*> out_dom = TensorDomain::noReductions(
+        consumer->out()->as<TensorView>()->getLogicalDomain());
 
-    NVF_ERROR(2*inp_dom.size() == c_pad_widths.size(), "input rank is not compatible with pad widths");
+    NVF_ERROR(
+        2 * inp_dom.size() == c_pad_widths.size(),
+        "input rank is not compatible with pad widths");
 
     std::vector<Val*> merged_pad_width;
     merged_pad_width.reserve(p_pad_widths.size());
@@ -300,13 +336,13 @@ void mergeNeighboringPad(Fusion* fusion) {
     std::vector<IterDomain*> merged_logical_ids;
 
     for (const auto i : c10::irange(inp_dom.size())) {
-      Val* p_left_pad = p_pad_widths.at(i*2);
-      Val* p_right_pad = p_pad_widths.at(i*2+1);
-      Val* c_left_pad = c_pad_widths.at(i*2);
-      Val* c_right_pad = c_pad_widths.at(i*2+1);
+      Val* p_left_pad = p_pad_widths.at(i * 2);
+      Val* p_right_pad = p_pad_widths.at(i * 2 + 1);
+      Val* c_left_pad = c_pad_widths.at(i * 2);
+      Val* c_right_pad = c_pad_widths.at(i * 2 + 1);
       IterDomain* inp_id = inp_dom.at(i);
-      
-      if (p_left_pad->isZeroInt() && p_right_pad->isZeroInt() && 
+
+      if (p_left_pad->isZeroInt() && p_right_pad->isZeroInt() &&
           c_left_pad->isZeroInt() && c_right_pad->isZeroInt()) {
         merged_root_ids.push_back(inp_id->cloneWithoutRFactor());
         merged_logical_ids.push_back(merged_root_ids.back());
@@ -320,24 +356,28 @@ void mergeNeighboringPad(Fusion* fusion) {
       Val* merged_right_pad = add(p_right_pad, c_right_pad);
       merged_pad_width.push_back(merged_left_pad);
       merged_pad_width.push_back(merged_right_pad);
-      // NOTE: nvfuser pad doesn't support negative padding, so we don't have to worry about it cancelling out.
-      IterDomain* merged_root_id = IterDomainBuilder(inp_id).is_rfactor_domain(true).build();
+      // NOTE: nvfuser pad doesn't support negative padding, so we don't have to
+      // worry about it cancelling out.
+      IterDomain* merged_root_id =
+          IterDomainBuilder(inp_id).is_rfactor_domain(true).build();
       merged_root_ids.push_back(merged_root_id);
-      merged_logical_ids.push_back(
-        IterDomain::resize(merged_root_id, merged_left_pad, merged_right_pad, true, out_dom.at(i)->getIterType())
-      );
+      merged_logical_ids.push_back(IterDomain::resize(
+          merged_root_id,
+          merged_left_pad,
+          merged_right_pad,
+          true,
+          out_dom.at(i)->getIterType()));
     }
 
     auto* new_out = IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(merged_root_ids, merged_logical_ids, merged_logical_ids), 
+        IrBuilder::create<TensorDomain>(
+            merged_root_ids, merged_logical_ids, merged_logical_ids),
         pad_inp->getDataType().value());
     IrBuilder::create<PadOp>(
-        new_out,
-        pad_inp,
-        merged_pad_width,
-        producer->value());
+        new_out, pad_inp, merged_pad_width, producer->value());
 
-    ir_utils::replaceValue(fusion, {{consumer->out(), static_cast<Val*>(new_out)}});
+    ir_utils::replaceValue(
+        fusion, {{consumer->out(), static_cast<Val*>(new_out)}});
     // Do we *have to* swap cat with pointwise add?
     if (consumer->out()->isFusionOutput()) {
       fusion->replaceOutput(consumer->out(), new_out);
