@@ -1840,9 +1840,7 @@ TEST_F(NVFuserTest, FusionSimpleCpAsync_CUDA) {
   // requires ampere+ GPU
   if (!deviceMajorMinorCheck(8)) {
     ASSERT_THAT(
-        [&]() {
-          fe.compileFusion(&fusion, {t0, t1});
-        },
+        [&]() { fe.compileFusion(&fusion, {t0, t1}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
             "Reason: LoadStoreOpType::CpAsync requires Ampere")));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
@@ -8303,6 +8301,35 @@ TEST_F(NVFuserTest, DecoupledDomains) {
   EXPECT_EQ(tv_all, all_ids);
 }
 
+// https://github.com/NVIDIA/Fuser/issues/2488
+TEST_F(NVFuserTest, ReplayRFactorMergeBcast) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  const std::vector<int64_t> input_shape = {256, 1, 1, 4};
+  TensorView* tv0 = makeConcreteTensor(input_shape);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {-1});
+  fusion.addOutput(tv1);
+  // {256, 1, 1, 4}
+  tv1->merge(1, 2);
+  // {256, 1*1, 4}
+  tv1->merge(0, 1);
+  // {256*1*1, 4}
+  tv1->split(-1, 2);
+  // {256*1*1, 4/2, 2}
+  auto tv2 = tv1->rFactor({-2});
+  for (auto expr : StmtSort::getExprsTo(
+           {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()})) {
+    if (auto merge = dynamic_cast<Merge*>(expr)) {
+      if (merge->outer()->isBroadcast() && merge->inner()->isBroadcast()) {
+        EXPECT_TRUE(merge->out()->isBroadcast())
+            << "Merge of two broadcast IDs should generate a new broadcast ID: "
+            << merge->toString();
+      }
+    }
+  }
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
