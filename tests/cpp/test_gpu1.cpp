@@ -5388,315 +5388,168 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
       lparams);
 }
 
-// Define a struct for test parameters
-struct ReductionSchedulerParams {
-    DataType dtype;
-    int64_t red_dim;
-};
-using ReductionNoODimShmoo = NVFuserFixtureParamTest<ReductionSchedulerParams>;
+// data type and reduction dimension size
+using ReductionNoODimParams = std::tuple<DataType, int64_t>;
+using ReductionNoODimShmoo = NVFuserFixtureParamTest<ReductionNoODimParams>;
 TEST_P(ReductionNoODimShmoo, FusionReductionSchedulerNoODimShmoo_CUDA) {
-    auto param = GetParam();
-    DataType dtype = param.dtype;
-    int64_t rdim = param.red_dim;
+  auto [dtype, rdim] = GetParam();
 
-    at::ScalarType aten_dtype = data_type_to_aten(dtype);
+  at::ScalarType aten_dtype = data_type_to_aten(dtype);
 
-    // Shmoo tests can occupy a lot of memory due to allocating many
-    // different tensor sizes. So in order to avoid an OOM during this
-    // test, we manually clear the allocator after it's reached a certain
-    // threshold.
-    maybeClearAllocator();
+  // Shmoo tests can occupy a lot of memory due to allocating many
+  // different tensor sizes. So in order to avoid an OOM during this
+  // test, we manually clear the allocator after it's reached a certain
+  // threshold.
+  maybeClearAllocator();
 
-    Fusion fusion;
-    FusionGuard fg(&fusion);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-    bool is_fp16 = dtype == DataType::Half;
-    bool is_bf16 = dtype == DataType::BFloat16;
+  bool is_fp16 = dtype == DataType::Half;
+  bool is_bf16 = dtype == DataType::BFloat16;
 
-    TensorView* tv0 = makeSymbolicTensor(1, dtype);
-    fusion.addInput(tv0);
+  TensorView* tv0 = makeSymbolicTensor(1, dtype);
+  fusion.addInput(tv0);
 
-    TensorView* tv0_cast = tv0;
-    if (is_fp16 || is_bf16) {
-        tv0_cast = castOp(DataType::Float, tv0);
-    }
+  TensorView* tv0_cast = tv0;
+  if (is_fp16 || is_bf16) {
+    tv0_cast = castOp(DataType::Float, tv0);
+  }
 
-    TensorView* tv1 = sum(tv0_cast, {0});
+  TensorView* tv1 = sum(tv0_cast, {0});
 
-    TensorView* tv1_cast = tv1;
-    if (is_fp16) {
-        tv1_cast = castOp(DataType::Half, tv1);
-    }
-    if (is_bf16) {
-        tv1_cast = castOp(DataType::BFloat16, tv1);
-    }
+  TensorView* tv1_cast = tv1;
+  if (is_fp16) {
+    tv1_cast = castOp(DataType::Half, tv1);
+  }
+  if (is_bf16) {
+    tv1_cast = castOp(DataType::BFloat16, tv1);
+  }
 
-    fusion.addOutput(tv1_cast);
+  fusion.addOutput(tv1_cast);
 
-    auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
 
-    at::Tensor aten_input = at::randn({rdim}, options);
-    auto aten_output = aten_input.to(at::kDouble).sum({0});
+  at::Tensor aten_input = at::randn({rdim}, options);
+  auto aten_output = aten_input.to(at::kDouble).sum({0});
 
-    auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-    NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
-    scheduleReduction(&fusion, *reduction_params);
-    auto lparams = reduction_params->lparams;
+  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
+  NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
+  scheduleReduction(&fusion, *reduction_params);
+  auto lparams = reduction_params->lparams;
 
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {aten_input}, lparams);
-    auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
-    testValidate(
-        &fusion,
-        cg_outputs,
-        {aten_input},
-        {aten_output},
-        __LINE__,
-        __FILE__,
-        "",
-        lparams);
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_output},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
     ReductionNoODimShmoo,
-    ::testing::ValuesIn([](){
-        std::vector<ReductionSchedulerParams> test_params;
-        std::vector<DataType> dtypes = {
-            DataType::Double,
-            DataType::Float,
-            DataType::Half,
-            DataType::ComplexFloat,
-            DataType::ComplexDouble
-        };
+    ::testing::Combine(
+        testing::ValuesIn(getFloatingDataTypes()), // data type
+        testing::ValuesIn(Pow2Vals1to1Million)), // reduction dimension size
+    [](const testing::TestParamInfo<ReductionNoODimParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param);
+      ss << "_rsize_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
-        #if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
-        if (at::cuda::getDeviceProperties(0)->major >= 8) {
-            dtypes.push_back(DataType::BFloat16);
-        }
-        #endif
+// data type, reduction dim size, iteration dim size, reduction axis
+using ReductionWithIterDimParams =
+    std::tuple<DataType, int64_t, int64_t, int64_t>;
+using ReductionWithIterDimShmoo =
+    NVFuserFixtureParamTest<ReductionWithIterDimParams>;
+TEST_P(ReductionWithIterDimShmoo, FusionReductionSchedulerDimShmoo_CUDA) {
+  auto [dtype, rdim, odim, axis] = GetParam();
 
-        std::vector<int64_t> red_dims;
-        for (int i = 1; i <= 1024 * 1024; i <<= 2) {
-            red_dims.push_back(i);
-        }
+  at::ScalarType aten_dtype = data_type_to_aten(dtype);
 
-        for (auto dtype : dtypes) {
-            for (auto rdim : red_dims) {
-                test_params.push_back({dtype, rdim});
-            }
-        }
-        return test_params;
-    }())
-);
+  // Shmoo tests can occupy a lot of memory due to allocating many
+  // different tensor sizes. So in order to avoid an OOM during this
+  // test, we manually clear the allocator after it's reached a certain
+  // threshold.
+  maybeClearAllocator();
 
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-struct ReductionSchedulerParams {
-    DataType dtype;
-    int64_t axis;
-    int64_t odim;
-    int64_t rdim;
-};
-using ReductionDimShmoo = NVFuserFixtureParamTest<ReductionSchedulerParams>;
-std::vector<ReductionSchedulerParams> createTestParams() {
-    std::vector<ReductionSchedulerParams> test_params;
-    std::vector<DataType> dtypes = {
-        DataType::Double,
-        DataType::Float,
-        DataType::Half,
-        DataType::ComplexFloat,
-        DataType::ComplexDouble
-    };
+  bool is_fp16 = dtype == DataType::Half;
+  bool is_bf16 = dtype == DataType::BFloat16;
 
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
-    if (at::cuda::getDeviceProperties(0)->major >= 8) {
-        dtypes.push_back(DataType::BFloat16);
-    }
-#endif
+  TensorView* tv0 = makeSymbolicTensor(2, dtype);
+  fusion.addInput(tv0);
 
-    std::vector<int64_t> red_axis = {1, 0};
-    std::vector<int64_t> output_dims = {160, 320};
-    std::vector<int64_t> red_dims;
+  TensorView* tv0_cast = tv0;
+  if (is_fp16 || is_bf16) {
+    tv0_cast = castOp(DataType::Float, tv0);
+  }
 
-    // Tried to cut down the number iterations with just
-    // doing every other power of 2.
-    for (int64_t i = 1; i <= 1024 * 1024; i <<= 2) {
-        red_dims.push_back(i);
-    }
+  TensorView* tv1 = sum(tv0_cast, {axis});
 
-    for (auto dtype : dtypes) {
-        for (auto axis : red_axis) {
-            for (auto odim : output_dims) {
-                for (auto rdim : red_dims) {
-                    test_params.push_back({dtype, axis, odim, rdim});
-                }
-            }
-        }
-    }
+  TensorView* tv1_cast = tv1;
+  if (is_fp16) {
+    tv1_cast = castOp(DataType::Half, tv1);
+  }
+  if (is_bf16) {
+    tv1_cast = castOp(DataType::BFloat16, tv1);
+  }
+  fusion.addOutput(tv1_cast);
 
-    return test_params;
+  auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+
+  at::Tensor aten_input =
+      (axis ? at::randn({odim, rdim}, options)
+            : at::randn({rdim, odim}, options));
+
+  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
+  NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
+  scheduleReduction(&fusion, *reduction_params);
+  auto lparams = reduction_params->lparams;
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  auto aten_output = aten_input.to(at::kDouble).sum({axis});
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_output},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
 }
-TEST_P(ReductionDimShmoo, FusionReductionSchedulerDimShmoo_CUDA) {
-    auto param = GetParam();
-    DataType dtype = param.dtype;
-    int64_t axis = param.axis;
-    int64_t odim = param.odim;
-    int64_t rdim = param.rdim;
 
-    at::ScalarType aten_dtype = data_type_to_aten(dtype);
-
-    // Shmoo tests can occupy a lot of memory due to allocating many
-    // different tensor sizes. So in order to avoid an OOM during this
-    // test, we manually clear the allocator after it's reached a certain
-    // threshold.
-    maybeClearAllocator();
-
-    Fusion fusion;
-    FusionGuard fg(&fusion);
-
-    bool is_fp16 = dtype == DataType::Half;
-    bool is_bf16 = dtype == DataType::BFloat16;
-
-    TensorView* tv0 = makeSymbolicTensor(2, dtype);
-    fusion.addInput(tv0);
-
-    TensorView* tv0_cast = tv0;
-    if (is_fp16 || is_bf16) {
-        tv0_cast = castOp(DataType::Float, tv0);
-    }
-
-    TensorView* tv1 = sum(tv0_cast, {axis});
-
-    TensorView* tv1_cast = tv1;
-    if (is_fp16) {
-        tv1_cast = castOp(DataType::Half, tv1);
-    }
-    if (is_bf16) {
-        tv1_cast = castOp(DataType::BFloat16, tv1);
-    }
-    fusion.addOutput(tv1_cast);
-
-    auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
-
-    at::Tensor aten_input =
-        (axis ? at::randn({odim, rdim}, options) : at::randn({rdim, odim}, options));
-
-    auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-    NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
-    scheduleReduction(&fusion, *reduction_params);
-    auto lparams = reduction_params->lparams;
-
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {aten_input}, lparams);
-    auto cg_outputs = fe.runFusion({aten_input}, lparams);
-    auto aten_output = aten_input.to(at::kDouble).sum({axis});
-    testValidate(
-        &fusion,
-        cg_outputs,
-        {aten_input},
-        {aten_output},
-        __LINE__,
-        __FILE__,
-        "",
-        lparams);
-}
-// Instantiate the test cases
 INSTANTIATE_TEST_SUITE_P(
     ,
-    ReductionDimShmoo,
-    ::testing::ValuesIn(createTestParams())
-);
-
-
-TEST_F(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::Double,
-      DataType::Float,
-      DataType::Half,
-      DataType::ComplexFloat,
-      DataType::ComplexDouble};
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
-  if (at::cuda::getDeviceProperties(0)->major >= 8) {
-    dtypes.insert(dtypes.end(), DataType::BFloat16);
-  }
-#endif
-
-  std::vector<int64_t> red_axis = {1, 0};
-  std::vector<int64_t> output_dims = {160, 320};
-  std::vector<int64_t> red_dims;
-
-  // Tried to cut down the number iterations with just
-  // doing every other power of 2.
-  for (int64_t i = 1; i <= 1024 * 1024; i <<= 2) {
-    red_dims.push_back(i);
-  }
-
-  for (auto dtype : dtypes) {
-    at::ScalarType aten_dtype = data_type_to_aten(dtype);
-    for (auto& axis : red_axis) {
-      for (auto& odim : output_dims) {
-        for (auto& rdim : red_dims) {
-          // Shmoo tests can occupy a lot of memory due to allocating many
-          // different tensor sizes. So in order to avoid an OOM during this
-          // test, we manually clear the allocator after it's reached a certain
-          // threshold.
-          maybeClearAllocator();
-
-          Fusion fusion;
-          FusionGuard fg(&fusion);
-
-          bool is_fp16 = dtype == DataType::Half;
-          bool is_bf16 = dtype == DataType::BFloat16;
-
-          TensorView* tv0 = makeSymbolicTensor(2, dtype);
-          fusion.addInput(tv0);
-
-          TensorView* tv0_cast = tv0;
-          if (is_fp16 || is_bf16) {
-            tv0_cast = castOp(DataType::Float, tv0);
-          }
-
-          TensorView* tv1 = sum(tv0_cast, {axis});
-
-          TensorView* tv1_cast = tv1;
-          if (is_fp16) {
-            tv1_cast = castOp(DataType::Half, tv1);
-          }
-          if (is_bf16) {
-            tv1_cast = castOp(DataType::BFloat16, tv1);
-          }
-          fusion.addOutput(tv1_cast);
-
-          auto options =
-              at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
-
-          at::Tensor aten_input =
-              (axis ? at::randn({odim, rdim}, options)
-                    : at::randn({rdim, odim}, options));
-
-          auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-          NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
-          scheduleReduction(&fusion, *reduction_params);
-          auto lparams = reduction_params->lparams;
-
-          FusionExecutor fe;
-          fe.compileFusion(&fusion, {aten_input}, lparams);
-          auto cg_outputs = fe.runFusion({aten_input}, lparams);
-          auto aten_output = aten_input.to(at::kDouble).sum({axis});
-          testValidate(
-              &fusion,
-              cg_outputs,
-              {aten_input},
-              {aten_output},
-              __LINE__,
-              __FILE__,
-              "",
-              lparams);
-        }
-      }
-    }
-  }
-}
+    ReductionWithIterDimShmoo,
+    ::testing::Combine(
+        testing::ValuesIn(getFloatingDataTypes()), // data type
+        testing::ValuesIn(Pow2Vals1to1Million), // reduction dimension size
+        testing::Values(160, 320), // iteration dimension size
+        testing::Values(0, 1)), // reduction axis
+    [](const testing::TestParamInfo<ReductionWithIterDimParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param);
+      ss << "_rsize_" << std::get<1>(info.param);
+      ss << "_isize_" << std::get<2>(info.param);
+      ss << "_raxis_" << std::get<3>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
 TEST_F(NVFuserTest, FusionCacheBefore_CUDA) {
   // TVM Cache Write
