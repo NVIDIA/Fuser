@@ -1822,12 +1822,12 @@ std::string toString(const SegmentedFusion* segmented_fusion) {
   return ss.str();
 }
 
-//! Sets the logical as root and erases logical of all inputs in fusion. Any
+//! Sets the root as logical and erases root of all inputs in fusion. Any
 //! non-constant expressions in those extents are replaced by new scalars with
 //! no definition. These mutations are performed throughout the Fusion so that
 //! downstream expressions dependent on the original inputs' logical extents can
 //! be computed properly.
-void convertInputLogicalsToRoots(Fusion* fusion) {
+void eraseInputDistinctRootDomains(Fusion* fusion) {
   FusionGuard fg(fusion);
 
   // Holds all Val replacements across all inputs
@@ -1898,6 +1898,34 @@ void convertInputLogicalsToRoots(Fusion* fusion) {
       new_td = IrBuilder::create<TensorDomain>(
           new_logical_domain, tv->domain()->contiguity());
     }
+
+    // Remove reduction domains from new_td
+    std::vector<IterDomain*> no_red_alloc;
+    std::vector<std::optional<bool>> no_red_contiguity;
+    bool has_reduction = false;
+    for (size_t i : c10::irange(new_td->maybeAllocation().size())) {
+      IterDomain* id = new_td->maybeAllocation()[i];
+      if (id->isReduction()) {
+        has_reduction = true;
+        continue;
+      }
+      no_red_alloc.push_back(id);
+      no_red_contiguity.push_back(new_td->contiguity()[i]);
+    }
+    if (has_reduction) {
+      if (new_td->hasAllocation()) {
+        new_td = IrBuilder::create<TensorDomain>(
+            std::vector<IterDomain*>{},
+            TensorDomain::noReductions(new_td->logical()),
+            no_red_alloc,
+            std::vector<IterDomain*>{},
+            no_red_contiguity);
+      } else {
+        new_td =
+            IrBuilder::create<TensorDomain>(no_red_alloc, no_red_contiguity);
+      }
+    }
+
     replacement_map.emplace(tv->domain(), new_td);
   }
 
@@ -1945,7 +1973,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
 
   // Replace all vals that are logical extents in fusion_segment->inputs() with
   // new Vals so that they can be bound to the segment inputs.
-  convertInputLogicalsToRoots(fusion_segment.get());
+  eraseInputDistinctRootDomains(fusion_segment.get());
 
   return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
 }
