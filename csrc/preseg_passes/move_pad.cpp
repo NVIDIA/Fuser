@@ -194,9 +194,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   return replacement_map.at(pad_op->in());
 }
 
-} // namespace
-
-void MovePadPass::runPass(Fusion* fusion) {
+void decomposeCatOp(Fusion* fusion) {
   // TODO: verify that no dead branch is traversed in exprs.
   std::vector<Expr*> exprs = fusion->exprs();
 
@@ -246,6 +244,93 @@ void MovePadPass::runPass(Fusion* fusion) {
       fusion->replaceOutput(cat->output(0), res);
     }
   }
+}
+
+void mergeNeighboringPad(Fusion* fusion) {
+  // traverse in topo order. We'll merge current pad into its one and only consumer pad so we don't have to worry about interfering the traversal.
+  for (auto* producer : ir_utils::filterByType<PadOp>(fusion->exprs())) {
+    Val* pad_out = producer->out();
+    if (pad_out->uses().size() != 1) {
+      continue;
+    }
+    if (!pad_out->uses()[0]->isA<PadOp>()) {
+      continue;
+    }
+    auto* consumer = pad_out->uses()[0]->as<PadOp>();
+    // TODO: check for pad value being equal.
+    if ((producer->value() != consumer->value()) && (!producer->value()->isZero() || !consumer->value()->isZero())) {
+      continue;
+    }
+
+    const std::vector<Val*> p_pad_widths = producer->getPadWidths();
+    const std::vector<Val*> c_pad_widths = consumer->getPadWidths();
+
+    // I think this should always hold, otherwise we can relax it and continue instead.
+    NVF_ERROR(p_pad_widths.size() == c_pad_widths.size(), "expect consecutive PadOp to have the same length of pad widths");
+
+    auto* pad_inp = producer->in()->as<TensorView>();
+    const std::vector<IterDomain*> inp_dom = TensorDomain::noReductions(pad_inp->getLogicalDomain());
+    const std::vector<IterDomain*> out_dom = TensorDomain::noReductions(consumer->out()->as<TensorView>()->getLogicalDomain());
+
+    NVF_ERROR(2*inp_dom.size() == c_pad_widths.size(), "input rank is not compatible with pad widths");
+
+    std::vector<Val*> merged_pad_width;
+    merged_pad_width.reserve(p_pad_widths.size());
+
+    std::vector<IterDomain*> merged_root_ids;
+    std::vector<IterDomain*> merged_logical_ids;
+
+    for (const auto i : c10::irange(inp_dom.size())) {
+      Val* p_left_pad = p_pad_widths.at(i*2);
+      Val* p_right_pad = p_pad_widths.at(i*2+1);
+      Val* c_left_pad = c_pad_widths.at(i*2);
+      Val* c_right_pad = c_pad_widths.at(i*2+1);
+      IterDomain* inp_id = inp_dom.at(i);
+      
+      if (p_left_pad->isZeroInt() && p_right_pad->isZeroInt() && 
+          c_left_pad->isZeroInt() && c_right_pad->isZeroInt()) {
+        merged_root_ids.push_back(inp_id->cloneWithoutRFactor());
+        merged_logical_ids.push_back(merged_root_ids.back());
+        merged_pad_width.push_back(FusionGuard::getCurFusion()->zeroVal());
+        merged_pad_width.push_back(FusionGuard::getCurFusion()->zeroVal());
+        continue;
+      }
+      // TODO: Add test with merging pad on different dimensions
+      // NOTE: should I worry about simplifying this by skipping zero?
+      Val* merged_left_pad = add(p_left_pad, c_left_pad);
+      Val* merged_right_pad = add(p_right_pad, c_right_pad);
+      merged_pad_width.push_back(merged_left_pad);
+      merged_pad_width.push_back(merged_right_pad);
+      // NOTE: nvfuser pad doesn't support negative padding, so we don't have to worry about it cancelling out.
+      IterDomain* merged_root_id = IterDomainBuilder(inp_id).is_rfactor_domain(true).build();
+      merged_root_ids.push_back(merged_root_id);
+      merged_logical_ids.push_back(
+        IterDomain::resize(merged_root_id, merged_left_pad, merged_right_pad, true, out_dom.at(i)->getIterType())
+      );
+    }
+
+    auto* new_out = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(merged_root_ids, merged_logical_ids, merged_logical_ids), 
+        pad_in->getDataType().value());
+    IrBuilder::create<PadOp>(
+        new_out,
+        pad_in,
+        merged_pad_width,
+        producer->value());
+
+    ir_utils::replaceValue(fusion, {{consumer->out(), new_out}});
+    // Do we *have to* swap cat with pointwise add?
+    if (consumer->out()->isFusionOutput()) {
+      fusion->replaceOutput(consumer->out(), new_out);
+    }
+  }
+}
+
+} // namespace
+
+void MovePadPass::runPass(Fusion* fusion) {
+  decomposeCatOp(fusion);
+  mergeNeighboringPad(fusion);
 }
 
 } // namespace nvfuser::preseg_passes
