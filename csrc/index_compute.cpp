@@ -2124,6 +2124,7 @@ kir::TensorIndex* Index::getProducerIndex(
           IrBuilder::baseAddressExpr(producer), address_offset);
     }
   } else {
+    std::cerr << "Not using the new indexer for getProducerIndex\n";
     index = getProducerStridedIndices(
         producer,
         consumer,
@@ -2639,7 +2640,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();  
   auto indices = indexer.getIndexFor(ldst, groups_to_index);
 #else
-  std::vector<Val*> indices(tma_info.dims().size(), producer_tv->fusion()->zeroVal());
+  std::vector<Val*> indices(
+      tma_info.dims().size(), producer_tv->fusion()->zeroVal());
 #endif
 
   std::vector<Val*> indices_inner_to_outer;

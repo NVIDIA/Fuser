@@ -163,12 +163,10 @@ class IndexingTraversal : public ValGraphBFS {
   virtual ~IndexingTraversal() = default;
 
   static ExprPath getExprsBetween(
-      const std::vector<IterDomain*>& from_domains,
-      const ValGroups& to_groups,
       const ValGraph& graph,
+      const ValGroups& from_groups,
+      const ValGroups& to_groups,
       const std::unordered_set<Resize*>& resize_paths) {
-    const ValGroups from_groups = graph.toGroups(from_domains);
-
     IndexingTraversal traversal(
         graph,
         {from_groups.vector().begin(), from_groups.vector().end()},
@@ -582,39 +580,6 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
   NVF_ERROR(actual_allocation_domains.size() == actual_strides.size());
 
   return {actual_allocation_domains, actual_strides, actual_contiguity};
-}
-
-ExprPath getIndexingTraversalPath(
-    const Expr* expr,
-    const std::vector<IterDomain*>& from_domains,
-    const ValGroups& to_groups,
-    const ValGraph& traversal_graph) {
-  auto consumer_tv = ir_utils::getTvOutput(expr);
-  std::unordered_set<Resize*> resize_paths;
-  if (consumer_tv->hasRoot()) {
-    auto root_to_rf_exprs = StmtSort::getExprsBetween(
-        {consumer_tv->getRootDomain().begin(),
-         consumer_tv->getRootDomain().end()},
-        {consumer_tv->getLogicalDomain().begin(),
-         consumer_tv->getLogicalDomain().end()});
-    for (Expr* root_to_rf_expr : root_to_rf_exprs) {
-      if (auto resize = dynamic_cast<Resize*>(root_to_rf_expr)) {
-        resize_paths.insert(resize);
-      }
-    }
-  }
-
-  auto indexing_path = IndexingTraversal::getExprsBetween(
-      from_domains, to_groups, traversal_graph, resize_paths);
-
-  VERBOSE() << "Indexing path:\n";
-  for (const auto& [expr_group, direction] : indexing_path) {
-    Expr* expr = expr_group->front();
-    VERBOSE() << direction << " " << expr->toString();
-  }
-  VERBOSE() << "--- path done ---\n";
-
-  return indexing_path;
 }
 
 // Similar to IndexCompute but adapted for the graph-based indexing
@@ -1105,10 +1070,67 @@ std::vector<Val*> TensorIndexer::getIndexFor(
   return result;
 }
 
+std::pair<std::deque<ValGroup>, std::deque<Val*>> TensorIndexer::
+    getContigDomainsAndStrides(
+        const std::vector<IterDomain*>& allocation_domains,
+        const std::vector<Val*>& strides,
+        const std::vector<bool>& contiguity,
+        const ExprPath& traversal_path) const {
+  const std::unordered_map<IterDomain*, ValGroup>& contig_domains =
+      getContigDomains(
+          allocation_domains,
+          contiguity,
+          reverse(traversal_path),
+          traversalGraph(),
+          concrete_info_,
+          false);
+
+  // Find contiguous domains to index
+  std::unordered_set<ValGroup> already_indexed_domains;
+  std::deque<ValGroup> contig_alloc_groups;
+  std::deque<Val*> contig_strides;
+  for (const auto i : c10::irange(allocation_domains.size())) {
+    // Traverse back from the innermost domains so that the right
+    // stride val is picked up for each contiguous domain
+    auto i1 = allocation_domains.size() - 1 - i;
+    IterDomain* allocation_domain = allocation_domains.at(i1);
+    auto contig_domains_it = contig_domains.find(allocation_domain);
+    NVF_ERROR(
+        contig_domains_it != contig_domains.end(),
+        "No contig domain mapping found for ",
+        allocation_domain->toString());
+
+    const ValGroup& contig_domain_group = contig_domains_it->second;
+    if (already_indexed_domains.find(contig_domain_group) !=
+        already_indexed_domains.end()) {
+      VERBOSE() << "Already indexed: " << allocation_domain->toString()
+                << std::endl;
+      continue;
+    }
+    already_indexed_domains.emplace(contig_domain_group);
+
+    if (!contig_domain_group->has(allocation_domain)) {
+      VERBOSE() << "Contig indexing: "
+                << contig_domain_group->front()->toString() << " instead of "
+                << allocation_domain->toString() << std::endl;
+    } else {
+      VERBOSE() << "Non contig indexing: " << allocation_domain->toString()
+                << std::endl;
+    }
+
+    VERBOSE() << "Stride: " << strides.at(i1)->toInlineString() << std::endl;
+
+    contig_alloc_groups.push_front(contig_domain_group);
+    contig_strides.push_front(strides.at(i1));
+  }
+
+  return {contig_alloc_groups, contig_strides};
+}
+
 Val* TensorIndexer::getLinearIndex(
     TensorView* tv,
     const Expr* expr,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
+    const std::optional<std::vector<kir::ForLoop*>>& for_loops) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -1144,55 +1166,30 @@ Val* TensorIndexer::getLinearIndex(
       false);
   const auto& index_map = index_info.index_map;
 
-  const std::unordered_map<IterDomain*, ValGroup>& contig_domains =
-      getContigDomains(
-          allocation_domains,
-          contiguity,
-          reverse(index_info.traversal_path),
-          traversalGraph(),
-          concrete_info_,
-          false);
-
-  // Find contiguous domains to index
-  std::unordered_set<ValGroup> already_indexed_domains;
+  // ValGroups may not be suitable here. It should be fine currently,
+  // but if we ever want to support self-mapped allocation domains, we
+  // should not deduplicate the domain groups. Use deque as that's
+  // convenient for getContigDomainsAndStrides.
   std::deque<ValGroup> contig_alloc_groups;
   std::deque<Val*> contig_strides;
-  for (const auto i : c10::irange(allocation_domains.size())) {
-    // Traverse back from the innermost domains so that the right
-    // stride val is picked up for each contigous domain
-    auto i1 = allocation_domains.size() - 1 - i;
-    IterDomain* allocation_domain = allocation_domains.at(i1);
-    auto contig_domains_it = contig_domains.find(allocation_domain);
-    NVF_ERROR(
-        contig_domains_it != contig_domains.end(),
-        "No contig domain mapping found for ",
-        allocation_domain->toString());
 
-    const ValGroup& contig_domain_group = contig_domains_it->second;
-    if (already_indexed_domains.find(contig_domain_group) !=
-        already_indexed_domains.end()) {
-      VERBOSE() << "Already indexed: " << allocation_domain->toString()
-                << std::endl;
-      continue;
-    }
-    already_indexed_domains.emplace(contig_domain_group);
-
-    if (!contig_domain_group->has(allocation_domain)) {
-      VERBOSE() << "Contig indexing: "
-                << contig_domain_group->front()->toString() << " instead of "
-                << allocation_domain->toString()
-                << ", tensor: " << tv->toString() << std::endl;
-    } else {
-      VERBOSE() << "Non contig indexing: " << allocation_domain->toString()
-                << ", tensor: " << tv->toString() << std::endl;
-    }
-
-    VERBOSE() << "Stride: " << strides.at(i1)->toInlineString() << std::endl;
-
-    contig_alloc_groups.push_front(contig_domain_group);
-    contig_strides.push_front(strides.at(i1));
+  if (enableContigIndexing()) {
+    VERBOSE() << "Contig indexing enabled\n";
+    const auto& contig_alloc_strides = getContigDomainsAndStrides(
+        allocation_domains, strides, contiguity, index_info.traversal_path);
+    contig_alloc_groups = contig_alloc_strides.first;
+    contig_strides = contig_alloc_strides.second;
+  } else {
+    VERBOSE() << "Contig indexing disabled\n";
+    std::transform(
+        allocation_domains.begin(),
+        allocation_domains.end(),
+        std::back_inserter(contig_alloc_groups),
+        [&](IterDomain* allocation_domain) {
+          return traversalGraph().toGroup(allocation_domain);
+        });
+    contig_strides = {strides.begin(), strides.end()};
   }
-
   const auto& replacement_map = getIndexReplacementMap(
       tv, expr, index_info.loop_domains, for_loops, index_map);
 
@@ -1266,8 +1263,34 @@ IndexingInfo TensorIndexer::computeIndex(
   const auto loop_domains = getLoopDomains(expr);
   VERBOSE() << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
 
-  auto traversal_path = getIndexingTraversalPath(
-      expr, loop_domains, index_groups, traversalGraph());
+  const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
+
+  std::unordered_set<Resize*> resize_paths;
+  {
+    auto consumer_tv = ir_utils::getTvOutput(expr);
+    if (consumer_tv->hasRoot()) {
+      auto root_to_rf_exprs = StmtSort::getExprsBetween(
+          {consumer_tv->getRootDomain().begin(),
+           consumer_tv->getRootDomain().end()},
+          {consumer_tv->getLogicalDomain().begin(),
+           consumer_tv->getLogicalDomain().end()});
+      for (Expr* root_to_rf_expr : root_to_rf_exprs) {
+        if (auto resize = dynamic_cast<Resize*>(root_to_rf_expr)) {
+          resize_paths.insert(resize);
+        }
+      }
+    }
+  }
+
+  auto traversal_path = IndexingTraversal::getExprsBetween(
+      traversalGraph(), loop_groups, index_groups, resize_paths);
+
+  VERBOSE() << "Indexing path:\n";
+  for (const auto& [expr_group, direction] : traversal_path) {
+    Expr* expr = expr_group->front();
+    VERBOSE() << direction << " " << expr->toString();
+  }
+  VERBOSE() << "--- path done ---\n";
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_domains);

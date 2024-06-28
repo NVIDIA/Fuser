@@ -45,6 +45,16 @@ class TensorIndexer {
  public:
   TensorIndexer(const IdModel& id_model);
 
+  // Enable or disable contig indexing
+  TensorIndexer& enableContigIndexing(bool b) {
+    enable_contig_indexing_ = b;
+    return *this;
+  }
+
+  bool enableContigIndexing() const {
+    return enable_contig_indexing_;
+  }
+
   // Get a linear index of a given tensor appearing in a given expr, either
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
@@ -56,7 +66,7 @@ class TensorIndexer {
   Val* getLinearIndex(
       TensorView* tv,
       const Expr* expr,
-      const std::optional<std::vector<kir::ForLoop*>>& loops);
+      const std::optional<std::vector<kir::ForLoop*>>& loops) const;
 
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
@@ -133,6 +143,12 @@ class TensorIndexer {
   // a broadcast-only loop group, should just use zero.
   bool shouldUseZeroIndex(const ValGroup& loop_group) const;
 
+  std::pair<std::deque<ValGroup>, std::deque<Val*>> getContigDomainsAndStrides(
+      const std::vector<IterDomain*>& allocation_domains,
+      const std::vector<Val*>& strides,
+      const std::vector<bool>& contiguity,
+      const ExprPath& traversal_path) const;
+
   // Get a replace map for tensor indexing. Examples include replacing
   // an index of a vectorized loop with zero.
   //
@@ -170,6 +186,9 @@ class TensorIndexer {
   // to NamedScalar such as "threadIdx.x". This map needs to be built
   // once and can be reused for different tensors.
   std::unordered_map<ValGroup, Val*> loop_index_map_;
+
+  // Take advantage of contiguous indexing if enabled
+  bool enable_contig_indexing_ = true;
 };
 
 } // namespace nvfuser
