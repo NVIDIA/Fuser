@@ -26,8 +26,8 @@ namespace {
 // recursively clone all exprs in its scope.
 Expr* recursivelyClone(Expr* expr) {
   NVF_ERROR(expr != nullptr);
-  if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
-    auto new_loop = IrBuilder::create<kir::ForLoop>(fl);
+  if (auto fl = dynamic_cast<ForLoop*>(expr)) {
+    auto new_loop = IrBuilder::create<ForLoop>(fl);
     for (auto e : fl->body().exprs()) {
       new_loop->body().push_back(recursivelyClone(e));
     }
@@ -58,12 +58,12 @@ Expr* recursivelyClone(Expr* expr) {
 // Because scheduler does not have access to lowered loop structure, our
 // interface with scheduler is to let scheduler select tensors whose allocation
 // and computation will be rotated, and we expand the selection to
-// kir::Allocate, kir::ForLoop, and kir::IfThenElse. For example, if I have
+// kir::Allocate, ForLoop, and kir::IfThenElse. For example, if I have
 // kernel:
 //   for (int i = 0; i < id1.extent(); i++) {
 //     // kir::Allocate 1
 //     float T1[5];
-//     // kir::ForLoop 1
+//     // ForLoop 1
 //     for (int j = 0; j < 5; j++) {
 //       if (i < T0.size[0]) {
 //         T1[j] = sin(T0[i, j]);
@@ -71,17 +71,17 @@ Expr* recursivelyClone(Expr* expr) {
 //     }
 //     // kir::Allocate 2
 //     float T2[5];
-//     // kir::ForLoop 2
+//     // ForLoop 2
 //     for (int j = 0; j < 5; j++) {
 //       T2[j] = cos(T1[j]);
 //     }
 //     // kir::Allocate 3
 //     float T3[5];
-//     // kir::ForLoop 3
+//     // ForLoop 3
 //     for (int j = 0; j < 5; j++) {
 //       T3[j] = exp(T2[j]);
 //     }
-//     // kir::ForLoop 4
+//     // ForLoop 4
 //     for (int j = 0; j < 5; j++) {
 //       if (i < T4.size[0]) {
 //         T4[i, j] = log(T3[j]);
@@ -90,7 +90,7 @@ Expr* recursivelyClone(Expr* expr) {
 //   }
 // And received a compilation parameter {id1, {T1, T2}}, then the first step
 // should expand the selection from {T1, T2} to:
-// {kir::Allocate 1, kir::ForLoop 1, kir::Allocate 2, kir::ForLoop 2}
+// {kir::Allocate 1, ForLoop 1, kir::Allocate 2, ForLoop 2}
 //
 // RotateLoop is a bottom-up algorithm that does its work during the returning
 // of recursion. By designing like this, when we want to rotate the loop, all
@@ -135,14 +135,14 @@ class RotateLoop : kir::ExprMutator {
       if (fl->iter_domain() != loop_concrete_id_) {
         continue;
       }
-      auto entireScopeSelected = [this](const kir::Scope& scope) {
+      auto entireScopeSelected = [this](const Scope& scope) {
         return std::all_of(
             scope.exprs().begin(), scope.exprs().end(), [this](Expr* expr) {
               return selection_.count(expr) > 0;
             });
       };
       bool should_select_this = false;
-      if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
+      if (auto fl = dynamic_cast<ForLoop*>(expr)) {
         should_select_this = !fl->empty() && entireScopeSelected(fl->body());
       } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
         should_select_this = !ite->empty() &&
@@ -207,7 +207,7 @@ class RotateLoop : kir::ExprMutator {
   //     unselected
   //     unselected
   //   }
-  bool validateSelection(kir::ForLoop* fl) {
+  bool validateSelection(ForLoop* fl) {
     class IsDoubleBufferLoad : public kir::IrVisitor {
      public:
       bool operator()(Expr* expr) {
@@ -216,7 +216,7 @@ class RotateLoop : kir::ExprMutator {
         return result_;
       }
 
-      IsDoubleBufferLoad(kir::ForLoop* loop) : loop_(loop) {}
+      IsDoubleBufferLoad(ForLoop* loop) : loop_(loop) {}
 
      private:
       using kir::IrVisitor::handle;
@@ -242,7 +242,7 @@ class RotateLoop : kir::ExprMutator {
 
      private:
       bool result_ = true;
-      kir::ForLoop* const loop_ = nullptr;
+      ForLoop* const loop_ = nullptr;
     } is_double_buffer_load(fl);
 
     bool seen_unselected = false;
@@ -303,7 +303,7 @@ class RotateLoop : kir::ExprMutator {
   //       selected2(i + 1);
   //     }
   //   }
-  void rotate(kir::ForLoop* fl) {
+  void rotate(ForLoop* fl) {
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
       debug() << "[Loop rotation] Rotating loop:" << std::endl
               << fl->toString() << std::endl;
@@ -315,7 +315,7 @@ class RotateLoop : kir::ExprMutator {
     // Currently, all existing predicates should be able to cover the condition
     // of start < end, so no predicate here. In the future, if we decide that
     // we need to predicate this, then we should add an kir::IfThenElse here.
-    auto prologue = IrBuilder::create<kir::ForLoop>(
+    auto prologue = IrBuilder::create<ForLoop>(
         fl->iter_domain(), fl->start(), fl->doubleBufferLoopStage());
     std::vector<Expr*> lifted_alloc;
     for (auto expr : fl->body().exprs()) {
@@ -349,7 +349,7 @@ class RotateLoop : kir::ExprMutator {
     // main
     auto rotated = IrBuilder::create<kir::IfThenElse>(
         IrBuilder::create<kir::Predicate>(PredicateType::LoopRotation));
-    auto main = IrBuilder::create<kir::ForLoop>(fl);
+    auto main = IrBuilder::create<ForLoop>(fl);
     for (auto expr : fl->body().exprs()) {
       if (selection_.count(expr) == 0) {
         main->body().push_back(expr);
@@ -367,7 +367,7 @@ class RotateLoop : kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(kir::ForLoop* fl) final {
+  void handle(ForLoop* fl) final {
     ExprMutator::handle(fl);
     expandSelection(fl);
     auto id = fl->iter_domain();

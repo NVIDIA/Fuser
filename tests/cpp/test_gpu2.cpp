@@ -2634,9 +2634,18 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
   scheduleReduction(&fusion, *reduction_params);
 
   auto lparams = reduction_params->lparams;
+  auto cparams = reduction_params->cparams;
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {aten_input}, lparams);
+  // Needs to pass compile para to use the correct index type, otherwise the
+  // lowering pass will use int64 as the index tpye, since this test saves
+  // `tv_N` as index type, it may cause vectorization size validation error. For
+  // example, the heuristics set index type to int32 and the max vectorization
+  // factor is 4, if compile para is not passed to compileFusion, the lowering
+  // pass uses int64 as index type, so the max vectorization factor is 16 bytes
+  // sizeof(int64) = 2, which is wrong since the actual index type is int32
+  // and the max vectorization factor is 4.
+  fe.compileFusion(&fusion, {aten_input}, lparams, cparams);
   auto outputs = fe.runFusion({aten_input}, lparams);
 
   // by default Welford outputs sum of square diff so need to divide to
@@ -7317,7 +7326,7 @@ TEST_F(NVFuserTest, FusionWARSyncAliasedSmem_CUDA) {
   // Make sure a WAR sync is inserted at the end of the outer loop
   GpuLower gpulw(&fusion);
   for (const auto& kir_node : gpulw.run()->topLevelExprs()) {
-    if (auto loop = dynamic_cast<kir::ForLoop*>(kir_node)) {
+    if (auto loop = dynamic_cast<ForLoop*>(kir_node)) {
       const auto& body = loop->body().exprs();
       NVF_CHECK(!body.empty());
       auto last_expr = dynamic_cast<kir::BlockSync*>(body.back());
