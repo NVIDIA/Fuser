@@ -124,7 +124,6 @@ class TensorIndexer {
       const Expr* expr,
       const std::optional<std::vector<kir::ForLoop*>>& for_loops,
       const std::vector<IterDomain*>& loop_domains,
-      const ValGraph& traversal_graph,
       bool is_predicate) const;
 
   // Get the loop domains of a given expr. Currently, they're always
@@ -153,6 +152,7 @@ class TensorIndexer {
   // indices by using different replacement maps.
   std::unordered_map<Val*, Val*> getIndexReplacementMap(
       const std::vector<IterDomain*>& loop_domains,
+      const std::optional<std::vector<kir::ForLoop*>>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
   std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(

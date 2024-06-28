@@ -931,15 +931,19 @@ std::vector<IterDomain*> getPredicateDomains(
 
 kir::ForLoop* getForLoop(
     IterDomain* loop_id,
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::optional<std::vector<kir::ForLoop*>>& for_loops,
     const ValGraph& loop_graph) {
+  if (!for_loops.has_value()) {
+    return nullptr;
+  }
+
   auto it = std::find_if(
-      for_loops.begin(), for_loops.end(), [&](kir::ForLoop* for_loop) -> bool {
+      for_loops->begin(), for_loops->end(), [&](kir::ForLoop* for_loop) -> bool {
         IterDomain* for_loop_id = for_loop->iter_domain();
         return loop_graph.disjointValSets().strictAreMapped(
             loop_id, for_loop_id);
       });
-  if (it != for_loops.end()) {
+  if (it != for_loops->end()) {
     return *it;
   } else {
     return nullptr;
@@ -1047,10 +1051,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
     const Expr* expr,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops,
     const std::vector<IterDomain*>& loop_domains,
-    const ValGraph& traversal_graph,
     bool is_predicate) const {
-  // loop_index_map_ is a map on the loop graph. For index
-  // propagation, need a map for the exact graph
 
   // If it's for predicates, it's always consumer indexing
   const bool as_consumer = is_predicate ||
@@ -1059,23 +1060,6 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 
   std::unordered_map<ValGroup, Val*> initial_index_map;
 
-  auto getForLoop = [&](IterDomain* id) -> kir::ForLoop* {
-    if (!for_loops.has_value()) {
-      return nullptr;
-    }
-
-    auto it = std::find_if(
-        for_loops->begin(), for_loops->end(), [&](kir::ForLoop* fl) -> bool {
-          return id_model_.idGraph(IdMappingMode::LOOP)
-              .disjointValSets()
-              .strictAreMapped(fl->iter_domain(), id);
-        });
-    if (it != for_loops->end()) {
-      return *it;
-    } else {
-      return nullptr;
-    }
-  };
 
   // For a given list of the loop domains, assign its corresponding
   // index Val.
@@ -1086,32 +1070,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
               << nvfuser::toString(almost_exact_group) << ", "
               << loop_index->toInlineString() << std::endl;
 
-    kir::ForLoop* for_loop = getForLoop(loop_id);
-
-    if (for_loops.has_value() && for_loop == nullptr &&
-        loop_domains.size() == for_loops->size()) {
-      // Why this happen?
-      VERBOSE() << "ForLoop not found for " << loop_id->toString() << std::endl;
-      for (const auto fl : *for_loops) {
-        VERBOSE() << "FL: " << fl->iter_domain()->toString() << std::endl;
-      }
-      NVF_ERROR(false);
-    }
-
-    // TODO: Do this as part of the post-indexing replacement
-    // Even when the iter-domain is not size-1, the actual for-loop
-    // can be (e.g., for double buffering). On the other hand, in the
-    // case of vectorizd loops, keep the normal loop index as its
-    // iniital index, which is subsequently replaced with proper
-    // values by the index replacement map.
-    if (for_loop != nullptr && for_loop->isTrivial() &&
-        !(for_loop->iter_domain()->getParallelType() ==
-          ParallelType::Vectorize)) {
-      VERBOSE() << "Replacing a loop index with a loop start val: "
-                << for_loop->start()->toInlineString()
-                << ". Prev: " << loop_index->toInlineString() << std::endl;
-      loop_index = for_loop->start();
-    }
+    kir::ForLoop* for_loop = getForLoop(loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
     // If the for-loop is double-buffered and not prologue, the loop
     // index should be advanced by one except for the double-buffered
@@ -1158,7 +1117,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
   const auto& info =
       computeIndex(tv, expr, for_loops, index_groups, false, false);
   const auto& replacement_map =
-      getIndexReplacementMap(info.loop_domains, info.index_map);
+      getIndexReplacementMap(info.loop_domains, for_loops, info.index_map);
 
   std::vector<Val*> result;
   result.reserve(index_groups.size());
@@ -1261,7 +1220,7 @@ Val* TensorIndexer::getLinearIndex(
   }
 
   const auto& replacement_map =
-      getIndexReplacementMap(index_info.loop_domains, index_map);
+      getIndexReplacementMap(index_info.loop_domains, for_loops, index_map);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -1337,7 +1296,7 @@ IndexingInfo TensorIndexer::computeIndex(
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(
-          tv, expr, for_loops, loop_domains, traversalGraph(), is_predicate);
+          tv, expr, for_loops, loop_domains, is_predicate);
 
   const std::unordered_set<ValGroup> max_path_loop_domains = is_unswitch
       ? getMaxPathLoopDomains(
@@ -1360,23 +1319,42 @@ IndexingInfo TensorIndexer::computeIndex(
 
 std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     const std::vector<IterDomain*>& loop_domains,
+    const std::optional<std::vector<kir::ForLoop*>>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
+    Val* replacement_index = nullptr;
     // Replace the index of a vectorized/bulk domain with zero. Note that
     // vectorized domains may need to use N-1, where N is the extent
     // of the domain, for predication, so the replacement is not
     // always done with zero.
-    if (loop_id->getParallelType() != ParallelType::Vectorize &&
-        loop_id->getParallelType() != ParallelType::Bulk) {
+    if (loop_id->getParallelType() == ParallelType::Vectorize ||
+        loop_id->getParallelType() == ParallelType::Bulk) {
+      replacement_index = loop_id->fusion()->zeroVal();
+    } else {
+      kir::ForLoop* for_loop = getForLoop(loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
+
+      // Even when the iter-domain is not size-1, the actual for-loop
+      // can be (e.g., for double buffering).
+      if (for_loop != nullptr && for_loop->isTrivial()) {
+        VERBOSE() << "Replacing a loop index with a loop start val: "
+                  << for_loop->start()->toInlineString()
+                  << ", loop_id: " << loop_id->toString()
+                  << std::endl;
+        replacement_index = for_loop->start();
+      }
+    }
+
+    if (replacement_index == nullptr) {
       continue;
     }
+
     const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
     auto index_it = index_map.find(loop_group);
     NVF_ERROR(index_it != index_map.end());
     Val* cur_index = index_it->second;
-    replacement_map.emplace(cur_index, cur_index->fusion()->zeroVal());
+    replacement_map.emplace(cur_index, replacement_index);
   }
 
   return replacement_map;
@@ -1618,6 +1596,14 @@ std::unordered_map<Val*, Val*> TensorIndexer::getPredicateIndexReplacementMap(
     }
 
     Val* replacement = loop_index;
+
+    // Trivial loop. Note that not all trivial loops should just use
+    // the start index for predication. For example, a vectorized loop
+    // is trivial, but its predicate should use `vec_factor - 1` as
+    // its index. This is taken care after this.
+    if (fl->isTrivial()) {
+      replacement = fl->start();
+    }
 
     auto unswitched_index = replace_for_unswitch(fl, loop_id, within_unswitch);
     if (unswitched_index != nullptr) {
