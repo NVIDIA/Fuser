@@ -4110,13 +4110,13 @@ class TestNvFuserFrontend(TestCase):
             raise RuntimeError(
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
             )
-    
+
     def test_fusion_profiler_with_noncodegen_kernels(self):
         inputs = [
-                torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
-                torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
-                torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
-            ]
+            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
+        ]
 
         def fusion_func(fd: FusionDefinition) -> None:
             T0 = fd.from_pytorch(inputs[0])
