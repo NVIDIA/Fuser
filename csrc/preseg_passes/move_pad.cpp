@@ -247,8 +247,9 @@ void decomposeCatOp(Fusion* fusion) {
 }
 
 void mergeNeighboringPad(Fusion* fusion) {
+  std::vector<Expr*> exprs = fusion->exprs();
   // traverse in topo order. We'll merge current pad into its one and only consumer pad so we don't have to worry about interfering the traversal.
-  for (auto* producer : ir_utils::filterByType<PadOp>(fusion->exprs())) {
+  for (auto* producer : ir_utils::filterByType<PadOp>(exprs)) {
     Val* pad_out = producer->out();
     if (pad_out->uses().size() != 1) {
       continue;
@@ -311,14 +312,14 @@ void mergeNeighboringPad(Fusion* fusion) {
 
     auto* new_out = IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(merged_root_ids, merged_logical_ids, merged_logical_ids), 
-        pad_in->getDataType().value());
+        pad_inp->getDataType().value());
     IrBuilder::create<PadOp>(
         new_out,
-        pad_in,
+        pad_inp,
         merged_pad_width,
         producer->value());
 
-    ir_utils::replaceValue(fusion, {{consumer->out(), new_out}});
+    ir_utils::replaceValue(fusion, {{consumer->out(), static_cast<Val*>(new_out)}});
     // Do we *have to* swap cat with pointwise add?
     if (consumer->out()->isFusionOutput()) {
       fusion->replaceOutput(consumer->out(), new_out);
