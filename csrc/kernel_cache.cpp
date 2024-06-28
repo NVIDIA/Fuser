@@ -1174,7 +1174,6 @@ void FusionKernelRuntime::deserialize(
 }
 
 std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
-    size_t run_order_id,
     KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
@@ -1201,8 +1200,11 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
+  // TODO: This is a work around for the fallback execution path where a kernel
+  // is not compiled. Perhaps the gorup/segment Id needs to be specified to the
+  // executor at its constructor.  Currently, initialization is ad hoc.
   if (executor.groupId() < 0) {
-    executor.setGroupId(run_order_id);
+    executor.setGroupId(group_id);
   }
   auto outputs = executor.runFusion(args, launch_params, compile_params);
 
@@ -1461,7 +1463,7 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
 
     // Run graph segment
     std::vector<at::Tensor> group_runtime_outputs =
-        runKernelWithInput(run_order_id, group_runtime_inputs, group_to_run);
+        runKernelWithInput(group_runtime_inputs, group_to_run);
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());

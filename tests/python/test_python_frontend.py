@@ -4110,6 +4110,37 @@ class TestNvFuserFrontend(TestCase):
             raise RuntimeError(
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
             )
+    
+    def test_fusion_profiler_with_noncodegen_kernels(self):
+        inputs = [
+                torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+                torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+                torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
+            ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.from_pytorch(inputs[2])
+            T3 = fd.ops.linear(T0, T2)
+            T4 = fd.ops.add(T3, T1)
+            fd.add_output(T4)
+
+        class MyFusion(FusionDefinition):
+            def definition(self):
+                fusion_func(fd)
+
+        fd = MyFusion()
+        try:
+            fd.execute(inputs, profile=True)
+            self.assertTrue(fd.profile().fusion_id >= 0)
+            self.assertEqual(len(fd.profile().kernel_profiles), 2)
+            self.assertGreaterEqual(len(fd.profile().kernel_profiles[0].name), 0)
+            self.assertGreaterEqual(len(fd.profile().kernel_profiles[1].name), 0)
+        except Exception as e:
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
 
     # Small repro from https://github.com/NVIDIA/Fuser/issues/2359
     def test_reshape_squeeze_concretization(self):

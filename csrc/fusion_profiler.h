@@ -263,9 +263,11 @@ class FusionProfiler {
   static uint8_t* cuptiBufferPtr();
 
  public:
-  // CUPTI buffer size 4.0 KB
+  // CUPTI buffer size 200.0 KB
   // The original example code used an 8MB buffer.  Such a larger buffer
   // impacted host time overhead significantly.
+  // The buffer size needed to be raised to 200KB to allow for the fallback
+  // path that adds a lot of records via Cublas.
   static constexpr size_t cupti_activity_buffer_size{size_t(200 * 1024)};
 
  private:
