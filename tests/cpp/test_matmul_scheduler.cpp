@@ -2767,7 +2767,7 @@ TEST_F(MatmulSchedulerTest, Llama2FFNNoSegmentation) {
   params.double_buffer_options.double_buffer_smem_write = true;
   params.double_buffer_options.double_buffer_smem_read = true;
   params.double_buffer_options.smem_double_buffer_stage = 2;
-  scheduleMatmul(fusion, params);
+  scheduleMultipleMatmul(fusion, params);
 
   FusionExecutor fe;
   fe.compileFusion(fusion, inputs);

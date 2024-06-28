@@ -59,7 +59,11 @@ NVF_API void scheduleWarpTileWithNoReduction(
 //! Eg.
 //!  A[B,I0,I1,I2] -> makeTile({1,2,3})
 //! Gives A[B, I0o, I1o, I2o, I0i(1), I1i(2), I2i(3)]
-void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
+void makeTile(
+    TensorView* tv,
+    std::vector<int64_t> tile_sizes,
+    const ValGraph& permissive_graph,
+    const DimRolesMap& dim_roles);
 
 //! Order the inner tile dimensions as the original order in
 //! (maybe allocation) domain. Also putting broadcast domains on the left.

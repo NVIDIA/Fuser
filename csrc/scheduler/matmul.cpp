@@ -539,6 +539,10 @@ void scheduleProlog(
     const std::vector<TensorView*>& shared_mem_tvs,
     int64_t vec_size,
     const MatmulParams& params) {
+  std::cout << "Initial shared_mem_tvs:" << std::endl;
+  for (TensorView* shared_mem_tv : shared_mem_tvs) {
+    std::cout << "  " << shared_mem_tv->toString() << std::endl;
+  }
   for (TensorView* shared_mem_tv : shared_mem_tvs) {
     shared_mem_tv->setMemoryType(MemoryType::Shared);
 
@@ -770,7 +774,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(
       roles_opt.has_value(),
       "Incompatible roles found between matmul patterns");
-  const auto& [id_roles, tensor_roles] = roles_opt.value();
+  auto& [id_roles, tensor_roles] = roles_opt.value();
 
   const mma_utils::MatmulOperandInnerDimsOpt inner_dims =
       mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
@@ -949,23 +953,90 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const int64_t num_splitk_dims = params.splitk_factor != 1 ? 1 : 0;
 
   // Canonicalize mma_result before scheduling/propagating
-  for (TensorView* mma_result : mma_results) {
-    mma_utils::canonicalizeMmaTvOrdering(
-        mma_result,
-        id_model.idGraph(IdMappingMode::PERMISSIVE),
-        id_roles,
-        ordering);
-    const int64_t num_local_dims =
-        (int64_t)TensorDomain::noDevices(mma_result->getLoopDomain()).size();
-    NVF_ERROR(
-        num_local_dims == 3 || num_local_dims == 4,
-        "Currently, we only support B, M, N and K being a single dimension.",
-        " More general tensor contraction is not supported yet.");
+  const std::vector<TensorView*> all_tvs =
+      ir_utils::filterByType<TensorView>(fusion->usedMathVals());
+  std::unordered_map<TensorView*, std::vector<MatmulDomain>> all_tv_dims;
+  for (TensorView* tv : all_tvs) {
+    // We record which dims the tensor has after canonicalization
+    all_tv_dims.emplace(
+        tv,
+        mma_utils::canonicalizeMmaTvOrdering(
+            tv,
+            id_model.idGraph(IdMappingMode::PERMISSIVE),
+            id_roles,
+            ordering));
   }
 
   // Make a CTA tile
   // ------------------------------------------------------------------
   // Dimensions ordered as: [ (device dims), (batch dims), M, N, K ]
+  for (TensorView* tv : all_tvs) {
+    auto dims_it = all_tv_dims.find(tv);
+    NVF_ERROR(dims_it != tv_dims.end());
+    const std::vector<MatmulDomain>& tv_dims = dims_it->second;
+    const auto dimPos = [&tv_dims](MatmulDomain dim) -> int64_t {
+      const auto it = std::find(tv_dims.begin(), tv_dims.end(), dim);
+      return it == tv_dims.end() ? -1l : std::distance(tv_dims.begin(), it);
+    };
+    int64_t m_pos = dimPos(MatmulDomain::M);
+    int64_t n_pos = dimPos(MatmulDomain::N);
+    int64_t k_pos = dimPos(MatmulDomain::K);
+
+    mma_utils::makeTile(tv, gemm_tile.cta_tile.toVector(), m_pos, n_pos, k_pos);
+
+    std::cout << params.toString() << std::endl;
+
+    // [..., Mo, No, Ko, Mi, Ni, Ki]
+    // Swizzle block tiles:
+    if (params.grid_swizzle_factor != 1) {
+      int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
+      if (params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
+        if (n_pos != -1) {
+          first_mma_result->split(n_pos, factor);
+          // [I1, I2/factor, factor]
+          first_mma_result->reorder({{n_pos, n_pos + 1}});
+          if (m_pos > n_pos) {
+            m_pos++;
+          }
+          if (k_pos > n_pos) {
+            k_pos++;
+          }
+          // [I1, factor, I2/factor]
+          if (m_pos != -1) {
+            first_mma_result->merge(m_pos);
+            // [I1*factor, I2/factor]
+          }
+        }
+      } else if (
+          params.cta_order ==
+          MatmulParams::TileRasterizationOrder::ColumnMajor) {
+        if (m_pos != -1 && n_pos != -1) {
+          first_mma_result->split(m_pos, factor);
+          if (n_pos > m_pos) {
+            n_pos++;
+          }
+          if (k_pos > m_pos) {
+            k_pos++;
+          }
+          // [I1/factor, factor, I2]
+          first_mma_result->reorder({{m_pos + 1, n_pos}});
+          // [I1/factor, I2, factor]
+          first_mma_result->merge(m_pos + 1, n_pos);
+          // [I1/factor, I2*factor]
+        }
+      }
+    }
+
+    // [..., iMo, iNo, rKo, iMi, iNi, rKi]
+    if (params.splitk_factor != 1 && k_pos != -1) {
+      // Split the outer K axis by splitk_factor
+      // Split Ko -> [rKf, rKg]
+      tv->split(k_pos, params.splitk_factor, /*inner*/ false);
+      // After split [..., iMo, iNo, rKf, rKg, iMi, iNi, rKi]
+    }
+  }
+
+  // rFactor to define splitk_sum
   std::vector<TensorView*> splitk_sums(mma_results.size(), nullptr);
   for (size_t i : c10::irange(mma_results.size())) {
     TensorView* mma_result = mma_results[i];
@@ -973,39 +1044,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     TensorView*& smem_epilogue = smem_epilogues[i];
     TensorView*& splitk_sum = splitk_sums[i];
 
-    // [... M,N,K]
-    mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
-    // [..., Mo, No, Ko, Mi, Ni, Ki]
-
-    // Swizzle block tiles:
-    if (params.grid_swizzle_factor != 1) {
-      int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
-      if (params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
-        mma_result->split(num_device_and_batch_dims + 1, factor);
-        // [I1, I2/factor, factor]
-        mma_result->reorder(
-            {{num_device_and_batch_dims + 1, num_device_and_batch_dims + 2}});
-        // [I1, factor, I2/factor]
-        mma_result->merge(num_device_and_batch_dims);
-        // [I1*factor, I2/factor]
-      } else if (
-          params.cta_order ==
-          MatmulParams::TileRasterizationOrder::ColumnMajor) {
-        mma_result->split(num_device_and_batch_dims, factor);
-        // [I1/factor, factor, I2]
-        mma_result->reorder(
-            {{num_device_and_batch_dims + 1, num_device_and_batch_dims + 2}});
-        // [I1/factor, I2, factor]
-        mma_result->merge(num_device_and_batch_dims + 1);
-        // [I1/factor, I2*factor]
-      }
-    }
-
-    // [..., iMo, iNo, rKo, iMi, iNi, rKi]
     if (params.splitk_factor != 1) {
-      // Split Ko -> [rKf, rKg]
-      mma_result->split(-4, params.splitk_factor, /*inner*/ false);
-      // After split [..., iMo, iNo, rKf, rKg, iMi, iNi, rKi]
       // rFactor converts
       //   mma_result = mma(A, B, {/*Kf*/-5, /*Kg*/-4, /*Ki*/-1});
       // to
@@ -1035,11 +1074,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     }
   }
 
-  for (TensorView* mma_result : mma_results) {
-    // Propagate tiling globally
-    // TODO: we should avoid propagating to other mma_results here
-    scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
-  }
+  fusion->printMath();
+  // Propagate tiling globally
+  std::cout << "transformPropagateToAllFrom mma_result "
+            << first_mma_result->toString() << std::endl;
+  scheduler_utils::transformPropagateToAllFrom(first_mma_result, -1);
+  fusion->printMath();
 
   for (TensorView* mma_result : mma_results) {
     if (params.use_smem_epilogue) {
@@ -1072,6 +1112,16 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   abcw_smems.insert(abcw_smems.end(), acw_smems.begin(), acw_smems.end());
   abcw_smems.insert(abcw_smems.end(), bcw_smems.begin(), bcw_smems.end());
 
+  std::cout << "loop: " << __LINE__ << std::endl;
+  std::cout << "  acw_smems: " << __LINE__ << std::endl;
+  for (TensorView* tv : acw_smems) {
+    std::cout << "    " << tv->toString() << std::endl;
+  }
+  std::cout << "  bcw_smems: " << __LINE__ << std::endl;
+  for (TensorView* tv : bcw_smems) {
+    std::cout << "    " << tv->toString() << std::endl;
+  }
+
   for (TensorView* mma_result : mma_results) {
     scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
         mma_result, -1, abcw_smems, smem_epilogues);
@@ -1089,6 +1139,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Schedule prolog:
   //   TODO: this section needs more configurability.
   // ------------------------------------------------------------------
+  std::cout << "  acw_smems: " << __LINE__ << std::endl;
+  std::cout << "  acw_smems: " << __LINE__ << std::endl;
+  for (TensorView* tv : acw_smems) {
+    std::cout << "  " << tv->toString() << std::endl;
+  }
+  std::cout << "  bcw_smems: " << __LINE__ << std::endl;
+  for (TensorView* tv : bcw_smems) {
+    std::cout << "    " << tv->toString() << std::endl;
+  }
   scheduleProlog(acw_smems, params.supported_vec_size.a, params);
   scheduleProlog(bcw_smems, params.supported_vec_size.b, params);
 

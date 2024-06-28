@@ -356,7 +356,12 @@ void scheduleContiguousVectorLoad(
   tv->axis(-4)->parallelize(ParallelType::TIDz);
 }
 
-void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
+void makeTile(
+    TensorView* tv,
+    std::vector<int64_t> tile_sizes,
+    bool has_m,
+    bool has_n,
+    bool has_k) {
   NVF_CHECK(
       tv->getLoopDomain().size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
