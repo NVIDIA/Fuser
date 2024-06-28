@@ -83,7 +83,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   // tvs in stack are:
   //   1. single use;
   //   2. not an output;
-  //   3. cleared dependency of `pad_depdencies;
+  //   3. cleared dependency of `pad_depdencies`;
   //   4. maybe also check aliases?!
   while (!stack.empty()) {
     Edge edge = stack.top();
@@ -94,9 +94,13 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       auto* uop = def->as<UnaryOp>();
       // TODO: exception to break propagation. i.e. check op type and exclude division by 0
       if (candidate_check(uop->in())) {
-        stack.emplace(uop, 0);
         replay_sequence.push_back(uop);
+        stack.emplace(uop, 0);
         continue;
+      // TODO: this isn't right. I need to support a topology with fork, which is what rope has.
+      // } else if (uop->in()->isA<TensorView>()) {
+      //   // even though we cannot further propagate, we can still fork it here.
+      //   replay_sequence.push_back(uop);
       }
       // This will require us having `replayExprWithNewInput` to support binary
       // ops. 
@@ -188,7 +192,9 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   for (Expr* e : replay_sequence) {
     if (e->isA<UnaryOp>()) {
       // TODO extend this for multiple inputs.
-      Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)));
+      // Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)));
+      Val* out = ops::newValLike(replacement_map.at(e->input(0)), e->output(0)->getDataType().value());
+      Expr* padded_e = IrBuilder::create<UnaryOp>(e->as<UnaryOp>()->getUnaryOpType(), out, replacement_map.at(e->input(0)));
       replacement_map[e->output(0)] = padded_e->output(0);
     } else if (e->isA<BinaryOp>()) {
       // Expr* padded_e = replayExprWithNewInput(e, replacement_map.at(e->input(0)), replacement_map.at(e->input(1)));
