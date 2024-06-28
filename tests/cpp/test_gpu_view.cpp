@@ -403,8 +403,8 @@ TEST_P(ReshapeReduction, FusionReshapeReduction) {
   reductionViewAddFusion(
       input_shape,
       output_shape,
-      has_implicit_broadcast,
-      reshape_before_reduction);
+      param.has_implicit_broadcast,
+      param.reshape_before_reduction);
 }
 
 INSTANTIATE_TEST_SUITE_P(
