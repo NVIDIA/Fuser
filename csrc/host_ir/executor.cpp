@@ -27,7 +27,8 @@ HostIrExecutor::HostIrExecutor(
       : 0;
   streams_.insert(
       {container_->getDefaultStream(),
-       c10::cuda::getDefaultCUDAStream(device_index)});
+       c10::cuda::getDefaultCUDAStream(
+           static_cast<c10::DeviceIndex>(device_index))});
 }
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(

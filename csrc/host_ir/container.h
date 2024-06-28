@@ -46,7 +46,7 @@ class HostIrContainer final : public Fusion {
 
  private:
   std::vector<Expr*> top_level_exprs_;
-  Stream* default_stream_;
+  Stream* default_stream_ = nullptr;
 };
 
 } // namespace hir
