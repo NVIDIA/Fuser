@@ -39,6 +39,9 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     if (!val->isA<TensorView>()) {
       return false;
     }
+    // TODO: refactor this check. We should totally support multiple uses here.
+    // multiple uses should only block further back propagation when it applies. But we can replace the edge with a padded output. hint. we should count the encounter of each edge and check `encounter == # of uses` to proceed with propagation.
+    // Get some use case with binary operation on this one.
     if (val->uses().size() > 1) {
       return false;
     }
@@ -182,9 +185,13 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // true); NOTE: we use pad_out_tv instead of edge.val()->as<TensorView>()
     // since the input tensor doesn't have its root id marked with rfactor flag.
     std::vector<IterDomain*> new_root =
-        IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
+        IterDomain::clone(edge.val()->as<TensorView>()->getMaybeRootDomain(), true);
+        // should use edge.val() to ensure that we have the right broadcast marked on root.
+        // IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
     // NOTE: we cannot use the TensorDomain from fullSelfReplay, since it
     // doesn't keep root domain.
+
+    // TODO: cannot use fullSelfReplay here since it requires matching broadcast between new root to old root in domain. I should merge the two `create<PadOp>` instances so we can basically have a `replayPadOnProducer` function.
     std::vector<IterDomain*> new_logical =
         TransformReplay::fullSelfReplay(
             IrBuilder::create<TensorDomain>(new_root),
