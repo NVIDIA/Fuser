@@ -621,7 +621,8 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 //   - mbarrier inval
 //
 // post-epilogue:
-//  - 0th thread: loop with mbarriers inval
+//  - 0th thread:
+//   - loop with mbarriers inval
 class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
  public:
   static kir::ForLoop* clone(
@@ -833,15 +834,13 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         //
         // See AllocationInserter for details when and how token map is filled
         // with data
-
-        //! Before waiting at the mbarrier for the current stage, we
-        //! launch the load operation for the next available stage. The
-        //! last buffer in the pipeline is the first available after the
-        //! prologue loop launches the initial wave of tma loads.
-        //!
-        //! current_compute_stage = for_loop_index % stage_depth
-        //! current_load_stage = (for_loop_index + (stage_depth - 1)) %
-        //! stage_depth)
+        //
+        // Before waiting at the mbarrier for the current stage, we
+        // launch the load operation for the next available stage. The
+        // last buffer in the pipeline is the first available after the
+        // prologue loop launches the initial wave of tma loads.
+        //
+        // current_compute_stage = loop_index % stage_depth
         if (current_compute_stage_ == nullptr) {
           current_compute_stage_ = IrBuilder::modExpr(
               double_buffer_loop_->index(),
@@ -857,6 +856,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
               current_compute_stage_->definition());
         }
 
+        // current_load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
         if (current_load_stage_ == nullptr) {
           current_load_stage_ = IrBuilder::modExpr(
               IrBuilder::addExpr(
@@ -921,24 +921,32 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         break;
       }
       case DoubleBufferLoopStage::Epilog: {
-        if (expr->isA<LoadStoreOp>() && mbarrier_token_exists) {
-          // Construct mBarrier::wait for last stage
-          LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-          Val* last_index = IrBuilder::subExpr(
-              double_buffer_loop_->stop(),
-              GpuLower::current()->kernel()->oneVal());
-          Val* last_compute_stage = IrBuilder::modExpr(
-              last_index,
-              IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-          kir::MBarrierWait* mbarrier_wait =
-              createMbarrierWait(ldst, last_compute_stage);
-          cloned_scopes_.back()->push_back(mbarrier_wait);
+        // Skip shared memory allocation, mbarrier initialize and mbarrier
+        // invalidate
+        if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
+            is_ignorable_mbarrier_inval) {
           break;
         }
-        if (!(is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
-              is_ignorable_mbarrier_inval || is_double_buffer_load_expr)) {
+
+        // Add expression if not circular-buffered load store operation
+        if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
           cloned_scopes_.back()->push_back(expr);
+          break;
         }
+
+        // Construct mBarrier::wait for last stage
+        LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+        Val* last_index = IrBuilder::subExpr(
+            double_buffer_loop_->stop(),
+            GpuLower::current()->kernel()->oneVal());
+        Val* last_compute_stage = IrBuilder::modExpr(
+            last_index,
+            IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+
+        // Construct mBarrier::wait for current stage
+        kir::MBarrierWait* mbarrier_wait =
+            createMbarrierWait(ldst, last_compute_stage);
+        cloned_scopes_.back()->push_back(mbarrier_wait);
         break;
       }
       case DoubleBufferLoopStage::NotApplicable: {
@@ -954,12 +962,10 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
   // Mbarrier_ArriveExpectTx to add to cloned_top_level_loop
   kir::MBarrierArriveExpectTx* mbarrier_arrive_tx_ = nullptr;
 
-  // Current stage, expectation:
-  //  curr_stages_idx = (double_buffer_loop_idx % stages)
+  // current_stage_index = (loop_index % stages)
   Val* current_compute_stage_ = nullptr;
 
-  // Next stage, expectation:
-  //  next_stages_idx = (double_buffer_loop_idx + (stages -1)) % stages
+  // next_stage_index = (loop_index + (stages-1)) % stages
   Val* current_load_stage_ = nullptr;
 };
 
