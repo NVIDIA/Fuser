@@ -5391,7 +5391,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
 // data type and reduction dimension size
 using ReductionNoODimParams = std::tuple<DataType, int64_t>;
 using ReductionNoODimShmoo = NVFuserFixtureParamTest<ReductionNoODimParams>;
-TEST_P(ReductionNoODimShmoo, FusionReductionSchedulerNoODimShmoo_CUDA) {
+TEST_P(ReductionNoODimShmoo, Test) {
   auto [dtype, rdim] = GetParam();
 
   at::ScalarType aten_dtype = data_type_to_aten(dtype);
