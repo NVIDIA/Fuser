@@ -21,9 +21,8 @@
 namespace nvfuser {
 
 MultiDeviceTest::MultiDeviceTest() {
-  // Enable logging. Print debug messagees when knobs like
-  // `TORCH_CPP_LOG_LEVEL=INFO TORCH_DISTRIBUTED_DEBUG=INFO` are specified.
-  c10::initLogging();
+  // Enable logging in c10d so debug messages can be printed out via
+  // `TORCH_DISTRIBUTED_DEBUG`.
   c10d::setDebugLevelFromEnvironment();
 
   communicator_ = getOrCreateCommunicator();
