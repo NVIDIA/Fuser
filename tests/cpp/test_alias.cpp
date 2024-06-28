@@ -272,7 +272,7 @@ TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
   fusion.addInput(in);
   TensorView* broadcast_tv = broadcast(in, {false, true, false});
   TensorView* expanded_tv = expand(
-      tv2,
+      broadcast_tv,
       {broadcast_tv->axis(0)->extent(),
        IrBuilder::create<Val>(4),
        broadcast_tv->axis(2)->extent()});
@@ -954,18 +954,18 @@ TEST_F(AliasTest, Broadcast) {
 }
 
 TEST_F(AliasTest, Expand) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigConcreteTensor({-1, -1});
-  fusion.addInput(in);
+  fusion->addInput(in);
   TensorView* broadcast_tv = broadcast(in, {false, true, false});
   TensorView* expanded_tv = expand(
-      tv2,
+      broadcast_tv,
       {broadcast_tv->axis(0)->extent(),
        IrBuilder::create<Val>(4),
        broadcast_tv->axis(2)->extent()});
-  fusion.addOutput(expanded_tv);
+  fusion->addOutput(expanded_tv);
 
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
