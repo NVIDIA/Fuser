@@ -13,7 +13,7 @@
 
 namespace c10d {
 
-void setDebugLevelFromEnvironment() {}
+inline void setDebugLevelFromEnvironment() {}
 
 class Work : public torch::CustomClassHolder {
  public:
