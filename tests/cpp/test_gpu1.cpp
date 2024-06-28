@@ -5471,7 +5471,7 @@ using ReductionWithIterDimParams =
     std::tuple<DataType, int64_t, int64_t, int64_t>;
 using ReductionWithIterDimShmoo =
     NVFuserFixtureParamTest<ReductionWithIterDimParams>;
-TEST_P(ReductionWithIterDimShmoo, FusionReductionSchedulerDimShmoo_CUDA) {
+TEST_P(ReductionWithIterDim, Test) {
   auto [dtype, rdim, odim, axis] = GetParam();
 
   at::ScalarType aten_dtype = data_type_to_aten(dtype);
