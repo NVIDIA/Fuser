@@ -1112,16 +1112,14 @@ bool isParallelLoopIndexSubstitutedAsZero(
 // Used for local and shared index mapping. Returns a map from loops
 // to loop indices as well as a set of loops that do not contribute to
 // indexing.
-std::pair<
-    std::unordered_map<kir::ForLoop*, Val*>,
-    std::unordered_set<kir::ForLoop*>>
+std::pair<std::unordered_map<ForLoop*, Val*>, std::unordered_set<ForLoop*>>
 indexMapFromTV(
     const TensorView* tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    kir::ForLoop* alloc_loop,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
+    ForLoop* alloc_loop,
     bool as_consumer,
-    kir::ForLoop* double_buffer_loop) {
+    ForLoop* double_buffer_loop) {
   bool within_alloc = false;
   if (alloc_loop == nullptr) {
     within_alloc = true;
@@ -1130,12 +1128,12 @@ indexMapFromTV(
   const bool is_global = tv->getMemoryType() == MemoryType::Global;
   const bool is_shared = tv->getMemoryType() == MemoryType::Shared;
 
-  std::unordered_map<kir::ForLoop*, Val*> loop_to_ind_map;
+  std::unordered_map<ForLoop*, Val*> loop_to_ind_map;
 
   // Check if the current op has an implicit loop implemented
   //  within an mma instruction.
   bool within_mma_loops =
-      std::any_of(loops.begin(), loops.end(), [](kir::ForLoop* fl) {
+      std::any_of(loops.begin(), loops.end(), [](ForLoop* fl) {
         return fl->iter_domain()->isMma();
       });
 
@@ -1143,7 +1141,7 @@ indexMapFromTV(
   // index. Previously, index->isZeroInt() was used to detect such
   // domains, but that's not a reliable method as we may set an
   // initial index to zero for unswitch.
-  std::unordered_set<kir::ForLoop*> zero_loops;
+  std::unordered_set<ForLoop*> zero_loops;
 
   for (auto loop : loops) {
     Val* idx = nullptr;
@@ -1197,8 +1195,8 @@ indexMapFromTV(
 //! \param id_map Producer-to-consumer map in case of indexing as producer
 void ensureStaticIndexing(
     const TensorView* tv,
-    kir::ForLoop* alloc_loop,
-    const std::vector<kir::ForLoop*>& loops,
+    ForLoop* alloc_loop,
+    const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map) {
   if (tv->getMemoryType() != MemoryType::Local) {
     return;
@@ -1263,8 +1261,8 @@ std::unordered_map<IterDomain*, IterDomain*> invertOneToOneMap(
 std::vector<Val*> Index::getGlobalProducerStridedIndices(
     TensorView* producer_tv,
     const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getGlobalProducerIndex");
 
@@ -1396,8 +1394,8 @@ Val* sumVals(std::vector<Val*> vals) {
 std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     TensorView* producer_tv,
     const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   bool is_mma_input = consumer_tv->definition()->isA<MmaOp>();
   const auto gpu_lower = GpuLower::current();
@@ -1605,8 +1603,8 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
 Val* Index::getLinearLogicalIndex(
     TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops) {
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops) {
   auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, true);
   return sumVals(
       getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
@@ -1614,8 +1612,8 @@ Val* Index::getLinearLogicalIndex(
 
 std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops) {
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops) {
   auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, false);
   IndexFromIdGraph index_from_id_graph =
       getTensorIndexFromIdGraph(loops, rotated_loops, consumer_tv);
@@ -1625,13 +1623,12 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
 std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     TensorView* producer_tv,
     const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    TensorIndexer* tensor_indexer,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  if (tensor_indexer != nullptr &&
-      hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
-    return tensor_indexer->getPerDimIndex(
+  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {  
+    return GpuLower::current()->tensorIndexer().getPerDimIndex(
         producer_tv,
         producer_tv->getLogicalDomain(),
         consumer_tv->definition(),
@@ -1698,7 +1695,7 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
 
 std::vector<Val*> Index::getConsumerAllocationIndices(
     const TensorView* tv,
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     const IndexFromIdGraph& index_from_id_graph) {
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
   auto indexing = index_from_id_graph.index;
@@ -1732,8 +1729,8 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
 std::vector<Val*> Index::getProducerAllocationIndices(
     TensorView* producer_tv,
     const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getProducerAllocationIndices");
   // Replay producer to look like consumer so we can index on producer since
@@ -1844,8 +1841,8 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
 std::vector<Val*> Index::getGlobalConsumerStridedIndices(
     TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<int, Val*>& override_index) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getGlobalConsumerIndex");
 
@@ -1891,8 +1888,8 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
 // Consumer index for either shared or local memory
 std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
     const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   const auto gpu_lower = GpuLower::current();
   // At now, only ScatterOp set override_index, and the output of ScatterOp
@@ -2059,8 +2056,8 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 Val* Index::getProducerStridedIndices(
     TensorView* producer,
     const TensorView* consumer,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getProducerStridedIndices");
@@ -2101,8 +2098,8 @@ Val* Index::getProducerStridedIndices(
 kir::TensorIndex* Index::getProducerIndex(
     TensorView* producer,
     const TensorView* consumer,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) {
@@ -2162,8 +2159,8 @@ kir::TensorIndex* Index::getProducerIndex(
 
 Val* Index::getConsumerStridedIndices(
     TensorView* consumer,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<int, Val*>& override_index,
     bool generate_pointer) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getConsumerStridedIndices");
@@ -2203,8 +2200,8 @@ Val* Index::getConsumerStridedIndices(
 // Consumer is the output of an expression
 kir::TensorIndex* Index::getConsumerIndex(
     TensorView* consumer,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<int, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) {
@@ -2425,9 +2422,9 @@ std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
 // Returns predicates and the concrete (by loop map) root domains they cover
 std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    kir::ForLoop* unswitch_or_vec_loop) {
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
+    ForLoop* unswitch_or_vec_loop) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getReferenceRootPredicates");
 
   const auto gpu_lower = GpuLower::current();
@@ -2575,8 +2572,8 @@ RootPredicateInfo RootPredicateInfo::getFalseInfo() {
 
 Val* Index::iota(
     TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     Val* start,
     Val* step,
     DataType dtype) {
@@ -2588,8 +2585,8 @@ Val* Index::iota(
 
 Val* Index::eye(
     TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     DataType dtype) {
   auto indices =
       Index::getConsumerPerDimLogicalIndex(consumer_tv, loops, rotated_loops);
@@ -2601,8 +2598,8 @@ Val* Index::eye(
 std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     const LoadStoreOp* ldst,
     Val* mbarrier,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops) {
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops) {
   FUSER_PERF_SCOPE("Index::getCpAsyncBulkGmemIndex");
 
   TensorView* producer_tv = ldst->in()->as<TensorView>();
@@ -2628,35 +2625,10 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   const TMAInfo& tma_info =
       GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
 
-  ValGroups groups_to_index;
-  for (const auto& dim : tma_info.dims()) {
-    for (const auto& g : dim.partitioned) {
-      groups_to_index.pushBack(g);
-    }
-  }
+  ValGroups groups_to_index = tma_info.getTMADomain();
 
-  // TODO
-#if 0
-  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();  
-  auto indices = indexer.getIndexFor(ldst, groups_to_index);
-#else
-  std::vector<Val*> indices(
-      tma_info.dims().size(), producer_tv->fusion()->zeroVal());
-#endif
-
-  std::vector<Val*> indices_inner_to_outer;
-  int64_t i = 0;
-  for (const auto& dim : tma_info.dims()) {
-    Val* dim_index = nullptr;
-    Val* stride = nullptr;
-    for (const auto& g : dim.partitioned) {
-      dim_index = SimplifyingIrBuilder::addExpr(
-          dim_index, SimplifyingIrBuilder::mulExpr(stride, indices[i++]));
-      stride = SimplifyingIrBuilder::mulExpr(
-          stride, g->front()->as<IterDomain>()->extent());
-    }
-    indices_inner_to_outer.push_back(dim_index);
-  }
+  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+  auto indices_inner_to_outer = indexer.getIndexFor(ldst, !is_load, loops, groups_to_index);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);

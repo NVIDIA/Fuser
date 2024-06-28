@@ -43,7 +43,9 @@ struct IndexingInfo {
 // domains may be promoted.
 class TensorIndexer {
  public:
-  TensorIndexer(const IdModel& id_model);
+  // Using non-const references of IdModel because traversalGraph() returns a
+  // non-const reference
+  TensorIndexer(IdModel& id_model);
 
   // Enable or disable contig indexing
   TensorIndexer& enableContigIndexing(bool b) {
@@ -66,28 +68,30 @@ class TensorIndexer {
   Val* getLinearIndex(
       TensorView* tv,
       const Expr* expr,
-      const std::optional<std::vector<kir::ForLoop*>>& loops) const;
+      const std::optional<std::vector<ForLoop*>>& loops) const;
 
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
 
   // Get the index of the given ID groups
   std::vector<Val*> getIndexFor(
-      TensorView* tv,
       const Expr* expr,
-      const std::optional<std::vector<kir::ForLoop*>>& for_loops,
+      bool as_consumer,
+      const std::optional<std::vector<ForLoop*>>& for_loops,
       const ValGroups& index_groups) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
-  const ValGraph& traversalGraph() const {
+  // Returns non-const reference because indexing may create new domains and
+  // need to update the graph.
+  ValGraph& traversalGraph() const {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
 
   std::vector<RootPredicateInfo> getPredicates(
       TensorView* tv,
       const Expr* expr,
-      const std::optional<std::vector<kir::ForLoop*>>& loops,
+      const std::optional<std::vector<ForLoop*>>& loops,
       bool is_unswitch);
 
   // TODO: Drop tv
@@ -95,7 +99,7 @@ class TensorIndexer {
       TensorView* tv,
       const std::vector<IterDomain*>& index_domains,
       const Expr* expr,
-      const std::optional<std::vector<kir::ForLoop*>>& loops);
+      const std::optional<std::vector<ForLoop*>>& loops);
 
   static bool isSupported(Fusion* fusion);
 
@@ -108,22 +112,21 @@ class TensorIndexer {
   // index domains appearing in a given expr. Used by
   // getIndexFor.
   IndexingInfo computeIndex(
-      TensorView* tv,
       const Expr* expr,
-      const std::optional<std::vector<kir::ForLoop*>>& loops,
+      const std::optional<std::vector<ForLoop*>>& loops,
       const ValGroups& index_domains,
       bool is_predicate,
       bool is_unswitch) const;
 
   Val* adjustProducerLoopIndexForDoubleBuffering(
       const Expr* expr,
-      const kir::ForLoop* for_loop,
+      const ForLoop* for_loop,
       Val* loop_index) const;
 
   Val* adjustIndexToSwitchBuffer(
       TensorView* tv,
       bool as_consumer,
-      const std::vector<kir::ForLoop*>& for_loops,
+      const std::vector<ForLoop*>& for_loops,
       Val* idx) const;
 
   // Propagate the loop indices of a given list of loop domains to the
@@ -163,22 +166,22 @@ class TensorIndexer {
   // predicates, and one index map would be sufficient for both
   // indices by using different replacement maps.
   std::unordered_map<Val*, Val*> getIndexReplacementMap(
-      TensorView* tv,
       const Expr* expr,
+      bool as_consumer,
       const std::vector<IterDomain*>& loop_domains,
-      const std::optional<std::vector<kir::ForLoop*>>& for_loops,
+      const std::optional<std::vector<ForLoop*>>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
   std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       TensorView* tv,
-      const std::vector<kir::ForLoop*>& for_loops,
+      const std::vector<ForLoop*>& for_loops,
       bool is_start_predicate,
       bool is_unswitch,
       const std::unordered_map<ValGroup, Val*>& index_map,
       const ValGraph& traversal_graph) const;
 
  private:
-  const IdModel& id_model_;
+  IdModel& id_model_;
   const ConcretizedBroadcastDomains concrete_info_;
 
   // Mappings from loop groups to their indices. Serial loops will

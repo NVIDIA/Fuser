@@ -19,9 +19,9 @@
 namespace nvfuser {
 
 class Fusion;
+class Scope;
 namespace kir {
 class Kernel;
-class Scope;
 } // namespace kir
 
 namespace hir {

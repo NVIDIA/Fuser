@@ -140,10 +140,10 @@ void IndexLowering::handle(const kir::IfThenElse* ite) {
   }
 }
 
-void IndexLowering::handle(const kir::ForLoop* for_loop) {
+void IndexLowering::handle(const ForLoop* for_loop) {
   const auto prev_scope = active_scope_;
 
-  auto new_for_loop = IrBuilder::create<kir::ForLoop>(for_loop);
+  auto new_for_loop = IrBuilder::create<ForLoop>(for_loop);
   pushBack(new_for_loop);
 
   active_scope_ = &new_for_loop->body();
@@ -425,7 +425,7 @@ struct GridCommWorkBufferSizeInfo {
 // The buffer is expanded for privatization when not persistent or grouped.
 GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
     const TensorDomain* td,
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     bool is_persistent) {
   // The buffer size is the number of thread blocks multiplied by the
   // number of threads not used for reduction domains.
@@ -499,7 +499,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
 
 Val* getGridSyncBufferSize(
     const TensorDomain* td,
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     bool is_persistent) {
   // See the comment above for getGridCommWorkBufferSize.
   Val* buffer_size = GpuLower::current()->kernel()->oneVal();
@@ -537,7 +537,7 @@ Val* getGridSyncBufferSize(
   return buffer_size;
 }
 
-Val* getEntranceCountGridReduce(std::vector<kir::ForLoop*>& for_loops) {
+Val* getEntranceCountGridReduce(std::vector<ForLoop*>& for_loops) {
   Val* grid_reduction_entrances = GpuLower::current()->kernel()->oneVal();
 
   for (const auto loop : for_loops) {
@@ -558,7 +558,7 @@ Val* getEntranceCountGridReduce(std::vector<kir::ForLoop*>& for_loops) {
 // Linear indexing of for loops for multiple entrances into grid reduce
 // TODO: What happens if there's a broadcast that's resolved (not present in the
 // grid reduce) but the global buffer isn't expanded?
-Val* getEntranceLinIndGridReduce(std::vector<kir::ForLoop*>& for_loops) {
+Val* getEntranceLinIndGridReduce(std::vector<ForLoop*>& for_loops) {
   Val* linear_index = GpuLower::current()->kernel()->zeroVal();
 
   for (const auto loop : for_loops) {
@@ -1930,7 +1930,7 @@ void IndexLowering::handle(const PadOp* pad) {
         consumer_tv,
         for_loops_,
         getRotatedLoop(),
-        tensor_indexer_.get(), override_index);
+        override_index);
 
     pred = IrBuilder::create<Val>(true);
     for (auto padded_axis : pad->getPaddedAxes()) {

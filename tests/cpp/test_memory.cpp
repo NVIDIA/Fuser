@@ -208,7 +208,7 @@ class XorFinder : private kir::IrVisitor {
     if (found || !visited.insert(expr).second) {
       return;
     }
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -244,7 +244,7 @@ class TMAPredicateChecker : private kir::IrVisitor {
   using kir::IrVisitor::dispatch;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::Predicate* prev_pred = nullptr;
       if (expr->isA<kir::IfThenElse>()) {
         auto ite = expr->as<kir::IfThenElse>();
@@ -311,7 +311,7 @@ class TMADimChecker : private kir::IrVisitor {
   using kir::IrVisitor::dispatch;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -496,6 +496,119 @@ TEST_P(TMASimpleLdstTest, Load) {
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
+
+class TMALoadTestWithABroadcastDim
+    : public NVFuserFixtureParamTest<
+          std::tuple<std::vector<int64_t>, DataType, MmaInputSmemSwizzle>> {
+ protected:
+  MmaInputSmemSwizzle swizzle;
+  DataType dtype;
+
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+
+  void schedule(TensorView* tv) {
+    // We move the broadcast dim to be the left most.
+    moveInnerBroadcastLeft(tv);
+
+    // {B, N, K}
+    // {B, NO, N_dim, K}
+    tv->split(-2, tv->axis(-2)->extent());
+
+    if (swizzle == MmaInputSmemSwizzle::None) {
+      return;
+    }
+    // {B, NO, N_dim, KO, KI (32/64/128)}
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+
+    // {B, NO, KO, N_dim, KI }
+    tv->reorder({{2, 3}, {3, 2}});
+
+    // {B, NO * KO, N_dim, KI}
+    tv->merge(1);
+
+    // {B, NO * KO, N_dim_O, N_128/(32, 64, 128),  KI}
+    tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
+
+    // {B, NO * KO, N_dim_O, N_128/(32, 64, 128),  KIO, KII}
+    tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
+
+    // split N_dim_O by N/16 N =swizzle size (32/64/128)
+    // {B, NO * KO, N_dim_O/(swizzle_size/16), N_128/(32, 64, 128),  KIO, KII}
+    tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
+
+    tv->swizzle(SwizzleType::XOR, -4, -2);
+  }
+
+  void markAllDimsExceptFirstTwoAsBulk(const TensorView* tv) {
+    int skip = 0;
+    for (auto id : tv->getLoopDomain()) {
+      if (skip < 2) {
+        skip++;
+        continue;
+      }
+      id->parallelize(ParallelType::Bulk);
+    }
+  }
+
+  TMALoadTestWithABroadcastDim() {
+    dtype = std::get<1>(GetParam());
+    swizzle = std::get<2>(GetParam());
+  }
+};
+
+TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto shape = std::get<0>(GetParam());
+
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  schedule(tv1);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+  markAllDimsExceptFirstTwoAsBulk(tv1);
+
+  schedule(tv2);
+  // Naively parallelize an outer dim of tv2.
+  // We use a single CTA. Inputs are small enough not to error out.
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+std::vector<std::vector<int64_t>> shapes_to_load =
+    {{1, 64, 16}, {1, 16, 64}, {1, 128, 64}, {1, 128, 128}, {64, 1, 16}};
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TMALoadTestWithABroadcastDim,
+    testing::Combine(
+        testing::ValuesIn(shapes_to_load),
+        testing::Values(DataType::Half, DataType::Float, DataType::Double),
+        testing::Values(
+            MmaInputSmemSwizzle::None,
+            MmaInputSmemSwizzle::B128,
+            MmaInputSmemSwizzle::B64,
+            MmaInputSmemSwizzle::B32)));
 
 TEST_P(TMASimpleLdstTest, Store) {
   Fusion fusion;

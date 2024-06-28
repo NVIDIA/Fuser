@@ -98,9 +98,9 @@ Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
       stride_dim);
 }
 
-std::vector<kir::ForLoop*> getMaxPathLoops(
-    const std::vector<kir::ForLoop*>& for_loops) {
-  std::vector<kir::ForLoop*> unswitched_domains;
+std::vector<ForLoop*> getMaxPathLoops(
+    const std::vector<ForLoop*>& for_loops) {
+  std::vector<ForLoop*> unswitched_domains;
 
   bool within_unswitch = false;
 
@@ -127,19 +127,19 @@ std::vector<kir::ForLoop*> getMaxPathLoops(
 
 // TODO: Use this from getPredicateIndexReplacementMap
 std::unordered_set<ValGroup> getMaxPathLoopDomains(
-    TensorView* tv,
-    const std::vector<kir::ForLoop*>& for_loops,
+    TensorView* consumer_tv,
+    const std::vector<ForLoop*>& for_loops,
     const ValGraph& loop_graph,
     const ValGraph& traversal_graph) {
   auto unswitched_loops = getMaxPathLoops(for_loops);
   std::unordered_set<ValGroup> max_path_loop_domains;
 
-  for (auto loop_domain : tv->getLoopDomain()) {
+  for (auto loop_domain : consumer_tv->getLoopDomain()) {
     const auto& loop_group = loop_graph.toGroup(loop_domain);
     auto it = std::find_if(
         unswitched_loops.begin(),
         unswitched_loops.end(),
-        [&loop_group](kir::ForLoop* fl) -> bool {
+        [&loop_group](ForLoop* fl) -> bool {
           return loop_group->has(fl->iter_domain());
         });
     if (it != unswitched_loops.end()) {
@@ -803,7 +803,7 @@ void IdGraphIndexCompute::handle(Resize* resize) {
 
 } // namespace
 
-TensorIndexer::TensorIndexer(const IdModel& id_model)
+TensorIndexer::TensorIndexer(IdModel& id_model)
     : id_model_(id_model), concrete_info_(id_model_.fusion()) {
   buildLoopIndexMap();
 
@@ -894,9 +894,9 @@ std::vector<IterDomain*> getPredicateDomains(
   return predicate_domains;
 }
 
-kir::ForLoop* getForLoop(
+ForLoop* getForLoop(
     IterDomain* loop_id,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops,
+    const std::optional<std::vector<ForLoop*>>& for_loops,
     const ValGraph& loop_graph) {
   if (!for_loops.has_value()) {
     return nullptr;
@@ -905,7 +905,7 @@ kir::ForLoop* getForLoop(
   auto it = std::find_if(
       for_loops->begin(),
       for_loops->end(),
-      [&](kir::ForLoop* for_loop) -> bool {
+      [&](ForLoop* for_loop) -> bool {
         IterDomain* for_loop_id = for_loop->iter_domain();
         return loop_graph.disjointValSets().strictAreMapped(
             loop_id, for_loop_id);
@@ -1048,15 +1048,14 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 }
 
 std::vector<Val*> TensorIndexer::getIndexFor(
-    TensorView* tv,
     const Expr* expr,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops,
+    bool as_consumer,
+    const std::optional<std::vector<ForLoop*>>& for_loops,
     const ValGroups& index_groups) const {
-  // auto info = computeIndex(expr, index_groups);
   const auto& info =
-      computeIndex(tv, expr, for_loops, index_groups, false, false);
+      computeIndex(expr, for_loops, index_groups, false, false);
   const auto& replacement_map = getIndexReplacementMap(
-      tv, expr, info.loop_domains, for_loops, info.index_map);
+      expr, as_consumer, info.loop_domains, for_loops, info.index_map);
 
   std::vector<Val*> result;
   result.reserve(index_groups.size());
@@ -1130,7 +1129,7 @@ std::pair<std::deque<ValGroup>, std::deque<Val*>> TensorIndexer::
 Val* TensorIndexer::getLinearIndex(
     TensorView* tv,
     const Expr* expr,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops) const {
+    const std::optional<std::vector<ForLoop*>>& for_loops) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -1158,7 +1157,6 @@ Val* TensorIndexer::getLinearIndex(
             << std::endl;
 
   const auto& index_info = computeIndex(
-      tv,
       expr,
       for_loops,
       traversalGraph().toGroups(allocation_domains),
@@ -1191,7 +1189,7 @@ Val* TensorIndexer::getLinearIndex(
     contig_strides = {strides.begin(), strides.end()};
   }
   const auto& replacement_map = getIndexReplacementMap(
-      tv, expr, index_info.loop_domains, for_loops, index_map);
+      expr, as_consumer, index_info.loop_domains, for_loops, index_map);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -1251,13 +1249,12 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 }
 
 IndexingInfo TensorIndexer::computeIndex(
-    TensorView* tv,
     const Expr* expr,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops,
+    const std::optional<std::vector<ForLoop*>>& for_loops,
     const ValGroups& index_groups,
     bool is_predicate,
     bool is_unswitch) const {
-  VERBOSE() << "getIndexMap of " << tv->toString() << " in " << expr->toString()
+  VERBOSE() << "computeIndex of " << expr->toString()
             << std::endl;
 
   const auto loop_domains = getLoopDomains(expr);
@@ -1297,7 +1294,7 @@ IndexingInfo TensorIndexer::computeIndex(
 
   const std::unordered_set<ValGroup> max_path_loop_domains = is_unswitch
       ? getMaxPathLoopDomains(
-            tv,
+          ir_utils::getTvOutput(expr),
             for_loops.value(),
             id_model_.idGraph(IdMappingMode::LOOP),
             traversalGraph())
@@ -1315,22 +1312,12 @@ IndexingInfo TensorIndexer::computeIndex(
 }
 
 std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
-    TensorView* tv,
     const Expr* expr,
+    bool as_consumer,
     const std::vector<IterDomain*>& loop_domains,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops,
+    const std::optional<std::vector<ForLoop*>>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
-
-  bool as_consumer =
-      std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
-      expr->outputs().end();
-
-  bool as_producer =
-      std::find(expr->inputs().begin(), expr->inputs().end(), tv) !=
-      expr->inputs().end();
-
-  NVF_ERROR(as_consumer || as_producer);
 
   for (const auto loop_id : loop_domains) {
     const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
@@ -1347,7 +1334,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         loop_id->getParallelType() == ParallelType::Bulk) {
       replacement_index = loop_id->fusion()->zeroVal();
     } else {
-      kir::ForLoop* for_loop = getForLoop(
+      ForLoop* for_loop = getForLoop(
           loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
       // Even when the iter-domain is not size-1, the actual for-loop
@@ -1361,7 +1348,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         }
 
         // TODO: Make it mandatory to have a GpuLower
-        if (GpuLower::hasCurrent() && as_producer) {
+        if (GpuLower::hasCurrent() && !as_consumer) {
           replacement_index = adjustProducerLoopIndexForDoubleBuffering(
               expr,
               for_loop,
@@ -1386,14 +1373,13 @@ std::vector<Val*> TensorIndexer::getPerDimIndex(
     TensorView* tv,
     const std::vector<IterDomain*>& index_domains,
     const Expr* expr,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops) {
+    const std::optional<std::vector<ForLoop*>>& for_loops) {
   const auto& traversal_graph = id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
 
   VERBOSE() << "getPerDimIndex of " << toDelimitedString(index_domains)
             << " in " << expr->toString() << std::endl;
 
   const auto& index_info = computeIndex(
-      tv,
       expr,
       for_loops,
       traversalGraph().toGroups(index_domains),
@@ -1433,7 +1419,7 @@ std::vector<Val*> TensorIndexer::getPerDimIndex(
 // tensor itself
 Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
     const Expr* expr,
-    const kir::ForLoop* for_loop,
+    const ForLoop* for_loop,
     Val* loop_index) const {
   NVF_ERROR(for_loop != nullptr);
 
@@ -1484,7 +1470,7 @@ Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
 Val* TensorIndexer::adjustIndexToSwitchBuffer(
     TensorView* tv,
     bool as_consumer,
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     Val* idx) const {
   if (!tv->isDoubleBuffered()) {
     return idx;
@@ -1543,7 +1529,7 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
 
 std::unordered_map<Val*, Val*> TensorIndexer::getPredicateIndexReplacementMap(
     TensorView* tv,
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     bool is_start_predicate,
     bool is_unswitch,
     const std::unordered_map<ValGroup, Val*>& index_map,
@@ -1551,7 +1537,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getPredicateIndexReplacementMap(
   std::unordered_map<Val*, Val*> replacement_map;
 
   auto replace_for_unswitch =
-      [&](kir::ForLoop* fl, IterDomain* loop_id, bool within_unswitch) -> Val* {
+      [&](ForLoop* fl, IterDomain* loop_id, bool within_unswitch) -> Val* {
     // Don't replace thread indices even when unswitched
     if (fl->iter_domain()->isThread() ||
         (fl->iter_domain()->getParallelType() != ParallelType::Vectorize &&
@@ -1565,7 +1551,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getPredicateIndexReplacementMap(
     }
   };
 
-  auto replace_for_double_buffering = [&](kir::ForLoop* fl,
+  auto replace_for_double_buffering = [&](ForLoop* fl,
                                           Val* original_index) -> Val* {
     auto db_axis =
         GpuLower::current()->doubleBufferInfo().getDoubleBufferAxis(tv);
@@ -1675,7 +1661,7 @@ bool isNonDivisibleSplit(const ExprGroup& expr_group) {
 
 std::optional<DoubleBufferLoopStage> getDoubleBufferLoopStage(
     TensorView* tv,
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     const ValGraph& loop_graph) {
   auto db_axis =
       GpuLower::current()->doubleBufferInfo().getDoubleBufferAxis(tv);
@@ -1698,7 +1684,7 @@ std::optional<DoubleBufferLoopStage> getDoubleBufferLoopStage(
 std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops,
+    const std::optional<std::vector<ForLoop*>>& for_loops,
     bool is_unswitch) {
   if (is_unswitch) {
     VERBOSE() << "get unswitch predicates of " << tv->toString() << " in "
@@ -1733,7 +1719,6 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
             << std::endl;
 
   const auto& index_info = computeIndex(
-      tv,
       expr,
       for_loops,
       traversalGraph().toGroups(predicate_domains),
