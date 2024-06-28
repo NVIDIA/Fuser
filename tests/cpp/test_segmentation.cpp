@@ -601,4 +601,49 @@ TEST_F(SegmentationTest, codeGenSupportedMergeIssue1970) {
   testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
 }
 
+// Test that Reduction axes are removed in segmentation edges
+// https://github.com/NVIDIA/Fuser/pull/2487
+TEST_F(SegmentationTest, EraseReductionsInSegmentationEdges) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigConcreteTensor({3, 32, 17}, DataType::Float);
+  fusion->addInput(tv0);
+
+  auto* tv1 = sum(tv0, {2});
+  tv1->setAllocationDomain(
+      {tv1->axis(1), tv1->axis(2), tv1->axis(0)}, {true, std::nullopt, true});
+  auto* tv2 = sum(tv1, {0});
+  auto* tv3 = sum(tv2, {0});
+
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn({3, 32, 17}, options);
+  auto outputs = fec.runFusionWithInputs({in0});
+
+  testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
+
+  const FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  ASSERT_NE(runtime, nullptr);
+
+  EXPECT_TRUE(runtime->isSegmented());
+
+  SegmentedFusion* segmented_fusion = runtime->fusionSegments();
+
+  EXPECT_EQ(segmented_fusion->groups().size(), 3);
+
+  for (SegmentedGroup* group : segmented_fusion->groups()) {
+    std::unique_ptr<Fusion> segment_fusion =
+        segmented_fusion->makeFusion(group).second;
+
+    TensorView* segment_input =
+        segment_fusion->inputs().at(0)->as<TensorView>();
+
+    EXPECT_FALSE(segment_input->domain()->hasReduction());
+  }
+}
+
 } // namespace nvfuser

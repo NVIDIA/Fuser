@@ -1900,31 +1900,27 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     }
 
     // Remove reduction domains from new_td
-    std::vector<IterDomain*> no_red_alloc;
-    std::vector<std::optional<bool>> no_red_contiguity;
-    bool has_reduction = false;
-    for (size_t i : c10::irange(new_td->maybeAllocation().size())) {
-      IterDomain* id = new_td->maybeAllocation()[i];
-      if (id->isReduction()) {
-        has_reduction = true;
-        continue;
+    if (new_td->hasReduction()) {
+      std::vector<std::optional<bool>> no_red_contiguity;
+      for (size_t i : c10::irange(new_td->maybeAllocation().size())) {
+        if (new_td->maybeAllocation()[i]->isReduction()) {
+          continue;
+        }
+        no_red_contiguity.push_back(new_td->contiguity()[i]);
       }
-      no_red_alloc.push_back(id);
-      no_red_contiguity.push_back(new_td->contiguity()[i]);
-    }
-    if (has_reduction) {
       if (new_td->hasAllocation()) {
         const std::vector<IterDomain*> new_logical =
             TensorDomain::noReductions(new_td->logical());
         new_td = IrBuilder::create<TensorDomain>(
             /*root_domain=*/std::vector<IterDomain*>{},
             /*logical_domain=*/new_logical,
-            /*allocation=*/no_red_alloc,
+            /*allocation=*/TensorDomain::noReductions(new_td->allocation()),
             /*loop_domain=*/new_logical,
             /*contiguity=*/no_red_contiguity);
       } else {
         new_td = IrBuilder::create<TensorDomain>(
-            /*logical_domain=*/no_red_alloc, /*contiguity=*/no_red_contiguity);
+            /*logical_domain=*/TensorDomain::noReductions(new_td->logical()),
+            /*contiguity=*/no_red_contiguity);
       }
     }
 
