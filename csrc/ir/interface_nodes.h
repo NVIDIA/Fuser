@@ -388,7 +388,7 @@ class NVF_API TensorView : public Val {
   void setMemoryType(MemoryType mt);
 
   // Apply circular buffering transformation
-  void circularBuffer(int64_t number_of_stages);
+  void circularBuffer(int64_t number_of_stages=2);
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
