@@ -258,9 +258,11 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   tv2->axis(-2)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(/*stage=*/3);
 
-  std::vector<int64_t> tensor_sizes = {10, 32, 50, 128};
-  for (int64_t tensor_outer_dim : tensor_sizes) {
-    for (int64_t tensor_inner_dim : tensor_sizes) {
+  std::vector<int64_t> outer_tensor_sizes = {10, 32, 50, 128};
+  // NOTE: Multiple of 16 required for inner dimension
+  std::vector<int64_t> inner_tensor_sizes = {16, 32, 128};
+  for (int64_t tensor_outer_dim : outer_tensor_sizes) {
+    for (int64_t tensor_inner_dim : inner_tensor_sizes) {
       auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
       at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
       at::Tensor t1 = at::exp(t0);
@@ -322,9 +324,11 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPointwise) {
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
-  std::vector<int64_t> tensor_sizes = {10, 32, 50, 128};
-  for (int64_t tensor_outer_dim : tensor_sizes) {
-    for (int64_t tensor_inner_dim : tensor_sizes) {
+  std::vector<int64_t> outer_tensor_sizes = {10, 32, 50, 128};
+  // NOTE: Multiple of 16 required for inner dimension
+  std::vector<int64_t> inner_tensor_sizes = {16, 32, 128};
+  for (int64_t tensor_outer_dim : outer_tensor_sizes) {
+    for (int64_t tensor_inner_dim : inner_tensor_sizes) {
       auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
       at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
       at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
@@ -384,9 +388,11 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(/*stage=*/2);
 
-  std::vector<int64_t> tensor_sizes = {10, 32, 50, 128};
-  for (int64_t tensor_outer_dim : tensor_sizes) {
-    for (int64_t tensor_inner_dim : tensor_sizes) {
+  std::vector<int64_t> outer_tensor_sizes = {10, 32, 50, 128};
+  // NOTE: Multiple of 16 required for inner dimension
+  std::vector<int64_t> inner_tensor_sizes = {16, 32, 128};
+  for (int64_t tensor_outer_dim : outer_tensor_sizes) {
+    for (int64_t tensor_inner_dim : inner_tensor_sizes) {
       auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
       at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
       at::Tensor t1 = sum(t0, {-1});
@@ -608,9 +614,11 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingMatmul) {
   tv1_cache_smem->circularBuffer(3);
 
   constexpr int64_t K = 1024;
-  std::vector<int64_t> tensor_sizes = {10, 32, 50, 128};
-  for (int64_t M : tensor_sizes) {
-    for (int64_t N : tensor_sizes) {
+  std::vector<int64_t> M_tensor_sizes = {10, 32, 50, 128};
+  // NOTE: Multiple of 16 required for inner dimension
+  std::vector<int64_t> N_tensor_sizes = {16, 32, 128};
+  for (int64_t M : M_tensor_sizes) {
+    for (int64_t N : N_tensor_sizes) {
       auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
       at::Tensor t0 = at::randn({M, K}, options);
       at::Tensor t1 = at::randn({K, N}, options);
