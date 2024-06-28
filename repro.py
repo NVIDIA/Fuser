@@ -8,7 +8,7 @@ def main():
     os.environ["MASTER_PORT"] = "12345"
     rank = int(os.environ["OMPI_COMM_WORLD_RANK"])
     world_size = int(os.environ["OMPI_COMM_WORLD_SIZE"])
-    # Initialize distributed process group (replace with actual init_method)
+    assert world_size >= 4, "This test requires at least 4 GPUs."
     dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
 
     # Create a random tensor on each process
