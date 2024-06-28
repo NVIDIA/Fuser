@@ -204,7 +204,7 @@ TEST_F(OverlapTest, SimpleComputeComm) {
 
     if (params.use_different_streams) {
       auto new_stream = c10::cuda::getStreamFromPool(
-          /*isHighPriority=*/true, my_device_index_);
+          /*isHighPriority=*/false, my_device_index_);
       streams.push_back(new_stream);
       setCurrentCUDAStream(new_stream);
     }

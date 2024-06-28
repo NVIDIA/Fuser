@@ -407,10 +407,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
                : (tma_g_to_tile_stride_g.count(g) ? SB : CB));
   };
   // merge contiguous C groups and CB groups
-  int64_t i = 0;
-  while (i < (int64_t)tma_domain.size() - 1) {
+  for (int64_t i = 0; i < (int64_t)tma_domain.size() - 1; i++) {
     if (!contiguity[i]) {
-      i++;
       continue;
     }
     bool is_c = (gtype(i) == C && gtype(i + 1) == C);
@@ -423,12 +421,11 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
         auto g = tma_domain[i].as<ValGroupAndItsGraph>().group;
         tma_g_to_box_g.emplace(g, g);
       }
-    } else {
-      i++;
+      i--;
     }
   }
   // merge contiguous C with SB/CB
-  for (auto i : c10::irange((int64_t)tma_domain.size() - 1)) {
+  for (int64_t i = 0; i < (int64_t)tma_domain.size() - 1; i++) {
     if (!contiguity[i]) {
       continue;
     }
@@ -445,6 +442,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
           it != tma_g_to_tile_stride_g.end()) {
         tma_g_to_tile_stride_g.emplace(g, it->second);
       }
+      i--;
     }
   }
 
