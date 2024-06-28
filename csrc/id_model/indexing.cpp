@@ -938,7 +938,9 @@ kir::ForLoop* getForLoop(
   }
 
   auto it = std::find_if(
-      for_loops->begin(), for_loops->end(), [&](kir::ForLoop* for_loop) -> bool {
+      for_loops->begin(),
+      for_loops->end(),
+      [&](kir::ForLoop* for_loop) -> bool {
         IterDomain* for_loop_id = for_loop->iter_domain();
         return loop_graph.disjointValSets().strictAreMapped(
             loop_id, for_loop_id);
@@ -1047,19 +1049,8 @@ Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
 }
 
 std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
-    TensorView* tv,
-    const Expr* expr,
-    const std::optional<std::vector<kir::ForLoop*>>& for_loops,
-    const std::vector<IterDomain*>& loop_domains,
-    bool is_predicate) const {
-
-  // If it's for predicates, it's always consumer indexing
-  const bool as_consumer = is_predicate ||
-      std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
-          expr->outputs().end();
-
+    const std::vector<IterDomain*>& loop_domains) const {
   std::unordered_map<ValGroup, Val*> initial_index_map;
-
 
   // For a given list of the loop domains, assign its corresponding
   // index Val.
@@ -1069,16 +1060,6 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
     VERBOSE() << "Setting initial index. " << loop_id->toString() << ", "
               << nvfuser::toString(almost_exact_group) << ", "
               << loop_index->toInlineString() << std::endl;
-
-    kir::ForLoop* for_loop = getForLoop(loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
-
-    // If the for-loop is double-buffered and not prologue, the loop
-    // index should be advanced by one except for the double-buffered
-    // tensor itself
-    if (for_loops.has_value() && GpuLower::hasCurrent() && !as_consumer) {
-      loop_index =
-          adjustProducerLoopIndexForDoubleBuffering(expr, for_loop, loop_index);
-    }
 
     if (initial_index_map.find(almost_exact_group) != initial_index_map.end()) {
       // Initial index already set. This can happen as this is an
@@ -1095,14 +1076,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
       continue;
     }
 
-    NVF_ERROR(
-        initial_index_map.emplace(almost_exact_group, loop_index).second,
-        "Initial index already set for ",
-        nvfuser::toString(almost_exact_group),
-        ". Existing: ",
-        initial_index_map.at(almost_exact_group)->toInlineString(),
-        ". New: ",
-        loop_index->toInlineString());
+    initial_index_map.emplace(almost_exact_group, loop_index);
   }
 
   return initial_index_map;
@@ -1116,8 +1090,8 @@ std::vector<Val*> TensorIndexer::getIndexFor(
   // auto info = computeIndex(expr, index_groups);
   const auto& info =
       computeIndex(tv, expr, for_loops, index_groups, false, false);
-  const auto& replacement_map =
-      getIndexReplacementMap(info.loop_domains, for_loops, info.index_map);
+  const auto& replacement_map = getIndexReplacementMap(
+      tv, expr, info.loop_domains, for_loops, info.index_map);
 
   std::vector<Val*> result;
   result.reserve(index_groups.size());
@@ -1219,8 +1193,8 @@ Val* TensorIndexer::getLinearIndex(
     contig_strides.push_front(strides.at(i1));
   }
 
-  const auto& replacement_map =
-      getIndexReplacementMap(index_info.loop_domains, for_loops, index_map);
+  const auto& replacement_map = getIndexReplacementMap(
+      tv, expr, index_info.loop_domains, for_loops, index_map);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -1237,14 +1211,15 @@ Val* TensorIndexer::getLinearIndex(
     Val* replaced_idx = ir_utils::replaceValRecursively(idx, replacement_map);
 
     linear_index = SimplifyingIrBuilder::addExpr(
-        linear_index, SimplifyingIrBuilder::mulExpr(replaced_idx, contig_strides.at(i)));
+        linear_index,
+        SimplifyingIrBuilder::mulExpr(replaced_idx, contig_strides.at(i)));
   }
 
   // Process double buffering when for-loops are given
   if (tv->isDoubleBuffered() && for_loops.has_value() &&
       GpuLower::hasCurrent()) {
-    auto adjusted_index =
-        adjustIndexToSwitchBuffer(tv, as_consumer, for_loops.value(), linear_index);
+    auto adjusted_index = adjustIndexToSwitchBuffer(
+        tv, as_consumer, for_loops.value(), linear_index);
     linear_index = adjusted_index;
   }
 
@@ -1295,8 +1270,7 @@ IndexingInfo TensorIndexer::computeIndex(
       expr, loop_domains, index_groups, traversalGraph());
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
-      getInitialIndexMap(
-          tv, expr, for_loops, loop_domains, is_predicate);
+      getInitialIndexMap(loop_domains);
 
   const std::unordered_set<ValGroup> max_path_loop_domains = is_unswitch
       ? getMaxPathLoopDomains(
@@ -1318,12 +1292,29 @@ IndexingInfo TensorIndexer::computeIndex(
 }
 
 std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
+    TensorView* tv,
+    const Expr* expr,
     const std::vector<IterDomain*>& loop_domains,
     const std::optional<std::vector<kir::ForLoop*>>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
+  bool as_consumer =
+      std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
+      expr->outputs().end();
+
+  bool as_producer =
+      std::find(expr->inputs().begin(), expr->inputs().end(), tv) !=
+      expr->inputs().end();
+
+  NVF_ERROR(as_consumer || as_producer);
+
   for (const auto loop_id : loop_domains) {
+    const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
+    auto index_it = index_map.find(loop_group);
+    NVF_ERROR(index_it != index_map.end());
+    Val* cur_index = index_it->second;
+
     Val* replacement_index = nullptr;
     // Replace the index of a vectorized/bulk domain with zero. Note that
     // vectorized domains may need to use N-1, where N is the extent
@@ -1333,16 +1324,26 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         loop_id->getParallelType() == ParallelType::Bulk) {
       replacement_index = loop_id->fusion()->zeroVal();
     } else {
-      kir::ForLoop* for_loop = getForLoop(loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
+      kir::ForLoop* for_loop = getForLoop(
+          loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
       // Even when the iter-domain is not size-1, the actual for-loop
       // can be (e.g., for double buffering).
-      if (for_loop != nullptr && for_loop->isTrivial()) {
-        VERBOSE() << "Replacing a loop index with a loop start val: "
-                  << for_loop->start()->toInlineString()
-                  << ", loop_id: " << loop_id->toString()
-                  << std::endl;
-        replacement_index = for_loop->start();
+      if (for_loop != nullptr) {
+        if (for_loop->isTrivial()) {
+          VERBOSE() << "Replacing a loop index with a loop start val: "
+                    << for_loop->start()->toInlineString()
+                    << ", loop_id: " << loop_id->toString() << std::endl;
+          replacement_index = for_loop->start();
+        }
+
+        // TODO: Make it mandatory to have a GpuLower
+        if (GpuLower::hasCurrent() && as_producer) {
+          replacement_index = adjustProducerLoopIndexForDoubleBuffering(
+              expr,
+              for_loop,
+              replacement_index != nullptr ? replacement_index : cur_index);
+        }
       }
     }
 
@@ -1350,10 +1351,6 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
       continue;
     }
 
-    const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
-    auto index_it = index_map.find(loop_group);
-    NVF_ERROR(index_it != index_map.end());
-    Val* cur_index = index_it->second;
     replacement_map.emplace(cur_index, replacement_index);
   }
 
@@ -1408,6 +1405,9 @@ std::vector<Val*> TensorIndexer::getPerDimIndex(
   return indices;
 }
 
+// If the for-loop is double-buffered and not prologue, the loop
+// index should be advanced by one except for the double-buffered
+// tensor itself
 Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
     const Expr* expr,
     const kir::ForLoop* for_loop,

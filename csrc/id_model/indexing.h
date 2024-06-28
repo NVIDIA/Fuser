@@ -120,11 +120,7 @@ class TensorIndexer {
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
   // index map, which is built for the Loop graph.
   std::unordered_map<ValGroup, Val*> getInitialIndexMap(
-      TensorView* tv,
-      const Expr* expr,
-      const std::optional<std::vector<kir::ForLoop*>>& for_loops,
-      const std::vector<IterDomain*>& loop_domains,
-      bool is_predicate) const;
+      const std::vector<IterDomain*>& loop_domains) const;
 
   // Get the loop domains of a given expr. Currently, they're always
   // the loop domains of a consumer tensor, but in the future this
@@ -151,6 +147,8 @@ class TensorIndexer {
   // predicates, and one index map would be sufficient for both
   // indices by using different replacement maps.
   std::unordered_map<Val*, Val*> getIndexReplacementMap(
+      TensorView* tv,
+      const Expr* expr,
       const std::vector<IterDomain*>& loop_domains,
       const std::optional<std::vector<kir::ForLoop*>>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
