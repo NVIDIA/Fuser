@@ -735,14 +735,31 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
 }
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
-  const auto& root_domain = tv->getMaybeRootDomain();
-  const auto& domain = tv->getLoopDomain();
-  // Grab all values in the history of the tensor view's domain
-  auto all_vals = DependencyCheck::getAllValsBetween(
-      {root_domain.begin(), root_domain.end()}, {domain.begin(), domain.end()});
+  VectorOfUniqueEntries<Val*> all_vals;
+  const auto& root_domain = tv->getRootDomain();
+  const auto& logical_domain = tv->getLogicalDomain();
+  const auto& loop_domain = tv->getLoopDomain();
+  const auto& alloc_domain = tv->getAllocationDomain();
+
+  std::array<const std::vector<IterDomain*>*, 4> domains{
+      &root_domain, &logical_domain, &loop_domain, &alloc_domain};
+
+  for (auto dom0 : domains) {
+    if (dom0->empty()) {
+      continue;
+    }
+    for (auto dom1 : domains) {
+      if (dom1->empty()) {
+        continue;
+      }
+      auto all_vals_01 = DependencyCheck::getAllValsBetween(
+          {dom0->begin(), dom0->end()}, {dom1->begin(), dom1->end()});
+      all_vals.pushBack(all_vals_01);
+    }
+  }
 
   // Filter so we only have iteration domains (ignore Ints used in split)
-  auto all_ids = ir_utils::filterByType<IterDomain>(all_vals);
+  auto all_ids = ir_utils::filterByType<IterDomain>(all_vals.vector());
   return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
 }
 
@@ -1031,7 +1048,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
 
-  } else if (auto fl = dynamic_cast<const kir::ForLoop*>(expr)) {
+  } else if (auto fl = dynamic_cast<const ForLoop*>(expr)) {
     // If the start, stop, step are not thread dependent
     //  then this for loop should be thread independent.
     if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||

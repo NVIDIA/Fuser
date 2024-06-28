@@ -260,14 +260,17 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   // Initialize frontier as the allocation domain
   auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto alloc_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
-  for (auto i : c10::irange((int64_t)gmem_alloc_dom.size())) {
-    auto id = gmem_alloc_dom.at(i);
-    // TODO: should I use i below, or should I instead use the position of id in
-    // the allocation domain with broadcast? I don't remember the detail, but
-    // I will just use i for now and leave the support for broadcast for future.
-    auto stride = IrBuilder::getItemExpr(alloc_strides, i);
+  // All allocation domains including broadcasts and reductions.
+  auto all_allocation_domains =
+      TensorDomain::noReductions(gmem_tv->getMaybeAllocationDomain());
+  for (auto id : gmem_alloc_dom) {
+    auto it = std::find(
+        all_allocation_domains.begin(), all_allocation_domains.end(), id);
+    NVF_ERROR(it != all_allocation_domains.end());
+    int64_t pos = it - all_allocation_domains.begin();
+    auto stride = IrBuilder::getItemExpr(alloc_strides, pos);
     frontier.emplace_back(
-        id_graph.toGroup(id), gmem_tv->getContiguity().at(i).value(), stride);
+        id_graph.toGroup(id), gmem_tv->getContiguity().at(pos).value(), stride);
   }
   // Propagate forward from the gmem allocation domain to TMA ValGroups
   for (auto [expr, direction] :
@@ -404,10 +407,8 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
                : (tma_g_to_tile_stride_g.count(g) ? SB : CB));
   };
   // merge contiguous C groups and CB groups
-  int64_t i = 0;
-  while (i < (int64_t)tma_domain.size() - 1) {
+  for (int64_t i = 0; i < (int64_t)tma_domain.size() - 1; i++) {
     if (!contiguity[i]) {
-      i++;
       continue;
     }
     bool is_c = (gtype(i) == C && gtype(i + 1) == C);
@@ -420,12 +421,11 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
         auto g = tma_domain[i].as<ValGroupAndItsGraph>().group;
         tma_g_to_box_g.emplace(g, g);
       }
-    } else {
-      i++;
+      i--;
     }
   }
   // merge contiguous C with SB/CB
-  for (auto i : c10::irange((int64_t)tma_domain.size() - 1)) {
+  for (int64_t i = 0; i < (int64_t)tma_domain.size() - 1; i++) {
     if (!contiguity[i]) {
       continue;
     }
@@ -442,6 +442,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
           it != tma_g_to_tile_stride_g.end()) {
         tma_g_to_tile_stride_g.emplace(g, it->second);
       }
+      i--;
     }
   }
 
