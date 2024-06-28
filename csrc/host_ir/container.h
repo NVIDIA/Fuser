@@ -13,6 +13,8 @@ namespace nvfuser {
 
 namespace hir {
 
+class Stream;
+
 /*
 HostIrContainer is used to represent a host program.
 1) It inherits from Fusion, so that (Host) IRs can be resgistered to it.
@@ -40,8 +42,11 @@ class HostIrContainer final : public Fusion {
     return top_level_exprs_.push_back(expr);
   }
 
+  Stream* getDefaultStream();
+
  private:
   std::vector<Expr*> top_level_exprs_;
+  Stream* default_stream_;
 };
 
 } // namespace hir

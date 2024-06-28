@@ -487,6 +487,33 @@ TEST_F(NVFuserTest, HostIrSetStream) {
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
 }
 
+// The following test simply demonstrate how to change current CUDA stream in
+// the host program
+TEST_F(NVFuserTest, HostIrDefaultStream) {
+  auto change_stream = [](bool use_default_stream) {
+    auto hic = std::make_unique<HostIrContainer>();
+    Stream* stream;
+    if (use_default_stream) {
+      stream = hic->getDefaultStream();
+    } else {
+      stream = IrBuilder::createInContainer<Stream>(hic.get());
+    }
+    auto set_stream =
+        IrBuilder::createInContainer<SetCurrentStream>(hic.get(), stream);
+    hic->pushBackTopLevelExprs(set_stream);
+    HostIrExecutor hie(std::move(hic));
+    hie.runWithInput({});
+  };
+
+  setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
+  change_stream(false);
+  EXPECT_NE(
+      c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+  change_stream(true);
+  EXPECT_EQ(
+      c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+}
+
 using StreamHostIrTestParams = std::tuple<bool, int, int>;
 using StreamHostIrTest = NVFuserFixtureParamTest<StreamHostIrTestParams>;
 
