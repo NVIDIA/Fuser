@@ -399,8 +399,6 @@ using ReshapeReduction = NVFuserFixtureParamTest<ReshapeReductionParam>;
 TEST_P(ReshapeReduction, FusionReshapeReduction) {
   const auto& param = GetParam();
   const auto& [input_shape, output_shape] = param.reshape_example;
-  const auto& has_implicit_broadcast = param.has_implicit_broadcast;
-  const auto& reshape_before_reduction = param.reshape_before_reduction;
   maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
   reductionViewAddFusion(
       input_shape,
