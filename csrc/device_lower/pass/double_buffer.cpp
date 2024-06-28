@@ -596,6 +596,33 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 // Epilogue. Prologue only copies the load expressions of double
 // buffered tensors, whereas Epilogue does any expression other than
 // the loads. Main copies everything.
+//
+// Loop Structure:
+// pre-prolog:
+// - smem allocations (mbarriers, tokens)
+// - mbarrier init for all stages
+//
+// prolog loop:
+// - 0th thread:
+//   - issue cp async bulks for all but last stages
+//
+// main loop:
+// - select a single thread:
+//   - issue next cp async bulk
+// - copy body, without
+//   - smem allocations
+//   - mbarrier inits
+//   - mbarrier inval
+//
+// epilogue loop:
+// - copy body, without
+//   - smem allocations
+//   - issuing cp async
+//   - mbarrier inits
+//   - mbarrier inval
+//
+// post-epilogue:
+//  - 0th thread: loop with mbarriers inval
 class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
  public:
   static kir::ForLoop* clone(
@@ -643,6 +670,19 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
     if (mbarrier_arrive_tx_ == nullptr || cloned_scopes_.size() > 1) {
       cloned_scopes_.back()->push_back(cloned_loop);
     } else {
+      // mbarrier::arriveExpectTx and TMA operations occur in prologue and main loops.
+      //
+      // Pseudo-code example:
+      // if (elect_sync()) {
+      //   mbarrier_tokens[stage] = mbarrier::arriveExpectTx(mbarriers[stage],
+      //                                                     expected_tx);
+      //   for (...) {
+      //     Hopper::cpAsyncBulkTensorTileG2S(
+      //       Hopper::CpAsyncBulkTensorTileG2SIndex<num_dims>{ 
+      //         tma_descriptor, global_index, mbarrier[stage] },
+      //       shared_index(stage, num_stages));
+      //   }
+      // }
       NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
       kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
       kir::Scope& body = if_expr->thenBody();
@@ -652,7 +692,10 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
       mbarrier_arrive_tx_ = nullptr;
     }
 
-    // Add mbarrier wait after launching tma operations
+    // mbarrier::wait occur in main and epilogue loops.
+    //
+    // Pseudo-code example:
+    //  mbarrier::wait(mbarriers[stage], mbarrier_tokens[stage]);
     if (mbarrier_wait_ != nullptr && cloned_scopes_.size() == 1) {
       NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
       cloned_top_level_loop_->body().push_back(mbarrier_wait_);
@@ -697,33 +740,6 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
     int64_t stage_depth =
         GpuLower::current()->doubleBufferInfo().getStageDepthFor(
             double_buffer_loop_->iter_domain());
-
-    // Target:
-    // pre-prolog:
-    // - smem allocations (mbarriers, tokens)
-    // - mbarrier init (0..stages)
-    //
-    // prolog loop:
-    // - 0th thread:
-    //   - issue 0..stages-1 cp async bulks
-    //
-    // main loop:
-    // - 0th thread:
-    //   - issue next cp async bulk
-    // - copy body, without
-    //   - smem allocations
-    //   - mbarrier inits
-    //   - mbarrier inval
-    //
-    // epilogue loop:
-    // - copy body, without
-    //   - smem allocations
-    //   - issuing cp async
-    //   - mbarrier inits
-    //   - mbarrier inval
-    //
-    // post-epilogue:
-    //  - 0th thread: loop with mbarriers inval
 
     switch (loop_type_) {
       case DoubleBufferLoopStage::Prolog: {
