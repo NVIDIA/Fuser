@@ -2708,7 +2708,21 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
 
   auto outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  at::Tensor t3, t4;
+  if (fusion_enabled) {
+    // More accurate reference, which is what nvfuser computes
+    t3 = at::matmul(t0.to(at::kFloat), t1.to(at::kFloat));
+    t4 = at::matmul(t0.to(at::kFloat), t2.to(at::kFloat));
+  } else {
+    // at::matmul downcasts to half-precision, and we cast back up, which loses
+    // precision. Computing a reference as above leads to allclose failure, so
+    // we use the less accurate reference in this case.
+    t3 = at::matmul(t0, t1).to(at::kFloat);
+    t4 = at::matmul(t0, t2).to(at::kFloat);
+  }
+  at::Tensor tref = ((at::sigmoid(t3) * t3) * t4);
+
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();
