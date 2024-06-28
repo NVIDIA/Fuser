@@ -243,7 +243,8 @@ TEST_F(GpuViewTest, FusionReshapeFailMulitDimInference) {
 void reductionViewAddFusion(
     const std::vector<int64_t>& input_shape,
     const std::vector<int64_t>& output_shape,
-    bool reshape_before_reduction) {
+    const bool has_implicit_broadcast,
+    const bool reshape_before_reduction) {
   constexpr int kReductionAxis = -1;
 
   // Drop size for reduction axis from reshape_shape
@@ -260,37 +261,35 @@ void reductionViewAddFusion(
   }
 
   auto bias_shape = (reshape_before_reduction) ? input_shape : output_shape;
-  for (auto has_implicit_broadcast : {false, true}) {
-    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
-    TensorView* x = (has_implicit_broadcast)
-        ? makeConcreteTensor(input_shape)
-        : makeSymbolicTensor(input_shape.size());
-    TensorView* bias = (has_implicit_broadcast)
-        ? makeConcreteTensor(bias_shape)
-        : makeSymbolicTensor(bias_shape.size());
-    fusion.addInput(x);
-    fusion.addInput(bias);
+  TensorView* x = (has_implicit_broadcast)
+      ? makeConcreteTensor(input_shape)
+      : makeSymbolicTensor(input_shape.size());
+  TensorView* bias = (has_implicit_broadcast)
+      ? makeConcreteTensor(bias_shape)
+      : makeSymbolicTensor(bias_shape.size());
+  fusion.addInput(x);
+  fusion.addInput(bias);
 
-    auto tv1 =
-        (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
-    auto x_reshape = reshape(tv1, reshape_shape, output_shape);
-    auto y = (reshape_before_reduction) ? sum(x_reshape, {kReductionAxis})
-                                        : add(x_reshape, bias);
-    fusion.addOutput(y);
+  auto tv1 =
+      (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
+  auto x_reshape = reshape(tv1, reshape_shape, output_shape);
+  auto y = (reshape_before_reduction) ? sum(x_reshape, {kReductionAxis})
+                                      : add(x_reshape, bias);
+  fusion.addOutput(y);
 
-    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::Tensor at_x = at::randn(input_shape, options);
-    at::Tensor at_bias = at::randn(bias_shape, options);
-    std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  at::Tensor at_bias = at::randn(bias_shape, options);
+  std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-    FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
-    auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
 
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
-  }
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 typedef std::vector<int64_t> shape_t;
@@ -368,33 +367,52 @@ std::vector<ReshapeExample> reshape_after_reduce_examples = {
     {{1, 27454, 1, 2}, {1, 3922, 1, 7}},
     {{1, 7844, 1, 7}, {1, 1961, 4}}};
 
-namespace {
-using ReshapeBeforeReduction = NVFuserFixtureParamTest<ReshapeExample>;
-TEST_P(ReshapeBeforeReduction, FusionReshapeBeforeReduction) {
-  const auto& [input_shape, output_shape] = GetParam();
-  maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
-  reductionViewAddFusion(
-      input_shape, output_shape, /*reshape_before_reduction=*/true);
-}
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    ReshapeBeforeReduction,
-    ::testing::ValuesIn(all_reshape_examples));
-} // namespace
+namespace ReshapeReduction {
 
-namespace {
-using ReshapeAfterReduction = NVFuserFixtureParamTest<ReshapeExample>;
-TEST_P(ReshapeAfterReduction, FusionReshapeAfterReduction) {
-  const auto& [input_shape, output_shape] = GetParam();
+struct ReshapeReductionParam {
+  ReshapeExample reshape_example;
+  bool has_implicit_broadcast;
+  bool reshape_before_reduction;
+};
+
+std::vector<ReshapeReductionParam> generateReshapeReductionParams() {
+  // For each reshape, test with and without implicit broadcast
+  int total_tests =
+      2 * (all_reshape_examples.size() + reshape_after_reduce_examples.size());
+  std::vector<ReshapeReductionParam> params;
+  params.reserve(total_tests);
+  for (auto reshape_before_reduction : {true, false}) {
+    const auto& examples = reshape_before_reduction
+        ? all_reshape_examples
+        : reshape_after_reduce_examples;
+    for (auto has_implicit_broadcast : {false, true}) {
+      for (const auto& re : examples) {
+        params.push_back(
+            {re, has_implicit_broadcast, reshape_before_reduction});
+      }
+    }
+  }
+  return params;
+}
+
+using ReshapeReduction = NVFuserFixtureParamTest<ReshapeReductionParam>;
+TEST_P(ReshapeReduction, FusionReshapeReduction) {
+  const auto& param = GetParam();
+  const auto& [input_shape, output_shape] = param.reshape_example;
   maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
   reductionViewAddFusion(
-      input_shape, output_shape, /*reshape_before_reduction=*/false);
+      input_shape,
+      output_shape,
+      param.has_implicit_broadcast,
+      param.reshape_before_reduction);
 }
+
 INSTANTIATE_TEST_SUITE_P(
     ,
-    ReshapeAfterReduction,
-    ::testing::ValuesIn(reshape_after_reduce_examples));
-} // namespace
+    ReshapeReduction,
+    ::testing::ValuesIn(generateReshapeReductionParams()));
+
+} // namespace ReshapeReduction
 
 void persistentViewAddFusion(
     std::vector<int64_t>& input_shape,

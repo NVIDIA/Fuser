@@ -90,6 +90,13 @@ class Backend : public torch::CustomClassHolder {
     return c10::make_intrusive<Work>();
   }
 
+  c10::intrusive_ptr<Work> _allgather_base(
+      at::Tensor& outputBuffer,
+      at::Tensor& inputBuffer,
+      const AllgatherOptions& opts = AllgatherOptions()) {
+    return c10::make_intrusive<Work>();
+  }
+
   c10::intrusive_ptr<Work> gather(
       std::vector<std::vector<at::Tensor>>& outputTensors,
       std::vector<at::Tensor>& inputTensors,
@@ -103,6 +110,14 @@ class Backend : public torch::CustomClassHolder {
       const ReduceScatterOptions& opts = ReduceScatterOptions()) {
     return c10::make_intrusive<Work>();
   }
+
+  c10::intrusive_ptr<Work> _reduce_scatter_base(
+      at::Tensor& outputBuffer,
+      at::Tensor& inputBuffer,
+      const ReduceScatterOptions& opts = ReduceScatterOptions()) {
+    return c10::make_intrusive<Work>();
+  }
+
   c10::intrusive_ptr<Work> scatter(
       std::vector<at::Tensor>& outputTensors,
       std::vector<std::vector<at::Tensor>>& inputTensors,
