@@ -798,7 +798,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
             new_ldst, mbarrier_arrive_tx_->mbarrier());
 
         // If last cloned scope is the cloned_top_level_loop body, then add
-	// mbarrier::arriveExpectTx and new loadStoreOp.
+        // mbarrier::arriveExpectTx and new loadStoreOp.
         if (cloned_scopes_.size() == 1) {
           kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
           kir::Scope& body = if_expr->thenBody();
@@ -806,106 +806,118 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
           body.push_back(new_ldst);
           cloned_scopes_.back()->push_back(if_expr);
           mbarrier_arrive_tx_ = nullptr;
-	  break;
+          break;
         }
 
-	// Otherwise, we are in a nested for-loop and should wait until we
-	// return to top-level for loop.
+        // Otherwise, we are in a nested for-loop and should wait until we
+        // return to top-level for loop.
         cloned_scopes_.back()->push_back(new_ldst);
         break;
       }
       case DoubleBufferLoopStage::Main: {
-        // Handle cpAsyncBulk type LoadStoreOp that is registered with
-        //  token smem TVs as it requires synchronization
-        if (expr->isA<LoadStoreOp>() && mbarrier_token_exists) {
-          // cpAsyncBulk for double-buffered tensor has assigned a placeholder
-          // for token objects
-
-          //! Before waiting at the mbarrier for the current stage, we
-          //! launch the load operation for the next available stage. The
-          //! last buffer in the pipeline is the first available after the
-          //! prologue loop launches the initial wave of tma loads.
-          //!
-          //! current_compute_stage = for_loop_index % stage_depth
-          //! current_load_stage = (for_loop_index + (stage_depth - 1)) %
-          //! stage_depth)
-          if (current_compute_stage_ == nullptr) {
-            current_compute_stage_ = IrBuilder::modExpr(
-                double_buffer_loop_->index(),
-                IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-            kir::Allocate* current_compute_stage_alloc =
-                IrBuilder::create<kir::Allocate>(
-                    current_compute_stage_,
-                    MemoryType::Local,
-                    IrBuilder::create<Val>(1L, PrimDataType::Index),
-                    /*zero_init=*/false);
-            cloned_top_level_loop_->body().push_back(
-                current_compute_stage_alloc);
-            cloned_top_level_loop_->body().push_back(
-                current_compute_stage_->definition());
-          }
-
-          if (current_load_stage_ == nullptr) {
-            current_load_stage_ = IrBuilder::modExpr(
-                IrBuilder::addExpr(
-                    double_buffer_loop_->index(),
-                    IrBuilder::subExpr(
-                        IrBuilder::create<Val>(
-                            stage_depth, PrimDataType::Index),
-                        IrBuilder::create<Val>(1L, PrimDataType::Index))),
-                IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-            kir::Allocate* current_load_stage_alloc =
-                IrBuilder::create<kir::Allocate>(
-                    current_load_stage_,
-                    MemoryType::Local,
-                    IrBuilder::create<Val>(1L, PrimDataType::Index),
-                    /*zero_init=*/false);
-            cloned_top_level_loop_->body().push_back(current_load_stage_alloc);
-            cloned_top_level_loop_->body().push_back(
-                current_load_stage_->definition());
-          }
-
-          // Replace LoadStoreOp with:
-          //  if (0th thread in block)
-          //    token[next_stage] =
-          //    mbarrier::arriveExpectTx(mbarrier[next_stage])
-          //    cpAsyncBulk(mbarrier[next_stage],...)
-          //  mbarrier::wait(token[curr_stage])
-          //
-          // Where mbarrier and token are smem arrays bound to the LoadStoreOp
-          //
-          LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-
-          NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
-          mbarrier_arrive_tx_ =
-              createMbarrierArriveExpectTx(ldst, current_load_stage_);
-          // Register mbarrier object to be used with LoadStoreOp
-          //  from main loop
-          GpuLower::current()->ldstMBarrierIndexMap().emplace(
-              ldst, mbarrier_arrive_tx_->mbarrier());
-
-          if (cloned_scopes_.size() == 1) {
-            kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-            kir::Scope& body = if_expr->thenBody();
-            body.push_back(mbarrier_arrive_tx_);
-            body.push_back(ldst);
-            cloned_scopes_.back()->push_back(if_expr);
-            mbarrier_arrive_tx_ = nullptr;
-          } else {
-            cloned_scopes_.back()->push_back(ldst);
-          }
-
-          // Construct mBarrier::wait for current stage
-          NVF_ERROR(
-              mbarrier_wait_ == nullptr,
-              "Expected mbarrier_wait to inactive for current TMA operation");
-          mbarrier_wait_ = createMbarrierWait(ldst, current_compute_stage_);
+        // Skip shared memory allocation, mbarrier initialize and mbarrier
+        // invalidate
+        if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
+            is_ignorable_mbarrier_inval) {
           break;
         }
-        if (!(is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
-              is_ignorable_mbarrier_inval)) {
+
+        // Add expression if not circular-buffered load store operation
+        if (!expr->isA<LoadStoreOp>() || !mbarrier_token_exists) {
           cloned_scopes_.back()->push_back(expr);
+          break;
         }
+
+        // Handle cpAsyncBulk type LoadStoreOp that is registered with token
+        // smem TVs as it requires synchronization
+        //
+        // See AllocationInserter for details when and how token map is filled
+        // with data
+
+        //! Before waiting at the mbarrier for the current stage, we
+        //! launch the load operation for the next available stage. The
+        //! last buffer in the pipeline is the first available after the
+        //! prologue loop launches the initial wave of tma loads.
+        //!
+        //! current_compute_stage = for_loop_index % stage_depth
+        //! current_load_stage = (for_loop_index + (stage_depth - 1)) %
+        //! stage_depth)
+        if (current_compute_stage_ == nullptr) {
+          current_compute_stage_ = IrBuilder::modExpr(
+              double_buffer_loop_->index(),
+              IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+          kir::Allocate* current_compute_stage_alloc =
+              IrBuilder::create<kir::Allocate>(
+                  current_compute_stage_,
+                  MemoryType::Local,
+                  IrBuilder::create<Val>(1L, PrimDataType::Index),
+                  /*zero_init=*/false);
+          cloned_top_level_loop_->body().push_back(current_compute_stage_alloc);
+          cloned_top_level_loop_->body().push_back(
+              current_compute_stage_->definition());
+        }
+
+        if (current_load_stage_ == nullptr) {
+          current_load_stage_ = IrBuilder::modExpr(
+              IrBuilder::addExpr(
+                  double_buffer_loop_->index(),
+                  IrBuilder::subExpr(
+                      IrBuilder::create<Val>(stage_depth, PrimDataType::Index),
+                      IrBuilder::create<Val>(1L, PrimDataType::Index))),
+              IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+          kir::Allocate* current_load_stage_alloc =
+              IrBuilder::create<kir::Allocate>(
+                  current_load_stage_,
+                  MemoryType::Local,
+                  IrBuilder::create<Val>(1L, PrimDataType::Index),
+                  /*zero_init=*/false);
+          cloned_top_level_loop_->body().push_back(current_load_stage_alloc);
+          cloned_top_level_loop_->body().push_back(
+              current_load_stage_->definition());
+        }
+
+        // Replace LoadStoreOp with:
+        //  if (elect_sync()) {
+        //    token[next_stage] =
+        //      mbarrier::arriveExpectTx(mbarrier[next_stage])
+        //    cpAsyncBulk(mbarrier[next_stage],...)
+        //  }
+        //  mbarrier::wait(token[curr_stage])
+        //
+        // Where mbarrier and token are smem arrays bound to the LoadStoreOp
+
+        LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+
+        NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
+        mbarrier_arrive_tx_ =
+            createMbarrierArriveExpectTx(ldst, current_load_stage_);
+
+        // Register mbarrier object to be used with LoadStoreOp
+        //  from main loop
+        GpuLower::current()->ldstMBarrierIndexMap().emplace(
+            ldst, mbarrier_arrive_tx_->mbarrier());
+
+        // Construct mBarrier::wait for current stage
+        NVF_ERROR(
+            mbarrier_wait_ == nullptr,
+            "Expected mbarrier_wait to inactive for current TMA operation");
+        mbarrier_wait_ = createMbarrierWait(ldst, current_compute_stage_);
+
+        // If last cloned scope is the cloned_top_level_loop body, then add
+        // mbarrier::arriveExpectTx and new loadStoreOp.
+        if (cloned_scopes_.size() == 1) {
+          kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+          kir::Scope& body = if_expr->thenBody();
+          body.push_back(mbarrier_arrive_tx_);
+          body.push_back(ldst);
+          cloned_scopes_.back()->push_back(if_expr);
+          mbarrier_arrive_tx_ = nullptr;
+          break;
+        }
+
+        // Otherwise, we are in a nested for-loop and should wait until we
+        // return to top-level for loop.
+        cloned_scopes_.back()->push_back(ldst);
         break;
       }
       case DoubleBufferLoopStage::Epilog: {
