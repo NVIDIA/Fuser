@@ -377,6 +377,16 @@ TEST_P(CommunicationTest, ReduceScatter) {
   }
 }
 
+TEST_P(CommunicationTest, Barrier) {
+  const auto device_id = communicator_->deviceId();
+  for (int i = 0; i < 4; i++) {
+    sleep(device_id);
+    LOG(INFO) << "[Rank " << device_id << "] enter barrier " << i;
+    communicator_->barrier();
+    LOG(INFO) << "[Rank " << device_id << "] exit barrier " << i;
+  }
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicationTest,
