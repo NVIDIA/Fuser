@@ -331,7 +331,7 @@ void IdGraphIndexCompute::handle(Swizzle* swizzle) {
 
 } // namespace
 
-TensorIndexer::TensorIndexer(const IdModel& id_model) : id_model_(id_model) {
+TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
   buildLoopIndexMap();
 }
 
@@ -573,11 +573,12 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
-    // Replace the index of a vectorized domain with zero. Note that
+    // Replace the index of a vectorized/bulk domain with zero. Note that
     // vectorized domains may need to use N-1, where N is the extent
     // of the domain, for predication, so the replacement is not
     // always done with zero.
-    if (loop_id->getParallelType() != ParallelType::Vectorize) {
+    if (loop_id->getParallelType() != ParallelType::Vectorize &&
+        loop_id->getParallelType() != ParallelType::Bulk) {
       continue;
     }
     const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
