@@ -66,28 +66,7 @@ template <typename... Args>
 Val* xorExpr(Args&&... args) {
   return IrBuilder::bitwiseXorExpr(std::forward<Args>(args)...);
 }
-#if 0
-void printAllIndices(
-    std::ostream& os,
-    Fusion* fusion,
-    TensorIndexer& indexer) {
-  for (auto expr : fusion->exprs()) {
-    if (!ir_utils::isTvOp(expr)) {
-      continue;
-    }
 
-    os << "\n" << expr->toString();
-    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      os << "Input: T" << input->name() << " -> "
-         << indexer.getLinearIndex(input, expr)->toInlineString() << std::endl;
-    }
-    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      os << "Output: T" << output->name() << " -> "
-         << indexer.getLinearIndex(output, expr)->toInlineString() << std::endl;
-    }
-  }
-}
-#endif
 // AbstractGetReference and IndexValidator are used to validate
 // lowered index vals. Each test subclasses either or both of
 // getLinearIndex and getLinearIndexString of
@@ -134,6 +113,18 @@ class IndexValidator : public kir::IrVisitor {
     auto out_ti = expr->output(0)->as<kir::TensorIndex>();
     for (auto inp : expr->inputs()) {
       if (inp->isA<kir::TensorIndex>()) {
+        // Since this is KIR, inp can be equal to out_ti when it was
+        // originally a reduction op in Fusion
+        if (inp == out_ti) {
+          Expr* original_def = out_ti->view()->definition();
+          NVF_ERROR(
+              original_def != nullptr && original_def->isA<ReductionOp>(),
+              "Unexpected input, ",
+              inp->toString(),
+              " in ",
+              expr->toString());
+          continue;
+        }
         validate(inp->as<kir::TensorIndex>(), out_ti);
       }
     }
@@ -419,6 +410,54 @@ TEST_F(IndexingTest, SimpleReduction) {
         default:
           NVF_ERROR(false, "Unexpected tensor: ", tv->toString());
           // gcc v11.4 requires this return statement
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Reduction with inlining. Loop promotion picks a reduction domain,
+// which indexing should not ignore.
+TEST_F(IndexingTest, PromotionToReductionDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = sum(tv1, {1});
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  inlineMost();
+
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  // tv1's index should be "threadIdx.x". However, since its
+  // allocation domain, tv1->axis(1), is promoted to tv2->axis(1),
+  // which is a reduction domain, the initial version of indexing
+  // mistakenly excluded the domain from indexing.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      switch (tv->name()) {
+        case 1: {
+          return loop_indices.at(1);
+        }
+        default:
           return nullptr;
       }
     }
