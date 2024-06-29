@@ -2561,10 +2561,6 @@ IterDomain* IterDomain::merge(
       outer->toString(),
       ", Inner: ",
       inner->toString());
-  NVF_CHECK(
-      (outer->isGather() && inner->isGather()) ||
-          (!outer->isGather() && !inner->isGather()),
-      "Merging gather and non-gather domains is not supported.");
 
   NVF_CHECK(
       !outer->isStride() && !inner->isStride(),
@@ -2700,11 +2696,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
         "swizzling broadcast axes not yet supported");
   }
 
-  // TODO: gather and shift check on swizzle
-  NVF_ERROR(
-      !in_x->isGather() && !in_y->isGather(),
-      "Swizzled gather not yet supported");
-
   IterDomain* out_x = IterDomainBuilder(in_x).build();
 
   IterDomain* out_y = IterDomainBuilder(in_y).build();
@@ -2734,11 +2725,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
         !input->as<IterDomain>()->isBroadcast(),
         "swizzling broadcast axes not yet supported");
   }
-
-  // TODO: gather and shift check on swizzle
-  NVF_ERROR(
-      !in_x->isGather() && !in_y->isGather(),
-      "Swizzled gather not yet supported");
 
   IterDomain* out_x = IterDomainBuilder(in_x).build();
 
