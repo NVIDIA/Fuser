@@ -468,8 +468,14 @@ void mergeNeighboringPad(Fusion* fusion) {
 } // namespace
 
 void MovePadPass::runPass(Fusion* fusion) {
+  std::cout << "=== input fusion ===" << std::endl;
+  fusion->printMath()
   decomposeCatOp(fusion);
+  std::cout << "=== after decompose cat fusion ===" << std::endl;
+  fusion->printMath()
   mergeNeighboringPad(fusion);
+  std::cout << "=== after merge pad fusion ===" << std::endl;
+  fusion->printMath()
 }
 
 } // namespace nvfuser::preseg_passes
