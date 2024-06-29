@@ -25,7 +25,7 @@ void compare(int64_t tensor_dim, at::Tensor result, at::Tensor reference) {
   auto reference_cpu = reference_cpu_data.accessor<data_type, 1>();
   auto result_cpu = result_cpu_data.accessor<data_type, 1>();
 
-  constexpr double tolerance = 1e-4;
+  constexpr double tolerance = 1e-5;
   for (int64_t pos = 0; pos < tensor_dim; ++pos) {
     if (fabs((double)result_cpu[pos] - (double)reference_cpu[pos]) >
         tolerance) {
@@ -47,7 +47,7 @@ void compare(
   auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
   auto result_cpu = result_cpu_data.accessor<data_type, 2>();
 
-  constexpr double tolerance = 1e-4;
+  constexpr double tolerance = 1e-5;
   for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
     for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
       if (fabs(
@@ -607,8 +607,8 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingMatmul) {
   tv1_cache_smem->axis(-2)->parallelize(ParallelType::Bulk);
   tv1_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
 
-  tv0_cache_local->circularBuffer(2);
-  tv1_cache_local->circularBuffer(2);
+  tv0_cache_local->circularBuffer(3);
+  tv1_cache_local->circularBuffer(3);
 
   tv0_cache_smem->circularBuffer(3);
   tv1_cache_smem->circularBuffer(3);
@@ -622,16 +622,14 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingMatmul) {
       auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
       at::Tensor t0 = at::randn({M, K}, options);
       at::Tensor t1 = at::randn({K, N}, options);
-      std::vector<c10::IValue> aten_inputs = {t0, t1};
-      at::Tensor aten_output = at::matmul(t0.to(at::kDouble), t1.to(at::kDouble));
+      at::Tensor aten_output = at::matmul(t0, t1);
 
       FusionExecutor fe;
       CompileParams index32bit{DataType::Int32, 255, false};
-      fe.compileFusion(fusion.get(), aten_inputs, {}, index32bit);
+      fe.compileFusion(fusion.get(), {t0, t1}, {}, index32bit);
 
-      std::vector<at::Tensor> cg_outputs = fe.runFusion(aten_inputs);
-      testValidate(
-          fusion.get(), cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+      std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
+      compare<float>(M, N, cg_outputs.front(), aten_output);
     }
   }
 }
