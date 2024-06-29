@@ -31,6 +31,77 @@ struct Edge {
   }
 };
 
+using VecPadWidths = std::vector<std::vector<Val*>>;
+
+// NOTE: this assumes all vec_pad_widths are positive entries so we don't need to consider accumulating them changing the output iter_type.
+TensorView* replayConcretePad(TensorView* pad_tv, Val* pad_value, const VecPadWidths& vec_pad_widths, std::vector<IterDomain*> ref_iter_type) {
+    NVF_ERROR(
+        pad_tv->getDataType().has_value(), "pad source dtype is missing");
+    const std::vector<IterDomain*> inp_dom =
+        TensorDomain::noReductions(pad_tv->getLogicalDomain());
+    const auto rank = inp_dom.size();
+
+    NVF_ERROR(
+        rank == ref_iter_type.size(),
+        "ref_iter_type does not have compatible size regarding pad_tv");
+
+    std::vector<Val*> merged_pad_widths;
+    merged_pad_widths.reserve(rank*2);
+
+    NVF_ERROR(
+        !vec_pad_widths.empty(),
+        "vec_pad_widths cannot be empty");
+    if (vec_pad_widths.size() == 1) {
+      merged_pad_widths = vec_pad_widths.at(0);
+    } else {
+      NVF_ERROR(false, "NOT IMPLEMENTED");
+      for (const auto i : c10::irange(2*rank)) {
+        Val* merged_pad_width = nullptr;
+        for (const auto idx : c10::irange(vec_pad_widths.size())) {
+          // skipping zero pad;
+          Val* pad_width = vec_pad_widths[idx].at(i);
+          if (pad_width->isZeroInt()) {
+            continue;
+          }
+          merged_pad_width = merged_pad_width == nullptr ? pad_width : add(merged_pad_width, pad_width);
+        }
+        merged_pad_widths.push_back(merged_pad_width == nullptr? FusionGuard::getCurFusion()->zeroVal() : merged_pad_width);
+      }
+    }
+
+    std::vector<IterDomain*> merged_root_ids;
+    std::vector<IterDomain*> merged_logical_ids;
+    for (const auto i : c10::irange(rank)) {
+      Val* left_pad = merged_pad_widths.at(i * 2);
+      Val* right_pad = merged_pad_widths.at(i * 2);
+      IterDomain* inp_id = inp_dom.at(i);
+      if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
+        merged_root_ids.push_back(inp_id->cloneWithoutRFactor());
+        merged_logical_ids.push_back(merged_root_ids.back());
+        continue;
+      }
+      // NOTE: nvfuser pad doesn't support negative padding, so we don't have to
+      // worry about it cancelling out.
+      IterDomain* merged_root_id =
+          IterDomainBuilder(inp_id).is_rfactor_domain(true).build();
+      merged_root_ids.push_back(merged_root_id);
+      merged_logical_ids.push_back(IterDomain::resize(
+          merged_root_id,
+          left_pad,
+          right_pad,
+          true,
+          ref_iter_type.at(i)->getIterType()));
+    }
+
+    auto* new_out = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            merged_root_ids, merged_logical_ids, merged_logical_ids),
+        pad_tv->getDataType().value());
+    IrBuilder::create<PadOp>(
+        new_out, pad_tv, merged_pad_widths, producer->value());
+    return new_out;
+}
+
 Val* propagatePadToProducer(PadOp* pad_op) {
   // TODO: wait, why do I need pad_dependencies?!
   std::vector<Val*> pad_dependencies;
@@ -174,38 +245,40 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // replacement_map[edge.val()] = pad(edge.val()->as<TensorView>(),
     // pad_width, pad_op->value());
 
-    NVF_ERROR(
-        edge.val()->getDataType().has_value(), "pad source dtype is missing");
-    // NOTE: the old pad_op is going away from DCE, so it's ok to reuse its
-    // domains
+    auto pad_tv = edge.val()->as<TensorView>();
     TensorView* pad_out_tv = pad_op->out()->as<TensorView>();
+    const std::vector<IterDomain*> out_ids = TensorDomain::noReductions(
+        pad_op->out()->as<TensorView>()->getLogicalDomain());
+
+    TensorView* new_out = replayConcretePad(pad_tv, pad_op->value(), {pad_op->getPadWidths()}, out_ids) {
+
     // TODO: test output from reduction here
     // std::vector<IterDomain*> new_root =
     // IterDomain::clone(TensorDomain::noReductions(edge.val()->as<TensorView>()->getMaybeRootDomain()),
     // true); NOTE: we use pad_out_tv instead of edge.val()->as<TensorView>()
     // since the input tensor doesn't have its root id marked with rfactor flag.
-    std::vector<IterDomain*> new_root =
-        IterDomain::clone(edge.val()->as<TensorView>()->getMaybeRootDomain(), true);
+    // std::vector<IterDomain*> new_root =
+    //     IterDomain::clone(edge.val()->as<TensorView>()->getMaybeRootDomain(), true);
         // should use edge.val() to ensure that we have the right broadcast marked on root.
         // IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
     // NOTE: we cannot use the TensorDomain from fullSelfReplay, since it
     // doesn't keep root domain.
 
     // TODO: cannot use fullSelfReplay here since it requires matching broadcast between new root to old root in domain. I should merge the two `create<PadOp>` instances so we can basically have a `replayPadOnProducer` function.
-    std::vector<IterDomain*> new_logical =
-        TransformReplay::fullSelfReplay(
-            IrBuilder::create<TensorDomain>(new_root),
-            pad_out_tv->domain(),
-            true)
-            ->logical();
-    auto new_out = IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(new_root, new_logical, new_logical),
-        edge.val()->getDataType().value());
-    IrBuilder::create<PadOp>(
-        new_out,
-        edge.val()->as<TensorView>(),
-        pad_op->getPadWidths(),
-        pad_op->value());
+    // std::vector<IterDomain*> new_logical =
+    //     TransformReplay::fullSelfReplay(
+    //         IrBuilder::create<TensorDomain>(new_root),
+    //         pad_out_tv->domain(),
+    //         true)
+    //         ->logical();
+    // auto new_out = IrBuilder::create<TensorView>(
+    //     IrBuilder::create<TensorDomain>(new_root, new_logical, new_logical),
+    //     edge.val()->getDataType().value());
+    // IrBuilder::create<PadOp>(
+    //     new_out,
+    //     edge.val()->as<TensorView>(),
+    //     pad_op->getPadWidths(),
+    //     pad_op->value());
 
     replacement_map[edge.val()] = new_out;
 
