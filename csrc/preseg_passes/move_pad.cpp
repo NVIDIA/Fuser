@@ -98,7 +98,7 @@ TensorView* replayConcretePad(TensorView* pad_tv, Val* pad_value, const VecPadWi
             merged_root_ids, merged_logical_ids, merged_logical_ids),
         pad_tv->getDataType().value());
     IrBuilder::create<PadOp>(
-        new_out, pad_tv, merged_pad_widths, producer->value());
+        new_out, pad_tv, merged_pad_widths, pad_value);
     return new_out;
 }
 
@@ -246,13 +246,13 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // pad_width, pad_op->value());
 
     auto pad_tv = edge.val()->as<TensorView>();
-    TensorView* pad_out_tv = pad_op->out()->as<TensorView>();
     const std::vector<IterDomain*> out_ids = TensorDomain::noReductions(
         pad_op->out()->as<TensorView>()->getLogicalDomain());
 
-    TensorView* new_out = replayConcretePad(pad_tv, pad_op->value(), {pad_op->getPadWidths()}, out_ids) {
+    TensorView* new_out = replayConcretePad(pad_tv, pad_op->value(), {pad_op->getPadWidths()}, out_ids);
 
     // TODO: test output from reduction here
+    // TensorView* pad_out_tv = pad_op->out()->as<TensorView>();
     // std::vector<IterDomain*> new_root =
     // IterDomain::clone(TensorDomain::noReductions(edge.val()->as<TensorView>()->getMaybeRootDomain()),
     // true); NOTE: we use pad_out_tv instead of edge.val()->as<TensorView>()
