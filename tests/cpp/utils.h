@@ -426,6 +426,10 @@ size_t getATenRandomSeed();
 class NVFuserTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    // Enable logging so debug messages in PyTorch can be printed out
+    // via `TORCH_CPP_LOG_LEVEL`.
+    c10::initLogging();
+
     // requires PASCAL or newer
     if (!deviceMajorMinorCheck(6)) {
       GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
