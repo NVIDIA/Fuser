@@ -581,10 +581,12 @@ class TensorDomain : public Val {
     return hasAllocation() ? allocation_domain_ : logical();
   };
 
-  // Set the allocation domain of this TensorDomain. The new allocation domain
-  // must satisfy root <= allocation <= loop, that is, it must be within the
-  // history between root and loop domain. Because contiguity is always defined
-  // w.r.t. the allocation domain, the contiguity must be updated accordingly.
+  // Set the loop domain of this TensorDomain.
+  NVF_API void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
+
+  // Set the allocation domain of this TensorDomain. Because contiguity is
+  // always defined w.r.t. the allocation domain, the contiguity must be updated
+  // accordingly.
   NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
       std::vector<std::optional<bool>> new_contiguity);

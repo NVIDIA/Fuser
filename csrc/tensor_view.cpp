@@ -1068,6 +1068,10 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   consumer->setDomain(replayed_consumer_pair.first);
 
+  if (consumer->hasDeviceMesh()) {
+    producer->setDeviceMesh(consumer->getDeviceMesh());
+  }
+
   return producer;
 }
 
@@ -1107,6 +1111,10 @@ TensorView* TensorView::cacheFork() {
   // Create write operation from this TV to new output
   IrBuilder::createInContainer<LoadStoreOp>(
       container(), LoadStoreOpType::Set, new_output, this);
+
+  if (this->hasDeviceMesh()) {
+    new_output->setDeviceMesh(this->getDeviceMesh());
+  }
 
   // The new TV becomes an output.
   // New TV has global memory type.
@@ -1187,6 +1195,10 @@ TensorView* TensorView::cacheAfter(
 
   // Set domain of producer - No Change
   TensorView* producer = this;
+
+  if (producer->hasDeviceMesh()) {
+    consumer->setDeviceMesh(producer->getDeviceMesh());
+  }
 
   // Insert consumer - Cache_After (CA) - after this TV.
   // Before: This TV -> [Use Op] -> Next TV

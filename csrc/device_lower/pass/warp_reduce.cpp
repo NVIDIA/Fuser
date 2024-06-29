@@ -76,7 +76,7 @@ class EliminateDeadBroadcastAndAllocate {
 
   void findLiveTvs(const std::vector<Expr*>& exprs) {
     for (auto expr : exprs) {
-      if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
         findLiveTvs(for_loop->body().exprs());
         continue;
       } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
@@ -204,7 +204,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     return true;
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     // Keep track of visible reduction outputs
     bool open_nest_level = openLoopNestLevel(for_loop->iter_domain());
     if (open_nest_level) {

@@ -375,7 +375,7 @@ void AliasFinder::handle(const SqueezeOp* squeeze) {
 }
 
 void AliasFinder::handle(const ExpandOp* expand) {
-  TensorView* in = dynamic_cast<TensorView*>(expand->in());
+  auto* in = dynamic_cast<TensorView*>(expand->in());
   if (in == nullptr) {
     return;
   }

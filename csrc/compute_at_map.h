@@ -274,7 +274,7 @@ class ComputeAtMap {
   bool idExistsInMap(IterDomain* id) const;
 
   //! Returns the pre-allocated index variable integer used in
-  //!  the kir::ForLoop corresponding to the given IterDomain.
+  //!  the ForLoop corresponding to the given IterDomain.
   //!  this interface is only valid if the ID has a loop mapping,
   //!  ca_map will throw exceptions if given iterdomain doesn't
   //!  have a loop map entry.

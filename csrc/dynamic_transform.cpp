@@ -8,6 +8,7 @@
 #include <device_lower/utils.h>
 #include <dynamic_transform.h>
 #include <executor_kernel_arg.h>
+#include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <ir/cloner.h>
@@ -1427,6 +1428,16 @@ void DynamicTransform::concretizeFusion(
     Fusion* fusion,
     const DynamicTransformConcretizationInfo* info) {
   DynamicTransformConcretizer concretizer(fusion, info);
+}
+
+void DynamicTransform::concretizeFusion(
+    Fusion* fusion,
+    const std::vector<c10::IValue>& aten_inputs) {
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  ExpressionEvaluator expr_eval = executor_utils::bindInputs(args, fusion);
+  auto initial_info = getInitialInfo(fusion);
+  DynamicTransformConcretizationInfo info(&initial_info, &expr_eval);
+  concretizeFusion(fusion, &info);
 }
 
 size_t DynamicTransformConcretizationInfo::hash() const {

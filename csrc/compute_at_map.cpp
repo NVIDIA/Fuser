@@ -805,7 +805,7 @@ void ComputeAtMap::validateAndPropagatePType() {
 
 void ComputeAtMap::allocateIndexVariables() {
   // Run through all disjoint sets registered in loop map,
-  //  all lowered kir::ForLoop will correspond to one of the disjoint sets
+  //  all lowered ForLoop will correspond to one of the disjoint sets
   //  and we only need one index variable for each set.
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
     ParallelType ptype = ParallelType::Serial;

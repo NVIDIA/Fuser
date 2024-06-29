@@ -67,7 +67,7 @@ class KIRCleaner : public OptOutDispatch {
  private:
   using OptOutDispatch::handle;
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       OptOutDispatch::dispatch(expr);
     } else {
       // Any non-scoping expr is not considered nop
@@ -75,7 +75,7 @@ class KIRCleaner : public OptOutDispatch {
     }
   }
 
-  void handle(kir::ForLoop* fl) final {
+  void handle(ForLoop* fl) final {
     auto exprs = fl->body().exprs();
     fl->body().clear();
     for (auto expr : exprs) {
@@ -458,9 +458,6 @@ void GpuLower::analysis(Fusion* fusion) {
   compute_at_map_->validateAndPropagatePType();
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndPropagatePType");
 
-  consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
-
   // Uses compute_at_map, find all splits that are enforced to be divisible
   divisible_splits_ = getAllDivisibleSplits(fusion_, compute_at_map_.get());
   dumpExprsIfEnabled(fusion_->exprs(), "getAllDivisibleSplits");
@@ -546,6 +543,9 @@ void GpuLower::analysis(Fusion* fusion) {
   if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
+
+  consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
 }
 
 kir::Kernel* GpuLower::kernel() const {

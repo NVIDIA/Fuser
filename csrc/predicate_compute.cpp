@@ -71,14 +71,14 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 namespace {
 
 std::unordered_set<Val*> getNonUnswitchedRootDomains(
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     size_t unswitched_loop_index) {
   std::vector<Val*> non_unswited_loop_domains;
   std::transform(
       loops.begin(),
       loops.begin() + (int64_t)unswitched_loop_index,
       std::back_inserter(non_unswited_loop_domains),
-      [&](kir::ForLoop* loop) { return loop->iter_domain(); });
+      [&](ForLoop* loop) { return loop->iter_domain(); });
 
   auto non_unswitched_inputs =
       IterVisitor::getInputsTo(non_unswited_loop_domains);
@@ -123,8 +123,8 @@ bool isFullyUnswitched(
 std::unordered_map<ParallelType, ParallelizedDomainPredicate::PredicateInfo>
 ParallelizedDomainPredicate::getPredicateMap(
     const Expr* expr,
-    const std::vector<kir::ForLoop*>& loops,
-    kir::ForLoop* unswitched_loop) {
+    const std::vector<ForLoop*>& loops,
+    ForLoop* unswitched_loop) {
   const auto gpu_lower = GpuLower::current();
   auto output_tvs = ir_utils::getTvs(expr->outputs());
 
@@ -219,7 +219,7 @@ ParallelizedDomainPredicate::getPredicateMap(
 
 Val* ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
-    const std::vector<kir::ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops) {
   DEBUG_PRINT_SCOPE_NAME(
       "ParallelizedDomainPredicate::getPredicate", "expr = ", expr);
   auto pred_map = getPredicateMap(expr, loops);
@@ -336,8 +336,8 @@ std::size_t UnswitchPredicateKeyHash::operator()(
 
 Val* PredicateCompute::getInlinePredicate(
     const Expr* expr,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     Val* thread_pred,
     PredicateType pred_type) {
   DEBUG_PRINT_SCOPE(
@@ -444,8 +444,8 @@ Val* PredicateCompute::getInlinePredicate(
 }
 
 Val* UnswitchPredicate::get(
-    const std::vector<kir::ForLoop*>& outer_loops,
-    kir::ForLoop* unrolled_loop) {
+    const std::vector<ForLoop*>& outer_loops,
+    ForLoop* unrolled_loop) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::get");
 
   UnswitchPredicate up(outer_loops, unrolled_loop);
@@ -604,7 +604,7 @@ void UnswitchPredicate::addParallelizedDomainPredicates(Expr* tv_expr) {
   }
 }
 
-void UnswitchPredicate::openLoop(kir::ForLoop* fl) {
+void UnswitchPredicate::openLoop(ForLoop* fl) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::openLoop");
 
   for_loops_.push_back(fl);
@@ -614,7 +614,7 @@ void UnswitchPredicate::openLoop(kir::ForLoop* fl) {
       predicateOn(expr);
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       openIte(ite);
-    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
       openLoop(for_loop);
     }
   }
@@ -652,7 +652,7 @@ void UnswitchPredicate::openIte(kir::IfThenElse* ite) {
       predicateOn(expr);
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       openIte(ite);
-    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
       openLoop(for_loop);
     }
   }
@@ -713,8 +713,8 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
 }
 
 UnswitchPredicate::UnswitchPredicate(
-    std::vector<kir::ForLoop*> outer_loops,
-    kir::ForLoop* unrolled_loop)
+    std::vector<ForLoop*> outer_loops,
+    ForLoop* unrolled_loop)
     : for_loops_(std::move(outer_loops)), unrolled_loop_(unrolled_loop) {
   openLoop(unrolled_loop);
   finalize();

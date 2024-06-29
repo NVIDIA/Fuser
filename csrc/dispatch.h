@@ -109,7 +109,8 @@ class Val;
   f(MatmulOp);                    \
   f(LinearOp);                    \
   f(SdpaFwdOp);                   \
-  f(Communication);
+  f(Communication);               \
+  f(ForLoop);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(Asm);                             \
@@ -124,7 +125,6 @@ class Val;
   f(BlockSerializeRelease);           \
   f(AsyncWait);                       \
   f(AsyncCommit);                     \
-  f(ForLoop);                         \
   f(IfThenElse);                      \
   f(GridReduction);                   \
   f(GroupedGridReduction);            \

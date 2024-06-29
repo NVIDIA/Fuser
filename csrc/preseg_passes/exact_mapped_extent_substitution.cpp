@@ -19,8 +19,8 @@ namespace {
 // Skip domain whose extent is derived e.g. iS12{( i0 * i2 )}
 // e.g. in this set { iS11{( i0 * i2 )}rf; iS12{( i0 * i2 )}; iS14{i3} } from
 // NVFuserTest.SymbolicSqueeze, we can't substitute {i0 * i2} with {i3},
-// otherwise, ValidateDomainEquivalence fails. If we really want to substitute,
-// we may need to skip or modify ValidateDomainEquivalence.
+// otherwise, validateDomainEquivalence fails. If we really want to substitute,
+// we may need to skip or modify validateDomainEquivalence.
 inline bool isNonSubstitutableID(const IterDomain* id) {
   return (id->isBroadcast() && !id->hasExpandedExtent()) || id->definition() ||
       id->getMaybeExpandedExtent()->definition();

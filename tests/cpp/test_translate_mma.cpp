@@ -674,4 +674,81 @@ TEST_F(CombineMulSumAsMmaTest, SwapAandB) {
   }
 }
 
+// Check that a fusion with epilogue does not introduce round-trip casts when
+// translating MatmulOp to MmaOp
+using TranslationCastTestParams = std::tuple<bool, bool, bool>;
+using TranslationCastTest = NVFuserFixtureParamTest<TranslationCastTestParams>;
+TEST_P(TranslationCastTest, CountCasts) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  bool use_linear = std::get<0>(GetParam());
+  bool sin_epilogue = std::get<1>(GetParam());
+  bool output_pre_epilogue = std::get<2>(GetParam());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = use_linear ? linear(tv0, tv1) : matmul(tv0, tv1);
+
+  if (output_pre_epilogue) {
+    // Add the Half output before epilogue. If this is true and we have an
+    // epilogue, then the MmaOp will have two uses: sin and cast.
+    fusion->addOutput(tv2);
+  }
+
+  TensorView* tv3 = tv2;
+  if (sin_epilogue) {
+    tv3 = sin(tv2);
+  }
+  auto tv4 = castOp(DataType::Half, tv3);
+
+  fusion->addOutput(tv4);
+
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion.get());
+
+  ASSERT_EQ(patterns.size(), 1);
+
+  mma_utils::MatmulPattern& pattern = patterns.front();
+
+  EXPECT_EQ(pattern.A, tv0);
+  EXPECT_EQ(pattern.B, tv1);
+  EXPECT_EQ(pattern.output, tv2);
+
+  pattern.translateToMmaOp();
+
+  // Check that we modified the pattern roles
+  EXPECT_NE(pattern.A, tv0);
+  EXPECT_NE(pattern.B, tv1);
+  EXPECT_EQ(
+      pattern.output->dtype(), sin_epilogue ? DataType::Float : DataType::Half);
+
+  // Count cast ops. In any case there should be only a single cast, at the end
+  // of the fusion.
+  const auto exprs = fusion->exprs();
+  size_t num_casts = std::count_if(exprs.begin(), exprs.end(), [](Expr* e) {
+    if (auto* uop = dynamic_cast<UnaryOp*>(e)) {
+      return uop->getUnaryOpType() == UnaryOpType::Cast;
+    }
+    return false;
+  });
+  EXPECT_EQ(num_casts, 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TranslationCastTest,
+    testing::Combine(testing::Bool(), testing::Bool(), testing::Bool()),
+    [](const testing::TestParamInfo<TranslationCastTestParams>& info) {
+      std::ostringstream os;
+      os << (std::get<0>(info.param) ? "linear" : "matmul");
+      os << (std::get<1>(info.param) ? "_epilogue" : "");
+      os << (std::get<2>(info.param) ? "_twooutputs" : "");
+      return os.str();
+    });
+
 } // namespace nvfuser

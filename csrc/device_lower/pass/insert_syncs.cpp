@@ -89,7 +89,7 @@ struct WarMemoryInfo {
   bool write_hit = false;
 
   // For loop this TV is compute_at'ed in.
-  kir::ForLoop* ca_loop = nullptr;
+  ForLoop* ca_loop = nullptr;
 };
 
 // To prevent shared memory from being over written before it is read, a
@@ -174,7 +174,7 @@ class WarSyncInserter : private kir::ExprMutator {
   }
 
   // Checks if fl or loops within it have hit a sync
-  bool syncWithin(kir::ForLoop* fl) {
+  bool syncWithin(ForLoop* fl) {
     // If outer most scope check the first sync_hit_ position
     if (fl == nullptr) {
       return sync_hit_[0];
@@ -239,7 +239,7 @@ class WarSyncInserter : private kir::ExprMutator {
     }
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     // Push loop scope information
     auto prev_within_iter_loop_ = within_iter_loop_;
     sync_hit_.push_back(false);
@@ -341,9 +341,7 @@ class WarSyncInserter : private kir::ExprMutator {
 class ValidatePlacementAfterWrites : private kir::IrVisitor {
  public:
   //! Validate no expr in writes found under loop
-  static void validate(
-      kir::ForLoop* loop,
-      const std::unordered_set<Expr*>& writes) {
+  static void validate(ForLoop* loop, const std::unordered_set<Expr*>& writes) {
     ValidatePlacementAfterWrites validator(writes);
     validator.handle(loop);
   }
@@ -355,7 +353,7 @@ class ValidatePlacementAfterWrites : private kir::IrVisitor {
       : writes_(writes) {}
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
     } else {
       NVF_ERROR(
@@ -434,7 +432,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     // The expressions in last_writes are those we're protecting the read
     // from. To figure out which loop we need a syncthread in, take the inner
     // most compute at for loop of all the outputs of the last writes.
-    std::unordered_set<kir::ForLoop*> sync_within;
+    std::unordered_set<ForLoop*> sync_within;
 
     for (auto last_write : last_writes) {
       auto write_out_tv = ir_utils::getTvOutput(last_write);
@@ -463,7 +461,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     }
 
     // The for loop the sync needs to be in
-    kir::ForLoop* sync_within_fl = nullptr;
+    ForLoop* sync_within_fl = nullptr;
     for (auto fl : for_loops_) {
       if (sync_within.count(fl)) {
         sync_within_fl = fl;
