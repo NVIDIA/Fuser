@@ -911,16 +911,19 @@ void IdModel::validateAndPropagatePType() {
     }
 
     for (auto id : *loop_group) {
-      // id may not be a loop domain due to the broadcast merging,
-      // that is there's a merge expr whose output is also in this
-      // loop group.
       bool not_a_loop_domain = false;
-      for (auto expr: id->uses()) {
-        auto merge = dynamic_cast<Merge*>(expr);
-        if (merge == nullptr) {
-          continue;
+      for (auto expr : id->uses()) {
+        // Not a loop domain when there's a merge expr whose output is
+        // also in this loop group.
+        if (auto merge = dynamic_cast<Merge*>(expr);
+            merge != nullptr && loop_group->has(merge->out())) {
+          not_a_loop_domain = true;
+          break;
         }
-        if (loop_group->has(merge->out())) {
+        // This is another case of input-output mappings
+        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(expr);
+            swizzle2d != nullptr &&
+            swizzle2d->swizzleMode() == SwizzleMode::Loop) {
           not_a_loop_domain = true;
           break;
         }

@@ -98,8 +98,7 @@ Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
       stride_dim);
 }
 
-std::vector<ForLoop*> getMaxPathLoops(
-    const std::vector<ForLoop*>& for_loops) {
+std::vector<ForLoop*> getMaxPathLoops(const std::vector<ForLoop*>& for_loops) {
   std::vector<ForLoop*> unswitched_domains;
 
   bool within_unswitch = false;
@@ -416,12 +415,23 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
   bool use_set_allocatin_domain = false;
 
   if (tv->hasAllocation()) {
+    // For now, only uses the set allocation domain when it's a
+    // permutation or Swizzle is used.
     if (tv->getMemoryType() == MemoryType::Shared ||
         tv->getMemoryType() == MemoryType::Local) {
       if (std::is_permutation(
               tv->getLoopDomain().begin(),
               tv->getLoopDomain().end(),
               tv->getAllocationDomain().begin())) {
+        use_set_allocatin_domain = true;
+      }
+      if (std::any_of(
+              tv->getAllocationDomain().begin(),
+              tv->getAllocationDomain().end(),
+              [](IterDomain* allocation_domain) {
+                return dynamic_cast<Swizzle*>(
+                           allocation_domain->definition()) != nullptr;
+              })) {
         use_set_allocatin_domain = true;
       }
     } else {
@@ -903,9 +913,7 @@ ForLoop* getForLoop(
   }
 
   auto it = std::find_if(
-      for_loops->begin(),
-      for_loops->end(),
-      [&](ForLoop* for_loop) -> bool {
+      for_loops->begin(), for_loops->end(), [&](ForLoop* for_loop) -> bool {
         IterDomain* for_loop_id = for_loop->iter_domain();
         return loop_graph.disjointValSets().strictAreMapped(
             loop_id, for_loop_id);
@@ -1052,8 +1060,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     bool as_consumer,
     const std::optional<std::vector<ForLoop*>>& for_loops,
     const ValGroups& index_groups) const {
-  const auto& info =
-      computeIndex(expr, for_loops, index_groups, false, false);
+  const auto& info = computeIndex(expr, for_loops, index_groups, false, false);
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, info.loop_domains, for_loops, info.index_map);
 
@@ -1254,8 +1261,7 @@ IndexingInfo TensorIndexer::computeIndex(
     const ValGroups& index_groups,
     bool is_predicate,
     bool is_unswitch) const {
-  VERBOSE() << "computeIndex of " << expr->toString()
-            << std::endl;
+  VERBOSE() << "computeIndex of " << expr->toString() << std::endl;
 
   const auto loop_domains = getLoopDomains(expr);
   VERBOSE() << "Loop domains: " << toDelimitedString(loop_domains) << std::endl;
@@ -1294,7 +1300,7 @@ IndexingInfo TensorIndexer::computeIndex(
 
   const std::unordered_set<ValGroup> max_path_loop_domains = is_unswitch
       ? getMaxPathLoopDomains(
-          ir_utils::getTvOutput(expr),
+            ir_utils::getTvOutput(expr),
             for_loops.value(),
             id_model_.idGraph(IdMappingMode::LOOP),
             traversalGraph())
@@ -1380,11 +1386,7 @@ std::vector<Val*> TensorIndexer::getPerDimIndex(
             << " in " << expr->toString() << std::endl;
 
   const auto& index_info = computeIndex(
-      expr,
-      for_loops,
-      traversalGraph().toGroups(index_domains),
-      false,
-      false);
+      expr, for_loops, traversalGraph().toGroups(index_domains), false, false);
 
   const auto& index_map = index_info.index_map;
 
