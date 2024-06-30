@@ -31,7 +31,6 @@ MultiDeviceTest::MultiDeviceTest() {
   // `TORCH_DISTRIBUTED_DEBUG`.
   c10d::setDebugLevelFromEnvironment();
 
-  communicator_ = getOrCreateCommunicator();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
@@ -82,6 +81,16 @@ MultiDeviceTest::~MultiDeviceTest() {
   }
 }
 
+Communicator* MultiDeviceTest::communicator_ = nullptr;
+
+/*static*/ void MultiDeviceTest::SetUpTestSuite() {
+  communicator_ = new Communicator();
+}
+
+/*static*/ void MultiDeviceTest::TearDownTestSuite() {
+  delete communicator_;
+}
+
 void MultiDeviceTest::waitForDebuggerAtRank(const DeviceIdxType rank) {
   NVF_CHECK(
       rank >= 0 && rank < communicator_->size(),
@@ -129,11 +138,6 @@ void MultiDeviceTest::SetUp() {
   // TODO: returning slice 0 temporarily when device is not in the mesh.
   i = (i < 0) ? 0 : i;
   return tensor.slice(sharded_dim, i, i + 1).contiguous();
-}
-
-/*static*/ Communicator* MultiDeviceTest::getOrCreateCommunicator() {
-  static Communicator* communicator = new Communicator();
-  return communicator;
 }
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {

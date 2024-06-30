@@ -20,6 +20,8 @@ class MultiDeviceTest : public NVFuserTest {
   MultiDeviceTest();
   ~MultiDeviceTest();
   void SetUp() override;
+  static void SetUpTestSuite();
+  static void TearDownTestSuite();
 
   // Given an aten tensor, TensorView the tensor is bound to, and deviceId
   // returns a shard of the tensor according the sharding annotation in tv
@@ -31,9 +33,10 @@ class MultiDeviceTest : public NVFuserTest {
       TensorView* tv,
       DeviceIdxType deviceId);
 
-  static Communicator* getOrCreateCommunicator();
+  // Communicator is expensive to create/delete per test. Therefore,
+  // https://google.github.io/googletest/advanced.html#sharing-resources-between-tests-in-the-same-test-suite
+  static Communicator* communicator_;
 
-  Communicator* communicator_;
   c10::TensorOptions tensor_options;
   bool debug_print;
   bool disable_skip;
