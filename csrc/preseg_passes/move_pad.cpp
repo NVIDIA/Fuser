@@ -73,7 +73,7 @@ TensorView* replayConcretePad(TensorView* pad_tv, Val* pad_value, const VecPadWi
     std::vector<IterDomain*> merged_logical_ids;
     for (const auto i : c10::irange(rank)) {
       Val* left_pad = merged_pad_widths.at(i * 2);
-      Val* right_pad = merged_pad_widths.at(i * 2);
+      Val* right_pad = merged_pad_widths.at(i * 2 + 1);
       IterDomain* inp_id = inp_dom.at(i);
       if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
         merged_root_ids.push_back(inp_id->cloneWithoutRFactor());
