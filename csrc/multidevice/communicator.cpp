@@ -214,6 +214,18 @@ Communicator::Communicator(
 #endif
 }
 
+Communicator::~Communicator() {
+#ifdef NVFUSER_DISTRIBUTED
+  for (auto& [key, backend] : backends_) {
+    // Call shutdown before destructing a ProcessGroupNCCL as instructed by
+    // https://github.com/pytorch/pytorch/blob/e62073d7997c9e63896cb5289ffd0874a8cc1838/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L1164-L1170.
+    if (auto* pg_nccl = dynamic_cast<c10d::ProcessGroupNCCL*>(backend.get())) {
+      pg_nccl->shutdown();
+    }
+  }
+#endif
+}
+
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
