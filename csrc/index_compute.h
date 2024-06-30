@@ -599,7 +599,7 @@ indexMapFromTV(
     const std::unordered_set<ForLoop*>& rotated_loops,
     ForLoop* alloc_loop,
     bool as_consumer,
-    ForLoop* double_buffer_loop = nullptr);
+    ForLoop* circular_buffer_loop = nullptr);
 
 //! Set "pragma unroll" required for loops that indexing of Local
 //! tensors depends on.

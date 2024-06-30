@@ -128,9 +128,9 @@ inline bool initCoreHeuristics(
     if (isAmpere(params->mma_macro)) {
       constexpr int stages = 3;
 
-      params->double_buffer_options.double_buffer_smem_write = true;
-      params->double_buffer_options.double_buffer_smem_read = true;
-      params->double_buffer_options.smem_double_buffer_stage = stages;
+      params->circular_buffer_options.circular_buffer_smem_write = true;
+      params->circular_buffer_options.circular_buffer_smem_read = true;
+      params->circular_buffer_options.smem_circular_buffer_stage = stages;
     }
   }
 
@@ -153,8 +153,8 @@ inline bool initCoreHeuristics(
     // Circular buffering requires async load. If we cannot use async load due
     // to unsupported vectorization width, then we can only double buffer at
     // most.
-    params->double_buffer_options.smem_double_buffer_stage =
-        std::min(2, params->double_buffer_options.smem_double_buffer_stage);
+    params->circular_buffer_options.smem_circular_buffer_stage =
+        std::min(2, params->circular_buffer_options.smem_circular_buffer_stage);
   }
   return true;
 }
@@ -790,7 +790,7 @@ bool isCpAsyncOperandLoadSupported(
   };
   // TODO: We should compute validCpAsyncVecSize for all the operand
   // dtype/vec_size pairs and AND them together
-  return params->double_buffer_options.smem_double_buffer_stage > 1 &&
+  return params->circular_buffer_options.smem_circular_buffer_stage > 1 &&
       validCpAsyncVecSize(
              min_dtype_size,
              std::min(
@@ -877,7 +877,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           params->tile_sizes,
-          params->double_buffer_options.smem_double_buffer_stage,
+          params->circular_buffer_options.smem_circular_buffer_stage,
           tensor_roles);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {

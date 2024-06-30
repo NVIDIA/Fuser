@@ -2407,13 +2407,13 @@ class ForLoop final : public Expr {
       bool vectorize,
       Val* vectorize_shift,
       bool unroll_required,
-      DoubleBufferLoopStage double_buffer_loop_stage);
+      CircularBufferLoopStage circular_buffer_loop_stage);
 
   ForLoop(
       IrBuilderPasskey passkey,
       IterDomain* iter_domain,
       Val* index,
-      DoubleBufferLoopStage double_buffer_loop_stage);
+      CircularBufferLoopStage circular_buffer_loop_stage);
 
   ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
 
@@ -2494,8 +2494,8 @@ class ForLoop final : public Expr {
 
   //! Returns the stage of a double buffered iterdomain
   //!  that this for loop materializes.
-  auto doubleBufferLoopStage() const {
-    return attribute<DoubleBufferLoopStage>(6);
+  auto circularBufferLoopStage() const {
+    return attribute<CircularBufferLoopStage>(6);
   }
 
  private:
