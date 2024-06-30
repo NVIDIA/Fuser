@@ -33,73 +33,77 @@ struct Edge {
 
 using VecPadWidths = std::vector<std::vector<Val*>>;
 
-// NOTE: this assumes all vec_pad_widths are positive entries so we don't need to consider accumulating them changing the output iter_type.
-TensorView* replayConcretePad(TensorView* pad_tv, Val* pad_value, const VecPadWidths& vec_pad_widths, std::vector<IterDomain*> ref_iter_type) {
-    NVF_ERROR(
-        pad_tv->getDataType().has_value(), "pad source dtype is missing");
-    const std::vector<IterDomain*> inp_dom =
-        TensorDomain::noReductions(pad_tv->getLogicalDomain());
-    const auto rank = inp_dom.size();
+// NOTE: this assumes all vec_pad_widths are positive entries so we don't need
+// to consider accumulating them changing the output iter_type.
+TensorView* replayConcretePad(
+    TensorView* pad_tv,
+    Val* pad_value,
+    const VecPadWidths& vec_pad_widths,
+    std::vector<IterDomain*> ref_iter_type) {
+  NVF_ERROR(pad_tv->getDataType().has_value(), "pad source dtype is missing");
+  const std::vector<IterDomain*> inp_dom =
+      TensorDomain::noReductions(pad_tv->getLogicalDomain());
+  const auto rank = inp_dom.size();
 
-    NVF_ERROR(
-        rank == ref_iter_type.size(),
-        "ref_iter_type does not have compatible size regarding pad_tv");
+  NVF_ERROR(
+      rank == ref_iter_type.size(),
+      "ref_iter_type does not have compatible size regarding pad_tv");
 
-    std::vector<Val*> merged_pad_widths;
-    merged_pad_widths.reserve(rank*2);
+  std::vector<Val*> merged_pad_widths;
+  merged_pad_widths.reserve(rank * 2);
 
-    NVF_ERROR(
-        !vec_pad_widths.empty(),
-        "vec_pad_widths cannot be empty");
-    if (vec_pad_widths.size() == 1) {
-      merged_pad_widths = vec_pad_widths.at(0);
-    } else {
-      NVF_ERROR(false, "NOT IMPLEMENTED");
-      for (const auto i : c10::irange(2*rank)) {
-        Val* merged_pad_width = nullptr;
-        for (const auto idx : c10::irange(vec_pad_widths.size())) {
-          // skipping zero pad;
-          Val* pad_width = vec_pad_widths[idx].at(i);
-          if (pad_width->isZeroInt()) {
-            continue;
-          }
-          merged_pad_width = merged_pad_width == nullptr ? pad_width : add(merged_pad_width, pad_width);
+  NVF_ERROR(!vec_pad_widths.empty(), "vec_pad_widths cannot be empty");
+  if (vec_pad_widths.size() == 1) {
+    merged_pad_widths = vec_pad_widths.at(0);
+  } else {
+    for (const auto i : c10::irange(2 * rank)) {
+      Val* merged_pad_width = nullptr;
+      for (const auto idx : c10::irange(vec_pad_widths.size())) {
+        // skipping zero pad;
+        Val* pad_width = vec_pad_widths[idx].at(i);
+        if (pad_width->isZeroInt()) {
+          continue;
         }
-        merged_pad_widths.push_back(merged_pad_width == nullptr? FusionGuard::getCurFusion()->zeroVal() : merged_pad_width);
+        merged_pad_width = merged_pad_width == nullptr
+            ? pad_width
+            : add(merged_pad_width, pad_width);
       }
+      merged_pad_widths.push_back(
+          merged_pad_width == nullptr ? FusionGuard::getCurFusion()->zeroVal()
+                                      : merged_pad_width);
     }
+  }
 
-    std::vector<IterDomain*> merged_root_ids;
-    std::vector<IterDomain*> merged_logical_ids;
-    for (const auto i : c10::irange(rank)) {
-      Val* left_pad = merged_pad_widths.at(i * 2);
-      Val* right_pad = merged_pad_widths.at(i * 2 + 1);
-      IterDomain* inp_id = inp_dom.at(i);
-      if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
-        merged_root_ids.push_back(inp_id->cloneWithoutRFactor());
-        merged_logical_ids.push_back(merged_root_ids.back());
-        continue;
-      }
-      // NOTE: nvfuser pad doesn't support negative padding, so we don't have to
-      // worry about it cancelling out.
-      IterDomain* merged_root_id =
-          IterDomainBuilder(inp_id).is_rfactor_domain(true).build();
-      merged_root_ids.push_back(merged_root_id);
-      merged_logical_ids.push_back(IterDomain::resize(
-          merged_root_id,
-          left_pad,
-          right_pad,
-          true,
-          ref_iter_type.at(i)->getIterType()));
+  std::vector<IterDomain*> merged_root_ids;
+  std::vector<IterDomain*> merged_logical_ids;
+  for (const auto i : c10::irange(rank)) {
+    Val* left_pad = merged_pad_widths.at(i * 2);
+    Val* right_pad = merged_pad_widths.at(i * 2 + 1);
+    IterDomain* inp_id = inp_dom.at(i);
+    if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
+      merged_root_ids.push_back(inp_id->cloneWithoutRFactor());
+      merged_logical_ids.push_back(merged_root_ids.back());
+      continue;
     }
+    // NOTE: nvfuser pad doesn't support negative padding, so we don't have to
+    // worry about it cancelling out.
+    IterDomain* merged_root_id =
+        IterDomainBuilder(inp_id).is_rfactor_domain(true).build();
+    merged_root_ids.push_back(merged_root_id);
+    merged_logical_ids.push_back(IterDomain::resize(
+        merged_root_id,
+        left_pad,
+        right_pad,
+        true,
+        ref_iter_type.at(i)->getIterType()));
+  }
 
-    auto* new_out = IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(
-            merged_root_ids, merged_logical_ids, merged_logical_ids),
-        pad_tv->getDataType().value());
-    IrBuilder::create<PadOp>(
-        new_out, pad_tv, merged_pad_widths, pad_value);
-    return new_out;
+  auto* new_out = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          merged_root_ids, merged_logical_ids, merged_logical_ids),
+      pad_tv->getDataType().value());
+  IrBuilder::create<PadOp>(new_out, pad_tv, merged_pad_widths, pad_value);
+  return new_out;
 }
 
 Val* propagatePadToProducer(PadOp* pad_op) {
@@ -111,8 +115,10 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       return false;
     }
     // TODO: refactor this check. We should totally support multiple uses here.
-    // multiple uses should only block further back propagation when it applies. But we can replace the edge with a padded output. hint. we should count the encounter of each edge and check `encounter == # of uses` to proceed with propagation.
-    // Get some use case with binary operation on this one.
+    // multiple uses should only block further back propagation when it applies.
+    // But we can replace the edge with a padded output. hint. we should count
+    // the encounter of each edge and check `encounter == # of uses` to proceed
+    // with propagation. Get some use case with binary operation on this one.
     if (val->uses().size() > 1) {
       return false;
     }
@@ -178,7 +184,8 @@ Val* propagatePadToProducer(PadOp* pad_op) {
         //   here. replay_sequence.push_back(uop);
       }
       if (uop->in()->isA<TensorView>()) {
-        // even though we cannot further propagate, we'd still want to replace the use here.
+        // even though we cannot further propagate, we'd still want to replace
+        // the use here.
         replay_sequence.push_back(uop);
         frontier.emplace_back(uop, 0);
         continue;
@@ -249,7 +256,8 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     const std::vector<IterDomain*> out_ids = TensorDomain::noReductions(
         pad_op->out()->as<TensorView>()->getLogicalDomain());
 
-    TensorView* new_out = replayConcretePad(pad_tv, pad_op->value(), {pad_op->getPadWidths()}, out_ids);
+    TensorView* new_out = replayConcretePad(
+        pad_tv, pad_op->value(), {pad_op->getPadWidths()}, out_ids);
 
     // TODO: test output from reduction here
     // TensorView* pad_out_tv = pad_op->out()->as<TensorView>();
@@ -258,14 +266,17 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // true); NOTE: we use pad_out_tv instead of edge.val()->as<TensorView>()
     // since the input tensor doesn't have its root id marked with rfactor flag.
     // std::vector<IterDomain*> new_root =
-    //     IterDomain::clone(edge.val()->as<TensorView>()->getMaybeRootDomain(), true);
-        // should use edge.val() to ensure that we have the right broadcast marked on root.
-        // IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
+    //     IterDomain::clone(edge.val()->as<TensorView>()->getMaybeRootDomain(),
+    //     true);
+    // should use edge.val() to ensure that we have the right broadcast marked
+    // on root. IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
     // NOTE: we cannot use the TensorDomain from fullSelfReplay, since it
     // doesn't keep root domain.
 
-    // TODO: cannot use fullSelfReplay here since it requires matching broadcast between new root to old root in domain. I should merge the two `create<PadOp>` instances so we can basically have a `replayPadOnProducer` function.
-    // std::vector<IterDomain*> new_logical =
+    // TODO: cannot use fullSelfReplay here since it requires matching broadcast
+    // between new root to old root in domain. I should merge the two
+    // `create<PadOp>` instances so we can basically have a
+    // `replayPadOnProducer` function. std::vector<IterDomain*> new_logical =
     //     TransformReplay::fullSelfReplay(
     //         IrBuilder::create<TensorDomain>(new_root),
     //         pad_out_tv->domain(),
@@ -399,62 +410,12 @@ void mergeNeighboringPad(Fusion* fusion) {
         p_pad_widths.size() == c_pad_widths.size(),
         "expect consecutive PadOp to have the same length of pad widths");
 
-    auto* pad_inp = producer->in()->as<TensorView>();
-    const std::vector<IterDomain*> inp_dom =
-        TensorDomain::noReductions(pad_inp->getLogicalDomain());
-    const std::vector<IterDomain*> out_dom = TensorDomain::noReductions(
-        consumer->out()->as<TensorView>()->getLogicalDomain());
-
-    NVF_ERROR(
-        2 * inp_dom.size() == c_pad_widths.size(),
-        "input rank is not compatible with pad widths");
-
-    std::vector<Val*> merged_pad_width;
-    merged_pad_width.reserve(p_pad_widths.size());
-
-    std::vector<IterDomain*> merged_root_ids;
-    std::vector<IterDomain*> merged_logical_ids;
-
-    for (const auto i : c10::irange(inp_dom.size())) {
-      Val* p_left_pad = p_pad_widths.at(i * 2);
-      Val* p_right_pad = p_pad_widths.at(i * 2 + 1);
-      Val* c_left_pad = c_pad_widths.at(i * 2);
-      Val* c_right_pad = c_pad_widths.at(i * 2 + 1);
-      IterDomain* inp_id = inp_dom.at(i);
-
-      if (p_left_pad->isZeroInt() && p_right_pad->isZeroInt() &&
-          c_left_pad->isZeroInt() && c_right_pad->isZeroInt()) {
-        merged_root_ids.push_back(inp_id->cloneWithoutRFactor());
-        merged_logical_ids.push_back(merged_root_ids.back());
-        merged_pad_width.push_back(FusionGuard::getCurFusion()->zeroVal());
-        merged_pad_width.push_back(FusionGuard::getCurFusion()->zeroVal());
-        continue;
-      }
-      // TODO: Add test with merging pad on different dimensions
-      // NOTE: should I worry about simplifying this by skipping zero?
-      Val* merged_left_pad = add(p_left_pad, c_left_pad);
-      Val* merged_right_pad = add(p_right_pad, c_right_pad);
-      merged_pad_width.push_back(merged_left_pad);
-      merged_pad_width.push_back(merged_right_pad);
-      // NOTE: nvfuser pad doesn't support negative padding, so we don't have to
-      // worry about it cancelling out.
-      IterDomain* merged_root_id =
-          IterDomainBuilder(inp_id).is_rfactor_domain(true).build();
-      merged_root_ids.push_back(merged_root_id);
-      merged_logical_ids.push_back(IterDomain::resize(
-          merged_root_id,
-          merged_left_pad,
-          merged_right_pad,
-          true,
-          out_dom.at(i)->getIterType()));
-    }
-
-    auto* new_out = IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(
-            merged_root_ids, merged_logical_ids, merged_logical_ids),
-        pad_inp->getDataType().value());
-    IrBuilder::create<PadOp>(
-        new_out, pad_inp, merged_pad_width, producer->value());
+    TensorView* new_out = replayConcretePad(
+        producer->in()->as<TensorView>(),
+        producer->value(),
+        {producer->getPadWidths(), consumer->getPadWidths()},
+        TensorDomain::noReductions(
+            consumer->out()->as<TensorView>()->getLogicalDomain()));
 
     ir_utils::replaceValue(
         fusion, {{consumer->out(), static_cast<Val*>(new_out)}});
