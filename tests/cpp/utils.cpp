@@ -787,4 +787,25 @@ MmaLayout getMatmulProblemLayout(Fusion* fusion) {
   }
 }
 
+// get supported floating data types
+std::vector<DataType> getFloatingDataTypes() {
+  std::vector<DataType> dtypes = {
+      DataType::Double,
+      DataType::Float,
+      DataType::Half,
+      DataType::ComplexFloat,
+      DataType::ComplexDouble};
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
+  if (at::cuda::getDeviceProperties(0)->major >= 8) {
+    dtypes.push_back(DataType::BFloat16);
+  }
+#endif
+  return dtypes;
+}
+
+std::string sanitizeTestName(const std::string& name) {
+  // Replace all non-alphanumeric characters with underscores
+  return std::regex_replace(name, std::regex("[^a-zA-Z0-9]"), "_");
+}
+
 } // namespace nvfuser
