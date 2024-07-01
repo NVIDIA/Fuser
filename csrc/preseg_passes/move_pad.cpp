@@ -208,8 +208,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   // 1. The optimization logic assumes a zero pad. This is used for logic in handling binary operations;
   // 2. if `pad_op->in()` is used more than by the pad_op;
   // 3. if `pad_op->in()` is an output tv.
-  // TODO: cannot use `isZero()` here since it causes assert on complex types
-  if (!pad_op->value()->isZeroInt() || pad_op->in()->uses().size() > 1 || pad_op->in()->isFusionOutput()) {
+  if (!pad_op->value()->isZero() || pad_op->in()->uses().size() > 1 || pad_op->in()->isFusionOutput()) {
     return nullptr;
   }
 
