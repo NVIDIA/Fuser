@@ -1464,7 +1464,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
     Val* mbarrier = GpuLower::current()->ldstMBarrierIndexMap()[ldst];
     NVF_ERROR(
         mbarrier->isA<kir::TensorIndex>(),
-        "Expected TensorIndex for double buffer");
+        "Expected TensorIndex for circular buffer");
     Val* mbarrier_index =
         lower_utils::u32IndexScalarSmemTv(mbarrier->as<kir::TensorIndex>());
 
@@ -1478,10 +1478,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
     pushBack(new_ldst);
-
     // register new LoadStoreOp with mbarrier index
     GpuLower::current()->ldstMBarrierIndexMap()[new_ldst] = mbarrier_index;
-
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {
     // indexing mbarrier
@@ -1505,7 +1503,6 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
         IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
             ->withPredicate(ldst->predicate());
     pushBack(new_ldst);
-
     GpuLower::current()->propagateExprInfo(ldst, back());
     // wait mbarrier
     pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
