@@ -14,6 +14,7 @@
 #include <driver_api.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
+#include <fusion_profiler.h>
 #include <global_allocator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
@@ -262,6 +263,16 @@ void FusionExecutor::compileFusion(
     return;
   }
 
+  // NOTE: Profiling needs to be started below the isExpressionEvaluated query
+  // given the conditional can exit early from compilation.
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id);
+    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
+  }
+
   for (auto out : fusion->outputs()) {
     const auto logical_domain = out->as<TensorView>()->getLogicalDomain();
     // walking through outputs to see if output shapes are dependent on
@@ -476,6 +487,9 @@ void FusionExecutor::compileFusion(
 
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
     debug() << disassembledKernelSASS() << std::endl;
+  }
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id).stopCompile();
   }
 }
 
@@ -1867,6 +1881,17 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
 
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id_ >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
+    sprof.inputBytesAccessed(inputBytesProcessed(args));
+    sprof.scheduler(toString(heuristic_));
+    sprof.startKernel(args.getDeviceIndex());
+  }
+
   NVF_ERROR(isCompiled());
   NVF_ERROR(
       outputs.empty() || (outputs.size() == fusion()->outputs().size()),
@@ -1896,6 +1921,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     outputs = evaluateFusionOutputs(args, outputs, expr_eval);
     if (measure_kernel_time) {
       outputBytesProcessed(outputs);
+    }
+    if (isProfilerEnabled()) {
+      auto& sprof = FusionProfiler::segment(group_id_);
+      sprof.stopKernel();
+      sprof.outputBytesAccessed(outputBytesProcessed(outputs));
     }
     return outputs;
   }
@@ -2140,6 +2170,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     debug() << kernel()->profile().toString(profile_buffer);
+  }
+
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::segment(group_id_);
+    sprof.stopKernel();
+    sprof.outputBytesAccessed(outputBytesProcessed(outputs));
   }
 
   return outputs;

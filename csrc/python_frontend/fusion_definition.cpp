@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <debug.h>
+#include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <multidevice/communicator.h>
 #include <options.h>
@@ -144,13 +145,6 @@ void FusionDefinition::finalizeSchedule(
 
   FusionGuard::setCurFusion(prev_fusion_);
   prev_fusion_ = nullptr;
-  if (multidevice_executor_ == nullptr) {
-    user_sched_->executor->compileFusion(
-        user_sched_->schedule.get(),
-        inputs,
-        user_sched_->fusion_id_,
-        user_sched_->device_id_);
-  }
   user_sched_ = nullptr;
 }
 
@@ -189,23 +183,42 @@ std::vector<at::Tensor> FusionDefinition::execute(
   }
 
   std::vector<at::Tensor> outputs;
+  if (profile) {
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  }
 
   // NOTE: queryUserSchedule is broken, see issue:
   // https://github.com/NVIDIA/Fuser/issues/2056
   if (!override_user_schedule) {
-    // NOTE: Profiling is only currently supported for auto generatoed
-    // schedules.
     auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(
         inputs.empty() || device > -1,
         "Inputs are not all on the same device or don't match selection!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
+      if (isProfilerEnabledWithCupti()) {
+        FusionProfiler::start();
+        FusionProfiler::createSegments(1);
+      }
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
+      if (!user_sched.executor->isCompiled()) {
+        user_sched.executor->compileFusion(
+            user_sched.schedule.get(),
+            inputs,
+            user_sched.fusion_id_,
+            user_sched.device_id_);
+      }
       outputs = user_sched.executor->runFusion(inputs);
+      if (isProfilerEnabledWithCupti()) {
+        FusionProfiler::segment(0).scheduler("user");
+        FusionProfiler::stop();
+        if (isProfilerPrintingEnabled()) {
+          debug() << FusionProfiler::profile();
+        }
+      }
     }
   }
 
@@ -213,16 +226,11 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // already at this point and we would not want to overwrite generated output
   // through user scheduled kernel.
   if (outputs.empty()) {
-    // NOTE: Profiling is only currently supported for auto generatoed
-    // schedules.
-    if (profile) {
-      ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
-    }
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         inputs, std::nullopt, selected_device);
-    if (profile) {
-      ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
-    }
+  }
+  if (profile) {
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
   }
 
   if (capture_debug_output) {

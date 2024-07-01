@@ -278,7 +278,7 @@ using ProfilerOptions = Options<ProfilerOption>;
 
 // Specific queries for the Profiler Options
 bool isProfilerEnabled();
-bool isProfilerEnabledWithoutCupti();
+bool isProfilerEnabledWithCupti();
 bool isProfilerPrintingEnabled();
 bool isProfilerPrintingVerbose();
 

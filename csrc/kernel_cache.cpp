@@ -523,7 +523,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
   // NOTE: This should be the first code in the method to capture all host time
   if (isProfilerEnabled()) {
-    FusionProfiler::start(isProfilerEnabledWithoutCupti());
+    FusionProfiler::start(!isProfilerEnabledWithCupti());
   }
 
   // Permute input tensor for kernel execution.
@@ -1200,17 +1200,13 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
-  if (isProfilerEnabled()) {
-    auto& sprof = FusionProfiler::segment(group_id);
-    sprof.inputBytesAccessed(executor.inputBytesProcessed(args));
-    sprof.startKernel(args.getDeviceIndex());
+  // TODO: This is a work around for the fallback execution path where a kernel
+  // is not compiled. Perhaps the gorup/segment Id needs to be specified to the
+  // executor at its constructor.  Currently, initialization is ad hoc.
+  if (executor.groupId() < 0) {
+    executor.setGroupId(group_id);
   }
   auto outputs = executor.runFusion(args, launch_params, compile_params);
-  if (isProfilerEnabled()) {
-    auto& sprof = FusionProfiler::segment(group_id);
-    sprof.stopKernel();
-    sprof.outputBytesAccessed(executor.outputBytesProcessed(outputs));
-  }
 
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();
@@ -1350,9 +1346,6 @@ void FusionKernelRuntime::compileKernel(
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
-  if (isProfilerEnabled()) {
-    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
-  }
   auto scheduler_entry = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
@@ -1382,9 +1375,6 @@ void FusionKernelRuntime::compileKernel(
       concrete_id_,
       runtime_id_,
       group_id);
-  if (isProfilerEnabled()) {
-    FusionProfiler::segment(group_id).stopCompile();
-  }
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(

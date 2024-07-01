@@ -1212,6 +1212,11 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({2, 3}, options);
   auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  if (ProfilerState::Running == FusionProfiler::state()) {
+    FusionProfiler::stop();
+  }
+  ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   const FusionProfile& profile = FusionProfiler::profile();
@@ -1222,10 +1227,6 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
       UnorderedElementsAre(
           Field(&KernelProfile::name, IsEmpty()),
           Field(&KernelProfile::name, Not(IsEmpty()))));
-
-  if (ProfilerState::Running == FusionProfiler::state()) {
-    FusionProfiler::stop();
-  }
 }
 
 TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
@@ -1284,16 +1285,17 @@ TEST_F(AliasTest, NoKernelsAreLaunched) {
   at::Tensor in_tensor = at::randn({2, 3}, options);
   fec.runFusionWithInputs({in_tensor});
 
+  if (ProfilerState::Running == FusionProfiler::state()) {
+    FusionProfiler::stop();
+  }
+  ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+
   const FusionProfile& profile = FusionProfiler::profile();
   // Expect a kernel launched for one of the two segments but not the
   // other.
   EXPECT_THAT(
       profile.kernel_profiles,
       UnorderedElementsAre(Field(&KernelProfile::name, IsEmpty())));
-
-  if (ProfilerState::Running == FusionProfiler::state()) {
-    FusionProfiler::stop();
-  }
 }
 
 // While most use cases go through FusionExecutorCache, nvFuser also supports
