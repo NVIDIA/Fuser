@@ -461,18 +461,18 @@ TEST_F(Tutorial, Reshape) {
     fusion.addOutput(tv1);
 
     if (verbose_) {
-      // Notice that tv1 has root and rfactor domains. The root domain
-      // should consist of two IterDomains, whreas the rfactor domain
+      // Notice that tv1 has root and logical domains. The root domain
+      // should consist of two IterDomains, whreas the logical domain
       // consists of a single IterDomain that is an output of a merge
       // operation of the two root IterDomains
       fusion.print();
     }
 
     // Check if the tv1 domains are generated as expected
-    ASSERT_TRUE(tv1->hasRFactor());
-    ASSERT_EQ(tv1->getRFactorDomain().size(), 1);
-    ASSERT_TRUE(tv1->getRFactorDomain().at(0)->definition()->isA<Merge>());
-    Merge* tv1_merge = tv1->getRFactorDomain().at(0)->definition()->as<Merge>();
+    ASSERT_TRUE(tv1->hasRoot());
+    ASSERT_EQ(tv1->getLogicalDomain().size(), 1);
+    ASSERT_TRUE(tv1->getLogicalDomain().at(0)->definition()->isA<Merge>());
+    Merge* tv1_merge = tv1->getLogicalDomain().at(0)->definition()->as<Merge>();
     ASSERT_EQ(tv1_merge->inner(), tv1->getRootDomain().at(1));
     ASSERT_EQ(tv1_merge->outer(), tv1->getRootDomain().at(0));
   }
@@ -504,18 +504,18 @@ TEST_F(Tutorial, Reshape) {
         reshape_output->definition()->input(0)->as<TensorView>();
     ASSERT_TRUE(squeeze_output->definition()->isA<SqueezeOp>());
 
-    ASSERT_TRUE(reshape_output->hasRFactor());
-    ASSERT_EQ(reshape_output->getRFactorDomain().size(), 2);
+    ASSERT_TRUE(reshape_output->hasRoot());
+    ASSERT_EQ(reshape_output->getLogicalDomain().size(), 2);
     ASSERT_TRUE(
-        reshape_output->getRFactorDomain().at(0)->definition()->isA<Split>());
+        reshape_output->getLogicalDomain().at(0)->definition()->isA<Split>());
     auto reshape_output_split =
-        reshape_output->getRFactorDomain().at(0)->definition()->as<Split>();
+        reshape_output->getLogicalDomain().at(0)->definition()->as<Split>();
     ASSERT_EQ(
         reshape_output_split->outer(),
-        reshape_output->getRFactorDomain().at(0));
+        reshape_output->getLogicalDomain().at(0));
     ASSERT_EQ(
         reshape_output_split->inner(),
-        reshape_output->getRFactorDomain().at(1));
+        reshape_output->getLogicalDomain().at(1));
     ASSERT_TRUE(reshape_output_split->in()->definition()->isA<Merge>());
     auto reshape_output_merge =
         reshape_output_split->in()->definition()->as<Merge>();
@@ -530,15 +530,15 @@ TEST_F(Tutorial, Reshape) {
     reshape_output->split(0, 128);
 
     ASSERT_TRUE(
-        reshape_output->getLeafDomain().at(0)->definition()->isA<Split>());
+        reshape_output->getLoopDomain().at(0)->definition()->isA<Split>());
     ASSERT_EQ(
-        reshape_output->getLeafDomain()
+        reshape_output->getLoopDomain()
             .at(0)
             ->definition()
             ->as<Split>()
             ->inner(),
-        reshape_output->getLeafDomain().at(1));
-    ASSERT_TRUE(reshape_output->getLeafDomain()
+        reshape_output->getLoopDomain().at(1));
+    ASSERT_TRUE(reshape_output->getLoopDomain()
                     .at(0)
                     ->definition()
                     ->as<Split>()
@@ -546,7 +546,7 @@ TEST_F(Tutorial, Reshape) {
                     ->definition()
                     ->isA<Merge>());
     ASSERT_EQ(
-        reshape_output->getLeafDomain()
+        reshape_output->getLoopDomain()
             .at(0)
             ->definition()
             ->as<Split>()
@@ -554,9 +554,9 @@ TEST_F(Tutorial, Reshape) {
             ->definition()
             ->as<Merge>()
             ->outer(),
-        reshape_output->getRFactorDomain().at(0));
+        reshape_output->getLogicalDomain().at(0));
     ASSERT_EQ(
-        reshape_output->getLeafDomain()
+        reshape_output->getLoopDomain()
             .at(0)
             ->definition()
             ->as<Split>()
@@ -564,7 +564,7 @@ TEST_F(Tutorial, Reshape) {
             ->definition()
             ->as<Merge>()
             ->inner(),
-        reshape_output->getRFactorDomain().at(1));
+        reshape_output->getLogicalDomain().at(1));
 
     // Here's how we propagate the transformations of reshape_output
     // to all other tensors in the fusion
@@ -590,15 +590,15 @@ TEST_F(Tutorial, Reshape) {
     // merge(1, 2) -> [b0, 3*i1*i2/3]
     // split(1, 128) -> [b0, 3*i1*i2/3/128, 128]
     ASSERT_TRUE(
-        squeeze_output->getLeafDomain().at(0)->definition()->isA<Split>());
+        squeeze_output->getLoopDomain().at(0)->definition()->isA<Split>());
     auto squeeze_output_second_split =
-        squeeze_output->getLeafDomain().at(0)->definition()->as<Split>();
+        squeeze_output->getLoopDomain().at(0)->definition()->as<Split>();
     ASSERT_EQ(
         squeeze_output_second_split->outer(),
-        squeeze_output->getLeafDomain().at(0));
+        squeeze_output->getLoopDomain().at(0));
     ASSERT_EQ(
         squeeze_output_second_split->inner(),
-        squeeze_output->getLeafDomain().at(1));
+        squeeze_output->getLoopDomain().at(1));
 
     ASSERT_TRUE(squeeze_output_second_split->in()->definition()->isA<Merge>());
     auto squeeze_output_second_merge =
@@ -620,14 +620,14 @@ TEST_F(Tutorial, Reshape) {
         squeeze_output_first_split->in()->definition()->as<Merge>();
     ASSERT_EQ(
         squeeze_output_first_merge->outer(),
-        squeeze_output->getRootDomain().at(0));
+        squeeze_output->getLogicalDomain().at(0));
     ASSERT_EQ(
         squeeze_output_first_merge->inner(),
-        squeeze_output->getRootDomain().at(1));
+        squeeze_output->getLogicalDomain().at(1));
 
     // Note that all the transformations of squeeze_output are scheduling
-    // transformations, thus it should not have a rfactor domain
-    ASSERT_FALSE(squeeze_output->hasRFactor());
+    // transformations, thus it should not have a root domain
+    ASSERT_FALSE(squeeze_output->hasRoot());
   }
 }
 
@@ -657,9 +657,9 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // As mentioned above, we don't know any relationship between tv0
   // and tv1, so they should not be mapped.
-  for (const auto i : c10::irange(tv0->getRootDomain().size())) {
+  for (const auto i : c10::irange(tv0->getLogicalDomain().size())) {
     ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
-        tv0->getRootDomain().at(i), tv1->getRootDomain().at(i)));
+        tv0->getLogicalDomain().at(i), tv1->getLogicalDomain().at(i)));
   }
 
   // Thus, the outputs of the reshape ops are not mapped either
@@ -670,12 +670,13 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // Now, suppose we can say the inputs are exactly mapped. We
   // can manually add mappings:
-  for (const auto i : c10::irange(tv0->getRootDomain().size())) {
-    exact_graph.mapVals(tv0->getRootDomain().at(i), tv1->getRootDomain().at(i));
+  for (const auto i : c10::irange(tv0->getLogicalDomain().size())) {
+    exact_graph.mapVals(
+        tv0->getLogicalDomain().at(i), tv1->getLogicalDomain().at(i));
   }
 
   // Now, tv2 and tv3 should be fully mapped, including their root,
-  // intermediate and leaf domains.
+  // intermediate and loop domains.
 
   // Check the root domains.
   for (const auto i : c10::irange(tv2->getRootDomain().size())) {
@@ -689,7 +690,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
       tv2->getRootDomain().at(0)->uses().at(0)->as<Merge>()->out(),
       tv3->getRootDomain().at(0)->uses().at(0)->as<Merge>()->out()));
 
-  // The next operation is split. Its outputs, which are the leaf
+  // The next operation is split. Its outputs, which are the loop
   // domains, should be mapped too.
   for (const auto i : c10::irange(tv2->nDims())) {
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
@@ -753,7 +754,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain, which is already
+    // By default, the allocation domain is the logical domain, which is already
     // in good shape for this case.
 
     // Step 5: schedule the consumer tensor
@@ -832,7 +833,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain, which is already
+    // By default, the allocation domain is the logical domain, which is already
     // in good shape for this case.
 
     // Step 5: schedule the consumer tensor
@@ -916,7 +917,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain, which is already
+    // By default, the allocation domain is the logical domain, which is already
     // in good shape for this case.
 
     // Step 5: schedule the consumer tensor
@@ -996,7 +997,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain, which is already
+    // By default, the allocation domain is the logical domain, which is already
     // in good shape for this case.
 
     // Step 5: schedule the consumer tensor
@@ -1081,7 +1082,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain. The default
+    // By default, the allocation domain is the logical domain. The default
     // value does not work for this case, because this way, tile will not be
     // contiguous in shared memory.
     // [I0, I1/32, 32, I2/32', 32']
@@ -1090,7 +1091,7 @@ TEST_F(Tutorial, BasicTMA) {
     // [I0, I1/32/2, 2, 32, I2/32'/2', 2', 32']
     smem_cache->reorder({{3, -2}, {2, -4}});
     // [I0, I1/32/2, I2/32'/2', 2, 2', 32, 32']
-    smem_cache->setAllocationDomain(smem_cache->getLeafDomain(), true);
+    smem_cache->setAllocationDomain(smem_cache->getLoopDomain(), true);
 
     // Step 5: schedule the consumer tensor
     // [I0, I1/32/2, I2/32'/2', 2, 2', 32, 32']
@@ -1184,7 +1185,7 @@ TEST_F(Tutorial, BasicTMA) {
     // We use dense tile here, so tile == box. Nothing to do here.
 
     // Step 4: schedule the shared memory tensor
-    // By default, the allocation domain is the rFactor domain. The default
+    // By default, the allocation domain is the logical domain. The default
     // value does not work for this case, because this way, tile will not be
     // contiguous in shared memory.
     // [I0, I1, I2]
@@ -1196,7 +1197,7 @@ TEST_F(Tutorial, BasicTMA) {
     // [I0, I1/32/2, 2, 32, I2/32'/2', 2', 32']
     smem_cache->reorder({{3, -2}, {2, -4}});
     // [I0, I1/32/2, I2/32'/2', 2, 2', 32, 32']
-    smem_cache->setAllocationDomain(smem_cache->getLeafDomain(), true);
+    smem_cache->setAllocationDomain(smem_cache->getLoopDomain(), true);
 
     // Step 5: schedule the consumer tensor.
     // Because we are not inlining anything in this example, we do not care
@@ -1509,7 +1510,7 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   // conflict.
   // [BIDx, 32', 32]
   output_smem_cache->setAllocationDomain(
-      output_smem_cache->getLeafDomain(), true);
+      output_smem_cache->getLoopDomain(), true);
   output_smem_cache->split(1, 4);
   // [BIDx, 8', 4', 32]
   scheduler_utils::BoundedDirectionalTransformPropagator::backward(
@@ -1525,7 +1526,7 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   output_smem_cache->axis(2)->parallelize(ParallelType::Unroll);
   output_reg_cache->axis(2)->parallelize(ParallelType::Vectorize);
   output_reg_cache->setAllocationDomain(
-      output_reg_cache->getLeafDomain(), true);
+      output_reg_cache->getLoopDomain(), true);
 
   // Schedule the memory format for 128 byte swizzle
   // [BIDx, 8', 4', 32]
@@ -1536,7 +1537,7 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
   // [BIDx, 4, 8, 8', 4']
   input_smem_cache->setAllocationDomain(
-      input_smem_cache->getLeafDomain(), true);
+      input_smem_cache->getLoopDomain(), true);
   input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
   input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
   input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);

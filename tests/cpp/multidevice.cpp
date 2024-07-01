@@ -9,6 +9,13 @@
 #include <unistd.h>
 #include <mutex>
 
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/debug.h>
+#else
+#include <multidevice/c10d_mock.h>
+#endif
+#include <torch/cuda.h>
+
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>
@@ -16,17 +23,38 @@
 #include <options.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
-#include <torch/cuda.h>
 
 namespace nvfuser {
 
 MultiDeviceTest::MultiDeviceTest() {
-  communicator = getOrCreateCommunicator();
+  // Enable logging in c10d so debug messages can be printed out via
+  // `TORCH_DISTRIBUTED_DEBUG`.
+  c10d::setDebugLevelFromEnvironment();
+
+  communicator_ = getOrCreateCommunicator();
   tensor_options =
-      at::TensorOptions().dtype(at::kFloat).device(communicator->device());
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
   disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 
+  // NVFUSER_MULTIDEVICE_WAIT_DEBUGGER_AT_RANK can be used to attach gdb to one
+  // of the processes for debugging.
+  //
+  // When an mpirun fails, it usually prints out something like
+  // ```
+  // mpirun detected that one or more processes exited with non-zero status,
+  // thus causing the job to be terminated. The first process to do so was:
+  //
+  //   Process name: [[17665,1],0]
+  //   Exit code:    1
+  // ```
+  // The last bit of the process name (0 in this case) is the rank of the first
+  // failing process, and usually the rank to debug.
+  //
+  // Sometimes, multiple processes fail, and a failed, non-gdb'ed process can
+  // cause `mpirun` to terminate the entire job including the process being
+  // gdb'ed. For that, I use `mpirun -continuous` so `mpirun` keeps running the
+  // process being gdb'ed.
   char* rank_to_debug_str = getNvFuserEnv("MULTIDEVICE_WAIT_DEBUGGER_AT_RANK");
   if (rank_to_debug_str != nullptr) {
     const DeviceIdxType rank_to_debug = std::stol(rank_to_debug_str);
@@ -49,21 +77,21 @@ MultiDeviceTest::~MultiDeviceTest() {
   // slows the tests down, but makes it much easier to isolate a failing test.
   // Without this, if a test fails such that a subset of processes fail, then
   // some processes will move onto another tests and timeout later.
-  if (communicator->is_available()) {
-    communicator->barrier();
+  if (communicator_->is_available()) {
+    communicator_->barrier();
   }
 }
 
 void MultiDeviceTest::waitForDebuggerAtRank(const DeviceIdxType rank) {
   NVF_CHECK(
-      rank >= 0 && rank < communicator->size(),
+      rank >= 0 && rank < communicator_->size(),
       "rank=",
       rank,
       " must be in the range of [0,",
-      communicator->size(),
+      communicator_->size(),
       ").");
 
-  if (communicator->deviceId() == rank) {
+  if (communicator_->deviceId() == rank) {
     volatile bool waiting = true;
     auto pid = getpid();
     std::cerr << "Process " << pid
@@ -75,8 +103,8 @@ void MultiDeviceTest::waitForDebuggerAtRank(const DeviceIdxType rank) {
     std::cerr << "Process " << getpid() << " finished waiting." << std::endl;
   }
 
-  if (communicator->is_available()) {
-    communicator->barrier();
+  if (communicator_->is_available()) {
+    communicator_->barrier();
   }
 }
 
@@ -84,7 +112,7 @@ void MultiDeviceTest::SetUp() {
   // Set the same random seed for all processes.
   NVFuserTest::SetUp();
 
-  if (!disable_skip && !communicator->is_available()) {
+  if (!disable_skip && !communicator_->is_available()) {
     GTEST_SKIP() << "This test needs an available communicator.";
   }
 }
@@ -120,7 +148,7 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
   if (debug_print) {
     std::stringstream ss;
     std::string indent = "  ";
-    ss << "Device " << communicator->deviceId()
+    ss << "Device " << communicator_->deviceId()
        << "'s expected (unsharded) outputs:{\n";
     for (auto& t : ref_unsharded_outputs) {
       ss << indent << t;
@@ -134,14 +162,14 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
     ASSERT_TRUE(runtime->completeFusion()->outputs().at(i)->isA<TensorView>());
     auto output_tv =
         runtime->completeFusion()->outputs().at(i)->as<TensorView>();
-    if (!output_tv->getDeviceMesh().has(communicator->deviceId())) {
+    if (!output_tv->getDeviceMesh().has(communicator_->deviceId())) {
       continue;
     }
     auto ref_output = shardTensor(
-        ref_unsharded_outputs.at(i), output_tv, communicator->deviceId());
+        ref_unsharded_outputs.at(i), output_tv, communicator_->deviceId());
     auto obtained_output = outputs.at(i);
     EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
-        << "Device " << communicator->deviceId() << " has unexpected output "
+        << "Device " << communicator_->deviceId() << " has unexpected output "
         << i << " corresponding to tv " << output_tv
         << ". Expected values: " << ref_output
         << ", obtained values: " << obtained_output;
@@ -156,17 +184,17 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
     ASSERT_TRUE(fusion->inputs().at(i)->isA<TensorView>());
     auto input_tv = fusion->inputs().at(i)->as<TensorView>();
     auto input = shardTensor(
-        unsharded_inputs.at(i).toTensor(), input_tv, communicator->deviceId());
+        unsharded_inputs.at(i).toTensor(), input_tv, communicator_->deviceId());
     inputs.push_back(input);
   }
 
   if (debug_print) {
-    if (!communicator->deviceId()) {
+    if (!communicator_->deviceId()) {
       fusion->printKernel();
     }
     std::stringstream ss;
     std::string indent = "  ";
-    ss << "Device " << communicator->deviceId() << "'s inputs:{\n";
+    ss << "Device " << communicator_->deviceId() << "'s inputs:{\n";
     for (auto& t : inputs) {
       ss << indent << t;
     }
@@ -175,7 +203,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   }
 
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::move(fusion), *communicator, multi_device_executor_params);
+      std::move(fusion), *communicator_, multi_device_executor_params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
@@ -183,12 +211,12 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   outputs = runtime->runWithInput(inputs, l_params);
 
   if (debug_print) {
-    if (!communicator->deviceId()) {
+    if (!communicator_->deviceId()) {
       runtime->print();
     }
     std::stringstream ss;
     std::string indent = "  ";
-    ss << "Device " << communicator->deviceId() << "'s outputs:{\n";
+    ss << "Device " << communicator_->deviceId() << "'s outputs:{\n";
     for (auto& t : outputs) {
       ss << indent << t;
     }
@@ -200,7 +228,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
 
 PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
-  communicator->setDefaultBackend(CommunicatorBackend::nccl);
+  communicator_->setDefaultBackend(CommunicatorBackend::nccl);
 }
 
 } // namespace nvfuser

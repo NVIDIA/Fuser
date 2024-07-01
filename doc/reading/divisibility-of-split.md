@@ -289,7 +289,7 @@ the following two combinations of merge and split in the Figure 3 below are equi
 We can see this from a simple example where there is a tensor `T[I1, I2]`,
 `I1` has extent `2`, `I2` has extent `5`, and `N` is `4`.
 
-For transformation 1, after schedule, the extents of the leaf domain `[I4, I5]` will be `[2*2, 4]`.
+For transformation 1, after schedule, the extents of the loop domain `[I4, I5]` will be `[2*2, 4]`.
 We will be iterating the tensor as the following Listing 1:
 
 ```python
@@ -299,7 +299,7 @@ T[1, 0], T[1, 1], T[1, 2] , T[1, 3]
 T[1, 4], T[1, 5], T[1, 6] , T[1, 7]
 ```
 
-For transformation 2, after schedule, the extents of the leaf domain `[I4, I5]` will be `[3, 4]`.
+For transformation 2, after schedule, the extents of the loop domain `[I4, I5]` will be `[3, 4]`.
 We will be iterating the tensor as as the following Listing 2:
 
 ```python

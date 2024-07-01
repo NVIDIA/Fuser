@@ -41,7 +41,7 @@ class KernelIrScanner : private IrVisitor {
   inline int64_t getNumOfGroupedIterations(GroupedReductionOp* grouped_rop) {
     int64_t num_grouped_iterations = 1;
     auto out_tv = ir_utils::getTvOutput(grouped_rop);
-    for (auto axis : out_tv->getLeafDomain()) {
+    for (auto axis : out_tv->getLoopDomain()) {
       if (axis->getParallelType() == ParallelType::Group) {
         num_grouped_iterations *= axis->extent()->value().as<int64_t>();
       }
@@ -282,7 +282,7 @@ class ValidateAllocation : private OptOutConstDispatch {
         if (tv == nullptr) {
           continue;
         }
-        for (const auto& axis : tv->getLeafDomain()) {
+        for (const auto& axis : tv->getLoopDomain()) {
           if (!GpuLower::current()->caMap()->areMapped(
                   loop_id, axis, IdMappingMode::LOOP)) {
             continue;

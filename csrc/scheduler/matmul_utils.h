@@ -40,7 +40,6 @@ std::string getMatmulRunTimeRejectReason(
 //! async_gmem_load_operands.
 bool NVF_API isCpAsyncOperandLoadSupported(
     const MatmulParams* params,
-    int64_t dtype_size_a,
-    int64_t dtype_size_b);
+    int64_t min_dtype_size);
 
 } // namespace nvfuser

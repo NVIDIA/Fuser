@@ -21,7 +21,6 @@ namespace nvfuser {
 struct LocalAllocationInfo {
   kir::Allocate* alloc_expr = nullptr;
   std::vector<IterDomain*> alloc_domains;
-  bool has_halo = false;
 };
 
 using LocalAllocationInfoMap = std::

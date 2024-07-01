@@ -15,7 +15,10 @@ class AddAxiomsPass : public OptimizationPass<AddAxiomsPass> {
   friend class OptimizationPass<AddAxiomsPass>;
 
  protected:
-  NVF_API static void runPass(Fusion* fusion);
+  static void runPass(Fusion* fusion);
+  static std::string name() {
+    return "AddAxiomsPass";
+  }
 };
 
 } // namespace nvfuser::preseg_passes

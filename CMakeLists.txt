@@ -77,6 +77,7 @@ endif()
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
+  ${NVFUSER_SRCS_DIR}/abstract_tensor.cpp
   ${NVFUSER_SRCS_DIR}/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/codegen.cpp
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
@@ -89,14 +90,14 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/analysis/shift.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/thread_predicate.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/tma.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/trivial_broadcast.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/alias_memory.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/allocation.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/pass/double_buffer.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/circular_buffer.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/expr_sort.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/fusion_simplifier.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/grid_serialization.cpp
@@ -135,7 +136,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/executor.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/loop_promotion.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/schedule.cpp
   ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
   ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
@@ -176,12 +179,12 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/options.cpp
   ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
   ${NVFUSER_SRCS_DIR}/parallel_type_bitmap.cpp
-  ${NVFUSER_SRCS_DIR}/partial_split_map.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/add_axioms.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/remove_bcast_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
@@ -302,8 +305,16 @@ target_link_libraries(codegen_internal PUBLIC
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
-  target_link_options(codegen_internal PUBLIC -fsanitize=address)
-  target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
+  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    # https://github.com/google/sanitizers/issues/796#issuecomment-292844823
+    # recommends to link asan statically. This is the default with Clang. GCC
+    # needs `-static-libasan`.
+    target_link_options(codegen_internal PUBLIC -fsanitize=address -static-libasan)
+    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address -static-libasan)
+  else()
+    target_link_options(codegen_internal PUBLIC -fsanitize=address)
+    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
+  endif()
 endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
@@ -487,6 +498,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_double_buffering.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_evaluator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
@@ -504,6 +516,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_transpose.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_utils.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
@@ -516,11 +529,13 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_remove_bcast_squeeze.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_replay.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_sdpa_node.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_segmentation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sharding.cpp
@@ -557,7 +572,7 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
     codegen_internal
     ${ADDITIONAL_LINK}
     dynamic_type
-    GTest::gtest_main GTest::gmock_main
+    GTest::gtest_main GTest::gmock
     flatbuffers
     ${TORCH_LIBRARIES}
   )
@@ -580,6 +595,7 @@ if(BUILD_TEST)
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
@@ -594,7 +610,7 @@ if(BUILD_TEST)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
-    ${NVFUSER_ROOT}/tests/cpp/test_combine_mul_sum.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_gpu_tensorcore.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
@@ -606,9 +622,6 @@ if(BUILD_TEST)
 
   add_test(test_external_src "${NVFUSER_ROOT}/tests/cpp/test_external_src.cpp" "")
   list(APPEND TEST_BINARIES test_external_src)
-
-  add_test(test_shift "${NVFUSER_ROOT}/tests/cpp/test_shift.cpp" "")
-  list(APPEND TEST_BINARIES test_shift)
 
   add_test(tutorial "${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp" "")
   list(APPEND TEST_BINARIES tutorial)

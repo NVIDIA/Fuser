@@ -9,7 +9,9 @@
 
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
+#include <ir/interface_nodes.h>
 #include <multidevice/communicator.h>
+#include <multidevice/device_mesh.h>
 #include <multidevice/multidevice.h>
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Types.hpp>
@@ -34,37 +36,111 @@ enum class CommunicationType {
 
 std::ostream& operator<<(std::ostream& os, const CommunicationType& type);
 
-// This struct gathers all the parameters needed to construct a Communication.
-struct CommParams {
-  CommunicationType type;
-  DeviceIdxType root = -1;
-  bool is_root_in_mesh = true;
-  Team team; // should not have duplicates and should contain both the root and
-             // the mesh
-  c10d::ReduceOp::RedOpType redOp = c10d::ReduceOp::RedOpType::UNUSED;
-  int64_t scattered_axis = -1;
-};
+using RedOpType = c10d::ReduceOp::RedOpType;
 
 // The class "Communication" represents a MPI-style communication
 // communication operation to be executed on the network. The base class
 // Communication should not be used directly but through its derived classes:
 // Broadcast, Gather, Scatter, Allgather, and SendRecv. Other collectives will
 // be added later.
+class Communication : public Expr {
+ public:
+  using Expr::Expr;
+  // Only specify `root` for types that have root.
+  // Only specify `red_op` for reduction types.
+  // Only specify `scattered_axis` for ReduceScatter.
+  Communication(
+      IrBuilderPasskey passkey,
+      CommunicationType type,
+      TensorView* out,
+      TensorView* in,
+      Team team, // All devices involved in this communication. It must include
+                 // `root`. It can be a subset of `root`+`mesh` in case of 2D
+                 // sharding.
+      DeviceIdxType root = -1,
+      RedOpType red_op = RedOpType::UNUSED,
+      int64_t scattered_axis = -1);
 
-// CommParams contains the arguments for the communication constructors.
-// Note that each process (associated with a device index given by
-// communicator.deviceId()) will fill CommParams with different arguments,
-// depending on the role they play in this communication. For example, the root
-// of a Gather communication will have <team_size> destination buffers, whereas
-// non-root will have no destination buffers. Also, the ranks not participating
-// in the communication should not instantiate it.
+  // Currently, it's only used by CommuniationTest for conciseness. In the
+  // future, it may be used to construct `Communication`s inside a
+  // `PostOnStream`, which if needed can take I/O TVs from the containing
+  // `PostOnStream`.
+  Communication(
+      IrBuilderPasskey passkey,
+      CommunicationType type,
+      DeviceMesh mesh,
+      Team team, // All devices involved in this communication. It must include
+                 // `root`. It can be a subset of `root`+`mesh` in case of 2D
+                 // sharding.
+      DeviceIdxType root = -1,
+      RedOpType red_op = RedOpType::UNUSED,
+      int64_t scattered_axis = -1);
+
+  Communication(const Communication& other) = delete;
+  Communication& operator=(const Communication& other) = delete;
+  Communication(Communication&& other) = delete;
+  Communication& operator=(Communication&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "Communication";
+  }
+
+  CommunicationType type() const {
+    return attribute<CommunicationType>(0);
+  }
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
+  }
+
+  const DeviceMesh& senderMesh() const {
+    return inputs().empty() ? attribute<DeviceMesh>(1) : in()->getDeviceMesh();
+  }
+
+  const DeviceMesh& receiverMesh() const {
+    return outputs().empty() ? attribute<DeviceMesh>(1)
+                             : out()->getDeviceMesh();
+  }
+
+  const Team& team() const {
+    return attribute<Team>(2);
+  }
+
+  DeviceIdxType root() const {
+    return attribute<DeviceIdxType>(3);
+  }
+
+  RedOpType reduceOp() const {
+    return attribute<RedOpType>(4);
+  }
+
+  int64_t scatteredAxis() const {
+    return attribute<int64_t>(5);
+  }
+
+  // PyTorch's process group expects the root to be specified
+  // as an integer between 0 and world_size-1. We choose it to be
+  // the device's relative index within the team
+  int64_t getRootRelativeIndex();
+
+ private:
+  void validate();
+};
 
 // The method "post" triggers the execution of the communication. This call is
 // non-blocking. The communication can be posted multiple times.
 // It is assumed that the current device_index (given by
 // communicator.deviceId()) belongs to the team of the communication,
 // otherwise an error is thrown.
-
+//
 // NOTE: pytorch's NCCL process group API needs <team_size> buffers on root for
 // scatter/gather operation.
 // (*) Broadcast
@@ -118,46 +194,10 @@ struct CommParams {
 // (*) SendRecv
 // Copies the sender's src buffers to the receiver's dst buffer
 // It is equivalent to a Broadcast with a team of size == 2
-class Communication : public Expr {
- public:
-  using Expr::Expr;
-  Communication(IrBuilderPasskey passkey, CommParams params);
-  Communication(const Communication* src, IrCloner* ir_cloner);
-
-  Communication(const Communication& other) = delete;
-  Communication& operator=(const Communication& other) = delete;
-  Communication(Communication&& other) = delete;
-  Communication& operator=(Communication&& other) = delete;
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-  const char* getOpString() const override {
-    return "Communication";
-  }
-
-  // TDOO: add params_ (or flattened parameters) as data attributes so this and
-  // the constructor that takes IrCloner aren't needed.
-  bool sameAs(const Statement* other) const override;
-
-  // TODO: const CommParams&.
-  auto params() const {
-    return params_;
-  }
-
- private:
-  // store the arguments of the communication
-  CommParams params_;
-};
-
-// Triggers the execution of the communication. This is a non-blocking call.
-// The communication can be posted multiple times
-// TODO: c10d::Backend* should be sufficient.
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     Communication* communication,
     DeviceIdxType my_device_index,
-    c10::intrusive_ptr<c10d::Backend> backend,
+    c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor);
 

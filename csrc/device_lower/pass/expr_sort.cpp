@@ -814,8 +814,8 @@ std::vector<IterDomain*> getLocalDomainOrdering(
       std::vector<IterDomain*> domain;
 
       std::transform(
-          tv_input->getLeafDomain().begin(),
-          tv_input->getLeafDomain().begin() +
+          tv_input->getLoopDomain().begin(),
+          tv_input->getLoopDomain().begin() +
               std::max(
                   tv_input->getComputePosition(tv_output),
                   tv_input->getMaxProducerPosition()),

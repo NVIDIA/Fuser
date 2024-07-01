@@ -18,7 +18,9 @@
 
 #include <ATen/ATen.h>
 
+#ifndef DYNAMIC_TYPE_CHECK
 #define DYNAMIC_TYPE_CHECK NVF_ERROR
+#endif
 
 #include <dynamic_type/dynamic_type.h>
 #include <macros.h>
@@ -39,6 +41,8 @@ class Pointer {
   Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
 
   inline Pointer(void* ptr, DataType dtype);
+
+  Pointer() : ptr_(nullptr), size_(-1) {}
 
   int64_t size() const {
     return size_;

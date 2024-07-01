@@ -89,9 +89,7 @@ bool exprsMap(
     auto first_split = first->as<Split>();
     auto second_split = second->as<Split>();
     if (!first_split->factor()->sameAs(second_split->factor()) ||
-        first_split->innerSplit() != second_split->innerSplit() ||
-        !first_split->startOffset()->sameAs(second_split->startOffset()) ||
-        !first_split->stopOffset()->sameAs(second_split->stopOffset())) {
+        first_split->innerSplit() != second_split->innerSplit()) {
       return false;
     }
   }

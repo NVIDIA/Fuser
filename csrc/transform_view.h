@@ -31,7 +31,7 @@ class ViewTransform;
 //!
 //! The view transformations are processed in the following order:
 //! 1. Squeeze - Removes size-1 broadcast dimensions
-//! 2. Keep, Merge, Split - Used to create new rfactor domain
+//! 2. Keep, Merge, Split - Used to create new logical domain
 //! 3. Broadcast - Inserts size-1 dimensions
 //!
 //! Broadcast is handled last because size-1 dimension can be inserted anywhere
@@ -123,7 +123,7 @@ NVF_API AnalyzeViewConstraint analyzeViewConstraint(
 
 // Generate a new TensorDomain from the given view transformations.
 // The original root domain is kept in the new TensorDomain,
-// but a new rfactor domain is created from the view transformations.
+// but a new logical domain is created from the view transformations.
 TensorDomain* transformView(
     TensorDomain* original_domain,
     const AnalyzeViewResult& view_analysis);

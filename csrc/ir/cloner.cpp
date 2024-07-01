@@ -114,7 +114,7 @@ Statement* RecomputeTv::handle(const Statement* s) {
 Statement* RecomputeTv::handle(const TensorDomain* td) {
   // Make sure to recompute the history of the iteration domains, explicitly go
   // through the expressions and send them to IrCloner.
-  auto exprs = StmtSort::getExprsTo({td->leaf().begin(), td->leaf().end()});
+  auto exprs = StmtSort::getExprsTo({td->loop().begin(), td->loop().end()});
 
   for (auto expr : exprs) {
     IrCloner::handle(expr);

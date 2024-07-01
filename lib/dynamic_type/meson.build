@@ -19,6 +19,7 @@ foreach standard : ['17', '20', '23']
             'test/assignment.cpp',
             'test/binary_ops.cpp',
             'test/container.cpp',
+            'test/dispatch.cpp',
             'test/examples.cpp',
             'test/hash.cpp',
             'test/member.cpp',

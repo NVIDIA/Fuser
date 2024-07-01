@@ -124,8 +124,8 @@ class NVF_API TensorView : public Val {
   }
 
   void setContiguity(bool contig) {
-    setContiguity(
-        TensorDomain::getContiguityFilledWith(getMaybeRFactorDomain(), contig));
+    setContiguity(TensorDomain::getContiguityFilledWith(
+        getMaybeAllocationDomain(), contig));
   }
 
   const std::vector<std::optional<bool>>& getContiguity() const {
@@ -148,8 +148,8 @@ class NVF_API TensorView : public Val {
     return domain()->hasBroadcast();
   }
 
-  bool hasRFactor() const {
-    return domain()->hasRFactor();
+  bool hasRoot() const {
+    return domain()->hasRoot();
   }
 
   bool hasAllocation() const {
@@ -174,29 +174,31 @@ class NVF_API TensorView : public Val {
     return domain()->root();
   };
 
-  const std::vector<IterDomain*>& getRFactorDomain() const {
-    return domain()->rfactor();
+  const std::vector<IterDomain*>& getMaybeRootDomain() const {
+    return domain()->maybeRoot();
+  };
+
+  const std::vector<IterDomain*>& getLogicalDomain() const {
+    return domain()->logical();
   };
 
   const std::vector<IterDomain*>& getAllocationDomain() const {
     return domain()->allocation();
   };
 
-  const std::vector<IterDomain*>& getLeafDomain() const {
-    return domain()->leaf();
-  };
-
-  // If rfactor domain exists in domain() return it, otherwise return root
-  // domain.
-  const std::vector<IterDomain*>& getMaybeRFactorDomain() const {
-    return domain()->maybeRFactor();
+  const std::vector<IterDomain*>& getLoopDomain() const {
+    return domain()->loop();
   };
 
   // If allocation domain exists in domain() return it, otherwise return
-  // getMaybeRFactorDomain()
+  // logical domain
   const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
     return domain()->maybeAllocation();
   };
+
+  void setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+    domain()->setLoopDomain(std::move(new_loop_domain));
+  }
 
   void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
@@ -288,24 +290,13 @@ class NVF_API TensorView : public Val {
   //! tv[id{extent}] -> tv[id{ceilDiv(extent, factor)}, id{factor}]
   //! e.g. split(0, 4, inner_split = false) will result in:
   //! tv[id{extent}] -> tv[id{factor}, id{ceilDiv(extent, factor)}]
-  //!
-  //! When trim_out_of_bounds is true, only the inner domain defined by the
-  //! start and stop positions is split.
-  TensorView* split(
-      int64_t axis,
-      int64_t factor,
-      bool inner_split = true,
-      bool trim_out_of_bounds = false);
+  TensorView* split(int64_t axis, int64_t factor, bool inner_split = true);
 
   // Split "axis" into 2 axes where the inner axes is size of "factor"
   // and outer axis is size axis.size() / factor. Factor can be a symbolic
   // value instead of constant. This requires setting the symbolic value as an
   // input, or using a parallel dim from NamedScalar::getParallelDim
-  TensorView* split(
-      int64_t axis,
-      Val* factor,
-      bool inner_split = true,
-      bool trim_out_of_bounds = false);
+  TensorView* split(int64_t axis, Val* factor, bool inner_split = true);
 
   // Merge axis_o and axis_i into 1 IterDomain
   TensorView* merge(int64_t axis_o, int64_t axis_i);
@@ -325,7 +316,7 @@ class NVF_API TensorView : public Val {
       const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new);
 
   // Reorder axes based on the vector permutation.
-  // In terms of the function above, this can be seen as ol2new[index] =
+  // In terms of the function above, this can be seen as old2new[index] =
   // permutation[index]
   TensorView* reorder(const std::vector<int64_t>& permutation);
   TensorView* reorder(const std::initializer_list<int64_t>& permutation);
@@ -381,7 +372,8 @@ class NVF_API TensorView : public Val {
   //!   the the data tensor and the cache tensor
   TensorView* cacheAfter(
       LoadStoreOpType op_type = LoadStoreOpType::Set,
-      CacheOp cache_op = CacheOp::Unspecified);
+      CacheOp cache_op = CacheOp::Unspecified,
+      bool propagate_allocation_domain = true);
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
@@ -395,16 +387,8 @@ class NVF_API TensorView : public Val {
 
   void setMemoryType(MemoryType mt);
 
-  // Apply double buffering transformation
-  void doubleBuffer();
-
   // Apply circular buffering transformation
-  void circularBuffer(int64_t number_of_stage);
-
-  // Returns true if this tensor is double buffered.
-  bool isDoubleBuffered() const {
-    return is_double_buffered_;
-  }
+  void circularBuffer(int64_t number_of_stages);
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
@@ -430,6 +414,11 @@ class NVF_API TensorView : public Val {
   //!  implementation is used and will be removed in follow ups.
   bool hasSwizzleOp() const {
     return has_swizzle_op_;
+  }
+
+  //! A temporary helper function for the transition from Swizzle2D to Swizzle
+  void setHasSwizzleOp() {
+    has_swizzle_op_ = true;
   }
 
   friend TransformPropagator;
@@ -507,14 +496,14 @@ class NVF_API TensorView : public Val {
   // example, grouping multiple reductions.
   void updateMaxProducerPosition();
 
-  // Commit the current changes in leaf domain into rFactor domain. This
+  // Commit the current changes in loop domain into rFactor domain. This
   // function can be used to do implicit transpose and view, but today, only
   // implicit transpose is being tested. This function can be dangerous: it
   // changes the the semantics of the current tensor without updating its
   // consumers consistently, and there is no reliable way to detect this
   // inconsistency. It is the responsibility of the caller of this function to
   // ensure consistency.
-  void commitLeafToRFactor();
+  void commitLeafToLogical();
 
   //! Request that we reclaim the memory of this tv before any subsequent
   //! tensors are allocated.
@@ -571,7 +560,6 @@ class NVF_API TensorView : public Val {
   int64_t compute_at_pos_ = 0;
   int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
-  bool is_double_buffered_ = false;
 
   //! Indicates if the tensor is circular buffered.
   bool is_circular_buffered_ = false;

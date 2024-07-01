@@ -13,6 +13,7 @@
 #include <device_lower/pass/magic_zero.h>
 #include <executor.h>
 #include <expr_evaluator.h>
+#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
@@ -207,7 +208,7 @@ class UnswitchInElseChecker : public kir::IrVisitor {
     within_else_ = prev_within_else;
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     if (for_loop->iter_domain()->getParallelType() == ParallelType::Unswitch) {
       found_in_else_ = found_in_else_ || within_else_;
     }
@@ -250,8 +251,8 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
       }
     }
 
-    if (expr->isA<kir::ForLoop>()) {
-      handle(expr->as<kir::ForLoop>());
+    if (expr->isA<ForLoop>()) {
+      handle(expr->as<ForLoop>());
     } else if (expr->isA<kir::IfThenElse>()) {
       handle(expr->as<kir::IfThenElse>());
     } else {
@@ -425,6 +426,10 @@ size_t getATenRandomSeed();
 class NVFuserTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    // Enable logging so debug messages in PyTorch can be printed out
+    // via `TORCH_CPP_LOG_LEVEL`.
+    c10::initLogging();
+
     // requires PASCAL or newer
     if (!deviceMajorMinorCheck(6)) {
       GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
@@ -682,5 +687,12 @@ at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
 
 // Get the number of SMs on the current device
 int64_t getNumSMs();
+
+bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y);
+
+// This uses mma_utils::getOperandInnerDims(fusion) to get the inner allocation
+// dimensions of fusion operands and translate that into one of the MmaOp
+// layouts TT, TN, NT, or NN.
+MmaLayout getMatmulProblemLayout(Fusion* fusion);
 
 } // namespace nvfuser

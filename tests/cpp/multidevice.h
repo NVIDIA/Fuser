@@ -33,7 +33,7 @@ class MultiDeviceTest : public NVFuserTest {
 
   static Communicator* getOrCreateCommunicator();
 
-  Communicator* communicator;
+  Communicator* communicator_;
   c10::TensorOptions tensor_options;
   bool debug_print;
   bool disable_skip;

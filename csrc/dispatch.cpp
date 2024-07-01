@@ -60,6 +60,12 @@ void Val::dispatch(T handler, Val* val) {
     return;
     DISPATCH_FOR_ALL_KIR_VALS(M)
 #undef M
+#define M(e)                                 \
+  case ValType::e:                           \
+    ptr(handler)->handle(val->as<hir::e>()); \
+    return;
+    DISPATCH_FOR_ALL_HIR_VALS(M)
+#undef M
     default:
       ptr(handler)->handle(val);
       return;
@@ -124,6 +130,12 @@ void Val::constDispatch(T handler, const Val* val) {
     ptr(handler)->handle(val->as<kir::e>()); \
     return;
     DISPATCH_FOR_ALL_KIR_VALS(M)
+#undef M
+#define M(e)                                 \
+  case ValType::e:                           \
+    ptr(handler)->handle(val->as<hir::e>()); \
+    return;
+    DISPATCH_FOR_ALL_HIR_VALS(M)
 #undef M
     default:
       ptr(handler)->handle(val);
@@ -199,6 +211,12 @@ void Val::mutatorDispatch(T mutator, Val* val) {
     ptr(mutator)->mutate(val->as<kir::e>()); \
     return;
     DISPATCH_FOR_ALL_KIR_VALS(M)
+#undef M
+#define M(e)                                 \
+  case ValType::e:                           \
+    ptr(mutator)->mutate(val->as<hir::e>()); \
+    return;
+    DISPATCH_FOR_ALL_HIR_VALS(M)
 #undef M
     default:
       ptr(mutator)->mutate(val);
@@ -332,6 +350,7 @@ DISPATCH_FOR_ALL_KIR_VALS(M)
   void OptOutConstDispatch::handle(const hir::e* stmt) { \
     unhandled(stmt);                                     \
   }
+DISPATCH_FOR_ALL_HIR_VALS(M)
 DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 
@@ -358,6 +377,7 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
   void OptOutDispatch::handle(hir::e* stmt) { \
     unhandled(stmt);                          \
   }
+DISPATCH_FOR_ALL_HIR_VALS(M)
 DISPATCH_FOR_ALL_HIR_EXPRS(M)
 #undef M
 

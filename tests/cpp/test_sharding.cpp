@@ -5,8 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <fusion.h>
+
 #include <gtest/gtest.h>
+
+#include <fusion.h>
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
@@ -60,6 +62,58 @@ TEST_F(ShardingTest, PropagateSharding) {
   propagateShardings(&fusion);
   std::vector<TensorView*> tvs = {c};
   EXPECT_TRUE(getTvsWithDifferentSharding(a, tvs).empty());
+}
+
+void isContiguous(TensorView* tv) {
+  EXPECT_TRUE(tv->hasAllocation());
+  auto contiguity = tv->getContiguity();
+  auto alloc_domain = tv->getAllocationDomain();
+  for (auto i : c10::irange(contiguity.size())) {
+    // TODO: This should eventually check that DeviceDim domains also has no
+    // value.
+    if (alloc_domain[i]->isReduction() || alloc_domain[i]->isBroadcast()) {
+      EXPECT_FALSE(contiguity[i].has_value());
+    } else {
+      EXPECT_TRUE(contiguity[i].value());
+    }
+  }
+}
+
+TEST_F(ShardingTest, ShardedAllocationDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeContigTensor(3);
+  TensorView* b = makeContigTensor(3);
+  TensorView* c = add(a, b);
+  TensorView* d = sum(c, {1});
+
+  DeviceMesh mesh = DeviceMesh::createForNumDevices(3);
+  for (auto tv : {a, b, c, d}) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  int sharded_dim = 1;
+  a->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  c->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  fusion.addInput(a);
+  fusion.addInput(b);
+  fusion.addOutput(d);
+
+  propagateShardings(&fusion);
+  insertReshardings(&fusion);
+  insertShardedAxisReordering(&fusion);
+  setShardedAllocationDomain(&fusion);
+  for (auto expr : fusion.exprs()) {
+    if (isResharding(expr)) {
+      for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+        isContiguous(tv);
+      }
+      for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        isContiguous(tv);
+      }
+    }
+  }
 }
 
 TEST_P(ShardingTest, ComputeIndex) {

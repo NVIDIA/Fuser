@@ -89,7 +89,7 @@ struct WarMemoryInfo {
   bool write_hit = false;
 
   // For loop this TV is compute_at'ed in.
-  kir::ForLoop* ca_loop = nullptr;
+  ForLoop* ca_loop = nullptr;
 };
 
 // To prevent shared memory from being over written before it is read, a
@@ -174,7 +174,7 @@ class WarSyncInserter : private kir::ExprMutator {
   }
 
   // Checks if fl or loops within it have hit a sync
-  bool syncWithin(kir::ForLoop* fl) {
+  bool syncWithin(ForLoop* fl) {
     // If outer most scope check the first sync_hit_ position
     if (fl == nullptr) {
       return sync_hit_[0];
@@ -239,7 +239,7 @@ class WarSyncInserter : private kir::ExprMutator {
     }
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     // Push loop scope information
     auto prev_within_iter_loop_ = within_iter_loop_;
     sync_hit_.push_back(false);
@@ -341,9 +341,7 @@ class WarSyncInserter : private kir::ExprMutator {
 class ValidatePlacementAfterWrites : private kir::IrVisitor {
  public:
   //! Validate no expr in writes found under loop
-  static void validate(
-      kir::ForLoop* loop,
-      const std::unordered_set<Expr*>& writes) {
+  static void validate(ForLoop* loop, const std::unordered_set<Expr*>& writes) {
     ValidatePlacementAfterWrites validator(writes);
     validator.handle(loop);
   }
@@ -355,7 +353,7 @@ class ValidatePlacementAfterWrites : private kir::IrVisitor {
       : writes_(writes) {}
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
     } else {
       NVF_ERROR(
@@ -372,61 +370,6 @@ class ValidatePlacementAfterWrites : private kir::IrVisitor {
 class ReadAfterWriteSyncs : public kir::ExprMutator {
  private:
   using kir::ExprMutator::handle;
-
-  //! Traverse up the loop stack from loops_it and if a halo loop is
-  //! found, place a given sync expr before the outer-most halo loop.
-  // TODO: What needs to be done here for gmem comm?
-  bool insertBeforeHaloLoop(
-      std::vector<kir::ForLoop*>::iterator loops_it,
-      Expr* sync_expr,
-      Expr* maybe_alloc,
-      const std::unordered_set<Expr*>& writes) {
-    std::vector<kir::ForLoop*>::iterator halo_loop_it;
-    bool halo_loop_found = false;
-
-    while (true) {
-      if ((*loops_it)->iter_domain()->isThreadDim() &&
-          (*loops_it)->iter_domain()->extent() != (*loops_it)->stop()) {
-        halo_loop_found = true;
-        halo_loop_it = loops_it;
-      }
-
-      if (loops_it == for_loops_.begin()) {
-        break;
-      }
-      --loops_it;
-    }
-
-    // No halo loop found. Do not place the sync expr here. Return
-    // false to indicate nothing is done.
-    if (!halo_loop_found) {
-      return false;
-    }
-
-    auto halo_loop = *halo_loop_it;
-
-    // Make sure there's no write to the smem buffer inside the halo
-    // loop. syncthreads is moved before the halo loop, so having
-    // writes inside the loop invalidates the consistency.
-    ValidatePlacementAfterWrites::validate(halo_loop, writes);
-
-    if (halo_loop_it == for_loops_.begin()) {
-      // place in global scope
-      auto place_before_it = std::find(exprs_.begin(), exprs_.end(), halo_loop);
-      NVF_ERROR(place_before_it != exprs_.end());
-      exprs_.insert(place_before_it, sync_expr);
-    } else {
-      auto place_in = *(halo_loop_it - 1);
-      kir::ExprMutator::registerInsertBefore(
-          halo_loop, sync_expr, &place_in->body());
-      if (maybe_alloc != nullptr) {
-        kir::ExprMutator::registerInsertBefore(
-            halo_loop, maybe_alloc, &place_in->body());
-      }
-    }
-
-    return true;
-  }
 
   void dispatch(Expr* expr) final {
     if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>()) {
@@ -489,7 +432,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     // The expressions in last_writes are those we're protecting the read
     // from. To figure out which loop we need a syncthread in, take the inner
     // most compute at for loop of all the outputs of the last writes.
-    std::unordered_set<kir::ForLoop*> sync_within;
+    std::unordered_set<ForLoop*> sync_within;
 
     for (auto last_write : last_writes) {
       auto write_out_tv = ir_utils::getTvOutput(last_write);
@@ -518,7 +461,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     }
 
     // The for loop the sync needs to be in
-    kir::ForLoop* sync_within_fl = nullptr;
+    ForLoop* sync_within_fl = nullptr;
     for (auto fl : for_loops_) {
       if (sync_within.count(fl)) {
         sync_within_fl = fl;
@@ -546,12 +489,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     } else {
       auto sync_within_loop_it =
           std::find(for_loops_.begin(), for_loops_.end(), sync_within_fl);
-
-      // block sync must be placed before halo-extended loops
-      if (insertBeforeHaloLoop(
-              sync_within_loop_it, sync_expr, maybe_alloc, last_writes)) {
-        return;
-      }
 
       auto place_in = *sync_within_loop_it;
       Expr* place_before = nullptr;
@@ -698,11 +635,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
 
       for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        // Double buffered tensors do not need RAW sync to be inserted
+        // Circular buffered tensors do not need RAW sync to be inserted
         // here, except for the initial load part, which is taken care
-        // separately by DoubleBufferInserter.
+        // separately by CircularBufferInserter.
         if (tv->getMemoryType() == MemoryType::Shared &&
-            !(tv->isDoubleBuffered() || tv->isCircularBuffered())) {
+            !tv->isCircularBuffered()) {
           smem[tv] = expr;
 
           // only keep track of async writes in smem_async
@@ -731,8 +668,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   //! syncthreads.
   //!
   //! syncthreads is placed before for each expression of
-  //! sync_before_. However, if it's inside a loop with halo, it must
-  //! be placed before that. last_writes_ keeps track of expressions
+  //! sync_before_. last_writes_ keeps track of expressions
   //! modifying the smem buffer each syncthreads is used for so that
   //! it is not placed before those write expressions.
   std::deque<std::unordered_set<Expr*>> last_writes_;

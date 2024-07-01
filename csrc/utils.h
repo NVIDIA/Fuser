@@ -292,7 +292,7 @@ SPECIALIZE_PRINTER(UnaryOpType);
 SPECIALIZE_PRINTER(BinaryOpType);
 SPECIALIZE_PRINTER(TernaryOpType);
 SPECIALIZE_PRINTER(LoadStoreOpType);
-SPECIALIZE_PRINTER(DoubleBufferLoopStage);
+SPECIALIZE_PRINTER(CircularBufferLoopStage);
 SPECIALIZE_PRINTER(tma::TensorMapInterleave);
 SPECIALIZE_PRINTER(tma::TensorMapL2Promotion);
 SPECIALIZE_PRINTER(tma::TensorMapFloatOOBFill);

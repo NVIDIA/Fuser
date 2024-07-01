@@ -558,8 +558,8 @@ TEST_F(LoopRotationTest, MultipleDoubleBuffer) {
   inlineAllAt(tv3, 1);
   inlineSelectedAt({tv1, tv2, tv3}, tv3, 2);
 
-  tv4->circularBuffer(5);
-  tv1->doubleBuffer();
+  tv4->circularBuffer(/*number_of_stages=*/5);
+  tv1->circularBuffer(/*number_of_stages=*/2);
   scheduler_utils::rotateLoop(tv3, 0, {tv1});
 
   const std::string expected_kernel = R"(

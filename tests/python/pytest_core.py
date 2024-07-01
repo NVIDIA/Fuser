@@ -6,12 +6,10 @@
 from pytest_utils import (
     all_dtypes_except_reduced,
     ArgumentType,
-    torch_to_jax_dtype_map,
     torch_to_python_dtype_map,
 )
 from typing import Callable, Optional
 import torch
-import jax.numpy as jnp
 from enum import Enum
 from dataclasses import dataclass, field
 
@@ -52,6 +50,13 @@ class SampleInput:
         return f"[SampleInput args={self.args} kwargs={self.kwargs}]"
 
     def jax(self):
+        from pytest_utils import JAX_AVAILABLE
+
+        assert JAX_AVAILABLE
+
+        import jax.numpy as jnp
+        from pytest_utils import torch_to_jax_dtype_map
+
         def to_jax(t):
             if isinstance(t, torch.Tensor):
                 return jnp.array(t.cpu().numpy())

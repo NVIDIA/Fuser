@@ -41,9 +41,6 @@ TEST_F(NoOpTest, FusionNullScheduler) {
 
   auto t1 = t0.sum({0, 1, 2});
 
-  std::cerr << cg_outputs[0].sizes() << std::endl;
-  std::cerr << t1.sizes() << std::endl;
-
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
   auto groups =

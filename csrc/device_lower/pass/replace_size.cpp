@@ -113,8 +113,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   // problem size instead of inputs. However, we don't do anything where we can
   // translate to those kinds of kernels integrated into PyTorch.
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    for (auto id :
-         TensorDomain::noReductions(input_tv->getMaybeRFactorDomain())) {
+    for (auto id : TensorDomain::noReductions(input_tv->getLogicalDomain())) {
       auto id_set_it = id_to_disjoint_root_set.find(id);
       if (id_set_it == id_to_disjoint_root_set.end()) {
         continue;
@@ -197,15 +196,15 @@ void replaceSymbolicSizes(Fusion* fusion) {
         return a->name() < b->name();
       });
 
-  // Generate map for all tensorview root domain values to map them to symbolic
-  // values. i.e. T0->getRootDomain()[0] would map to a named scalar
+  // Generate map for all tensorview logical domain values to map them to
+  // symbolic values. i.e. T0->getLogicalDomain()[0] would map to a named scalar
   // "T0.size[0]". This map will be used when lowering fusion ir to kernel ir.
   for (TensorView* tv : inputs_and_outputs) {
     // Replace the domain with one based on Ti.size[j]
-    const std::vector<IterDomain*>& root_td = tv->getRootDomain();
+    const std::vector<IterDomain*>& logical_td = tv->getLogicalDomain();
 
     int64_t dim = 0;
-    for (auto id : root_td) {
+    for (auto id : logical_td) {
       Val* orig_size = id->getMaybeExpandedExtent();
       // Output sizes could have reduction axes, which isn't what gets output.
       // NOLINTNEXTLINE(bugprone-branch-clone)

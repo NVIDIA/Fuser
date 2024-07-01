@@ -23,8 +23,8 @@ class PredicateCompute {
   // so all threads need to execute the function.
   static Val* getInlinePredicate(
       const Expr* expr,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       Val* thread_pred,
       PredicateType pred_type);
 };
@@ -64,14 +64,14 @@ class ParallelizedDomainPredicate {
   //! Returns a predicate Val for parallelied domains of an expression.
   static Val* getPredicate(
       const Expr* expr,
-      const std::vector<kir::ForLoop*>& loops);
+      const std::vector<ForLoop*>& loops);
 
   //! Returns predicate information for parallelied domains of an
   //! expression.
   static std::unordered_map<ParallelType, PredicateInfo> getPredicateMap(
       const Expr* expr,
-      const std::vector<kir::ForLoop*>& loops,
-      kir::ForLoop* unswitched_loop = nullptr);
+      const std::vector<ForLoop*>& loops,
+      ForLoop* unswitched_loop = nullptr);
 };
 
 //! Keys to identify unique unswitch predicates. Just consists of a
@@ -127,8 +127,8 @@ struct UnswitchPredicateKeyHash {
 class UnswitchPredicate {
  public:
   static Val* get(
-      const std::vector<kir::ForLoop*>& outer_loops,
-      kir::ForLoop* unrolled_loop);
+      const std::vector<ForLoop*>& outer_loops,
+      ForLoop* unrolled_loop);
 
  private:
   //! Predicate information for each UnswitchPredicateKey.
@@ -148,13 +148,11 @@ class UnswitchPredicate {
     Info stop;
   };
 
-  UnswitchPredicate(
-      std::vector<kir::ForLoop*> outer_loops,
-      kir::ForLoop* unrolled_loop);
+  UnswitchPredicate(std::vector<ForLoop*> outer_loops, ForLoop* unrolled_loop);
 
   void predicateOn(Expr*);
 
-  void openLoop(kir::ForLoop*);
+  void openLoop(ForLoop*);
 
   void openIte(kir::IfThenElse*);
 
@@ -188,12 +186,12 @@ class UnswitchPredicate {
   //! The predicates that have been generated.
   std::vector<Val*> predicates_;
 
-  std::vector<kir::ForLoop*> for_loops_;
+  std::vector<ForLoop*> for_loops_;
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<kir::ForLoop*> rotated_loop_;
+  std::unordered_set<ForLoop*> rotated_loop_;
 
-  kir::ForLoop* unrolled_loop_;
+  ForLoop* unrolled_loop_;
 };
 
 } // namespace nvfuser

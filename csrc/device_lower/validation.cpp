@@ -14,6 +14,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <scheduler/mma_utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
@@ -50,7 +51,7 @@ class ValidateSiblings : public IterVisitor {
 
     auto ref_output = expr->outputs().at(0)->as<TensorView>();
     auto ref_ndims = ref_output->nDims();
-    const auto& ref_root = ref_output->getRootDomain();
+    const auto& ref_root = ref_output->getMaybeRootDomain();
     std::unordered_map<IterDomain*, IterDomain*> id_map;
 
     for (const auto sibling :
@@ -73,12 +74,12 @@ class ValidateSiblings : public IterVisitor {
       }
 
       for (const auto i : c10::irange(ref_root.size())) {
-        id_map[ref_root[i]] = sibling->getRootDomain().at(i);
+        id_map[ref_root[i]] = sibling->getMaybeRootDomain().at(i);
       }
 
       auto replay =
           BestEffortReplay(
-              sibling->getLeafDomain(), ref_output->getLeafDomain(), id_map)
+              sibling->getLoopDomain(), ref_output->getLoopDomain(), id_map)
               .getIterDomainEquivalence();
 
       for (const auto i : c10::irange(ref_ndims)) {
@@ -140,22 +141,7 @@ void validateIterDomainUsage(Fusion* fusion) {
   std::unordered_map<IterDomain*, TensorView*> domain_use_map;
 
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    std::unordered_set<Val*> root_domains;
-    std::copy(
-        tv->getRootDomain().begin(),
-        tv->getRootDomain().end(),
-        std::inserter(root_domains, root_domains.begin()));
-
-    std::vector<Val*> leaf_domains;
-    std::copy(
-        tv->getLeafDomain().begin(),
-        tv->getLeafDomain().end(),
-        std::back_inserter(leaf_domains));
-
-    auto all_domain_vals =
-        DependencyCheck::getAllValsBetween(root_domains, leaf_domains);
-
-    for (auto id : ir_utils::filterByType<IterDomain>(all_domain_vals)) {
+    for (auto id : ir_utils::allIDsOf(tv)) {
       auto it = domain_use_map.find(id);
       NVF_ERROR(
           it == domain_use_map.end(),
@@ -173,7 +159,7 @@ void validateIterDomainUsage(Fusion* fusion) {
 
 void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   for (auto tv : tvs) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (id->getParallelType() == ParallelType::Bulk) {
         NVF_ERROR(
             ir_utils::isCpAsyncBulk(tv->definition()),
@@ -246,7 +232,7 @@ void checkContiguity(
   NVF_ERROR(producer->getMemoryType() == MemoryType::Global);
 
   // TODO: we should use BestEffortReplay to find the correct c2p map for
-  // allocation domain when it is different from rFactor domain.
+  // allocation domain when it is different from logical domain.
   NVF_ERROR(
       !consumer->hasAllocation() && !producer->hasAllocation(),
       "Misaligned vectorization for allocation domain is not supported.");
@@ -341,7 +327,7 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  // Given the vectorized leaf ID in a tensor, find its innermost ancestors in
+  // Given the vectorized loop ID in a tensor, find its innermost ancestors in
   // the allocation domain.
   static IterDomain* getVectorizedIdInAllocationDomain(
       IterDomain* v_id,
@@ -380,7 +366,7 @@ class VectorizeValidator : public OptInDispatch {
 
     NVF_ERROR(validator.vectorized_id_ != nullptr);
 
-    // Contiguity is based on rfactor domain.
+    // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
     for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
@@ -411,7 +397,7 @@ class VectorizeValidator : public OptInDispatch {
 
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
     bool is_ldmatrix_trans =
-        ldst != nullptr && ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+        ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
     if (!is_ldmatrix_trans) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
@@ -444,7 +430,7 @@ class VectorizeValidator : public OptInDispatch {
   static void validate(TensorView* tv) {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (isParallelTypeVectorize(id->getParallelType())) {
         NVF_ERROR(
             v_id == nullptr,
@@ -525,7 +511,7 @@ class VectorizeValidator : public OptInDispatch {
     // vectorized set operations, so the word size is the size of this
     // specific vectorized set.
     vectorized_set_info.word_size = vector_word_size;
-    vectorized_set_info.vectorized_leaf_id = v_id;
+    vectorized_set_info.vectorized_loop_id = v_id;
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
@@ -726,180 +712,6 @@ void fillProducerVectorizedContigAllocationDomains(
 
 namespace {
 
-// Backward propagation of partial ranges from outputs to
-// inputs. Necessary to determine required ranges to compute.
-//
-// Example:
-//  tv0: [0:N]
-//  tv1: shift(tv0, {1}) -> [1:N]
-//  tv2: shift(tv0, {-1}) -> [0:N-1]
-//  tv3: tv1 + tv2 -> [1:N-1]
-//
-// In this case, the valid range of tv3 starts at 1 and ends at
-// N-1. This means that not all of the values of tv1 and tv2 are
-// actually necessary. Specifically, tv1[0] and tv2[N-1] aren't used
-// for tv3. This function calculates the required minimum range of
-// each tensor that needs to be computed.
-std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> getLiveRangeOffsets(
-    Fusion* fusion) {
-  auto exprs = StmtSort::getExprs(fusion);
-
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> map;
-
-  for (auto it = exprs.rbegin(); it != exprs.rend(); ++it) {
-    auto expr = *it;
-    for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      for (auto consumer_root : consumer->getRootDomain()) {
-        NVF_ERROR(
-            consumer_root->start()->isConstInt(),
-            "Can't evaluate start value of ",
-            consumer_root->start());
-        NVF_ERROR(
-            consumer_root->stopOffset()->isConstInt(),
-            "Can't evaluate stop value of ",
-            consumer_root->stopOffset());
-        auto it = map.find(consumer_root);
-
-        if (it == map.end() || consumer->isFusionOutput()) {
-          // No range set for this root domain, which means this
-          // consumer_tensor is an output tensor or the consumer_root
-          // domain is a reduction domain. In either case, the
-          // required range is simply defined by the start and stop
-          // offsets of the root domain.
-          // Also, when consumer is an output, even if it's not
-          // terminating, the range to compute must not be affected by
-          // how it's used by its consumers because an output tensor
-          // is visible to outside of the fusion.
-          map.insert(
-              {consumer_root,
-               {consumer_root->start()->evaluate().as<int64_t>(),
-                consumer_root->stopOffset()->evaluate().as<int64_t>()}});
-        } else {
-          // When the range of this root domain is already set, it
-          // must be set by its consumers. Make sure the required
-          // range by the consumers is covered by the defined range of
-          // this root domain.
-          auto& consumer_range = it->second;
-          NVF_ERROR(consumer_root->start()->evaluate() <= consumer_range.first);
-          NVF_ERROR(
-              consumer_root->stopOffset()->evaluate() <= consumer_range.second);
-        }
-      }
-
-      // Propagate the range information from consumers to the
-      // produces. Note that the effect on the range by shift and
-      // gather is not considered here but taken care by halo regions.
-      for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        auto c2p =
-            PairwiseRootDomainMap(producer, consumer).mapConsumerToProducer();
-        for (auto consumer_root : consumer->getRootDomain()) {
-          auto producer_it = c2p.find(consumer_root);
-          if (producer_it == c2p.end()) {
-            continue;
-          }
-          auto producer_root = producer_it->second;
-          auto& consumer_range = map.at(consumer_root);
-          const std::pair<int64_t, int64_t> init_range{
-              std::numeric_limits<int64_t>::max(),
-              std::numeric_limits<int64_t>::max()};
-          auto& producer_range =
-              map.insert({producer_root, init_range}).first->second;
-          producer_range.first =
-              std::min(producer_range.first, consumer_range.first);
-          producer_range.second =
-              std::min(producer_range.second, consumer_range.second);
-        }
-      }
-    }
-  }
-
-  return map;
-}
-
-// Make sure that a partial split with split_offset does not violate
-// the required range defined by domain_offset. Suppose checking the
-// start side of a root domain. Only positions at split_offset or
-// larger are going to be computed, and all positions starting at
-// domain_offset must be computed, thus split_offset must be smaller
-// or equal to domain_offset. The same condition must hold for the end
-// side of the domain.
-//
-// In order to validate this condition, the split offset is assumed to
-// be a statically known constant value. This is not a hard
-// requirement, but otherwise a runtime check would be needed.
-void validateSplit(
-    Val* split_offset,
-    int64_t domain_offset,
-    const std::string& err_msg_prefix) {
-  NVF_ERROR(
-      split_offset->isConstInt(),
-      err_msg_prefix,
-      ": Unknown offset of split: ",
-      split_offset);
-
-  NVF_ERROR(
-      split_offset->evaluate() <= domain_offset,
-      err_msg_prefix,
-      ": Split offset is larger than the domain offset.",
-      " Split offset: ",
-      split_offset->evaluate(),
-      ". Domain offset: ",
-      domain_offset);
-}
-
-} // namespace
-
-void validatePartialSplit(Fusion* fusion) {
-  FUSER_PERF_SCOPE("GpuLower::Lower::validatePartialSplit");
-  FusionGuard fg(fusion);
-
-  // If a root domain is partially split, only the sub range defined
-  // by the start and stop offsets of the partial split is
-  // computed. That sub range must cover the required range of the
-  // domain. So, the first thing to do is to determine the required
-  // minimum range of each root domain. Then, check if any partial
-  // split could result in a smaller range than the required range.
-
-  // Compute the required range of each root domain
-  auto range_info = getLiveRangeOffsets(fusion);
-
-  for (auto tv : ir_utils::allTvs(fusion)) {
-    auto exprs = StmtSort::getExprsTo(
-        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
-    for (auto split : ir_utils::filterByType<Split>(exprs)) {
-      // When the start and stop offsets are not zero, make sure the
-      // range defined by the split includes the required range to
-      // compute. If both of the split offsets are zero, this
-      // condition is obviously true. Also, this validation only needs
-      // to be done with root domains. Since the start and stop
-      // offsets of non-root domains must be just zero, they are
-      // skipped at this point.
-      if (split->startOffset()->isZeroInt() &&
-          split->stopOffset()->isZeroInt()) {
-        continue;
-      }
-      auto root_domain = split->in();
-      std::stringstream err_msg_prefix;
-      err_msg_prefix << "Error with " << root_domain << " in T" << tv->name();
-      NVF_ERROR(range_info.find(root_domain) != range_info.end());
-      const auto& valid_range = range_info.at(root_domain);
-      // Check the start offset. If it's zero, no validation regarding
-      // the required range can occur.
-      if (!split->startOffset()->isZeroInt()) {
-        validateSplit(
-            split->startOffset(), valid_range.first, err_msg_prefix.str());
-      }
-      // Same for the stop offset.
-      if (!split->stopOffset()->isZeroInt()) {
-        validateSplit(
-            split->stopOffset(), valid_range.second, err_msg_prefix.str());
-      }
-    }
-  }
-}
-
-namespace {
-
 //! Validates that the operand and result tensors
 //!  of mma ops are swizzled and also validates
 //!  specialization of tidx as lane id.
@@ -915,7 +727,7 @@ void validateMmaTensors(MmaOp* mma) {
   }
 
   for (auto tv : to_validate) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       auto ptype = id->getParallelType();
       if (ptype == ParallelType::TIDx) {
         NVF_ERROR(
@@ -968,8 +780,8 @@ void validateMmaTensors(MmaOp* mma) {
 
     NVF_ERROR(
         std::all_of(
-            tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
-            tv->getLeafDomain().end(),
+            tv->getLoopDomain().begin() + tv->getComputeAtPosition(),
+            tv->getLoopDomain().end(),
             [](IterDomain* id) {
               return id->isMmaSwizzled() ||
                   // MMA instructions can only take inputs from registers,
@@ -1001,7 +813,7 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
 
   int64_t byte_size = 1;
   auto output = ldst->out()->as<TensorView>();
-  for (auto id : output->getLeafDomain()) {
+  for (auto id : output->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       byte_size = id->extent()->evaluate().as<int64_t>();
       break;
@@ -1044,19 +856,19 @@ void validateMma(Fusion* fusion) {
 namespace {
 
 // Utility function to validate a loop swizzle:
-//  1. Throws an error if any output of the swizzle is not in leaf_domain set.
+//  1. Throws an error if any output of the swizzle is not in loop_domain set.
 //  2. Warns if any output of the swizzle is not the concrete id of the loop
 //  map.
 // The second case would make the codegen ignore this swizzle, as if it was not
 // there at all.
 void validateLoopSwizzle(
     Expr* swizzle_expr,
-    std::unordered_set<IterDomain*>& leaf_domains) {
+    std::unordered_set<IterDomain*>& loop_domains) {
   for (auto out_id :
        ir_utils::filterByType<IterDomain>(swizzle_expr->outputs())) {
     NVF_ERROR(
-        leaf_domains.count(out_id),
-        "Loop swizzle can only be direct producer of leaf domains.");
+        loop_domains.count(out_id),
+        "Loop swizzle can only be direct producer of loop domains.");
     if (GpuLower::current()->caMap()->getConcreteMappedID(
             out_id, IdMappingMode::LOOP) != out_id) {
       TORCH_WARN_ONCE("Ignored loop swizzle :", swizzle_expr->toString());
@@ -1070,19 +882,19 @@ void validateSwizzle(Fusion* fusion) {
   auto used_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     if (tv->hasSwizzleOp()) {
-      std::unordered_set<IterDomain*> tv_leaf_domain_set(
-          tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      std::unordered_set<IterDomain*> tv_loop_domain_set(
+          tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
       // Make sure no swizzle op is inlined:
       auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getMaybeRFactorDomain(),
-          {tv->getLeafDomain().begin(),
-           tv->getLeafDomain().begin() + tv->getMaxComputePosition()});
+          tv->getLogicalDomain(),
+          {tv->getLoopDomain().begin(),
+           tv->getLoopDomain().begin() + tv->getMaxComputePosition()});
 
       auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getMaybeRFactorDomain(),
-          {tv->getLeafDomain().begin() + tv->getMaxComputePosition(),
-           tv->getLeafDomain().end()});
+          tv->getLogicalDomain(),
+          {tv->getLoopDomain().begin() + tv->getMaxComputePosition(),
+           tv->getLoopDomain().end()});
 
       // Check inlined swizzles: only loop swizzles can be inlined currently
       //  as inlining data swizzles would require addtional support of unswizzle
@@ -1091,7 +903,7 @@ void validateSwizzle(Fusion* fusion) {
         NVF_ERROR(
             swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop,
             "Only support inlining loop swizzles");
-        validateLoopSwizzle(swizzle_expr, tv_leaf_domain_set);
+        validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
       }
 
       std::unordered_set<Expr*> inlined_swizzle_set(
@@ -1108,7 +920,7 @@ void validateSwizzle(Fusion* fusion) {
             "Cannot partially inline across swizzle domains.",
             swizzle_expr->toString());
         if (swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop) {
-          validateLoopSwizzle(swizzle_expr, tv_leaf_domain_set);
+          validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
         }
       }
     }
@@ -1163,15 +975,6 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
           "Invalid use of ParallelType::Group.",
           " ProduceAt position must be left of grouped IDs: ",
           tv->toString());
-
-      // Halo is not allowed
-      NVF_CHECK(
-          GpuLower::current()->haloInfo()->getExtent(id) == nullptr,
-          "Invalid use of ParallelType::Group.",
-          " Grouping of halo-extended IterDomain, ",
-          id->toString(),
-          ", is not supported. ",
-          tv->toString());
     }
 
     if (!is_grouped) {
@@ -1205,13 +1008,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       std::vector<Val*> inputs({rop->in()});
 
       fusion->removeExpr(rop);
-      IrBuilder::create<GroupedReductionOp>(
-          static_cast<IrContainer*>(fusion),
-          op_types,
-          init_vals,
-          outputs,
-          inputs,
-          is_allreduce);
+      IrBuilder::createInContainer<GroupedReductionOp>(
+          fusion, op_types, init_vals, outputs, inputs, is_allreduce);
     } else if (tv->definition()->isA<WelfordOp>()) {
       // Convert WelfordOp to GroupedWelfordOp
       auto wop = def->as<WelfordOp>();
@@ -1236,12 +1034,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       std::vector<WelfordTriplet> init_vals(
           {{wop->initAvg(), wop->initVar(), wop->initN()}});
       fusion->removeExpr(wop);
-      IrBuilder::create<GroupedWelfordOp>(
-          static_cast<IrContainer*>(fusion),
-          output_vals,
-          input_vals,
-          init_vals,
-          is_allreduce);
+      IrBuilder::createInContainer<GroupedWelfordOp>(
+          fusion, output_vals, input_vals, init_vals, is_allreduce);
     }
   }
 }
@@ -1253,7 +1047,7 @@ void validateGroupedReductions(Fusion* fusion) {
           grouped_reduction_op->numHorizontallyGroupedExprs();
       int64_t num_grouped_iterations = 1;
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
-      for (auto axis : out_tv->getLeafDomain()) {
+      for (auto axis : out_tv->getLoopDomain()) {
         if (axis->getParallelType() == ParallelType::Group) {
           num_grouped_iterations *= axis->extent()->value().as<int64_t>();
         }
@@ -1283,20 +1077,19 @@ void validateLookupTV(Fusion* fusion) {
 void validateResize(Fusion* fusion) {
   auto fusion_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
-    // Make sure resize is only used as part of rfactor transformations
-    auto rf_to_leaf_exprs = StmtSort::getExprsBetween(
-        {tv->getMaybeRFactorDomain().begin(),
-         tv->getMaybeRFactorDomain().end()},
-        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+    // Make sure resize is only used as part of root to logical transformations
+    auto rf_to_loop_exprs = StmtSort::getExprsBetween(
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
 
     NVF_ERROR(
         std::none_of(
-            rf_to_leaf_exprs.begin(),
-            rf_to_leaf_exprs.end(),
+            rf_to_loop_exprs.begin(),
+            rf_to_loop_exprs.end(),
             [](Expr* expr) { return expr->isA<Resize>(); }),
         "Invalid use of resize detected with ",
         tv->toString(),
-        ". Resize may only be used as part of rfactor transformations.");
+        ". Resize may only be used as part of root to logical transformations.");
   }
 }
 
@@ -1307,7 +1100,7 @@ void validateReductions(Fusion* fusion) {
     PairwiseRootDomainMap c2p_map(in, out);
     c2p_map.mapBroadcast(true);
     auto c2p = c2p_map.mapConsumerToProducer();
-    for (auto out_id : out->getRootDomain()) {
+    for (auto out_id : out->getMaybeRootDomain()) {
       if (out_id->isReduction()) {
         auto in_it = c2p.find(out_id);
         NVF_ERROR(

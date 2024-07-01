@@ -220,7 +220,29 @@ __device__ void blockSerializeRelease(int64_t* semaphore) {
       index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
   bool last_block = block_idx_in_segment == segment_size - 1;
 
+  // Block until writes from all threads in this block are visible to all other
+  // blocks before releasing semaphore using thread 0.
+  //
+  // Consider this simple example using two blocks:
+  //
+  //   1. Block 1 acquires lock using blockSerializeWait
+  //   2. Block 1 writes values to tensor T3
+  //   3. Block 1 releases lock using blockSerializeRelease
+  //   4. Block 2 acquires lock using blockSerializeWait
+  //   5. Block 2 uses values in tensor T3 to compute new values and writes them
+  //      back to T3.
+  //   6. Block 2 releases lock using blockSerializeRelease
+  //
+  // Without a global thread fence, the writes to T3 from Block 1 in step 2
+  // might not be visible to Block 2 at step 5, meaning Block 2 would compute
+  // an invalid update.
+  //
+  // We use __syncthreads also, which implies a __threadfence_block but that
+  // only guarantees that all writes are visible to threads _within the same
+  // block_, so the __threadfence is still needed.
+  __threadfence();
   __syncthreads();
+
   semaphoreRelease(semaphore, last_block ? 0 : block_idx_in_segment + 1);
 }
 

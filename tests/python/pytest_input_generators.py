@@ -326,14 +326,6 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
         yield SampleInput([make_arg(s) for s in shapes], dim), ex_type, ex_str
 
 
-def define_tensor_generator(
-    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
-):
-    yield SampleInput(shape=[-1], contiguity=[True])
-    yield SampleInput(shape=[-1, -1], contiguity=[True, True], stride_order=[0, 1])
-    yield SampleInput(shape=[-1, -1], contiguity=[True, True], stride_order=[-1, -2])
-
-
 def define_tensor_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -1574,3 +1566,34 @@ def linear_error_generator(
         yield SampleInput(
             make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias)
         ), ex_type, ex_str
+
+
+def div_input_generator(
+    op: OpInfo,
+    dtype: torch.dtype,
+    requires_grad: bool = False,
+):
+    """Rescale to avoid very small denominators"""
+    for sample in elementwise_binary_generator(
+        op,
+        dtype,
+        requires_grad,
+        supports_numbers=True,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ):
+        if not is_floating_dtype(dtype):
+            yield sample
+            continue
+
+        # rescale so that the denominator always has at least this modulus
+        minabs = 1e-2
+        numer, denom = sample.args
+        denom = denom * 1e-4
+        denom_abs = denom.abs()  # this is never zero because of exclude_zero=True
+        denom_is_small = denom_abs < minabs
+        denom_scaled_to_minabs = denom * (minabs / denom_abs)
+        denom = torch.where(denom_is_small, denom_scaled_to_minabs, denom).detach()
+        denom.requires_grad_(requires_grad)
+        yield SampleInput(numer, denom)

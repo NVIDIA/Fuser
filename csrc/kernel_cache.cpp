@@ -387,9 +387,10 @@ void prepareRuntimeOrder(
     available_input.insert(input_val);
 
     if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
-      auto root_dom = TensorDomain::noReductions(input_tv->getRootDomain());
-      for (const size_t dim : c10::irange(root_dom.size())) {
-        const auto extent = root_dom[dim]->getMaybeExpandedExtent();
+      auto logical_dom =
+          TensorDomain::noReductions(input_tv->getLogicalDomain());
+      for (const size_t dim : c10::irange(logical_dom.size())) {
+        const auto extent = logical_dom[dim]->getMaybeExpandedExtent();
         available_input.insert(extent);
         runtime_workspace.group_extent_binding_order.push_back(extent);
       }

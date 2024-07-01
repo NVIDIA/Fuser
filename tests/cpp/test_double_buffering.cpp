@@ -423,7 +423,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPersistent) {
   TensorView* x = makeContigTensor(2, aten_to_data_type(dtype));
   fusion->addInput(x);
 
-  Val* num_elem = x->getLeafDomain().at(reduction_axis)->extent();
+  Val* num_elem = x->getLoopDomain().at(reduction_axis)->extent();
 
   TensorView* sum_x = sum(x, {reduction_axis}, /*keepdim=*/false);
   TensorView* mean_x = div(sum_x, num_elem);
@@ -659,7 +659,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
 
-  tv1->doubleBuffer();
+  tv1->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -696,7 +696,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering2) {
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
 
-  tv1->doubleBuffer();
+  tv1->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -734,12 +734,12 @@ TEST_F(DoubleBufferingTest, DoubleBuffering3) {
   // tv2 is invalid to double-buffer as its producer, tv1, is
   // computed inside the double-buffering loop.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(tv2->doubleBuffer());
+  ASSERT_ANY_THROW(tv2->circularBuffer(/*number_of_stages=*/2));
 
   // Moving tv2 inner makes tv1 large enough to double-buffer tv2
   tv2->computeAt(tv3, 2);
 
-  tv2->doubleBuffer();
+  tv2->circularBuffer(/*number_of_stages=*/2);
 
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
@@ -784,7 +784,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering4) {
   tv3->axis(1)->parallelize(ParallelType::Unswitch);
   scheduler_utils::parallelizeAllLike(tv3);
 
-  tv2->doubleBuffer();
+  tv2->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -825,7 +825,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering5) {
   tv2->axis(1)->parallelize(ParallelType::Unswitch);
   scheduler_utils::parallelizeAllLike(tv2);
 
-  tv1->doubleBuffer();
+  tv1->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -867,7 +867,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering6) {
   tv3->axis(2)->parallelize(ParallelType::Unroll);
   tv3->axis(4)->parallelize(ParallelType::TIDx);
 
-  tv2->doubleBuffer();
+  tv2->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({199}, options);
@@ -904,7 +904,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering7) {
 
   tv1->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  tv1->doubleBuffer();
+  tv1->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({200}, options);
@@ -944,8 +944,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering8) {
   tv4->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv4);
 
-  tv2->doubleBuffer();
-  tv3->doubleBuffer();
+  tv2->circularBuffer(/*number_of_stages=*/2);
+  tv3->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({100}, options);
@@ -987,8 +987,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering9) {
   out->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(out);
 
-  tv2->doubleBuffer();
-  tv3->doubleBuffer();
+  tv2->circularBuffer(/*number_of_stages=*/2);
+  tv3->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1001}, options);
@@ -1064,11 +1064,11 @@ TEST_F(DoubleBufferingTest, SmemBlockGemmCacheDoubleBuffer) {
 
   scheduler_utils::parallelizeAllLike(tv5);
 
-  tv0_cache_local->doubleBuffer();
-  tv1_cache_local->doubleBuffer();
+  tv0_cache_local->circularBuffer(/*number_of_stages=*/2);
+  tv1_cache_local->circularBuffer(/*number_of_stages=*/2);
 
-  tv0_cache_smem->doubleBuffer();
-  tv1_cache_smem->doubleBuffer();
+  tv0_cache_smem->circularBuffer(/*number_of_stages=*/2);
+  tv1_cache_smem->circularBuffer(/*number_of_stages=*/2);
 
   constexpr int M = 154, K = 45, N = 1524;
 
@@ -1122,7 +1122,7 @@ TEST_F(DoubleBufferingTest, DoubleBufferVector) {
   tv1cr->computeAt(tv2c, 2);
 
   tv1cw->setMemoryType(MemoryType::Shared);
-  tv1cr->doubleBuffer();
+  tv1cr->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1170,7 +1170,7 @@ TEST_F(DoubleBufferingTest, DoubleBufferCpAsync1) {
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
 
   // Double buffer the shared mem tensor.
-  tv0_shared->doubleBuffer();
+  tv0_shared->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({m, n}, options);
@@ -1223,7 +1223,7 @@ TEST_F(DoubleBufferingTest, DoubleBufferCpAsync2) {
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
 
   // Double buffer the shared mem tensor.
-  tv0_shared->doubleBuffer();
+  tv0_shared->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({m, n}, options);
@@ -1277,7 +1277,7 @@ TEST_F(DoubleBufferingTest, DoubleBufferNoSync) {
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
 
   // Double buffer the shared mem tensor.
-  tv0_shared->doubleBuffer();
+  tv0_shared->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({m, n}, options);

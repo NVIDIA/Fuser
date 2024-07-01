@@ -59,7 +59,7 @@ static void setupLayerNormFused(Fusion* fusion, DataType dtype) {
   auto tv19 = broadcast(tv18, {false, true});
 
   nvfuser::Val* num_features = IrBuilder::create<Val>(1.0);
-  num_features = mul(num_features, tv0->getLeafDomain()[0]->extent());
+  num_features = mul(num_features, tv0->getLogicalDomain()[0]->extent());
   auto s20 = num_features;
 
   auto s21 = reciprocal(s20);

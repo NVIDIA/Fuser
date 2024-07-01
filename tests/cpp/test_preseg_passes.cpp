@@ -33,6 +33,9 @@ TEST_F(NVFuserTest, FusionTestOptimizationPassFlag_CUDA) {
     static void runPass(Fusion* fusion) {
       throw std::runtime_error("running DerivedPass");
     };
+    static std::string name() {
+      return "DerivedPass";
+    }
   };
 
   auto fusion = std::make_unique<Fusion>();

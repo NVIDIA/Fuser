@@ -107,11 +107,11 @@ TEST_F(NVFuserTest, FusionMergeDims_CUDA) {
   }
   std::vector<int64_t> expect_dims{0, 1, 2, 2, 3, 4, 5, 2, 2, 2, 6};
   EXPECT_EQ(dims, expect_dims);
-  auto root_domain = tv->getRootDomain();
+  auto logical_domain = tv->getLogicalDomain();
   auto num_merged_dim = to_merge.size();
   auto inputs = IterVisitor::getInputsTo({tv->axis(2)});
   for (auto index : c10::irange(num_merged_dim)) {
-    EXPECT_TRUE(root_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
+    EXPECT_TRUE(logical_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
         inputs[index]));
   }
 }
@@ -142,7 +142,7 @@ TEST_F(NVFuserTest, FusionReorderAsRFactor_CUDA) {
   // [bi*di, do*bo, a*c]
   // Order we want is:
   // [a*c, do*bo, bi*di]
-  auto old2new = scheduler_utils::domainReorderAsRfactorMap(tv0);
+  auto old2new = scheduler_utils::domainReorderAsLogicalMap(tv0);
   EXPECT_EQ(old2new[0], 2);
   EXPECT_EQ(old2new[1], 1);
   EXPECT_EQ(old2new[2], 0);
@@ -163,7 +163,7 @@ TEST_F(NVFuserTest, FusionDisjointViewSet_CUDA) {
   auto tv3 = add(tv2, tv1);
   fusion->addOutput(tv3);
 
-  auto disjoint_exact = scheduler_utils::disjointRFactorSets(fusion.get());
+  auto disjoint_exact = scheduler_utils::disjointLogicalSets(fusion.get());
 
   NVF_ERROR(disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));
 }
@@ -314,9 +314,9 @@ TEST_F(VectorizeHelperTest, BackwardMapper1_CUDA) {
         vectorize_helper::ContiguousInnerDimensionsMapper::map(tv1, {});
 
     EXPECT_TRUE(
-        !mapper.hasMappedDims(tv0) || mapper.mappedRFactorIds(tv0).empty());
+        !mapper.hasMappedDims(tv0) || mapper.mappedLogicalIds(tv0).empty());
     EXPECT_TRUE(
-        !mapper.hasMappedDims(tv1) || mapper.mappedRFactorIds(tv1).empty());
+        !mapper.hasMappedDims(tv1) || mapper.mappedLogicalIds(tv1).empty());
   }
 
   {
@@ -324,8 +324,8 @@ TEST_F(VectorizeHelperTest, BackwardMapper1_CUDA) {
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv1, {tv1->axis(1)});
 
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(1)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(1)));
 
     EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluate(), 3);
   }
@@ -335,9 +335,9 @@ TEST_F(VectorizeHelperTest, BackwardMapper1_CUDA) {
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv1, {tv1->axis(0), tv1->axis(1)});
 
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[1]->sameAs(tv1->axis(1)));
 
     EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 2);
     EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluate(), 3);
@@ -368,20 +368,20 @@ TEST_F(VectorizeHelperTest, BackwardMapper2_CUDA) {
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluate(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(2))->evaluate(), 4);
   // Inner dim fully maps, outer dim of split partially maps
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(2)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(1)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[1]->sameAs(tv2->axis(2)));
 
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluate(), 4);
   // Inner dim fully maps, outer dim of split partially maps
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[1]->sameAs(tv1->axis(1)));
 
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluate(), 4 * 3);
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
 }
 
 // Test backward mapping through multiple splits
@@ -400,16 +400,16 @@ TEST_F(VectorizeHelperTest, BackwardMapper3_CUDA) {
       tv2, {tv2->axis(2)});
 
   // Partial map forwarding
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluate(), 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluate(), 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(2)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(2)));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(2))->evaluate(), 4);
 }
 
@@ -430,9 +430,9 @@ TEST_F(VectorizeHelperTest, BackwardMapper4_CUDA) {
         vectorize_helper::ContiguousInnerDimensionsMapper::map(tv1, {});
 
     EXPECT_TRUE(
-        !mapper.hasMappedDims(tv0) || mapper.mappedRFactorIds(tv0).empty());
+        !mapper.hasMappedDims(tv0) || mapper.mappedLogicalIds(tv0).empty());
     EXPECT_TRUE(
-        !mapper.hasMappedDims(tv1) || mapper.mappedRFactorIds(tv1).empty());
+        !mapper.hasMappedDims(tv1) || mapper.mappedLogicalIds(tv1).empty());
   }
 
   {
@@ -440,9 +440,9 @@ TEST_F(VectorizeHelperTest, BackwardMapper4_CUDA) {
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv1, {tv1->axis(0)});
 
-    EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 2);
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
+    EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[1]->sameAs(tv0->axis(1)));
     EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluate(), 2);
     EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 3);
 
@@ -472,9 +472,9 @@ TEST_F(VectorizeHelperTest, BackwardMapper5_CUDA) {
       KernelArgumentHolder::createKernelArgumentHolder({inp});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[1]->sameAs(tv0->axis(1)));
   EXPECT_EQ(
       expr_eval.evaluate(mapper.getProjectedExtent(tv0->axis(0))).as<int64_t>(),
       3);
@@ -482,14 +482,14 @@ TEST_F(VectorizeHelperTest, BackwardMapper5_CUDA) {
       expr_eval.evaluate(mapper.getProjectedExtent(tv0->axis(1))).as<int64_t>(),
       4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_EQ(
       expr_eval.evaluate(mapper.getProjectedExtent(tv1->axis(0))).as<int64_t>(),
       3 * 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(1)));
   EXPECT_EQ(
       expr_eval.evaluate(mapper.getProjectedExtent(tv2->axis(1))).as<int64_t>(),
       3 * 4);
@@ -510,18 +510,18 @@ TEST_F(VectorizeHelperTest, BackwardMapper6_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv2, {tv2->axis(1)});
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[1]->sameAs(tv0->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluate(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 3 * 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluate(), 3 * 4);
 }
 
@@ -540,18 +540,18 @@ TEST_F(VectorizeHelperTest, BackwardMapper7_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv2, {tv2->axis(1)});
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[1]->sameAs(tv0->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluate(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 3 * 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 3 * 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluate(), 3 * 4);
 }
 
@@ -570,18 +570,18 @@ TEST_F(VectorizeHelperTest, BackwardMapper8_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv2, {tv2->axis(1)});
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[1]->sameAs(tv0->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluate(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluate(), 4);
 }
 
@@ -600,23 +600,23 @@ TEST_F(VectorizeHelperTest, BackwardMapper9_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv2, {tv2->axis(1), tv2->axis(2)});
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 3);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[2]->sameAs(tv0->axis(2)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 3);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[1]->sameAs(tv0->axis(1)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[2]->sameAs(tv0->axis(2)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluate(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluate(), 1);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[1]->sameAs(tv1->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluate(), 5);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(1)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(2)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(1)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[1]->sameAs(tv2->axis(2)));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluate(), 5);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(2))->evaluate(), 7);
 }
@@ -637,9 +637,9 @@ TEST_F(VectorizeHelperTest, ForwardMapper1_CUDA) {
         vectorize_helper::ContiguousInnerDimensionsMapper::map(tv0, {});
 
     EXPECT_TRUE(
-        !mapper.hasMappedDims(tv1) || mapper.mappedRFactorIds(tv1).empty());
+        !mapper.hasMappedDims(tv1) || mapper.mappedLogicalIds(tv1).empty());
     EXPECT_TRUE(
-        !mapper.hasMappedDims(tv0) || mapper.mappedRFactorIds(tv0).empty());
+        !mapper.hasMappedDims(tv0) || mapper.mappedLogicalIds(tv0).empty());
   }
 
   {
@@ -647,8 +647,8 @@ TEST_F(VectorizeHelperTest, ForwardMapper1_CUDA) {
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv0, {tv0->axis(1)});
 
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(1)));
 
     EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 3);
   }
@@ -658,9 +658,9 @@ TEST_F(VectorizeHelperTest, ForwardMapper1_CUDA) {
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv0, {tv0->axis(0), tv0->axis(1)});
 
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(0)));
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(1)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(0)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[1]->sameAs(tv0->axis(1)));
 
     EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(0))->evaluate(), 2);
     EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 3);
@@ -691,20 +691,20 @@ TEST_F(VectorizeHelperTest, ForwardMapper2_CUDA) {
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluate(), 4);
   // Inner dim fully maps, outer dim of split partially maps
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(2)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(1)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[1]->sameAs(tv0->axis(2)));
 
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluate(), 4);
   // Inner dim fully maps, outer dim of split partially maps
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[1]->sameAs(tv1->axis(1)));
 
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluate(), 4 * 3);
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(0)));
 }
 
 // Similar to BackwardMapper3_CUDA but in the reverse direction
@@ -723,16 +723,16 @@ TEST_F(VectorizeHelperTest, ForwardMapper3_CUDA) {
       tv0, {tv0->axis(2)});
 
   // Partial map forwarding
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(0)));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluate(), 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluate(), 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(2)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(2)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluate(), 4);
 }
 
@@ -753,9 +753,9 @@ TEST_F(VectorizeHelperTest, ForwardMapper4_CUDA) {
         vectorize_helper::ContiguousInnerDimensionsMapper::map(tv0, {});
 
     EXPECT_TRUE(
-        !mapper.hasMappedDims(tv1) || mapper.mappedRFactorIds(tv1).empty());
+        !mapper.hasMappedDims(tv1) || mapper.mappedLogicalIds(tv1).empty());
     EXPECT_TRUE(
-        !mapper.hasMappedDims(tv0) || mapper.mappedRFactorIds(tv0).empty());
+        !mapper.hasMappedDims(tv0) || mapper.mappedLogicalIds(tv0).empty());
   }
 
   {
@@ -763,9 +763,9 @@ TEST_F(VectorizeHelperTest, ForwardMapper4_CUDA) {
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv0, {tv0->axis(0)});
 
-    EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 2);
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
+    EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 2);
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[1]->sameAs(tv1->axis(1)));
     EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 2);
     EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluate(), 3);
 
@@ -795,9 +795,9 @@ TEST_F(VectorizeHelperTest, ForwardMapper5_CUDA) {
       KernelArgumentHolder::createKernelArgumentHolder({inp});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[1]->sameAs(tv2->axis(1)));
   EXPECT_EQ(
       expr_eval.evaluate(mapper.getProjectedExtent(tv2->axis(0))).as<int64_t>(),
       3);
@@ -805,14 +805,14 @@ TEST_F(VectorizeHelperTest, ForwardMapper5_CUDA) {
       expr_eval.evaluate(mapper.getProjectedExtent(tv2->axis(1))).as<int64_t>(),
       4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_EQ(
       expr_eval.evaluate(mapper.getProjectedExtent(tv1->axis(0))).as<int64_t>(),
       3 * 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(1)));
   EXPECT_EQ(
       expr_eval.evaluate(mapper.getProjectedExtent(tv0->axis(1))).as<int64_t>(),
       3 * 4);
@@ -833,18 +833,18 @@ TEST_F(VectorizeHelperTest, ForwardMapper6_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv0, {tv0->axis(1)});
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[1]->sameAs(tv2->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluate(), 3);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluate(), 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 3 * 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 3 * 4);
 }
 
@@ -863,18 +863,18 @@ TEST_F(VectorizeHelperTest, ForwardMapper7_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv0, {tv0->axis(1)});
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[1]->sameAs(tv2->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluate(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluate(), 3 * 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 3 * 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 3 * 4);
 }
 
@@ -893,18 +893,18 @@ TEST_F(VectorizeHelperTest, ForwardMapper8_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv0, {tv0->axis(1)});
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[1]->sameAs(tv2->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluate(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluate(), 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 4);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 1);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 4);
 }
 
@@ -924,23 +924,23 @@ TEST_F(VectorizeHelperTest, ForwardMapper9_CUDA) {
   auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
       tv0, {tv0->axis(1), tv0->axis(2)});
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv2).size(), 3);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[0]->sameAs(tv2->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[1]->sameAs(tv2->axis(1)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv2)[2]->sameAs(tv2->axis(2)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 3);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[0]->sameAs(tv2->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[1]->sameAs(tv2->axis(1)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv2)[2]->sameAs(tv2->axis(2)));
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(0))->evaluate(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(1))->evaluate(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv2->axis(2))->evaluate(), 1);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv1).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[0]->sameAs(tv1->axis(0)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv1)[1]->sameAs(tv1->axis(1)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv1).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[0]->sameAs(tv1->axis(0)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv1)[1]->sameAs(tv1->axis(1)));
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(0))->evaluate(), 1);
   EXPECT_EQ(mapper.getProjectedExtent(tv1->axis(1))->evaluate(), 5);
 
-  EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 2);
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
-  EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[1]->sameAs(tv0->axis(2)));
+  EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(1)));
+  EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[1]->sameAs(tv0->axis(2)));
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 5);
   EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(2))->evaluate(), 7);
 }
@@ -980,8 +980,8 @@ TEST_F(VectorizeHelperTest, MapperAdvanced_CUDA) {
     // tv0[3, 4*6]
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv5, {tv5->axis(0), tv5->axis(1)});
-    EXPECT_EQ(mapper.mappedRFactorIds(tv0).size(), 1);
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv0)[0]->sameAs(tv0->axis(1)));
+    EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 1);
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv0)[0]->sameAs(tv0->axis(1)));
     EXPECT_EQ(mapper.getProjectedExtent(tv0->axis(1))->evaluate(), 6);
   }
 
@@ -990,8 +990,8 @@ TEST_F(VectorizeHelperTest, MapperAdvanced_CUDA) {
     // tv7[3, 4*6]
     auto mapper = vectorize_helper::ContiguousInnerDimensionsMapper::map(
         tv3, {tv3->axis(0), tv3->axis(1), tv3->axis(2), tv3->axis(3)});
-    EXPECT_EQ(mapper.mappedRFactorIds(tv7).size(), 1);
-    EXPECT_TRUE(mapper.mappedRFactorIds(tv7)[0]->sameAs(tv7->axis(1)));
+    EXPECT_EQ(mapper.mappedLogicalIds(tv7).size(), 1);
+    EXPECT_TRUE(mapper.mappedLogicalIds(tv7)[0]->sameAs(tv7->axis(1)));
     EXPECT_EQ(mapper.getProjectedExtent(tv7->axis(1))->evaluate(), 6);
   }
 }
@@ -1062,7 +1062,7 @@ TEST_F(VectorizeHelperTest, SpanningTree_CUDA) {
           if (tv->name() == 0 || tv->name() == 1) {
             continue;
           }
-          for (auto axis : tv->getRootDomain()) {
+          for (auto axis : tv->getLogicalDomain()) {
             EXPECT_EQ(mapper.getProjectedExtent(axis)->evaluate(), 2);
           }
         }
