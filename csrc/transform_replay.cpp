@@ -158,7 +158,8 @@ class ReplaySelf : public ReplayTransformations {
         mapped,
         resize->leftExpand(),
         resize->rightExpand(),
-        resize_out_logical);
+        resize_out_logical,
+        keep_iter_type_ ? std::optional<nvfuser::IterType>(resize->out()->getIterType()) : std::nullopt);
 
     loop_ids_.erase(mapped);
 
@@ -168,10 +169,13 @@ class ReplaySelf : public ReplayTransformations {
   }
 
  public:
-  ReplaySelf(const std::vector<IterDomain*>& _target_domain, id_map _id_map)
-      : ReplayTransformations(_target_domain, std::move(_id_map)) {
+  ReplaySelf(const std::vector<IterDomain*>& _target_domain, id_map _id_map, bool keep_iter_type)
+      : ReplayTransformations(_target_domain, std::move(_id_map)), keep_iter_type_(keep_iter_type) {
     setErrorOnFailure(false);
   }
+
+ private:
+  bool keep_iter_type_ = false;
 };
 
 } // namespace
@@ -179,7 +183,8 @@ class ReplaySelf : public ReplayTransformations {
 // Self replay.
 TensorDomain* TransformReplay::fullSelfReplay(
     const TensorDomain* new_self_root,
-    const TensorDomain* self) {
+    const TensorDomain* self,
+    bool keep_iter_type) {
   FUSER_PERF_SCOPE("TransformReplay::fullSelfReplay");
 
   NVF_ERROR(
@@ -207,7 +212,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
   }
 
   // Replay producer dimensions.
-  ReplaySelf replay(self->loop(), axis_map);
+  ReplaySelf replay(self->loop(), axis_map, keep_iter_type);
   std::vector<IterDomain*> new_domain(self->nDims(), nullptr);
 
   {

@@ -225,7 +225,8 @@ class NVF_API TransformReplay {
   // Self replay.
   static TensorDomain* fullSelfReplay(
       const TensorDomain* new_self_root,
-      const TensorDomain* self);
+      const TensorDomain* self,
+      bool keep_iter_type = false);
 
   // Returns the loop position in producer that matches with `consumer_pos` in
   // consumer. Returns -1 if matching is impossible. This function can be used
