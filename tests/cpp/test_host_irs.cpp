@@ -406,7 +406,7 @@ TEST_P(HostIrTest, ForLoops) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      DoubleBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -443,10 +443,6 @@ TEST_P(HostIrTest, ForLoops) {
 
   HostIrExecutorParams params;
   auto [use_fusion_executor_cache] = GetParam();
-  if (!use_fusion_executor_cache) {
-    GTEST_SKIP()
-        << "not supported for now because of concretization issue, getting the error: dynamic_tvs.empty() INTERNAL ASSERT FAILED at /opt/pytorch/Fuser/csrc/device_lower/validation.cpp:187, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. Tensor with dynamic transform must be concretized before lowering: T1_l[ ?S2{( ( ( -( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ) ) + 10 ) + ( ( fmax(( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ), ( fmin(10, ( where(( ( i7 + 1 ) < 0 ), ( ( i7 + 1 ) + 10 ), ( i7 + 1 )) )) )) ) - 10 ) )}rf ], T3_g[ ?S4{( ( ( -( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ) ) + 10 ) + ( ( fmax(( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ), ( fmin(10, ( where(( ( i7 + 1 ) < 0 ), ( ( i7 + 1 ) + 10 ), ( i7 + 1 )) )) )) ) - 10 ) )} ]";
-  }
   params.use_fusion_executor_cache = use_fusion_executor_cache;
   HostIrExecutor hie(std::move(hic), /*communicator=*/nullptr, params);
 
