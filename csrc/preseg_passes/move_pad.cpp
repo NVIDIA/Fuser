@@ -32,6 +32,29 @@ struct Edge {
   }
 };
 
+bool shouldPropagate(Val* val, std::unordered_map<Val*, int64_t>& frontier) {
+  if (val->isFusionOutput()) {
+    frontier.emplace_back(val, -1);
+  } else {
+    int64_t current_use = frontier.count(val) == 0 ? 1 : frontier[val] + 1;
+
+    // previous use == -1, blocking propagation
+    if (current_use == 0) {
+      return false;
+    }
+
+    if (current_use == static_cast<int64_t>(val->uses().size())) {
+      // all uses of the entry has been encounter in this traversal, we can safely propagate it across.
+      frontier.erase(val);
+      return true;
+    } else {
+      // updating uses in frontier.
+      frontier[val] = current_use;
+    }
+  }
+  return false;
+}
+
 using VecPadWidths = std::vector<std::vector<Val*>>;
 
 // NOTE: this assumes all vec_pad_widths are positive entries so we don't need
@@ -139,8 +162,8 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     return nullptr;
   }
 
-  // frontier is the edge that needs to replay the pad_op on. We use `Expr*` & `index`, because we are not looking at replacing a `TensorView*`'s usage globally.
-  std::vector<Edge> frontier;
+  // frontier contains `Val`s that needs to replay pad_op on.
+  std::unordered_map<Val*, int64_t> frontier;
   // replay_sequence is used later to create the updated branch with padded inputs after all `frontier` has been updated with padding.
   std::vector<Expr*> replay_sequence;
 
@@ -161,17 +184,12 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       // TODO: exception to break propagation. i.e. check op type and exclude
       // division by 0
       if (!pad_replay_check(uop->in())) {
-        frontier.push_back(edge);
+        frontier.emplace(edge->val(), -1);
         continue;
       }
       // uop is replayable.
       replay_sequence.push_back(uop);
-      // TODO: this isn't right. I need to extend the support for topology with fork where uses > 1. i.e. if all uses lead to pad, we can still propagate it.
-      if (uop->in()->uses().size() > 1 || uop->in()->isFusionOutput()) {
-        // even though we cannot further propagate, we'd still want to replace
-        // the use here.
-        frontier.emplace_back(uop, 0);
-      } else {
+      if (shouldPropagate(uop->in(), frontier)) {
         stack.emplace(uop, 0);
       }
     } else if (def->isA<BinaryOp>()) {
@@ -179,7 +197,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       // TODO: exception to break propagation. i.e. check op type and exclude
       // division by 0; check for broadcast on padded axis.
       if (!pad_replay_check(bop->lhs()) || !pad_replay_check(bop->rhs())) {
-        frontier.push_back(edge);
+        frontier.emplace(edge->val(), -1);
         continue;
       }
 
@@ -195,23 +213,19 @@ Val* propagatePadToProducer(PadOp* pad_op) {
         }
       }
       if (!pad_on_broadcast) {
-        if (lhs->uses().size() > 1 || lhs->isFusionOutput()) {
-          frontier.emplace_back(bop, 0);
-        } else {
+        replay_sequence.push_back(bop);
+        if (shouldPropagate(lhs, frontier)) {
           stack.emplace(bop, 0);
         }
-        if (rhs->uses().size() > 1 || rhs->isFusionOutput()) {
-          frontier.emplace_back(bop, 1);
-        } else {
+        if (shouldPropagate(rhs, frontier)) {
           stack.emplace(bop, 1);
         }
-        replay_sequence.push_back(bop);
       } else {
-        frontier.push_back(edge);
+        frontier.emplace(edge->val(), -1);
       }
     } else {
       // Unrecognized operation stops propagation, push entry to frontier for replay
-      frontier.push_back(edge);
+      frontier.emplace(edge->val(), -1);
     }
   }
 
@@ -222,8 +236,8 @@ Val* propagatePadToProducer(PadOp* pad_op) {
 
   std::unordered_map<Val*, Val*> replacement_map;
   // replay pad_op on frontier
-  for (const Edge& edge : frontier) {
-    auto pad_tv = edge.val()->as<TensorView>();
+  for (const auto& [pad_val, _] : frontier) {
+    auto pad_tv = pad_val->as<TensorView>();
     const std::vector<IterDomain*> out_ids = TensorDomain::noReductions(
         pad_op->out()->as<TensorView>()->getLogicalDomain());
     // replay pad_op on frontier TVs assuming its output iter_type wouldn't change from the final output.
