@@ -227,7 +227,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
 
     if (def->isA<UnaryOp>()) {
       auto* uop = def->as<UnaryOp>();
-      if (padCompatibleUnaryOp(uop->getUnaryOpType())) {
+      if (!padCompatibleUnaryOp(uop->getUnaryOpType())) {
         frontier.emplace(edge.val(), -1);
         continue;
       }
@@ -244,7 +244,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       }
     } else if (def->isA<BinaryOp>()) {
       auto* bop = def->as<BinaryOp>();
-      if (padCompatibleBinaryOp(bop->getBinaryOpType())) {
+      if (!padCompatibleBinaryOp(bop->getBinaryOpType())) {
         frontier.emplace(edge.val(), -1);
         continue;
       }
