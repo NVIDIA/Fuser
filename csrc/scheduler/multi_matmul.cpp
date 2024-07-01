@@ -7,6 +7,7 @@
 // clang-format on
 #include <inlining.h>
 #include <instrumentation.h>
+#include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
@@ -28,7 +29,9 @@ class MultipleMatmulScheduler {
   MultipleMatmulScheduler(Fusion* fusion, const MatmulParams& params)
       : fusion_(fusion),
         params_(params),
-        id_model_(fusion, /*build_graphs=*/false) {
+        id_model_(fusion, /*build_graphs=*/false) {}
+
+  void run() {
     // Make sure we don't have global memory set on intermediate tensors from
     // fusion segmentation
     scheduler_utils::clearMemorySpace(fusion_);
@@ -60,7 +63,6 @@ class MultipleMatmulScheduler {
     doSplitKRFactor();
   }
 
- private:
   void findPatterns() {
     std::vector<mma_utils::MatmulPattern> patterns_ =
         mma_utils::findMatmulPatterns(fusion_);
@@ -85,9 +87,10 @@ class MultipleMatmulScheduler {
         "Incompatible roles found between matmul patterns");
     auto& [id_roles_, tensor_roles_] = roles_opt.value();
 
-    inner_dims_opt = mma_utils::getOperandInnerDims(id_model_, id_roles_, tensor_roles_);
+    mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
+        mma_utils::getOperandInnerDims(id_model_, id_roles_, tensor_roles_);
     NVF_ERROR(inner_dims_opt.isValid(), inner_dims_opt.getErrorMsg());
-    inner_dims_ = std::move(inner_dims_op.getData());
+    inner_dims_ = inner_dims_opt.getData();
 
     as_ = tensor_roles_.at(MatmulRole::OPERAND_A);
     bs_ = tensor_roles_.at(MatmulRole::OPERAND_B);
@@ -247,17 +250,10 @@ class MultipleMatmulScheduler {
     canonical_dim_ordering_ = mma_utils::canonicalDimOrdering(
         tensor_roles_, id_roles_, id_model_.idGraph(IdMappingMode::PERMISSIVE));
 
-    const int64_t num_device_dims = numDeviceDims(mma_results_.front());
-    const int64_t num_local_batch_dims =
-        mma_results_.front()->nDims() - num_device_dims - 3;
-    const int64_t num_device_and_batch_dims =
-        num_device_dims + num_local_batch_dims;
-    const int64_t num_splitk_dims = params_.splitk_factor != 1 ? 1 : 0;
-
-    const std::vector<TensorView*> all_tvs = ir_utils::filterByType<TensorView>(fusion->usedMathVals());
-    std::unordered_map<TensorView*, std::vector<MatmulDomain>> all_tv_dims;
-    for (TensorView* tv : all_tvs) {
-      makeTile(tv);
+    for (Val* v : fusion_->usedMathVals()) {
+      if (auto tv = dynamic_cast<TensorView*>(v)) {
+        makeTile(tv);
+      }
     }
   }
 
@@ -292,11 +288,14 @@ class MultipleMatmulScheduler {
     // Update tv_dims to reflect roles of new split axes
     tv_dims.clear();
     for (IterDomain* id : tv->getLoopDomain()) {
-      auto it = old_loop.find(id);
+      auto it = std::find(old_loop.begin(), old_loop.end(), id);
       if (it == old_loop.end()) {
         // This is a new dimension that resulted from a split in makeTile
         NVF_ERROR(id->definition()->isA<Split>());
-        it = old_loop.find(id->definition()->input(0)->as<TensorView>());
+        it = std::find(
+            old_loop.begin(),
+            old_loop.end(),
+            id->definition()->input(0)->as<TensorView>());
       }
       NVF_ERROR(it != old_loop.end());
       size_t pos = std::distance(old_loop.begin(), it);
@@ -405,7 +404,7 @@ class MultipleMatmulScheduler {
   mma_utils::TensorRolesMap tensor_roles_;
   mma_utils::MatmulOperandInnerDims inner_dims_;
   std::vector<TensorView*> as_, bs_, acw_smems_, bcw_smems_, acrs_, bcrs_, abs_,
-      bbs_, mma_results_, splitk_sums, smem_epilogues_;
+      bbs_, mma_results_, splitk_sums_, smem_epilogues_;
   bool has_non_mma_input_tvs_;
   std::vector<ValGroup> canonical_dim_ordering_;
   // Track the role of each axis for each tensor in the Fusion
@@ -417,7 +416,7 @@ class MultipleMatmulScheduler {
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   FusionGuard fg(fusion);
 
-  MultipleMatmulScheduler(fusion, params).schedule();
+  MultipleMatmulScheduler(fusion, params).run();
 
   // TODO: move remainder of this function into MultipleMatmulScheduler
 
@@ -673,6 +672,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   operand_registers.insert(operand_registers.end(), bcrs.begin(), bcrs.end());
   operand_registers.insert(operand_registers.end(), abs.begin(), abs.end());
   operand_registers.insert(operand_registers.end(), bbs.begin(), bbs.end());
+
+  NVF_ERROR(!mma_results_.empty());
+  const int64_t num_device_dims = numDeviceDims(mma_results_.front());
+  const int64_t num_local_batch_dims =
+      mma_results_.front()->nDims() - num_device_dims - 3;
+  const int64_t num_device_and_batch_dims =
+      num_device_dims + num_local_batch_dims;
+  const int64_t num_splitk_dims = params_.splitk_factor != 1 ? 1 : 0;
 
   for (TensorView* mma_result : mma_results) {
     // When we have both batch dims and splitk, parallelize splitk only.
