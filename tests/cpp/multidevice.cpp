@@ -34,7 +34,7 @@ void MultiDeviceTestEnvironment::TearDown() {
   delete communicator_;
 }
 
-/*static=*/Communicator* MultiDeviceTestEnvironment::communicator_ = nullptr;
+/*static*/ Communicator* MultiDeviceTestEnvironment::communicator_ = nullptr;
 
 MultiDeviceTest::MultiDeviceTest() {
   // Enable logging in c10d so debug messages can be printed out via
