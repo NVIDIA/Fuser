@@ -34,7 +34,7 @@ struct Edge {
 
 bool shouldPropagate(Val* val, std::unordered_map<Val*, int64_t>& frontier) {
   if (val->isFusionOutput()) {
-    frontier.emplace_back(val, -1);
+    frontier.emplace(val, -1);
   } else {
     int64_t current_use = frontier.count(val) == 0 ? 1 : frontier[val] + 1;
 
@@ -184,7 +184,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       // TODO: exception to break propagation. i.e. check op type and exclude
       // division by 0
       if (!pad_replay_check(uop->in())) {
-        frontier.emplace(edge->val(), -1);
+        frontier.emplace(edge.val(), -1);
         continue;
       }
       // uop is replayable.
@@ -197,7 +197,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       // TODO: exception to break propagation. i.e. check op type and exclude
       // division by 0; check for broadcast on padded axis.
       if (!pad_replay_check(bop->lhs()) || !pad_replay_check(bop->rhs())) {
-        frontier.emplace(edge->val(), -1);
+        frontier.emplace(edge.val(), -1);
         continue;
       }
 
@@ -221,11 +221,11 @@ Val* propagatePadToProducer(PadOp* pad_op) {
           stack.emplace(bop, 1);
         }
       } else {
-        frontier.emplace(edge->val(), -1);
+        frontier.emplace(edge.val(), -1);
       }
     } else {
       // Unrecognized operation stops propagation, push entry to frontier for replay
-      frontier.emplace(edge->val(), -1);
+      frontier.emplace(edge.val(), -1);
     }
   }
 
@@ -243,7 +243,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     // replay pad_op on frontier TVs assuming its output iter_type wouldn't change from the final output.
     TensorView* new_out = replayConcretePad(
         pad_tv, pad_op->value(), {pad_op->getPadWidths()}, out_ids);
-    replacement_map[edge.val()] = new_out;
+    replacement_map[pad_val] = new_out;
   }
 
   // reverse traversal the replay_sequence and update each input to use padded TVs.
