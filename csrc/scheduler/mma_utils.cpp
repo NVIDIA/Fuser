@@ -43,14 +43,14 @@ inline mma_utils::MmaDataTypes getMmaDataTypes(
 //! Return sizes of smem_a, smem_b, smem_c in bytes
 std::tuple<int64_t, int64_t, int64_t> computeSharedMemorySizes(
     const MatMulTileOptions& gemm_tile,
-    const MatmulParams::DoubleBufferOptions& double_buffer_options,
+    const MatmulParams::CircularBufferOptions& circular_buffer_options,
     const MmaDataTypes& data_types) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
 
   auto warp_dims = gemm_tile.cta_tile / gemm_tile.warp_tile;
 
-  int64_t ab_factor = double_buffer_options.double_buffer_smem_write
-      ? double_buffer_options.smem_double_buffer_stage
+  int64_t ab_factor = circular_buffer_options.circular_buffer_smem_write
+      ? circular_buffer_options.smem_circular_buffer_stage
       : 1;
 
   // see scheduleContiguousVectorLoad
@@ -75,7 +75,7 @@ int64_t computeExpectedSharedMemoryUsage(
     bool smem_a_reuse_guaranteed,
     bool smem_b_reuse_guaranteed) {
   const auto [smem_a, smem_b, smem_c] = computeSharedMemorySizes(
-      params.tile_sizes, params.double_buffer_options, data_types);
+      params.tile_sizes, params.circular_buffer_options, data_types);
 
   if (params.use_smem_epilogue) {
     if (params.promote_prologue_smem_reuse) {
@@ -93,27 +93,27 @@ int64_t computeExpectedSharedMemoryUsage(
 
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
-    int smem_double_buffer_stage,
+    int smem_circular_buffer_stage,
     const MmaDataTypes& data_types,
     bool smem_a_reuse_guaranteed,
     bool smem_b_reuse_guaranteed,
     bool ignore_occupancy_drop) {
   const size_t shared_memory_available = deviceAvailableSharedMemoryBytes();
 
-  // We clip smem_double_buffer_stage to 1 since we will always load operands
+  // We clip smem_circular_buffer_stage to 1 since we will always load operands
   // to smem even if stages=0. That is, we interpret stages <= 1 as requesting
-  // "no double-buffering", but we still stage incoming data to smem.
-  if (smem_double_buffer_stage < 1) {
-    smem_double_buffer_stage = 1;
+  // "no circular-buffering", but we still stage incoming data to smem.
+  if (smem_circular_buffer_stage < 1) {
+    smem_circular_buffer_stage = 1;
   }
 
-  // Create a temporary DoubleBufferOptions with full double buffering, for
+  // Create a temporary CircularBufferOptions with full circular buffering, for
   // estimating shared memory size.
-  MatmulParams::DoubleBufferOptions double_buffer_options{
-      true, true, smem_double_buffer_stage};
+  MatmulParams::CircularBufferOptions circular_buffer_options{
+      true, true, smem_circular_buffer_stage};
 
   const auto [smem_a, smem_b, smem_c] =
-      computeSharedMemorySizes(gemm_tile, double_buffer_options, data_types);
+      computeSharedMemorySizes(gemm_tile, circular_buffer_options, data_types);
 
   // NOTE: we can simply add these sizes since they should be integer multiples
   // of 16 bytes, so they will automatically be aligned. This may change with
@@ -188,7 +188,7 @@ TensorView* getOperandTv(const TensorRolesMap& tensor_roles, MatmulRole role) {
 
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
-    const int smem_double_buffer_stage,
+    const int smem_circular_buffer_stage,
     const TensorRolesMap& tensor_roles,
     const bool ignore_occupancy_drop) {
   auto data_types = getMmaDataTypes(tensor_roles);
@@ -232,7 +232,7 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
 
   return generateSharedMemoryEpilogueHeuristics(
       gemm_tile,
-      smem_double_buffer_stage,
+      smem_circular_buffer_stage,
       data_types,
       smem_a_reuse_guaranteed,
       smem_b_reuse_guaranteed,
@@ -619,7 +619,7 @@ void checkDimSize(
   }
 }
 
-static void setWarpMapped(TensorView* tv, int64_t number_of_dims) {
+void setWarpMapped(TensorView* tv, int64_t number_of_dims) {
   for (int64_t id : c10::irange(number_of_dims)) {
     tv->axis(-id - 1)->toMmaSwizzled();
   }
@@ -1610,9 +1610,38 @@ MmaOp* MatmulPattern::translateToMmaOp() {
   // higher precision in order avoid the round trip cast in defining an
   // epilogue that starts with MatmulOp.
   if (output->dtype() != fms->dtype()) {
-    TensorView* old_output = output;
-    output = castOp(output->dtype(), fms);
-    ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_output, output);
+    // When fms is a different dtype from output, it means we _might_ need to
+    // insert a cast. However, we can skip inserting that cast for any uses of
+    // output that are simply casts back to Float.
+
+    // This vector holds tensors that would be round-trip cast to the same
+    // dtype as fms. We first collect these Vals then we do the replacements
+    // separately in order to avoid dereferencing an Expr* that has already
+    // been replaced.
+    std::vector<Val*> round_trip_vals;
+    for (Expr* use : output->uses()) {
+      if (auto* uop = dynamic_cast<UnaryOp*>(use); uop != nullptr &&
+          uop->getUnaryOpType() == UnaryOpType::Cast &&
+          uop->out()->dtype() == fms->dtype()) {
+        round_trip_vals.push_back(uop->out());
+      }
+    }
+    // If there are any uses that were not round-trip casts, then we should
+    // insert the castOp.
+    if (output->uses().size() > round_trip_vals.size()) {
+      TensorView* old_output = output;
+      output = castOp(output->dtype(), fms);
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_output, output);
+    }
+    // if any casts are skipped, then we reset output to point to the Float
+    // output fms instead of the downcast.
+    if (!round_trip_vals.empty()) {
+      output = fms;
+    }
+    // Finally, replace the round_trip_vals with fms
+    for (Val* v : round_trip_vals) {
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(v, fms);
+    }
   } else {
     // No cast needed, for example the inputs might be Float
     ir_utils::transferDefinitionToNewOutputs(fms->definition(), {output});

@@ -9,6 +9,13 @@
 #include <unistd.h>
 #include <mutex>
 
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/debug.h>
+#else
+#include <multidevice/c10d_mock.h>
+#endif
+#include <torch/cuda.h>
+
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>
@@ -16,11 +23,14 @@
 #include <options.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
-#include <torch/cuda.h>
 
 namespace nvfuser {
 
 MultiDeviceTest::MultiDeviceTest() {
+  // Enable logging in c10d so debug messages can be printed out via
+  // `TORCH_DISTRIBUTED_DEBUG`.
+  c10d::setDebugLevelFromEnvironment();
+
   communicator_ = getOrCreateCommunicator();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
