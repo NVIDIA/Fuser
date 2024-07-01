@@ -74,7 +74,6 @@ bool padCompatibleBinaryOp(BinaryOpType t) {
     case BinaryOpType::BitwiseOr:
     case BinaryOpType::LogicalAnd:
     case BinaryOpType::LogicalOr:
-    case BinaryOpType::Complex:
       return true;
     default:
       return false;
@@ -206,10 +205,11 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   };
 
   // NOTE: We skip the propagation when any of the three conditions is true:
-  // 1. The optimization logic assumes a zero pad_op. This is used for logic in handling binary operations;
+  // 1. The optimization logic assumes a zero pad. This is used for logic in handling binary operations;
   // 2. if `pad_op->in()` is used more than by the pad_op;
   // 3. if `pad_op->in()` is an output tv.
-  if (!pad_op->value()->isZero() || pad_op->in()->uses().size() > 1 || pad_op->in()->isFusionOutput()) {
+  // TODO: cannot use `isZero()` here since it causes assert on complex types
+  if (!pad_op->value()->isZeroInt() || pad_op->in()->uses().size() > 1 || pad_op->in()->isFusionOutput()) {
     return nullptr;
   }
 
@@ -392,10 +392,6 @@ void mergeNeighboringPad(Fusion* fusion) {
     if (simplifyExpr(SimplifyingIrBuilder::eqExpr(producer->value(), consumer->value()))->isFalse()) {
       continue;
     }
-    // if ((producer->value() != consumer->value()) &&
-    //     (!producer->value()->isZero() || !consumer->value()->isZero())) {
-    //   continue;
-    // }
 
     const std::vector<Val*> p_pad_widths = producer->getPadWidths();
     const std::vector<Val*> c_pad_widths = consumer->getPadWidths();
