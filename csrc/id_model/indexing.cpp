@@ -43,28 +43,8 @@ IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
   return loop_promotion_map_it->second;
 }
 
-// True if a given domain is a loop doamin of a given tensor and its
-// loop is partitioned with respect to the memory type of the tensor
-bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
-  // False if id is not a loop ID
-  if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
-      tv->getLoopDomain().end()) {
-    return false;
-  }
-
-  // If the memory of this domain is partitioned with respect to the
-  // parallel type of the domain, there's no allocation for the domain
-  return ir_utils::isMemoryPartitionedAcross(
-      tv->getMemoryType(), id->getParallelType());
-}
-
 bool isSizeOneDomain(IterDomain* id) {
   return id->isBroadcast() || id->isReduction() || id->extent()->isOneInt();
-}
-
-// True if a given domain of a tensor *may* require allocation
-bool mayRequireAllocation(TensorView* tv, IterDomain* id) {
-  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id);
 }
 
 // Get the allocation stride of a given allocation domain
@@ -113,29 +93,30 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
       allocation_domains = tv->getLogicalDomain();
       contiguity = tv->domain()->contiguity();
     } else {
-      const auto inlining_pos = tv->getComputeAtPosition();
-      for (const auto i : c10::irange(tv->nDims())) {
-        auto loop_id = tv->getLoopDomain().at(i);
-        auto pt = loop_id->getParallelType();
-        if (!mayRequireAllocation(tv, loop_id)) {
-          continue;
-        }
-
-        // If the position is left of the inlining position, no need to
-        // allocate the domain unless it's shared. For example, if this
-        // is a Shared tensor and the domain is parallelized with TID,
-        // even if it's outside of the CA position, since the domain
-        // is shared, it must be allocated.
-        if (i < inlining_pos &&
-            !ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
-          continue;
-        }
-
-        allocation_domains.push_back(loop_id);
-      }
+      allocation_domains = tv->getLoopDomain();
       // Assume Local and Shared are always fully contiguous
       contiguity =
           std::vector<std::optional<bool>>(allocation_domains.size(), true);
+    }
+  }
+
+  // Exclude some IterDomains from allocation domain
+  std::unordered_set<IterDomain*> non_allocating_ids;
+  for (const auto id : allocation_domains) {
+    auto pt = id->getParallelType();
+    if (isSizeOneDomain(id) ||
+        ir_utils::isMemoryPartitionedAcross(tv->getMemoryType(), pt)) {
+      non_allocating_ids.insert(id);
+    }
+  }
+  const auto inlining_pos = tv->getComputeAtPosition();
+  if (!tv->isFusionInput() && !tv->isFusionOutput()) {
+    for (const auto i : c10::irange(inlining_pos)) {
+      auto loop_id = tv->getLoopDomain().at(i);
+      auto pt = loop_id->getParallelType();
+      if (!ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
+        non_allocating_ids.insert(loop_id);
+      }
     }
   }
 
@@ -147,22 +128,26 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
                        tv->getLoopDomain().begin(),
                        tv->getLoopDomain().end(),
                        allocation_domain) != tv->getLoopDomain().end();
-    if (!is_loop) {
+    if (!is_loop || non_allocating_ids.count(allocation_domain) > 0) {
       continue;
     }
     allocation_domain = getLoopPromotion(allocation_domain, id_model);
   }
 
-  // Compute the strides from innermost to outermost domains
-  std::vector<Val*> strides(allocation_domains.size(), nullptr);
+  // Compute the strides from innermost to outermost domains and filter out
+  // non-allocated domains.
+  std::vector<IterDomain*> actual_allocation_domains;
+  std::vector<Val*> actual_strides;
   Val* cur_contig_stride = tv->fusion()->oneVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
     auto dim = allocation_domains.size() - i - 1;
     auto allocation_domain = allocation_domains.at(dim);
 
-    if (!mayRequireAllocation(tv, allocation_domain)) {
+    if (non_allocating_ids.count(allocation_domain) > 0) {
       continue;
     }
+
+    actual_allocation_domains.push_back(allocation_domain);
 
     const std::optional<bool> contig_flag = contiguity.at(dim);
     // Broadcast doesn't have contig flag but it must have been
@@ -170,36 +155,21 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     NVF_ERROR(contig_flag.has_value());
 
     if (contig_flag.value()) {
-      strides[dim] = cur_contig_stride;
+      actual_strides.push_back(cur_contig_stride);
       cur_contig_stride = SimplifyingIrBuilder::mulExpr(
           allocation_domains.at(dim)->extent(), cur_contig_stride);
     } else {
       // Assume that the tensor should always be a Global memory
       // tensor if it has non-contig allocation domains
       NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
-      strides[dim] = getStrideOfGlobalMemoryTensor(tv, (int64_t)dim);
-      cur_contig_stride = strides[dim];
+      cur_contig_stride = getStrideOfGlobalMemoryTensor(tv, (int64_t)dim);
+      actual_strides.push_back(cur_contig_stride);
     }
   }
 
-  // Filter out non-allocated domains. This is already done for Local
-  // and Shared tensors with no set allocation domains, but not for
-  // the other cases. For example, a reduction output tensor that is
-  // also a fusion output may still have reduction domains in their
-  // allocation domains, which aren't relevant for indexing
-  std::vector<IterDomain*> actual_allocation_domains;
-  std::vector<Val*> actual_strides;
-  for (const auto i : c10::irange(allocation_domains.size())) {
-    auto allocation_domain = allocation_domains.at(i);
-    if (!mayRequireAllocation(tv, allocation_domain)) {
-      continue;
-    }
-    auto stride = strides.at(i);
-    NVF_ERROR(stride != nullptr);
-    actual_allocation_domains.push_back(allocation_domain);
-    actual_strides.push_back(stride);
-  }
-
+  std::reverse(
+      actual_allocation_domains.begin(), actual_allocation_domains.end());
+  std::reverse(actual_strides.begin(), actual_strides.end());
   return {actual_allocation_domains, actual_strides};
 }
 
