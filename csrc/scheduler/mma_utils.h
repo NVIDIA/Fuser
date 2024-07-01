@@ -341,7 +341,7 @@ TensorRolesMapOpt getTensorRoles(
 //!  epilogue does not increase occupancy.
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
-    const int smem_double_buffer_stage,
+    const int smem_circular_buffer_stage,
     const TensorRolesMap& tensor_roles,
     bool ignore_occupancy_drop = false);
 
@@ -349,7 +349,7 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
 //! as well as guarantees about prologue smem reuse.
 NVF_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
-    const int smem_double_buffer_stage,
+    const int smem_circular_buffer_stage,
     const MmaDataTypes& data_types,
     bool smem_a_reuse_guaranteed = false,
     bool smem_b_reuse_guaranteed = false,
@@ -412,6 +412,9 @@ std::vector<ValGroup> canonicalDimOrdering(
 std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
     IdModel& id_model,
     const std::vector<MatmulPattern>& patterns);
+
+//! Set the number_of_dims IDs from the end to swizzled.
+void setWarpMapped(TensorView* tv, int64_t number_of_dims);
 
 } // namespace mma_utils
 
