@@ -17,6 +17,12 @@ namespace {
 using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
 
 static constexpr int kTensorSize = 4;
+
+void assertIsCompiledToHostIrContainer(const FusionExecutor& fusion_executor) {
+  ASSERT_TRUE(fusion_executor.fusion()->isA<hir::HostIrContainer>())
+      << "failed to compile to a HostIrContainer with Communications";
+}
+
 } // namespace
 
 // This is made a macro instead of a function, because GTEST_SKIP can only be
@@ -60,6 +66,7 @@ TEST_P(LowerGatherTest, ) {
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
+  assertIsCompiledToHostIrContainer(fe);
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
 
   if (out_mesh.has(device_id)) {
@@ -70,6 +77,7 @@ TEST_P(LowerGatherTest, ) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     LowerGatherTest,
+    // Trick to enforce clang-format to break lines for readability.
     testing::ValuesIn(std::vector<InOutMesh>(
         {{{0, 1}, {0}}, //
          {{0, 1}, {1}}, //
@@ -100,6 +108,7 @@ TEST_P(LowerScatterTest, ) {
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {unsharded_tensor});
+  assertIsCompiledToHostIrContainer(fe);
   at::Tensor out_tensor = fe.runFusion({unsharded_tensor})[0];
 
   if (out_mesh.has(device_id)) {
@@ -144,6 +153,7 @@ TEST_P(LowerSendRecvTest, ) {
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
+  assertIsCompiledToHostIrContainer(fe);
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
 
   if (out_mesh.has(device_id)) {
@@ -156,8 +166,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     LowerSendRecvTest,
     testing::ValuesIn(std::vector<InOutMesh>(
-        {{{0}, {0}}, //
-         {{0}, {1}}, //
+        {{{0}, {1}}, //
          {{1}, {0}}, //
          {{1, 2}, {0, 1}}, //
          {{1, 2}, {1, 0}}})));
@@ -186,7 +195,9 @@ TEST_F(LowerCollectiveTest, AllGather) {
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
+  assertIsCompiledToHostIrContainer(fe);
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+
   EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor));
 }
 
@@ -212,7 +223,9 @@ TEST_F(LowerCollectiveTest, Broadcast) {
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
+  assertIsCompiledToHostIrContainer(fe);
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+
   EXPECT_TRUE(
       at::equal(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
 }
@@ -240,7 +253,9 @@ TEST_F(LowerCollectiveTest, Reduce) {
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
+  assertIsCompiledToHostIrContainer(fe);
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+
   if (device_id == kRoot) {
     // at::allclose instead of at::equal because addition is involved.
     EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
@@ -269,7 +284,9 @@ TEST_F(LowerCollectiveTest, Allreduce) {
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
+  assertIsCompiledToHostIrContainer(fe);
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
@@ -296,6 +313,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
+  assertIsCompiledToHostIrContainer(fe);
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
 
   at::Tensor unsharded_out_tensor = unsharded_in_tensor.sum(0);
