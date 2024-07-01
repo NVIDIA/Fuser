@@ -13,7 +13,11 @@
 
 namespace nvfuser {
 
+namespace {
 using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
+
+static constexpr int kTensorSize = 16;
+} // namespace
 
 #define SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh)                 \
   do {                                                                \
@@ -48,7 +52,8 @@ TEST_P(LowerGatherTest, ) {
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   const auto device_id = communicator_->deviceId();
-  at::Tensor unsharded_tensor = at::randn({in_mesh.size(), 3}, tensor_options);
+  at::Tensor unsharded_tensor =
+      at::randn({in_mesh.size(), kTensorSize}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in, device_id);
 
   FusionExecutor fe(communicator_);
@@ -88,7 +93,8 @@ TEST_P(LowerScatterTest, ) {
   out->axis(0)->parallelize(ParallelType::DIDx);
 
   const auto device_id = communicator_->deviceId();
-  at::Tensor unsharded_tensor = at::randn({out_mesh.size(), 3}, tensor_options);
+  at::Tensor unsharded_tensor =
+      at::randn({out_mesh.size(), kTensorSize}, tensor_options);
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {unsharded_tensor});
@@ -130,7 +136,8 @@ TEST_P(LowerSendRecvTest, ) {
   out->axis(0)->parallelize(ParallelType::DIDx);
 
   const auto device_id = communicator_->deviceId();
-  at::Tensor unsharded_tensor = at::randn({in_mesh.size(), 3}, tensor_options);
+  at::Tensor unsharded_tensor =
+      at::randn({in_mesh.size(), kTensorSize}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in, device_id);
 
   FusionExecutor fe(communicator_);
@@ -170,7 +177,8 @@ TEST_F(LowerCollectiveTest, AllGather) {
   out->setDeviceMesh(mesh);
   in->axis(0)->parallelize(ParallelType::DIDx);
 
-  at::Tensor unsharded_tensor = at::randn({num_devices, 3}, tensor_options);
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices, kTensorSize}, tensor_options);
   at::Tensor in_tensor =
       shardTensor(unsharded_tensor, in, communicator_->deviceId());
 
@@ -191,18 +199,20 @@ TEST_F(LowerCollectiveTest, Broadcast) {
   fusion.addOutput(out);
 
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
-  constexpr DeviceIdxType root = 0;
-  in->setDeviceMesh({root});
+  constexpr DeviceIdxType kRoot = 0;
+  in->setDeviceMesh({kRoot});
   out->setDeviceMesh(mesh);
 
-  at::Tensor unsharded_tensor = at::randn({num_devices, 3}, tensor_options);
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices, kTensorSize}, tensor_options);
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
-  EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor.slice(0, root, root + 1)));
+  EXPECT_TRUE(
+      at::equal(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
 }
 
 TEST_F(LowerCollectiveTest, Reduce) {
@@ -216,19 +226,20 @@ TEST_F(LowerCollectiveTest, Reduce) {
   fusion.addOutput(out);
 
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
-  constexpr DeviceIdxType root = 0;
+  constexpr DeviceIdxType kRoot = 0;
   in->setDeviceMesh(mesh);
-  out->setDeviceMesh({root});
+  out->setDeviceMesh({kRoot});
   in->axis(0)->parallelize(ParallelType::DIDx);
 
-  at::Tensor unsharded_in_tensor = at::randn({num_devices, 3}, tensor_options);
+  at::Tensor unsharded_in_tensor =
+      at::randn({num_devices, kTensorSize}, tensor_options);
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in, device_id);
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
-  if (device_id == root) {
+  if (device_id == kRoot) {
     // at::allclose instead of at::equal because addition is involved.
     EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
   }
@@ -249,7 +260,8 @@ TEST_F(LowerCollectiveTest, Allreduce) {
   out->setDeviceMesh(mesh);
   in->axis(0)->parallelize(ParallelType::DIDx);
 
-  at::Tensor unsharded_in_tensor = at::randn({num_devices, 3}, tensor_options);
+  at::Tensor unsharded_in_tensor =
+      at::randn({num_devices, kTensorSize}, tensor_options);
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in, device_id);
 
@@ -276,7 +288,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
   out->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, num_devices, 3}, tensor_options);
+      at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in, device_id);
 
