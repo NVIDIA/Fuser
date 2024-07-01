@@ -60,7 +60,7 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<c10::IValue> unsharded_inputs;
   std::vector<at::Tensor> outputs;
   std::vector<at::Tensor> ref_unsharded_outputs;
-  hir::HostIrExecutorParams multi_device_executor_params;
+  hir::HostIrExecutorParams host_ir_executor_params;
   LaunchParams l_params = {};
 };
 

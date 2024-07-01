@@ -96,13 +96,13 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   for (auto group : workspace.group_run_order) {
     std::vector<Expr*> host_exprs;
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
-    bool is_resharding = std::any_of(
-        group->exprs().begin(), group->exprs().end(), [](auto expr) {
-          return isResharding(expr);
-        });
     if (involvedDevices(group->exprs().at(0)).count(comm_.deviceId()) == 0) {
       continue;
     }
+    const bool is_resharding = std::any_of(
+        group->exprs().begin(), group->exprs().end(), [](auto expr) {
+          return isResharding(expr);
+        });
     if (!is_resharding) {
       auto host_unit = IrBuilder::create<hir::HostUnit>(
           staged_fusion->makeFusion(group).second);

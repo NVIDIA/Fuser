@@ -200,8 +200,8 @@ TEST_P(PipelineTestTwoStages, Communication) {
   unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
 
   if (use_fusion_executor_cache) {
-    multi_device_executor_params.use_fusion_executor_cache = true;
-    multi_device_executor_params.skip_auto_scheduling = true;
+    host_ir_executor_params.use_fusion_executor_cache = true;
+    host_ir_executor_params.skip_auto_scheduling = true;
   }
 
   executeAndValidate();
@@ -555,7 +555,7 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
       break;
     }
     case SchedulingMode::Automatic:
-      multi_device_executor_params.use_fusion_executor_cache = true;
+      host_ir_executor_params.use_fusion_executor_cache = true;
       break;
   }
 
