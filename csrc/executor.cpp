@@ -23,6 +23,7 @@
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/lower_communication.h>
+#include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <serde/utils.h>
@@ -270,7 +271,7 @@ void FusionExecutor::compileFusion(
 
   const auto& exprs = fusion->exprs();
   if (std::all_of(exprs.begin(), exprs.end(), [](Expr* e) {
-        return isLowerableToCommunication(e);
+        return isResharding(e) && isLowerableToCommunication(e);
       })) {
     host_ir_container_ = std::make_unique<hir::HostIrContainer>();
     IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
