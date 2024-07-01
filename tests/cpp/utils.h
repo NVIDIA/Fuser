@@ -695,4 +695,16 @@ bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y);
 // layouts TT, TN, NT, or NN.
 MmaLayout getMatmulProblemLayout(Fusion* fusion);
 
+// Get floating data types including half, float, double, complex_float,
+// complex_double, and bfloat16 if supported by the device.
+std::vector<DataType> getFloatingDataTypes();
+
+// gtest requires test name contains only alphanumeric characters and
+// underscores. Sanitize name e.g. std::complex<float> -> std_complex_float
+std::string sanitizeTestName(const std::string& name);
+
+// values frequently used in tests
+constexpr std::array<int64_t, 21> Pow2Vals1to1Million = {
+    1,    2,    4,    8,     16,    32,    64,     128,    256,    512,    1024,
+    2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576};
 } // namespace nvfuser
