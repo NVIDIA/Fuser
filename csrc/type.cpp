@@ -1446,21 +1446,21 @@ int64_t dataTypeSize(DataType type, DataType index_type) {
 
 std::ostream& operator<<(
     std::ostream& os,
-    const DoubleBufferLoopStage loop_stage) {
+    const CircularBufferLoopStage loop_stage) {
   switch (loop_stage) {
-    case DoubleBufferLoopStage::NotApplicable:
+    case CircularBufferLoopStage::NotApplicable:
       break;
-    case DoubleBufferLoopStage::Prolog:
-      os << "{DoubleBufferProlog}";
+    case CircularBufferLoopStage::Prolog:
+      os << "{CircularBufferProlog}";
       break;
-    case DoubleBufferLoopStage::Main:
-      os << "{DoubleBufferMainLoop}";
+    case CircularBufferLoopStage::Main:
+      os << "{CircularBufferMainLoop}";
       break;
-    case DoubleBufferLoopStage::Epilog:
-      os << "{DoubleBufferEpilog}";
+    case CircularBufferLoopStage::Epilog:
+      os << "{CircularBufferEpilog}";
       break;
     default:
-      NVF_ERROR(false, "unknown double buffer stage");
+      NVF_ERROR(false, "unknown circular buffer stage");
   }
   return os;
 }
