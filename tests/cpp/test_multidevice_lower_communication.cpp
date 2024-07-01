@@ -19,6 +19,8 @@ using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
 static constexpr int kTensorSize = 16;
 } // namespace
 
+// This is made a macro instead of a function, because GTEST_SKIP can only be
+// used in individual test cases or `SetUp` methods.
 #define SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh)                 \
   do {                                                                \
     const auto num_devices = communicator_->size();                   \
