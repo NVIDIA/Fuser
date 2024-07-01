@@ -649,7 +649,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
 
   // In this case we don't split the outer dimension, thus having
   // fewer TMA loads.
-  scheduleTMALoadWhereOuterDimIsSplit(tv1, swizzle_b, dtype);
+  scheduleTMALoadOuterDimNotSplit(tv1, swizzle_b, dtype);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   int skip = 0;
@@ -846,6 +846,126 @@ TEST_P(HopperSS, SingleTile) {
 
   naivelyParallelize(tv0);
   naivelyParallelize(tv1);
+
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+
+  auto inputs = matmulAtInput3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_P(HopperSS, SingleTileWithTMALoad) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->smem copy
+  tv0 = set(tv0);
+  tv0->setMemoryType(MemoryType::Shared);
+  tv0->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  int axes = 0;
+  switch (layout) {
+    case MmaLayout::NT:
+      axes = 0;
+      break;
+    case MmaLayout::TT:
+    case MmaLayout::NN:
+      axes = 1;
+      break;
+    case MmaLayout::TN:
+      axes = 2;
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
+
+  // Reorder the accumulator as [M, N, K]
+  switch (layout) {
+    case MmaLayout::TT:
+      // [M, K, N] -> [M, N, K]
+      tv2->reorder({{-2, -1}});
+      break;
+    case MmaLayout::TN:
+      // [M, N, K]
+      break;
+    case MmaLayout::NT:
+      // [K, M, N] -> [M, N, K]
+      tv2->reorder({{-3, -1}});
+      break;
+    case MmaLayout::NN:
+      // [N, K, M] -> [M, N, K]
+      tv2->reorder({{-1, -3}});
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  tv2->commitLeafToLogical();
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  scheduleTMALoadWhereOuterDimIsSplit(tv0, swizzle_a, dtype);
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+  scheduleTMALoadWhereOuterDimIsSplit(tv1, swizzle_b, dtype);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+
+  auto bulk_parallelize = [](TensorView* tv) {
+    int skip = 0;
+    int count = 3;
+    for (auto id : tv->getLoopDomain()) {
+      if (skip < count) {
+        skip++;
+        continue;
+      }
+      id->parallelize(ParallelType::Bulk);
+    }
+  };
+
+  bulk_parallelize(tv0);
+  bulk_parallelize(tv1);
+
+  // For smem mma input tensors, the schedule does not matter, we just naively
+  // parallelize it so the test runs faster.
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  // This is stop the validation from complaining
+  // about IDs not being swizzled.
+  mma_utils::setWarpMapped(tv0, tv0->getLoopDomain().size());
+  mma_utils::setWarpMapped(tv1, tv1->getLoopDomain().size());
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
