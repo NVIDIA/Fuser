@@ -2582,9 +2582,13 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
       reduction_params->lparams);
 }
 
-namespace {
-void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
-  const int axis = red_axis;
+using WelfordReductionParams = std::tuple<DataType, int64_t, int64_t, int64_t>;
+using WelfordReduction = NVFuserFixtureParamTest<WelfordReductionParams>;
+TEST_P(WelfordReduction, Test) {
+  maybeClearAllocator();
+
+  auto [dtype, rdim, odim, axis] = GetParam();
+
   at::ScalarType aten_dtype = data_type_to_aten(dtype);
 
   Fusion fusion;
@@ -2670,34 +2674,13 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
       "validate welford",
       reduction_params->lparams);
 }
-} // namespace
-
-TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::ComplexFloat,
-      DataType::ComplexDouble,
-      DataType::Double,
-      DataType::Float,
-      DataType::Half};
-
-  if (at::cuda::getDeviceProperties(0)->major >= 8) {
-    dtypes.insert(dtypes.end(), DataType::BFloat16);
-  }
-
-  std::vector<int> red_axis = {1, 0};
-  std::vector<int> output_dims = {160, 320};
-  std::vector<int64_t> red_dims;
-
-  // Tried to cut down the number iterations with just
-  // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
-    red_dims.push_back(i);
-  }
-
-  for (auto dtype : dtypes) {
-    for (auto& axis : red_axis) {
-      for (auto& odim : output_dims) {
-        for (auto& rdim : red_dims) {
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    WelfordReduction,
+    ::testing::ValuesIn([]() {
+      std::vector<WelfordReductionParams> filtered_params;
+      for (const auto& dtype : getFloatingDataTypes()) {
+        for (const auto& rsize : Pow2Vals1to1Million) {
           // TODO: original welford algorithm actually keeps a running sum of
           // squares, i.e. M_{2n} in the
           //       cf:
@@ -2706,21 +2689,28 @@ TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
           //       with half precision. skipping too large volumes for half for
           //       nwo might need further numerical experiments to re-design
           //       this.
-          if (rdim > 32768 &&
+          if (rsize > 32768 &&
               (dtype == DataType::Half || dtype == DataType::BFloat16)) {
             continue;
           }
-          // Shmoo tests can occupy a lot of memory due to allocating many
-          // different tensor sizes. So in order to avoid an OOM during this
-          // test, we manually clear the allocator after it's reached a certain
-          // threshold.
-          maybeClearAllocator();
-          testWelford(dtype, axis, odim, rdim);
+          for (const auto& isize : {160, 320}) {
+            for (const auto& raxis : {0, 1}) {
+              filtered_params.emplace_back(dtype, rsize, isize, raxis);
+            }
+          }
         }
       }
-    }
-  }
-}
+      return filtered_params;
+    }()),
+    [](const testing::TestParamInfo<WelfordReductionParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param);
+      ss << "_rsize_" << std::get<1>(info.param);
+      ss << "_isize_" << std::get<2>(info.param);
+      ss << "_raxis_" << std::get<3>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
 namespace {
 void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {
