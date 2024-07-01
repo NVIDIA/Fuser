@@ -62,19 +62,16 @@ bool isSizeOneDomain(IterDomain* id) {
   return id->isBroadcast() || id->extent()->isOneInt();
 }
 
-// True if a given domain of a tensor *may* require allocation. The
-// optional promotion domain is also considered if given.
-bool mayRequireAllocation(
-    TensorView* tv,
-    IterDomain* id,
-    IterDomain* promotion_id = nullptr) {
+// True if a given domain of a tensor *may* require allocation
+bool mayRequireAllocation(TensorView* tv, IterDomain* id) {
   // Conditions to consider:
-  // - Fully partitioned: Check the original ID, not the promotion ID
-  // - Size one: Check the promotion ID if given, the original ID otherwise.
+  // - Fully partitioned
+  // - Size one: Allocation is done based on the promotion ID, but as
+  // long as the original ID has size one, its allocation should
+  // remain size one.
   // - Reduction: Check the original ID, not the promotion, which may
   //   be a reduction ID even though the original ID is not a reduction
-  return !isPartitionedLoop(tv, id) &&
-      !isSizeOneDomain(promotion_id != nullptr ? promotion_id : id) &&
+  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
       !id->isReduction();
 }
 
@@ -178,7 +175,7 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     auto allocation_domain = allocation_domains.at(dim);
     auto promotion_domain = promoted_allocation_domains.at(dim);
 
-    if (!mayRequireAllocation(tv, allocation_domain, promotion_domain)) {
+    if (!mayRequireAllocation(tv, allocation_domain)) {
       continue;
     }
 
@@ -211,7 +208,7 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   for (const auto i : c10::irange(allocation_domains.size())) {
     auto allocation_domain = allocation_domains.at(i);
     auto promotion_domain = promoted_allocation_domains.at(i);
-    if (!mayRequireAllocation(tv, allocation_domain, promotion_domain)) {
+    if (!mayRequireAllocation(tv, allocation_domain)) {
       continue;
     }
     auto stride = strides.at(i);
