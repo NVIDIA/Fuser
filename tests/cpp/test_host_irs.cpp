@@ -471,9 +471,11 @@ INSTANTIATE_TEST_SUITE_P(
                                      : "useFusionExecutor";
     });
 
+using StreamTest = NVFuserTest;
+
 // The following test simply demonstrate how to change current CUDA stream in
 // the host program
-TEST_F(NVFuserTest, HostIrSetStream) {
+TEST_F(StreamTest, HostIrSetStream) {
   auto hic = std::make_unique<HostIrContainer>();
   auto stream = IrBuilder::createInContainer<Stream>(hic.get());
   auto set_stream =
@@ -489,7 +491,7 @@ TEST_F(NVFuserTest, HostIrSetStream) {
 
 // The following test simply demonstrate how to change current CUDA stream in
 // the host program
-TEST_F(NVFuserTest, HostIrDefaultStream) {
+TEST_F(StreamTest, HostIrDefaultStream) {
   auto change_stream = [](bool use_default_stream) {
     auto hic = std::make_unique<HostIrContainer>();
     Stream* stream;
@@ -506,10 +508,10 @@ TEST_F(NVFuserTest, HostIrDefaultStream) {
   };
 
   setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
-  change_stream(false);
+  change_stream(/*use_default_stream=*/false);
   EXPECT_NE(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
-  change_stream(true);
+  change_stream(/*use_default_stream=*/true);
   EXPECT_EQ(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
 }

@@ -8,12 +8,11 @@
 #pragma once
 
 #include <fusion.h>
+#include <host_ir/host_ir.h>
 
 namespace nvfuser {
 
 namespace hir {
-
-class Stream;
 
 /*
 HostIrContainer is used to represent a host program.
