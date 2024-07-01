@@ -107,13 +107,27 @@ TensorView* replayConcretePad(
 }
 
 Val* propagatePadToProducer(PadOp* pad_op) {
-  // TODO: wait, why do I need pad_dependencies?!
+  // establish pad dependencies, ensures that pad_value and pad_widths are live at the time of replay.
   std::vector<Val*> pad_dependencies;
-
-  auto candidate_check = [&pad_dependencies](Val* val) {
+  for (Val* val : pad_op->inputs()) {
+    if (val == pad_op->in() || val->isConst()) {
+      continue;
+    }
+    pad_dependencies.push_back(val);
+  }
+  auto pad_replay_check = [&pad_dependencies](Val* val) {
     if (!val->isA<TensorView>()) {
       return false;
     }
+    if (std::any_of(
+            pad_dependencies.begin(),
+            pad_dependencies.end(),
+            [val](Val* pad_dependency) {
+              return DependencyCheck::isDependencyOf(pad_dependency, val);
+            })) {
+      return false;
+    }
+
     // TODO: refactor this check. We should totally support multiple uses here.
     // multiple uses should only block further back propagation when it applies.
     // But we can replace the edge with a padded output. hint. we should count
@@ -125,41 +139,24 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     if (val->isFusionOutput()) {
       return false;
     }
-    if (std::any_of(
-            pad_dependencies.begin(),
-            pad_dependencies.end(),
-            [val](Val* pad_dependency) {
-              return DependencyCheck::isDependencyOf(pad_dependency, val);
-            })) {
-      return false;
-    }
     return true;
   };
 
-  // NOTE: the optimization logic assumes a zero pad_op.
-  // This is used for logic in handling binary operations, we should extend this
-  // later.
-  if (!pad_op->value()->isZero()) {
+  // NOTE: We skip the propagation when any of the three conditions is true:
+  // 1. The optimization logic assumes a zero pad_op. This is used for logic in handling binary operations;
+  // 2. if `pad_op->in()` is used more than by the pad_op;
+  // 3. if `pad_op->in()` is an output tv.
+  if (!pad_op->value()->isZero() || pad_op->in()->uses().size() > 1 || pad_op->in()->isFusionOutput()) {
     return nullptr;
   }
 
-  if (!candidate_check(pad_op->in())) {
-    return nullptr;
-  }
-
-  for (Val* val : pad_op->inputs()) {
-    if (val == pad_op->in() || val->isConst()) {
-      continue;
-    }
-    pad_dependencies.push_back(val);
-  }
-
+  // frontier is the edge that needs to replay the pad_op on. We use `Expr*` & `index`, because we are not looking at replacing a `TensorView*`'s usage globally.
   std::vector<Edge> frontier;
-  // TODO: not sure if I need a stack if I need to keep a replay_sequence.
-  std::stack<Edge> stack;
+  // replay_sequence is used later to create the updated branch with padded inputs after all `frontier` has been updated with padding.
   std::vector<Expr*> replay_sequence;
-  stack.emplace(pad_op, 0);
 
+  std::stack<Edge> stack;
+  stack.emplace(pad_op, 0);
   // tvs in stack are:
   //   1. single use;
   //   2. not an output;
@@ -174,136 +171,82 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       auto* uop = def->as<UnaryOp>();
       // TODO: exception to break propagation. i.e. check op type and exclude
       // division by 0
-      if (candidate_check(uop->in())) {
-        replay_sequence.push_back(uop);
-        stack.emplace(uop, 0);
+      if (!pad_replay_check(uop->in())) {
+        frontier.push_back(edge);
         continue;
-        // TODO: this isn't right. I need to support a topology with fork, which
-        // is what rope has. } else if (uop->in()->isA<TensorView>()) {
-        //   // even though we cannot further propagate, we can still fork it
-        //   here. replay_sequence.push_back(uop);
       }
-      if (uop->in()->isA<TensorView>()) {
+      // uop is replayable.
+      replay_sequence.push_back(uop);
+      // TODO: this isn't right. I need to extend the support for topology with fork where uses > 1. i.e. if all uses lead to pad, we can still propagate it.
+      if (uop->in()->uses().size() > 1 || uop->in()->isFusionOutput()) {
         // even though we cannot further propagate, we'd still want to replace
         // the use here.
-        replay_sequence.push_back(uop);
         frontier.emplace_back(uop, 0);
-        continue;
-        // replace producer here.
+      } else {
+        stack.emplace(uop, 0);
       }
-      // This will require us having `replayExprWithNewInput` to support binary
-      // ops.
-      // TODO: adding pad_op
-      // } else if (def->isA<PadOp>()) {
-      //   if (candidate_check(def->input(0))) {
-      //     // NOTE: stopping propagation, we'll merge it with its consumer
-      //     padOp frontier.emplace_back(def, 0); continue;
-      //   }
     } else if (def->isA<BinaryOp>()) {
       auto* bop = def->as<BinaryOp>();
       // TODO: exception to break propagation. i.e. check op type and exclude
       // division by 0; check for broadcast on padded axis.
-      if (candidate_check(bop->lhs()) && candidate_check(bop->rhs())) {
-        auto* lhs = bop->lhs()->as<TensorView>();
-        auto* rhs = bop->rhs()->as<TensorView>();
-        bool pad_on_broadcast = false;
-        for (auto i : pad_op->getPaddedAxes()) {
-          if (lhs->getLogicalDomain()[i]->isBroadcast() ||
-              rhs->getLogicalDomain()[i]->isBroadcast()) {
-            pad_on_broadcast = true;
-            break;
-          }
-        }
-        if (!pad_on_broadcast) {
-          stack.emplace(bop, 0);
-          stack.emplace(bop, 1);
-          replay_sequence.push_back(bop);
-          continue;
+      if (!pad_replay_check(bop->lhs()) || !pad_replay_check(bop->rhs())) {
+        frontier.push_back(edge);
+        continue;
+      }
+
+      // TODO: padding on broadcast dimensions is not supported in propagation yet.
+      auto* lhs = bop->lhs()->as<TensorView>();
+      auto* rhs = bop->rhs()->as<TensorView>();
+      bool pad_on_broadcast = false;
+      for (auto i : pad_op->getPaddedAxes()) {
+        if (lhs->getLogicalDomain()[i]->isBroadcast() ||
+            rhs->getLogicalDomain()[i]->isBroadcast()) {
+          pad_on_broadcast = true;
+          break;
         }
       }
-    }
-
-    if (edge.val() != pad_op->in()) {
-      // propagation stopped, push entry to frontier
+      if (!pad_on_broadcast) {
+        if (lhs->uses().size() > 1 || lhs->isFusionOutput()) {
+          frontier.emplace_back(bop, 0);
+        } else {
+          stack.emplace(bop, 0);
+        }
+        if (rhs->uses().size() > 1 || rhs->isFusionOutput()) {
+          frontier.emplace_back(bop, 1);
+        } else {
+          stack.emplace(bop, 1);
+        }
+        replay_sequence.push_back(bop);
+      } else {
+        frontier.push_back(edge);
+      }
+    } else {
+      // Unrecognized operation stops propagation, push entry to frontier for replay
       frontier.push_back(edge);
     }
   }
 
-  if (frontier.empty()) {
+  // NOTE: frontier should never be empty. maybe assert that.
+  if (frontier.empty() || (frontier.size() == 1 && frontier[0].val() == pad_op->in())) {
     return nullptr;
   }
 
   std::unordered_map<Val*, Val*> replacement_map;
-  // modify pad_op on frontier
+  // replay pad_op on frontier
   for (const Edge& edge : frontier) {
-    // insert pad_op
-    // Note: operation with multiple operand would require us to support partial
-    // update in each iteration.
-
-    // const auto width_size = pad_op->inputs().size() - 2;
-    // const auto num_padded_dims = width_size / 2;
-    // std::vector<Val*> pad_width;
-    // pad_width.reserve(width_size);
-    // for (auto i : c10::irange(num_padded_dims)) {
-    //   pad_width.push_back(pad_op->input((num_padded_dims - i)*2));
-    //   pad_width.push_back(pad_op->input((num_padded_dims - i)*2 + 1));
-    // }
-    // cannot use `pad` op, because it would give us symolic iter domain
-    // replacement_map[edge.val()] = pad(edge.val()->as<TensorView>(),
-    // pad_width, pad_op->value());
-
     auto pad_tv = edge.val()->as<TensorView>();
     const std::vector<IterDomain*> out_ids = TensorDomain::noReductions(
         pad_op->out()->as<TensorView>()->getLogicalDomain());
-
+    // replay pad_op on frontier TVs assuming its output iter_type wouldn't change from the final output.
     TensorView* new_out = replayConcretePad(
         pad_tv, pad_op->value(), {pad_op->getPadWidths()}, out_ids);
-
-    // TODO: test output from reduction here
-    // TensorView* pad_out_tv = pad_op->out()->as<TensorView>();
-    // std::vector<IterDomain*> new_root =
-    // IterDomain::clone(TensorDomain::noReductions(edge.val()->as<TensorView>()->getMaybeRootDomain()),
-    // true); NOTE: we use pad_out_tv instead of edge.val()->as<TensorView>()
-    // since the input tensor doesn't have its root id marked with rfactor flag.
-    // std::vector<IterDomain*> new_root =
-    //     IterDomain::clone(edge.val()->as<TensorView>()->getMaybeRootDomain(),
-    //     true);
-    // should use edge.val() to ensure that we have the right broadcast marked
-    // on root. IterDomain::clone(pad_out_tv->getMaybeRootDomain(), true);
-    // NOTE: we cannot use the TensorDomain from fullSelfReplay, since it
-    // doesn't keep root domain.
-
-    // TODO: cannot use fullSelfReplay here since it requires matching broadcast
-    // between new root to old root in domain. I should merge the two
-    // `create<PadOp>` instances so we can basically have a
-    // `replayPadOnProducer` function. std::vector<IterDomain*> new_logical =
-    //     TransformReplay::fullSelfReplay(
-    //         IrBuilder::create<TensorDomain>(new_root),
-    //         pad_out_tv->domain(),
-    //         true)
-    //         ->logical();
-    // auto new_out = IrBuilder::create<TensorView>(
-    //     IrBuilder::create<TensorDomain>(new_root, new_logical, new_logical),
-    //     edge.val()->getDataType().value());
-    // IrBuilder::create<PadOp>(
-    //     new_out,
-    //     edge.val()->as<TensorView>(),
-    //     pad_op->getPadWidths(),
-    //     pad_op->value());
-
     replacement_map[edge.val()] = new_out;
-
-    // TODO: modify existing pad_op, when its only consumer is a pad_op
   }
 
-  // propagate to update TensorProxy
-  // need to follow the reverse order from earlier stack traversal.
+  // reverse traversal the replay_sequence and update each input to use padded TVs.
   std::reverse(replay_sequence.begin(), replay_sequence.end());
   for (Expr* e : replay_sequence) {
     if (e->isA<UnaryOp>()) {
-      // TODO extend this for multiple inputs.
-      // Expr* padded_e = replayExprWithNewInput(e,
-      // replacement_map.at(e->input(0)));
       Val* out = ops::newValLike(
           replacement_map.at(e->input(0)), e->output(0)->getDataType().value());
       Expr* padded_e = IrBuilder::create<UnaryOp>(
@@ -312,8 +255,6 @@ Val* propagatePadToProducer(PadOp* pad_op) {
           replacement_map.at(e->input(0)));
       replacement_map[e->output(0)] = padded_e->output(0);
     } else if (e->isA<BinaryOp>()) {
-      // Expr* padded_e = replayExprWithNewInput(e,
-      // replacement_map.at(e->input(0)), replacement_map.at(e->input(1)));
       std::vector<Val*> vals = {
           replacement_map.at(e->input(0)), replacement_map.at(e->input(1))};
       Val* out = ops::newOutputTV(vals, e->output(0)->getDataType().value());
@@ -325,8 +266,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     }
   }
 
-  // return the replacement input to pad_op, since we have already padded
-  // everything out.
+  // return the final replacement input to pad_op
   return replacement_map.at(pad_op->in());
 }
 
@@ -334,23 +274,21 @@ void decomposeCatOp(Fusion* fusion) {
   // TODO: verify that no dead branch is traversed in exprs.
   std::vector<Expr*> exprs = fusion->exprs();
 
-  // TODO: should we expand this optimization to general pad but not just pad
-  // within cat?
-
-  // is this traversing in topo order?
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
     std::unordered_map<Val*, Val*> replacement_map;
+    // try to propagate each PadOp before CatOp through its producers.
     for (Val* in : cat->inputs()) {
       auto* pad_op = in->definition()->as<PadOp>();
       if (Val* new_pad_out = propagatePadToProducer(pad_op)) {
         replacement_map[in] = new_pad_out;
       }
     }
+    // if propagation fails, there's no point in further graph mutation.
     if (replacement_map.empty()) {
       continue;
     }
-    // NOTE: I'm hitting an index error with PadOp in
-    // device_lower/pass/index.cpp:1944
+
+    // replay `CatOp` with series of BinaryOp instead, since we might have pushed `PadOp` out and breaking the codegen if `CatOp` remains.
     Val* res = nullptr;
     TensorView* cat_out_tv = cat->output(0)->as<TensorView>();
     bool is_boolean = isBooleanType(cat_out_tv->getDataType().value());
@@ -367,15 +305,12 @@ void decomposeCatOp(Fusion* fusion) {
         }
       }
     }
+
     // restore data type if it's promoted by BinaryOp.
     res = maybeCastOp(cat_out_tv->getDataType().value(), res);
 
-    // TODO: We won't have it in tests yet, but would replaceValue also replace
-    // the outputs of the fusion?
-    // TODO: does this invalidate the downstream exprs?
-    // ir_utils::replaceValue(fusion, replacement_map);
+    // replace `CatOp` with the replay result.
     ir_utils::replaceValue(fusion, {{cat->output(0), res}});
-    // Do we *have to* swap cat with pointwise add?
     if (cat->output(0)->isFusionOutput()) {
       fusion->replaceOutput(cat->output(0), res);
     }
@@ -388,18 +323,19 @@ void mergeNeighboringPad(Fusion* fusion) {
   // consumer pad so we don't have to worry about interfering the traversal.
   for (auto* producer : ir_utils::filterByType<PadOp>(exprs)) {
     Val* pad_out = producer->out();
-    if (pad_out->uses().size() != 1) {
-      continue;
-    }
-    if (!pad_out->uses()[0]->isA<PadOp>()) {
+    if (pad_out->uses().size() != 1 || !pad_out->uses()[0]->isA<PadOp>()) {
       continue;
     }
     auto* consumer = pad_out->uses()[0]->as<PadOp>();
-    // TODO: check for pad value being equal.
-    if ((producer->value() != consumer->value()) &&
-        (!producer->value()->isZero() || !consumer->value()->isZero())) {
+
+    // only allow merge pad when pad value is the same.
+    if (simplifyExpr(SimplifyingIrBuilder::eqExpr(producer->value(), consumer->value()))->isFalse()) {
       continue;
     }
+    // if ((producer->value() != consumer->value()) &&
+    //     (!producer->value()->isZero() || !consumer->value()->isZero())) {
+    //   continue;
+    // }
 
     const std::vector<Val*> p_pad_widths = producer->getPadWidths();
     const std::vector<Val*> c_pad_widths = consumer->getPadWidths();
@@ -410,6 +346,7 @@ void mergeNeighboringPad(Fusion* fusion) {
         p_pad_widths.size() == c_pad_widths.size(),
         "expect consecutive PadOp to have the same length of pad widths");
 
+    // replay merged pad on producer input
     TensorView* new_out = replayConcretePad(
         producer->in()->as<TensorView>(),
         producer->value(),
@@ -417,9 +354,9 @@ void mergeNeighboringPad(Fusion* fusion) {
         TensorDomain::noReductions(
             consumer->out()->as<TensorView>()->getLogicalDomain()));
 
+    // replace consumer pad with the merged pad.
     ir_utils::replaceValue(
         fusion, {{consumer->out(), static_cast<Val*>(new_out)}});
-    // Do we *have to* swap cat with pointwise add?
     if (consumer->out()->isFusionOutput()) {
       fusion->replaceOutput(consumer->out(), new_out);
     }
