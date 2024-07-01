@@ -26,12 +26,22 @@
 
 namespace nvfuser {
 
+void MultiDeviceTestEnvironment::SetUp() {
+  communicator_ = new Communicator();
+}
+
+void MultiDeviceTestEnvironment::TearDown() {
+  delete communicator_;
+}
+
+/*static=*/Communicator* MultiDeviceTestEnvironment::communicator_ = nullptr;
+
 MultiDeviceTest::MultiDeviceTest() {
   // Enable logging in c10d so debug messages can be printed out via
   // `TORCH_DISTRIBUTED_DEBUG`.
   c10d::setDebugLevelFromEnvironment();
 
-  communicator_ = getOrCreateCommunicator();
+  communicator_ = MultiDeviceTestEnvironment::getCommunicator();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
@@ -129,11 +139,6 @@ void MultiDeviceTest::SetUp() {
   // TODO: returning slice 0 temporarily when device is not in the mesh.
   i = (i < 0) ? 0 : i;
   return tensor.slice(sharded_dim, i, i + 1).contiguous();
-}
-
-/*static*/ Communicator* MultiDeviceTest::getOrCreateCommunicator() {
-  static Communicator* communicator = new Communicator();
-  return communicator;
 }
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -234,6 +239,7 @@ PipelineTest::PipelineTest() {
 } // namespace nvfuser
 
 int main(int argc, char** argv) {
-  ::testing::InitGoogleTest(&argc, argv);
+  testing::InitGoogleTest(&argc, argv);
+  testing::AddGlobalTestEnvironment(new nvfuser::MultiDeviceTestEnvironment());
   return RUN_ALL_TESTS();
 }
