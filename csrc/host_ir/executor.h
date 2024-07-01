@@ -86,7 +86,12 @@ class HostIrExecutor final : public OptInDispatch {
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
   std::unordered_map<Stream*, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Communication*, c10::intrusive_ptr<c10d::Work>> works_;
-  // TODO: revisit. Those launch params are used when we manually apply a scheduler and need to pass the launch params (containing the concrete values of, e.g., gridDim) to each segment's FusionExecutor, for example, [here](https://github.com/NVIDIA/Fuser/blob/b5aad6a1e52f952a82c33f791057529c6ff5dd31/tests/cpp/test_multidevice_pipeline.cpp#L553). This usage can be misleading since LaunchParams are usually per-segment while here it is set globally.
+  // TODO: revisit. Those launch params are used when we manually apply a
+  // scheduler and need to pass the launch params (containing the concrete
+  // values of, e.g., gridDim) to each segment's FusionExecutor, for example,
+  // [here](https://github.com/NVIDIA/Fuser/blob/b5aad6a1e52f952a82c33f791057529c6ff5dd31/tests/cpp/test_multidevice_pipeline.cpp#L553).
+  // This usage can be misleading since LaunchParams are usually per-segment
+  // while here it is set globally.
   LaunchParams launch_params_;
 };
 
