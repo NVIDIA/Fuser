@@ -350,7 +350,7 @@ std::vector<Val*> getAssumptions(const std::vector<ForLoop*>& loops) {
           stop->toInlineString(),
           " is same as start value ",
           start->toInlineString(),
-          ". This could indicate a suboptimal schedule such as double-buffering a ",
+          ". This could indicate a suboptimal schedule such as circular-buffering a ",
           "loop that has only a single iteration.");
     } else {
       assumptions.push_back(IrBuilder::ltExpr(loop->index(), stop));

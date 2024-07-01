@@ -406,7 +406,7 @@ TEST_P(HostIrTest, ForLoops) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      DoubleBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
