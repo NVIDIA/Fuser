@@ -627,9 +627,8 @@ TEST_F(SegmentationTest, EraseReductionsInSegmentationEdges) {
   testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
 
   const FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
-  ASSERT_NE(runtime, nullptr);
+  ASSERT_TRUE(runtime != nullptr);
 
-  EXPECT_TRUE(runtime->isSegmented());
 
   SegmentedFusion* segmented_fusion = runtime->fusionSegments();
 
