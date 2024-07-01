@@ -215,7 +215,7 @@ Communicator::Communicator(
 }
 
 Communicator::~Communicator() {
-#ifdef NVFUSER_DISTRIBUTED
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
   for (auto& [key, backend] : backends_) {
     // Call shutdown before destructing a ProcessGroupNCCL as instructed by
     // https://github.com/pytorch/pytorch/blob/e62073d7997c9e63896cb5289ffd0874a8cc1838/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L1164-L1170.
