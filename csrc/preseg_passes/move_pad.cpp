@@ -15,6 +15,7 @@
 #include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_replay.h>
+#include <expr_simplifier.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -125,18 +126,6 @@ Val* propagatePadToProducer(PadOp* pad_op) {
             [val](Val* pad_dependency) {
               return DependencyCheck::isDependencyOf(pad_dependency, val);
             })) {
-      return false;
-    }
-
-    // TODO: refactor this check. We should totally support multiple uses here.
-    // multiple uses should only block further back propagation when it applies.
-    // But we can replace the edge with a padded output. hint. we should count
-    // the encounter of each edge and check `encounter == # of uses` to proceed
-    // with propagation. Get some use case with binary operation on this one.
-    if (val->uses().size() > 1) {
-      return false;
-    }
-    if (val->isFusionOutput()) {
       return false;
     }
     return true;
