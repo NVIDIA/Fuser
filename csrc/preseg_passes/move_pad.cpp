@@ -229,8 +229,8 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     }
   }
 
-  // NOTE: frontier should never be empty. maybe assert that.
-  if (frontier.empty() || (frontier.size() == 1 && frontier[0].val() == pad_op->in())) {
+  // NOTE: if we have not propagated pass the original pad_op input, that means no changes has been made at all.
+  if (frontier.count(pad_op->in()) != 0) {
     return nullptr;
   }
 
