@@ -16,7 +16,7 @@ namespace nvfuser {
 namespace {
 using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
 
-static constexpr int kTensorSize = 16;
+static constexpr int kTensorSize = 4;
 } // namespace
 
 // This is made a macro instead of a function, because GTEST_SKIP can only be
@@ -287,7 +287,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
   in->setDeviceMesh(mesh);
   out->setDeviceMesh(mesh);
   in->axis(0)->parallelize(ParallelType::DIDx);
-  out->axis(0)->parallelize(ParallelType::DIDx);
+  out->axis(1)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor =
       at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
