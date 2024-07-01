@@ -12,6 +12,9 @@
 #include <c10/util/intrusive_ptr.h>
 
 namespace c10d {
+
+inline void setDebugLevelFromEnvironment() {}
+
 class Work : public torch::CustomClassHolder {
  public:
   void wait() {}
