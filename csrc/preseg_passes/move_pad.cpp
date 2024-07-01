@@ -21,6 +21,7 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+
 struct Edge {
   Expr* expr_ = nullptr;
   size_t index_ = 0;
@@ -32,7 +33,57 @@ struct Edge {
   }
 };
 
-bool shouldPropagate(Val* val, std::unordered_map<Val*, int64_t>& frontier) {
+// The criteria here for return true is that `unaryOp(0) == 0`
+bool padCompatibleUnaryOp(UnaryOpType t) {
+  switch (t) {
+    case UnaryOpType::Cast:
+    case UnaryOpType::Abs:
+    case UnaryOpType::Asin:
+    case UnaryOpType::Asinh:
+    case UnaryOpType::Atan:
+    case UnaryOpType::Atanh:
+    case UnaryOpType::Ceil:
+    case UnaryOpType::Erf:
+    case UnaryOpType::Erfinv:
+    case UnaryOpType::Floor:
+    case UnaryOpType::Gelu:
+    case UnaryOpType::Imag:
+    case UnaryOpType::Silu:
+    case UnaryOpType::Neg:
+    case UnaryOpType::Real:
+    case UnaryOpType::Relu:
+    case UnaryOpType::Round:
+    case UnaryOpType::Sin:
+    case UnaryOpType::Sinh:
+    case UnaryOpType::Sqrt:
+    case UnaryOpType::Tan:
+    case UnaryOpType::Tanh:
+    case UnaryOpType::Trunc:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool padCompatibleBinaryOp(BinaryOpType t) {
+  switch (t) {
+    case BinaryOpType::Add:
+    case BinaryOpType::Mul:
+    case BinaryOpType::Sub:
+    case BinaryOpType::BitwiseAnd:
+    case BinaryOpType::BitwiseOr:
+    case BinaryOpType::LogicalAnd:
+    case BinaryOpType::LogicalOr:
+    case BinaryOpType::Complex:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// returns true if `PadOp` should be propagated pass val->definition(). This function also update frontier
+// NOTE: frontier counts the encounter of each Val* during the propagation. If all uses of Val* has been encountered during the backward propagation, it's safe to propagate `PadOp`
+bool shouldPropagatePad(Val* val, std::unordered_map<Val*, int64_t>& frontier) {
   if (val->isFusionOutput()) {
     frontier.emplace(val, -1);
   } else {
@@ -44,7 +95,7 @@ bool shouldPropagate(Val* val, std::unordered_map<Val*, int64_t>& frontier) {
     }
 
     if (current_use == static_cast<int64_t>(val->uses().size())) {
-      // all uses of the entry has been encounter in this traversal, we can safely propagate it across.
+      // all uses of the entry has been encounter in this traversal, we can safely propagate it across. remove val from frontier map
       frontier.erase(val);
       return true;
     } else {
@@ -162,18 +213,13 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     return nullptr;
   }
 
-  // frontier contains `Val`s that needs to replay pad_op on.
+  // frontier contains `Val`s that needs to replay pad_op on. The map here stores the number of encounter for each `Val*`, the logic is used to propagate across multiple uses.
   std::unordered_map<Val*, int64_t> frontier;
   // replay_sequence is used later to create the updated branch with padded inputs after all `frontier` has been updated with padding.
   std::vector<Expr*> replay_sequence;
 
   std::stack<Edge> stack;
   stack.emplace(pad_op, 0);
-  // tvs in stack are:
-  //   1. single use;
-  //   2. not an output;
-  //   3. cleared dependency of `pad_depdencies`;
-  //   4. maybe also check aliases?!
   while (!stack.empty()) {
     Edge edge = stack.top();
     Expr* def = edge.val()->definition();
@@ -181,6 +227,10 @@ Val* propagatePadToProducer(PadOp* pad_op) {
 
     if (def->isA<UnaryOp>()) {
       auto* uop = def->as<UnaryOp>();
+      if (padCompatibleUnaryOp(uop->getUnaryOpType())) {
+        frontier.emplace(edge.val(), -1);
+        continue;
+      }
       // TODO: exception to break propagation. i.e. check op type and exclude
       // division by 0
       if (!pad_replay_check(uop->in())) {
@@ -189,11 +239,15 @@ Val* propagatePadToProducer(PadOp* pad_op) {
       }
       // uop is replayable.
       replay_sequence.push_back(uop);
-      if (shouldPropagate(uop->in(), frontier)) {
+      if (shouldPropagatePad(uop->in(), frontier)) {
         stack.emplace(uop, 0);
       }
     } else if (def->isA<BinaryOp>()) {
       auto* bop = def->as<BinaryOp>();
+      if (padCompatibleBinaryOp(bop->getBinaryOpType())) {
+        frontier.emplace(edge.val(), -1);
+        continue;
+      }
       // TODO: exception to break propagation. i.e. check op type and exclude
       // division by 0; check for broadcast on padded axis.
       if (!pad_replay_check(bop->lhs()) || !pad_replay_check(bop->rhs())) {
@@ -201,7 +255,6 @@ Val* propagatePadToProducer(PadOp* pad_op) {
         continue;
       }
 
-      // TODO: padding on broadcast dimensions is not supported in propagation yet.
       auto* lhs = bop->lhs()->as<TensorView>();
       auto* rhs = bop->rhs()->as<TensorView>();
       bool pad_on_broadcast = false;
@@ -212,16 +265,20 @@ Val* propagatePadToProducer(PadOp* pad_op) {
           break;
         }
       }
-      if (!pad_on_broadcast) {
-        replay_sequence.push_back(bop);
-        if (shouldPropagate(lhs, frontier)) {
-          stack.emplace(bop, 0);
-        }
-        if (shouldPropagate(rhs, frontier)) {
-          stack.emplace(bop, 1);
-        }
-      } else {
+      // TODO: padding on broadcast dimensions is not supported in propagation yet.
+      if (pad_on_broadcast) {
         frontier.emplace(edge.val(), -1);
+        continue;
+      }
+
+      // bop is replayable
+      replay_sequence.push_back(bop);
+      // check the propagation on each operands separately
+      if (shouldPropagatePad(lhs, frontier)) {
+        stack.emplace(bop, 0);
+      }
+      if (shouldPropagatePad(rhs, frontier)) {
+        stack.emplace(bop, 1);
       }
     } else {
       // Unrecognized operation stops propagation, push entry to frontier for replay
