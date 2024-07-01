@@ -20,7 +20,7 @@ HostIrExecutor::HostIrExecutor(
     HostIrExecutorParams params)
     : container_(std::move(container)),
       communicator_(communicator),
-      params_(std::move(params)) {
+      params_(params) {
   auto device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
