@@ -286,22 +286,6 @@ void IdModel::buildExactGraph() {
         all_tv_outputs.begin(), all_tv_outputs.end());
     other_tv_outputs.pop_front();
 
-    for (auto other_tv_output : other_tv_outputs) {
-      // Sibling tv's must be exactly mapped with eachother so simply zip
-      // their loop iter domains.
-
-      NVF_ERROR(
-          other_tv_output->getMaybeRootDomain().size() ==
-              c_tv->getMaybeRootDomain().size(),
-          "Multiple outputs with mismatched TV domains is not supported.");
-
-      for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
-        auto c_id = c_tv->getMaybeRootDomain()[domain_i];
-        auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
-        idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
-      }
-    }
-
     // Map producer-consumer relationships based on the root domain map
     auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto p_tv : tv_inputs) {
@@ -315,6 +299,35 @@ void IdModel::buildExactGraph() {
       for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
         auto p_id = exact_c2p_root_map.at(c_id);
         idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
+      }
+    }
+
+    if (hasUniformSiblings(expr)) {
+      for (auto other_tv_output : other_tv_outputs) {
+        NVF_ERROR(
+            other_tv_output->getMaybeRootDomain().size() ==
+                c_tv->getMaybeRootDomain().size(),
+            "Multiple outputs with mismatched TV domains is not supported.");
+
+        for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
+          auto c_id = c_tv->getMaybeRootDomain()[domain_i];
+          auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
+          idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
+        }
+      }
+    } else {
+      for (auto p_tv : tv_inputs) {
+        for (auto c_tv : other_tv_outputs) {
+          auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
+                                        .mapBroadcast(false)
+                                        .mapConsumerToProducer();
+
+          for (auto c_id :
+               getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
+            auto p_id = exact_c2p_root_map.at(c_id);
+            idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
+          }
+        }
       }
     }
 
@@ -550,24 +563,25 @@ StatefulInliningInfo buildStatefulInliningInfo(
       }
     }
 
-    // Siblings should always be mapped
-    auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
-    if (consumer_tvs.size() > 1) {
-      auto all_consumer_ids = ir_utils::allIDsOf(consumer_tvs.vector().at(0));
-      info.ordered_sibling_ids.pushBack(
-          {all_consumer_ids.begin(), all_consumer_ids.end()});
-      for (const auto i : c10::irange(1, consumer_tvs.size())) {
-        auto consumer_tv_i = consumer_tvs.vector().at(i);
-        auto all_consumer_i_ids = ir_utils::allIDsOf(consumer_tv_i);
+    if (hasUniformSiblings(expr)) {
+      auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+      if (consumer_tvs.size() > 1) {
+        auto all_consumer_ids = ir_utils::allIDsOf(consumer_tvs.vector().at(0));
+        info.ordered_sibling_ids.pushBack(
+            {all_consumer_ids.begin(), all_consumer_ids.end()});
+        for (const auto i : c10::irange(1, consumer_tvs.size())) {
+          auto consumer_tv_i = consumer_tvs.vector().at(i);
+          auto all_consumer_i_ids = ir_utils::allIDsOf(consumer_tv_i);
 
-        auto sibling_map = permissive_graph.buildMapBetween(
-            all_consumer_ids, all_consumer_i_ids);
+          auto sibling_map = permissive_graph.buildMapBetween(
+              all_consumer_ids, all_consumer_i_ids);
 
-        for (const auto& [c_id_1, c_ids] : sibling_map) {
-          // Note that c_ids can have multiple domains as this graph
-          // is a Permissive graph and there may be broadcast merged
-          // domains
-          info.sibling_maps[c_id_1->as<IterDomain>()].pushBack(c_ids);
+          for (const auto& [c_id_1, c_ids] : sibling_map) {
+            // Note that c_ids can have multiple domains as this graph
+            // is a Permissive graph and there may be broadcast merged
+            // domains
+            info.sibling_maps[c_id_1->as<IterDomain>()].pushBack(c_ids);
+          }
         }
       }
     }
@@ -898,6 +912,12 @@ void IdModel::validateAndPropagatePType() {
       id->as<IterDomain>()->parallelize(common_ptype);
     }
   }
+}
+
+class SdpaFwdOp;
+
+bool hasUniformSiblings(Expr* expr) {
+  return !expr->isOneOf<SdpaFwdOp>();
 }
 
 } // namespace nvfuser
