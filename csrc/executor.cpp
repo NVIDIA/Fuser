@@ -1942,6 +1942,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           host_ir_container_.get(), output_info, options_.device, expr_eval);
     }
     for (Expr* e : host_ir_container_->topLevelExprs()) {
+      NVF_ERROR(e->isA<Communication>());
       auto* communication = e->as<Communication>();
       c10d::Backend* backend =
           communicator_->getBackendForTeam(communication->team(), std::nullopt);
