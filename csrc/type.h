@@ -707,7 +707,6 @@ enum class IterType {
   Iteration,
   Reduction,
   Broadcast,
-  Gather,
   Stride,
   GatherScatter,
   VectorComponent,
