@@ -65,14 +65,8 @@ bool isSizeOneDomain(IterDomain* id) {
 }
 
 // True if a given domain of a tensor *may* require allocation
-bool mayRequireAllocation(
-    TensorView* tv,
-    IterDomain* id,
-    IterDomain* promotion_id = nullptr) {
-  if (promotion_id == nullptr) {
-    promotion_id = id;
-  }
-  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(promotion_id) &&
+bool mayRequireAllocation(TensorView* tv, IterDomain* id) {
+  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
       !id->isReduction();
 }
 
@@ -527,6 +521,10 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
             allocation_tv->getLoopDomain().end(),
             allocation_domain) != allocation_tv->getLoopDomain().end();
     auto promotion_id = allocation_domain;
+    // If the allocation domain is still a broadcast domain, i.e., not
+    // merged with a non-broadcast domain, it should
+    // not be necessary to use the promotion domain.
+    // TODO: Add tests
     if (is_loop && !allocation_domain->isBroadcast()) {
       promotion_id = getLoopPromotion(allocation_domain, id_model);
     }
@@ -541,7 +539,7 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
     auto allocation_domain = allocation_domains.at(dim);
     auto promotion_domain = promoted_allocation_domains.at(dim);
 
-    if (!mayRequireAllocation(tv, allocation_domain, promotion_domain)) {
+    if (!mayRequireAllocation(tv, allocation_domain)) {
       continue;
     }
 
@@ -575,7 +573,7 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
   for (const auto i : c10::irange(allocation_domains.size())) {
     auto allocation_domain = allocation_domains.at(i);
     auto promotion_domain = promoted_allocation_domains.at(i);
-    if (!mayRequireAllocation(tv, allocation_domain, promotion_domain)) {
+    if (!mayRequireAllocation(tv, allocation_domain)) {
       continue;
     }
     auto stride = strides.at(i);
