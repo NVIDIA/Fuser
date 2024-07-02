@@ -719,22 +719,20 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
   FusionGuard fg(&fusion);
 
   auto tv0 = makeSymbolicTensor(1);
-  auto tv1 = makeSymbolicTensor(1);
+  auto tv1 = makeSymbolicTensor(2);
   auto tv2 = makeSymbolicTensor(2);
-  auto tv3 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
   fusion.addInput(tv2);
-  fusion.addInput(tv3);
 
   // This fusion does not have a reference tensor
-  auto tv4 = broadcast(tv0, {false, true});
-  auto tv5 = mul(tv4, tv2);
-  auto tv6 = broadcast(tv1, {true, false});
-  auto tv7 = mul(tv6, tv3);
+  auto tv3 = broadcast(tv0, {false, true});
+  auto tv4 = mul(tv3, tv1);
+  auto tv5 = broadcast(tv0, {true, false});
+  auto tv6 = mul(tv5, tv2);
 
-  fusion.addOutput(tv5);
-  fusion.addOutput(tv7);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv6);
 
   IdModel id_model(&fusion);
   ValGraph& graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
@@ -745,15 +743,15 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
     ValGroup g = graph.toGroup(id);
     abten.domain.push_back(ValGroupAndItsGraph{g, &graph});
   };
+  addAbstractAxis(tv2->axis(0));
   addAbstractAxis(tv1->axis(0));
-  addAbstractAxis(tv0->axis(0));
-  addAbstractAxis(tv2->axis(1));
+  addAbstractAxis(tv1->axis(1));
 
   abten.merge(0);
   abten.merge(0);
   abten.split(0, 128);
 
-  for (TensorView* tv : {tv2, tv3}) {
+  for (TensorView* tv : {tv3, tv4, tv5, tv6}) {
     applyAbstractSchedule(abten, tv, &graph);
   }
 }
