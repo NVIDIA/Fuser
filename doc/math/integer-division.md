@@ -825,3 +825,6 @@ Similar to Theorem 2.16, except that we need both $i \ge 0$ and $d > 0$ to make 
 $\square$
 
 </details>
+
+## Properties of Ceil Division
+
