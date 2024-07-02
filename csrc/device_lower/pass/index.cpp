@@ -22,15 +22,17 @@
 
 namespace nvfuser {
 
-IndexLowering::IndexLowering() : tensor_indexer_(nullptr) {
-  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "producer_index")) {
-    // Disable if unsupported features found in the fusion
-    if (TensorIndexer::isSupported(GpuLower::current()->kernel())) {
-      tensor_indexer_ =
-          std::make_unique<TensorIndexer>(GpuLower::current()->idModel());
-    }
+std::vector<Expr*> IndexLowering::getIndexedExprs(
+    std::vector<Expr*> incoming_exprs) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::IndexLowering::getIndexedExprs");
+  // Traverse the exprs and setup allocation domains before
+  // generating indices.
+  if (GpuLower::current()->isTensorIndexerEnabled()) {
+    GpuLower::current()->tensorIndexer().setupAllocationDomains(incoming_exprs);
   }
+  IndexLowering il;
+  il.generate(incoming_exprs);
+  return il.lowered_exprs_;
 }
 
 Val* IndexLowering::lowerSrcIndex(
@@ -1899,13 +1901,14 @@ void IndexLowering::handle(const PadOp* pad) {
   // the consumer indexing works. Overriding could be another
   // workaround.
   Val* pred = nullptr;
-  if (tensor_indexer_.get() != nullptr &&
+  if (GpuLower::current()->isTensorIndexerEnabled() &&
       hasEnableOptionArgument(EnableOption::IdModel, "consumer_index")) {
-    auto consumer_root_indices = tensor_indexer_->getPerDimIndex(
-        consumer_tv,
-        consumer_tv->getLogicalDomain(),
-        consumer_tv->definition(),
-        for_loops_);
+    auto consumer_root_indices =
+        GpuLower::current()->tensorIndexer().getPerDimIndex(
+            consumer_tv,
+            consumer_tv->getLogicalDomain(),
+            consumer_tv->definition(),
+            for_loops_);
     pred = IrBuilder::create<Val>(true);
     for (auto padded_axis : pad->getPaddedAxes()) {
       auto consumer_idx = consumer_root_indices.at(padded_axis);
@@ -1916,8 +1919,7 @@ void IndexLowering::handle(const PadOp* pad) {
           pred,
           // idx >= left_pad && idx < extent
           SimplifyingIrBuilder::logicalAndExpr(
-              SimplifyingIrBuilder::geExpr(
-                  consumer_idx, pad_widths.first),
+              SimplifyingIrBuilder::geExpr(consumer_idx, pad_widths.first),
               SimplifyingIrBuilder::ltExpr(
                   consumer_idx,
                   SimplifyingIrBuilder::subExpr(
@@ -1926,11 +1928,7 @@ void IndexLowering::handle(const PadOp* pad) {
     }
   } else {
     const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
-        producer_tv,
-        consumer_tv,
-        for_loops_,
-        getRotatedLoop(),
-        override_index);
+        producer_tv, consumer_tv, for_loops_, getRotatedLoop(), override_index);
 
     pred = IrBuilder::create<Val>(true);
     for (auto padded_axis : pad->getPaddedAxes()) {

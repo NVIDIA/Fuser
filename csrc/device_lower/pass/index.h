@@ -25,16 +25,9 @@ namespace nvfuser {
 // versions that are doing indexing
 class IndexLowering : private OptOutConstDispatch {
  public:
-  static std::vector<Expr*> getIndexedExprs(std::vector<Expr*> incoming_exprs) {
-    FUSER_PERF_SCOPE("GpuLower::Lower::IndexLowering::getIndexedExprs");
-    IndexLowering il;
-    il.generate(incoming_exprs);
-    return il.lowered_exprs_;
-  }
+  static std::vector<Expr*> getIndexedExprs(std::vector<Expr*> incoming_exprs);
 
  private:
-  IndexLowering();
-
   void pushBack(Expr*);
 
   // Return the most recently inserted
@@ -200,9 +193,6 @@ class IndexLowering : private OptOutConstDispatch {
   std::unordered_map<TensorView*, kir::Allocate*> work_buffer_map_;
   std::unordered_map<TensorView*, kir::AllocateFusedReduction*>
       fused_reduction_map_;
-
-  // TODO: comment
-  std::unique_ptr<TensorIndexer> tensor_indexer_;
 };
 
 } // namespace nvfuser

@@ -1235,4 +1235,65 @@ TEST_F(IndexingTest, Swizzle) {
   IndexValidator<GetReference>::validate(&fusion, false);
 }
 
+TEST_F(IndexingTest, InlinedUnroll) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({4});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({3, 4});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  tv4->split(0, 1);
+
+  TransformPropagator propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  inlineMost();
+
+  tv4->axis(1)->parallelize(ParallelType::Unroll);
+
+  scheduler_utils::parallelizeAllLike(tv4, ir_utils::allTvs(&fusion));
+
+  fusion.printKernel();
+
+  // The CA position of tv2 is 1 as shown below:
+  //
+  // T2_l[ iS3{4} ] ca_pos( 1 )
+  //
+  // However, this doesn't mean the allocation domain of tv2 is a
+  // scalar since it's inlined into tv4 that has an unrolled domain,
+  // which effectively unrolls tv2 as well. Remember that unrolling of
+  // a domain means the allocation of the domain is not inlined.
+  //
+  // The objective of the validation below is to make sure that tv2
+  // indexing is done properly.
+
+  // Make sure
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      // Only check tv2
+      if (tv->name() != 2) {
+        return nullptr;
+      }
+
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      return loop_indices.back();
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, false);
+}
+
 } // namespace nvfuser

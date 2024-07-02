@@ -29,6 +29,12 @@ struct IndexingInfo {
   std::unordered_map<ValGroup, Val*> index_map;
 };
 
+struct IndexingAllocationInfo {
+  std::vector<IterDomain*> domains;
+  std::vector<Val*> strides;
+  std::vector<bool> contiguity;
+};
+
 // The basic algorithm of indexing is:
 //
 // 1. Find the loop domains
@@ -99,12 +105,24 @@ class TensorIndexer {
       const Expr* expr,
       const std::optional<std::vector<ForLoop*>>& loops);
 
+  void setupAllocationDomains(const std::vector<Expr*>& exprs);
+
   static bool isSupported(Fusion* fusion);
 
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
   void buildLoopIndexMap();
+
+  const IndexingAllocationInfo& getIndexingAllocationInfo(
+      TensorView* tv) const {
+    auto it = alloc_info_.find(tv);
+    NVF_ERROR(
+        it != alloc_info_.end(),
+        "No allocation info found for ",
+        tv->toString());
+    return it->second;
+  }
 
   // Returns the index map as well as its traversal path of given
   // index domains appearing in a given expr. Used by
@@ -190,6 +208,8 @@ class TensorIndexer {
 
   // Take advantage of contiguous indexing if enabled
   bool enable_contig_indexing_ = true;
+
+  std::unordered_map<TensorView*, IndexingAllocationInfo> alloc_info_;
 };
 
 } // namespace nvfuser
