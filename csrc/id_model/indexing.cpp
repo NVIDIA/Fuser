@@ -66,6 +66,13 @@ bool isSizeOneDomain(IterDomain* id) {
 
 // True if a given domain of a tensor *may* require allocation
 bool mayRequireAllocation(TensorView* tv, IterDomain* id) {
+  // Conditions to consider:
+  // - Fully partitioned
+  // - Size one: Allocation is done based on the promotion ID, but as
+  // long as the original ID has size one, its allocation should
+  // remain size one.
+  // - Reduction: Check the original ID, not the promotion, which may
+  //   be a reduction ID even though the original ID is not a reduction
   return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
       !id->isReduction();
 }
