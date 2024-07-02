@@ -82,8 +82,8 @@ $$i \mathbin{\\%} (m\cdot n) = i \mathbin{\\%} n + ((i / n) \mathbin{\\%} m) \ti
 According to Theorem 2.15.1 in [Integer Division](../math/integer-division.md):
 $$i \mathbin{\\%} (m\cdot n) / n = (i / n) \mathbin{\\%} m$$
 
-According to Theorem 2.7.1 Theorem 2.5 in [Integer Division](../math/integer-division.md):
-$$i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n = i \mathbin{\\%} n \mathbin{\\%} n = i \mathbin{\\%} n$$
+According to Theorem 2.7.1 in [Integer Division](../math/integer-division.md):
+$$i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n = i \mathbin{\\%} n$$
 
 According to TODO: $i \mathbin{\\%} n = i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n$
 
