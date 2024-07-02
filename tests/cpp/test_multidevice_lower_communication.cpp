@@ -105,11 +105,15 @@ TEST_P(LowerScatterTest, ) {
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
       at::randn({out_mesh.size(), kTensorSize}, tensor_options);
+  at::Tensor in_tensor;
+  if (in_mesh.has(device_id)) {
+    in_tensor = unsharded_tensor;
+  }
 
   FusionExecutor fe(communicator_);
-  fe.compileFusion(&fusion, {unsharded_tensor});
+  fe.compileFusion(&fusion, {in_tensor});
   assertIsCompiledToHostIrContainer(fe);
-  at::Tensor out_tensor = fe.runFusion({unsharded_tensor})[0];
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
 
   if (out_mesh.has(device_id)) {
     EXPECT_TRUE(
@@ -123,6 +127,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::ValuesIn(std::vector<InOutMesh>(
         {{{0}, {0, 1}}, //
          {{1}, {0, 1}}, //
+         // The input tensor is replicated across the in mesh.
          {{0, 2}, {1, 2}}})));
 
 class LowerSendRecvTest : public MultiDeviceTest,
