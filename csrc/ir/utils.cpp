@@ -624,6 +624,15 @@ std::vector<ViewOp*> getViewOps(Fusion* fusion) {
 Val* replaceValRecursively(
     Val* val,
     const std::unordered_map<Val*, Val*>& replacement_map) {
+  // TODO: need a better way to handle NamedScalar
+  if (val->isA<NamedScalar>()) {
+    for (auto [k, v] : replacement_map) {
+      if (k->isA<NamedScalar>() &&
+          k->as<NamedScalar>()->name() == val->as<NamedScalar>()->name()) {
+        return v;
+      }
+    }
+  }
   if (replacement_map.find(val) != replacement_map.end()) {
     return replacement_map.at(val);
   }
