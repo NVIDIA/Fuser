@@ -165,13 +165,14 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase0) {
   //       \        /
   //        -> tv3 -
   TensorView* tv2 = relu(tv0);
-  TensorView* tv3 = neg(tv0);
-  TensorView* tv4 = add(tv2, tv3);
-  TensorView* tv5 = cat({tv4, tv1}, /*dim=*/0);
+  TensorView* tv3 = neg(tv2);
+  TensorView* tv4 = sin(tv2);
+  TensorView* tv5 = add(tv3, tv4);
+  TensorView* tv6 = cat({tv5, tv1}, /*dim=*/0);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
-  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
@@ -197,15 +198,16 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase1) {
   //   tv0 --> tv6 = add(tv5, tv0)
   // which is not covered by traversing through producers of tv4.
   TensorView* tv2 = relu(tv0);
-  TensorView* tv3 = neg(tv0);
-  TensorView* tv4 = add(tv2, tv3);
-  TensorView* tv5 = cat({tv4, tv1}, /*dim=*/0);
-  TensorView* tv6 = sin(tv0);
+  TensorView* tv3 = neg(tv2);
+  TensorView* tv4 = sin(tv2);
+  TensorView* tv5 = add(tv3, tv4);
+  TensorView* tv6 = cat({tv5, tv1}, /*dim=*/0);
+  TensorView* tv7 = sin(tv2);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
-  fusion->addOutput(tv5);
   fusion->addOutput(tv6);
+  fusion->addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
