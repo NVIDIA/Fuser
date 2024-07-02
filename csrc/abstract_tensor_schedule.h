@@ -18,6 +18,6 @@ namespace nvfuser {
 void applyAbstractSchedule(
     const AbstractTensor& abstract,
     TensorView* concrete,
-    ValGraph* graph);
+    ValGraph* graph = nullptr);
 
 } // namespace nvfuser

@@ -77,7 +77,11 @@ class AbstractTensorSchedule : public IterVisitor {
     if (abs_id.is<IterDomain*>()) {
       return graph_->toGroup(abs_id.as<IterDomain*>());
     } else if (abs_id.is<ValGroupAndItsGraph>()) {
-      NVF_ERROR(graph_ == abs_id.as<ValGroupAndItsGraph>().graph);
+      if (graph_ == nullptr) {
+        graph_ = abs_id.as<ValGroupAndItsGraph>().graph;
+      } else {
+        NVF_ERROR(graph_ == abs_id.as<ValGroupAndItsGraph>().graph);
+      }
       return abs_id.as<ValGroupAndItsGraph>().group;
     }
     NVF_ERROR(false, "AbstractId must be IterDomain* or ValGroupAndItsGraph");

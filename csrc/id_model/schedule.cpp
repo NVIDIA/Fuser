@@ -85,7 +85,7 @@ std::pair<ValGroup, ValGroup> split(
   // There is no such split, then create one
   g_id = g_id->cloneWithoutRFactor();
   auto [outer_id, inner_id] = IterDomain::split(g_id, factor, inner_split);
-  //graph->initializeVal(g_id, g);
+  graph->initializeVal(g_id, g);
   graph->initializeVal(outer_id, {}, {});
   graph->initializeVal(inner_id, {}, {});
   graph->registerExpr(inner_id->definition());
@@ -125,8 +125,8 @@ std::pair<ValGroup, ValGroup> swizzle(
   g0_id = g0_id->cloneWithoutRFactor();
   g1_id = g1_id->cloneWithoutRFactor();
   auto [out_x, out_y] = IterDomain::swizzle(swizzle_type, g0_id, g1_id);
-  //graph->initializeVal(g0_id, g0);
-  //graph->initializeVal(g1_id, g1);
+  graph->initializeVal(g0_id, g0);
+  graph->initializeVal(g1_id, g1);
   graph->initializeVal(out_x, {}, {});
   graph->initializeVal(out_y, {}, {});
   graph->registerExpr(out_x->definition());
