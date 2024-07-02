@@ -697,7 +697,7 @@ MmaLayout getMatmulProblemLayout(Fusion* fusion);
 
 // Get floating data types including half, float, double, complex_float,
 // complex_double, and bfloat16 if supported by the device.
-std::vector<DataType> getFloatingDataTypes();
+std::vector<DataType> getFloatingDataTypes(bool include_complex = true);
 
 // gtest requires test name contains only alphanumeric characters and
 // underscores. Sanitize name e.g. std::complex<float> -> std_complex_float

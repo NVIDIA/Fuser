@@ -788,13 +788,13 @@ MmaLayout getMatmulProblemLayout(Fusion* fusion) {
 }
 
 // get supported floating data types
-std::vector<DataType> getFloatingDataTypes() {
+std::vector<DataType> getFloatingDataTypes(bool include_complex) {
   std::vector<DataType> dtypes = {
-      DataType::Double,
-      DataType::Float,
-      DataType::Half,
-      DataType::ComplexFloat,
-      DataType::ComplexDouble};
+      DataType::Double, DataType::Float, DataType::Half};
+  if (include_complex) {
+    dtypes.push_back(DataType::ComplexFloat);
+    dtypes.push_back(DataType::ComplexDouble);
+  }
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
   if (at::cuda::getDeviceProperties(0)->major >= 8) {
     dtypes.push_back(DataType::BFloat16);
