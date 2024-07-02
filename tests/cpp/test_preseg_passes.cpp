@@ -667,13 +667,14 @@ TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
   runtime.compileFusionParallel(args);
-  auto outputs = runtime.runWithInputs(args);
 
-  EXPECT_EQ(runtime.executors().size(), 2);
-  const FusionExecutor& first_fusion = runtime.executors().front();
+  std::vector<std::unique_ptr<Fusion>> segments = runtime.getFusionSegments();
+  EXPECT_EQ(segments.size(), 2);
 
-  EXPECT_EQ(first_fusion.fusion()->outputs().size(), 2);
-  Val* last_output = first_fusion.fusion()->outputs().back();
+  Fusion* first_fusion = segments.front().get();
+
+  EXPECT_EQ(first_fusion->outputs().size(), 2);
+  Val* last_output = first_fusion->outputs().back();
 
   EXPECT_TRUE(last_output->isA<TensorView>());
   TensorView* partial_amax = last_output->as<TensorView>();
@@ -690,6 +691,7 @@ TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
       });
   EXPECT_EQ(num_reduction_axes, 1);
 
+  auto outputs = runtime.runWithInputs(args);
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
       preseg_fusion, outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
