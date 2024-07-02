@@ -109,6 +109,7 @@ class Val;
   f(MatmulOp);                    \
   f(LinearOp);                    \
   f(SdpaFwdOp);                   \
+  f(SdpaBwdOp);                   \
   f(Communication);               \
   f(ForLoop);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
