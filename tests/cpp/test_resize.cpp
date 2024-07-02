@@ -3471,9 +3471,6 @@ TEST_F(ResizeTest, PadDtypes) {
     fusion->addOutput(out_tv);
 
     auto* pad_value = out_tv->definition()->as<PadOp>()->value();
-    std::cout << "dtype: " << pad_value->getDataType().value() << std::endl;
-    std::cout << "iszeor: " << pad_value->isZero() << std::endl;
-
     EXPECT_TRUE(pad_value->isZero());
     EXPECT_FALSE(pad_value->isOne());
   }
