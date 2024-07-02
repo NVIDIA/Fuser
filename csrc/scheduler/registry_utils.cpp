@@ -391,10 +391,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
 
 // Returns if view interferes with how we want to treat the reference, being at
 // least a 2D reduction schedule but maybe a 3D reduction schedule.
-bool reductionInterferingView(
-    Fusion* fusion,
-    const ComputeAtMap& ca_map,
-    TensorView* reduction_reference) {
+bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   // Make sure the view doesn't interfere with how we'll want to schedule
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.

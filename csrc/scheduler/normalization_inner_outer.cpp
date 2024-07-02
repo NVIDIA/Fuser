@@ -103,8 +103,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     // Persistent scheduler simply uses reference_tv as the reference, if
     // that changes, this needs to be changed.
     auto reference_tv = inner_reduction_tvs[0];
-    if (registry_utils::reductionInterferingView(
-            fusion, ca_map, reference_tv)) {
+    if (registry_utils::reductionInterferingView(fusion, reference_tv)) {
       scheduler_debug_utils::canScheduleRejectReason(
           heuristicType(), "View may interfere with normalization scheduling.");
       return false;
