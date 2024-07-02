@@ -2585,9 +2585,22 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
 using WelfordReductionParams = std::tuple<DataType, int64_t, int64_t, int64_t>;
 using WelfordReduction = NVFuserFixtureParamTest<WelfordReductionParams>;
 TEST_P(WelfordReduction, Test) {
-  maybeClearAllocator();
-
   auto [dtype, rdim, odim, axis] = GetParam();
+
+  // TODO: original welford algorithm actually keeps a running sum of
+  // squares, i.e. M_{2n} in the
+  //       cf:
+  //       https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+  //       algorithm notation, and it can reach inf for large numbers
+  //       with half precision. skipping too large volumes for half for
+  //       nwo might need further numerical experiments to re-design
+  //       this.
+  if (rdim > 32768 &&
+      (dtype == DataType::Half || dtype == DataType::BFloat16)) {
+    GTEST_SKIP() << "Skipping large reduction dims for half and bfloat16";
+  }
+
+  maybeClearAllocator();
 
   at::ScalarType aten_dtype = data_type_to_aten(dtype);
 
@@ -2677,31 +2690,11 @@ TEST_P(WelfordReduction, Test) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     WelfordReduction,
-    ::testing::ValuesIn([]() {
-      std::vector<WelfordReductionParams> filtered_params;
-      for (const auto& dtype : getFloatingDataTypes()) {
-        for (const auto& rsize : Pow2Vals1to1Million) {
-          // TODO: original welford algorithm actually keeps a running sum of
-          // squares, i.e. M_{2n} in the
-          //       cf:
-          //       https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
-          //       algorithm notation, and it can reach inf for large numbers
-          //       with half precision. skipping too large volumes for half for
-          //       nwo might need further numerical experiments to re-design
-          //       this.
-          if (rsize > 32768 &&
-              (dtype == DataType::Half || dtype == DataType::BFloat16)) {
-            continue;
-          }
-          for (const auto& isize : {160, 320}) {
-            for (const auto& raxis : {0, 1}) {
-              filtered_params.emplace_back(dtype, rsize, isize, raxis);
-            }
-          }
-        }
-      }
-      return filtered_params;
-    }()),
+    ::testing::Combine(
+        testing::ValuesIn(getFloatingDataTypes()), // data type
+        testing::ValuesIn(Pow2Vals1to1Million), // reduction dimension size
+        testing::Values(160, 320), // iteration dimension size
+        testing::Values(0, 1)), // reduction axis
     [](const testing::TestParamInfo<WelfordReductionParams>& info)
         -> std::string {
       std::stringstream ss;
