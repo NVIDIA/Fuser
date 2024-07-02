@@ -183,25 +183,33 @@ bool findReductionDefinition(TensorView* tv, BinaryOpType op_type) {
   return true;
 }
 
-// Detect amax pattern using a state machine.
+// Detect amax pattern using a finite state machine.
 //
-// Start -> Cast
-// Start -> Broadcast
-// Start -> MaxReduction
-// Start -> Fail
+// There are six states in FSM.
+// Start, Broadcast, Cast, Max-Reduction, Pass, Fail
 //
-// Broadcast -> MaxReduction
-// Broadcast -> Fail
+// Adjacency table for FSM.
+// From Start to:
+//  1) Cast
+//  2) Broadcast
+//  3) MaxReduction
+//  4) Fail
 //
-// Cast -> MaxReduction
-// Cast -> Broadcast
-// Cast -> Fail
+// From Broadcast to:
+//  1) MaxReduction
+//  2) Fail
 //
-// Max_Reduction -> Success
-// Max_Reduction -> Fail
+// From Cast to:
+//  1) MaxReduction
+//  2) Broadcast
+//  3) Fail
 //
-// Fail -> Return nullptr
-// Success -> Return reduction TensorView
+// From Max-Reduction to:
+//  1) Success if input TV definition is abs
+//  2) Fail
+//
+// Return nullptr in Fail state.
+// Return the reduction TensorView in Pass state.
 TensorView* detectAmaxPattern(TensorView* tv) {
   enum { Start, Broadcast, Cast, MaxReduction } state = Start;
 
