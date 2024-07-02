@@ -754,7 +754,7 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
   abten.split(0, 128);
 
   for (TensorView* tv : {tv2, tv3}) {
-    applyAbstractSchedule(abten, tv);
+    applyAbstractSchedule(abten, tv, &graph);
   }
 }
 

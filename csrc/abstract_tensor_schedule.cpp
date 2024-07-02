@@ -36,25 +36,32 @@ class AbstractTensorSchedule : public IterVisitor {
   }
 
  private:
-  AbstractTensorSchedule(const AbstractTensor& abstract, TensorView* concrete, ValGraph* graph)
+  AbstractTensorSchedule(
+      const AbstractTensor& abstract,
+      TensorView* concrete,
+      ValGraph* graph)
       : abstract_(abstract), concrete_(concrete), graph_(graph) {}
 
   void run() {
     concrete_->fusion()->printMath(0);
     concrete_->fusion()->printTransforms();
+    if (graph_ != nullptr) {
+      std::cout << "graph_:";
+      std::cout << graph_->toString() << std::endl;
+    }
     std::cout << "abstract_ = " << std::endl;
     for (const AbstractId& abs_id : abstract_.domain) {
       ValGroup g = abstractIdToValGroup(abs_id);
       std::cout << "  " << toString(g) << std::endl;
     }
     std::cout << "concrete_ = " << concrete_->toString() << std::endl;
-    std::cout << "concrete_ids_ after findNearestProducers:" << std::endl;
-    for (auto& [vg, id] : concrete_ids_) {
-      std::cout << "  " << toString(vg) << "  ->  " << id->toString() << std::endl;
-    }
 
     findNearestProducers();
-
+    std::cout << "concrete_ids_ after findNearestProducers:" << std::endl;
+    for (auto& [vg, id] : concrete_ids_) {
+      std::cout << "  " << toString(vg) << "  ->  " << id->toString()
+                << std::endl;
+    }
 
     // Now, for each ValGroup in abstract, find the closest producer ValGroups
     // with entries in concrete_ids_ and replay the path from them. If none
@@ -63,12 +70,15 @@ class AbstractTensorSchedule : public IterVisitor {
     for (const AbstractId& abs_id : abstract_.domain) {
       IterDomain* new_id = replayAbstractId(abs_id);
       if (new_id == nullptr) {
-        std::cout << "new_id = nullptr" << std::endl;
         continue;
       }
-      std::cout << "new_id = " << new_id->toString() << std::endl;
       loop_domain.push_back(new_id);
     }
+    std::cout << "new loop domain: [";
+    for (IterDomain* new_id : loop_domain) {
+      std::cout << " " << new_id->toString();
+    }
+    std::cout << " ]" << std::endl;
 
     concrete_->setLoopDomain(loop_domain);
   }
@@ -117,6 +127,11 @@ class AbstractTensorSchedule : public IterVisitor {
       }
     }
 
+    std::cout << "scheduled_val_groups:" << std::endl;
+    for (ValGroup g : scheduled_val_groups) {
+      std::cout << "  " << toString(g) << std::endl;
+    }
+
     // Now traverse c2p from concrete loop domain, stopping when we find a
     // scheduled ValGroup
     std::stack<IterDomain*> id_stack;
@@ -155,7 +170,7 @@ class AbstractTensorSchedule : public IterVisitor {
     std::stack<ValGroup> vg_stack({g});
     // Strategy: fill out concrete_ids_ in the direction of g
     auto propagate = [&](ValGroup vg) {
-      std::cout << "propagate " << toString(vg) << std::endl;
+      std::cout << "propagate to " << toString(vg) << std::endl;
       // We need to try and produce an ID for this group, so we look at
       // definitions for the Vals in this group and check whether we have their
       // inputs computed yet (concrete_ids_) and whether they can be computed
@@ -176,12 +191,17 @@ class AbstractTensorSchedule : public IterVisitor {
             vg_inps.push_back(vg_inp);
             auto inp_it = concrete_ids_.find(vg_inp);
             if (inp_it != concrete_ids_.end()) {
+              std::cout << "  " << inp_it->second->toString() << " is computed"
+                        << std::endl;
               id_inps.push_back(inp_it->second);
             } else {
+              // this input is not yet computed
               all_inputs_computed = false;
               if (uncomputable_groups.count(vg_inp) == 0) {
                 // Input is not yet proven to be incomputable, so try and
                 // compute it in the next iteration
+                std::cout << "  pushing " << toString(vg_inp)
+                          << " onto uncomputed_producer_groups" << std::endl;
                 uncomputed_producer_groups.push_back(vg_inp);
               }
             }
@@ -189,6 +209,14 @@ class AbstractTensorSchedule : public IterVisitor {
           // some input is not yet computed
           if (!all_inputs_computed) {
             std::cout << "  some inputs not computed" << std::endl;
+            if (uncomputed_producer_groups.empty() && !id_inps.empty()) {
+              // There might be some uncomputable producer groups, but some are
+              // computed. Just pass those on:
+              // TODO: this behavior should be specialized to the type of Expr I
+              // believe
+              NVF_ERROR(id_inps.size() == 1);
+              concrete_ids_.emplace(vg, id_inps.front());
+            }
             continue;
           }
           // Compute new ID expression
@@ -229,13 +257,15 @@ class AbstractTensorSchedule : public IterVisitor {
       if (uncomputed_producer_groups.empty()) {
         // All of the defining expressions are proven uncomputable, so mark vg
         // uncomputable
-        std::cout << "  Marking " << toString(vg) << " uncomputable" << std::endl;
+        std::cout << "  Marking " << toString(vg) << " uncomputable"
+                  << std::endl;
         uncomputable_groups.insert(vg);
         return;
       } else {
         // There are some uncomputed producer groups that might be computable,
         // so try again after processing those producer groups
-        std::cout << "  Adding " << toString(vg) << " back to stack beneath producer groups:" << std::endl;
+        std::cout << "  Adding " << toString(vg)
+                  << " back to stack beneath producer groups:" << std::endl;
         vg_stack.push(vg);
         for (ValGroup next_vg : uncomputed_producer_groups) {
           std::cout << "    " << toString(next_vg) << std::endl;
@@ -253,6 +283,13 @@ class AbstractTensorSchedule : public IterVisitor {
         continue;
       }
       propagate(vg);
+    }
+
+    std::cout << "concrete_ids_ after propagation to g=" << toString(g) << ":"
+              << std::endl;
+    for (auto& [vg, id] : concrete_ids_) {
+      std::cout << "  " << toString(vg) << "  ->  " << id->toString()
+                << std::endl;
     }
 
     // Now check whether there is a concrete entry for abs_id (i.e. g). If not,
