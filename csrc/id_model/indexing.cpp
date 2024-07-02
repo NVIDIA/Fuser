@@ -209,200 +209,6 @@ bool isAllocationBasedOnLeaf(TensorView* tv) {
       tv->getMemoryType() == MemoryType::Local;
 }
 
-std::optional<std::vector<IterDomain*>> patchAllocationOfTransposedSmemTensor(
-    const TensorView* tv,
-    const ValGraph& exact_graph) {
-  if (tv->getMemoryType() != MemoryType::Shared) {
-    return std::nullopt;
-  }
-
-  // Can there be multiple stores with a single smem buffer?
-  if (tv->uses().size() != 1) {
-    return std::nullopt;
-  }
-
-  auto ls_op = dynamic_cast<LoadStoreOp*>(tv->uses().front());
-  if (ls_op == nullptr) {
-    return std::nullopt;
-  }
-
-  auto consumer = ls_op->out()->as<TensorView>();
-
-  if (consumer->getMemoryType() != MemoryType::Global) {
-    return std::nullopt;
-  }
-
-  // the non-inlined domains must be derived from a domain that merges
-  // two constant-sized domains.
-
-  auto getOriginatingMerge = [](IterDomain* id) -> Merge* {
-    while (id != nullptr) {
-      auto def = id->definition();
-      if (def == nullptr) {
-        return nullptr;
-      } else if (auto merge = dynamic_cast<Merge*>(def)) {
-        return merge;
-      } else if (auto split = dynamic_cast<Split*>(def)) {
-        id = split->in();
-      } else {
-        // Unsupported op
-        NVF_ERROR(
-            false,
-            "Unsupported domain to get originating merge: ",
-            id->toString());
-      }
-    }
-    return nullptr;
-  };
-
-  // Find the dominating merge output domain
-
-  std::vector<IterDomain*> non_inlined_domains{
-      tv->getLoopDomain().begin() + tv->getComputeAtPosition(),
-      tv->getLoopDomain().end()};
-
-  if (non_inlined_domains.empty()) {
-    return std::nullopt;
-  }
-
-  Merge* producer_common_merge =
-      getOriginatingMerge(non_inlined_domains.front());
-  if (producer_common_merge == nullptr) {
-    return std::nullopt;
-  }
-
-  // Make sure all non inlined domains are derived from the same merge
-  for (auto non_inlined_domain : non_inlined_domains) {
-    auto merge = getOriginatingMerge(non_inlined_domain);
-    if (merge != producer_common_merge) {
-      return std::nullopt;
-    }
-  }
-
-  std::vector<IterDomain*> consumer_non_inlined_domains{
-      consumer->getLoopDomain().begin() +
-          (consumer->nDims() - non_inlined_domains.size()),
-      consumer->getLoopDomain().end()};
-
-  Merge* consumer_common_merge =
-      getOriginatingMerge(consumer_non_inlined_domains.front());
-  if (consumer_common_merge == nullptr) {
-    return std::nullopt;
-  }
-  // Make sure all non inlined domains are derived from the same merge
-  for (auto non_inlined_domain : consumer_non_inlined_domains) {
-    auto merge = getOriginatingMerge(non_inlined_domain);
-    if (merge != consumer_common_merge) {
-      return std::nullopt;
-    }
-  }
-
-  // Check if the inputs to the common merge ops match
-  if (exact_graph.toGroup(producer_common_merge->inner()) !=
-      exact_graph.toGroup(consumer_common_merge->outer())) {
-    return std::nullopt;
-  }
-
-  if (exact_graph.toGroup(producer_common_merge->outer()) !=
-      exact_graph.toGroup(consumer_common_merge->inner())) {
-    return std::nullopt;
-  }
-
-  consumer_non_inlined_domains.erase(
-      std::remove_if(
-          consumer_non_inlined_domains.begin(),
-          consumer_non_inlined_domains.end(),
-          [&](IterDomain* id) { return !mayRequireAllocation(consumer, id); }),
-      consumer_non_inlined_domains.end());
-
-  // At this point, it should be safe to use the consumer non-inlined
-  // domains as the allocation domain of hte producer
-  return consumer_non_inlined_domains;
-}
-
-// TODO: Fix alloation domains with vectorization
-// This is an ugly workaround, but the allocation domain of a tensor
-// with vectorized domains may not be the same as the leaf fomain
-// since the vectorized domain must be at the innermost position in
-// the allocation domain, but it's allowed to be located anywhwere
-// in the leaf domain.
-// This shouldn't be necessary for global memory tensors as their
-// allocation domains are rfactor domains
-std::optional<std::vector<IterDomain*>> patchAllocationDomainWithVectorization(
-    TensorView* tv,
-    const std::vector<IterDomain*>& allocation_domains,
-    const ValGraph& exact_graph) {
-  if (tv->getMemoryType() == MemoryType::Global) {
-    return std::nullopt;
-  }
-
-  IterDomain* id_to_move_back = nullptr;
-  // Vectorized load
-  IterDomain* vec_load = nullptr;
-  if (tv->definition() != nullptr && tv->definition()->isA<LoadStoreOp>() &&
-      tv->definition()->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set) {
-    auto vec_it = std::find_if(
-        allocation_domains.begin(),
-        allocation_domains.end(),
-        [](auto index_domain) -> bool {
-          return isParallelTypeVectorize(index_domain->getParallelType());
-        });
-    if (vec_it != allocation_domains.end()) {
-      vec_load = *vec_it;
-    }
-  }
-
-  if (vec_load != nullptr) {
-    if (vec_load != allocation_domains.back()) {
-      id_to_move_back = vec_load;
-    }
-  }
-
-  // Vectorized store
-  if (!vec_load) {
-    for (const auto ls_use : ir_utils::filterByType<LoadStoreOp>(tv->uses())) {
-      if (ls_use->opType() != LoadStoreOpType::Set) {
-        continue;
-      }
-      auto consumer_tv = ls_use->out()->as<TensorView>();
-      auto vec_it = std::find_if(
-          consumer_tv->getLoopDomain().begin(),
-          consumer_tv->getLoopDomain().end(),
-          [](auto consumer_leaf_id) -> bool {
-            return isParallelTypeVectorize(consumer_leaf_id->getParallelType());
-          });
-      if (vec_it == consumer_tv->getLoopDomain().end()) {
-        continue;
-      }
-      const auto& vec_group = exact_graph.toGroup(*vec_it);
-      auto index_it = std::find_if(
-          allocation_domains.begin(),
-          allocation_domains.end(),
-          [&](auto index_id) -> bool { return vec_group->has(index_id); });
-      if (index_it == allocation_domains.end() ||
-          *index_it == allocation_domains.back()) {
-        continue;
-      }
-      id_to_move_back = *index_it;
-    }
-  }
-
-  if (id_to_move_back == nullptr) {
-    return std::nullopt;
-  }
-
-  // reorder the vec domain to the end of the index domains
-  std::vector<IterDomain*> reordered_index_domains;
-  reordered_index_domains.reserve(allocation_domains.size());
-  for (const auto id : allocation_domains) {
-    if (id != id_to_move_back) {
-      reordered_index_domains.push_back(id);
-    }
-  }
-  reordered_index_domains.push_back(id_to_move_back);
-  return reordered_index_domains;
-}
-
 // Similar to IndexCompute but adapted for the graph-based indexing
 class IdGraphIndexCompute : public OptOutDispatch {
  public:
@@ -1493,36 +1299,49 @@ std::optional<CircularBufferLoopStage> getCircularBufferLoopStage(
   NVF_ERROR(false, "Double-buffered loop not found for ", tv->toString());
 }
 
+// Preparing allocation info for indexing. Because of broadcasting,
+// just looking at the loop groups of a tensor may not be enough to
+// determine the allocation of the tensor. For example, this happens
+// when a tensor is broadcast and inlined, where the original
+// pre-broadcast tensor may not have corresponding domains. If that
+// missing domain is annotated with ParallelType::Unroll, which
+// affects all inner loops, just looking at the inlined tensor itself
+// would miss the unrolling. Since unrolling changes allocation
+// shapes, missing unroll can result in incorrect allocations.
+//
+// TODO: Refactor this and the allocation lowering pass
 class AllocationDomainSetup : private kir::IrVisitor {
  public:
   using IrVisitor::dispatch;
-  using IrVisitor::handle;
 
+  // Set allocation domain info for all tensors
   void setup(const std::vector<Expr*>& exprs) {
+    // Find out correct allocation domains for all consumer
+    // tensors. Input tensors are handled after this
     for (auto expr : exprs) {
       dispatch(expr);
     }
 
-    // Make sure all producer tensors have allocation domains
+    // Make sure all tensors have allocation domains
     for (TensorView* producer_tv : used_as_producer) {
       auto it = tv_alloc_info_map.find(producer_tv);
       if (it != tv_alloc_info_map.end()) {
         continue;
       }
 
-      VERBOSE() << "Fusion input: " << producer_tv->toString() << std::endl;
-
-      // Not set yet. This must be a global memory input tensor
+      // Not yet set. This must be an input tensor.
       NVF_ERROR(
           producer_tv->isFusionInput(),
           "Expected a fusion input: ",
           producer_tv->toString());
 
-      // It should be just fine to use getAllocationDomains
+      // For fusion input, we can just use getMaybeAllocationDomain.
+
       auto alloc_info = getIndexingAllocationInfo(
           producer_tv,
           producer_tv->getMaybeAllocationDomain(),
           producer_tv->domain()->contiguity());
+
       tv_alloc_info_map.emplace(producer_tv, alloc_info);
     }
   }
@@ -1530,15 +1349,14 @@ class AllocationDomainSetup : private kir::IrVisitor {
   void dispatch(Expr* expr) override {
     if (ir_utils::isTvOp(expr)) {
       for (auto out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // Note that since we are dealing with a Kernel IR, a single
+        // tensor may show up as consumers multiple times, e.g.,
+        // zero initialization and actual definition. Using the last
+        // expr should give us correct allocation info.
         auto [alloc_domains, contiguity] =
             getAllocationDomainsAndContiguity(out_tv, for_loops_);
         auto alloc_info =
             getIndexingAllocationInfo(out_tv, alloc_domains, contiguity);
-#if 0
-        NVF_ERROR(
-            tv_alloc_info_map.emplace(out_tv, alloc_info).second,
-            "Tensor defined multiple times: ", out_tv->toString());
-#endif
         tv_alloc_info_map[out_tv] = alloc_info;
       }
       for (auto in_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
@@ -1558,6 +1376,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
   getAllocationDomainsAndContiguity(
       TensorView* tv,
       const std::vector<ForLoop*>& for_loops) {
+    const IdModel& id_model = GpuLower::current()->idModel();
+
     std::vector<IterDomain*> allocation_domains;
     std::vector<std::optional<bool>> contiguity;
 
@@ -1645,15 +1465,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
       }
     }
 
-    return {allocation_domains, contiguity};
-  }
-
-  IndexingAllocationInfo getIndexingAllocationInfo(
-      TensorView* tv,
-      std::vector<IterDomain*> allocation_domains,
-      std::vector<std::optional<bool>> contiguity) {
-    const IdModel& id_model = GpuLower::current()->idModel();
-
     // WAR for vectorization
     if (auto patched_allocation_domains =
             patchAllocationDomainWithVectorization(
@@ -1664,8 +1475,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
       allocation_domains = patched_allocation_domains.value();
     }
 
-    auto allocation_tv = tv;
-
     // WAR for transpose
     if (auto transposed_smem_alloc_dom = patchAllocationOfTransposedSmemTensor(
             tv, id_model.idGraph(IdMappingMode::EXACT));
@@ -1673,15 +1482,24 @@ class AllocationDomainSetup : private kir::IrVisitor {
       VERBOSE()
           << "Using consumer domain as the allocation domain of the shared memory producer: "
           << tv->toString() << std::endl;
-      allocation_domains = transposed_smem_alloc_dom.value();
-      // TODO: Don't do this. Just reorder the domains of tv. Changing
-      // tv complicates the following analysis.
-      allocation_tv = tv->uses().at(0)->output(0)->as<TensorView>();
       contiguity =
           std::vector<std::optional<bool>>(allocation_domains.size(), true);
     }
 
     NVF_ERROR(allocation_domains.size() == contiguity.size());
+
+    return {allocation_domains, contiguity};
+  }
+
+  // Get allocation info used for indexing. Loop promotion is
+  // considered. Strides are also calculated.
+  IndexingAllocationInfo getIndexingAllocationInfo(
+      TensorView* tv,
+      std::vector<IterDomain*> allocation_domains,
+      std::vector<std::optional<bool>> contiguity) {
+    const IdModel& id_model = GpuLower::current()->idModel();
+
+    auto allocation_tv = tv;
 
     std::vector<IterDomain*> promoted_allocation_domains;
     promoted_allocation_domains.reserve(allocation_domains.size());
@@ -1764,6 +1582,204 @@ class AllocationDomainSetup : private kir::IrVisitor {
 
     return IndexingAllocationInfo{
         actual_allocation_domains, actual_strides, actual_contiguity};
+  }
+
+  std::optional<std::vector<IterDomain*>> patchAllocationOfTransposedSmemTensor(
+      const TensorView* tv,
+      const ValGraph& exact_graph) const {
+    if (tv->getMemoryType() != MemoryType::Shared) {
+      return std::nullopt;
+    }
+
+    // Can there be multiple stores with a single smem buffer?
+    if (tv->uses().size() != 1) {
+      return std::nullopt;
+    }
+
+    auto ls_op = dynamic_cast<LoadStoreOp*>(tv->uses().front());
+    if (ls_op == nullptr) {
+      return std::nullopt;
+    }
+
+    auto consumer = ls_op->out()->as<TensorView>();
+
+    if (consumer->getMemoryType() != MemoryType::Global) {
+      return std::nullopt;
+    }
+
+    // the non-inlined domains must be derived from a domain that merges
+    // two constant-sized domains.
+
+    auto getOriginatingMerge = [](IterDomain* id) -> Merge* {
+      while (id != nullptr) {
+        auto def = id->definition();
+        if (def == nullptr) {
+          return nullptr;
+        } else if (auto merge = dynamic_cast<Merge*>(def)) {
+          return merge;
+        } else if (auto split = dynamic_cast<Split*>(def)) {
+          id = split->in();
+        } else {
+          // Unsupported op
+          NVF_ERROR(
+              false,
+              "Unsupported domain to get originating merge: ",
+              id->toString());
+        }
+      }
+      return nullptr;
+    };
+
+    // Find the dominating merge output domain
+
+    std::vector<IterDomain*> non_inlined_domains{
+        tv->getLoopDomain().begin() + tv->getComputeAtPosition(),
+        tv->getLoopDomain().end()};
+
+    if (non_inlined_domains.empty()) {
+      return std::nullopt;
+    }
+
+    Merge* producer_common_merge =
+        getOriginatingMerge(non_inlined_domains.front());
+    if (producer_common_merge == nullptr) {
+      return std::nullopt;
+    }
+
+    // Make sure all non inlined domains are derived from the same merge
+    for (auto non_inlined_domain : non_inlined_domains) {
+      auto merge = getOriginatingMerge(non_inlined_domain);
+      if (merge != producer_common_merge) {
+        return std::nullopt;
+      }
+    }
+
+    std::vector<IterDomain*> consumer_non_inlined_domains{
+        consumer->getLoopDomain().begin() +
+            (consumer->nDims() - non_inlined_domains.size()),
+        consumer->getLoopDomain().end()};
+
+    Merge* consumer_common_merge =
+        getOriginatingMerge(consumer_non_inlined_domains.front());
+    if (consumer_common_merge == nullptr) {
+      return std::nullopt;
+    }
+    // Make sure all non inlined domains are derived from the same merge
+    for (auto non_inlined_domain : consumer_non_inlined_domains) {
+      auto merge = getOriginatingMerge(non_inlined_domain);
+      if (merge != consumer_common_merge) {
+        return std::nullopt;
+      }
+    }
+
+    // Check if the inputs to the common merge ops match
+    if (exact_graph.toGroup(producer_common_merge->inner()) !=
+        exact_graph.toGroup(consumer_common_merge->outer())) {
+      return std::nullopt;
+    }
+
+    if (exact_graph.toGroup(producer_common_merge->outer()) !=
+        exact_graph.toGroup(consumer_common_merge->inner())) {
+      return std::nullopt;
+    }
+
+    consumer_non_inlined_domains.erase(
+        std::remove_if(
+            consumer_non_inlined_domains.begin(),
+            consumer_non_inlined_domains.end(),
+            [&](IterDomain* id) {
+              return !mayRequireAllocation(consumer, id);
+            }),
+        consumer_non_inlined_domains.end());
+
+    // At this point, it should be safe to use the consumer non-inlined
+    // domains as the allocation domain of hte producer
+    return consumer_non_inlined_domains;
+  }
+
+  // TODO: Fix alloation domains with vectorization
+  // This is an ugly workaround, but the allocation domain of a tensor
+  // with vectorized domains may not be the same as the leaf fomain
+  // since the vectorized domain must be at the innermost position in
+  // the allocation domain, but it's allowed to be located anywhwere
+  // in the leaf domain.
+  // This shouldn't be necessary for global memory tensors as their
+  // allocation domains are rfactor domains
+  std::optional<std::vector<IterDomain*>> patchAllocationDomainWithVectorization(
+      TensorView* tv,
+      const std::vector<IterDomain*>& allocation_domains,
+      const ValGraph& exact_graph) const {
+    if (tv->getMemoryType() == MemoryType::Global) {
+      return std::nullopt;
+    }
+
+    IterDomain* id_to_move_back = nullptr;
+    // Vectorized load
+    IterDomain* vec_load = nullptr;
+    if (tv->definition() != nullptr && tv->definition()->isA<LoadStoreOp>() &&
+        tv->definition()->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set) {
+      auto vec_it = std::find_if(
+          allocation_domains.begin(),
+          allocation_domains.end(),
+          [](auto index_domain) -> bool {
+            return isParallelTypeVectorize(index_domain->getParallelType());
+          });
+      if (vec_it != allocation_domains.end()) {
+        vec_load = *vec_it;
+      }
+    }
+
+    if (vec_load != nullptr) {
+      if (vec_load != allocation_domains.back()) {
+        id_to_move_back = vec_load;
+      }
+    }
+
+    // Vectorized store
+    if (!vec_load) {
+      for (const auto ls_use :
+           ir_utils::filterByType<LoadStoreOp>(tv->uses())) {
+        if (ls_use->opType() != LoadStoreOpType::Set) {
+          continue;
+        }
+        auto consumer_tv = ls_use->out()->as<TensorView>();
+        auto vec_it = std::find_if(
+            consumer_tv->getLoopDomain().begin(),
+            consumer_tv->getLoopDomain().end(),
+            [](auto consumer_leaf_id) -> bool {
+              return isParallelTypeVectorize(
+                  consumer_leaf_id->getParallelType());
+            });
+        if (vec_it == consumer_tv->getLoopDomain().end()) {
+          continue;
+        }
+        const auto& vec_group = exact_graph.toGroup(*vec_it);
+        auto index_it = std::find_if(
+            allocation_domains.begin(),
+            allocation_domains.end(),
+            [&](auto index_id) -> bool { return vec_group->has(index_id); });
+        if (index_it == allocation_domains.end() ||
+            *index_it == allocation_domains.back()) {
+          continue;
+        }
+        id_to_move_back = *index_it;
+      }
+    }
+
+    if (id_to_move_back == nullptr) {
+      return std::nullopt;
+    }
+
+    // reorder the vec domain to the end of the index domains
+    std::vector<IterDomain*> reordered_index_domains;
+    reordered_index_domains.reserve(allocation_domains.size());
+    for (const auto id : allocation_domains) {
+      if (id != id_to_move_back) {
+        reordered_index_domains.push_back(id);
+      }
+    }
+    reordered_index_domains.push_back(id_to_move_back);
+    return reordered_index_domains;
   }
 
   std::unordered_map<TensorView*, IndexingAllocationInfo> tv_alloc_info_map;

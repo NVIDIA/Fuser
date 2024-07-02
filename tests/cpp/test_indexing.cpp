@@ -1235,6 +1235,70 @@ TEST_F(IndexingTest, Swizzle) {
   IndexValidator<GetReference>::validate(&fusion, false);
 }
 
+// Simple Unroll test. Unlike Unswitch, Unroll moves up allocation
+// points and thus index needs to be adjusted
+TEST_F(IndexingTest, SimpleUnroll) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  auto tv0_cache = tv0->cacheAfter();
+  auto tv1_cache = tv1->cacheAfter();
+
+  tv2->flatten();
+  // For TIDx
+  tv2->split(0, 128);
+  // For unroll
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unroll);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  // Use these names in GetReference.
+  NVF_ERROR(tv0_cache->name() == 3);
+  NVF_ERROR(tv1_cache->name() == 4);
+
+  // While the CA position of the cache tensors is -1, its allocation
+  // isn't a scalar but has the unroll domain. Make sure the domain is
+  // indeed indexed.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      // Only check tv0_cache and tv1_cache
+      if (tv->name() != 3 && tv->name() != 4) {
+        return nullptr;
+      }
+
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      NVF_ERROR(loop_indices.size() == 3);
+      // Each of three domains corresponds to BIDx, Unroll and
+      // TIDx. Only the Unroll domain is allocated.
+      return loop_indices.at(1);
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Unrolling with no unrolled loop domain
 TEST_F(IndexingTest, InlinedUnroll) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1260,8 +1324,6 @@ TEST_F(IndexingTest, InlinedUnroll) {
 
   scheduler_utils::parallelizeAllLike(tv4, ir_utils::allTvs(&fusion));
 
-  fusion.printKernel();
-
   // The CA position of tv2 is 1 as shown below:
   //
   // T2_l[ iS3{4} ] ca_pos( 1 )
@@ -1274,7 +1336,7 @@ TEST_F(IndexingTest, InlinedUnroll) {
   // The objective of the validation below is to make sure that tv2
   // indexing is done properly.
 
-  // Make sure
+  // Make sure tv2 is indexed with the innermost loop domain
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
