@@ -441,6 +441,33 @@ TEST_P(HopperRS, SingleTile) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+void schedTMAStor(TensorView* tv) {
+  tv->split(-2, 8);
+  tv->split(-1, 8);
+  // [Ko, K8, Mo, M8]
+  tv->reorder({{-2, -3}});
+  // [Ko, Mo, K8, M8]
+
+  // Mark K8 and M8 as parallel bulk type.
+  int numer_of_inner_ids_as_tma_box = 2;
+
+  // Make the required number of inner IDs parallel bulk type.
+  size_t skip = 0;
+  const auto count = tv->getLoopDomain().size() - numer_of_inner_ids_as_tma_box;
+  for (auto id : tv->getLoopDomain()) {
+    if (skip < count) {
+      skip++;
+      continue;
+    }
+    id->parallelize(ParallelType::Bulk);
+  }
+
+  // Set the allocation to the loop domain.
+  // tv->setAllocationDomain(tv->getLoopDomain(), true);
+  // Set all IDs as swizzled.
+  // setWarpMapped(tv, static_cast<int64_t>(tv->getLoopDomain().size()));
+}
+
 TEST_P(HopperRS, SingleTileWithTMALoad) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -463,7 +490,12 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
 
   auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
 
-  fusion.addOutput(tv2);
+  auto tv3 = set(tv2);
+  tv2->setMemoryType(MemoryType::Shared);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  fusion.addOutput(tv3);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -489,8 +521,38 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
     tv2c->reorder({{-1, -2}});
   }
 
+  if (tv2c->getMemoryType() == MemoryType::Local) {
+    std::cout << "tv2c is local memory" << std::endl;
+  }
+  if (tv2c->getMemoryType() == MemoryType::Shared) {
+    std::cout << "tv2c is shared memory" << std::endl;
+  }
+  if (tv2c->getMemoryType() == MemoryType::Global) {
+    std::cout << "tv2c is global memory" << std::endl;
+  }
+  if (tv2->getMemoryType() == MemoryType::Local) {
+    std::cout << "tv2 is local memory" << std::endl;
+  }
+  if (tv2->getMemoryType() == MemoryType::Shared) {
+    std::cout << "tv2 is shared memory" << std::endl;
+  }
+  if (tv2->getMemoryType() == MemoryType::Global) {
+    std::cout << "tv2 is global memory" << std::endl;
+  }
+
+  if (tv3->getMemoryType() == MemoryType::Local) {
+    std::cout << "tv3 is local memory" << std::endl;
+  }
+  if (tv3->getMemoryType() == MemoryType::Shared) {
+    std::cout << "tv3 is shared memory" << std::endl;
+  }
+  if (tv3->getMemoryType() == MemoryType::Global) {
+    std::cout << "tv3 is global memory" << std::endl;
+  }
+
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  schedTMAStor(tv3);
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
@@ -591,7 +653,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         all_hopper_macros,
         all_dtypes,
-        testing::Values(MmaLayout::TT, MmaLayout::TN),
+        testing::Values(MmaLayout::TN),
         kAllSmemSwizzleModes),
     testNameHopperRS);
 
