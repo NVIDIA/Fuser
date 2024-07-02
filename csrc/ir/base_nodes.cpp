@@ -218,7 +218,7 @@ PolymorphicValue Val::evaluate() {
 }
 
 bool Val::isZero() const {
-  return value().hasValue() && (bool)(value() == 0);
+  return value().hasValue() && (bool)(value() == 0.0);
 }
 
 bool Val::isZeroInt() const {
@@ -227,7 +227,8 @@ bool Val::isZeroInt() const {
 }
 
 bool Val::isOne() const {
-  return value().hasValue() && (bool)(value() == 1);
+  // NOTE: does this work for complex?!
+  return value().hasValue() && (bool)(value() == 1.0);
 }
 
 bool Val::isOneInt() const {

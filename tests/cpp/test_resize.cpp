@@ -3442,4 +3442,53 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
   }
 }
 
+TEST_F(TensorFactoryTest, FullPad) {
+  auto sizes = {0, 10};
+  auto dtypes = {
+      at::kBool,
+      at::kFloat,
+      at::kLong,
+      at::kDouble,
+      at::kHalf,
+      at::kBFloat16,
+      at::kInt,
+      at::kComplexFloat,
+      at::kComplexDouble};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* size = IrBuilder::create<Val>(DataType::Int);
+  Val* fill_val = IrBuilder::create<Val>(DataType::Int);
+  fusion->addInput(size);
+  fusion->addInput(fill_val);
+  for (auto dtype : dtypes) {
+    if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
+      continue;
+    }
+    auto full_tv = full({size}, fill_val, aten_to_data_type(dtype));
+    auto out_tv = pad(full_tv, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
+    fusion->addOutput(out_tv);
+
+    auto* pad_value = out_tv->definition()->as<PadOp>()->value();
+    std::cout << "dtype: " << pad_value->getDataType().value() << std::endl;
+    std::cout << "iszeor: " << pad_value->isZero() << std::endl;
+
+    NVF_ERROR(pad_value->isZero(), "default pad value should be zero");
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  for (auto size : sizes) {
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, 8});
+
+    testValidate(
+        executor_cache.fusion(),
+        cg_outputs,
+        {size, 8},
+        __LINE__,
+        __FILE__);
+  }
+}
+
 } // namespace nvfuser
