@@ -10,7 +10,7 @@ called extent mapping and index mapping.
 We use notation $t\langle E, I\rangle$ to denote an IterDomain transformation whose name is $t$, extent mapping is $E$ and index mapping is $I$.
 
 **Definition 1.1.1 (Inner Split)**:
-Given $d\in\mathbb{Z}$, a *inner split with factor $d$* is an IterDomain transformation of rank $(1, 2)$,
+Given $d\in\mathbb{Z}^{+}$, a *inner split with factor $d$* is an IterDomain transformation of rank $(1, 2)$,
 where the extent map is $i \to (i \lceil/\rceil d, d)$,
 and the index map is $i \to (i/d, i \mathbin{\\%} d)$.
 We use notation $\mathrm{InnerSplit}(d)$ to denote inner split.
@@ -73,9 +73,17 @@ The index mapping of $\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n)$ is
 
 The index mapping of $\mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)$ is $i \to (i / (m\cdot n), i \mathbin{\\%} (m\cdot n) / n, i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n)$.
 
-According to TODO: $i / n / m = i / (m\cdot n)$.
+According to Theorem 2.11 in [Integer Division](../math/integer-division.md): $i / n / m = i / (m\cdot n)$.
 
-According to TODO: $i / n \mathbin{\\%} m = i \mathbin{\\%} (m\cdot n) / n$.
+According to Theorem 2.12 in [Integer Division](../math/integer-division.md):
+
+$$i \mathbin{\\%} (m\cdot n) = i \mathbin{\\%} n + ((i / n) \mathbin{\\%} m) \times n$$
+
+According to Theorem 2.15.1 in [Integer Division](../math/integer-division.md):
+$$i \mathbin{\\%} (m\cdot n) / n = (i / n) \mathbin{\\%} m$$
+
+According to Theorem 2.7.1 Theorem 2.5 in [Integer Division](../math/integer-division.md):
+$$i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n = i \mathbin{\\%} n \mathbin{\\%} n = i \mathbin{\\%} n$$
 
 According to TODO: $i \mathbin{\\%} n = i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n$
 
