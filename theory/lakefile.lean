@@ -13,4 +13,4 @@ lean_lib math.logic where
 lean_lib math.monotonic_function where
 
 @[default_target]
-lean_lib reading.idmodel where
+lean_lib iterdomain where
