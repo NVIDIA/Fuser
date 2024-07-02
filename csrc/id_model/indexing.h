@@ -29,6 +29,11 @@ struct IndexingInfo {
   std::unordered_map<ValGroup, Val*> index_map;
 };
 
+struct IndexingAllocationInfo {
+  std::vector<IterDomain*> domains;
+  std::vector<Val*> strides;
+};
+
 // The basic algorithm of indexing is:
 //
 // 1. Find the loop domains
@@ -50,7 +55,13 @@ class TensorIndexer {
   // Get a linear index of a given tensor appearing in a given expr, either
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
-  Val* getLinearIndex(TensorView* tv, const Expr* expr) const;
+  //
+  // The actual ForLoop's are required as they may have unrolled loops
+  // that tv may not have.
+  Val* getLinearIndex(
+      TensorView* tv,
+      const Expr* expr,
+      const std::vector<ForLoop*>& loops) const;
 
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
@@ -67,10 +78,27 @@ class TensorIndexer {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
 
+  // Traverse exprs and set allocation info for each tensor
+  void setupAllocationDomains(const std::vector<Expr*>& exprs);
+
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
   void buildLoopIndexMap();
+
+  const IndexingAllocationInfo& getIndexingAllocationInfo(
+      TensorView* tv) const {
+    auto it = alloc_info_.find(tv);
+    if (it == alloc_info_.find(tv)) {
+      std::cerr << "GetIndexAllocInfo of " << tv->toString() << std::endl;
+      std::cerr << "Not found\n";
+    }
+    NVF_ERROR(
+        it != alloc_info_.end(),
+        "No allocation info found for ",
+        tv->toString());
+    return it->second;
+  }
 
   // Returns the index map as well as its traversal path of given
   // index domains appearing in a given expr. Used by
@@ -122,6 +150,10 @@ class TensorIndexer {
   // to NamedScalar such as "threadIdx.x". This map needs to be built
   // once and can be reused for different tensors.
   std::unordered_map<ValGroup, Val*> loop_index_map_;
+
+  // Allocation info for each tensor. Must be filled before computing
+  // the index of each tensor
+  std::unordered_map<TensorView*, IndexingAllocationInfo> alloc_info_;
 };
 
 } // namespace nvfuser

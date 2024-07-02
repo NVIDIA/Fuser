@@ -16,6 +16,7 @@
 #include <ir/builder.h>
 #include <ir/graphviz.h>
 #include <ir/utils.h>
+#include <kernel_ir_dispatch.h>
 #include <swizzle.h>
 #include <val_graph_visitor.h>
 
@@ -97,128 +98,214 @@ Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
       stride_dim);
 }
 
-// Get the allocation domains of a given tensor. Also returns its
-// strides.
+// Preparing allocation info for indexing. Because of broadcasting,
+// just looking at the loop groups of a tensor may not be enough to
+// determine the allocation of the tensor. For example, this happens
+// when a tensor is broadcast and inlined, where the original
+// pre-broadcast tensor may not have corresponding domains. If that
+// missing domain is annotated with ParallelType::Unroll, which
+// affects all inner loops, just looking at the inlined tensor itself
+// would miss the unrolling. Since unrolling changes allocation
+// shapes, missing unroll can result in incorrect allocations.
 //
-// TODO: Ideally, all tensors should have their correct allocation
-// domains, but that isn't always the case at this moment. The logic
-// here is duplicated in multiple locations and should be cleaned up.
-std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
-    TensorView* tv,
-    const IdModel& id_model) {
-  std::vector<IterDomain*> allocation_domains;
-  std::vector<std::optional<bool>> contiguity;
+// TODO: Refactor this and the allocation lowering pass
+class AllocationDomainSetup : private kir::IrVisitor {
+ public:
+  using IrVisitor::dispatch;
 
-  // Use the allocation domain if set for the tensor
-  if (tv->hasAllocation()) {
-    allocation_domains = tv->getAllocationDomain();
-    contiguity = tv->domain()->contiguity();
-  } else {
-    // If allocation domain is not set, assume that:
-    // - Global: logical domains
-    // - Local/Shared: loop domains to the right of the CA position
-    if (tv->getMemoryType() == MemoryType::Global) {
-      allocation_domains = tv->getLogicalDomain();
+  // Set allocation domain info for all tensors
+  void setup(const std::vector<Expr*>& exprs) {
+    // Find out correct allocation domains for all consumer
+    // tensors. Input tensors are handled after this
+    for (auto expr : exprs) {
+      dispatch(expr);
+    }
+
+    // Make sure all tensors have allocation domains
+    for (TensorView* producer_tv : used_as_producer) {
+      auto it = tv_alloc_info_map.find(producer_tv);
+      if (it != tv_alloc_info_map.end()) {
+        continue;
+      }
+
+      // Not yet set. This must be an input tensor.
+      NVF_ERROR(
+          producer_tv->isFusionInput(),
+          "Expected a fusion input: ",
+          producer_tv->toString());
+
+      // For fusion input, we can just use getMaybeAllocationDomain.
+
+      auto alloc_info = getIndexingAllocationInfo(
+          producer_tv,
+          producer_tv->getMaybeAllocationDomain(),
+          producer_tv->domain()->contiguity());
+
+      tv_alloc_info_map.emplace(producer_tv, alloc_info);
+    }
+  }
+
+  void dispatch(Expr* expr) override {
+    if (ir_utils::isTvOp(expr)) {
+      for (auto out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // Note that since we are dealing with a Kernel IR, a single
+        // tensor may show up as consumers multiple times, e.g.,
+        // zero initialization and actual definition. Using the last
+        // expr should give us correct allocation info.
+        auto [alloc_domains, contiguity] =
+            getAllocationDomainsAndContiguity(out_tv, for_loops_);
+        auto alloc_info =
+            getIndexingAllocationInfo(out_tv, alloc_domains, contiguity);
+        tv_alloc_info_map[out_tv] = alloc_info;
+      }
+      for (auto in_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+        used_as_producer.insert(in_tv);
+      }
+    } else {
+      IrVisitor::dispatch(expr);
+    }
+  }
+
+  // Get the allocation domains and contiguity of a given tensor
+  //
+  // TODO: Ideally, all tensors should have their correct allocation
+  // domains, but that isn't always the case at this moment. The logic
+  // here is duplicated in multiple locations and should be cleaned up.
+  std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
+  getAllocationDomainsAndContiguity(
+      TensorView* tv,
+      const std::vector<ForLoop*>& for_loops) {
+    std::vector<IterDomain*> allocation_domains;
+    std::vector<std::optional<bool>> contiguity;
+
+    // Use the allocation domain if set for the tensor
+    if (tv->hasAllocation()) {
+      allocation_domains = tv->getAllocationDomain();
       contiguity = tv->domain()->contiguity();
     } else {
-      const auto inlining_pos = tv->getComputeAtPosition();
-      for (const auto i : c10::irange(tv->nDims())) {
-        auto loop_id = tv->getLoopDomain().at(i);
-        auto pt = loop_id->getParallelType();
-        if (!mayRequireAllocation(tv, loop_id)) {
-          continue;
-        }
+      // If allocation domain is not set, assume that:
+      // - Global: logical domains
+      // - Local/Shared: loop domains to the right of the CA position
+      if (tv->getMemoryType() == MemoryType::Global) {
+        allocation_domains = tv->getLogicalDomain();
+        contiguity = tv->domain()->contiguity();
+      } else {
+        // Allocation position is not always the same as the CA
+        // position. See also lower_utils::getAllocInformation.
+        int64_t allocation_pos =
+            lower_utils::getAllocInformation(tv, for_loops).alloc_pos;
+        for (const auto i : c10::irange(tv->nDims())) {
+          auto loop_id = tv->getLoopDomain().at(i);
+          auto pt = loop_id->getParallelType();
+          if (!mayRequireAllocation(tv, loop_id)) {
+            continue;
+          }
 
-        // If the position is left of the inlining position, no need to
-        // allocate the domain unless it's shared. For example, if this
-        // is a Shared tensor and the domain is parallelized with TID,
-        // even if it's outside of the CA position, since the domain
-        // is shared, it must be allocated.
-        if (i < inlining_pos &&
-            !ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
-          continue;
-        }
+          // If the position is left of the inlining position, no need to
+          // allocate the domain unless it's shared. For example, if this
+          // is a Shared tensor and the domain is parallelized with TID,
+          // even if it's outside of the CA position, since the domain
+          // is shared, it must be allocated.
+          if (i < allocation_pos &&
+              !ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
+            continue;
+          }
 
-        allocation_domains.push_back(loop_id);
+          allocation_domains.push_back(loop_id);
+        }
+        // Assume Local and Shared are always fully contiguous
+        contiguity =
+            std::vector<std::optional<bool>>(allocation_domains.size(), true);
       }
-      // Assume Local and Shared are always fully contiguous
-      contiguity =
-          std::vector<std::optional<bool>>(allocation_domains.size(), true);
     }
+
+    return {allocation_domains, contiguity};
   }
 
-  std::vector<IterDomain*> promoted_allocation_domains;
-  promoted_allocation_domains.reserve(allocation_domains.size());
+  // Get allocation info used for indexing. Loop promotion is
+  // considered. Strides are also calculated.
+  IndexingAllocationInfo getIndexingAllocationInfo(
+      TensorView* tv,
+      std::vector<IterDomain*> allocation_domains,
+      std::vector<std::optional<bool>> contiguity) {
+    const IdModel& id_model = GpuLower::current()->idModel();
 
-  // Loop promotion may affect allocations. Promotions of intermediate
-  // domains may not be defined correctly. Only consider loop domains
-  // for now.
-  for (auto& allocation_domain : allocation_domains) {
-    bool is_loop = std::find(
-                       tv->getLoopDomain().begin(),
-                       tv->getLoopDomain().end(),
-                       allocation_domain) != tv->getLoopDomain().end();
-    IterDomain* promotion_domain = nullptr;
-    if (is_loop) {
-      promotion_domain = getLoopPromotion(allocation_domain, id_model);
-    } else {
-      promotion_domain = allocation_domain;
+    std::vector<IterDomain*> promoted_allocation_domains;
+    promoted_allocation_domains.reserve(allocation_domains.size());
+
+    // Loop promotion may affect allocations. Promotions of intermediate
+    // domains may not be defined correctly. Only consider loop domains
+    // for now.
+    for (const auto& allocation_domain : allocation_domains) {
+      bool is_loop = std::find(
+                         tv->getLoopDomain().begin(),
+                         tv->getLoopDomain().end(),
+                         allocation_domain) != tv->getLoopDomain().end();
+      IterDomain* promotion_domain = allocation_domain;
+      if (is_loop) {
+        promotion_domain = getLoopPromotion(allocation_domain, id_model);
+      } else {
+        promotion_domain = allocation_domain;
+      }
+      promoted_allocation_domains.push_back(promotion_domain);
     }
-    promoted_allocation_domains.push_back(promotion_domain);
+
+    // Compute the strides from innermost to outermost domains
+    std::vector<Val*> strides(allocation_domains.size(), nullptr);
+    Val* cur_contig_stride = tv->fusion()->oneVal();
+    for (const auto i : c10::irange(allocation_domains.size())) {
+      auto dim = allocation_domains.size() - i - 1;
+      auto allocation_domain = allocation_domains.at(dim);
+      auto promotion_domain = promoted_allocation_domains.at(dim);
+
+      if (!mayRequireAllocation(tv, allocation_domain)) {
+        continue;
+      }
+
+      const std::optional<bool> contig_flag = contiguity.at(dim);
+      // Broadcast doesn't have contig flag but it must have been
+      // already filtered out
+      NVF_ERROR(contig_flag.has_value());
+
+      if (contig_flag.value()) {
+        strides[dim] = cur_contig_stride;
+        cur_contig_stride = SimplifyingIrBuilder::mulExpr(
+            cur_contig_stride, promotion_domain->extent());
+      } else {
+        // Assume that the tensor should always be a Global memory
+        // tensor if it has non-contig allocation domains
+        NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
+        strides[dim] = getStrideOfGlobalMemoryTensor(tv, (int64_t)dim);
+        cur_contig_stride = SimplifyingIrBuilder::mulExpr(
+            strides[dim], promotion_domain->extent());
+      }
+    }
+
+    // Filter out non-allocated domains. This is already done for Local
+    // and Shared tensors with no set allocation domains, but not for
+    // the other cases. For example, a reduction output tensor that is
+    // also a fusion output may still have reduction domains in their
+    // allocation domains, which aren't relevant for indexing
+    std::vector<IterDomain*> actual_allocation_domains;
+    std::vector<Val*> actual_strides;
+    for (const auto i : c10::irange(allocation_domains.size())) {
+      auto allocation_domain = allocation_domains.at(i);
+      auto promotion_domain = promoted_allocation_domains.at(i);
+      if (!mayRequireAllocation(tv, allocation_domain)) {
+        continue;
+      }
+      auto stride = strides.at(i);
+      NVF_ERROR(stride != nullptr);
+      actual_allocation_domains.push_back(promotion_domain);
+      actual_strides.push_back(stride);
+    }
+
+    return IndexingAllocationInfo{actual_allocation_domains, actual_strides};
   }
 
-  // Compute the strides from innermost to outermost domains
-  std::vector<Val*> strides(allocation_domains.size(), nullptr);
-  Val* cur_contig_stride = tv->fusion()->oneVal();
-  for (const auto i : c10::irange(allocation_domains.size())) {
-    auto dim = allocation_domains.size() - i - 1;
-    auto allocation_domain = allocation_domains.at(dim);
-    auto promotion_domain = promoted_allocation_domains.at(dim);
-
-    if (!mayRequireAllocation(tv, allocation_domain)) {
-      continue;
-    }
-
-    const std::optional<bool> contig_flag = contiguity.at(dim);
-    // Broadcast doesn't have contig flag but it must have been
-    // already filtered out
-    NVF_ERROR(contig_flag.has_value());
-
-    if (contig_flag.value()) {
-      strides[dim] = cur_contig_stride;
-      cur_contig_stride = SimplifyingIrBuilder::mulExpr(
-          promotion_domain->extent(), cur_contig_stride);
-    } else {
-      // Assume that the tensor should always be a Global memory
-      // tensor if it has non-contig allocation domains
-      NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
-      strides[dim] = getStrideOfGlobalMemoryTensor(tv, (int64_t)dim);
-      cur_contig_stride = SimplifyingIrBuilder::mulExpr(
-          strides[dim], promotion_domain->extent());
-    }
-  }
-
-  // Filter out non-allocated domains. This is already done for Local
-  // and Shared tensors with no set allocation domains, but not for
-  // the other cases. For example, a reduction output tensor that is
-  // also a fusion output may still have reduction domains in their
-  // allocation domains, which aren't relevant for indexing
-  std::vector<IterDomain*> actual_allocation_domains;
-  std::vector<Val*> actual_strides;
-  for (const auto i : c10::irange(allocation_domains.size())) {
-    auto allocation_domain = allocation_domains.at(i);
-    auto promotion_domain = promoted_allocation_domains.at(i);
-    if (!mayRequireAllocation(tv, allocation_domain)) {
-      continue;
-    }
-    auto stride = strides.at(i);
-    NVF_ERROR(stride != nullptr);
-    actual_allocation_domains.push_back(promotion_domain);
-    actual_strides.push_back(stride);
-  }
-
-  return {actual_allocation_domains, actual_strides};
-}
+  std::unordered_map<TensorView*, IndexingAllocationInfo> tv_alloc_info_map;
+  std::unordered_set<TensorView*> used_as_producer;
+};
 
 // Similar to IndexCompute but adapted for the graph-based indexing
 class IdGraphIndexCompute : public OptOutDispatch {
@@ -516,7 +603,10 @@ std::vector<Val*> TensorIndexer::getIndexFor(
   return result;
 }
 
-Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
+Val* TensorIndexer::getLinearIndex(
+    TensorView* tv,
+    const Expr* expr,
+    const std::vector<ForLoop*>& loops) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -529,18 +619,17 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
       " not found in ",
       expr->toString());
 
-  const auto [allocation_domains, strides] =
-      getAllocationDomains(tv, id_model_);
+  const auto alloc_info = getIndexingAllocationInfo(tv);
 
   auto indices =
-      getIndexFor(expr, traversalGraph().toGroups(allocation_domains));
-  NVF_ERROR(indices.size() == allocation_domains.size());
+      getIndexFor(expr, traversalGraph().toGroups(alloc_info.domains));
+  NVF_ERROR(indices.size() == alloc_info.domains.size());
 
   // Linearize the indices with strides.
   // TODO: Contiguous indexing
   Val* index = tv->fusion()->zeroVal();
-  for (const auto i : c10::irange(allocation_domains.size())) {
-    Val* stride = strides.at(i);
+  for (const auto i : c10::irange(alloc_info.domains.size())) {
+    Val* stride = alloc_info.strides.at(i);
     index = SimplifyingIrBuilder::addExpr(
         index, SimplifyingIrBuilder::mulExpr(stride, indices.at(i)));
   }
@@ -606,6 +695,12 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   }
 
   return replacement_map;
+}
+
+void TensorIndexer::setupAllocationDomains(const std::vector<Expr*>& exprs) {
+  AllocationDomainSetup alloc_setup;
+  alloc_setup.setup(exprs);
+  alloc_info_ = std::move(alloc_setup.tv_alloc_info_map);
 }
 
 } // namespace nvfuser
