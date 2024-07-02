@@ -38,8 +38,32 @@ constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
 // Note: Flash Attention is only supported on Ampere and above.
 
+auto addSdpaFwdOutputs = [](Fusion* fusion, SdpfaFwdResult output){
+  fusion->addOutput(output.output);
+  fusion->addOutput(output.log_sumexp);
+  fusion->addOutput(output.cum_seq_q);
+  fusion->addOutput(output.cum_seq_k);
+  fusion->addOutput(output.philox_seed);
+  fusion->addOutput(output.philox_offset);
+  fusion->addOutput(output.debug_attn_mask);
+};
+
+auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out, std::vector<at::Tensor> aten_out){
+  EXPECT_TRUE(at::allclose(nvf_out[0], aten_out[0]));
+  EXPECT_TRUE(at::allclose(nvf_out[1], aten_out[1]));
+  EXPECT_FALSE(nvf_out[2].defined());
+  EXPECT_FALSE(nvf_out[3].defined());
+  debug() << aten_out[4] << " " << nvf_out[4] << std::endl;
+  debug() << aten_out[5] << " " << nvf_out[5] << std::endl;
+  debug() << aten_out[6] << " " << nvf_out[6] << std::endl;
+  // EXPECT_TRUE(at::allclose(nvf_out[4], aten_out[4]));
+  // EXPECT_TRUE(at::allclose(nvf_out[5], aten_out[5]));
+  // EXPECT_TRUE(at::allclose(nvf_out[6], aten_out[6]));
+};
+
 TEST_F(SDPATest, NonCausalAttnConcrete) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
@@ -54,14 +78,14 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
   fusion->addInput(tvk);
   fusion->addInput(tvv);
 
-  auto tvattn = sdpfa_fwd(
+  auto output = sdpfa_fwd(
       tvq,
       tvk,
       tvv,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
-  fusion->addOutput(tvattn.output);
+  addSdpaFwdOutputs(fusion.get(), output);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
@@ -69,7 +93,15 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
   at::Tensor v = at::randn(v_shape, options);
 
   double scale = 1.0 / std::sqrt(e);
-  auto aten_outputs = at::_scaled_dot_product_flash_attention(
+  auto [attn,
+       log_sumexp,
+       cum_seq_q,
+       cum_seq_k,
+       query_seq_len,
+       key_seq_len,
+       philox_seed,
+       philox_offset,
+       debug_attn_mask] = at::_scaled_dot_product_flash_attention(
       q,
       k,
       v,
@@ -79,12 +111,14 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
       scale);
 
   FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs({q, k, v});
-  EXPECT_TRUE(at::allclose(out[0], std::get<0>(aten_outputs)));
+  auto nvf_out = fec.runFusionWithInputs({q, k, v});
+  validateSdpaFwdOutputs(nvf_out, std::vector({attn, log_sumexp, cum_seq_q, cum_seq_k, philox_seed, philox_offset, debug_attn_mask}));
 }
 
 TEST_F(SDPATest, NonCausalAttnSymbolic) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  at::manual_seed(123);
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
@@ -99,14 +133,14 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
   fusion->addInput(tvk);
   fusion->addInput(tvv);
 
-  auto tvattn = sdpfa_fwd(
+  auto output = sdpfa_fwd(
       tvq,
       tvk,
       tvv,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
-  fusion->addOutput(tvattn.output);
+  addSdpaFwdOutputs(fusion.get(), output);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
@@ -114,7 +148,15 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
   at::Tensor v = at::randn(v_shape, options);
 
   double scale = 1.0 / std::sqrt(e);
-  auto aten_outputs = at::_scaled_dot_product_flash_attention(
+  auto [attn,
+       log_sumexp,
+       cum_seq_q,
+       cum_seq_k,
+       query_seq_len,
+       key_seq_len,
+       philox_seed,
+       philox_offset,
+       debug_attn_mask] = at::_scaled_dot_product_flash_attention(
       q,
       k,
       v,
@@ -124,12 +166,14 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
       scale);
 
   FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs({q, k, v});
-  EXPECT_TRUE(at::allclose(out[0], std::get<0>(aten_outputs)));
+  auto nvf_out = fec.runFusionWithInputs({q, k, v});
+  validateSdpaFwdOutputs(nvf_out, std::vector({attn, log_sumexp, cum_seq_q, cum_seq_k, philox_seed, philox_offset, debug_attn_mask}));
 }
 
 TEST_F(SDPATest, CausalAttn) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  at::manual_seed(123);
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
@@ -144,21 +188,29 @@ TEST_F(SDPATest, CausalAttn) {
   fusion->addInput(tvk);
   fusion->addInput(tvv);
 
-  auto tvattn = sdpfa_fwd(
+  auto output = sdpfa_fwd(
       tvq,
       tvk,
       tvv,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/IrBuilder::create<Val>(1e-3));
-  fusion->addOutput(tvattn.output);
+  addSdpaFwdOutputs(fusion.get(), output);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
   at::Tensor k = at::randn(k_shape, options);
   at::Tensor v = at::randn(v_shape, options);
 
-  auto aten_outputs = at::_scaled_dot_product_flash_attention(
+  auto [attn,
+       log_sumexp,
+       cum_seq_q,
+       cum_seq_k,
+       query_seq_len,
+       key_seq_len,
+       philox_seed,
+       philox_offset,
+       debug_attn_mask] = at::_scaled_dot_product_flash_attention(
       q,
       k,
       v,
@@ -168,12 +220,14 @@ TEST_F(SDPATest, CausalAttn) {
       /*scale=*/1e-3);
 
   FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs({q, k, v});
-  EXPECT_TRUE(at::allclose(out[0], std::get<0>(aten_outputs)));
+  auto nvf_out = fec.runFusionWithInputs({q, k, v});
+  validateSdpaFwdOutputs(nvf_out, std::vector({attn, log_sumexp, cum_seq_q, cum_seq_k, philox_seed, philox_offset, debug_attn_mask}));
 }
 
 TEST_F(SDPATest, PairwiseRootDomainMap) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  at::manual_seed(123);
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
@@ -188,20 +242,20 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
   fusion->addInput(tvk);
   fusion->addInput(tvv);
 
-  auto tvattn = sdpfa_fwd(
+  auto output = sdpfa_fwd(
       tvq,
       tvk,
       tvv,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/IrBuilder::create<Val>(1e-3));
-  fusion->addOutput(tvattn.output);
+  addSdpaFwdOutputs(fusion.get(), output);
 
   // Verify mapping between Q,K,V and attention output
   std::vector<TensorView*> producer_tvs{tvq, tvk, tvv};
   for (auto role : {AttnRole::Q, AttnRole::K, AttnRole::V}) {
     auto producer_tv = producer_tvs[(int)role];
-    auto pairwise_map = PairwiseRootDomainMap(producer_tv, tvattn.output)
+    auto pairwise_map = PairwiseRootDomainMap(producer_tv, output.output)
                             .mapProducerToConsumer();
 
     auto mappingExists = [&pairwise_map](
@@ -213,19 +267,19 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
     // Mapping for N, H exists from Q/K/V to output.
     for (auto idx : c10::irange(2)) {
       EXPECT_TRUE(
-          mappingExists(producer_tv->axis(idx), tvattn.output->axis(idx)));
+          mappingExists(producer_tv->axis(idx), output.output->axis(idx)));
     }
     // Mapping for L exists between Q and output.
     if (role == AttnRole::Q) {
-      EXPECT_TRUE(mappingExists(producer_tv->axis(2), tvattn.output->axis(2)));
+      EXPECT_TRUE(mappingExists(producer_tv->axis(2), output.output->axis(2)));
     } else {
-      EXPECT_FALSE(mappingExists(producer_tv->axis(2), tvattn.output->axis(2)));
+      EXPECT_FALSE(mappingExists(producer_tv->axis(2), output.output->axis(2)));
     }
     // Mapping for Ev exists between V and output.
     if (role == AttnRole::V) {
-      EXPECT_TRUE(mappingExists(producer_tv->axis(3), tvattn.output->axis(3)));
+      EXPECT_TRUE(mappingExists(producer_tv->axis(3), output.output->axis(3)));
     } else {
-      EXPECT_FALSE(mappingExists(producer_tv->axis(3), tvattn.output->axis(3)));
+      EXPECT_FALSE(mappingExists(producer_tv->axis(3), output.output->axis(3)));
     }
   }
 }

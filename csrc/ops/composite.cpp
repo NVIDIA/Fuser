@@ -471,16 +471,19 @@ SdpfaFwdResult sdpfa_fwd(
 
   // Create a new Tensorview for cum_seq_q, cum_seq_k of shape (N + 1)
   auto newForCumulativeSeq = [&]() -> TensorView* {
-    IterDomain* batch_id = ops::newOutputIterDomain({query_domain.front()});
-    batch_id = IterDomain::resize(
+    IterDomain* batch_id = IterDomainBuilder(query_domain.front()).is_rfactor_domain(true).build();
+    IterDomain* resized_batch_id = IterDomain::resize(
         batch_id,
         IrBuilder::create<Val>(0, DataType::Index),
         IrBuilder::create<Val>(1, DataType::Index));
 
-    TensorDomain* batch_dom = IrBuilder::create<TensorDomain>(
-        std::vector({batch_id}),
-        TensorDomain::getContiguityFilledWith(std::vector({batch_id}), true));
-    return IrBuilder::create<TensorView>(batch_dom, DataType::Int);
+    return IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          std::vector({batch_id}),
+          std::vector({resized_batch_id}),
+          std::vector({resized_batch_id}),
+          TensorDomain::getContiguityFilledWith(std::vector({resized_batch_id}), true)),
+      DataType::Int);
   };
 
   TensorView* cum_seq_q = newForCumulativeSeq();
