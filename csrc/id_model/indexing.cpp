@@ -43,7 +43,7 @@ IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
   return loop_promotion_map_it->second;
 }
 
-// True if a given domain is a loop doamin of a given tensor and its
+// True if a given domain is a loop domain of a given tensor and its
 // loop is partitioned with respect to the memory type of the tensor
 bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
   // False if id is not a loop ID
@@ -59,12 +59,20 @@ bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
 }
 
 bool isSizeOneDomain(IterDomain* id) {
-  return id->isBroadcast() || id->isReduction() || id->extent()->isOneInt();
+  return id->isBroadcast() || id->extent()->isOneInt();
 }
 
 // True if a given domain of a tensor *may* require allocation
 bool mayRequireAllocation(TensorView* tv, IterDomain* id) {
-  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id);
+  // Conditions to consider:
+  // - Fully partitioned
+  // - Size one: Allocation is done based on the promotion ID, but as
+  // long as the original ID has size one, its allocation should
+  // remain size one.
+  // - Reduction: Check the original ID, not the promotion, which may
+  //   be a reduction ID even though the original ID is not a reduction
+  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
+      !id->isReduction();
 }
 
 // Get the allocation stride of a given allocation domain
@@ -139,6 +147,9 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     }
   }
 
+  std::vector<IterDomain*> promoted_allocation_domains;
+  promoted_allocation_domains.reserve(allocation_domains.size());
+
   // Loop promotion may affect allocations. Promotions of intermediate
   // domains may not be defined correctly. Only consider loop domains
   // for now.
@@ -147,10 +158,13 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
                        tv->getLoopDomain().begin(),
                        tv->getLoopDomain().end(),
                        allocation_domain) != tv->getLoopDomain().end();
-    if (!is_loop) {
-      continue;
+    IterDomain* promotion_domain = nullptr;
+    if (is_loop) {
+      promotion_domain = getLoopPromotion(allocation_domain, id_model);
+    } else {
+      promotion_domain = allocation_domain;
     }
-    allocation_domain = getLoopPromotion(allocation_domain, id_model);
+    promoted_allocation_domains.push_back(promotion_domain);
   }
 
   // Compute the strides from innermost to outermost domains
@@ -159,6 +173,7 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   for (const auto i : c10::irange(allocation_domains.size())) {
     auto dim = allocation_domains.size() - i - 1;
     auto allocation_domain = allocation_domains.at(dim);
+    auto promotion_domain = promoted_allocation_domains.at(dim);
 
     if (!mayRequireAllocation(tv, allocation_domain)) {
       continue;
@@ -172,13 +187,14 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     if (contig_flag.value()) {
       strides[dim] = cur_contig_stride;
       cur_contig_stride = SimplifyingIrBuilder::mulExpr(
-          allocation_domains.at(dim)->extent(), cur_contig_stride);
+          promotion_domain->extent(), cur_contig_stride);
     } else {
       // Assume that the tensor should always be a Global memory
       // tensor if it has non-contig allocation domains
       NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
       strides[dim] = getStrideOfGlobalMemoryTensor(tv, (int64_t)dim);
-      cur_contig_stride = strides[dim];
+      cur_contig_stride = SimplifyingIrBuilder::mulExpr(
+          strides[dim], promotion_domain->extent());
     }
   }
 
@@ -191,12 +207,13 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   std::vector<Val*> actual_strides;
   for (const auto i : c10::irange(allocation_domains.size())) {
     auto allocation_domain = allocation_domains.at(i);
+    auto promotion_domain = promoted_allocation_domains.at(i);
     if (!mayRequireAllocation(tv, allocation_domain)) {
       continue;
     }
     auto stride = strides.at(i);
     NVF_ERROR(stride != nullptr);
-    actual_allocation_domains.push_back(allocation_domain);
+    actual_allocation_domains.push_back(promotion_domain);
     actual_strides.push_back(stride);
   }
 
@@ -564,14 +581,6 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   IndexingInfo info{loop_domains, traversal_path, index_compute.indexMap()};
-
-  const auto& replacement_map =
-      getIndexReplacementMap(loop_domains, info.index_map);
-
-  for (auto& [k, v] : info.index_map) {
-    v = ir_utils::replaceValRecursively(v, replacement_map);
-  }
-
   return info;
 }
 

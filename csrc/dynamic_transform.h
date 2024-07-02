@@ -31,12 +31,6 @@ class DynamicTransformInitialInfoBuilder;
 //! sizes
 class DynamicTransformInitialInfo {
  public:
-  bool operator==(const DynamicTransformConcretizationInfo& other) const;
-
-  bool operator!=(const DynamicTransformConcretizationInfo& other) const {
-    return !(*this == other);
-  }
-
   Fusion* fusion() const {
     return fusion_;
   }
