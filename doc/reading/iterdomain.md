@@ -5,12 +5,12 @@
 Notation: $/$ is Euclidean division, $\lceil/\rceil d$ is ceil division.
 
 **Definition 1.1 (IterDomain Transformation)**:
-An *IterDomain transformation* of rank $(m, n)$ is a pair of two mappings $\langle\Z^{m}\to\Z^{n}, \Z^{m}\to\Z^{n}\rangle$,
+An *IterDomain transformation* of rank $(m, n)$ is a pair of two mappings $\langle\mathbb{Z}^{m}\to\mathbb{Z}^{n}, \mathbb{Z}^{m}\to\mathbb{Z}^{n}\rangle$,
 called extent mapping and index mapping.
 We use notation $t\langle E, I\rangle$ to denote an IterDomain transformation whose name is $t$, extent mapping is $E$ and index mapping is $I$.
 
 **Definition 1.1.1 (Inner Split)**:
-Given $d\in\Z$, a *inner split with factor $d$* is an IterDomain transformation of rank $(1, 2)$,
+Given $d\in\mathbb{Z}$, a *inner split with factor $d$* is an IterDomain transformation of rank $(1, 2)$,
 where the extent map is $i \to (i \lceil/\rceil d, d)$,
 and the index map is $i \to (i/d, i \mathbin{\\%} d)$.
 We use notation $\mathrm{InnerSplit}(d)$ to denote inner split.
@@ -32,7 +32,7 @@ For arbitrary three IterDomain transformations $t_1$, $t_2$ and $t_3$ of rank $(
 That is, the equivalence of IterDomain transformations is a equivalence relation mathematically.
 
 **Definition 1.3: (Embedding of IterDomain Transformation)**:
-Let $t_1\langle E, I\rangle$ be an IterDomain transformation of rank $(m, n)$, and $l, r \in \N$,
+Let $t_1\langle E, I\rangle$ be an IterDomain transformation of rank $(m, n)$, and $l, r \in \mathbb{N}$,
 an IterDomain transformation $t_2$ of rank $(l + m + r, l + n + r)$ is an embedding of $t_1$ on dimensions $l$ to $l + m - 1$
 if the extent mapping of $t_2$ is $(x_0, \ldots, x_{l + m + r - 1}) \to \left(x_0, \ldots, x_{l - 1}, E(x_l, \ldots, x_{l + m - 1}), x_{l + m}, \ldots, x_{l + m + r - 1}\right)$,
 and the index mapping of $t_2$ is $(x_0, \ldots, x_{l + m + r - 1}) \to \left(x_0, \ldots, x_{l - 1}, I(x_l, \ldots, x_{l + m - 1}), x_{l + m}, \ldots, x_{l + m + r - 1}\right)$.
@@ -50,7 +50,9 @@ The composition of $t_1$ with $t_2$, denoted as $t_2 \circ t_1$, is the IterDoma
 
 ## 2. Properties of IterDomain Transformations
 
-**Theorem 2.1 (Equivalence of Split-Split)**: Let $m, n \in \Z$, we have $\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n) = \mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)$. Visually, we have:
+**Theorem 2.1 (Equivalence of Split-Split)**: Let $m, n \in \mathbb{Z}$, we have $\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n) = \mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)$.
+Visually, we have:
+
 ![Equivalence of Split-Split](./iterdomain/split-split.svg)
 
 <details>
