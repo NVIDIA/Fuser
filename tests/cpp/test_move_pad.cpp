@@ -215,16 +215,16 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase1) {
   testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(MovePadTest, PadMerge) {
+TEST_F(MovePadTest, CascadePadCase0) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeContigConcreteTensor({4, 10});
   TensorView* tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L), IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
   TensorView* tv2 = pad(tv1, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(0L)});
-  TensorView* tv3 = pad(tv2, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)}, IrBuilder::create<Val>(0));
-  auto s4 = IrBuilder::create<Val>(4L);
-  auto s5 = IrBuilder::create<Val>(4L);
+  TensorView* tv3 = pad(tv2, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)}, IrBuilder::create<Val>(0.0));
+  auto s4 = IrBuilder::create<Val>(4.0);
+  auto s5 = IrBuilder::create<Val>(4.0);
   auto s6 = sub(s4, s5);
   TensorView* tv7 = pad(tv3, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)}, s6);
 
@@ -247,7 +247,7 @@ TEST_F(MovePadTest, PadMerge) {
   testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(MovePadTest, PadNotMerge) {
+TEST_F(MovePadTest, CascadePadCase1) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -271,6 +271,35 @@ TEST_F(MovePadTest, PadNotMerge) {
   std::vector<Expr*> exprs = complete_fusion->exprs();
   EXPECT_THAT(
       exprs, Contains(Property(&Expr::isA<PadOp>, IsTrue())).Times(2));
+
+  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(MovePadTest, CascadePadCase2) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigConcreteTensor({4, 10});
+  TensorView* tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L), IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
+  TensorView* tv2 = pad(tv1, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(0L)});
+  TensorView* tv3 = pad(tv2, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)}, IrBuilder::create<Val>(0.0));
+  auto s4 = IrBuilder::create<Val>(4.0);
+  auto s5 = IrBuilder::create<Val>(4.0);
+  auto s6 = sub(s4, s5);
+  TensorView* tv7 = pad(tv3, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)}, s6);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 10}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
 
   testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
 }

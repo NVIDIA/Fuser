@@ -381,39 +381,42 @@ void mergeNeighboringPad(Fusion* fusion) {
   // traverse in topo order. We'll merge current pad into its one and only
   // consumer pad so we don't have to worry about interfering the traversal.
   for (auto* producer : ir_utils::filterByType<PadOp>(exprs)) {
-    Val* pad_out = producer->out();
-    if (pad_out->uses().size() != 1 || !pad_out->uses()[0]->isA<PadOp>()) {
-      continue;
-    }
-    auto* consumer = pad_out->uses()[0]->as<PadOp>();
+    while (producer) {
+      Val* pad_out = producer->out();
+      if (pad_out->uses().size() != 1 || !pad_out->uses()[0]->isA<PadOp>()) {
+        break;
+      }
+      auto* consumer = pad_out->uses()[0]->as<PadOp>();
 
-    // only allow merge pad when pad value is the same.
-    if (simplifyExpr(SimplifyingIrBuilder::eqExpr(producer->value(), consumer->value()))->isFalse()) {
-      continue;
-    }
+      // only allow merge pad when pad value is the same.
+      if (simplifyExpr(SimplifyingIrBuilder::eqExpr(producer->value(), consumer->value()))->isFalse()) {
+        break;
+      }
 
-    const std::vector<Val*> p_pad_widths = producer->getPadWidths();
-    const std::vector<Val*> c_pad_widths = consumer->getPadWidths();
+      const std::vector<Val*> p_pad_widths = producer->getPadWidths();
+      const std::vector<Val*> c_pad_widths = consumer->getPadWidths();
 
-    // I think this should always hold, otherwise we can relax it and continue
-    // instead.
-    NVF_ERROR(
-        p_pad_widths.size() == c_pad_widths.size(),
-        "expect consecutive PadOp to have the same length of pad widths");
+      // I think this should always hold, otherwise we can relax it and continue
+      // instead.
+      NVF_ERROR(
+          p_pad_widths.size() == c_pad_widths.size(),
+          "expect consecutive PadOp to have the same length of pad widths");
 
-    // replay merged pad on producer input
-    TensorView* new_out = replayConcretePad(
-        producer->in()->as<TensorView>(),
-        producer->value(),
-        {producer->getPadWidths(), consumer->getPadWidths()},
-        TensorDomain::noReductions(
-            consumer->out()->as<TensorView>()->getLogicalDomain()));
+      // replay merged pad on producer input
+      TensorView* new_out = replayConcretePad(
+          producer->in()->as<TensorView>(),
+          producer->value(),
+          {producer->getPadWidths(), consumer->getPadWidths()},
+          TensorDomain::noReductions(
+              consumer->out()->as<TensorView>()->getLogicalDomain()));
 
-    // replace consumer pad with the merged pad.
-    ir_utils::replaceValue(
-        fusion, {{consumer->out(), static_cast<Val*>(new_out)}});
-    if (consumer->out()->isFusionOutput()) {
-      fusion->replaceOutput(consumer->out(), new_out);
+      // replace consumer pad with the merged pad.
+      ir_utils::replaceValue(
+          fusion, {{consumer->out(), static_cast<Val*>(new_out)}});
+      if (consumer->out()->isFusionOutput()) {
+        fusion->replaceOutput(consumer->out(), new_out);
+      }
+      producer = new_out->definition()->as<PadOp>();
     }
   }
 }
