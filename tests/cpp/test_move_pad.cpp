@@ -169,7 +169,7 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase0) {
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
-  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
@@ -247,7 +247,7 @@ TEST_F(MovePadTest, PadMerge) {
   testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(MovePadTest, PadMerge) {
+TEST_F(MovePadTest, PadNotMerge) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
