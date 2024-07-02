@@ -218,7 +218,7 @@ class AbstractTensorSchedule : public IterVisitor {
         // There are some uncomputed producer groups that might be computable,
         // so try again after processing those producer groups
         vg_stack.push(vg);
-        for (ValGroup next_vg : uncomputed_producer_groups) {
+        for (const ValGroup& next_vg : uncomputed_producer_groups) {
           vg_stack.push(next_vg);
         }
       }
