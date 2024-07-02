@@ -2597,7 +2597,8 @@ TEST_P(WelfordReduction, Test) {
   //       this.
   if (rdim > 32768 &&
       (dtype == DataType::Half || dtype == DataType::BFloat16)) {
-    GTEST_SKIP() << "Skipping large reduction dims (" << rdim << ") for half and bfloat16";
+    GTEST_SKIP() << "Skipping large reduction dims (" << rdim
+                 << ") for half and bfloat16";
   }
 
   maybeClearAllocator();
@@ -2695,16 +2696,19 @@ INSTANTIATE_TEST_SUITE_P(
         testing::ValuesIn(Pow2Vals1to1Million), // reduction dimension size
         testing::Values(160, 320), // iteration dimension size
         testing::Values(0, 1)), // reduction axis
-    [](const testing::TestParamInfo<WelfordReductionParams>& info)
-        -> std::string {
+    // when using structured bindings within TestParamInfo,
+    // parentheses are required to avoid compile errors,
+    // see https://github.com/google/googletest/issues/3848
+    ([](const testing::TestParamInfo<WelfordReductionParams>& info)
+         -> std::string {
       std::stringstream ss;
-      auto [dtype, rsize, isize, raxis] = info.param;
+      auto [dtype, rdim, odim, axis] = info.param;
       ss << "dtype_" << dtype;
-      ss << "_rsize_" << rsize;
-      ss << "_isize_" << isize;
-      ss << "_raxis_" << raxis;
+      ss << "_redu_" << rdim;
+      ss << "_iter_" << odim;
+      ss << "_axis_" << axis;
       return sanitizeTestName(ss.str());
-    });
+    }));
 
 namespace {
 void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {
