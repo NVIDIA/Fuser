@@ -89,6 +89,7 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
   // broadcast on non-pad dimension should propagate across binary operations
   TensorView* tv1_b = broadcast(tv1, {true, false});
   TensorView* tv2 = makeContigConcreteTensor({4, 5});
+  // tv1_b [bS, iS]. pad axes [1,] is not on broadcast dimension, we should be able to propagate pad
   TensorView* tv3 = add(tv0, tv1_b);
   TensorView* tv4 = cat({tv2, tv3}, /*dim=*/1);
 
@@ -128,6 +129,7 @@ TEST_F(MovePadTest, BinaryBroadcastOnCatDim) {
   TensorView* tv1 = makeContigConcreteTensor({10});
   TensorView* tv1_b = broadcast(tv1, {true, false});
   TensorView* tv2 = makeContigConcreteTensor({2, 10});
+  // tv1_b [bS, iS]. pad axes [0,] is includes broadcast dimension, pad propagation stops here
   TensorView* tv3 = add(tv0, tv1_b);
   TensorView* tv4 = cat({tv2, tv3}, /*dim=*/0);
 
@@ -189,7 +191,7 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase1) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* tv0 = makeContigConcreteTensor({1, 10});
+  TensorView* tv0 = makeContigConcreteTensor({4, 10});
   TensorView* tv1 = makeContigConcreteTensor({4, 10});
   // pad on tv4 will NOT propagation back to tv0, since there's one path
   //   tv0 --> tv6 = add(tv5, tv0)
@@ -206,7 +208,7 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase1) {
   fusion->addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({1, 10}, options);
+  at::Tensor t0 = at::randn({4, 10}, options);
   at::Tensor t1 = at::randn({4, 10}, options);
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 

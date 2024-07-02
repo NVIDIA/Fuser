@@ -378,8 +378,7 @@ void decomposeCatOp(Fusion* fusion) {
 
 void mergeNeighboringPad(Fusion* fusion) {
   std::vector<Expr*> exprs = fusion->exprs();
-  // traverse in topo order. We'll merge current pad into its one and only
-  // consumer pad so we don't have to worry about interfering the traversal.
+  // traverse in topo order. We'll merge neighboring pad and replace the uses of consumer pad with the merged producer. So it would not interfere traversal.
   for (auto* producer : ir_utils::filterByType<PadOp>(exprs)) {
     while (producer) {
       Val* pad_out = producer->out();
