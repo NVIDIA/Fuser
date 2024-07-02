@@ -20,7 +20,16 @@ HostIrExecutor::HostIrExecutor(
     HostIrExecutorParams params)
     : container_(std::move(container)),
       communicator_(communicator),
-      params_(params) {}
+      params_(params) {
+  auto device_index =
+      (communicator_ != nullptr && communicator_->is_available())
+      ? communicator_->deviceId()
+      : 0;
+  streams_.insert(
+      {container_->getDefaultStream(),
+       c10::cuda::getDefaultCUDAStream(
+           static_cast<c10::DeviceIndex>(device_index))});
+}
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {

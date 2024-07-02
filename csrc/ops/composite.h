@@ -99,4 +99,30 @@ SdpfaFwdResult sdpfa_fwd(
     Val* is_causal,
     Val* scale);
 
+// Scaled Dot Product Flash Attention Backward Result
+struct SdpfaBwdResult {
+  TensorView* grad_query = nullptr;
+  TensorView* grad_key = nullptr;
+  TensorView* grad_value = nullptr;
+};
+
+// Scaled Dot Product Flash Attention Backward API.
+// Returns the same output as at::_scaled_dot_product_flash_attention_backward
+SdpfaBwdResult sdpfa_bwd(
+    TensorView* grad_output,
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* output,
+    TensorView* log_sumexp,
+    TensorView* cum_seq_q,
+    TensorView* cum_seq_k,
+    Val* query_seq_len,
+    Val* key_seq_len,
+    Val* dropout_p,
+    Val* is_causal,
+    TensorView* philox_seed,
+    TensorView* philox_offset,
+    Val* scale);
+
 } // namespace nvfuser

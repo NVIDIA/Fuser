@@ -19,6 +19,13 @@ namespace nvfuser {
 
 namespace hir {
 
+Stream* HostIrContainer::getDefaultStream() {
+  if (!default_stream_) {
+    default_stream_ = IrBuilder::createInContainer<Stream>(this);
+  }
+  return default_stream_;
+}
+
 std::ostream& HostIrContainer::print(std::ostream& os) const {
   os << "\n%HostIrContainer {\n";
   IrMathPrinter op_exprs(os);
