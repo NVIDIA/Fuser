@@ -3442,7 +3442,7 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
   }
 }
 
-TEST_F(TensorFactoryTest, FullPad) {
+TEST_F(ResizeTest, PadDtypes) {
   auto sizes = {0, 10};
   auto dtypes = {
       at::kBool,
