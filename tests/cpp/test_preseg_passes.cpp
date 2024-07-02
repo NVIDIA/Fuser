@@ -631,4 +631,43 @@ TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
   testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+
+TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  TensorView* tv0 = makeContigTensor(2, DataType::Float);
+  TensorView* tv1 = makeContigTensor(2, DataType::Float);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Partial Reduction
+  TensorView* tv2 = sum(tv0, {1}, /*keepdim=*/false);
+  TensorView* tv3 = broadcast(tv2, {false, true});
+  TensorView* tv4 = cos(tv3);
+  fusion.addOutput(tv4);
+
+  // Full Amax Reduction
+  TensorView* tv5 = abs(tv4);
+  TensorView* tv6 = max(tv5, {0, 1}, /*keepdim=*/true);
+
+  // Amax Aliased Output
+  fusion.aliasOutputToInput(tv6, tv1, AllocationType::ReuseBuffer);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor x = at::randn({512, 12288}, options);
+  at::Tensor fp8_amax_history = at::zeros({1, 1}, options);
+  std::vector<c10::IValue> aten_inputs = {x, fp8_amax_history};
+
+  at::Tensor at_t1 = at::sum(x, {1}, /*keepdim*/true);
+  at::Tensor at_t2 = at::cos(at_t1);
+  at::Tensor at_t3 = at::abs(at_t2);
+  at::Tensor at_t4 = at::max(at_t3);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs(aten_inputs);
+  testValidate(fec.fusion(), out_tensors, aten_inputs, {at_t2}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser::preseg_passes
