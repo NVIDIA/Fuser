@@ -665,9 +665,16 @@ TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
   at::Tensor at_t3 = at::abs(at_t2);
   at::Tensor at_t4 = at::max(at_t3);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs(aten_inputs);
-  testValidate(fec.fusion(), out_tensors, aten_inputs, {at_t2}, __LINE__, __FILE__);
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  EXPECT_EQ(preseg_fusion->outputs().size(), 2);
+
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  testValidate(preseg_fusion, outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser::preseg_passes
