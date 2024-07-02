@@ -2121,7 +2121,6 @@ kir::TensorIndex* Index::getProducerIndex(
           IrBuilder::baseAddressExpr(producer), address_offset);
     }
   } else {
-    std::cerr << "Not using the new indexer for getProducerIndex\n";
     index = getProducerStridedIndices(
         producer,
         consumer,
