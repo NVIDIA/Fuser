@@ -50,7 +50,7 @@ The composition of $t_1$ with $t_2$, denoted as $t_2 \circ t_1$, is the IterDoma
 
 ## 2. Properties of IterDomain Transformations
 
-**Theorem 2.1 (Equivalence of Split-Split)**: Let $m, n \in \mathbb{Z}$, we have
+**Theorem 2.1 (Equivalence of Split-Split)**: Let $m, n \in \mathbb{Z}$, we have:
 $$\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n) = \mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)$$
 
 Visually, we have:
@@ -86,8 +86,6 @@ $$i \mathbin{\\%} (m\cdot n) / n = (i / n) \mathbin{\\%} m$$
 
 According to Theorem 2.7.1 in [Integer Division](../math/integer-division.md):
 $$i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n = i \mathbin{\\%} n$$
-
-According to TODO: $i \mathbin{\\%} n = i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n$
 
 $\square$
 
