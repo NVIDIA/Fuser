@@ -198,10 +198,11 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase1) {
   TensorView* tv3 = neg(tv0);
   TensorView* tv4 = add(tv2, tv3);
   TensorView* tv5 = cat({tv4, tv1}, /*dim=*/0);
-  TensorView* tv6 = add(tv5, tv0);
+  TensorView* tv6 = sin(tv0);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
+  fusion->addOutput(tv5);
   fusion->addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
