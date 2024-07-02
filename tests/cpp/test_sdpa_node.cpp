@@ -48,17 +48,25 @@ auto addSdpaFwdOutputs = [](Fusion* fusion, SdpfaFwdResult output){
   fusion->addOutput(output.debug_attn_mask);
 };
 
-auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out, std::vector<at::Tensor> aten_out){
-  EXPECT_TRUE(at::allclose(nvf_out[0], aten_out[0]));
-  EXPECT_TRUE(at::allclose(nvf_out[1], aten_out[1]));
+using AtenSdpaOut = std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, c10::SymInt, c10::SymInt, at::Tensor, at::Tensor, at::Tensor>;
+auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out, AtenSdpaOut aten_out){
+  auto [attn,
+       log_sumexp,
+       cum_seq_q,
+       cum_seq_k,
+       query_seq_len,
+       key_seq_len,
+       philox_seed,
+       philox_offset,
+       debug_attn_mask] = aten_out;
+  // nvf_out = {attn, log_sumexp, cum_seq_q, cum_seq_k, philox_seed, philox_offset, debug_attn_mask}
+  // Since, dropout_p = 0.0 to validate outputs, philox_seed and philox_offset are uninitialized empty tensors with garbage values for this case, so we skip validating those values.
+  // TODO: Validate query_seq_len/key_seq_len once scalar fusion outputs are supported.
+  EXPECT_TRUE(at::allclose(nvf_out[0], attn));
+  EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
   EXPECT_FALSE(nvf_out[2].defined());
   EXPECT_FALSE(nvf_out[3].defined());
-  debug() << aten_out[4] << " " << nvf_out[4] << std::endl;
-  debug() << aten_out[5] << " " << nvf_out[5] << std::endl;
-  debug() << aten_out[6] << " " << nvf_out[6] << std::endl;
-  // EXPECT_TRUE(at::allclose(nvf_out[4], aten_out[4]));
-  // EXPECT_TRUE(at::allclose(nvf_out[5], aten_out[5]));
-  // EXPECT_TRUE(at::allclose(nvf_out[6], aten_out[6]));
+  EXPECT_TRUE(at::equal(nvf_out[6], debug_attn_mask));
 };
 
 TEST_F(SDPATest, NonCausalAttnConcrete) {
@@ -93,15 +101,7 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
   at::Tensor v = at::randn(v_shape, options);
 
   double scale = 1.0 / std::sqrt(e);
-  auto [attn,
-       log_sumexp,
-       cum_seq_q,
-       cum_seq_k,
-       query_seq_len,
-       key_seq_len,
-       philox_seed,
-       philox_offset,
-       debug_attn_mask] = at::_scaled_dot_product_flash_attention(
+  auto aten_out = at::_scaled_dot_product_flash_attention(
       q,
       k,
       v,
@@ -112,12 +112,11 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
 
   FusionExecutorCache fec(std::move(fusion));
   auto nvf_out = fec.runFusionWithInputs({q, k, v});
-  validateSdpaFwdOutputs(nvf_out, std::vector({attn, log_sumexp, cum_seq_q, cum_seq_k, philox_seed, philox_offset, debug_attn_mask}));
+  validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
 TEST_F(SDPATest, NonCausalAttnSymbolic) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
-  at::manual_seed(123);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -148,15 +147,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
   at::Tensor v = at::randn(v_shape, options);
 
   double scale = 1.0 / std::sqrt(e);
-  auto [attn,
-       log_sumexp,
-       cum_seq_q,
-       cum_seq_k,
-       query_seq_len,
-       key_seq_len,
-       philox_seed,
-       philox_offset,
-       debug_attn_mask] = at::_scaled_dot_product_flash_attention(
+  auto aten_out = at::_scaled_dot_product_flash_attention(
       q,
       k,
       v,
@@ -167,12 +158,11 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
 
   FusionExecutorCache fec(std::move(fusion));
   auto nvf_out = fec.runFusionWithInputs({q, k, v});
-  validateSdpaFwdOutputs(nvf_out, std::vector({attn, log_sumexp, cum_seq_q, cum_seq_k, philox_seed, philox_offset, debug_attn_mask}));
+  validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
 TEST_F(SDPATest, CausalAttn) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
-  at::manual_seed(123);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -202,15 +192,7 @@ TEST_F(SDPATest, CausalAttn) {
   at::Tensor k = at::randn(k_shape, options);
   at::Tensor v = at::randn(v_shape, options);
 
-  auto [attn,
-       log_sumexp,
-       cum_seq_q,
-       cum_seq_k,
-       query_seq_len,
-       key_seq_len,
-       philox_seed,
-       philox_offset,
-       debug_attn_mask] = at::_scaled_dot_product_flash_attention(
+  auto aten_out = at::_scaled_dot_product_flash_attention(
       q,
       k,
       v,
@@ -221,12 +203,11 @@ TEST_F(SDPATest, CausalAttn) {
 
   FusionExecutorCache fec(std::move(fusion));
   auto nvf_out = fec.runFusionWithInputs({q, k, v});
-  validateSdpaFwdOutputs(nvf_out, std::vector({attn, log_sumexp, cum_seq_q, cum_seq_k, philox_seed, philox_offset, debug_attn_mask}));
+  validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
 TEST_F(SDPATest, PairwiseRootDomainMap) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
-  at::manual_seed(123);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
