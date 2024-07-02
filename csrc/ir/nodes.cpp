@@ -3972,7 +3972,8 @@ std::vector<PolymorphicValue> PadOp::evaluate(
   }
 
   if (isComplexType(*out()->getDataType())) {
-    std::complex<double> value = static_cast<std::complex<double>>(inputs.at(1));
+    std::complex<double> value =
+        static_cast<std::complex<double>>(inputs.at(1));
     auto real = at::real(in);
     auto imag = at::imag(in);
     auto padded_real = at::pad(real, pad_widths, "constant", value.real());
