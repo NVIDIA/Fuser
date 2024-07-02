@@ -52,6 +52,7 @@ The composition of $t_1$ with $t_2$, denoted as $t_2 \circ t_1$, is the IterDoma
 
 **Theorem 2.1 (Equivalence of Split-Split)**: Let $m, n \in \mathbb{Z}$, we have
 $$\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n) = \mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)$$
+
 Visually, we have:
 
 ![Equivalence of Split-Split](./iterdomain/split-split.svg)
