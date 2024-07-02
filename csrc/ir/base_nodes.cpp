@@ -227,7 +227,6 @@ bool Val::isZeroInt() const {
 }
 
 bool Val::isOne() const {
-  // NOTE: does this work for complex?!
   return value().hasValue() && (bool)(value() == 1.0);
 }
 
