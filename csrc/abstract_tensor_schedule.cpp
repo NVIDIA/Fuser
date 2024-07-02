@@ -37,8 +37,10 @@ class AbstractTensorSchedule : public IterVisitor {
     for (const AbstractId& abs_id : abstract_.domain) {
       IterDomain* new_id = replayAbstractId(abs_id);
       if (new_id == nullptr) {
+        std::cout << "new_id = nullptr" << std::endl;
         continue;
       }
+      std::cout << "new_id = " << new_id->toString() << std::endl;
       loop_domain.push_back(new_id);
     }
 
@@ -117,7 +119,109 @@ class AbstractTensorSchedule : public IterVisitor {
         abs_id.is<ValGroupAndItsGraph>(),
         "abstract must contain only ValGroups");
     ValGroup g = abs_id.as<ValGroupAndItsGraph>().group;
-    return nullptr;
+    ValGraph* graph = abs_id.as<ValGroupAndItsGraph>().graph;
+
+    // This holds ValGroups that we cannot compute from concrete_'s root. When
+    // we detect that any inputs of an ExprGroup are in these groups, we know
+    // that we cannot compute that ExprGroup so we should skip it.
+    std::unordered_set<ValGroup> uncomputable_groups;
+
+    std::stack<ValGroup> vg_stack({g});
+    // Strategy: fill out concrete_ids_ in the direction of g
+    auto propagate = [&](ValGroup vg) {
+      // We need to try and produce an ID for this group, so we look at
+      // definitions for the Vals in this group and check whether we have their
+      // inputs computed yet (concrete_ids_) and whether they can be computed
+      // (uncomputable_groups).
+      std::vector<ValGroup> uncomputed_producer_groups;
+      for (const ExprGroup& eg : graph->getDefinitions(vg)) {
+        for (Expr* e : *eg) {
+          std::vector<ValGroup> vg_inps;
+          std::vector<IterDomain*> id_inps;
+          bool all_inputs_computed = true;
+          for (Val* inp : e->inputs()) {
+            ValGroup vg_inp = graph->toGroup(inp);
+            vg_inps.push_back(vg_inp);
+            auto inp_it = concrete_ids_.find(vg_inp);
+            if (inp_it != concrete_ids_.end()) {
+              id_inps.push_back(inp_it->second);
+            } else {
+              all_inputs_computed = false;
+              if (uncomputable_groups.count(vg_inp) == 0) {
+                // Input is not yet proven to be incomputable, so try and
+                // compute it in the next iteration
+                uncomputed_producer_groups.push_back(vg_inp);
+              }
+            }
+          }
+          // some input is not yet computed
+          if (!all_inputs_computed) {
+            continue;
+          }
+          // Compute new ID expression
+          Expr* id_expr = nullptr;
+          if (auto* m = dynamic_cast<Merge*>(e)) {
+            NVF_ERROR(id_inps.size() == 2);
+            auto* new_id = IterDomain::merge(id_inps[0], id_inps[1]);
+            id_expr = new_id->definition();
+          } else if (auto* s = dynamic_cast<Split*>(e)) {
+            NVF_ERROR(id_inps.size() == 1);
+            auto new_ids =
+                IterDomain::split(id_inps[0], s->factor(), s->innerSplit());
+            id_expr = new_ids.first->definition();
+          } else if (auto* s = dynamic_cast<Swizzle*>(e)) {
+            NVF_ERROR(id_inps.size() == 2);
+            auto new_ids =
+                IterDomain::swizzle(s->swizzleType(), id_inps[0], id_inps[1]);
+            id_expr = new_ids.first->definition();
+          } else if (auto* s = dynamic_cast<Swizzle2D*>(e)) {
+            NVF_ERROR(id_inps.size() == 2);
+            auto new_ids = IterDomain::swizzle(
+                s->swizzleType(), id_inps[0], id_inps[1], s->swizzleMode());
+            id_expr = new_ids.first->definition();
+          } else {
+            NVF_ERROR(false, "Unhandled IterDomain expression ", e->toString());
+          }
+          // Update the mapping to point to all of the newly created Expr's
+          // outputs
+          NVF_ERROR(id_expr != nullptr);
+          NVF_ERROR(id_expr->outputs().size() == e->outputs().size());
+          for (size_t i : c10::irange(e->outputs().size())) {
+            ValGroup vg_outp = graph->toGroup(e->output((int64_t)i));
+            auto* id_outp = id_expr->output((int64_t)i)->as<IterDomain>();
+            concrete_ids_.emplace(vg_outp, id_outp);
+          }
+        }
+      }
+      if (uncomputed_producer_groups.empty()) {
+        // All of the defining expressions are proven uncomputable, so mark vg
+        // uncomputable
+        uncomputable_groups.insert(vg);
+        return;
+      } else {
+        // There are some uncomputed producer groups that might be computable,
+        // so try again after processing those producer groups
+        vg_stack.push(vg);
+        for (ValGroup next_vg : uncomputed_producer_groups) {
+          vg_stack.push(next_vg);
+        }
+      }
+    };
+
+    while (!vg_stack.empty()) {
+      ValGroup vg = vg_stack.top();
+      vg_stack.pop();
+      if (concrete_ids_.count(vg) != 0) {
+        continue;
+      }
+      propagate(vg);
+    }
+
+    // Now check whether there is a concrete entry for abs_id (i.e. g). If not,
+    // that means this dimension is missing and should not be included in the
+    // loop domain, so return nullptr.
+    auto it = concrete_ids_.find(g);
+    return it == concrete_ids_.end() ? nullptr : it->second;
   }
 
  private:
@@ -133,101 +237,6 @@ void applyAbstractSchedule(
     const AbstractTensor& abstract,
     TensorView* concrete) {
   AbstractTensorSchedule::apply(abstract, concrete);
-  /*
-  if (concrete->nDims() == 0) {
-    return;
-  }
-
-  VectorOfUniqueEntries<ValGroup> concrete_loop, abstract_loop;
-
-  ValGraph* graph = nullptr;
-  for (const AbstractId& abs_id : abstract.domain) {
-    NVF_ERROR(abs_id.is<ValGroupAndItsGraph>());
-    ValGroupAndItsGraph gg(abs_id.as<ValGroupAndItsGraph>());
-    abstract_loop.pushBack(gg.group);
-    if (graph == nullptr) {
-      graph = gg.graph;
-    } else {
-      NVF_ERROR(graph == gg.graph);
-    }
-  }
-
-  // Mapping from ValGroups to IterDomains corresponding to concrete
-  std::unordered_map<ValGroup, IterDomain*> concrete_iter_map;
-
-  NVF_ERROR(abstract.size() > 0);
-  for (IterDomain* id : concrete->getLoopDomain()) {
-    ValGroup g = graph->toGroup(id);
-    concrete_loop.pushBack(g);
-    concrete_iter_map.emplace(g, id);
-  }
-
-  for (auto [eg, dir] :
-       ValGraphBFS::getExprsBetween(graph, concrete_loop, abstract_loop)) {
-    NVF_ERROR(
-        dir == Direction::Forward,
-        "Only forward paths are allowed between concrete and abstract");
-    NVF_ERROR(!eg->empty());
-    if (auto s = dynamic_cast<Split*>(eg->front())) {
-      ValGroup g_in = graph->toGroup(s->in());
-      ValGroup g_outer = graph->toGroup(s->outer());
-      ValGroup g_inner = graph->toGroup(s->inner());
-
-      auto it = concrete_iter_map.find(g_in);
-      if (it == concrete_iter_map.end()) {
-        continue;
-      }
-      IterDomain* id_in = it->second;
-
-      auto [id_outer, id_inner] = IterDomain::split(id_in, s->factor(),
-  s->innerSplit());
-
-      concrete_iter_map.emplace(g_outer, id_outer);
-      concrete_iter_map.emplace(g_inner, id_inner);
-    } else if (auto m = dynamic_cast<Merge*>(eg->front())) {
-      ValGroup g_outer = graph->toGroup(m->outer());
-      ValGroup g_inner = graph->toGroup(m->inner());
-      ValGroup g_out = graph->toGroup(m->out());
-
-      auto it = concrete_iter_map.find(g_outer);
-      if (it == concrete_iter_map.end()) {
-        continue;
-      }
-      IterDomain* id_outer = it->second;
-      it = concrete_iter_map.find(g_inner);
-      if (it == concrete_iter_map.end()) {
-        continue;
-      }
-      IterDomain* id_inner = it->second;
-
-      IterDomain* id_out = IterDomain::merge(id_outer, id_inner);
-
-      concrete_iter_map.emplace(g_out, id_out);
-    } else if (auto s = dynamic_cast<Swizzle*>(eg->front())) {
-      NVF_ERROR(
-          false,
-          "Expr ",
-          s->toString(),
-          " not yet handled in applyAbstractSchedule");
-    } else if (auto s = dynamic_cast<Swizzle2D*>(eg->front())) {
-      NVF_ERROR(
-          false,
-          "Expr ",
-          s->toString(),
-          " not yet handled in applyAbstractSchedule");
-    }
-  }
-
-  // Now create loop domain using concrete_iter_map
-  std::vector<IterDomain*> new_loop;
-  for (AbstractId abs_id : abstract.domain) {
-    auto it = concrete_iter_map.find(abs_id.as<ValGroupAndItsGraph>().group);
-    if (it != concrete_iter_map.end()) {
-      new_loop.push_back(it->second);
-    }
-  }
-  concrete->setLoopDomain(new_loop);
-  */
 }
 
 } // namespace nvfuser
