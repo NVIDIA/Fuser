@@ -740,9 +740,14 @@ std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   const auto& logical_domain = tv->getLogicalDomain();
   const auto& loop_domain = tv->getLoopDomain();
   const auto& alloc_domain = tv->getAllocationDomain();
+  const auto& additional_ids = tv->domain()->additionalIDs();
 
-  std::array<const std::vector<IterDomain*>*, 4> domains{
-      &root_domain, &logical_domain, &loop_domain, &alloc_domain};
+  std::array<const std::vector<IterDomain*>*, 5> domains{
+      &root_domain,
+      &logical_domain,
+      &loop_domain,
+      &alloc_domain,
+      &additional_ids};
 
   for (auto dom0 : domains) {
     if (dom0->empty()) {
@@ -755,6 +760,14 @@ std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
       auto all_vals_01 = DependencyCheck::getAllValsBetween(
           {dom0->begin(), dom0->end()}, {dom1->begin(), dom1->end()});
       all_vals.pushBack(all_vals_01);
+      // Getting all vals is not sufficient, because there might be broadcasting
+      // IDs newly created during schedule.
+      auto all_exprs = DependencyCheck::getAllExprsBetween(
+          {dom0->begin(), dom0->end()}, {dom1->begin(), dom1->end()});
+      for (auto expr : all_exprs) {
+        all_vals.pushBack(expr->inputs());
+        all_vals.pushBack(expr->outputs());
+      }
     }
   }
 
@@ -884,21 +897,22 @@ void validateDomainEquivalence(
       from = expr->outputs();
       to = expr->inputs();
     }
-    for (auto id : to) {
+    for (auto v : to) {
       NVF_ERROR(
-          frontier.insert(id).second,
+          frontier.insert(v).second,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Output should just show up once: ",
-          id->toString());
+          v->toString());
     }
-    for (auto id : from) {
+    for (auto v : from) {
+      bool ignorable = v->as<IterDomain>()->isBroadcast();
       NVF_ERROR(
-          frontier.erase(id) == 1,
+          frontier.erase(v) == 1 || ignorable,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Input not seen before: ",
-          id->toString());
+          v->toString());
     }
   };
   for (Expr* expr : forward_exprs) {

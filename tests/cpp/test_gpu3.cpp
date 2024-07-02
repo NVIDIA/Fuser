@@ -8303,6 +8303,127 @@ TEST_F(NVFuserTest, DecoupledDomains) {
   EXPECT_EQ(tv_all, all_ids);
 }
 
+TEST_F(NVFuserTest, BroadcastFromNowhere) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto expect_eq = [&](const std::unordered_set<IterDomain*>& a,
+                       const std::vector<IterDomain*>& b) {
+    std::unordered_set<IterDomain*> bb(b.begin(), b.end());
+    EXPECT_EQ(a, bb);
+  };
+
+  std::unordered_set<IterDomain*> all_ids;
+  auto tv0 = makeSymbolicTensor(1);
+  all_ids.insert(tv0->axis(0));
+  expect_eq(all_ids, tv0->getLoopDomain());
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->broadcast(0);
+  EXPECT_TRUE(tv0->axis(0)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(0)), 0);
+  all_ids.insert(tv0->axis(0));
+  expect_eq(all_ids, tv0->getLoopDomain());
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->broadcast(2);
+  EXPECT_TRUE(tv0->axis(2)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(2)), 0);
+  all_ids.insert(tv0->axis(2));
+  expect_eq(all_ids, tv0->getLoopDomain());
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->broadcast(-1);
+  EXPECT_TRUE(tv0->axis(3)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(3)), 0);
+  all_ids.insert(tv0->axis(3));
+  expect_eq(all_ids, tv0->getLoopDomain());
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->broadcast(1);
+  EXPECT_TRUE(tv0->axis(1)->isBroadcast());
+  EXPECT_EQ(all_ids.count(tv0->axis(1)), 0);
+  all_ids.insert(tv0->axis(1));
+  expect_eq(all_ids, tv0->getLoopDomain());
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->merge(1);
+  all_ids.insert(tv0->axis(1));
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  tv0->merge(2);
+  EXPECT_TRUE(tv0->axis(2)->isBroadcast());
+  all_ids.insert(tv0->axis(2));
+  expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+
+  while (tv0->nDims() > 1) {
+    tv0->merge(0);
+    all_ids.insert(tv0->axis(0));
+    expect_eq(all_ids, ir_utils::allIDsOf(tv0));
+  }
+
+  auto tv1 = makeSymbolicTensor(0);
+  EXPECT_EQ(tv1->nDims(), 0);
+  expect_eq({}, tv1->getLoopDomain());
+  expect_eq({}, ir_utils::allIDsOf(tv1));
+
+  tv1->broadcast(0);
+  EXPECT_TRUE(tv1->axis(0)->isBroadcast());
+  expect_eq({tv1->axis(0)}, ir_utils::allIDsOf(tv1));
+
+  auto tv2 = makeSymbolicTensor(0);
+  EXPECT_EQ(tv2->nDims(), 0);
+  expect_eq({}, tv2->getLoopDomain());
+  expect_eq({}, ir_utils::allIDsOf(tv2));
+
+  tv2->broadcast(-1);
+  EXPECT_TRUE(tv2->axis(0)->isBroadcast());
+  expect_eq({tv2->axis(0)}, ir_utils::allIDsOf(tv2));
+}
+
+TEST_F(NVFuserTest, BroadcastFromNowhereFusion) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeConcreteTensor({4});
+  fusion.addInput(tv0);
+  // auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeConcreteTensor({2, 4});
+  fusion.addInput(tv1);
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+  tv2->broadcast(0);
+  for (auto tv : {tv1, tv2, tv3, tv4}) {
+    tv->merge(0);
+    tv->split(0, 256);
+#if 0
+    // TODO: sync analysis could not handle this yet
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+#endif
+  }
+
+#if 0
+  // TODO: Inlining not supported yet
+  inlineMost();
+  for (auto tv : {tv1, tv2, tv3}) {
+    EXPECT_EQ(tv->getComputeAtPosition(), 2);
+  }
+#endif
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // TODO: use larger tensor size
+  at::Tensor t0 = at::randn({4}, options);
+  at::Tensor t1 = at::randn({2, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0, t1});
+  auto cg_outputs = fe.runFusion({t0, t1});
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
