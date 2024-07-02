@@ -3474,7 +3474,8 @@ TEST_F(TensorFactoryTest, FullPad) {
     std::cout << "dtype: " << pad_value->getDataType().value() << std::endl;
     std::cout << "iszeor: " << pad_value->isZero() << std::endl;
 
-    NVF_ERROR(pad_value->isZero(), "default pad value should be zero");
+    EXPECT_TRUE(pad_value->isZero());
+    EXPECT_FALSE(pad_value->isOne());
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
