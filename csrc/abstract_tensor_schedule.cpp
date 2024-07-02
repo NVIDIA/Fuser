@@ -16,7 +16,7 @@ namespace nvfuser {
 
 namespace {
 
-class AbstractTensorSchedule : public IterVisitor {
+class AbstractTensorSchedule {
  public:
   static void apply(
       const AbstractTensor& abstract,
