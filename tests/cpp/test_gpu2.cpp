@@ -2597,7 +2597,7 @@ TEST_P(WelfordReduction, Test) {
   //       this.
   if (rdim > 32768 &&
       (dtype == DataType::Half || dtype == DataType::BFloat16)) {
-    GTEST_SKIP() << "Skipping large reduction dims for half and bfloat16";
+    GTEST_SKIP() << "Skipping large reduction dims (" << rdim << ") for half and bfloat16";
   }
 
   maybeClearAllocator();
