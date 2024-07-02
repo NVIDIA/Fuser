@@ -2698,10 +2698,11 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<WelfordReductionParams>& info)
         -> std::string {
       std::stringstream ss;
-      ss << "dtype_" << std::get<0>(info.param);
-      ss << "_rsize_" << std::get<1>(info.param);
-      ss << "_isize_" << std::get<2>(info.param);
-      ss << "_raxis_" << std::get<3>(info.param);
+      auto [dtype, rsize, isize, raxis] = info.param;
+      ss << "dtype_" << dtype;
+      ss << "_rsize_" << rsize;
+      ss << "_isize_" << isize;
+      ss << "_raxis_" << raxis;
       return sanitizeTestName(ss.str());
     });
 
