@@ -744,7 +744,7 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
   abten.domain.reserve(3);
   const auto addAbstractAxis = [&abten, &graph](IterDomain* id) {
     ValGroup g = graph.toGroup(id);
-    abten.domain.push_back(ValGroupAndItsGraph{g, &graph});
+    abten.domain.emplace_back(ValGroupAndItsGraph{g, &graph});
   };
   addAbstractAxis(tv2->axis(0));
   addAbstractAxis(tv1->axis(0));
