@@ -11,6 +11,8 @@
 #include <tests/cpp/utils.h>
 
 #include <abstract_tensor.h>
+#include <abstract_tensor_schedule.h>
+#include <ops/arith.h>
 
 namespace nvfuser {
 
@@ -710,6 +712,50 @@ TEST_F(AbstractTensorTest, UnzipBroadcasting) {
   AbstractTensor expect1{id0, id2};
   EXPECT_EQ(ub[0], expect0);
   EXPECT_EQ(ub[1], expect1);
+}
+
+TEST_F(AbstractTensorTest, TestApplyScheduling) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  auto tv1 = makeSymbolicTensor(1);
+  auto tv2 = makeSymbolicTensor(2);
+  auto tv3 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+  fusion.addInput(tv3);
+
+  // This fusion does not have a reference tensor
+  auto tv4 = broadcast(tv0, {false, true});
+  auto tv5 = mul(tv4, tv2);
+  auto tv6 = broadcast(tv1, {true, false});
+  auto tv7 = mul(tv6, tv3);
+
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv7);
+
+  IdModel id_model(&fusion);
+  ValGraph& graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+  AbstractTensor abten;
+
+  abten.domain.reserve(3);
+  const auto addAbstractAxis = [&abten, &graph](IterDomain* id) {
+    ValGroup g = graph.toGroup(id);
+    abten.domain.push_back(ValGroupAndItsGraph{g, &graph});
+  };
+  addAbstractAxis(tv1->axis(0));
+  addAbstractAxis(tv0->axis(0));
+  addAbstractAxis(tv2->axis(1));
+
+  abten.merge(0);
+  abten.merge(0);
+  abten.split(0, 128);
+
+  for (TensorView* tv : {tv2, tv3}) {
+    applyAbstractSchedule(abten, tv);
+  }
 }
 
 } // namespace nvfuser
