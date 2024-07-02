@@ -186,10 +186,15 @@ bool findReductionDefinition(TensorView* tv, BinaryOpType op_type) {
 // Detect amax pattern using a state machine.
 //
 // Start -> Cast
+// Start -> Broadcast
 // Start -> MaxReduction
 // Start -> Fail
 //
+// Broadcast -> MaxReduction
+// Broadcast -> Fail
+//
 // Cast -> MaxReduction
+// Cast -> Broadcast
 // Cast -> Fail
 //
 // Max_Reduction -> Success
@@ -198,7 +203,7 @@ bool findReductionDefinition(TensorView* tv, BinaryOpType op_type) {
 // Fail -> Return nullptr
 // Success -> Return reduction TensorView
 TensorView* detectAmaxPattern(TensorView* tv) {
-  enum { Start, Cast, MaxReduction } state = Start;
+  enum { Start, Broadcast, Cast, MaxReduction } state = Start;
 
   TensorView* max_reduction_tv = nullptr;
   TensorView* current_tv = tv;
@@ -221,8 +226,31 @@ TensorView* detectAmaxPattern(TensorView* tv) {
           current_tv = current_tv->definition()->input(0)->as<TensorView>();
           state = MaxReduction;
           break;
-        }
+        } else if (tv->definition()->isA<BroadcastOp>()) {
+          std::cout << " to bcast" << std::endl;
+          // Move state from Start to Broadcast if we have a Broadcast definition
+          current_tv = current_tv->definition()->input(0)->as<TensorView>();
+          state = Broadcast;
+	  break;
+	}
         // Otherwise, move state from Start to Fail
+        std::cout << " to fail" << std::endl;
+        current_tv = nullptr;
+        max_reduction_tv = nullptr;
+        break;
+      }
+      case Broadcast: {
+        std::cout << "from broadcast" << std::endl;
+        if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
+          // Move state from Broadcast to MaxReduction if we have a Max reduction
+          // definition
+          std::cout << " to max-red" << std::endl;
+          max_reduction_tv = current_tv;
+          current_tv = current_tv->definition()->input(0)->as<TensorView>();
+          state = MaxReduction;
+          break;
+        }
+        // Otherwise, move state from Broadcast to Fail
         std::cout << " to fail" << std::endl;
         current_tv = nullptr;
         max_reduction_tv = nullptr;
@@ -238,7 +266,13 @@ TensorView* detectAmaxPattern(TensorView* tv) {
           current_tv = current_tv->definition()->input(0)->as<TensorView>();
           state = MaxReduction;
           break;
-        }
+        } else if (tv->definition()->isA<BroadcastOp>()) {
+          std::cout << " to bcast" << std::endl;
+          // Move state from Start to Broadcast if we have a Broadcast definition
+          current_tv = current_tv->definition()->input(0)->as<TensorView>();
+          state = Broadcast;
+	  break;
+	}
         // Otherwise, move state from Cast to Fail
         std::cout << " to fail" << std::endl;
         current_tv = nullptr;
@@ -383,25 +417,27 @@ std::vector<int64_t> convertIterDomainToInteger(
 }
 
 void FactorReductionPass::runPass(Fusion* fusion) {
-  // Factor each multiple amax reductions TensorViews
-  std::vector<Val*> amax_reduction_vals;
-  std::copy_if(
-      fusion->outputs().begin(),
-      fusion->outputs().end(),
-      std::back_inserter(amax_reduction_vals),
-      [](Val* v) {
-        return v->isA<TensorView>() && detectAmaxPattern(v->as<TensorView>());
-      });
+  // Gather all amax reduction TensorViews
+  std::vector<TensorView*> amax_reduction_tvs;
+  for (Val* output : fusion->outputs()) {
+    if (!output->isA<TensorView>()) {
+      continue;
+    }
+    TensorView* amax_reduction = detectAmaxPattern(output->as<TensorView>());
+    if (amax_reduction == nullptr) {
+      continue;
+    }
+    amax_reduction_tvs.push_back(amax_reduction);
+  }
 
   // Stop if we cannot find amax reduction pattern
-  if (amax_reduction_vals.empty()) {
-    std::cout << "Failed to find any amax reduction pattern." << std::endl;
+  if (amax_reduction_tvs.empty()) {
+    std::cout << "Failed to find amax reduction pattern." << std::endl;
     return;
   }
 
-  for (Val* amax_reduction_val : amax_reduction_vals) {
-    TensorView* amax_reduction = amax_reduction_val->as<TensorView>();
-
+  for (TensorView* amax_reduction : amax_reduction_tvs) {
+    std::cout << amax_reduction->toString() << std::endl;
     // Detect dependency chain between amax and some reduction operation
     // Stop if we cannot find any compatible reduction tvs
     std::vector<TensorView*> dependency_tvs =
@@ -439,12 +475,14 @@ void FactorReductionPass::runPass(Fusion* fusion) {
         amax_reduction->getLogicalDomain().end(),
         [](IterDomain* id) { return id->isReduction(); });
 
+    // Skip if all ids are used for this TensorView
     if (rfactor_indices.size() == num_reduction_ids) {
-      // Skip if all ids are used for this TensorView
       continue;
     }
 
+    // Create partial reduction given selected axes
     factorReductionTensorView(amax_reduction, rfactor_indices);
+    fusion->printMath();
   }
 }
 

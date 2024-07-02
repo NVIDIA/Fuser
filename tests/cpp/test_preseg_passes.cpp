@@ -644,7 +644,7 @@ TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
   // Partial Reduction
   TensorView* tv2 = sum(tv0, {1}, /*keepdim=*/false);
   TensorView* tv3 = broadcast(tv2, {false, true});
-  TensorView* tv4 = cos(tv3);
+  TensorView* tv4 = add(tv0, tv3);
   fusion.addOutput(tv4);
 
   // Full Amax Reduction
@@ -660,7 +660,7 @@ TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
   std::vector<c10::IValue> aten_inputs = {x, fp8_amax_history};
 
   at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
-  at::Tensor at_t2 = at::cos(at_t1);
+  at::Tensor at_t2 = x + at_t1;
   at::Tensor at_t3 = at::abs(at_t2);
   at::Tensor at_t4 = at::max(at_t3);
 
