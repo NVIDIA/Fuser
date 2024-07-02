@@ -126,24 +126,10 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
                                   .dtype(data_type_to_aten(dtype))
                                   .device(at::kCUDA, 0);
 
-    // Reduce the scale to avoid fp16 overflow. In segmented scenarios,
-    // intermediates across different segments are saved in fp16. Input down
-    // scaling is essential to avert fp16 overflow. Refer to:
-    // https://github.com/NVIDIA/Fuser/issues/704
-    constexpr float scale_down_factor = 0.01;
-    constexpr float scale_back_factor = 1.0 / scale_down_factor;
-    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options)
-                                   .mul(scale_down_factor)
-                                   .to(data_type_to_aten(dtype));
-    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options)
-                                .mul(scale_down_factor)
-                                .to(data_type_to_aten(dtype));
-    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options)
-                                 .mul(scale_down_factor)
-                                 .to(data_type_to_aten(dtype));
-    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options)
-                               .mul(scale_down_factor)
-                               .to(data_type_to_aten(dtype));
+    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
+    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
+    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
+    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
 
     auto at_weight = c10::optional<at::Tensor>(aten_weight);
     auto at_bias = c10::optional<at::Tensor>(aten_bias);
@@ -177,13 +163,11 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
 
     testValidate(
         &fusion,
-        {cg_outputs[0].mul(scale_back_factor),
-         cg_outputs[1].mul(scale_back_factor),
-         cg_outputs[2].mul(scale_back_factor)},
+        {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
         aten_inputs,
-        {std::get<0>(aten_gradients).mul(scale_back_factor),
-         std::get<1>(aten_gradients).mul(scale_back_factor),
-         std::get<2>(aten_gradients).mul(scale_back_factor)},
+        {std::get<0>(aten_gradients),
+         std::get<1>(aten_gradients),
+         std::get<2>(aten_gradients)},
         __LINE__,
         __FILE__);
     if (isBenchmark) {
