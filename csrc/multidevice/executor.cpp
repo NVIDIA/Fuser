@@ -156,8 +156,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
-    const std::vector<c10::IValue>& inputs,
-    const LaunchParams& launch_params) {
+    const std::vector<c10::IValue>& inputs) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)
   auto error_msg = validate();
@@ -183,7 +182,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     val_to_IValue[vals_to_allocate_.at(i)] = allocations.at(i);
   }
 
-  return host_ir_executor_->runWithInput(val_to_IValue, launch_params);
+  return host_ir_executor_->runWithInput(val_to_IValue);
 }
 
 std::string MultiDeviceExecutor::validate() const {
