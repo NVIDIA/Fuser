@@ -3467,7 +3467,8 @@ TEST_F(ResizeTest, PadDtypes) {
       continue;
     }
     auto full_tv = full({size}, fill_val, aten_to_data_type(dtype));
-    auto out_tv = pad(full_tv, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
+    auto out_tv =
+        pad(full_tv, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
     fusion->addOutput(out_tv);
 
     auto* pad_value = out_tv->definition()->as<PadOp>()->value();
@@ -3481,11 +3482,7 @@ TEST_F(ResizeTest, PadDtypes) {
     auto cg_outputs = executor_cache.runFusionWithInputs({size, 8});
 
     testValidate(
-        executor_cache.fusion(),
-        cg_outputs,
-        {size, 8},
-        __LINE__,
-        __FILE__);
+        executor_cache.fusion(), cg_outputs, {size, 8}, __LINE__, __FILE__);
   }
 }
 
