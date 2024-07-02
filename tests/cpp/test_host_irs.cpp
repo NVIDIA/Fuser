@@ -397,7 +397,7 @@ TEST_P(HostIrTest, ForLoops) {
   auto* start = IrBuilder::create<Val>(kForLoopStart, DataType::Index);
   auto* stop = IrBuilder::create<Val>(kForLoopStop, DataType::Index);
   auto* step = IrBuilder::create<Val>(kForLoopStep, DataType::Index);
-  auto* for_loop = IrBuilder::create<kir::ForLoop>(
+  auto* for_loop = IrBuilder::create<ForLoop>(
       /*IterDomain=*/makeContigConcreteTensor({0})->axis(0), // unused
       index,
       start,
@@ -406,7 +406,7 @@ TEST_P(HostIrTest, ForLoops) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      DoubleBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -443,10 +443,6 @@ TEST_P(HostIrTest, ForLoops) {
 
   HostIrExecutorParams params;
   auto [use_fusion_executor_cache] = GetParam();
-  if (!use_fusion_executor_cache) {
-    GTEST_SKIP()
-        << "not supported for now because of concretization issue, getting the error: dynamic_tvs.empty() INTERNAL ASSERT FAILED at /opt/pytorch/Fuser/csrc/device_lower/validation.cpp:187, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. Tensor with dynamic transform must be concretized before lowering: T1_l[ ?S2{( ( ( -( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ) ) + 10 ) + ( ( fmax(( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ), ( fmin(10, ( where(( ( i7 + 1 ) < 0 ), ( ( i7 + 1 ) + 10 ), ( i7 + 1 )) )) )) ) - 10 ) )}rf ], T3_g[ ?S4{( ( ( -( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ) ) + 10 ) + ( ( fmax(( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ), ( fmin(10, ( where(( ( i7 + 1 ) < 0 ), ( ( i7 + 1 ) + 10 ), ( i7 + 1 )) )) )) ) - 10 ) )} ]";
-  }
   params.use_fusion_executor_cache = use_fusion_executor_cache;
   HostIrExecutor hie(std::move(hic), /*communicator=*/nullptr, params);
 
@@ -475,9 +471,11 @@ INSTANTIATE_TEST_SUITE_P(
                                      : "useFusionExecutor";
     });
 
+using StreamTest = NVFuserTest;
+
 // The following test simply demonstrate how to change current CUDA stream in
 // the host program
-TEST_F(NVFuserTest, HostIrSetStream) {
+TEST_F(StreamTest, HostIrSetStream) {
   auto hic = std::make_unique<HostIrContainer>();
   auto stream = IrBuilder::createInContainer<Stream>(hic.get());
   auto set_stream =
@@ -488,6 +486,33 @@ TEST_F(NVFuserTest, HostIrSetStream) {
   setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
   hie.runWithInput({});
   EXPECT_NE(
+      c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+}
+
+// The following test simply demonstrate how to change current CUDA stream in
+// the host program
+TEST_F(StreamTest, HostIrDefaultStream) {
+  auto change_stream = [](bool use_default_stream) {
+    auto hic = std::make_unique<HostIrContainer>();
+    Stream* stream;
+    if (use_default_stream) {
+      stream = hic->getDefaultStream();
+    } else {
+      stream = IrBuilder::createInContainer<Stream>(hic.get());
+    }
+    auto set_stream =
+        IrBuilder::createInContainer<SetCurrentStream>(hic.get(), stream);
+    hic->pushBackTopLevelExprs(set_stream);
+    HostIrExecutor hie(std::move(hic));
+    hie.runWithInput({});
+  };
+
+  setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
+  change_stream(/*use_default_stream=*/false);
+  EXPECT_NE(
+      c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+  change_stream(/*use_default_stream=*/true);
+  EXPECT_EQ(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
 }
 

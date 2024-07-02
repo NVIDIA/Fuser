@@ -66,7 +66,7 @@ void validateValWithConcreteValue(
           " elements");
     } else {
       NVF_CHECK(
-          t.is_cuda() || t.is_meta(),
+          !t.defined() || t.is_cuda() || t.is_meta(),
           "Expected ",
           tv->toString(),
           " to be bound to a CUDA or meta tensor, but got a tensor on device ",

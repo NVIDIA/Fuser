@@ -530,15 +530,12 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
   } else if (dtype == DataType::BFloat16) {
     at_dtype = at::kBFloat16;
   }
-
-  TensorView* x = makeContigConcreteTensor({sb, h}, dtype);
-  TensorView* w0 =
-      makeContigConcreteTensor({num_devices_, h4 / num_devices_, h}, dtype);
-  TensorView* b0 =
-      makeContigConcreteTensor({num_devices_, h4 / num_devices_}, dtype);
-  TensorView* w1 =
-      makeContigConcreteTensor({num_devices_, h, h4 / num_devices_}, dtype);
-  TensorView* b1 = makeContigConcreteTensor({h}, dtype);
+  
+  TensorView* x = makeContigTensor(2, dtype);
+  TensorView* w0 = makeContigTensor(3, dtype);
+  TensorView* b0 = makeContigTensor(2, dtype);
+  TensorView* w1 = makeContigTensor(3, dtype);
+  TensorView* b1 = makeContigTensor(1, dtype);
 
   fusion->addInput(x);
   fusion->addInput(w0);
