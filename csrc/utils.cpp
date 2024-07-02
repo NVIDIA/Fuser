@@ -128,7 +128,7 @@ int8_t getCommonDeviceCUDA(
     found_device = true;
   }
   for (const auto& input : inputs) {
-    if (!input.isTensor()) {
+    if (!input.isTensor() || !input.toTensor().defined()) {
       continue;
     }
     const auto& device = input.toTensor().device();
