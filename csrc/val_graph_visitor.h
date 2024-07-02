@@ -239,6 +239,10 @@ class ValGraphBFS {
       const GroupType& group,
       const std::pair<Direction, std::vector<GroupType>>& prev_groups);
 
+  virtual bool excludeFromTraversal(const GroupType& group) const {
+    return false;
+  }
+
  protected:
   const ValGraph& graph_;
   const std::vector<GroupType> from_groups_;

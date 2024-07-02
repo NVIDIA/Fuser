@@ -22,6 +22,8 @@
 #include <kernel_ir_dispatch.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
+#include <transform_iter.h>
+#include <val_graph_visitor.h>
 
 #include <algorithm>
 #include <utility>
@@ -63,27 +65,6 @@ Val* modExpr(Args&&... args) {
 template <typename... Args>
 Val* xorExpr(Args&&... args) {
   return IrBuilder::bitwiseXorExpr(std::forward<Args>(args)...);
-}
-
-void printAllIndices(
-    std::ostream& os,
-    Fusion* fusion,
-    const TensorIndexer& indexer) {
-  for (auto expr : fusion->exprs()) {
-    if (!ir_utils::isTvOp(expr)) {
-      continue;
-    }
-
-    os << "\n" << expr->toString();
-    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      os << "Input: T" << input->name() << " -> "
-         << indexer.getLinearIndex(input, expr)->toInlineString() << std::endl;
-    }
-    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      os << "Output: T" << output->name() << " -> "
-         << indexer.getLinearIndex(output, expr)->toInlineString() << std::endl;
-    }
-  }
 }
 
 // AbstractGetReference and IndexValidator are used to validate
@@ -132,6 +113,18 @@ class IndexValidator : public kir::IrVisitor {
     auto out_ti = expr->output(0)->as<kir::TensorIndex>();
     for (auto inp : expr->inputs()) {
       if (inp->isA<kir::TensorIndex>()) {
+        // Since this is KIR, inp can be equal to out_ti when it was
+        // originally a reduction op in Fusion
+        if (inp == out_ti) {
+          Expr* original_def = out_ti->view()->definition();
+          NVF_ERROR(
+              original_def != nullptr && original_def->isA<ReductionOp>(),
+              "Unexpected input, ",
+              inp->toString(),
+              " in ",
+              expr->toString());
+          continue;
+        }
         validate(inp->as<kir::TensorIndex>(), out_ti);
       }
     }
@@ -167,7 +160,7 @@ class IndexValidator : public kir::IrVisitor {
     // If no ref is obtained, skip validation
   }
 
-  static void validate(Fusion* fusion) {
+  static void validate(Fusion* fusion, bool enable_contig_indexing) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"consumer_index", "producer_index"});
@@ -180,12 +173,13 @@ class IndexValidator : public kir::IrVisitor {
     DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
 
     GpuLower lower(fusion);
+    lower.tensorIndexer().enableContigIndexing(enable_contig_indexing);
 
     kir::Kernel* kernel = nullptr;
     // Suppress warnings due to using dynamic register tensors
     testing::internal::CaptureStderr();
     kernel = lower.run();
-    testing::internal::GetCapturedStderr();
+    std::cerr << testing::internal::GetCapturedStderr();
 
     IndexValidator<GetReference> validator(
         lower, GetReference(lower.tensorIndexer()));
@@ -220,6 +214,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
 
   tv1->inlineAt(1);
 
+  // Validate the resuls without contig indexing
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
@@ -234,29 +229,29 @@ TEST_F(IndexingTest, SimplePointwise1) {
           NVF_ERROR(!as_consumer);
           return addExpr(
               mulExpr(
-                  IrBuilder::getItemExpr(
-                      IrBuilder::getAttrExpr(
-                          IrBuilder::metadataExpr(tv), "alloc_stride"),
-                      IrBuilder::create<Val>(0)),
                   divExpr(
                       addExpr(
                           mulExpr(
                               consumer_tv->axis(1)->extent(),
                               loop_indices.at(0)),
                           loop_indices.at(1)),
-                      tv->getLogicalDomain().at(1)->extent())),
-              mulExpr(
+                      tv->getLogicalDomain().at(1)->extent()),
                   IrBuilder::getItemExpr(
                       IrBuilder::getAttrExpr(
                           IrBuilder::metadataExpr(tv), "alloc_stride"),
-                      IrBuilder::create<Val>(1)),
+                      IrBuilder::create<Val>(0))),
+              mulExpr(
                   modExpr(
                       addExpr(
                           mulExpr(
                               consumer_tv->axis(1)->extent(),
                               loop_indices.at(0)),
                           loop_indices.at(1)),
-                      tv->getLogicalDomain().at(1)->extent())));
+                      tv->getLogicalDomain().at(1)->extent()),
+                  IrBuilder::getItemExpr(
+                      IrBuilder::getAttrExpr(
+                          IrBuilder::metadataExpr(tv), "alloc_stride"),
+                      IrBuilder::create<Val>(1))));
         }
         case 1: {
           return loop_indices.at(1);
@@ -265,12 +260,12 @@ TEST_F(IndexingTest, SimplePointwise1) {
           NVF_ERROR(as_consumer);
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(),
                   divExpr(
                       addExpr(
                           mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
                           loop_indices.at(1)),
-                      tv->getLogicalDomain().at(1)->extent())),
+                      tv->getLogicalDomain().at(1)->extent()),
+                  tv->getLogicalDomain().at(1)->extent()),
               modExpr(
                   addExpr(
                       mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
@@ -285,7 +280,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Almost same fusion as SimplePointwiseSerial but TID and BID
@@ -342,9 +337,9 @@ TEST_F(IndexingTest, SimplePointwise2) {
 
       auto global_ref = SimplifyingIrBuilder::addExpr(
           SimplifyingIrBuilder::mulExpr(
-              tv->getLogicalDomain().at(1)->extent(),
               SimplifyingIrBuilder::divExpr(
-                  contig_idx, tv->getLogicalDomain().at(1)->extent())),
+                  contig_idx, tv->getLogicalDomain().at(1)->extent()),
+              tv->getLogicalDomain().at(1)->extent()),
           SimplifyingIrBuilder::modExpr(
               contig_idx, tv->getLogicalDomain().at(1)->extent()));
 
@@ -372,7 +367,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Simple reduction with no parallelization
@@ -402,7 +397,7 @@ TEST_F(IndexingTest, SimpleReduction) {
           NVF_ERROR(!as_consumer);
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(0)),
+                  loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
               loop_indices.at(1));
         }
         case 1: {
@@ -420,7 +415,7 @@ TEST_F(IndexingTest, SimpleReduction) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Reduction with inlining. Loop promotion picks a reduction domain,
@@ -468,7 +463,7 @@ TEST_F(IndexingTest, PromotionToReductionDomain) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Fusion copied from AllocationDomainTest.TransposedIntermediate
@@ -513,7 +508,7 @@ TEST_F(IndexingTest, AllocationDomain) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 TEST_F(IndexingTest, Reshape) {
@@ -605,7 +600,7 @@ TEST_F(IndexingTest, Reshape) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Simple non-concretized broadcast
@@ -642,7 +637,7 @@ TEST_F(IndexingTest, SimpleBroadcast1) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // SimpleBroadcast1 + scheduling
@@ -702,7 +697,7 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Concretized broadcast
@@ -748,10 +743,10 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
         case 3: {
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(),
                   divExpr(
                       loop_indices.at(0),
-                      tv->getLogicalDomain().at(1)->extent())),
+                      tv->getLogicalDomain().at(1)->extent()),
+                  tv->getLogicalDomain().at(1)->extent()),
               modExpr(
                   loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()));
         }
@@ -765,7 +760,7 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Concretized broadcast with partial inlining. Loop promotion is
@@ -824,7 +819,7 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Trivial example. 1D shared tensor. Each device only has one
@@ -852,7 +847,7 @@ TEST_F(IndexingTest, MultiDevice1DNoSplitMerge) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as MultiDevice1DNoSplitMerge but with split.
@@ -887,7 +882,7 @@ TEST_F(IndexingTest, MultiDevice1DSplit) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 TEST_F(IndexingTest, MultiDevice2D) {
@@ -924,12 +919,12 @@ TEST_F(IndexingTest, MultiDevice2D) {
       // next test for a loop allocation example
       auto inner_dim = tv->getLogicalDomain().at(1)->extent();
       return addExpr(
-          mulExpr(inner_dim, divExpr(loop_indices.at(1), inner_dim)),
+          mulExpr(divExpr(loop_indices.at(1), inner_dim), inner_dim),
           modExpr(loop_indices.at(1), inner_dim));
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as MultiDevice2D but with loop allocation
@@ -972,7 +967,7 @@ TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 TEST_F(IndexingTest, MultiDevice2DTranspose) {
@@ -1006,13 +1001,13 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
         case 0: {
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(2)),
+                  loop_indices.at(2), tv->getLogicalDomain().at(1)->extent()),
               loop_indices.at(1));
         }
         case 1: {
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(1)),
+                  loop_indices.at(1), tv->getLogicalDomain().at(1)->extent()),
               loop_indices.at(2));
         }
         default:
@@ -1021,7 +1016,7 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Allocation of broadcast domains should not need to be promoted.
@@ -1067,7 +1062,7 @@ TEST_F(IndexingTest, PromotedBroadcast) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Simple vectorized copy
@@ -1127,7 +1122,7 @@ TEST_F(IndexingTest, SimpleVectorize) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Indexing traversal failure repro due to non-size-one broadcast
@@ -1192,7 +1187,7 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 TEST_F(IndexingTest, Swizzle) {
@@ -1237,7 +1232,7 @@ TEST_F(IndexingTest, Swizzle) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion);
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 } // namespace nvfuser

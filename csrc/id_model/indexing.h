@@ -47,17 +47,38 @@ class TensorIndexer {
   // non-const reference
   TensorIndexer(IdModel& id_model);
 
+  // Enable or disable contig indexing
+  TensorIndexer& enableContigIndexing(bool b) {
+    enable_contig_indexing_ = b;
+    return *this;
+  }
+
+  bool enableContigIndexing() const {
+    return enable_contig_indexing_;
+  }
+
   // Get a linear index of a given tensor appearing in a given expr, either
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
-  Val* getLinearIndex(TensorView* tv, const Expr* expr) const;
+  //
+  // The actual ForLoop's are required to support double buffering as
+  // that affects indexing. If the loops parameter is empty, it's
+  // simply ignored. That may be useful if (preliminary) indeices are
+  // needed before the double buffering pass
+  Val* getLinearIndex(
+      TensorView* tv,
+      const Expr* expr,
+      const std::optional<std::vector<ForLoop*>>& loops) const;
 
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
 
   // Get the index of the given ID groups
-  std::vector<Val*> getIndexFor(const Expr* expr, const ValGroups& index_groups)
-      const;
+  std::vector<Val*> getIndexFor(
+      const Expr* expr,
+      bool as_consumer,
+      const std::optional<std::vector<ForLoop*>>& for_loops,
+      const ValGroups& index_groups) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
@@ -67,6 +88,21 @@ class TensorIndexer {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
 
+  std::vector<RootPredicateInfo> getPredicates(
+      TensorView* tv,
+      const Expr* expr,
+      const std::optional<std::vector<ForLoop*>>& loops,
+      bool is_unswitch);
+
+  // TODO: Drop tv
+  std::vector<Val*> getPerDimIndex(
+      TensorView* tv,
+      const std::vector<IterDomain*>& index_domains,
+      const Expr* expr,
+      const std::optional<std::vector<ForLoop*>>& loops);
+
+  static bool isSupported(Fusion* fusion);
+
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
@@ -75,8 +111,23 @@ class TensorIndexer {
   // Returns the index map as well as its traversal path of given
   // index domains appearing in a given expr. Used by
   // getIndexFor.
-  IndexingInfo computeIndex(const Expr* expr, const ValGroups& index_groups)
-      const;
+  IndexingInfo computeIndex(
+      const Expr* expr,
+      const std::optional<std::vector<ForLoop*>>& loops,
+      const ValGroups& index_domains,
+      bool is_predicate,
+      bool is_unswitch) const;
+
+  Val* adjustProducerLoopIndexForCircularBuffering(
+      const Expr* expr,
+      const ForLoop* for_loop,
+      Val* loop_index) const;
+
+  Val* adjustIndexToSwitchBuffer(
+      TensorView* tv,
+      bool as_consumer,
+      const std::vector<ForLoop*>& for_loops,
+      Val* idx) const;
 
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
@@ -95,6 +146,12 @@ class TensorIndexer {
   // a broadcast-only loop group, should just use zero.
   bool shouldUseZeroIndex(const ValGroup& loop_group) const;
 
+  std::pair<std::deque<ValGroup>, std::deque<Val*>> getContigDomainsAndStrides(
+      const std::vector<IterDomain*>& allocation_domains,
+      const std::vector<Val*>& strides,
+      const std::vector<bool>& contiguity,
+      const ExprPath& traversal_path) const;
+
   // Get a replace map for tensor indexing. Examples include replacing
   // an index of a vectorized loop with zero.
   //
@@ -109,19 +166,32 @@ class TensorIndexer {
   // predicates, and one index map would be sufficient for both
   // indices by using different replacement maps.
   std::unordered_map<Val*, Val*> getIndexReplacementMap(
+      const Expr* expr,
+      bool as_consumer,
       const std::vector<IterDomain*>& loop_domains,
+      const std::optional<std::vector<ForLoop*>>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
+  std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
+      TensorView* tv,
+      const std::vector<ForLoop*>& for_loops,
+      bool is_start_predicate,
+      bool is_unswitch,
+      const std::unordered_map<ValGroup, Val*>& index_map,
+      const ValGraph& traversal_graph) const;
+
  private:
-  // Using non-const references of IdModel because traversalGraph() returns a
-  // non-const reference
   IdModel& id_model_;
+  const ConcretizedBroadcastDomains concrete_info_;
 
   // Mappings from loop groups to their indices. Serial loops will
   // be mapped a unique loop index Val. Parallel loops will be mapped
   // to NamedScalar such as "threadIdx.x". This map needs to be built
   // once and can be reused for different tensors.
   std::unordered_map<ValGroup, Val*> loop_index_map_;
+
+  // Take advantage of contiguous indexing if enabled
+  bool enable_contig_indexing_ = true;
 };
 
 } // namespace nvfuser

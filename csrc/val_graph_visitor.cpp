@@ -9,6 +9,8 @@
 
 #include <id_model/to_string.h>
 
+#include <variant>
+
 namespace nvfuser {
 
 void ValGraphVisitor::traverse() {
@@ -365,7 +367,7 @@ void ValGraphBFS::setVisited(const GroupType& g) {
 
 void ValGraphBFS::addNewNeighbors(const GroupType& g) {
   auto add_to_visit_list = [&](const GroupType& g) -> void {
-    if (isVisited(g)) {
+    if (isVisited(g) || excludeFromTraversal(g)) {
       return;
     }
     to_visit_.emplace_back(g);

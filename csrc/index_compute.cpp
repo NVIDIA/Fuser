@@ -19,6 +19,7 @@
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
+#include <id_model/indexing.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -492,6 +493,12 @@ IndexCompute::IndexCompute(
       preferred_paths_(std::move(preferred_paths)),
       unswitched_loop_domains_(std::move(unswitched_loop_domains)) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexCompute::IndexCompute");
+
+  if (getenv("DISABLE_CONTIG_INDEXING")) {
+    std::cerr << "Disabling contig indexing\n";
+    contig_ids_.clear();
+  }
+
   // Make sure we recompute any indices we can that map to a contiguous access
   // in physical memory.
   const auto& within_contig = contig_finder.withinContigIDs();
@@ -1619,9 +1626,18 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
-  auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
-  return getProducerAllocationIndices(
-      producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {  
+    return GpuLower::current()->tensorIndexer().getPerDimIndex(
+        producer_tv,
+        producer_tv->getLogicalDomain(),
+        consumer_tv->definition(),
+        loops);
+  } else {
+    auto guard = ir_utils::allocateToLogicalDomainGuard(producer_tv, false);
+    return getProducerAllocationIndices(
+        producer_tv, consumer_tv, loops, rotated_loops, override_index);
+  }
 }
 
 std::vector<Val*> Index::getStrides(TensorView* tv) {
@@ -2092,7 +2108,18 @@ kir::TensorIndex* Index::getProducerIndex(
   if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
       GpuLower::current()->isTensorIndexerEnabled()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        producer, consumer->definition());
+        producer, consumer->definition(), loops);
+    if (generate_pointer) {
+      auto address_offset = index;
+      if (producer->getMemoryType() == MemoryType::Shared) {
+        address_offset = SimplifyingIrBuilder::mulExpr(
+            address_offset,
+            IrBuilder::create<Val>(
+                dataTypeSize(*producer->getDataType()), *index->getDataType()));
+      }
+      index = SimplifyingIrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(producer), address_offset);
+    }
   } else {
     index = getProducerStridedIndices(
         producer,
@@ -2181,32 +2208,30 @@ kir::TensorIndex* Index::getConsumerIndex(
   if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
       GpuLower::current()->isTensorIndexerEnabled()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        consumer, consumer->definition());
+        consumer, consumer->definition(), loops);
+    if (generate_pointer) {
+      auto address_offset = index;
+      if (consumer->getMemoryType() == MemoryType::Shared) {
+        address_offset = SimplifyingIrBuilder::mulExpr(
+            index,
+            IrBuilder::create<Val>(
+                dataTypeSize(*consumer->getDataType()), *index->getDataType()));
+      }
+      index = SimplifyingIrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(consumer), address_offset);
+    }
   } else {
     index = getConsumerStridedIndices(
         consumer, loops, rotated_loops, override_index, generate_pointer);
   }
 
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+
   return SimplifyingIrBuilder::create<kir::TensorIndex>(
       consumer, index, as_type);
 }
 
 namespace {
-
-struct PredicateDomainInfo {
- public:
-  // Iteration domain to predicate
-  IterDomain* id = nullptr;
-  // The set of iteration domains that make up the id. If this is for
-  // a non-divisible split, the set only contains the id itself. This
-  // set is used to remove redundant predicates when gathering
-  // unswitch predicates.
-  std::unordered_set<IterDomain*> covered_ids;
-  // True if this predicate is for an intermediate domain. Examples
-  // include domains with non-divisible split and resized domains.
-  bool is_intermediate_domain = false;
-};
 
 // Find iteration domains in the history of a consumer to predicate comprised
 // only of merge operations. Only return iteration domains that are subsequently
@@ -2299,28 +2324,6 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
   return contig_id_infos;
 }
 
-std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
-    TensorView* consumer_tv) {
-  const auto& non_divisible_split_info =
-      GpuLower::current()->nonDivisibleSplitInfo();
-
-  std::vector<PredicateDomainInfo> pred_info_vec;
-
-  auto it = non_divisible_split_info.splitsToPredicate().find(consumer_tv);
-  if (it == non_divisible_split_info.splitsToPredicate().end()) {
-    return {};
-  }
-
-  const auto& splits_to_predicate = it->second;
-
-  for (auto split : splits_to_predicate) {
-    PredicateDomainInfo info{split->in(), {split->in()}, true};
-    pred_info_vec.emplace_back(info);
-  }
-
-  return pred_info_vec;
-}
-
 // Get the start and stop limit offsets that define the valid range to
 // compute. In the simplest case, they are just 0 and
 // IterDomain::extent. However, IterDomain may have non-zero start and
@@ -2393,6 +2396,28 @@ std::unordered_map<IterDomain*, Val*> updateInitialLoopIndexMap(
 
 } // namespace
 
+std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
+    TensorView* consumer_tv) {
+  const auto& non_divisible_split_info =
+      GpuLower::current()->nonDivisibleSplitInfo();
+
+  std::vector<PredicateDomainInfo> pred_info_vec;
+
+  auto it = non_divisible_split_info.splitsToPredicate().find(consumer_tv);
+  if (it == non_divisible_split_info.splitsToPredicate().end()) {
+    return {};
+  }
+
+  const auto& splits_to_predicate = it->second;
+
+  for (auto split : splits_to_predicate) {
+    PredicateDomainInfo info{split->in(), {split->in()}, true};
+    pred_info_vec.emplace_back(info);
+  }
+
+  return pred_info_vec;
+}
+
 // Returns predicates and the concrete (by loop map) root domains they cover
 std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     TensorView* consumer_tv,
@@ -2450,6 +2475,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
 
   for (const auto& contig_id_entry : contig_id_infos) {
     auto contig_id = contig_id_entry.id;
+
     // No predicates needed for braodcasted indices.
     if (contig_id->isBroadcast()) {
       continue;
@@ -2466,7 +2492,11 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     // generated in lower_misaligned_vectorization.
     //
     // Can not omit stop index even if it is zero. This is important for empty
-    // tensor support, because in empty tensor the extent of an ID can be zero
+    // tensor support, because in empty tensor the extent of an ID can
+    // be zero
+    // This also happens with buffer initialization loops for
+    // reductions, where reduction domains do not have corresponding
+    // loops.
     if (consumer_stop_indexing_it == consumer_stop_index_map.end()) {
       continue;
     }
@@ -2598,7 +2628,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   ValGroups groups_to_index = tma_info.getTMADomain();
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-  auto indices_inner_to_outer = indexer.getIndexFor(ldst, groups_to_index);
+  auto indices_inner_to_outer = indexer.getIndexFor(ldst, !is_load, loops, groups_to_index);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);

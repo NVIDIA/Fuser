@@ -9,6 +9,8 @@
 
 #include <exceptions.h>
 
+#include <id_model/id_model.h>
+#include <id_model/indexing.h>
 #include <instrumentation.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
@@ -31,7 +33,7 @@ class IndexLowering : private OptOutConstDispatch {
   }
 
  private:
-  IndexLowering() = default;
+  IndexLowering();
 
   void pushBack(Expr*);
 
@@ -198,6 +200,9 @@ class IndexLowering : private OptOutConstDispatch {
   std::unordered_map<TensorView*, kir::Allocate*> work_buffer_map_;
   std::unordered_map<TensorView*, kir::AllocateFusedReduction*>
       fused_reduction_map_;
+
+  // TODO: comment
+  std::unique_ptr<TensorIndexer> tensor_indexer_;
 };
 
 } // namespace nvfuser

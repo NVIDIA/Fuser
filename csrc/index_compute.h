@@ -67,6 +67,7 @@ namespace nvfuser {
 class ContigIDs;
 class LoopIndexing;
 struct IndexFromIdGraph;
+class TensorIndexer;
 
 class IndexCompute : public BackwardVisitor {
  protected:
@@ -360,6 +361,7 @@ class IndexSwizzle : public IndexCompute {
 //! Predicate information of a root or contiguous merged domain
 class RootPredicateInfo {
   friend class Index;
+  friend class TensorIndexer;
 
  public:
   const auto& startPredicate() const {
@@ -613,5 +615,22 @@ void ensureStaticIndexing(
     ForLoop* alloc_loop,
     const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {});
+
+struct PredicateDomainInfo {
+ public:
+  // Iteration domain to predicate
+  IterDomain* id = nullptr;
+  // The set of iteration domains that make up the id. If this is for
+  // a non-divisible split, the set only contains the id itself. This
+  // set is used to remove redundant predicates when gathering
+  // unswitch predicates.
+  std::unordered_set<IterDomain*> covered_ids;
+  // True if this predicate is for an intermediate domain. Examples
+  // include domains with non-divisible split and resized domains.
+  bool is_intermediate_domain = false;
+};
+
+std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
+    TensorView* consumer_tv);
 
 } // namespace nvfuser
