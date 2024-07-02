@@ -72,8 +72,8 @@ class AbstractTensorSchedule : public IterVisitor {
   void findNearestProducers() {
     // Record all ValGroups that are producers of those in abstract_. This lets
     // us find starting IterDomains for scheduling concrete's loop domain.
-    // TODO: this should probably be a more general utility like DependencyCheck
-    // in val_graph_visitor.h
+    // TODO: this should probably use a new more general utility that resembles
+    // StmtSort::getExprsTo in val_graph_visitor.h
     std::unordered_set<ValGroup> scheduled_val_groups;
     std::stack<ValGroup> vg_stack;
     for (const AbstractId& abs_id : abstract_.domain) {
@@ -82,8 +82,11 @@ class AbstractTensorSchedule : public IterVisitor {
     while (!vg_stack.empty()) {
       ValGroup vg = vg_stack.top();
       vg_stack.pop();
-      scheduled_val_groups.insert(vg);
-      // TODO: Do we need to check for cycles?
+      bool inserted = scheduled_val_groups.insert(vg).second;
+      if (!inserted) {
+        // Avoid cycles
+        continue;
+      }
       for (const ExprGroup& eg : graph_->getDefinitions(vg)) {
         for (Expr* e : *eg) {
           for (Val* inp : e->inputs()) {
@@ -166,9 +169,7 @@ class AbstractTensorSchedule : public IterVisitor {
           if (!all_inputs_computed) {
             if (uncomputed_producer_groups.empty() && !id_inps.empty()) {
               // There might be some uncomputable producer groups, but some are
-              // computed. Just pass those on:
-              // TODO: this behavior should be specialized to the type of Expr I
-              // believe
+              // computed. Just pass those computed inputs through.
               NVF_ERROR(id_inps.size() == 1);
               concrete_ids_.emplace(vg, id_inps.front());
             }
