@@ -13,7 +13,7 @@
 #include <contiguity.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/magic_zero.h>
 #include <device_lower/pass/unroll.h>
 #include <device_lower/utils.h>
@@ -1112,7 +1112,7 @@ indexMapFromTV(
     const std::unordered_set<ForLoop*>& rotated_loops,
     ForLoop* alloc_loop,
     bool as_consumer,
-    ForLoop* double_buffer_loop) {
+    ForLoop* circular_buffer_loop) {
   bool within_alloc = false;
   if (alloc_loop == nullptr) {
     within_alloc = true;
@@ -1160,9 +1160,9 @@ indexMapFromTV(
       idx = SimplifyingIrBuilder::addExpr(idx, loop->step());
     }
 
-    if (loop == double_buffer_loop) {
+    if (loop == circular_buffer_loop) {
       const int64_t stage_depth =
-          GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+          GpuLower::current()->circularBufferInfo().getStageDepthFor(
               loop->iter_domain());
       idx = SimplifyingIrBuilder::addExpr(
           idx,
@@ -1569,12 +1569,12 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     }
   }
 
-  if (producer_tv->isDoubleBuffered() || producer_tv->isCircularBuffered()) {
-    auto db_loop = gpu_lower->doubleBufferInfo().getDoubleBufferLoop(
+  if (producer_tv->isCircularBuffered()) {
+    auto db_loop = gpu_lower->circularBufferInfo().getCircularBufferLoop(
         producer_tv, loops, true);
     if (db_loop != nullptr) {
-      const auto stage_depth =
-          (int64_t)gpu_lower->doubleBufferInfo().getStageDepthFor(
+      const int64_t stage_depth =
+          gpu_lower->circularBufferInfo().getStageDepthFor(
               db_loop->iter_domain());
       auto loop_index = db_loop->indexOrStartIfTrivial();
       if (rotated_loops.count(db_loop) > 0) {
@@ -1584,7 +1584,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
           loop_index,
           SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
       auto original_alloc_size =
-          gpu_lower->doubleBufferInfo().getOriginalAllocSize(producer_tv);
+          gpu_lower->circularBufferInfo().getOriginalAllocSize(producer_tv);
       auto db_strided_index =
           SimplifyingIrBuilder::mulExpr(db_switch_index, original_alloc_size);
       strided_inds.push_back(db_strided_index);
@@ -1980,25 +1980,25 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
   // This check was originally done in getConsumerStridedIndices, but
   // the number of strided index values depends on the loop where the
-  // consumer tensor is located. If it's double buffered and not in
+  // consumer tensor is located. If it's circular buffered and not in
   // the prologue loop, strided_inds ends up having one more
   // index, so it's just much simpler to check here before adding the
-  // additional index for double buffering.
+  // additional index for circular buffering.
   NVF_ERROR(
       strided_inds.size() == consumer_tv->getMaybeAllocationDomain().size());
 
-  if (consumer_tv->isDoubleBuffered() || consumer_tv->isCircularBuffered()) {
-    auto db_loop =
-        gpu_lower->doubleBufferInfo().getDoubleBufferLoop(consumer_tv, loops);
-    auto stage_depth = (int64_t)gpu_lower->doubleBufferInfo().getStageDepthFor(
+  if (consumer_tv->isCircularBuffered()) {
+    auto db_loop = gpu_lower->circularBufferInfo().getCircularBufferLoop(
+        consumer_tv, loops);
+    int64_t stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
         db_loop->iter_domain());
     bool is_circular_buffer_loop = stage_depth > 2;
     bool is_prolog =
-        db_loop->doubleBufferLoopStage() == DoubleBufferLoopStage::Prolog;
+        db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
 
     Val* db_switch_index = nullptr;
 
-    // In double buffered we don't materialize the prolog loop as there will
+    // In circular buffered we don't materialize the prolog loop as there will
     //  be only one iteration. In circular buffer case we materialize the
     //  prolog loop as well covering the first N-1 iterations, N being the
     //  stage depth.
@@ -2028,7 +2028,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
       // Use the generated switching buffer index to access the buffer space.
       auto original_alloc_size =
-          gpu_lower->doubleBufferInfo().getOriginalAllocSize(consumer_tv);
+          gpu_lower->circularBufferInfo().getOriginalAllocSize(consumer_tv);
       auto db_strided_index =
           SimplifyingIrBuilder::mulExpr(db_switch_index, original_alloc_size);
       strided_inds.push_back(db_strided_index);
@@ -2405,7 +2405,8 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
 
   const bool is_unswitch = unswitch_or_vec_loop != nullptr;
 
-  auto db_axis = gpu_lower->doubleBufferInfo().getDoubleBufferAxis(consumer_tv);
+  auto db_axis =
+      gpu_lower->circularBufferInfo().getCircularBufferAxis(consumer_tv);
 
   // Generate start and stop indexing from idgraph.
   //

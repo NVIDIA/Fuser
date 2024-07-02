@@ -97,7 +97,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/alias_memory.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/allocation.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/pass/double_buffer.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/circular_buffer.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/expr_sort.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/fusion_simplifier.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/grid_serialization.cpp
@@ -557,7 +557,7 @@ if(BUILD_TEST)
   target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 endif()
 
-function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND TEST_SRC ${NVFUSER_ROOT}/tests/cpp/utils.cpp)
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
@@ -574,7 +574,7 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
     codegen_internal
     ${ADDITIONAL_LINK}
     dynamic_type
-    GTest::gtest_main GTest::gmock
+    GTest::gtest GTest::gmock
     flatbuffers
     ${TORCH_LIBRARIES}
   )
@@ -584,6 +584,11 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
       -Wall -Wno-unused-function -Werror
     )
   endif()
+endfunction()
+
+function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+  list(APPEND ADDITIONAL_LINK "GTest::gtest_main")
+  add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
 endfunction()
 
 if(BUILD_TEST)
@@ -600,11 +605,12 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
   )
-  add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
+  add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
 
   add_test(test_view "${NVFUSER_ROOT}/tests/cpp/test_gpu_view.cpp" "")
