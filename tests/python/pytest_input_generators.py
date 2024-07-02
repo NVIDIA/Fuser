@@ -1597,3 +1597,40 @@ def div_input_generator(
         denom = torch.where(denom_is_small, denom_scaled_to_minabs, denom).detach()
         denom.requires_grad_(requires_grad)
         yield SampleInput(numer, denom)
+
+def sdpa_fwd_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor,
+        dtype=dtype,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    N = 16
+    H = 32
+    L = 64
+    S = 128
+    E = 64
+
+    dropout_p_vals = (None, 0.2)
+    is_causal_vals = (None, True)
+    scale_vals = (None, 0.01)
+
+    q = make_arg((N, H, L, E))
+    k = make_arg((N, H, S, E))
+    v = make_arg((N, H, S, E))
+
+    sample_cases = [
+        SampleInput(query, key, value),
+        SampleInput(query, key, value, 0.2),
+        SampleInput(query, key, value, is_causal=True),
+        SampleInput(query, key, value, scale = 0.01),
+        SampleInput(query, key, value, 0.2, True, 0.01)
+    ]
+    
+    for case in sample_cases:
+        yield case
