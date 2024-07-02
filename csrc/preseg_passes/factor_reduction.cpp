@@ -228,11 +228,12 @@ TensorView* detectAmaxPattern(TensorView* tv) {
           break;
         } else if (tv->definition()->isA<BroadcastOp>()) {
           std::cout << " to bcast" << std::endl;
-          // Move state from Start to Broadcast if we have a Broadcast definition
+          // Move state from Start to Broadcast if we have a Broadcast
+          // definition
           current_tv = current_tv->definition()->input(0)->as<TensorView>();
           state = Broadcast;
-	  break;
-	}
+          break;
+        }
         // Otherwise, move state from Start to Fail
         std::cout << " to fail" << std::endl;
         current_tv = nullptr;
@@ -242,8 +243,8 @@ TensorView* detectAmaxPattern(TensorView* tv) {
       case Broadcast: {
         std::cout << "from broadcast" << std::endl;
         if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
-          // Move state from Broadcast to MaxReduction if we have a Max reduction
-          // definition
+          // Move state from Broadcast to MaxReduction if we have a Max
+          // reduction definition
           std::cout << " to max-red" << std::endl;
           max_reduction_tv = current_tv;
           current_tv = current_tv->definition()->input(0)->as<TensorView>();
@@ -268,11 +269,12 @@ TensorView* detectAmaxPattern(TensorView* tv) {
           break;
         } else if (tv->definition()->isA<BroadcastOp>()) {
           std::cout << " to bcast" << std::endl;
-          // Move state from Start to Broadcast if we have a Broadcast definition
+          // Move state from Start to Broadcast if we have a Broadcast
+          // definition
           current_tv = current_tv->definition()->input(0)->as<TensorView>();
           state = Broadcast;
-	  break;
-	}
+          break;
+        }
         // Otherwise, move state from Cast to Fail
         std::cout << " to fail" << std::endl;
         current_tv = nullptr;

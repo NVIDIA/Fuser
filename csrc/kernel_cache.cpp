@@ -1250,13 +1250,15 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
 std::vector<std::unique_ptr<Fusion>> FusionKernelRuntime::getFusionSegments() {
   std::vector<std::unique_ptr<Fusion>> fusion_segments;
   fusion_segments.reserve(runtime_workspace_.group_run_order.size());
-  std::transform(runtime_workspace_.group_run_order.begin(),
-		 runtime_workspace_.group_run_order.end(),
-		 std::back_inserter(fusion_segments),
-		 [&](SegmentedGroup* sg) { return std::move(segmented_fusion_->makeFusion(sg).second); });
+  std::transform(
+      runtime_workspace_.group_run_order.begin(),
+      runtime_workspace_.group_run_order.end(),
+      std::back_inserter(fusion_segments),
+      [&](SegmentedGroup* sg) {
+        return std::move(segmented_fusion_->makeFusion(sg).second);
+      });
   return fusion_segments;
 }
-
 
 // passing args by value because we will be modify this
 void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
