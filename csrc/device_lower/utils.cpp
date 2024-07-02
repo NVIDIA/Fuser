@@ -754,11 +754,11 @@ BasicAllocInfo getAllocInformation(
       outer_alloc_found = true;
     }
 
-    // Allocation of a double buffered tensor is placed outside its
-    // double buffer axis.
-    if ((tv->isDoubleBuffered() || tv->isCircularBuffered()) &&
+    // Allocation of a circular buffered tensor is placed outside its
+    // circular buffer axis.
+    if (tv->isCircularBuffered() &&
         tv->axis(info.alloc_pos) ==
-            gpu_lower->doubleBufferInfo().getDoubleBufferAxis(tv)) {
+            gpu_lower->circularBufferInfo().getCircularBufferAxis(tv)) {
       outer_alloc_found = true;
     }
 

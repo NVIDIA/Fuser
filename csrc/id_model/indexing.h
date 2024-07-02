@@ -118,7 +118,7 @@ class TensorIndexer {
       bool is_predicate,
       bool is_unswitch) const;
 
-  Val* adjustProducerLoopIndexForDoubleBuffering(
+  Val* adjustProducerLoopIndexForCircularBuffering(
       const Expr* expr,
       const ForLoop* for_loop,
       Val* loop_index) const;

@@ -13,7 +13,7 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
 #include <device_lower/pass/grid_serialization.h>
@@ -271,7 +271,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
            {"insertWarThreadSynchronization", insertWarThreadSynchronization},
-           {"DoubleBufferPass", DoubleBufferPass::run},
+           {"CircularBufferPass", CircularBufferPass::run},
            {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
            {"processMisalignedVectorization", processMisalignedVectorization},
@@ -536,8 +536,8 @@ void GpuLower::analysis(Fusion* fusion) {
   pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
 
-  doubleBufferInfo().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build doubleBufferInfo");
+  circularBufferInfo().build(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");

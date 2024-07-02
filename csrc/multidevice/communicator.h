@@ -56,6 +56,7 @@ class Communicator {
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
+  ~Communicator();
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;

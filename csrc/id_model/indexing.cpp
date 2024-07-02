@@ -437,7 +437,7 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
   if (use_set_allocatin_domain) {
     allocation_domains = tv->getAllocationDomain();
     contiguity = tv->domain()->contiguity();
-    NVF_ERROR(!tv->isDoubleBuffered());
+    NVF_ERROR(!tv->isCircularBuffered());
   } else {
     // If allocation domain is not set, assume that:
     // - Global: logical domains
@@ -448,11 +448,11 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
                 << std::endl;
       allocation_domains = tv->getLogicalDomain();
       contiguity = tv->domain()->contiguity();
-      NVF_ERROR(!tv->isDoubleBuffered());
+      NVF_ERROR(!tv->isCircularBuffered());
     } else {
       auto inlining_pos = tv->getComputeAtPosition();
-      if (tv->isDoubleBuffered()) {
-        inlining_pos = getDoubleBufferAxisPosition(tv) + 1;
+      if (tv->isCircularBuffered()) {
+        inlining_pos = getCircularBufferAxisPosition(tv) + 1;
       }
 
       for (const auto i : c10::irange(tv->nDims())) {
@@ -1216,7 +1216,7 @@ Val* TensorIndexer::getLinearIndex(
   }
 
   // Process double buffering when for-loops are given
-  if (tv->isDoubleBuffered() && for_loops.has_value() &&
+  if (tv->isCircularBuffered() && for_loops.has_value() &&
       GpuLower::hasCurrent()) {
     auto adjusted_index = adjustIndexToSwitchBuffer(
         tv, as_consumer, for_loops.value(), linear_index);
@@ -1353,7 +1353,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
 
         // TODO: Make it mandatory to have a GpuLower
         if (GpuLower::hasCurrent() && !as_consumer) {
-          replacement_index = adjustProducerLoopIndexForDoubleBuffering(
+          replacement_index = adjustProducerLoopIndexForCircularBuffering(
               expr,
               for_loop,
               replacement_index != nullptr ? replacement_index : cur_index);
@@ -1417,7 +1417,7 @@ std::vector<Val*> TensorIndexer::getPerDimIndex(
 // If the for-loop is double-buffered and not prologue, the loop
 // index should be advanced by one except for the double-buffered
 // tensor itself
-Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
+Val* TensorIndexer::adjustProducerLoopIndexForCircularBuffering(
     const Expr* expr,
     const ForLoop* for_loop,
     Val* loop_index) const {
@@ -1425,7 +1425,7 @@ Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
 
   auto consumer_tv = ir_utils::getTvOutput(expr);
 
-  if (!consumer_tv->isDoubleBuffered()) {
+  if (!consumer_tv->isCircularBuffered()) {
     return loop_index;
   }
 
@@ -1434,16 +1434,16 @@ Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
   auto producer_tv = expr->input(0)->as<TensorView>();
 
   // Double-buffered tensor itself does not need this adjustment
-  if (producer_tv->isDoubleBuffered() &&
+  if (producer_tv->isCircularBuffered() &&
       id_model_.idGraph(IdMappingMode::LOOP)
           .disjointValSets()
           .strictAreMapped(
-              getDoubleBufferAxis(producer_tv), for_loop->iter_domain())) {
+              getCircularBufferAxis(producer_tv), for_loop->iter_domain())) {
     return loop_index;
   }
 
-  if (for_loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Main &&
-      for_loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Epilog) {
+  if (for_loop->circularBufferLoopStage() != CircularBufferLoopStage::Main &&
+      for_loop->circularBufferLoopStage() != CircularBufferLoopStage::Epilog) {
     return loop_index;
   }
 
@@ -1453,7 +1453,7 @@ Val* TensorIndexer::adjustProducerLoopIndexForDoubleBuffering(
       "Double buffering info of GpuLower is required but GpuLower is missing");
 
   auto stage_depth =
-      (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+      (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
           for_loop->iter_domain());
 
   auto adjusted_loop_index = SimplifyingIrBuilder::addExpr(
@@ -1472,7 +1472,7 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
     bool as_consumer,
     const std::vector<ForLoop*>& for_loops,
     Val* idx) const {
-  if (!tv->isDoubleBuffered()) {
+  if (!tv->isCircularBuffered()) {
     return idx;
   }
 
@@ -1482,16 +1482,16 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
       "Double buffering info of GpuLower is required but GpuLower is missing");
 
   auto db_loop =
-      gpu_lower->doubleBufferInfo().getDoubleBufferLoop(tv, for_loops);
+      gpu_lower->circularBufferInfo().getCircularBufferLoop(tv, for_loops);
 
   NVF_ERROR(db_loop != nullptr);
 
   // Mostly just copied from getNonGlobalConsumerStridedIndices
-  auto stage_depth = (int64_t)gpu_lower->doubleBufferInfo().getStageDepthFor(
+  auto stage_depth = (int64_t)gpu_lower->circularBufferInfo().getStageDepthFor(
       db_loop->iter_domain());
   bool is_circular_buffer_loop = stage_depth > 2;
   bool is_prolog =
-      db_loop->doubleBufferLoopStage() == DoubleBufferLoopStage::Prolog;
+      db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
 
   NVF_ERROR(!is_circular_buffer_loop, "Circular buffering not supported yet");
 
@@ -1518,7 +1518,7 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
       SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
 
   auto original_alloc_size =
-      gpu_lower->doubleBufferInfo().getOriginalAllocSize(tv);
+      gpu_lower->circularBufferInfo().getOriginalAllocSize(tv);
 
   auto db_strided_index =
       SimplifyingIrBuilder::mulExpr(db_index_offset, original_alloc_size);
@@ -1554,7 +1554,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getPredicateIndexReplacementMap(
   auto replace_for_double_buffering = [&](ForLoop* fl,
                                           Val* original_index) -> Val* {
     auto db_axis =
-        GpuLower::current()->doubleBufferInfo().getDoubleBufferAxis(tv);
+        GpuLower::current()->circularBufferInfo().getCircularBufferAxis(tv);
     if (db_axis == nullptr ||
         !id_model_.idGraph(IdMappingMode::LOOP)
              .disjointValSets()
@@ -1563,12 +1563,12 @@ std::unordered_map<Val*, Val*> TensorIndexer::getPredicateIndexReplacementMap(
     }
 
     // The prologue loop does not need to be changed
-    if (fl->doubleBufferLoopStage() == DoubleBufferLoopStage::Prolog) {
+    if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
       return nullptr;
     }
 
     auto stage_depth =
-        (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+        (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
             fl->iter_domain());
     return SimplifyingIrBuilder::addExpr(
         original_index,
@@ -1659,12 +1659,12 @@ bool isNonDivisibleSplit(const ExprGroup& expr_group) {
   return false;
 }
 
-std::optional<DoubleBufferLoopStage> getDoubleBufferLoopStage(
+std::optional<CircularBufferLoopStage> getCircularBufferLoopStage(
     TensorView* tv,
     const std::vector<ForLoop*>& for_loops,
     const ValGraph& loop_graph) {
   auto db_axis =
-      GpuLower::current()->doubleBufferInfo().getDoubleBufferAxis(tv);
+      GpuLower::current()->circularBufferInfo().getCircularBufferAxis(tv);
   if (db_axis == nullptr) {
     return std::nullopt;
   }
@@ -1672,7 +1672,7 @@ std::optional<DoubleBufferLoopStage> getDoubleBufferLoopStage(
   for (const auto fl : for_loops) {
     if (loop_graph.disjointValSets().strictAreMapped(
             fl->iter_domain(), db_axis)) {
-      return fl->doubleBufferLoopStage();
+      return fl->circularBufferLoopStage();
     }
   }
 
@@ -1702,10 +1702,10 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
   // eplogue loop, but irrespective of that we can just use the
   // predicate of the main loop.
   if (is_unswitch) {
-    if (auto loop_stage = getDoubleBufferLoopStage(
+    if (auto loop_stage = getCircularBufferLoopStage(
             tv, *for_loops, id_model_.idGraph(IdMappingMode::LOOP));
         loop_stage.has_value() &&
-        loop_stage.value() != DoubleBufferLoopStage::Main) {
+        loop_stage.value() != CircularBufferLoopStage::Main) {
       return {};
     }
   }
