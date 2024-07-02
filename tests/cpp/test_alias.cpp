@@ -1325,4 +1325,26 @@ TEST_F(AliasTest, FusionExecutor) {
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 
+TEST_F(AliasTest, SeparateAliasAndNonAlias) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* in2 = segment_set(in);
+  TensorView* slice_out = slice(in2, {0, 0}, {2, 2});
+  TensorView* compute_out = mul(in, in);
+  compute_out = add(compute_out, in);
+  fusion->addInput(in);
+  fusion->addOutput(slice_out);
+  fusion->addOutput(compute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  at::Tensor slice_out_tensor = out_tensors[0];
+  EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
+}
+
 } // namespace nvfuser
