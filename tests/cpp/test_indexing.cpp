@@ -1279,7 +1279,7 @@ TEST_F(IndexingTest, SimpleUnroll) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion, false);
+  IndexValidator<GetReference>::validate(&fusion);
 }
 
 // Unrolling with no unrolled loop domain
@@ -1339,7 +1339,7 @@ TEST_F(IndexingTest, InlinedUnroll) {
     }
   };
 
-  IndexValidator<GetReference>::validate(&fusion, false);
+  IndexValidator<GetReference>::validate(&fusion);
 }
 
 } // namespace nvfuser

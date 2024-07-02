@@ -241,7 +241,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
                          tv->getLoopDomain().begin(),
                          tv->getLoopDomain().end(),
                          allocation_domain) != tv->getLoopDomain().end();
-      IterDomain* promotion_domain = allocation_domain;
+      IterDomain* promotion_domain = nullptr;
       if (is_loop) {
         promotion_domain = getLoopPromotion(allocation_domain, id_model);
       } else {
