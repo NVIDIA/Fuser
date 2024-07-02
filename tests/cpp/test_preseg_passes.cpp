@@ -631,7 +631,6 @@ TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
   testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-
 TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -660,21 +659,40 @@ TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
   at::Tensor fp8_amax_history = at::zeros({1, 1}, options);
   std::vector<c10::IValue> aten_inputs = {x, fp8_amax_history};
 
-  at::Tensor at_t1 = at::sum(x, {1}, /*keepdim*/true);
+  at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
   at::Tensor at_t2 = at::cos(at_t1);
   at::Tensor at_t3 = at::abs(at_t2);
   at::Tensor at_t4 = at::max(at_t3);
 
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
-
-  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
-  EXPECT_EQ(preseg_fusion->outputs().size(), 2);
-
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(preseg_fusion, outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
+  EXPECT_EQ(runtime.executors().size(), 2);
+  const FusionExecutor& first_fusion = runtime.executors().front();
+
+  EXPECT_EQ(first_fusion.fusion()->outputs().size(), 2);
+  Val* last_output = first_fusion.fusion()->outputs().back();
+
+  EXPECT_TRUE(last_output->isA<TensorView>());
+  TensorView* partial_amax = last_output->as<TensorView>();
+
+  EXPECT_TRUE(
+      partial_amax->definition()->isA<ReductionOp>() &&
+      partial_amax->definition()->as<ReductionOp>()->getReductionOpType() ==
+          BinaryOpType::Max);
+
+  std::vector<IterDomain*> logical_domain = partial_amax->getLogicalDomain();
+  int64_t num_reduction_axes = std::count_if(
+      logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
+        return id->isReduction();
+      });
+  EXPECT_EQ(num_reduction_axes, 1);
+
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  testValidate(
+      preseg_fusion, outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser::preseg_passes
