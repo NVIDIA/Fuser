@@ -947,7 +947,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       num_device_dims + num_local_batch_dims;
 
   // [... M,N,K]
-  mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
+  mma_utils::makeTile(
+      mma_result,
+      gemm_tile.cta_tile.toVector(),
+      mma_result->nDims() - 3,
+      mma_result->nDims() - 2,
+      mma_result->nDims() - 1);
   // [..., Mo, No, Ko, Mi, Ni, Ki]
 
   // Unswizzle mma result in shared memory

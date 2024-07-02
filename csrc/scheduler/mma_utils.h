@@ -59,7 +59,17 @@ NVF_API void scheduleWarpTileWithNoReduction(
 //! Eg.
 //!  A[B,I0,I1,I2] -> makeTile({1,2,3})
 //! Gives A[B, I0o, I1o, I2o, I0i(1), I1i(2), I2i(3)]
-void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes);
+//! This utility can be called on any tensor in the fusion. If that tensor has
+//! multiple M, N, or K axes they should already be merged via
+//! canonicalizeMmaTvOrdering before calling makeTile and the merged axis
+//! position should be provided. If any of these dimensions is missing, its
+//! position should be passed as -1.
+void makeTile(
+    TensorView* tv,
+    const std::vector<int64_t>& tile_sizes,
+    int64_t m_pos,
+    int64_t n_pos,
+    int64_t k_pos);
 
 //! Order the inner tile dimensions as the original order in
 //! (maybe allocation) domain. Also putting broadcast domains on the left.
@@ -400,6 +410,14 @@ std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
     const ValGraph& permissive_graph);
+
+//! Returns roles maps which have been merged across individual maps generated
+//! by the provided matmul patterns.
+//!
+//! Returns std::nullopt if two patterns have incompatible roles
+std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
+    IdModel& id_model,
+    const std::vector<MatmulPattern>& patterns);
 
 //! Set the number_of_dims IDs from the end to swizzled.
 void setWarpMapped(TensorView* tv, int64_t number_of_dims);

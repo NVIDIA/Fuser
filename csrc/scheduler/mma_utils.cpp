@@ -176,16 +176,6 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       promote_prologue_smem_reuse};
 }
 
-TensorView* getOperandTv(const TensorRolesMap& tensor_roles, MatmulRole role) {
-  const auto it = tensor_roles.find(role);
-  NVF_ERROR(it != tensor_roles.end(), "Could not find any tensors with role");
-  const std::vector<TensorView*>& operands = it->second;
-  NVF_ERROR(
-      operands.size() == 1,
-      "Exactly one operand is expected in each A and B role");
-  return operands.front();
-}
-
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_circular_buffer_stage,
@@ -225,8 +215,19 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // cases, we check that there is no re-use when there is more than one use of
   // either a or b. If there are multiple uses we might wind up re-using memory,
   // but in that case the calculation below will be overly conservative.
-  const TensorView* a = getOperandTv(tensor_roles, MatmulRole::OPERAND_A);
-  const TensorView* b = getOperandTv(tensor_roles, MatmulRole::OPERAND_B);
+
+  // TODO: account for multiple operands in this computation
+  auto a_it = tensor_roles.find(MatmulRole::OPERAND_A);
+  NVF_ERROR(
+      a_it != tensor_roles.end() && !a_it->second.empty(),
+      "Expected at least one A operand");
+  const TensorView* a = a_it->second.front();
+  auto b_it = tensor_roles.find(MatmulRole::OPERAND_B);
+  NVF_ERROR(
+      b_it != tensor_roles.end() && !b_it->second.empty(),
+      "Expected at least one B operand");
+  const TensorView* b = b_it->second.front();
+
   bool smem_a_reuse_guaranteed = a->uses().size() == 1;
   bool smem_b_reuse_guaranteed = b->uses().size() == 1;
 
@@ -355,21 +356,36 @@ void scheduleContiguousVectorLoad(
   tv->axis(-4)->parallelize(ParallelType::TIDz);
 }
 
-void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
+void makeTile(
+    TensorView* tv,
+    const std::vector<int64_t>& tile_sizes,
+    int64_t m_pos,
+    int64_t n_pos,
+    int64_t k_pos) {
   NVF_CHECK(
       tv->getLoopDomain().size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
 
-  // Number of inner dimensions we are tiling.
-  const int64_t tile_dimension_size = (int64_t)tile_sizes.size();
-
-  // Split the inner dimensions:
-  for (int64_t idx : c10::irange(tile_dimension_size)) {
-    // Using negative indexing to accomodate potential batching
-    //  dimensions on the further left. Eg.:
-    //  0, 1, 2   ->         -3,-2,-1
-    // [M, N, K]  -> [B0, B1, M, N, K]
-    tv->split(idx - tile_dimension_size, tile_sizes.at(idx));
+  // Split the inner dimensions
+  int64_t num_split_axes = 0;
+  if (m_pos != -1) {
+    tv->split(m_pos, tile_sizes.at(0));
+    num_split_axes++;
+    if (n_pos > m_pos) {
+      n_pos++;
+    }
+    if (k_pos > m_pos) {
+      k_pos++;
+    }
+  }
+  if (n_pos != -1) {
+    tv->split(n_pos, tile_sizes.at(1));
+    if (k_pos > n_pos) {
+      k_pos++;
+    }
+  }
+  if (k_pos != -1) {
+    tv->split(k_pos, tile_sizes.at(2));
   }
 
   // The transformation happened should look like:
@@ -381,7 +397,7 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
   std::unordered_map<int64_t, int64_t> reorder_map_old_to_new;
 
   // Number of tiled inner dimensions after we split.
-  const auto split_tile_dimension_size = 2 * tile_dimension_size;
+  const auto split_tile_dimension_size = 2 * num_split_axes;
   for (auto idx : c10::irange(split_tile_dimension_size)) {
     // We want to reorder as follows:
     //           Before
@@ -401,7 +417,7 @@ void makeTile(TensorView* tv, std::vector<int64_t> tile_sizes) {
 
     // Calculate the actual index after reordering
     auto index_after_reorder =
-        group_index * tile_dimension_size + index_within_group;
+        group_index * num_split_axes + index_within_group;
 
     // Add pair {idx_before, idx_after} to re-order map.
     reorder_map_old_to_new.insert(std::make_pair(
@@ -1138,23 +1154,49 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
     }
     return g_it->second;
   };
-  TensorView* a = getOperandTv(tensor_roles, MatmulRole::OPERAND_A);
-  TensorView* b = getOperandTv(tensor_roles, MatmulRole::OPERAND_B);
 
-  const MatmulDomainOpt innerdim_a_opt = findInnerDim(a);
-  if (std::holds_alternative<std::string>(innerdim_a_opt)) {
-    std::string err = std::get<std::string>(innerdim_a_opt);
-    return err;
+  std::optional<MatmulDomain> innerdim_a = std::nullopt;
+  const auto a_it = tensor_roles.find(MatmulRole::OPERAND_A);
+  NVF_ERROR(a_it != tensor_roles.end(), "No A roles found");
+  for (TensorView* a : a_it->second) {
+    const MatmulDomainOpt innerdim_a_opt = findInnerDim(a);
+    if (std::holds_alternative<std::string>(innerdim_a_opt)) {
+      std::string err = std::get<std::string>(innerdim_a_opt);
+      return err;
+    }
+    const MatmulDomain this_inner_dim = std::get<MatmulDomain>(innerdim_a_opt);
+    if (!innerdim_a.has_value()) {
+      innerdim_a = this_inner_dim;
+    } else if (innerdim_a.value() != this_inner_dim) {
+      // TODO: We should return all the inner dims, not force that they're equal
+      // for all A and all B TVs
+      return std::string("Found conflicting inner dims for A operands");
+    }
   }
-  const MatmulDomainOpt innerdim_b_opt = findInnerDim(b);
-  if (std::holds_alternative<std::string>(innerdim_b_opt)) {
-    std::string err = std::get<std::string>(innerdim_b_opt);
-    return err;
-  }
-  const MatmulDomain innerdim_a = std::get<MatmulDomain>(innerdim_a_opt);
-  const MatmulDomain innerdim_b = std::get<MatmulDomain>(innerdim_b_opt);
 
-  return std::vector<MatmulDomain>{innerdim_a, innerdim_b};
+  std::optional<MatmulDomain> innerdim_b = std::nullopt;
+  const auto b_it = tensor_roles.find(MatmulRole::OPERAND_B);
+  NVF_ERROR(b_it != tensor_roles.end(), "No B roles found");
+  for (TensorView* b : b_it->second) {
+    const MatmulDomainOpt innerdim_b_opt = findInnerDim(b);
+    if (std::holds_alternative<std::string>(innerdim_b_opt)) {
+      std::string err = std::get<std::string>(innerdim_b_opt);
+      return err;
+    }
+    const MatmulDomain this_inner_dim = std::get<MatmulDomain>(innerdim_b_opt);
+    if (!innerdim_b.has_value()) {
+      innerdim_b = this_inner_dim;
+    } else if (innerdim_b.value() != this_inner_dim) {
+      // TODO: We should return all the inner dims, not force that they're equal
+      // for all A and all B TVs
+      return std::string("Found conflicting inner dims for B operands");
+    }
+  }
+
+  NVF_ERROR(innerdim_a.has_value());
+  NVF_ERROR(innerdim_b.has_value());
+
+  return std::vector<MatmulDomain>{innerdim_a.value(), innerdim_b.value()};
 }
 
 TensorRolesMapOpt getTensorRoles(
@@ -1912,6 +1954,34 @@ std::vector<ValGroup> canonicalDimOrdering(
   insert(k_dims);
 
   return ordering;
+}
+
+std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
+    IdModel& id_model,
+    const std::vector<MatmulPattern>& patterns) {
+  Fusion* fusion = nullptr;
+  DimRolesMap id_roles;
+  for (const MatmulPattern& pattern : patterns) {
+    if (fusion == nullptr) {
+      fusion = pattern.output->fusion();
+    } else {
+      NVF_ERROR(fusion == pattern.output->fusion());
+    }
+    mma_utils::DimRolesMap pattern_id_roles = pattern.getDimRoles(id_model);
+    for (const auto& [g, role] : pattern_id_roles) {
+      const auto& [it, inserted] = id_roles.try_emplace(g, role);
+      if (!inserted && it->second != role) {
+        return std::nullopt;
+      }
+    }
+  }
+  const auto tensor_roles_opt =
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
+  if (!tensor_roles_opt.isValid()) {
+    return std::nullopt;
+  }
+  return std::pair<DimRolesMap, TensorRolesMap>{
+      id_roles, tensor_roles_opt.getData()};
 }
 
 } // namespace mma_utils
