@@ -16,19 +16,45 @@ namespace nvfuser {
 
 namespace {
 
+std::string toString(ValGroup g) {
+  std::stringstream ss;
+  ss << "ValGroup[" << (void*)g.get() << "]:";
+  for (Val* v : g->vector()) {
+    ss << " " << v->name();
+  }
+  return ss.str();
+}
+
 class AbstractTensorSchedule : public IterVisitor {
  public:
-  static void apply(const AbstractTensor& abstract, TensorView* concrete) {
-    AbstractTensorSchedule ats(abstract, concrete);
+  static void apply(
+      const AbstractTensor& abstract,
+      TensorView* concrete,
+      ValGraph* graph) {
+    AbstractTensorSchedule ats(abstract, concrete, graph);
     ats.run();
   }
 
  private:
-  AbstractTensorSchedule(const AbstractTensor& abstract, TensorView* concrete)
-      : abstract_(abstract), concrete_(concrete) {}
+  AbstractTensorSchedule(const AbstractTensor& abstract, TensorView* concrete, ValGraph* graph)
+      : abstract_(abstract), concrete_(concrete), graph_(graph) {}
 
   void run() {
+    concrete_->fusion()->printMath(0);
+    concrete_->fusion()->printTransforms();
+    std::cout << "abstract_ = " << std::endl;
+    for (const AbstractId& abs_id : abstract_.domain) {
+      ValGroup g = abstractIdToValGroup(abs_id);
+      std::cout << "  " << toString(g) << std::endl;
+    }
+    std::cout << "concrete_ = " << concrete_->toString() << std::endl;
+    std::cout << "concrete_ids_ after findNearestProducers:" << std::endl;
+    for (auto& [vg, id] : concrete_ids_) {
+      std::cout << "  " << toString(vg) << "  ->  " << id->toString() << std::endl;
+    }
+
     findNearestProducers();
+
 
     // Now, for each ValGroup in abstract, find the closest producer ValGroups
     // with entries in concrete_ids_ and replay the path from them. If none
@@ -47,6 +73,16 @@ class AbstractTensorSchedule : public IterVisitor {
     concrete_->setLoopDomain(loop_domain);
   }
 
+  ValGroup abstractIdToValGroup(const AbstractId& abs_id) {
+    if (abs_id.is<IterDomain*>()) {
+      return graph_->toGroup(abs_id.as<IterDomain*>());
+    } else if (abs_id.is<ValGroupAndItsGraph>()) {
+      NVF_ERROR(graph_ == abs_id.as<ValGroupAndItsGraph>().graph);
+      return abs_id.as<ValGroupAndItsGraph>().group;
+    }
+    NVF_ERROR(false, "AbstractId must be IterDomain* or ValGroupAndItsGraph");
+  }
+
   //! Work backward from each loop IterDomain in concrete. When we find an
   //! IterDomain* with a ValGroup in scheduled_val_groups, we map to it
   //! (including siblings) in concrete_ids_. Assert that we do find a
@@ -58,29 +94,19 @@ class AbstractTensorSchedule : public IterVisitor {
     // TODO: this should probably be a more general utility like DependencyCheck
     // in val_graph_visitor.h
     std::unordered_set<ValGroup> scheduled_val_groups;
-    ValGraph* graph = nullptr;
     std::stack<ValGroup> vg_stack;
     for (const AbstractId& abs_id : abstract_.domain) {
-      NVF_ERROR(
-          abs_id.is<ValGroupAndItsGraph>(),
-          "abstract tensor must contain only ValGroups");
-      const ValGroupAndItsGraph& gg = abs_id.as<ValGroupAndItsGraph>();
-      if (graph == nullptr) {
-        graph = gg.graph;
-      } else {
-        NVF_ERROR(graph == gg.graph);
-      }
-      vg_stack.push(gg.group);
+      vg_stack.push(abstractIdToValGroup(abs_id));
     }
     while (!vg_stack.empty()) {
       ValGroup vg = vg_stack.top();
       vg_stack.pop();
       scheduled_val_groups.insert(vg);
       // TODO: Do we need to check for cycles?
-      for (const ExprGroup& eg : graph->getDefinitions(vg)) {
+      for (const ExprGroup& eg : graph_->getDefinitions(vg)) {
         for (Expr* e : *eg) {
           for (Val* inp : e->inputs()) {
-            ValGroup vg_inp = graph->toGroup(inp);
+            ValGroup vg_inp = graph_->toGroup(inp);
             vg_stack.push(vg_inp);
           }
         }
@@ -96,7 +122,7 @@ class AbstractTensorSchedule : public IterVisitor {
     while (!id_stack.empty()) {
       IterDomain* id = id_stack.top();
       id_stack.pop();
-      ValGroup g = graph->toGroup(id);
+      ValGroup g = graph_->toGroup(id);
       if (scheduled_val_groups.find(g) != scheduled_val_groups.end()) {
         concrete_ids_.emplace(g, id);
         continue;
@@ -115,11 +141,7 @@ class AbstractTensorSchedule : public IterVisitor {
   }
 
   IterDomain* replayAbstractId(AbstractId abs_id) {
-    NVF_ERROR(
-        abs_id.is<ValGroupAndItsGraph>(),
-        "abstract must contain only ValGroups");
-    ValGroup g = abs_id.as<ValGroupAndItsGraph>().group;
-    ValGraph* graph = abs_id.as<ValGroupAndItsGraph>().graph;
+    ValGroup g = abstractIdToValGroup(abs_id);
 
     // This holds ValGroups that we cannot compute from concrete_'s root. When
     // we detect that any inputs of an ExprGroup are in these groups, we know
@@ -129,18 +151,24 @@ class AbstractTensorSchedule : public IterVisitor {
     std::stack<ValGroup> vg_stack({g});
     // Strategy: fill out concrete_ids_ in the direction of g
     auto propagate = [&](ValGroup vg) {
+      std::cout << "propagate " << toString(vg) << std::endl;
       // We need to try and produce an ID for this group, so we look at
       // definitions for the Vals in this group and check whether we have their
       // inputs computed yet (concrete_ids_) and whether they can be computed
       // (uncomputable_groups).
       std::vector<ValGroup> uncomputed_producer_groups;
-      for (const ExprGroup& eg : graph->getDefinitions(vg)) {
+      for (const ExprGroup& eg : graph_->getDefinitions(vg)) {
         for (Expr* e : *eg) {
+          if (!uncomputed_producer_groups.empty()) {
+            // We already have something to compute in the next round, so skip.
+            continue;
+          }
+          std::cout << "  definition " << e->toString() << std::endl;
           std::vector<ValGroup> vg_inps;
           std::vector<IterDomain*> id_inps;
           bool all_inputs_computed = true;
           for (Val* inp : e->inputs()) {
-            ValGroup vg_inp = graph->toGroup(inp);
+            ValGroup vg_inp = graph_->toGroup(inp);
             vg_inps.push_back(vg_inp);
             auto inp_it = concrete_ids_.find(vg_inp);
             if (inp_it != concrete_ids_.end()) {
@@ -156,6 +184,7 @@ class AbstractTensorSchedule : public IterVisitor {
           }
           // some input is not yet computed
           if (!all_inputs_computed) {
+            std::cout << "  some inputs not computed" << std::endl;
             continue;
           }
           // Compute new ID expression
@@ -187,7 +216,7 @@ class AbstractTensorSchedule : public IterVisitor {
           NVF_ERROR(id_expr != nullptr);
           NVF_ERROR(id_expr->outputs().size() == e->outputs().size());
           for (size_t i : c10::irange(e->outputs().size())) {
-            ValGroup vg_outp = graph->toGroup(e->output((int64_t)i));
+            ValGroup vg_outp = graph_->toGroup(e->output((int64_t)i));
             auto* id_outp = id_expr->output((int64_t)i)->as<IterDomain>();
             concrete_ids_.emplace(vg_outp, id_outp);
           }
@@ -196,13 +225,16 @@ class AbstractTensorSchedule : public IterVisitor {
       if (uncomputed_producer_groups.empty()) {
         // All of the defining expressions are proven uncomputable, so mark vg
         // uncomputable
+        std::cout << "  Marking " << toString(vg) << " uncomputable" << std::endl;
         uncomputable_groups.insert(vg);
         return;
       } else {
         // There are some uncomputed producer groups that might be computable,
         // so try again after processing those producer groups
+        std::cout << "  Adding " << toString(vg) << " back to stack beneath producer groups:" << std::endl;
         vg_stack.push(vg);
         for (ValGroup next_vg : uncomputed_producer_groups) {
+          std::cout << "    " << toString(next_vg) << std::endl;
           vg_stack.push(next_vg);
         }
       }
@@ -211,7 +243,9 @@ class AbstractTensorSchedule : public IterVisitor {
     while (!vg_stack.empty()) {
       ValGroup vg = vg_stack.top();
       vg_stack.pop();
+      std::cout << "popped from stack: " << toString(vg) << std::endl;
       if (concrete_ids_.count(vg) != 0) {
+        std::cout << "  concretized already" << std::endl;
         continue;
       }
       propagate(vg);
@@ -227,6 +261,7 @@ class AbstractTensorSchedule : public IterVisitor {
  private:
   const AbstractTensor& abstract_;
   TensorView* concrete_;
+  ValGraph* graph_;
 
   std::unordered_map<ValGroup, IterDomain*> concrete_ids_;
 };
@@ -235,8 +270,9 @@ class AbstractTensorSchedule : public IterVisitor {
 
 void applyAbstractSchedule(
     const AbstractTensor& abstract,
-    TensorView* concrete) {
-  AbstractTensorSchedule::apply(abstract, concrete);
+    TensorView* concrete,
+    ValGraph* graph) {
+  AbstractTensorSchedule::apply(abstract, concrete, graph);
 }
 
 } // namespace nvfuser
