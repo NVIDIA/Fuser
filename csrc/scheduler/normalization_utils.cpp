@@ -1205,8 +1205,7 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
     // Persistent scheduler simply uses reference_tv as the reference, if
     // that changes, this needs to be changed.
     auto reference_tv = reduction_tvs[0];
-    if (registry_utils::reductionInterferingView(
-            fusion, ca_map, reference_tv)) {
+    if (registry_utils::reductionInterferingView(fusion, reference_tv)) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedule_heuristic,
           "View may interfere with normalization scheduling.");

@@ -391,10 +391,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
 
 // Returns if view interferes with how we want to treat the reference, being at
 // least a 2D reduction schedule but maybe a 3D reduction schedule.
-bool reductionInterferingView(
-    Fusion* fusion,
-    const ComputeAtMap& ca_map,
-    TensorView* reduction_reference) {
+bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   // Make sure the view doesn't interfere with how we'll want to schedule
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.
@@ -414,8 +411,11 @@ bool reductionInterferingView(
 
   std::vector<IterDomain*> dims = reduction_reference->getLogicalDomain();
 
-  // The disjoint groups we need for this scheduler
-  std::vector<std::vector<IterDomain*>> groups;
+  // Each vector of IDs is a group of coalesced_ids, they will be merged into
+  // one ID during the reduction schedule. If the view op involves merging IDs
+  // in different group of coalesced_ids, it would break the reduction
+  // scheduler.
+  std::vector<std::vector<IterDomain*>> vect_of_coalesced_ids;
 
   // Do this three times as we could have a 3D scheduler at maximum
   for (auto dimension : c10::irange(3)) {
@@ -442,63 +442,77 @@ bool reductionInterferingView(
 
     // Don't add empty group (would happen if it's a 2D scheduler not 3D)
     if (!current_dims.empty()) {
-      groups.push_back(current_dims);
+      vect_of_coalesced_ids.push_back(current_dims);
       dims = remove_dims(dims, processed);
     }
   }
 
   NVF_ERROR(dims.empty(), "Error processing ", dims, " in registry.cpp.");
 
-  // Make sure groups are disjoint based on view
+  // Check if any view op could merge IDs in different coalesced_ids.
+  // (1) Build the exact graph
+  IdModel id_model(fusion, false, false, false);
+  id_model.buildExactGraph();
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  auto disjoint_rfactor_sets = scheduler_utils::disjointLogicalSets(fusion);
-  auto disjoint_set_information = scheduler_utils::getDisjointLogicalSetsOf(
-      fusion, reduction_reference, disjoint_rfactor_sets);
-
-  // Convert id's in groups to disjoint_set_ids of disjoint_set_information
-  std::vector<std::vector<int64_t>> disjoint_groups;
-
-  for (const auto& group : groups) {
-    std::vector<int64_t> disjoint_id_sets;
-    for (auto id : group) {
-      auto find_it = std::find(
-          reduction_reference->getLogicalDomain().begin(),
-          reduction_reference->getLogicalDomain().end(),
-          id);
-      NVF_ERROR(
-          find_it != reduction_reference->getLogicalDomain().end(),
-          "Issue with view analysis on reduction like schedule, with reference: ",
-          reduction_reference->toString());
-      auto logical_pos = std::distance(
-          reduction_reference->getLogicalDomain().begin(), find_it);
-      NVF_ERROR(
-          logical_pos <
-              (int64_t)disjoint_set_information.disjoint_set_ids.size(),
-          "Error computing disjoint group on the logical domain of ",
-          reduction_reference->toString());
-      disjoint_id_sets.push_back(
-          disjoint_set_information.disjoint_set_ids[logical_pos]);
+  // (2) For each ID in vect_of_coalesced_ids, find its corresponding ValGroup
+  // and save the mapping info. ValGroup is a set of equivalent IDs.
+  // Map through: ID --> ValGroup --> coalesced_ids (index in the vector)
+  std::unordered_map<ValGroup, int> vg_to_coalesced_ids;
+  for (auto index : c10::irange(vect_of_coalesced_ids.size())) {
+    for (auto id : vect_of_coalesced_ids.at(index)) {
+      const auto& vg = exact_graph.toGroup(id);
+      vg_to_coalesced_ids[vg] = (int)index;
     }
-    disjoint_groups.push_back(disjoint_id_sets);
   }
 
-  // Make sure there's no intersection between the groups, otherwise view
-  // will interfere with the schedule. TODO: Make this better complexity,
-  // since it should be relatively small int vectors of a small total nDims,
-  // not too worried about it now.
-
-  for (auto first_dim_i : c10::irange(disjoint_groups.size())) {
-    for (auto second_dim_i = first_dim_i + 1;
-         second_dim_i < disjoint_groups.size();
-         ++second_dim_i) {
-      auto first_group = disjoint_groups[first_dim_i];
-      auto second_group = disjoint_groups[second_dim_i];
-      for (auto first_disjoint_id : first_group) {
-        for (auto second_disjoint_id : second_group) {
-          if (first_disjoint_id == second_disjoint_id) {
-            return true;
-          }
+  // (3) Loop through all view ops and check if they merge IDs in different
+  // coalesced_ids. If happens, return true.
+  for (auto view : ir_utils::getViewOps(fusion)) {
+    auto tv = view->out();
+    // visit exprs between root and logical domains in topologically sorted
+    // order (can't use id_model.idUses() since it is not sorted).
+    // If the expr inputs exist in [vg_to_coalesced_ids], add the newly created
+    // IDs to the same coalesced_ids as the input IDs. Otherwise, do nothing
+    // since that expr is not interfering with IDs of reduction tv.
+    for (auto expr : StmtSort::getExprsTo(
+             {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
+      if (auto merge = dynamic_cast<Merge*>(expr)) {
+        const auto& vg0 = exact_graph.toGroup(merge->inner());
+        const auto& vg1 = exact_graph.toGroup(merge->outer());
+        auto it0 = vg_to_coalesced_ids.find(vg0);
+        auto it1 = vg_to_coalesced_ids.find(vg1);
+        if (it0 == vg_to_coalesced_ids.end() ||
+            it1 == vg_to_coalesced_ids.end()) {
+          continue;
         }
+        // merge of IDs in different coalesced_ids breaks the reduction
+        // scheduler
+        if (it0->second != it1->second) {
+          return true;
+        } else {
+          // add the newly created ID to the same coalesced_ids as the input
+          const auto& vg = exact_graph.toGroup(merge->out());
+          vg_to_coalesced_ids[vg] = it0->second;
+        }
+      } else if (auto split = dynamic_cast<Split*>(expr)) {
+        const auto& vg0 = exact_graph.toGroup(split->in());
+        const auto& vg1 = exact_graph.toGroup(split->outer());
+        const auto& vg2 = exact_graph.toGroup(split->inner());
+        auto it = vg_to_coalesced_ids.find(vg0);
+        if (it == vg_to_coalesced_ids.end()) {
+          continue;
+        }
+        // add the newly created ID to the same coalesced_ids as the input
+        vg_to_coalesced_ids[vg1] = it->second;
+        vg_to_coalesced_ids[vg2] = it->second;
+      } else {
+        // Shouldn't have any other exprs between root and logical domains
+        NVF_ERROR(
+            false,
+            "Expression type: ",
+            expr ? expr->toString() : "nullptr",
+            " not supported.");
       }
     }
   }
