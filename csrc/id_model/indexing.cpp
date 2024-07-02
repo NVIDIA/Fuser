@@ -409,7 +409,10 @@ std::optional<std::vector<IterDomain*>> patchAllocationDomainWithVectorization(
 // domains, but that isn't always the case at this moment. The logic
 // here is duplicated in multiple locations and should be cleaned up.
 std::tuple<std::vector<IterDomain*>, std::vector<Val*>, std::vector<bool>>
-getAllocationDomains(TensorView* tv, const IdModel& id_model) {
+getAllocationDomains(
+    TensorView* tv,
+    const IdModel& id_model,
+    const std::vector<ForLoop*>& for_loops) {
   std::vector<IterDomain*> allocation_domains;
   std::vector<std::optional<bool>> contiguity;
 
@@ -457,9 +460,10 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
       contiguity = tv->domain()->contiguity();
       NVF_ERROR(!tv->isCircularBuffered());
     } else {
-      auto inlining_pos = tv->getComputeAtPosition();
+      int64_t allocation_pos =
+          lower_utils::getAllocInformation(tv, for_loops).alloc_pos;
       if (tv->isCircularBuffered()) {
-        inlining_pos = getCircularBufferAxisPosition(tv) + 1;
+        allocation_pos = getCircularBufferAxisPosition(tv) + 1;
       }
 
       for (const auto i : c10::irange(tv->nDims())) {
@@ -474,7 +478,7 @@ getAllocationDomains(TensorView* tv, const IdModel& id_model) {
         // is a Shared tensor and the domain is parallelized with TID,
         // even if it's outside of the CA position, since the domain
         // is shared, it must be allocated.
-        if (i < inlining_pos &&
+        if (i < allocation_pos &&
             !ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
           continue;
         }
@@ -1141,7 +1145,7 @@ std::pair<std::deque<ValGroup>, std::deque<Val*>> TensorIndexer::
 Val* TensorIndexer::getLinearIndex(
     TensorView* tv,
     const Expr* expr,
-    const std::optional<std::vector<ForLoop*>>& for_loops) const {
+    const std::vector<ForLoop*>& for_loops) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -1163,7 +1167,7 @@ Val* TensorIndexer::getLinearIndex(
             << expr->toString() << std::endl;
 
   const auto [allocation_domains, strides, contiguity] =
-      getAllocationDomains(tv, id_model_);
+      getAllocationDomains(tv, id_model_, for_loops);
 
   VERBOSE() << "Allocation domains: " << toDelimitedString(allocation_domains)
             << std::endl;
@@ -1223,10 +1227,9 @@ Val* TensorIndexer::getLinearIndex(
   }
 
   // Process double buffering when for-loops are given
-  if (tv->isCircularBuffered() && for_loops.has_value() &&
-      GpuLower::hasCurrent()) {
-    auto adjusted_index = adjustIndexToSwitchBuffer(
-        tv, as_consumer, for_loops.value(), linear_index);
+  if (tv->isCircularBuffered() && GpuLower::hasCurrent()) {
+    auto adjusted_index =
+        adjustIndexToSwitchBuffer(tv, as_consumer, for_loops, linear_index);
     linear_index = adjusted_index;
   }
 

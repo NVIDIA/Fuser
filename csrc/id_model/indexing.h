@@ -61,14 +61,12 @@ class TensorIndexer {
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
   //
-  // The actual ForLoop's are required to support double buffering as
-  // that affects indexing. If the loops parameter is empty, it's
-  // simply ignored. That may be useful if (preliminary) indeices are
-  // needed before the double buffering pass
+  // The actual ForLoop's are required as they may have unrolled loops
+  // that tv may not have.
   Val* getLinearIndex(
       TensorView* tv,
       const Expr* expr,
-      const std::optional<std::vector<ForLoop*>>& loops) const;
+      const std::vector<ForLoop*>& loops) const;
 
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
