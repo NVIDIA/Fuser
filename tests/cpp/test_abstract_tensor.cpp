@@ -9,9 +9,12 @@
 #include <gtest/gtest.h>
 
 #include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 #include <abstract_tensor.h>
 #include <abstract_tensor_schedule.h>
+#include <executor.h>
+#include <inlining.h>
 #include <ops/arith.h>
 
 namespace nvfuser {
@@ -753,7 +756,23 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
 
   for (TensorView* tv : {tv3, tv4, tv5, tv6}) {
     applyAbstractSchedule(abten, tv, &graph);
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+    tv->axis(-2)->parallelize(ParallelType::BIDx);
   }
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({24}, options);
+  at::Tensor t1 = at::randn({24, 1024}, options);
+  at::Tensor t2 = at::randn({2048, 24}, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
