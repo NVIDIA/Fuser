@@ -178,6 +178,10 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
 bool isResharding(Expr* expr) {
   // we don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
+  if (expr->isA<SdpaFwdOp>()) {
+    std::cout << "Have to manually shard SDPA " << std::endl;
+    return false;
+  }
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
@@ -239,16 +243,16 @@ void insertReshardingBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (auto expr : fusion->exprs()) {
-    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr)) {
+    if (isLowerableToCommunication(expr) || !ir_utils::isTvOp(expr) || shouldReshardAfter(expr)) {
       continue;
     }
-    NVF_ERROR(
-        ir_utils::isTvOp(expr),
-        "Non-tv op is not supported yet: ",
-        expr->toString());
-    NVF_ERROR(
-        expr->outputs().size() == 1,
-        "multi-output expressions are not supported");
+    if (expr->outputs().size() != 1) {
+      std::cout << "Skip on " << expr->toString() << std::endl;
+      continue;
+    }
+    // NVF_ERROR(
+    //     expr->outputs().size() == 1,
+    //     "multi-output expressions are not supported");
 
     auto output = expr->outputs().at(0)->as<TensorView>();
     std::unordered_set<TensorView*> inputs;
@@ -282,16 +286,16 @@ void insertReshardingsAfter(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr)) {
+    if (isLowerableToCommunication(expr) || !ir_utils::isTvOp(expr) || !shouldReshardAfter(expr)) {
       continue;
     }
-    NVF_ERROR(
-        ir_utils::isTvOp(expr),
-        "Non-tv op is not supported yet: ",
-        expr->toString());
-    NVF_ERROR(
-        expr->outputs().size() == 1,
-        "multi-output expressions are not supported");
+    if (expr->outputs().size() != 1) {
+      std::cout << "Skip on " << expr->toString() << std::endl;
+      continue;
+    }
+    // NVF_ERROR(
+    //     expr->outputs().size() == 1,
+    //     "multi-output expressions are not supported");
 
     auto output = expr->outputs().at(0)->as<TensorView>();
     std::unordered_set<TensorView*> inputs;

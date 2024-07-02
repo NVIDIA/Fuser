@@ -77,6 +77,8 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
       /*is_causal=*/false,
       /*return_debug_mask=*/false,
       scale);
+  std::cout << "q, k, v " << q.sizes() << " " << k.sizes() << " " << v.sizes() << std::endl;
+  std::cout << "sdpa out sizes " << std::get<0>(aten_outputs).sizes() << std::endl;
   ;
 
   FusionExecutorCache fec(std::move(fusion));
@@ -146,8 +148,13 @@ TEST_F(SDPATest, CausalAttn) {
   fusion->addInput(tvk);
   fusion->addInput(tvv);
 
+  auto tvq2 = add(tvq, tvq);
+  tvq2 = div(tvq, IrBuilder::create<Val>(2.0));
+  tvq2 = castOp(DataType::Half, tvq2);
+  tvq2 = segment_set(tvq2);
+  
   auto tvattn = sdpfa_fwd(
-      tvq,
+      tvq2,
       tvk,
       tvv,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
@@ -172,6 +179,7 @@ TEST_F(SDPATest, CausalAttn) {
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({q, k, v});
+  std::cout << (out[0] - std::get<0>(aten_outputs)).abs().max() << std::endl;
   EXPECT_TRUE(at::allclose(out[0], std::get<0>(aten_outputs)));
 }
 

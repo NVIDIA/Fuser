@@ -160,7 +160,6 @@ void ExpressionEvaluator::bind_(
             "TV ",
             tv->toString(),
             " has an empty DeviceMesh with DID parallelization")
-        std::cout << "Binding " << logical_domain[i]->toString() << " to " << tv->getDeviceMesh().size() << std::endl;
         bind_(
             logical_domain[i]->extent(),
             (int)tv->getDeviceMesh().size(),
@@ -234,7 +233,6 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
         known_values[def->output(i)] = std::move(outputs[i]);
       }
       maybe_concrete_value = getValue(value, known_values);
-      std::cout << "evaluate " << value->toString() << std::endl;
     }
   }
   return maybe_concrete_value;

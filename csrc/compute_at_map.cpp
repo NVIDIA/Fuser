@@ -383,7 +383,14 @@ void IterDomainGraph::build(Fusion* fusion) {
         // mappings as they do not share loops, but are mapped in the
         // case of mapping multiple outputs since they do share the
         // same loops.
-
+        if (c_tv->getMaybeRootDomain().size() != first_output_tv->getMaybeRootDomain().size()) {
+          std::cout << "Hitting here " << expr->toString() << std::endl;
+          std::cout << "TV outputs [";
+          for (auto tv : tv_outputs) {
+            std::cout << tv->toString() << std::endl;
+          }
+          std::cout << "]" << std::endl;
+        }
         NVF_ERROR(
             c_tv->getMaybeRootDomain().size() ==
                 first_output_tv->getMaybeRootDomain().size(),

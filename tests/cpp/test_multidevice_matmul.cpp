@@ -7,8 +7,6 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <codegen.h>
-#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -18,24 +16,26 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_cache.h>
-#include <kernel_ir.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/allocation_order_inference.h>
+#include <preseg_passes/move_split_cat.h>
+#include <preseg_passes/optimization_pass.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
 
 namespace nvfuser {
 
-class DistributedMatmulTest : public MultiDeviceTest,
-                              public testing::WithParamInterface<bool> {
+class DistributedMatmulTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<std::tuple<bool, DataType>> {
  protected:
-  DistributedMatmulTest() : num_devices_(communicator_->size()) {}
+  DistributedMatmulTest()
+      : num_devices_(communicator_->size()),
+        optimization_guard_(false),
+        allocation_order_guard_(false) {}
 
   void SetUp() {
     MultiDeviceTest::SetUp();
@@ -65,6 +65,16 @@ class DistributedMatmulTest : public MultiDeviceTest,
     auto c = atMatmul(a.to(at::kDouble), b.to(at::kDouble), layout).to(dtype);
     return std::make_tuple(a, b, c);
   }
+
+ private:
+  // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
+  // `SdpaFwdOp` currently does not work with ID model since it requires all
+  // sibling outputs to have the same root domain.
+  //  This will be modified in a future PR.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
+      optimization_guard_;
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      allocation_order_guard_;
 };
 
 TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
@@ -407,7 +417,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
 }
 
 TEST_F(DistributedMatmulTest, Segmentation) {
-   auto fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
 
@@ -451,11 +461,57 @@ TEST_F(DistributedMatmulTest, Segmentation) {
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
-
 }
 
+namespace {
+TensorView* replicated_dropout(
+    TensorView* x,
+    const double kProb,
+    Fusion* fusion,
+    DeviceMesh mesh) {
+  // Need to modify two things before we can use the existing dropout function
+  // in composite.cpp (1) Sharding propagation breaks at rand_like because it
+  // creates a fresh TV. (2) The philox seed and offset must be set to ensure
+  // the masks are identical across processes.
+  TensorView* x_float = castOp(DataType::Float, x);
+  const double kScale = 1.0 / (1.0 - kProb);
+  Val* philox_seed = fusion->zeroVal();
+  Val* philox_offset = fusion->zeroVal();
+  TensorView* rand_vals = rand_like(x_float, philox_seed, philox_offset);
+  TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(1.0 - kProb));
+  TensorView* apply_mask = mul(x_float, mask);
+  TensorView* dropout = mul(apply_mask, IrBuilder::create<Val>(kScale));
+  rand_vals->setDeviceMesh(mesh);
+  return dropout;
+}
+
+void validate_with_prints(
+    std::vector<at::Tensor> expected_out,
+    std::vector<at::Tensor> out) {
+  EXPECT_EQ(expected_out.size(), out.size());
+  for (auto i : c10::irange(out.size())) {
+    auto all_close = expected_out[i].allclose(
+        out[i].to(expected_out[i].dtype()),
+        1e-4,
+        1e-4,
+        /*equal_nan=*/true);
+
+    auto max_error =
+        expected_out[i].sub(out[i]).abs().max().item().to<double>();
+    auto max_relative_error = ((expected_out[i].sub(out[i])) / expected_out[i])
+                                  .abs()
+                                  .max()
+                                  .item()
+                                  .to<double>();
+    std::cout << "Max error " << i << " " << max_error << " max rel. error "
+              << max_relative_error << std::endl;
+    EXPECT_TRUE(all_close);
+  }
+}
+} // namespace
+
 TEST_P(DistributedMatmulTest, MLP_Layer) {
-  bool use_aten_matmul = GetParam();
+  auto [use_aten_matmul, dtype] = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
@@ -464,25 +520,25 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
   int64_t h = 128;
   int64_t h4 = 4 * h;
 
-  // TODO: error with dynamic shape
-  // C++ exception with description "ext_opt.hasValue() INTERNAL ASSERT FAILED
-  // at "csrc/dynamic_transform.cpp":276, Could not evaluate dynamic extent: i3
-  // Exception raised from DynamicTransformConcretizationInfo at
-  // csrc/dynamic_transform.cpp:276
-//   TensorView* x = makeContigConcreteTensor({sb, h}, DataType::BFloat16);
-//   TensorView* w0 = makeContigConcreteTensor(
-//       {num_devices_, h4 / num_devices_, h}, DataType::BFloat16);
-//   TensorView* b0 = makeContigConcreteTensor(
-//       {num_devices_, h4 / num_devices_}, DataType::BFloat16);
-//   TensorView* w1 = makeContigConcreteTensor(
-//       {num_devices_, h, h4 / num_devices_}, DataType::BFloat16);
-//   TensorView* b1 = makeContigConcreteTensor({h}, DataType::BFloat16);
+  at::ScalarType at_dtype = at::kDouble;
+  if (dtype == DataType::Double) {
+    at_dtype = at::kDouble;
+  } else if (dtype == DataType::Float) {
+    at_dtype = at::kFloat;
+  } else if (dtype == DataType::Half) {
+    at_dtype = at::kHalf;
+  } else if (dtype == DataType::BFloat16) {
+    at_dtype = at::kBFloat16;
+  }
 
-  TensorView* x = makeContigTensor(2, DataType::BFloat16); // Unsharded (sb, h)
-  TensorView* w0 = makeContigTensor(3, DataType::BFloat16); // (h4, h) -> sharded: (D, h4/D, h)
-  TensorView* b0 = makeContigTensor(2, DataType::BFloat16); // (h4) -> (D, h4/D)
-  TensorView* w1 = makeContigTensor(3, DataType::BFloat16); // (h, h4) -> (D, h, h4/D)
-  TensorView* b1 = makeContigTensor(1, DataType::BFloat16); // Unsharded (h)
+  TensorView* x = makeContigConcreteTensor({sb, h}, dtype);
+  TensorView* w0 =
+      makeContigConcreteTensor({num_devices_, h4 / num_devices_, h}, dtype);
+  TensorView* b0 =
+      makeContigConcreteTensor({num_devices_, h4 / num_devices_}, dtype);
+  TensorView* w1 =
+      makeContigConcreteTensor({num_devices_, h, h4 / num_devices_}, dtype);
+  TensorView* b1 = makeContigConcreteTensor({h}, dtype);
 
   fusion->addInput(x);
   fusion->addInput(w0);
@@ -511,7 +567,7 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
 
   TensorView* linear1_ = castOp(DataType::Float, linear1);
   TensorView* gelu = tanh_gelu(linear1_);
-  TensorView* gelu_ = castOp(DataType::BFloat16, gelu);
+  TensorView* gelu_ = castOp(dtype, gelu);
 
   // Linear #2
   TensorView* local_matmul2;
@@ -532,32 +588,23 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
   TensorView* linear2 = add(matmul2, bcast_bias);
 
   // Dropout
-  // Note: Propagation breaks at rand_like because it creates a fresh TV.
-  // Temporarily this prevents us from using dropout composite node.
-  TensorView* linear2_ = castOp(DataType::Float, linear2);
-  constexpr double kProb = 0.1;
-  constexpr double kScale = 1.0 / (1.0 - kProb);
-  Val* philox_seed = fusion->zeroVal();
-  Val* philox_offset = fusion->zeroVal();
-  TensorView* rand_vals = rand_like(linear2_, philox_seed, philox_offset);
-  TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(1.0 - kProb));
-  TensorView* apply_mask = mul(linear2_, mask);
-  TensorView* dropout = mul(apply_mask, IrBuilder::create<Val>(kScale));
+  const double kProb = 0.1;
+  TensorView* dropout = replicated_dropout(linear2, kProb, fusion.get(), mesh);
 
   fusion->addOutput(linear1);
   fusion->addOutput(gelu);
   fusion->addOutput(linear2);
-  // fusion->addOutput(dropout);
+  fusion->addOutput(dropout);
 
   // Manually shard inputs: x, w0, b0, w1, b1
   // outputs: linear1, gelu, linear2, dropout
   // TVs where sharding changes: matmul2
   // (TODO) TVs where sharding propagation breaks down:
-  // linear_int0 = broadcasts where a device dim axis is broadcasted.
-  // rand_vals => rand_like creates a fresh new TV.
+  // linear_int0: broadcasts where a device dim axis is broadcasted.
+  // rand_vals: rand_like creates a fresh new TV.
 
   // TVs replicated on each device.
-  auto tv_inputs = {x, b1, matmul2, linear2, rand_vals, dropout};
+  auto tv_inputs = {x, b1, matmul2, linear2, dropout};
   for (auto tv : tv_inputs) {
     tv->setDeviceMesh(mesh);
   }
@@ -569,12 +616,8 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  std::cout << x->toString() << std::endl;
-  std::cout << w0->toString() << std::endl;
-
-  const auto options = at::TensorOptions()
-                           .dtype(c10::ScalarType::BFloat16)
-                           .device(at::kCUDA, communicator_->local_rank());
+  const auto options = at::TensorOptions().dtype(at_dtype).device(
+      at::kCUDA, communicator_->local_rank());
   auto x_ = at::randn({sb, h}, options);
   auto w0_ = at::randn({h4, h}, options);
   auto b0_ = at::randn({h4}, options);
@@ -598,13 +641,15 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
       b1_};
   at::manual_seed(0);
   auto linear1_aten =
-      at::linear(x_.to(at::kDouble), w0_.to(at::kDouble), b0_.to(at::kDouble));
-  auto gelu_aten = at::gelu(linear1_aten.to(at::kFloat), "tanh");
+      at::linear(x_.to(at::kDouble), w0_.to(at::kDouble), b0_.to(at::kDouble))
+          .to(at::kFloat);
+  auto gelu_aten = at::gelu(linear1_aten, "tanh");
   auto linear2_aten = at::linear(
-      gelu_aten.to(at::kBFloat16).to(at::kDouble),
-      w1_.to(at::kDouble),
-      b1_.to(at::kDouble));
-  auto dropout_aten = at::dropout(linear2_aten.to(at::kFloat), kProb, true);
+                          gelu_aten.to(at_dtype).to(at::kDouble),
+                          w1_.to(at::kDouble),
+                          b1_.to(at::kDouble))
+                          .to(at::kFloat);
+  auto dropout_aten = at::dropout(linear2_aten, kProb, true);
   std::vector<at::Tensor> expected_outputs = {
       shardTensor(
           at::transpose(
@@ -620,119 +665,156 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
       dropout_aten};
 
   at::manual_seed(0);
-  DynamicTransform::concretizeFusion(fusion.get(), inputs);
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
-
-  // Bump up the tolerance - the second matmul carries
-  // the numerical error from the prior matmul
-  auto tolerance_overwrite = ValidationConstants();
-  std::array<std::array<double, 2>, 20> relaxed_sum_tol;
-  for (auto& arr : relaxed_sum_tol) {
-    arr = {128, 3.0};
-  }
-  tolerance_overwrite.sum_tolerances_float = relaxed_sum_tol;
-
-  testValidate(
-      runtime.completeFusion(),
-      outputs,
-      inputs,
-      expected_outputs,
-      __LINE__,
-      __FILE__,
-      "",
-      LaunchParams(),
-      tolerance_overwrite);
+  validate_with_prints(expected_outputs, outputs);
 }
 
-TEST_P(DistributedMatmulTest, Multiheaded_Attention) {
-  bool use_aten_matmul = GetParam();
+TEST_F(DistributedMatmulTest, Multiheaded_Attention) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
 
   // input would be 3D (sequence, batch, embedding)
   // to simplify we make it 2D immediately (sequence * batch, embedding)
-  int s = 16;
-  int b = 4;
-  int sb = s * b;
-  int e = 64;
+  int B = 5; // batch size
+  int E = 16; // embedding size
+  int H = 2; // number of heads
+  int S = 32; // sequence length
+  // int D = num_devices_;
+  NVF_CHECK(E % H == 0);
 
-  TensorView* x = makeContigConcreteTensor({sb, e}, DataType::BFloat16);
-  TensorView* w0 = makeContigConcreteTensor(
-      {num_devices_, e, ??/num_devices_}, DataType::BFloat16);
-  TensorView* b0 = makeContigConcreteTensor(
-      {num_devices_, ?? / num_devices_}, DataType::BFloat16);
+  TensorView* x = makeContigConcreteTensor({B * S, E}, DataType::BFloat16);
+  // Note: 3*E, the non-reduction axis will be sharded.
+  TensorView* w0 = makeContigConcreteTensor({E, 3 * E}, DataType::BFloat16);
+  TensorView* b0 = makeContigConcreteTensor({3 * E}, DataType::BFloat16);
+  TensorView* w1 = makeContigConcreteTensor({E, E}, DataType::BFloat16);
+  TensorView* b1 = makeContigConcreteTensor({E}, DataType::BFloat16);
 
   fusion->addInput(x);
   fusion->addInput(w0);
   fusion->addInput(b0);
+  fusion->addInput(w1);
+  fusion->addInput(b1);
 
-  // self attention (linear, sdpa), linear (sharded compute), dropout
+  // TODO:
   // linear #1 is sharded along the columns (heads)
   // linear #2 is sharded along the rows + allreduce to reform x
-  TensorView* qkv_ = matmul(x, proj_w);
-  TensorView* proj_bias_bcast = broadcast(proj, bias);
-  TensorView* qkv = add(qkv_, proj_bias_bcast);
-  // reshape from (sequence*batch, embedding) to (batch, sequence, embedding)
-  // note: this should be (sequence, batch, embedding), but linear layer requires 
-  // 2D input for now. 
-  TensorView* q_ = select(qkv, {0, 0, 0}, {16, 128, 1600});
-  TensorView* k_ = select(qkv, {0, 0, 1600}, {16, 128, 3200});
-  TensorView* v_ = select(qkv, {0, 0, 3200}, {16, 128, 4800});
-  TensorView* q = reshape(q_, {16, 128, 35, 64});
-  q = transpose(q, 2, 1);
-  TensorView* k = reshape(k_, {16, 128, 35, 64});
-  k = transpose(k, 2, 1);
-  TensorView* v = reshape(q_, {16, 128, 35, 64});
-  v = transpose(v, 2, 1);
+  // Self attention linear
+  TensorView* mm = matmul(x, w0);
+  TensorView* proj_bias_bcast = broadcast(b0, {true, false});
+  TensorView* qkv = add(mm, proj_bias_bcast);
+  // Forming the q,k,v vectors:
+  qkv = reshape(qkv, {B * S, 3 * E}, {B, S, 3 * E});
+  std::vector<TensorView*> qkv_reshaped = {};
+  for (auto i : c10::irange(3)) {
+    TensorView* tv_slice = slice(qkv, {0, 0, E * i}, {B, S, E * (i + 1)});
+    // Reshape all the vectors into (B,S,E) -> (B,S,H,E/H) -> (B,H,S,E/H)
+    TensorView* tv_reshape = reshape(tv_slice, {B, S, E}, {B, S, H, E / H});
+    TensorView* tv_trans = transpose(tv_reshape, 2, 1);
+    TensorView* tv_cast = castOp(DataType::BFloat16, tv_trans);
+    // TODO: We need this segment to force SDPA op into an isolated segment or
+    // else when the segmenter tries different segments it tries to build a
+    // compute at graph with SDPA which is not supported yet due to different
+    // sized outputs.
+    tv_cast = segment_set(tv_cast);
+    qkv_reshaped.push_back(tv_cast);
+  }
 
-  constexpr double kProb = 0.1;
+  // SDPA
+  constexpr double kProb = 0.0;
   constexpr double kScale = 1.0 / (1.0 - kProb);
-  SdpfaFwdResult sdpa = sdpfa_fwd(q, k, v, 
-    IrBuilder::create<Val>(kProb), 
-    IrBuilder::create<Val>(true), 
-    IrBuilder::create<Val>(kScale));
+  SdpfaFwdResult sdpa = sdpfa_fwd(
+      qkv_reshaped[0],
+      qkv_reshaped[1],
+      qkv_reshaped[2],
+      IrBuilder::create<Val>(kProb),
+      IrBuilder::create<Val>(false),
+      IrBuilder::create<Val>(kScale));
+  TensorView* sdpa_output = segment_set(sdpa.output);
+  
+  // Linear projection
+  TensorView* sdpa_transpose = transpose(sdpa_output, 1, 2); // B, S, H, E/H
+  // Note: We have to reshape into a 2D tensor instead of 3D
+  TensorView* sdpa_reshape =
+      reshape(sdpa_transpose, {B, S, H, E / H}, {B * S, E});
+  TensorView* mm2 = matmul(sdpa_reshape, w1);
+  TensorView* b1_bcast = broadcast(b1, {true, false});
+  TensorView* linear2 = add(mm2, b1_bcast);
 
- fusion->addOutput(sdpa.output);
+  // Dropout
+  const double kDropoutProb = 0.1;
+  TensorView* dropout =
+      replicated_dropout(linear2, kDropoutProb, fusion.get(), mesh);
 
- const auto options = at::TensorOptions()
-                           .dtype(c10::ScalarType::BFloat16)
+  fusion->addOutput(qkv);
+  fusion->addOutput(sdpa_output);
+  fusion->addOutput(linear2);
+  fusion->addOutput(dropout);
+
+  //  for (TensorView* tv : {x, w0, b0, mm, q, k, v, sdpa.output}) {
+  //     tv->setDeviceMesh(mesh);
+  //  }
+
+  const auto options = at::TensorOptions()
+                           .dtype(at::kBFloat16)
                            .device(at::kCUDA, communicator_->local_rank());
-  auto x_ = at::randn({sb, h}, options);
-  auto w0_ = at::randn({h4, h}, options);
-  auto b0_ = at::randn({h4}, options);
+  auto x_ = at::randn({B * S, E}, options);
+  auto w0_ = at::randn({E, 3 * E}, options);
+  auto b0_ = at::randn({3 * E}, options);
+  auto w1_ = at::randn({E, E}, options);
+  auto b1_ = at::randn({E}, options);
+  auto m_ = at::linear(
+                x_.to(at::kDouble),
+                w0_.transpose(1, 0).to(at::kDouble),
+                b0_.to(at::kDouble))
+                .view({B, S, 3 * E})
+                .to(at::kBFloat16);
+  auto qkv_vec = m_.split(E, 2);
+  // move vectors from (B, T, S) to (B, T, H, S/H) to (B, H, T, S/H)
+  for (auto i = 0; i < 3; i++) {
+    qkv_vec[i] = qkv_vec[i].reshape({B, S, H, E / H}).transpose(2, 1);
+  }
+  auto sdpa_out = at::_scaled_dot_product_flash_attention(
+      qkv_vec[0], qkv_vec[1], qkv_vec[2], kProb, true, false, kScale);
+  auto sdpa_ = std::get<0>(sdpa_out);
+  // Reassemble heads
+  std::cout << "ATen sdpa size " << sdpa_.sizes() << std::endl;
+  auto y = sdpa_.transpose(1, 2).reshape({B, S, E});
+  auto y_proj = at::linear(y, w1_, b1_);
+  auto y_dropout = at::dropout(y_proj, kDropoutProb, true);
 
-  std::vector<c10::IValue> inputs = {
-      x_,
-      shardTensor(
-          w0_.view({num_devices_, h4 / num_devices_, h}),
-          w0,
-          communicator_->deviceId()),
-      shardTensor(
-          b0_.view({num_devices_, h4 / num_devices_}),
-          b0,
-          communicator_->deviceId())};
+  std::vector<c10::IValue> inputs = {x_, w0_, b0_, w1_, b1_};
+  std::vector<at::Tensor> expected_outputs = {m_, sdpa_, y_proj, y_dropout};
 
-  auto expected_output =
-      shardTensor(out, sdpa_, communicator_->deviceId()).view({1, Mi, N});
-
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params_);
-  auto outputs = runtime.runWithInput(inputs);
-  testValidate(
-      runtime.completeFusion(),
-      outputs,
-      inputs,
-      {expected_output},
-      __LINE__,
-      __FILE__);
+  FusionExecutorCache fec(std::move(fusion));
+  auto out = fec.runFusionWithInputs(inputs);
+  // MultiDeviceExecutor runtime(
+  //     std::move(fusion), *communicator_, executor_params_);
+  // auto out = runtime.runWithInput(inputs);
+  validate_with_prints(expected_outputs, out);
 };
 
+// INSTANTIATE_TEST_SUITE_P(
+//     ,
+//     DistributedMatmulTest,
+//     testing::Bool(),
+//     testing::PrintToStringParamName());
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    aten,
     DistributedMatmulTest,
-    testing::Bool(),
-    testing::PrintToStringParamName());
+    testing::Combine(
+        testing::Values(true),
+        testing::Values(
+            DataType::Double,
+            DataType::Float,
+            DataType::Half,
+            DataType::BFloat16)));
+INSTANTIATE_TEST_SUITE_P(
+    nvfuser,
+    DistributedMatmulTest,
+    testing::Combine(
+        testing::Values(false),
+        testing::Values(DataType::Half, DataType::BFloat16)));
 } // namespace nvfuser

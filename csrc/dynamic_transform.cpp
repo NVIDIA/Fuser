@@ -257,12 +257,10 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   NVF_ERROR(
       !fusion()->isA<kir::Kernel>(),
       "Invalid container. Kernel container not allowed.\n");
-  std::cout << "DynamicTransformConcretizationInfo called " << std::endl;
 
   // Make sure all exactly mapped IDs have the same value in the
   // evaluator when any one of the IDs has a known value
   expr_eval->propagateBoundValuesThroughExactMaps(initial_info_->fusion());
-  initial_info_->fusion()->print();
 
   analyzeReshapes(expr_eval);
 
