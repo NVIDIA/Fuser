@@ -13,7 +13,7 @@ We use notation $t\langle E, I\rangle$ to denote an IterDomain transformation wh
 Given $d\in\Z$, a *inner split with factor $d$* is an IterDomain transformation of rank $(1, 2)$,
 where the extent map is $i \to (i \lceil/\rceil d, d)$,
 and the index map is $i \to (i/d, i \mathbin{\\%} d)$.
-We use notation $\mathrm{InnerSplit}\{d\}$ to denote inner split.
+We use notation $\mathrm{InnerSplit}(d)$ to denote inner split.
 
 TODO: outer split, merge, resize, swizzle, reorder
 
@@ -50,7 +50,7 @@ The composition of $t_1$ with $t_2$, denoted as $t_2 \circ t_1$, is the IterDoma
 
 ## 2. Properties of IterDomain Transformations
 
-**Theorem 2.1 (Equivalence of Split-Split)**: Let $m, n \in \Z$, we have $\mathrm{InnerSplit}\{m\}[0] \circ \mathrm{InnerSplit}\{n\} = \mathrm{InnerSplit}\{n\}[1] \circ \mathrm{InnerSplit}\{m\cdot n\}$. Visually, we have:
+**Theorem 2.1 (Equivalence of Split-Split)**: Let $m, n \in \Z$, we have $\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n) = \mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)$. Visually, we have:
 ![Equivalence of Split-Split](./iterdomain/split-split.svg)
 
 <details>
@@ -59,17 +59,17 @@ The composition of $t_1$ with $t_2$, denoted as $t_2 \circ t_1$, is the IterDoma
 
 **The extent mapping:**
 
-The extent mapping of $\mathrm{InnerSplit}\{m\}[0] \circ \mathrm{InnerSplit}\{n\}$ is $i \to (i \lceil/\rceil n \lceil/\rceil m, m, n)$.
+The extent mapping of $\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n)$ is $i \to (i \lceil/\rceil n \lceil/\rceil m, m, n)$.
 
-The extent mapping of $\mathrm{InnerSplit}\{n\}[1] \circ \mathrm{InnerSplit}\{m\cdot n\}$ is $i \to (i \lceil/\rceil (m\cdot n), m, n)$.
+The extent mapping of $\mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)$ is $i \to (i \lceil/\rceil (m\cdot n), m, n)$.
 
 According to TODO: $i \lceil/\rceil n \lceil/\rceil m = i \lceil/\rceil (m\cdot n)$.
 
 **The index mapping:**
 
-The index mapping of $\mathrm{InnerSplit}\{m\}[0] \circ \mathrm{InnerSplit}\{n\}$ is $i \to (i / n / m, i / n \mathbin{\\%} m, i \mathbin{\\%} n)$.
+The index mapping of $\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n)$ is $i \to (i / n / m, i / n \mathbin{\\%} m, i \mathbin{\\%} n)$.
 
-The index mapping of $\mathrm{InnerSplit}\{n\}[1] \circ \mathrm{InnerSplit}\{m\cdot n\}$ is $i \to (i / (m\cdot n), i \mathbin{\\%} (m\cdot n) / n, i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n)$.
+The index mapping of $\mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)$ is $i \to (i / (m\cdot n), i \mathbin{\\%} (m\cdot n) / n, i \mathbin{\\%} (m\cdot n) \mathbin{\\%} n)$.
 
 According to TODO: $i / n / m = i / (m\cdot n)$.
 
