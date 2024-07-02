@@ -159,11 +159,11 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase0) {
 
   TensorView* tv0 = makeContigConcreteTensor({4, 10});
   TensorView* tv1 = makeContigConcreteTensor({1, 10});
-  // pad on tv4 will propagation back to tv0, since all its uses are traversed
+  // pad on tv5 will propagation back to tv0, since all its uses are traversed
   //
-  //   tv0 --> tv2 --> tv4
-  //       \        /
-  //        -> tv3 -
+  //   tv0 --> tv2 --> tv3 --> tv5
+  //               \        /
+  //                -> tv4 -
   TensorView* tv2 = relu(tv0);
   TensorView* tv3 = neg(tv2);
   TensorView* tv4 = sin(tv2);
@@ -194,9 +194,10 @@ TEST_F(MovePadTest, PadReplayOnMultipleUsesCase1) {
 
   TensorView* tv0 = makeContigConcreteTensor({4, 10});
   TensorView* tv1 = makeContigConcreteTensor({4, 10});
-  // pad on tv4 will NOT propagation back to tv0, since there's one path
-  //   tv0 --> tv6 = add(tv5, tv0)
-  // which is not covered by traversing through producers of tv4.
+  // pad on tv5 will NOT propagation back to tv0, since there's one path
+  //   tv0 --> tv2 --> tv7
+  // which is not covered by reverse traversing through producers of tv5.
+  // So the pad propagation would stop at tv2
   TensorView* tv2 = relu(tv0);
   TensorView* tv3 = neg(tv2);
   TensorView* tv4 = sin(tv2);
@@ -224,6 +225,7 @@ TEST_F(MovePadTest, CascadePadCase0) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
+  // all pad operations should be merged together
   TensorView* tv0 = makeContigConcreteTensor({4, 10});
   TensorView* tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L), IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
   TensorView* tv2 = pad(tv1, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(0L)});
@@ -284,6 +286,7 @@ TEST_F(MovePadTest, CascadePadCase2) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
+  // some pad outputs are output of the fusion, we cannot merge pad in this instance.
   TensorView* tv0 = makeContigConcreteTensor({4, 10});
   TensorView* tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L), IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
   TensorView* tv2 = pad(tv1, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(0L)});
@@ -296,7 +299,6 @@ TEST_F(MovePadTest, CascadePadCase2) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
-  fusion->addOutput(tv3);
   fusion->addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
