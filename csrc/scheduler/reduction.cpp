@@ -507,19 +507,224 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   return rparams;
 }
 
+struct outerReduHeuristicParas {
+  outerReduHeuristicParas(
+      int64_t total_iteration_numel,
+      int64_t total_reduction_numel)
+      : total_iteration_numel(total_iteration_numel),
+        total_reduction_numel(total_reduction_numel) {}
+  // iteration dim paras
+  // iteration elements = iter_unroll * bdimx * gidim
+  int64_t iter_unroll_factor = 1;
+  int64_t bdimx = 1;
+  int64_t gidim = 1;
+  // reduction dim paras
+  // reduction elments = redu_unroll * bdimy * grdim * redu_serial
+  int64_t redu_unroll_factor = 1;
+  int64_t bdimy = 1;
+  int64_t grdim = 1;
+  int64_t redu_serial = 1;
+
+  // iteration and reduction dim elements
+  int64_t total_iteration_numel = -1;
+  int64_t total_reduction_numel = -1;
+
+  // Helper to figure out how much is left in the iter or reduction dim
+  int64_t iDimAvail() const {
+    return ceilDiv(total_iteration_numel, gidim * bdimx * iter_unroll_factor);
+  }
+  int64_t rDimAvail() const {
+    return ceilDiv(total_reduction_numel, grdim * bdimy * redu_unroll_factor);
+  };
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "\n===== Outer Reduction Stats ========\n"
+       << "total_reduction_numel: " << total_reduction_numel << "\n"
+       << "total_iteration_numel: " << total_iteration_numel << "\n"
+       << "vectorize_factor: " << iter_unroll_factor << "\n"
+       << "redu_unroll_factor: " << redu_unroll_factor << "\n"
+       << "grid(" << gidim << ", " << grdim << ", 1)"
+       << "\n"
+       << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
+    return ss.str();
+  }
+};
+
+std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
+    const outerReduHeuristicParas& hp) {
+  int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
+  int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
+
+  // In these instances latency of the cleanup may be significant so flip gdimx
+  // and gdimy to try and prevent all cleanup from happening at the
+  // same time
+  // Always disabled for now.
+  // bool flip_grid = gidim > 1 && gidim < 8;
+  const bool flip_grid = false;
+  auto rparams = std::make_shared<ReductionParams>();
+  // cross grid implies cross block
+  rparams->cross_block_inner_reduction = hp.bdimy > 1 || hp.grdim > 1;
+  rparams->cross_grid_inner_reduction = hp.grdim > 1;
+  if (rparams->cross_grid_inner_reduction) {
+    rparams->split_grid_dim_inner_reduction = true;
+    rparams->grid_dim_inner_reduction =
+        flip_grid ? ParallelType::BIDx : ParallelType::BIDy;
+    if (flip_grid) {
+      gdimx = std::min(hp.grdim, scheduler_utils::x_grid_limit);
+    } else {
+      gdimy = std::min(hp.grdim, scheduler_utils::y_grid_limit);
+    }
+  }
+  rparams->multiple_reds_per_blk = hp.bdimx > 1 || hp.iter_unroll_factor > 1;
+
+  if (rparams->multiple_reds_per_blk) {
+    rparams->block_dim_iter_dom = ParallelType::TIDx;
+  }
+
+  rparams->grid_dim_iter_dom =
+      flip_grid ? ParallelType::BIDy : ParallelType::BIDx;
+  if (hp.gidim > (flip_grid ? scheduler_utils::y_grid_limit
+                            : scheduler_utils::x_grid_limit)) {
+    rparams->split_grid_dim_iter_dom_outer = true;
+    if (flip_grid) {
+      gdimy = scheduler_utils::y_grid_limit;
+    } else {
+      gdimx = scheduler_utils::x_grid_limit;
+    }
+  }
+
+  rparams->flip_grid = flip_grid;
+
+  if (rparams->cross_block_inner_reduction) {
+    if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
+      rparams->block_dim_inner_reduction = ParallelType::TIDy;
+    } else {
+      rparams->block_dim_inner_reduction = ParallelType::TIDx;
+    }
+  }
+
+  rparams->unroll_factor_inner_reduction = hp.redu_unroll_factor;
+
+  rparams->unroll_factor_iter_dom = hp.iter_unroll_factor;
+  rparams->vectorize_iter_dom = hp.iter_unroll_factor > 1;
+
+  rparams->lparams = LaunchParams(
+      gdimx,
+      gdimy,
+      LaunchParams::UNINITIALIZED_VAL,
+      rparams->multiple_reds_per_blk ? hp.bdimx : hp.bdimy,
+      rparams->multiple_reds_per_blk ? hp.bdimy
+                                     : LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL);
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << hp.toString() << std::endl;
+    debug() << rparams->toString() << std::endl;
+  }
+  return rparams;
+}
+
+std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
+    int64_t vectorize_factor,
+    int64_t sm_count,
+    int64_t max_unroll,
+    int64_t max_threads_per_block,
+    int64_t n_tensor_outputs,
+    int64_t total_iteration_numel,
+    int64_t total_reduction_numel) {
+  outerReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
+
+  // Step-1, set iteration dim
+  // (1) start with bdimx = 8, gidim = 1, iter_unroll = 1
+  hp.bdimx = std::min(8L, hp.iDimAvail());
+  hp.gidim = 1;
+  hp.iter_unroll_factor = 1;
+
+  // (2) increase iter_unroll to its maximum following two rules:
+  // (2.1) ensure divisible split
+  // (2.2) leave enough blocks to saturate the device.
+  // Test on H100 shows the smallest iteration dim we can fully vectorize is
+  // 4800, which corresponds to 75 or 56.8 % of SMs. Here 50% is used.
+  const int64_t min_blocks_fully_vectorize = sm_count / 2;
+  int64_t max_iter_unroll = vectorize_factor;
+  // only allow this adjustment when there is only one output tensor
+  // or it's a small reduction where block reduction is enforced.
+  // When has multiple outputs, reduce vectorization leads to regression,
+  // see cpp benchmark of gelu backward which has 2 outputs ( does't seem like a
+  // common usage since thunder.jit generated fusion has only 1).
+  bool small_reduction = total_reduction_numel <= 1024;
+  if (n_tensor_outputs == 1 || small_reduction) {
+    max_iter_unroll = std::min(
+        max_iter_unroll,
+        scheduler_utils::lastPow2(scheduler_utils::safeDiv(
+            total_iteration_numel, hp.bdimx * min_blocks_fully_vectorize)));
+  }
+  while (hp.iDimAvail() > 1 && hp.iDimAvail() % 2 == 0 &&
+         hp.iter_unroll_factor * 2 <= max_iter_unroll) {
+    hp.iter_unroll_factor *= 2;
+  }
+
+  // (3) increase gidim to SM count, ensures enough blocks to saturate the
+  // device.
+  hp.gidim = std::min(
+      ceilDiv(total_iteration_numel, hp.bdimx * hp.iter_unroll_factor),
+      sm_count);
+
+  // (4) increase bdimx to its maximum
+  hp.bdimx = ceilDiv(total_iteration_numel, hp.gidim * hp.iter_unroll_factor);
+  hp.bdimx = scheduler_utils::roundUpPow2(hp.bdimx);
+  hp.bdimx = std::min(hp.bdimx, max_threads_per_block);
+
+  // (5) re-calculate gidim after bdimx to fix round up differences. Also
+  // handles extreme cases where iter dim is larger than iter_unroll_factor x
+  // max_threads_per_block x sm count
+  hp.gidim = ceilDiv(total_iteration_numel, hp.bdimx * hp.iter_unroll_factor);
+
+  // Step-2, set Reduction dim
+  // (1) reduction unroll takes what is left by iter unroll
+  hp.redu_unroll_factor = std::min(
+      hp.rDimAvail(),
+      scheduler_utils::safeDiv(max_unroll, hp.iter_unroll_factor));
+
+  // (2) bdimy takes what is left by bdimx.
+  hp.bdimy = std::min(hp.rDimAvail(), max_threads_per_block / hp.bdimx);
+
+  // Step-3, final check
+  // (1) revisit bdimx just in case bdimy doesn't take all the left threads
+  int64_t sm_count_pow2 = scheduler_utils::lastPow2(sm_count);
+  while (hp.bdimy * hp.bdimx * 2 <= max_threads_per_block &&
+         hp.gidim / 2 >= sm_count_pow2) {
+    hp.bdimx *= 2;
+    hp.gidim /= 2;
+  }
+
+  // (2) Good heuristic if we have enough blocks to saturate the device or it's
+  // a small reduction. This cut-off is empirical based on A100 and H100.
+  const float min_sm_efficiency = 0.9f;
+  float f_wave = (float)hp.gidim / (float)sm_count;
+  float sm_efficiency = f_wave / std::ceil(f_wave);
+  if (sm_efficiency >= min_sm_efficiency || small_reduction) {
+    return std::make_optional(hp);
+  } else {
+    return std::nullopt;
+  }
+}
+
 std::shared_ptr<ReductionParams> outerReductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
+    const int64_t n_tensor_outputs,
     const int64_t max_input_dtype_size,
     const size_t vectorize_factor) {
   // WARNING: Current device for codegen may not be the target device
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t device_max_threads_per_multiprocessor =
-      (int64_t)at::cuda::getCurrentDeviceProperties()
-          ->maxThreadsPerMultiProcessor;
+      (int64_t)dev_prop->maxThreadsPerMultiProcessor;
 
   const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+      (int64_t)dev_prop->multiProcessorCount;
 
   // Set register used to store vectorized and unrolled data loaded from gmem.
   // A large value allows more unroll and vectorization, which is beneficial
@@ -541,6 +746,25 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       scheduler_utils::lastPow2(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
 
+  // Try block reduction
+  const int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
+  std::optional<outerReduHeuristicParas> maybe_blk_hp =
+      maybeBlockOuterReduction(
+          (int64_t)vectorize_factor,
+          device_multiprocessor_count,
+          max_unroll,
+          max_threads_per_block,
+          n_tensor_outputs,
+          total_iteration_numel,
+          total_reduction_numel);
+  // If a valid block reduction heuristic is returned, use it.
+  // otherwise, use the default heuristic which usually generates grid reduction
+  // but may also generate block reduction.
+  if (maybe_blk_hp.has_value()) {
+    return heuristicParaToSchedulerPara(maybe_blk_hp.value());
+  }
+
+  // grid or block reduction
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
   // Try to use 4 * SM blocks to reduce communication cost. But still
   // use 8 * SM blocks if the problem size is large, it increased requested
@@ -763,81 +987,14 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     }
   }
 
-  int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
-  int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
-
-  // In these instances latency of the cleanup may be significant so flip gdimx
-  // and gdimy to try and prevent all cleanup from happening at the
-  // same time
-  // Always disabled for now.
-  // bool flip_grid = gidim > 1 && gidim < 8;
-  const bool flip_grid = false;
-  auto rparams = std::make_shared<ReductionParams>();
-  // cross grid implies cross block
-  rparams->cross_block_inner_reduction = bdimy > 1 || grdim > 1;
-  rparams->cross_grid_inner_reduction = grdim > 1;
-  if (rparams->cross_grid_inner_reduction) {
-    rparams->split_grid_dim_inner_reduction = true;
-    rparams->grid_dim_inner_reduction =
-        flip_grid ? ParallelType::BIDx : ParallelType::BIDy;
-    if (flip_grid) {
-      gdimx = std::min(grdim, scheduler_utils::x_grid_limit);
-    } else {
-      gdimy = std::min(grdim, scheduler_utils::y_grid_limit);
-    }
-  }
-  rparams->multiple_reds_per_blk = bdimx > 1 || iter_unroll_factor > 1;
-
-  if (rparams->multiple_reds_per_blk) {
-    rparams->block_dim_iter_dom = ParallelType::TIDx;
-  }
-
-  rparams->grid_dim_iter_dom =
-      flip_grid ? ParallelType::BIDy : ParallelType::BIDx;
-  if (gidim > (flip_grid ? scheduler_utils::y_grid_limit
-                         : scheduler_utils::x_grid_limit)) {
-    rparams->split_grid_dim_iter_dom_outer = true;
-    if (flip_grid) {
-      gdimy = scheduler_utils::y_grid_limit;
-    } else {
-      gdimx = scheduler_utils::x_grid_limit;
-    }
-  }
-
-  rparams->flip_grid = flip_grid;
-
-  if (rparams->cross_block_inner_reduction) {
-    if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
-      rparams->block_dim_inner_reduction = ParallelType::TIDy;
-    } else {
-      rparams->block_dim_inner_reduction = ParallelType::TIDx;
-    }
-  }
-
-  rparams->unroll_factor_inner_reduction = inner_reduction_unroll_factor;
-
-  rparams->unroll_factor_iter_dom = iter_unroll_factor;
-  rparams->vectorize_iter_dom = iter_unroll_factor > 1;
-
-  rparams->lparams = LaunchParams(
-      gdimx,
-      gdimy,
-      LaunchParams::UNINITIALIZED_VAL,
-      rparams->multiple_reds_per_blk ? bdimx : bdimy,
-      rparams->multiple_reds_per_blk ? bdimy : LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL);
-
-  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << "\n===== Reduction Stats ========\n"
-            << "total_reduction_numel: " << total_reduction_numel << "\n"
-            << "total_iteration_numel: " << total_iteration_numel << "\n"
-            << "vectorize_factor: " << iter_unroll_factor << "\n"
-            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
-    debug() << rparams->toString() << std::endl;
-  }
-  return rparams;
+  outerReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
+  hp.bdimx = bdimx;
+  hp.bdimy = bdimy;
+  hp.grdim = grdim;
+  hp.gidim = gidim;
+  hp.iter_unroll_factor = iter_unroll_factor;
+  hp.redu_unroll_factor = inner_reduction_unroll_factor;
+  return heuristicParaToSchedulerPara(hp);
 }
 
 } // namespace
@@ -1018,6 +1175,7 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
     const int64_t inner_most_dimension_numel,
     const bool fastest_dim_reduction,
     const int64_t n_tensor_inputs,
+    const int64_t n_tensor_outputs,
     const int64_t max_input_dtype_size,
     const size_t vectorize_factor) {
   if (fastest_dim_reduction) {
@@ -1034,6 +1192,7 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
         total_reduction_numel,
         total_iteration_numel,
         (int64_t)n_tensor_inputs,
+        (int64_t)n_tensor_outputs,
         (int64_t)max_input_dtype_size,
         vectorize_factor);
   }
@@ -1115,8 +1274,10 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
   // be even better if we had better analysis as not all unrolled elements have
   // to be alive at the same time.
   int64_t n_tensor_inputs = 0;
+  int64_t n_tensor_outputs = 0;
   for (auto tv : unrollable_inputs_outputs) {
     if (!tv->isFusionInput()) {
+      n_tensor_outputs++;
       continue;
     }
     max_dtype_size = std::max(
@@ -1135,6 +1296,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       properties.inner_most_dimension_numel,
       properties.fastest_dim_reduction,
       n_tensor_inputs,
+      n_tensor_outputs,
       max_dtype_size,
       vectorize_factor);
   heuristic->cparams.index_type = runtime_info.getIndexType();
