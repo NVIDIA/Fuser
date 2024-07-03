@@ -17,7 +17,7 @@ called extent mapping and index mapping.
 We use notation $t\langle E, I\rangle$ to denote an IterDomain transformation whose name is $t$, extent mapping is $E$ and index mapping is $I$.
 
 **Definition 1.1.1 (Inner Split)**:
-Given $d\in\mathbb{Z}^{+}$, a *inner split with factor $d$* is an IterDomain transformation of rank $(1, 2)$,
+Given $d\in\mathbb{Z}^{+}$, an *inner split* with factor $d$ is an IterDomain transformation of rank $(1, 2)$,
 where the extent map is $i \to (i \lceil/\rceil d, d)$,
 and the index map is $i \to (i/d, i \mathbin{\\%} d)$.
 We use notation $\mathrm{InnerSplit}(d)$ to denote inner split.
