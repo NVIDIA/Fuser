@@ -37,7 +37,9 @@ For arbitrary three IterDomain transformations $t_1$, $t_2$ and $t_3$ of rank $(
 - Symmetry: if $t_1 = t_2$, then $t_2 = t_1$.
 - Transitivity: if $t_1 = t_2$ and $t_2 = t_3$, then $t_1 = t_3$.
 
-That is, the equivalence of IterDomain transformations is a equivalence relation mathematically.
+That is, the equivalence of IterDomain transformations is an equivalence relation mathematically.
+
+This theorem can be easily proved by applying the reflexivity, symmetry, and transitivity to both the extent mapping and index mapping.
 
 **Definition 1.3: (Embedding of IterDomain Transformation)**:
 Let $t_1\langle E, I\rangle$ be an IterDomain transformation of rank $(m, n)$, and $l, r \in \mathbb{N}$,
