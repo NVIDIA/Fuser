@@ -879,3 +879,49 @@ which matches with the definition of $\mathrm{ceil}$.
 $\square$
 
 </details>
+
+**Theorem 5.11:** If $c > 0$, then $a/(b \times c) = (a/b)/c$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+from the fundamental division-with-remainder equation, we have:
+$$a = (a/b)b + a\mathbin{\\%}b = (((a/b)/c)c + (a/b)\mathbin{\\%}c)b + a\mathbin{\\%}b
+  = ((a/b)/c) \times bc + (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) \text{ ... (eq 1)}$$
+
+If $b > 0$, then $bc > 0$, we have:
+$$-b < a\mathbin{\\%}b \le 0$$
+$$-(c - 1) \times b \le (a/b)\mathbin{\\%}c \times b \le 0$$
+
+as a result, we have:
+$$- bc < (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) \le 0$$
+
+If $b < 0$, then $bc < 0$, we have:
+$$0 \le a\mathbin{\\%}b < -b$$
+$$0 \le (a/b)\mathbin{\\%}c \times b \le -(c - 1) \times b$$
+
+as a result, we have:
+$$0 \le (a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b) < -bc$$
+
+from the fundamental division-with-remainder equation, we can uniquely decompose $a$ as
+$$a = (a/(bc)) \times (bc) + a\mathbin{\\%}(bc) \text{ ... (eq 2)}$$
+
+since $a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$ is in the correct range of $a\mathbin{\\%}(bc)$
+and due to the uniqueness of this decomposition, comparing (eq 1) and (eq 2), we have:
+$$a/(bc) = (a/b)/c$$
+$$a\mathbin{\\%}(bc) = a\mathbin{\\%}b + ((a/b)\mathbin{\\%}c) \times b$$
+$\square$
+
+</details>
+
+**Theorem 5.12:** If $c > 0$, then $a \mathbin{\\%} (b \times c) = a \mathbin{\\%} b + ((a / b) \mathbin{\\%} c) \times b$.
+
+<details>
+
+**<summary>Proof:</summary>**
+
+Already proved in the proof of Theorem 5.11
+$\square$
+
+</details>

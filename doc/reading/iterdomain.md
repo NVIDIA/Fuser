@@ -67,7 +67,7 @@ The extent mapping of $\mathrm{InnerSplit}(m)[0] \circ \mathrm{InnerSplit}(n)$ i
 
 The extent mapping of $\mathrm{InnerSplit}(n)[1] \circ \mathrm{InnerSplit}(m\cdot n)$ is $i \to (i \lceil/\rceil (m\cdot n), m, n)$.
 
-According to TODO: $i \lceil/\rceil n \lceil/\rceil m = i \lceil/\rceil (m\cdot n)$.
+According to Theorem 5.11 in [Integer Division](../math/integer-division.md): $i \lceil/\rceil n \lceil/\rceil m = i \lceil/\rceil (m\cdot n)$.
 
 **The index mapping:**
 
