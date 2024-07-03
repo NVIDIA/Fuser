@@ -32,7 +32,8 @@ struct Edge {
   }
 };
 
-// The criteria here for return true is that `unaryOp(0) == 0`
+// The pass assumes propagating PadOp with zero pad. The criteria here for
+// return true is that `unaryOp(0) == 0`
 bool padCompatibleUnaryOp(UnaryOpType t) {
   switch (t) {
     case UnaryOpType::Cast:
@@ -64,57 +65,82 @@ bool padCompatibleUnaryOp(UnaryOpType t) {
   }
 }
 
+// The pass assumes propagating PadOp with zero pad. The criteria here for
+// return true is that `binaryOp(0, x) == 0` & `binaryOp(x, 0) == 0`
 bool padCompatibleBinaryOp(BinaryOpType t) {
   switch (t) {
     case BinaryOpType::Add:
     case BinaryOpType::Mul:
     case BinaryOpType::Sub:
     case BinaryOpType::BitwiseAnd:
-    case BinaryOpType::BitwiseOr:
     case BinaryOpType::LogicalAnd:
-    case BinaryOpType::LogicalOr:
       return true;
     default:
       return false;
   }
 }
 
-// returns true if `PadOp` should be propagated pass val->definition(). This
-// function also update frontier NOTE: frontier counts the encounter of each
-// Val* during the propagation. If all uses of Val* has been encountered during
-// the backward propagation, it's safe to propagate `PadOp`
+// This function checks if we could propagate the PadOp on `val` to its
+// definition. i.e. changing the graph from
+//   inp --> definition() --> val --> PadOp --> padded_val
+// to
+//   inp --> PadOp --> padded_inp --> definition() --> padded_val
+//
+// returns true if `PadOp` should be propagated pass val->definition().
+//
+// NOTE 0: For details on the propagation logic, see Note [ PadOp Propagation
+// Rule ] NOTE 1: This function also update frontier accordingly, see note
+// below.
 bool shouldPropagatePad(Val* val, std::unordered_map<Val*, int64_t>& frontier) {
+  // NOTE [ Handling TV with Multiple Uses via Frontier ]
+  //
+  // Frontier counts the encounter of each Val during the propagation. When we
+  // reach a Val during the propagation, we add Val entry *temporarily* to the
+  // frontier map and increment its encounter count. We cannot propagate the
+  // PadOp over the producer of Val yet, because it still have other uses that
+  // expects the original Val. Until we see all uses of Val during the
+  // traversal, we know all uses can be replaced with the padded Val and hence
+  // it's safe to propagate `PadOp` across. We remove Val fron `frontier` map
+  // since we can push the replay to its producer. We return `true` to signal
+  // that further propagation is allowed.
   if (val->isFusionOutput()) {
+    // skipping propagation when target is an output.
     frontier.emplace(val, -1);
-  } else {
-    int64_t current_use = frontier.count(val) == 0 ? 1 : frontier[val] + 1;
-
-    // previous use == -1, blocking propagation
-    if (current_use == 0) {
-      return false;
-    }
-
-    if (current_use == static_cast<int64_t>(val->uses().size())) {
-      // all uses of the entry has been encounter in this traversal, we can
-      // safely propagate it across. remove val from frontier map
-      frontier.erase(val);
-      return true;
-    } else {
-      // updating uses in frontier.
-      frontier[val] = current_use;
-    }
+    return false;
   }
+
+  int64_t current_use = frontier.count(val) == 0 ? 1 : frontier[val] + 1;
+
+  // `current_use == 0` means `previous use == -1`, blocking propagation
+  if (current_use == 0) {
+    return false;
+  }
+
+  if (current_use == static_cast<int64_t>(val->uses().size())) {
+    // all uses of the entry has been encounter in this traversal, we can
+    // safely propagate it across. remove val from frontier map
+    frontier.erase(val);
+    return true;
+  }
+
+  // updating uses in frontier. return false since we are not yet ready to
+  // propagate
+  frontier[val] = current_use;
   return false;
 }
 
-using VecPadWidths = std::vector<std::vector<Val*>>;
-
+// replayConcretePad tries to replay a concretized PadOp on pad_tv. This
+// function allows merging multiple consecutive PadOp by stacking their pad
+// widths together as `vec_pad_widths`. This function assumes it has already
+// resolved the output iter_type for each IterDomain and provided as
+// `ref_iter_type`. The function returns the output from the replay PadOp.
+//
 // NOTE: this assumes all vec_pad_widths are positive entries so we don't need
 // to consider accumulating them changing the output iter_type.
 TensorView* replayConcretePad(
     TensorView* pad_tv,
     Val* pad_value,
-    const VecPadWidths& vec_pad_widths,
+    const std::vector<std::vector<Val*>>& vec_pad_widths,
     std::vector<IterDomain*> ref_iter_type) {
   NVF_ERROR(pad_tv->getDataType().has_value(), "pad source dtype is missing");
   const std::vector<IterDomain*> inp_dom =
@@ -129,6 +155,7 @@ TensorView* replayConcretePad(
   merged_pad_widths.reserve(rank * 2);
 
   NVF_ERROR(!vec_pad_widths.empty(), "vec_pad_widths cannot be empty");
+  // stack vec_pad_widths as `merged_pad_widths`.
   if (vec_pad_widths.size() == 1) {
     merged_pad_widths = vec_pad_widths.at(0);
   } else {
@@ -150,6 +177,7 @@ TensorView* replayConcretePad(
     }
   }
 
+  // construct TensorDomain for output TV.
   std::vector<IterDomain*> merged_root_ids;
   std::vector<IterDomain*> merged_logical_ids;
   for (const auto i : c10::irange(rank)) {
@@ -182,6 +210,26 @@ TensorView* replayConcretePad(
   return new_out;
 }
 
+// Note [ PadOp Propagation Rule ]
+//
+// Push PadOp to its producer to reduce segmentation caused by the resize node
+// introduced in PadOp. The hope is that we can either push PadOp to inputs to
+// the fusion, or far enough that the fusion segments before the PadOp would
+// become a trivial no-op.
+//
+// The concept is that the following program:
+//   tv1 = UnaryOp(tv0)
+//   tv2 = PadOp(tv1)
+// can be replayed as the program below:
+//   tv0_padded = PadOp(tv0)
+//   tv2_new = UnaryOp(tv0_padded)
+// Given certain constraints on the UnaryOp, we can ensure that the
+// computational output remains the same when we replace all uses of `tv2` with
+// `tv2_new`.
+//
+// This function only propagates `zero-padding`, i.e. PadOp with pad value as
+// constant zero. Based on which we have certain operations that can allow PadOp
+// to propagated across. See `padCompatibleUnaryOp` and `padCompatibleBinaryOp`.
 Val* propagatePadToProducer(PadOp* pad_op) {
   // establish pad dependencies, ensures that pad_value and pad_widths are live
   // at the time of replay.
@@ -208,18 +256,21 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   };
 
   // NOTE: We skip the propagation when any of the three conditions is true:
-  // 1. The optimization logic assumes a zero pad. This is used for logic in
-  // handling binary operations;
-  // 2. if `pad_op->in()` is used more than by the pad_op;
-  // 3. if `pad_op->in()` is an output tv.
+  //   1. The optimization logic assumes a zero pad. This is used for logic in
+  //   handling binary operations, see Note [ PadOp Propagation Rule] ; or 2.a
+  //   if `pad_op->in()` is used more than by the pad_op; or 2.b if
+  //   `pad_op->in()` is an output tv.
+  // for case 2.a/b, because pad_op->in() needs to stay alive after the
+  // propagation, we want to avoid adding another data flow branch.
   if (!pad_op->value()->isZero() || pad_op->in()->uses().size() > 1 ||
       pad_op->in()->isFusionOutput()) {
     return nullptr;
   }
 
   // frontier contains `Val`s that needs to replay pad_op on. The map here
-  // stores the number of encounter for each `Val*`, the logic is used to
-  // propagate across multiple uses.
+  // stores the number of encounter for each `Val*` during traversal, the logic
+  // is used to decide whether propagation can cross Val with multiple uses in
+  // the graph. See NOTE [ Handling TV with Multiple Uses via Frontier ]
   std::unordered_map<Val*, int64_t> frontier;
   // replay_sequence is used later to create the updated branch with padded
   // inputs after all `frontier` has been updated with padding.
@@ -234,34 +285,37 @@ Val* propagatePadToProducer(PadOp* pad_op) {
 
     if (def->isA<UnaryOp>()) {
       auto* uop = def->as<UnaryOp>();
+      // check if unary op type is compatible for zero pad propagation.
       if (!padCompatibleUnaryOp(uop->getUnaryOpType())) {
         frontier.emplace(edge.val(), -1);
         continue;
       }
-      // TODO: exception to break propagation. i.e. check op type and exclude
-      // division by 0
+      // check if PadOp can be replayed on input
       if (!pad_replay_check(uop->in())) {
         frontier.emplace(edge.val(), -1);
         continue;
       }
-      // uop is replayable.
+      // uop is replayable so add it to replay_sequence
       replay_sequence.push_back(uop);
-      if (shouldPropagatePad(uop->in(), frontier)) {
+
+      // check if we want to further propagate the replay
+      if (shouldPropagatePad(uop->in(), std::ref(frontier))) {
         stack.emplace(uop, 0);
       }
     } else if (def->isA<BinaryOp>()) {
       auto* bop = def->as<BinaryOp>();
+      // check if binary op type is compatible for zero pad propagation.
       if (!padCompatibleBinaryOp(bop->getBinaryOpType())) {
         frontier.emplace(edge.val(), -1);
         continue;
       }
-      // TODO: exception to break propagation. i.e. check op type and exclude
-      // division by 0; check for broadcast on padded axis.
+      // check if PadOp can be replayed on both operands
       if (!pad_replay_check(bop->lhs()) || !pad_replay_check(bop->rhs())) {
         frontier.emplace(edge.val(), -1);
         continue;
       }
 
+      // check for broadcast on padded axis.
       auto* lhs = bop->lhs()->as<TensorView>();
       auto* rhs = bop->rhs()->as<TensorView>();
       bool pad_on_broadcast = false;
@@ -272,20 +326,20 @@ Val* propagatePadToProducer(PadOp* pad_op) {
           break;
         }
       }
-      // TODO: padding on broadcast dimensions is not supported in propagation
-      // yet.
+      // padding on broadcast dimensions is not supported in propagation yet.
       if (pad_on_broadcast) {
         frontier.emplace(edge.val(), -1);
         continue;
       }
-
-      // bop is replayable
+      // bop is replayable so add it to replay_sequence
       replay_sequence.push_back(bop);
-      // check the propagation on each operands separately
-      if (shouldPropagatePad(lhs, frontier)) {
+
+      // check if we want to further propagate the replay on each operand
+      // separately
+      if (shouldPropagatePad(lhs, std::ref(frontier))) {
         stack.emplace(bop, 0);
       }
-      if (shouldPropagatePad(rhs, frontier)) {
+      if (shouldPropagatePad(rhs, std::ref(frontier))) {
         stack.emplace(bop, 1);
       }
     } else {
@@ -302,7 +356,7 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   }
 
   std::unordered_map<Val*, Val*> replacement_map;
-  // replay pad_op on frontier
+  // entries in frontier contains Val that we want to replay the PadOp on.
   for (const auto& [pad_val, _] : frontier) {
     auto pad_tv = pad_val->as<TensorView>();
     const std::vector<IterDomain*> out_ids = TensorDomain::noReductions(
@@ -440,14 +494,8 @@ void mergeNeighboringPad(Fusion* fusion) {
 } // namespace
 
 void MovePadPass::runPass(Fusion* fusion) {
-  std::cout << "=== input fusion ===" << std::endl;
-  fusion->printMath();
   decomposeCatOp(fusion);
-  std::cout << "=== after decompose cat fusion ===" << std::endl;
-  fusion->printMath();
   mergeNeighboringPad(fusion);
-  std::cout << "=== after merge pad fusion ===" << std::endl;
-  fusion->printMath();
 }
 
 } // namespace nvfuser::preseg_passes
