@@ -523,7 +523,7 @@ TEST_F(SDPATest, AttnProgram) {
       /*scale=*/nullptr);
   TensorView* tvsdpa = segment_set(tvattn.output);
 
-  TensorView* tvout = add(tvsdpa, tvsdpa);    
+  TensorView* tvout = add(tvsdpa, tvsdpa);
   fusion->addOutput(tvout);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
@@ -533,7 +533,7 @@ TEST_F(SDPATest, AttnProgram) {
 
   double scale = 1.0 / std::sqrt(e);
   auto aten_outputs = at::_scaled_dot_product_flash_attention(
-      q+q,
+      q + q,
       k,
       v,
       /*dropout_p=*/0.0,

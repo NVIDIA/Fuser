@@ -456,9 +456,6 @@ bool hasAnyReductionOps(Fusion* fusion) {
   return hasOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
 }
 
-bool hasAnyMatmulOps(Fusion* fusion) {
-  return hasOpsOfType<LinearOp, MmaOp, MatmulOp, SdpaFwdOp>(fusion);
-}
 
 namespace {
 

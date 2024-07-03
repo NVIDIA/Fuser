@@ -170,17 +170,27 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr) {
-
-  // ExprEval scheduler only requires `canScheduleCompileTime` check and should not use this fn.
-  // The following checks build the computeAt map that do not work with SDPAOp.
+  // ExprEval scheduler only requires `canScheduleCompileTime` check and should
+  // not use this fn. The following checks build the computeAt map that do not
+  // work with SDPAOp.
   NVF_ERROR(SchedulerType::heuristicType() != ScheduleHeuristic::ExprEval);
-  
+
   FusionGuard fg(fusion);
 
-  // Fusions with `MatmulOp/LinearOp/SdpaOp` are only accepted in `ExprEval` scheduler, all other schedulers should reject them.
-  if (ir_utils::hasAnyMatmulOps(fusion)) {
+  // Fusions with `MatmulOp/LinearOp/SdpaOp` are only accepted in `ExprEval`
+  // scheduler, all other schedulers should reject them.
+  if (ir_utils::hasOpsOfType<MatmulOp, LinearOp, SdpaFwdOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        SchedulerType::heuristicType(), "Matmul ops are not supported");
+        SchedulerType::heuristicType(),
+        "ExprEval-only nodes (MatmulOp/LinearOp/SdpaOps) are not supported.");
+    return false;
+  }
+
+  // Fusions with `MmaOp` are only accepted by Matmul scheduler.
+  if (SchedulerType::heuristicType() != ScheduleHeuristic::Matmul &&
+      ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        SchedulerType::heuristicType(), "MmaOp is not supported.");
     return false;
   }
 
