@@ -1125,9 +1125,13 @@ TEST_F(IndexingTest, SimpleVectorize) {
   IndexValidator<GetReference>::validate(&fusion, false);
 }
 
-// Test for patchAllocationDomainWithVectorization. The vectorized
+// Test for reorderAllocationDomains. The vectorized
 // domain must be at the innermost position in the allocation domain
-// but that's not always the case with the loop domain.
+// but that's not always the case within the loop domain. We might
+// want to consider if we should just change the scheduler such that
+// vectorized domains always be placed at the innermost position, but
+// this test is to make sure the new indexer can reproduce what the
+// old indexing does.
 TEST_F(IndexingTest, NonInnermostVectorize) {
   Fusion fusion;
   FusionGuard fg(&fusion);
