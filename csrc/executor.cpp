@@ -285,7 +285,7 @@ void FusionExecutor::compileFusion(
     }
     return;
   }
-  
+
   // NOTE: Profiling needs to be started below the isExpressionEvaluated query
   // given the conditional can exit early from compilation.
   if (isProfilerEnabled()) {
