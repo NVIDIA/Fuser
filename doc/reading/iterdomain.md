@@ -22,8 +22,8 @@ where the extent map is $i \to (i \lceil/\rceil d, d)$,
 and the index map is $i \to (i/d, i \mathbin{\\%} d)$.
 We use notation $\mathrm{InnerSplit}(d)$ to denote inner split.
 
-> [!TODO]
-> outer split, merge, resize, swizzle, reorder
+> [!Warning]
+> TODO: outer split, merge, resize, swizzle, reorder
 
 **Definition 1.2 (Equivalence of IterDomain Transformation)**:
 Two IterDomain transformations of rank $(m, n)$ are equivalent if both the extent mapping and index mapping are equivalent.
