@@ -89,7 +89,8 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
   // broadcast on non-pad dimension should propagate across binary operations
   TensorView* tv1_b = broadcast(tv1, {true, false});
   TensorView* tv2 = makeContigConcreteTensor({4, 5});
-  // tv1_b [bS, iS]. pad axes [1,] is not on broadcast dimension, we should be able to propagate pad
+  // tv1_b [bS, iS]. pad axes [1,] is not on broadcast dimension, we should be
+  // able to propagate pad
   TensorView* tv3 = add(tv0, tv1_b);
   TensorView* tv4 = cat({tv2, tv3}, /*dim=*/1);
 
@@ -110,7 +111,8 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 
-  // ensure that we propagate the pad across binary operation and the first segment is no-op
+  // ensure that we propagate the pad across binary operation and the first
+  // segment is no-op
   auto scheduler = runtime->schedulerHeuristics()->heuristicsList().at(0).get();
   auto heuristic = scheduler->heuristic();
   NVF_CHECK(
@@ -129,7 +131,8 @@ TEST_F(MovePadTest, BinaryBroadcastOnCatDim) {
   TensorView* tv1 = makeContigConcreteTensor({10});
   TensorView* tv1_b = broadcast(tv1, {true, false});
   TensorView* tv2 = makeContigConcreteTensor({2, 10});
-  // tv1_b [bS, iS]. pad axes [0,] is includes broadcast dimension, pad propagation stops here
+  // tv1_b [bS, iS]. pad axes [0,] is includes broadcast dimension, pad
+  // propagation stops here
   TensorView* tv3 = add(tv0, tv1_b);
   TensorView* tv4 = cat({tv2, tv3}, /*dim=*/0);
 
@@ -227,13 +230,35 @@ TEST_F(MovePadTest, CascadePadCase0) {
 
   // all pad operations should be merged together
   TensorView* tv0 = makeContigConcreteTensor({4, 10});
-  TensorView* tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L), IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
-  TensorView* tv2 = pad(tv1, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(0L)});
-  TensorView* tv3 = pad(tv2, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)}, IrBuilder::create<Val>(0.0));
+  TensorView* tv1 =
+      pad(tv0,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(2L),
+           IrBuilder::create<Val>(1L),
+           IrBuilder::create<Val>(1L)});
+  TensorView* tv2 =
+      pad(tv1,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(4L),
+           IrBuilder::create<Val>(0L)});
+  TensorView* tv3 =
+      pad(tv2,
+          {IrBuilder::create<Val>(1L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L)},
+          IrBuilder::create<Val>(0.0));
   auto s4 = IrBuilder::create<Val>(4.0);
   auto s5 = IrBuilder::create<Val>(4.0);
   auto s6 = sub(s4, s5);
-  TensorView* tv7 = pad(tv3, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)}, s6);
+  TensorView* tv7 =
+      pad(tv3,
+          {IrBuilder::create<Val>(1L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L)},
+          s6);
 
   fusion->addInput(tv0);
   fusion->addOutput(tv7);
@@ -248,8 +273,7 @@ TEST_F(MovePadTest, CascadePadCase0) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
   std::vector<Expr*> exprs = complete_fusion->exprs();
-  EXPECT_THAT(
-      exprs, Contains(Property(&Expr::isA<PadOp>, IsTrue())).Times(1));
+  EXPECT_THAT(exprs, Contains(Property(&Expr::isA<PadOp>, IsTrue())).Times(1));
 
   testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
 }
@@ -259,9 +283,20 @@ TEST_F(MovePadTest, CascadePadCase1) {
   FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeContigConcreteTensor({4, 10});
-  TensorView* tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L), IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
+  TensorView* tv1 =
+      pad(tv0,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(2L),
+           IrBuilder::create<Val>(1L),
+           IrBuilder::create<Val>(1L)});
   // PadOp with different pad value cannot be merged
-  TensorView* tv2 = pad(tv1, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)}, IrBuilder::create<Val>(1.0));
+  TensorView* tv2 =
+      pad(tv1,
+          {IrBuilder::create<Val>(1L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L)},
+          IrBuilder::create<Val>(1.0));
 
   fusion->addInput(tv0);
   fusion->addOutput(tv2);
@@ -276,8 +311,7 @@ TEST_F(MovePadTest, CascadePadCase1) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
   std::vector<Expr*> exprs = complete_fusion->exprs();
-  EXPECT_THAT(
-      exprs, Contains(Property(&Expr::isA<PadOp>, IsTrue())).Times(2));
+  EXPECT_THAT(exprs, Contains(Property(&Expr::isA<PadOp>, IsTrue())).Times(2));
 
   testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
 }
@@ -286,15 +320,38 @@ TEST_F(MovePadTest, CascadePadCase2) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // some pad outputs are output of the fusion, we cannot merge pad in this instance.
+  // some pad outputs are output of the fusion, we cannot merge pad in this
+  // instance.
   TensorView* tv0 = makeContigConcreteTensor({4, 10});
-  TensorView* tv1 = pad(tv0, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L), IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
-  TensorView* tv2 = pad(tv1, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(4L), IrBuilder::create<Val>(0L)});
-  TensorView* tv3 = pad(tv2, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)}, IrBuilder::create<Val>(0.0));
+  TensorView* tv1 =
+      pad(tv0,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(2L),
+           IrBuilder::create<Val>(1L),
+           IrBuilder::create<Val>(1L)});
+  TensorView* tv2 =
+      pad(tv1,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(4L),
+           IrBuilder::create<Val>(0L)});
+  TensorView* tv3 =
+      pad(tv2,
+          {IrBuilder::create<Val>(1L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L)},
+          IrBuilder::create<Val>(0.0));
   auto s4 = IrBuilder::create<Val>(4.0);
   auto s5 = IrBuilder::create<Val>(4.0);
   auto s6 = sub(s4, s5);
-  TensorView* tv7 = pad(tv3, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L), IrBuilder::create<Val>(0L)}, s6);
+  TensorView* tv7 =
+      pad(tv3,
+          {IrBuilder::create<Val>(1L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(0L)},
+          s6);
 
   fusion->addInput(tv0);
   fusion->addOutput(tv1);

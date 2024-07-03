@@ -7,6 +7,7 @@
 // clang-format on
 #include <preseg_passes/move_pad.h>
 
+#include <expr_simplifier.h>
 #include <fusion.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
@@ -15,12 +16,10 @@
 #include <ops/arith.h>
 #include <ops/utils.h>
 #include <transform_replay.h>
-#include <expr_simplifier.h>
 
 namespace nvfuser::preseg_passes {
 
 namespace {
-
 
 struct Edge {
   Expr* expr_ = nullptr;
@@ -80,8 +79,10 @@ bool padCompatibleBinaryOp(BinaryOpType t) {
   }
 }
 
-// returns true if `PadOp` should be propagated pass val->definition(). This function also update frontier
-// NOTE: frontier counts the encounter of each Val* during the propagation. If all uses of Val* has been encountered during the backward propagation, it's safe to propagate `PadOp`
+// returns true if `PadOp` should be propagated pass val->definition(). This
+// function also update frontier NOTE: frontier counts the encounter of each
+// Val* during the propagation. If all uses of Val* has been encountered during
+// the backward propagation, it's safe to propagate `PadOp`
 bool shouldPropagatePad(Val* val, std::unordered_map<Val*, int64_t>& frontier) {
   if (val->isFusionOutput()) {
     frontier.emplace(val, -1);
@@ -94,7 +95,8 @@ bool shouldPropagatePad(Val* val, std::unordered_map<Val*, int64_t>& frontier) {
     }
 
     if (current_use == static_cast<int64_t>(val->uses().size())) {
-      // all uses of the entry has been encounter in this traversal, we can safely propagate it across. remove val from frontier map
+      // all uses of the entry has been encounter in this traversal, we can
+      // safely propagate it across. remove val from frontier map
       frontier.erase(val);
       return true;
     } else {
@@ -181,7 +183,8 @@ TensorView* replayConcretePad(
 }
 
 Val* propagatePadToProducer(PadOp* pad_op) {
-  // establish pad dependencies, ensures that pad_value and pad_widths are live at the time of replay.
+  // establish pad dependencies, ensures that pad_value and pad_widths are live
+  // at the time of replay.
   std::vector<Val*> pad_dependencies;
   for (Val* val : pad_op->inputs()) {
     if (val == pad_op->in() || val->isConst()) {
@@ -205,16 +208,21 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   };
 
   // NOTE: We skip the propagation when any of the three conditions is true:
-  // 1. The optimization logic assumes a zero pad. This is used for logic in handling binary operations;
+  // 1. The optimization logic assumes a zero pad. This is used for logic in
+  // handling binary operations;
   // 2. if `pad_op->in()` is used more than by the pad_op;
   // 3. if `pad_op->in()` is an output tv.
-  if (!pad_op->value()->isZero() || pad_op->in()->uses().size() > 1 || pad_op->in()->isFusionOutput()) {
+  if (!pad_op->value()->isZero() || pad_op->in()->uses().size() > 1 ||
+      pad_op->in()->isFusionOutput()) {
     return nullptr;
   }
 
-  // frontier contains `Val`s that needs to replay pad_op on. The map here stores the number of encounter for each `Val*`, the logic is used to propagate across multiple uses.
+  // frontier contains `Val`s that needs to replay pad_op on. The map here
+  // stores the number of encounter for each `Val*`, the logic is used to
+  // propagate across multiple uses.
   std::unordered_map<Val*, int64_t> frontier;
-  // replay_sequence is used later to create the updated branch with padded inputs after all `frontier` has been updated with padding.
+  // replay_sequence is used later to create the updated branch with padded
+  // inputs after all `frontier` has been updated with padding.
   std::vector<Expr*> replay_sequence;
 
   std::stack<Edge> stack;
@@ -264,7 +272,8 @@ Val* propagatePadToProducer(PadOp* pad_op) {
           break;
         }
       }
-      // TODO: padding on broadcast dimensions is not supported in propagation yet.
+      // TODO: padding on broadcast dimensions is not supported in propagation
+      // yet.
       if (pad_on_broadcast) {
         frontier.emplace(edge.val(), -1);
         continue;
@@ -280,12 +289,14 @@ Val* propagatePadToProducer(PadOp* pad_op) {
         stack.emplace(bop, 1);
       }
     } else {
-      // Unrecognized operation stops propagation, push entry to frontier for replay
+      // Unrecognized operation stops propagation, push entry to frontier for
+      // replay
       frontier.emplace(edge.val(), -1);
     }
   }
 
-  // NOTE: if we have not propagated pass the original pad_op input, that means no changes has been made at all.
+  // NOTE: if we have not propagated pass the original pad_op input, that means
+  // no changes has been made at all.
   if (frontier.count(pad_op->in()) != 0) {
     return nullptr;
   }
@@ -296,13 +307,15 @@ Val* propagatePadToProducer(PadOp* pad_op) {
     auto pad_tv = pad_val->as<TensorView>();
     const std::vector<IterDomain*> out_ids = TensorDomain::noReductions(
         pad_op->out()->as<TensorView>()->getLogicalDomain());
-    // replay pad_op on frontier TVs assuming its output iter_type wouldn't change from the final output.
+    // replay pad_op on frontier TVs assuming its output iter_type wouldn't
+    // change from the final output.
     TensorView* new_out = replayConcretePad(
         pad_tv, pad_op->value(), {pad_op->getPadWidths()}, out_ids);
     replacement_map[pad_val] = new_out;
   }
 
-  // reverse traversal the replay_sequence and update each input to use padded TVs.
+  // reverse traversal the replay_sequence and update each input to use padded
+  // TVs.
   std::reverse(replay_sequence.begin(), replay_sequence.end());
   for (Expr* e : replay_sequence) {
     if (e->isA<UnaryOp>()) {
@@ -347,7 +360,8 @@ void decomposeCatOp(Fusion* fusion) {
       continue;
     }
 
-    // replay `CatOp` with series of BinaryOp instead, since we might have pushed `PadOp` out and breaking the codegen if `CatOp` remains.
+    // replay `CatOp` with series of BinaryOp instead, since we might have
+    // pushed `PadOp` out and breaking the codegen if `CatOp` remains.
     Val* res = nullptr;
     TensorView* cat_out_tv = cat->output(0)->as<TensorView>();
     bool is_boolean = isBooleanType(cat_out_tv->getDataType().value());
@@ -378,7 +392,8 @@ void decomposeCatOp(Fusion* fusion) {
 
 void mergeNeighboringPad(Fusion* fusion) {
   std::vector<Expr*> exprs = fusion->exprs();
-  // traverse in topo order. We'll merge neighboring pad and replace the uses of consumer pad with the merged producer. So it would not interfere traversal.
+  // traverse in topo order. We'll merge neighboring pad and replace the uses of
+  // consumer pad with the merged producer. So it would not interfere traversal.
   for (auto* producer : ir_utils::filterByType<PadOp>(exprs)) {
     while (producer) {
       Val* pad_out = producer->out();
@@ -388,7 +403,9 @@ void mergeNeighboringPad(Fusion* fusion) {
       auto* consumer = pad_out->uses()[0]->as<PadOp>();
 
       // only allow merge pad when pad value is the same.
-      if (simplifyExpr(SimplifyingIrBuilder::eqExpr(producer->value(), consumer->value()))->isFalse()) {
+      if (simplifyExpr(SimplifyingIrBuilder::eqExpr(
+                           producer->value(), consumer->value()))
+              ->isFalse()) {
         break;
       }
 

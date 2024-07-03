@@ -159,7 +159,9 @@ class ReplaySelf : public ReplayTransformations {
         resize->leftExpand(),
         resize->rightExpand(),
         resize_out_logical,
-        keep_iter_type_ ? std::optional<nvfuser::IterType>(resize->out()->getIterType()) : std::nullopt);
+        keep_iter_type_
+            ? std::optional<nvfuser::IterType>(resize->out()->getIterType())
+            : std::nullopt);
 
     loop_ids_.erase(mapped);
 
@@ -169,8 +171,12 @@ class ReplaySelf : public ReplayTransformations {
   }
 
  public:
-  ReplaySelf(const std::vector<IterDomain*>& _target_domain, id_map _id_map, bool keep_iter_type)
-      : ReplayTransformations(_target_domain, std::move(_id_map)), keep_iter_type_(keep_iter_type) {
+  ReplaySelf(
+      const std::vector<IterDomain*>& _target_domain,
+      id_map _id_map,
+      bool keep_iter_type)
+      : ReplayTransformations(_target_domain, std::move(_id_map)),
+        keep_iter_type_(keep_iter_type) {
     setErrorOnFailure(false);
   }
 

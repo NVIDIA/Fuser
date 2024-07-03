@@ -118,7 +118,8 @@ class NVF_API IterDomain : public Val {
 
   //! Clone a vector domains
   static std::vector<IterDomain*> clone(
-      const std::vector<IterDomain*>& domains, bool with_rfactor = false);
+      const std::vector<IterDomain*>& domains,
+      bool with_rfactor = false);
 
   //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
   //! the result IterDomain.
