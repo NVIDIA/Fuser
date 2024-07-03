@@ -234,29 +234,29 @@ TEST_F(IndexingTest, SimplePointwise1) {
           NVF_ERROR(!as_consumer);
           return addExpr(
               mulExpr(
-                  IrBuilder::getItemExpr(
-                      IrBuilder::getAttrExpr(
-                          IrBuilder::metadataExpr(tv), "alloc_stride"),
-                      IrBuilder::create<Val>(0)),
                   divExpr(
                       addExpr(
                           mulExpr(
                               consumer_tv->axis(1)->extent(),
                               loop_indices.at(0)),
                           loop_indices.at(1)),
-                      tv->getLogicalDomain().at(1)->extent())),
-              mulExpr(
+                      tv->getLogicalDomain().at(1)->extent()),
                   IrBuilder::getItemExpr(
                       IrBuilder::getAttrExpr(
                           IrBuilder::metadataExpr(tv), "alloc_stride"),
-                      IrBuilder::create<Val>(1)),
+                      IrBuilder::create<Val>(0))),
+              mulExpr(
                   modExpr(
                       addExpr(
                           mulExpr(
                               consumer_tv->axis(1)->extent(),
                               loop_indices.at(0)),
                           loop_indices.at(1)),
-                      tv->getLogicalDomain().at(1)->extent())));
+                      tv->getLogicalDomain().at(1)->extent()),
+                  IrBuilder::getItemExpr(
+                      IrBuilder::getAttrExpr(
+                          IrBuilder::metadataExpr(tv), "alloc_stride"),
+                      IrBuilder::create<Val>(1))));
         }
         case 1: {
           return loop_indices.at(1);
@@ -265,12 +265,12 @@ TEST_F(IndexingTest, SimplePointwise1) {
           NVF_ERROR(as_consumer);
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(),
                   divExpr(
                       addExpr(
                           mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
                           loop_indices.at(1)),
-                      tv->getLogicalDomain().at(1)->extent())),
+                      tv->getLogicalDomain().at(1)->extent()),
+                  tv->getLogicalDomain().at(1)->extent()),
               modExpr(
                   addExpr(
                       mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
@@ -342,9 +342,9 @@ TEST_F(IndexingTest, SimplePointwise2) {
 
       auto global_ref = SimplifyingIrBuilder::addExpr(
           SimplifyingIrBuilder::mulExpr(
-              tv->getLogicalDomain().at(1)->extent(),
               SimplifyingIrBuilder::divExpr(
-                  contig_idx, tv->getLogicalDomain().at(1)->extent())),
+                  contig_idx, tv->getLogicalDomain().at(1)->extent()),
+              tv->getLogicalDomain().at(1)->extent()),
           SimplifyingIrBuilder::modExpr(
               contig_idx, tv->getLogicalDomain().at(1)->extent()));
 
@@ -402,7 +402,7 @@ TEST_F(IndexingTest, SimpleReduction) {
           NVF_ERROR(!as_consumer);
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(0)),
+                  loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
               loop_indices.at(1));
         }
         case 1: {
@@ -748,10 +748,10 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
         case 3: {
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(),
                   divExpr(
                       loop_indices.at(0),
-                      tv->getLogicalDomain().at(1)->extent())),
+                      tv->getLogicalDomain().at(1)->extent()),
+                  tv->getLogicalDomain().at(1)->extent()),
               modExpr(
                   loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()));
         }
@@ -924,7 +924,7 @@ TEST_F(IndexingTest, MultiDevice2D) {
       // next test for a loop allocation example
       auto inner_dim = tv->getLogicalDomain().at(1)->extent();
       return addExpr(
-          mulExpr(inner_dim, divExpr(loop_indices.at(1), inner_dim)),
+          mulExpr(divExpr(loop_indices.at(1), inner_dim), inner_dim),
           modExpr(loop_indices.at(1), inner_dim));
     }
   };
@@ -1006,13 +1006,13 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
         case 0: {
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(2)),
+                  loop_indices.at(2), tv->getLogicalDomain().at(1)->extent()),
               loop_indices.at(1));
         }
         case 1: {
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(1)),
+                  loop_indices.at(1), tv->getLogicalDomain().at(1)->extent()),
               loop_indices.at(2));
         }
         default:
