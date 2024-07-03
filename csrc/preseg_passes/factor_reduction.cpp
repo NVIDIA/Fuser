@@ -188,6 +188,10 @@ bool findReductionDefinition(TensorView* tv, BinaryOpType op_type) {
 // There are six states in FSM.
 // Start, Broadcast, Cast, Max-Reduction, Pass, Fail
 //
+// Pass State: Abs
+// Fail States: Start, Invalid
+// Intermediate States: Broadcast, Cast, MaxReduction
+//
 // Adjacency table for FSM.
 // From Start to:
 //  1) Cast
@@ -211,103 +215,73 @@ bool findReductionDefinition(TensorView* tv, BinaryOpType op_type) {
 // Return nullptr in Fail state.
 // Return the reduction TensorView in Pass state.
 TensorView* detectAmaxPattern(TensorView* tv) {
-  enum { Start, Broadcast, Cast, MaxReduction } state = Start;
+  enum State { Start, Invalid, Abs, Broadcast, Cast, MaxReduction };
 
+  // Create state transition map
+  std::unordered_map<State, std::vector<State>> valid_states;
+  valid_states.emplace(Start, std::vector<State>({Broadcast, Cast, MaxReduction}));
+  valid_states.emplace(Broadcast, std::vector<State>({MaxReduction}));
+  valid_states.emplace(Cast, std::vector<State>({Broadcast, MaxReduction}));
+  valid_states.emplace(MaxReduction, std::vector<State>({Abs}));
+
+  // Initial state
   TensorView* max_reduction_tv = nullptr;
   TensorView* current_tv = tv;
-  std::cout << "==========" << std::endl;
+  State current_state = Start;
+  State next_state = Start;
+
   while (current_tv != nullptr) {
-    switch (state) {
-      case Start: {
-        std::cout << "from start" << std::endl;
-        if (findUnaryDefinition(current_tv, UnaryOpType::Cast)) {
-          // Move state from Start to Cast if we have a Cast definition
-          std::cout << " to cast" << std::endl;
-          current_tv = current_tv->definition()->input(0)->as<TensorView>();
-          state = Cast;
-          break;
-        } else if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
-          std::cout << " to max-red" << std::endl;
-          // Move state from Start to MaxReduction if we have a Max reduction
-          // definition
-          max_reduction_tv = current_tv;
-          current_tv = current_tv->definition()->input(0)->as<TensorView>();
-          state = MaxReduction;
-          break;
-        } else if (tv->definition()->isA<BroadcastOp>()) {
-          std::cout << " to bcast" << std::endl;
-          // Move state from Start to Broadcast if we have a Broadcast
-          // definition
-          current_tv = current_tv->definition()->input(0)->as<TensorView>();
-          state = Broadcast;
-          break;
-        }
-        // Otherwise, move state from Start to Fail
-        std::cout << " to fail" << std::endl;
-        current_tv = nullptr;
+    // Get potential next state based on TensorView definition
+    if (findUnaryDefinition(current_tv, UnaryOpType::Cast)) {
+      next_state = Cast;
+    } else if (findUnaryDefinition(current_tv, UnaryOpType::Abs)) {
+      next_state = Abs;
+      break;
+    } else if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
+      next_state = MaxReduction;
+    } else if (tv->definition()->isA<BroadcastOp>()) {
+      next_state = Broadcast;
+    } else {
+      next_state = Invalid;
+    }
+
+    // Validate next state given current state
+    bool is_valid = (valid_states.count(current_state) == 0) ||
+        std::any_of(valid_states.at(current_state).begin(),
+                    valid_states.at(current_state).end(),
+                    [&](State s) { return s == next_state; });
+    if (!is_valid) {
+      next_state = Invalid;
+    }
+
+    // Transition to next state
+    switch (next_state) {
+      case Start:
+      case Invalid: {
+        // For these failure states, we clear max_reduction_tv.
         max_reduction_tv = nullptr;
-        break;
+        [[fallthrough]];
       }
-      case Broadcast: {
-        std::cout << "from broadcast" << std::endl;
-        if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
-          // Move state from Broadcast to MaxReduction if we have a Max
-          // reduction definition
-          std::cout << " to max-red" << std::endl;
-          max_reduction_tv = current_tv;
-          current_tv = current_tv->definition()->input(0)->as<TensorView>();
-          state = MaxReduction;
-          break;
-        }
-        // Otherwise, move state from Broadcast to Fail
-        std::cout << " to fail" << std::endl;
+      case Abs: {
+        // For the pass state, we return max_reduction_tv.
         current_tv = nullptr;
-        max_reduction_tv = nullptr;
-        break;
-      }
-      case Cast: {
-        std::cout << "from cast" << std::endl;
-        if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
-          // Move state from Cast to MaxReduction if we have a Max reduction
-          // definition
-          std::cout << " to max-red" << std::endl;
-          max_reduction_tv = current_tv;
-          current_tv = current_tv->definition()->input(0)->as<TensorView>();
-          state = MaxReduction;
-          break;
-        } else if (tv->definition()->isA<BroadcastOp>()) {
-          std::cout << " to bcast" << std::endl;
-          // Move state from Start to Broadcast if we have a Broadcast
-          // definition
-          current_tv = current_tv->definition()->input(0)->as<TensorView>();
-          state = Broadcast;
-          break;
-        }
-        // Otherwise, move state from Cast to Fail
-        std::cout << " to fail" << std::endl;
-        current_tv = nullptr;
-        max_reduction_tv = nullptr;
         break;
       }
       case MaxReduction: {
-        std::cout << "max_reduction" << std::endl;
-        if (findUnaryDefinition(current_tv, UnaryOpType::Abs)) {
-          // Move state from MaxReduction to Success if we have an Abs
-          // definition
-          std::cout << " to pass" << std::endl;
-          current_tv = nullptr;
-          break;
-        } else {
-          // Otherwise, move state from MaxReduction to Fail
-          std::cout << " to fail" << std::endl;
-          current_tv = nullptr;
-          max_reduction_tv = nullptr;
-          break;
-        }
+        // Set max_reduction_tv
+        max_reduction_tv = current_tv;
+        [[fallthrough]];
+      }
+      case Broadcast:
+      case Cast: {
+        // Move to input TensorView of definition
+        current_tv = current_tv->definition()->input(0)->as<TensorView>();
+        break;
       }
     }
+    current_state = next_state;
   }
-  std::cout << "==========" << std::endl;
+
   NVF_ERROR(
       max_reduction_tv == nullptr ||
       findReductionDefinition(max_reduction_tv, BinaryOpType::Max));
