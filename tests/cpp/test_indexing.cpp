@@ -1125,6 +1125,76 @@ TEST_F(IndexingTest, SimpleVectorize) {
   IndexValidator<GetReference>::validate(&fusion, false);
 }
 
+// Test for patchAllocationDomainWithVectorization. The vectorized
+// domain must be at the innermost position in the allocation domain
+// but that's not always the case with the loop domain.
+TEST_F(IndexingTest, NonInnermostVectorize) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  // For vectorized store
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Vectorize
+  tv3->split(0, 4);
+  // Serial
+  tv3->split(0, 2);
+  // TIDx
+  tv3->split(0, 128);
+
+  tv3->reorder({{-1, -2}});
+
+  TransformPropagator propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3, ir_utils::allTvs(&fusion));
+
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+  tv3->axis(2)->parallelize(ParallelType::Vectorize);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      bool vec_load_or_store =
+          ((tv->name() == 1 && as_consumer) ||
+           (tv->name() == 2 && !as_consumer));
+
+      // Validate tv1 as vector load output and tv2 as vector store input
+      switch (tv->name()) {
+        case 1:
+        case 2:
+          if (vec_load_or_store) {
+            return mulExpr(loop_indices.at(3), tv->axis(2)->extent());
+          } else {
+            return addExpr(
+                mulExpr(loop_indices.at(3), tv->axis(2)->extent()),
+                loop_indices.at(2));
+          }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, false);
+}
+
 // Indexing traversal failure repro due to non-size-one broadcast
 // domains. See issue #2393 as well.
 TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
