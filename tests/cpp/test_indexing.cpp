@@ -65,6 +65,27 @@ Val* xorExpr(Args&&... args) {
   return IrBuilder::bitwiseXorExpr(std::forward<Args>(args)...);
 }
 
+void printAllIndices(
+    std::ostream& os,
+    Fusion* fusion,
+    const TensorIndexer& indexer) {
+  for (auto expr : fusion->exprs()) {
+    if (!ir_utils::isTvOp(expr)) {
+      continue;
+    }
+
+    os << "\n" << expr->toString();
+    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      os << "Input: T" << input->name() << " -> "
+         << indexer.getLinearIndex(input, expr)->toInlineString() << std::endl;
+    }
+    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      os << "Output: T" << output->name() << " -> "
+         << indexer.getLinearIndex(output, expr)->toInlineString() << std::endl;
+    }
+  }
+}
+
 // AbstractGetReference and IndexValidator are used to validate
 // lowered index vals. Each test subclasses either or both of
 // getLinearIndex and getLinearIndexString of
