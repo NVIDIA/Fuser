@@ -385,17 +385,11 @@ Val* PredicateCompute::getInlinePredicate(
   std::vector<RootPredicateInfo> pred_info_vec;
   if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") &&
       TensorIndexer::isSupported(GpuLower::current()->kernel())) {
-    pred_info_vec = gpu_lower->tensorIndexer().getPredicates(
-        out_tv,
-        expr,
-        loops,
-        false);
+    pred_info_vec =
+        gpu_lower->tensorIndexer().getPredicates(out_tv, expr, loops, false);
   } else {
     pred_info_vec = Index::getReferenceRootPredicates(
-        out_tv,
-        loops,
-        rotated_loops,
-        nullptr);
+        out_tv, loops, rotated_loops, nullptr);
   }
 
   std::vector<Val*> preds;
@@ -453,7 +447,7 @@ Val* PredicateCompute::getInlinePredicate(
     cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
 
-  //std::cerr << "Predicate: " << cond->toInlineString() << std::endl;
+  // std::cerr << "Predicate: " << cond->toInlineString() << std::endl;
 
   RECORD_AND_RETURN(cond);
 }
@@ -490,7 +484,8 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   std::vector<RootPredicateInfo> ref_pred_info;
-  bool is_unswitch = unrolled_loop_->iter_domain()->getParallelType() == ParallelType::Unswitch ||
+  bool is_unswitch = unrolled_loop_->iter_domain()->getParallelType() ==
+          ParallelType::Unswitch ||
       unrolled_loop_->iter_domain()->getParallelType() == ParallelType::Unroll;
   if (TensorIndexer::isSupported(GpuLower::current()->kernel()) &&
       ((is_unswitch &&

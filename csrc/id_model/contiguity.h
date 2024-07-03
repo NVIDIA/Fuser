@@ -8,8 +8,8 @@
 #pragma once
 
 #include <contiguity.h>
-#include <val_graph_visitor.h>
 #include <id_model/id_model.h>
+#include <val_graph_visitor.h>
 
 namespace nvfuser {
 
@@ -26,7 +26,7 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
   }
 
   bool isConsistentlyOrdered(IterDomain* id) const override;
-  
+
  protected:
   OrderedIdGroupInformation(
       const std::vector<IterDomain*>& alloc_domain,
@@ -37,14 +37,14 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
   }
 
   virtual void traverse(const ExprPath& path);
-  
+
  protected:
   std::vector<IterDomain*>::const_iterator findActiveId(
       IterDomain* id) const override;
 
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>::
-  const_iterator
-  findAllocIDs(IterDomain* id) const override;
+      const_iterator
+      findAllocIDs(IterDomain* id) const override;
 
  private:
   const ValGraph& graph_;

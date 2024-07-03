@@ -557,7 +557,6 @@ class IdGraphIndexCompute : public OptOutDispatch {
         index_map_(initial_index_map),
         max_path_domains_(max_path_domains) {}
 
-
   using OptOutDispatch::handle;
 
   void handle(Split* split) override;
@@ -1397,12 +1396,13 @@ IndexingInfo TensorIndexer::getIndex(
   const auto initial_index_map = getInitialIndexMap(
       tv, expr, for_loops, loop_domains, traversal_graph, is_predicate);
 
-  const std::unordered_set<ValGroup> max_path_loop_domains =
-      is_unswitch ? getMaxPathLoopDomains(
-                        tv,
-                        for_loops.value(),
-                        id_model_.idGraph(IdMappingMode::LOOP),
-                        traversal_graph) : std::unordered_set<ValGroup>{};
+  const std::unordered_set<ValGroup> max_path_loop_domains = is_unswitch
+      ? getMaxPathLoopDomains(
+            tv,
+            for_loops.value(),
+            id_model_.idGraph(IdMappingMode::LOOP),
+            traversal_graph)
+      : std::unordered_set<ValGroup>{};
 
   IdGraphIndexCompute index_compute(
       traversal_graph, initial_index_map, max_path_loop_domains);
@@ -1780,7 +1780,8 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
                (loadstore->opType() == LoadStoreOpType::LdMatrix ||
                 loadstore->opType() == LoadStoreOpType::LdMatrixTranspose ||
                 loadstore->opType() == LoadStoreOpType::CpAsync ||
-                loadstore->opType() == LoadStoreOpType::CpAsyncBulkTensorTile)) {
+                loadstore->opType() ==
+                    LoadStoreOpType::CpAsyncBulkTensorTile)) {
       reason << "LoadStoreOp not supported: " << loadstore->toString();
     } else {
       for (const auto& id : ir_utils::allIDsOf(tv)) {

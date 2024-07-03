@@ -1627,7 +1627,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
-      GpuLower::current()->isTensorIndexerEnabled()) {  
+      GpuLower::current()->isTensorIndexerEnabled()) {
     return GpuLower::current()->tensorIndexer().getPerDimIndex(
         producer_tv,
         producer_tv->getLogicalDomain(),
@@ -2628,7 +2628,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   ValGroups groups_to_index = tma_info.getTMADomain();
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-  auto indices_inner_to_outer = indexer.getIndexFor(ldst, !is_load, loops, groups_to_index);
+  auto indices_inner_to_outer =
+      indexer.getIndexFor(ldst, !is_load, loops, groups_to_index);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
