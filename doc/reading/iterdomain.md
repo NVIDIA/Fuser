@@ -27,8 +27,8 @@ We use notation $\mathrm{InnerSplit}(d)$ to denote inner split.
 
 **Definition 1.2 (Equivalence of IterDomain Transformation)**:
 Two IterDomain transformations of rank $(m, n)$ are equivalent if both the extent mapping and index mapping are equivalent.
-For two IterDomain transformations $t_1$ and $t_2$,
-we use the notation $t_1 = t_2$ to denote their equivalence.
+
+We use the notation $t_1 = t_2$ to denote their equivalence.
 
 **Theorem 1.1:**
 For arbitrary three IterDomain transformations $t_1$, $t_2$ and $t_3$ of rank $(m, n)$, we have:
@@ -46,6 +46,7 @@ Let $t_1\langle E, I\rangle$ be an IterDomain transformation of rank $(m, n)$, a
 an IterDomain transformation $t_2$ of rank $(l + m + r, l + n + r)$ is an embedding of $t_1$ on dimensions $l$ to $l + m - 1$
 if the extent mapping of $t_2$ is $(x_0, \ldots, x_{l + m + r - 1}) \to \left(x_0, \ldots, x_{l - 1}, E(x_l, \ldots, x_{l + m - 1}), x_{l + m}, \ldots, x_{l + m + r - 1}\right)$,
 and the index mapping of $t_2$ is $(x_0, \ldots, x_{l + m + r - 1}) \to \left(x_0, \ldots, x_{l - 1}, I(x_l, \ldots, x_{l + m - 1}), x_{l + m}, \ldots, x_{l + m + r - 1}\right)$.
+
 We use the notation $t_1[l, r]$ to represent $t_2$.
 For the case where $r$ can be inferred from the context,
 it can be omitted from the notation: $t_1[l]$.
