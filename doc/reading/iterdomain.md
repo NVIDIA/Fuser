@@ -6,9 +6,10 @@
 
 # The Mathematical Theory of IterDomain
 
-## 1. IterDomain Transformations
+> [!NOTE]
+> We use $\div$ for true division, and $/$ for Euclidean division, and $\lceil/\rceil$ for ceil division. For example, $5\div 2 = 2.5$, $5/2=2$, $5\lceil/\rceil 2 = 3$.
 
-Notation: $/$ is Euclidean division, $\lceil/\rceil d$ is ceil division.
+## 1. IterDomain Transformations
 
 **Definition 1.1 (IterDomain Transformation)**:
 An *IterDomain transformation* of rank $(m, n)$ is a pair of two mappings $\langle\mathbb{Z}^{m}\to\mathbb{Z}^{n}, \mathbb{Z}^{m}\to\mathbb{Z}^{n}\rangle$,
