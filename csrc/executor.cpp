@@ -14,12 +14,17 @@
 #include <driver_api.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
+#include <fusion_profiler.h>
 #include <global_allocator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
+#include <multidevice/communication.h>
+#include <multidevice/communicator.h>
+#include <multidevice/lower_communication.h>
+#include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <serde/utils.h>
@@ -257,9 +262,38 @@ void FusionExecutor::compileFusion(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
+  // TODO: refactor the options_ passed through
+  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+
   if (isExpressionEvaluated(fusion)) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     return;
+  }
+
+  const auto& exprs = fusion->exprs();
+  if (std::all_of(exprs.begin(), exprs.end(), [](Expr* e) {
+        return isResharding(e) && isLowerableToCommunication(e);
+      })) {
+    host_ir_container_ = std::make_unique<hir::HostIrContainer>();
+    IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
+    for (Expr* e : exprs) {
+      std::vector<Communication*> communications =
+          lowerCommunication(cloner.clone(e));
+      for (auto* communication : communications) {
+        host_ir_container_->pushBackTopLevelExprs(communication);
+      }
+    }
+    return;
+  }
+
+  // NOTE: Profiling needs to be started below the isExpressionEvaluated query
+  // given the conditional can exit early from compilation.
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id);
+    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
   }
 
   for (auto out : fusion->outputs()) {
@@ -297,9 +331,6 @@ void FusionExecutor::compileFusion(
   } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
     fusion->printMath();
   }
-
-  // TODO: refactor the options_ passed through
-  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
 
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
@@ -477,6 +508,9 @@ void FusionExecutor::compileFusion(
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
     debug() << disassembledKernelSASS() << std::endl;
   }
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id).stopCompile();
+  }
 }
 
 namespace {
@@ -539,7 +573,7 @@ std::vector<int64_t> getContiguousStrides(
     if (expand_flags.at(i - 1)) {
       stride = 0;
     } else if (size == 0) {
-      // If the size is 0, the stride is 1
+      // If the size is 0, the stride is 1.
       stride = 1;
     } else {
       cur_stride *= size;
@@ -924,7 +958,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   for (const auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction() || id->isStride()) {
       continue;
-    } else if (id->isDeviceDim()) {
+    }
+
+    if (id->isDeviceDim()) {
       symbolic_sizes.push_back(id->container()->oneVal());
     } else {
       symbolic_sizes.push_back(id->getMaybeExpandedExtent());
@@ -1860,12 +1896,36 @@ std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
   return outputs;
 }
 
+namespace {
+at::Tensor findBufferForFusionOutput(
+    const std::vector<at::Tensor>& out_tensors,
+    const Val* fusion_out,
+    const Fusion* fusion) {
+  auto i =
+      std::find(fusion->outputs().begin(), fusion->outputs().end(), fusion_out);
+  NVF_ERROR(i != fusion->outputs().end());
+  auto index = std::distance(fusion->outputs().begin(), i);
+  return out_tensors[index];
+}
+} // namespace
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
+
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id_ >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
+    sprof.inputBytesAccessed(inputBytesProcessed(args));
+    sprof.scheduler(toString(heuristic_));
+    sprof.startKernel(args.getDeviceIndex());
+  }
 
   NVF_ERROR(isCompiled());
   NVF_ERROR(
@@ -1892,8 +1952,44 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     inputBytesProcessed(args);
   }
 
-  if (!hasCompiledKernel()) {
+  if (isExpressionEvaluated(fusion())) {
     outputs = evaluateFusionOutputs(args, outputs, expr_eval);
+    if (measure_kernel_time) {
+      outputBytesProcessed(outputs);
+    }
+    if (isProfilerEnabled()) {
+      auto& sprof = FusionProfiler::segment(group_id_);
+      sprof.stopKernel();
+      sprof.outputBytesAccessed(outputBytesProcessed(outputs));
+    }
+    return outputs;
+  }
+
+  if (host_ir_container_ != nullptr) {
+    if (outputs.empty()) {
+      std::vector<GlobalBufferInfo> output_info = getOutputBufferInfo(
+          args, expr_eval, PrimDataType::Int, host_ir_container_.get());
+      outputs = allocateOutputs(
+          host_ir_container_.get(), output_info, options_.device, expr_eval);
+    }
+    for (Expr* e : host_ir_container_->topLevelExprs()) {
+      NVF_ERROR(e->isA<Communication>());
+      auto* communication = e->as<Communication>();
+      c10d::Backend* backend =
+          communicator_->getBackendForTeam(communication->team(), std::nullopt);
+      auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
+      at::Tensor out_tensor = findBufferForFusionOutput(
+          outputs, communication->out(), host_ir_container_.get());
+      c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+          communication,
+          communicator_->deviceId(),
+          backend,
+          in_tensor,
+          out_tensor);
+      if (work != nullptr) {
+        work->wait();
+      }
+    }
     if (measure_kernel_time) {
       outputBytesProcessed(outputs);
     }
@@ -2140,6 +2236,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     debug() << kernel()->profile().toString(profile_buffer);
+  }
+
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::segment(group_id_);
+    sprof.stopKernel();
+    sprof.outputBytesAccessed(outputBytesProcessed(outputs));
   }
 
   return outputs;
