@@ -29,7 +29,7 @@ class FusionProfilerTest : public NVFuserTest {
     // the a tensor with NaNs if this is true.  This creates a second kernel
     // in the profile that interfers accurately checking the kernel time.
     setFillAllocationWithNan(false);
-    
+
     saved_ = ProfilerOptionsGuard::getCurOptions();
     FusionProfiler::reset();
   }
