@@ -4,10 +4,7 @@
 # In[1]:
 
 
-import unittest
-
 import torch
-from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
 from nvfuser import (
@@ -15,18 +12,16 @@ from nvfuser import (
     DataType,
     ParallelType,
     MemoryType,
-    LoadStoreOpType,
 )
-
-RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
 
 # In[2]:
 
 
-tensor_size = 4
+batch_size = 1024
+tensor_size = 4096
 inputs = [
-    torch.randn(tensor_size, tensor_size, dtype=torch.bfloat16, device="cuda"),
+    torch.randn(batch_size, tensor_size, dtype=torch.bfloat16, device="cuda"),
 ]
 
 
@@ -108,9 +103,7 @@ print(fn.sched.to_string(reference_tv))
 
 
 # Add rfactor TensorViews
-reduction_tvs = list(
-    filter(fn.sched.is_reduction, fn.sched.tensors())
-)
+reduction_tvs = list(filter(fn.sched.is_reduction, fn.sched.tensors()))
 assert len(reduction_tvs) == 2
 rfactor_tvs = [fn.sched.rfactor(tv, dims=[-1]) for tv in reduction_tvs]
 print(list(map(fn.sched.to_string, rfactor_tvs)))
@@ -160,12 +153,35 @@ print(nvf_out)
 # In[ ]:
 
 
-torch_out = torch.nn.functional.layer_norm(inputs[0], normalized_shape=inputs[0].shape[1:])
+torch_out = torch.nn.functional.layer_norm(
+    inputs[0], normalized_shape=inputs[0].shape[1:]
+)
 print(torch_out)
 
 
 # In[ ]:
 
 
-torch.allclose(nvf_out[0], torch_out)
+print("all_close", torch.allclose(nvf_out[0], torch_out))
 
+
+# In[ ]:
+
+
+def print_kernel_profile(kp):
+    basic_information = f"name: {kp.name}, schedule: {kp.scheduler}, segment_id: {kp.segment_id}, device: {kp.device}, stream: {kp.stream}"
+    print(basic_information)
+
+    kernel_information = f"compile time: {kp.compile_time_ms:.2f} ms, grid: {kp.grid_str}, block: {kp.block_str}, registers: {kp.registers}"
+    print(kernel_information)
+
+    runtime_information = f"input size: {kp.input_bytes} bytes, output size: {kp.output_bytes} bytes, time: {kp.time_ms:2f} ms"
+    print(runtime_information)
+
+    bandwidth_information = f"Effective Bandwidth: {kp.effective_bandwidth_gbs:.2f} GB/s, Peak Bandwidth: {kp.percentage_peak_bandwidth:2f}%"
+    print(bandwidth_information)
+
+
+kps = fn.profile().kernel_profiles
+for kp in kps:
+    print_kernel_profile(kp)
