@@ -34,6 +34,7 @@ using testing::IsTrue;
 using testing::Not;
 using testing::Optional;
 using testing::Pair;
+using testing::SizeIs;
 using testing::UnorderedElementsAre;
 
 using AliasAnalysisTest = NVFuserTest;
@@ -613,10 +614,15 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigConcreteTensor({2, 3});
-  TensorView* slice_out = slice(in, {0, 0}, {2, 2});
-  TensorView* add_out = add(in, fusion->oneVal());
+  TensorView* t = reshape(in, {2, 3}, {6});
+  TensorView* broadcast_out = broadcast(t, {true, false});
+  broadcast_out = expand(
+      broadcast_out,
+      {IrBuilder::create<Val>(5), broadcast_out->axis(1)->extent()});
+  TensorView* add_out = add(t, t);
+
   fusion->addInput(in);
-  fusion->addOutput(slice_out);
+  fusion->addOutput(broadcast_out);
   fusion->addOutput(add_out);
 
   FusionExecutorCache fec(std::move(fusion));
@@ -1348,17 +1354,16 @@ TEST_F(AliasTest, FusionExecutor) {
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 
-TEST_F(AliasTest, SeparateAliasAndNonAlias) {
+TEST_F(AliasTest, SegmentMetaOps) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigConcreteTensor({2, 3});
-  TensorView* in2 = segment_set(in);
-  TensorView* slice_out = slice(in2, {0, 0}, {2, 2});
+  TensorView* permute_out = permute(in, {1, 0});
   TensorView* compute_out = mul(in, in);
   compute_out = add(compute_out, in);
   fusion->addInput(in);
-  fusion->addOutput(slice_out);
+  fusion->addOutput(permute_out);
   fusion->addOutput(compute_out);
 
   FusionExecutorCache fec(std::move(fusion));
@@ -1368,6 +1373,25 @@ TEST_F(AliasTest, SeparateAliasAndNonAlias) {
 
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  // MarkAliasesPrepare adds a `segment_set` between `in` and `permute`, which
+  // leads to three segments:
+  // 1. segment_set`, a no-op segment,
+  // 2. permute`, a no-op segment,
+  // 3. `mul` and `add`, a pointwise segment.
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::PointWise)));
+  for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
+    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+      EXPECT_THAT(group->inputs(), SizeIs(1));
+      EXPECT_THAT(group->outputs(), SizeIs(1));
+    }
+  }
 }
 
 } // namespace nvfuser

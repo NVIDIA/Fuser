@@ -8,6 +8,7 @@
 #include <alias_analysis.h>
 #include <debug.h>
 #include <ir/utils.h>
+#include <ops/alias.h>
 #include <options.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 
@@ -21,6 +22,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
   }
 
+  // Materialize the alias-enabling allocation domain.
   for (TensorView* tv : ir_utils::allTvs(fusion)) {
     TensorView* aliased_io = analysis.getNearestAliasedIo(tv);
     if (aliased_io == nullptr) {
@@ -49,62 +51,66 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     }
   }
 
-  // Fusion outputs that are (1) aliased by another fusion output, (2) not
-  // aliases themselves, and (3) not fusion inputs (yes, a fusion may trivially
-  // forward an input). Code will later add `segment_set` before them so aliases
-  // are separated from non-aliases and more likely to be accepted by the no-op
-  // scheduler.
-  std::unordered_set<TensorView*> aliased_outs;
+  // FIXME: Fusion outputs that are (1) aliased by another fusion output, (2)
+  // not aliases themselves, and (3) not fusion inputs (yes, a fusion may
+  // trivially forward an input). Code will later add `segment_set` before them
+  // so aliases are separated from non-aliases and more likely to be accepted by
+  // the no-op scheduler.
+  std::vector<Val*> non_alias_outs;
+  non_alias_outs.reserve(fusion->outputs().size());
+  std::unordered_set<TensorView*> aliased_ios;
   for (TensorView* out_tv :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
     if (TensorView* aliased_io = analysis.getNearestAliasedIo(out_tv)) {
-      if (aliased_io->isFusionOutput() && !aliased_io->isFusionInput() &&
-          analysis.getNearestAliasedIo(aliased_io) == nullptr) {
-        aliased_outs.insert(aliased_io);
+      if (analysis.getNearestAliasedIo(aliased_io) == nullptr) {
+        aliased_ios.insert(aliased_io);
       }
+    } else {
+      non_alias_outs.push_back(out_tv);
     }
   }
 
-  for (TensorView* aliased_out : aliased_outs) {
-    // Rarely, if `aliased_out` is already defined by `segment_set`, don't
-    // create another `segment_set`.
-    if (LoadStoreOp* def =
-            dynamic_cast<LoadStoreOp*>(aliased_out->definition())) {
-      if (def != nullptr && def->opType() == LoadStoreOpType::SegmenterSet) {
-        continue;
+  auto used_for_non_alias =
+      [](const std::vector<Expr*>& exprs) -> std::unordered_set<Expr*> {
+    return {exprs.begin(), exprs.end()};
+  }(StmtSort::getExprsTo(non_alias_outs));
+
+  for (TensorView* aliased_io : aliased_ios) {
+    std::vector<Expr*> users_for_non_alias;
+    std::vector<Expr*> users_for_only_alias;
+    for (Expr* e : aliased_io->uses()) {
+      if (used_for_non_alias.count(e)) {
+        users_for_non_alias.push_back(e);
+      } else {
+        users_for_only_alias.push_back(e);
       }
     }
 
-    // This is suboptimal in many uncommon cases. My head hurts when thinking
-    // about them, so go simple for now :)
-    //
-    // Legend:
-    //   M* = a meta op defining a **fusion output**
-    //   N/M = a non-meta op defining a **fusion output**
-    //
-    // Case 1:
-    //
-    //   N/M -> N/M
-    //      |
-    //      -->  M
-    //
-    // We should put a `segment_set` on the **edge** from N/M to M, so the two
-    // `N/M`s go to the same kernel.
-    //
-    // Case 2:
-    //
-    //   N/M -> M1 -> M2
-    //           |
-    //           --> N/M
-    //
-    // We should change it to
-    //
-    //   N/M -> M1 -> M2
-    //      |
-    //      --> M1' (non-output copy of M1) -> N/M
-    //
-    // and then put a `segment_set` on N/M->M1.
-    aliased_out->cacheBefore(LoadStoreOpType::SegmenterSet);
+    if (users_for_only_alias.empty()) {
+      continue;
+    }
+
+    if (users_for_non_alias.empty()) {
+      if (aliased_io->isFusionInput()) {
+        continue;
+      }
+      if (LoadStoreOp* def =
+              dynamic_cast<LoadStoreOp*>(aliased_io->definition())) {
+        if (def->opType() == LoadStoreOpType::SegmenterSet) {
+          continue;
+        }
+      }
+      aliased_io->cacheBefore(LoadStoreOpType::SegmenterSet);
+      continue;
+    }
+
+    TensorView* copy = segment_set(aliased_io);
+    for (Expr* e : users_for_only_alias) {
+      ir_utils::replaceValInExprInputs(e, aliased_io, copy);
+    }
+    if (aliased_io->isFusionOutput()) {
+      fusion->replaceOutput(aliased_io, copy);
+    }
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
