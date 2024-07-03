@@ -603,10 +603,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
   return result;
 }
 
-Val* TensorIndexer::getLinearIndex(
-    TensorView* tv,
-    const Expr* expr,
-    const std::vector<ForLoop*>& loops) const {
+Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(

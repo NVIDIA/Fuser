@@ -55,13 +55,7 @@ class TensorIndexer {
   // Get a linear index of a given tensor appearing in a given expr, either
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
-  //
-  // The actual ForLoop's are required as they may have unrolled loops
-  // that tv may not have.
-  Val* getLinearIndex(
-      TensorView* tv,
-      const Expr* expr,
-      const std::vector<ForLoop*>& loops) const;
+  Val* getLinearIndex(TensorView* tv, const Expr* expr) const;
 
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
