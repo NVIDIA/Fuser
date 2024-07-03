@@ -170,7 +170,20 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr) {
+
+  // ExprEval scheduler only requires `canScheduleCompileTime` check and should not use this fn.
+  // The following checks build the computeAt map that do not work with SDPAOp.
+  NVF_ERROR(SchedulerType::heuristicType() != ScheduleHeuristic::ExprEval);
+  
   FusionGuard fg(fusion);
+
+  // Fusions with `MatmulOp/LinearOp/SdpaOp` are only accepted in `ExprEval` scheduler, all other schedulers should reject them.
+  if (ir_utils::hasAnyMatmulOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        SchedulerType::heuristicType(), "Matmul ops are not supported");
+    return false;
+  }
+
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since for all current use cases
   //  it has to pass all the compile time checks to create a data cache for this
