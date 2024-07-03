@@ -232,35 +232,45 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
       /*scale=*/IrBuilder::create<Val>(1e-3));
   addSdpaFwdOutputs(fusion.get(), output);
 
-  // Verify mapping between Q,K,V and attention output
+  // Verify mapping between Q,K,V and all output
+  // Producers:
+  //   query = [N, H, L, E]
+  //   key = [N, H, S, E]
+  //   value = [N, H, S, Ev]
+  // Consumers:
+  //   output = [N, H, L, Ev]
+  //   logsumexp = [N, H, L]
+  //   cum_seq_q/k = [N + 1]
   std::vector<TensorView*> producer_tvs{tvq, tvk, tvv};
   for (auto role : {AttnRole::Q, AttnRole::K, AttnRole::V}) {
     auto producer_tv = producer_tvs[(int)role];
-    auto pairwise_map = PairwiseRootDomainMap(producer_tv, output.output)
-                            .mapProducerToConsumer();
 
-    auto mappingExists = [&pairwise_map](
-                             IterDomain* p_id, IterDomain* c_id) -> bool {
-      return pairwise_map.find(p_id) != pairwise_map.end() &&
-          pairwise_map[p_id] == c_id;
-    };
+    for (Val* consumer: fusion->outputs()){
+      auto consumer_tv = consumer->as<TensorView>();
+      auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                              .mapProducerToConsumer();
+      auto mappingExists = [&pairwise_map](
+                              IterDomain* p_id, IterDomain* c_id) -> bool {
+        return pairwise_map.find(p_id) != pairwise_map.end() &&
+            pairwise_map[p_id] == c_id;};
 
-    // Mapping for N, H exists from Q/K/V to output.
-    for (auto idx : c10::irange(2)) {
-      EXPECT_TRUE(
-          mappingExists(producer_tv->axis(idx), output.output->axis(idx)));
-    }
-    // Mapping for L exists between Q and output.
-    if (role == AttnRole::Q) {
-      EXPECT_TRUE(mappingExists(producer_tv->axis(2), output.output->axis(2)));
-    } else {
-      EXPECT_FALSE(mappingExists(producer_tv->axis(2), output.output->axis(2)));
-    }
-    // Mapping for Ev exists between V and output.
-    if (role == AttnRole::V) {
-      EXPECT_TRUE(mappingExists(producer_tv->axis(3), output.output->axis(3)));
-    } else {
-      EXPECT_FALSE(mappingExists(producer_tv->axis(3), output.output->axis(3)));
+      // For cum_seq_q/k, root_domain = {iN}, logical_domain = {i(N+1)}
+      // Mapping exists from root domain to producer.
+      auto consumer_root = consumer_tv->getMaybeRootDomain();
+      for (auto idx : c10::irange(consumer_tv->nDims())) {
+        // Mapping for N, H exists from Q/K/V to any output.
+        if (idx < 2) {
+          EXPECT_TRUE(mappingExists(producer_tv->axis(idx), consumer_root.at(idx)));
+        }
+        // Mapping for L exists between Q and output, log_sumexp.
+        if (idx == 2 && role == AttnRole::Q) {
+          EXPECT_TRUE(mappingExists(producer_tv->axis(2), consumer_root.at(2)));
+        }
+        // Mapping for Ev exists between V and output.
+        if (idx == 3 && role == AttnRole::V) {
+          EXPECT_TRUE(mappingExists(producer_tv->axis(3), consumer_root.at(3)));
+        }
+      }
     }
   }
 }
