@@ -396,6 +396,10 @@ Val* propagatePadToProducer(PadOp* pad_op) {
   return replacement_map.at(pad_op->in());
 }
 
+// This pass tries to push `PadOp`, which is part of `cat` (composed of `PadOp`s
+// + `CatOp`), further to its producers to avoid possible segmentation. As a
+// side effect, it replaces the `CatOp` with a series of pointwise add if any
+// mutation has been made for propagating `PadOp`
 void decomposeCatOp(Fusion* fusion) {
   // TODO: verify that no dead branch is traversed in exprs.
   std::vector<Expr*> exprs = fusion->exprs();
