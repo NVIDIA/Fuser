@@ -27,7 +27,7 @@ We use notation $\mathrm{InnerSplit}(d)$ to denote inner split.
 
 **Definition 1.2 (Equivalence of IterDomain Transformation)**:
 Two IterDomain transformations of rank $(m, n)$ are equivalent if both the extent mapping and index mapping are equivalent.
-For twoIterDomain transformatios $t_1$ and $t_2$,
+For two IterDomain transformations $t_1$ and $t_2$,
 we use the notation $t_1 = t_2$ to denote their equivalence.
 
 **Theorem 1.1:**
