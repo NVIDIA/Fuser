@@ -312,6 +312,15 @@ class AllocationDomainSetup : private kir::IrVisitor {
     return IndexingAllocationInfo{actual_allocation_domains, actual_strides};
   }
 
+  // Reorder non-logical allocation domains to follow the ordering of
+  // the logical domain. This is necessary when an allocation domain
+  // includes a vectorized loop iter domain since it must be at the
+  // innermost position but that may not be the case in the loop
+  // domain. Not strictly necessary otherwise, but this should also
+  // minimize the deviation from the old indexing scheme which always
+  // uses the logical domain to index.
+  //
+  // Returns reordered allocation domains if reordering is done.
   std::optional<std::vector<IterDomain*>> reorderAllocationDomains(
       const TensorView* tv,
       const std::vector<IterDomain*>& allocation_domains) const {
