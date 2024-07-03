@@ -416,19 +416,12 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
   int64_t h = 128;
   int64_t h4 = 4 * h;
 
-  // TODO: error with dynamic shape
-  // C++ exception with description "ext_opt.hasValue() INTERNAL ASSERT FAILED
-  // at "csrc/dynamic_transform.cpp":276, Could not evaluate dynamic extent: i3
-  // Exception raised from DynamicTransformConcretizationInfo at
-  // csrc/dynamic_transform.cpp:276
-  TensorView* x = makeContigConcreteTensor({sb, h}, DataType::BFloat16);
-  TensorView* w0 = makeContigConcreteTensor(
-      {num_devices_, h4 / num_devices_, h}, DataType::BFloat16);
-  TensorView* b0 = makeContigConcreteTensor(
-      {num_devices_, h4 / num_devices_}, DataType::BFloat16);
-  TensorView* w1 = makeContigConcreteTensor(
-      {num_devices_, h, h4 / num_devices_}, DataType::BFloat16);
-  TensorView* b1 = makeContigConcreteTensor({h}, DataType::BFloat16);
+  TensorView* x = makeContigTensor(2, DataType::BFloat16);
+  TensorView* w0 = makeContigTensor(3, DataType::BFloat16);
+  TensorView* b0 = makeContigTensor(2, DataType::BFloat16);
+  TensorView* w1 = makeContigTensor(3, DataType::BFloat16);
+  TensorView* b1 = makeContigTensor(1, DataType::BFloat16);
+
   fusion->addInput(x);
   fusion->addInput(w0);
   fusion->addInput(b0);
