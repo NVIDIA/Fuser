@@ -105,6 +105,7 @@ class TensorIndexer {
       const Expr* expr,
       const std::optional<std::vector<ForLoop*>>& loops);
 
+  // Traverse exprs and set allocation info for each tensor
   void setupAllocationDomains(const std::vector<Expr*>& exprs);
 
   static bool isSupported(Fusion* fusion);
@@ -197,6 +198,8 @@ class TensorIndexer {
       const ValGraph& traversal_graph) const;
 
  private:
+  // Using non-const references of IdModel because traversalGraph() returns a
+  // non-const reference
   IdModel& id_model_;
   const ConcretizedBroadcastDomains concrete_info_;
 
@@ -209,6 +212,8 @@ class TensorIndexer {
   // Take advantage of contiguous indexing if enabled
   bool enable_contig_indexing_ = true;
 
+  // Allocation info for each tensor. Must be filled before computing
+  // the index of each tensor
   std::unordered_map<TensorView*, IndexingAllocationInfo> alloc_info_;
 };
 
