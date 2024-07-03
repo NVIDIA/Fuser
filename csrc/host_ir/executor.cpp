@@ -45,7 +45,9 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   // Collect global outputs
   std::vector<at::Tensor> outputs;
   for (auto output_val : container_->outputs()) {
-    auto output = val_to_IValue_.at(output_val).toTensor();
+    auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
+        ? val_to_IValue_.at(output_val).toTensor()
+        : at::Tensor();
     outputs.push_back(output);
   }
 
@@ -120,14 +122,6 @@ void HostIrExecutor::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
-  NVF_ERROR(
-      std::find(
-          communication->team().begin(),
-          communication->team().end(),
-          communicator_->deviceId()) != communication->team().end(),
-      "current device index ",
-      communicator_->deviceId(),
-      " must be present in the communication's team");
 
   Val* input_val = communication->input(0);
   Val* output_val = communication->output(0);
