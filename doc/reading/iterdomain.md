@@ -47,7 +47,7 @@ an IterDomain transformation $t_2$ of rank $(l + m + r, l + n + r)$ is an embedd
 if the extent mapping of $t_2$ is $(x_0, \ldots, x_{l + m + r - 1}) \to \left(x_0, \ldots, x_{l - 1}, E(x_l, \ldots, x_{l + m - 1}), x_{l + m}, \ldots, x_{l + m + r - 1}\right)$,
 and the index mapping of $t_2$ is $(x_0, \ldots, x_{l + m + r - 1}) \to \left(x_0, \ldots, x_{l - 1}, I(x_l, \ldots, x_{l + m - 1}), x_{l + m}, \ldots, x_{l + m + r - 1}\right)$.
 
-We use the notation $t_1[l, \ldots, l + m - 1]$ to represent $t_2$.
+We use the notation $t_1[l, \ldots, l + m - 1]$ to the embedding of $t_1$ on dimensions $l$ to $l + m - 1$.
 
 **Definition 1.4: (Composition of IterDomain Transformations)**:
 Let $t_1\langle E_1, I_1\rangle$ be an IterDomain transformation of rank $(m, n)$,
