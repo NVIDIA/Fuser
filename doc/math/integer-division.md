@@ -454,6 +454,15 @@ The properties of truncation division are:
 For all types of division (Euclidean/truncation/floor) $f(x) = x / d$,
 $f$ is weakly increasing if $d > 0$, and weakly decreasing if $d < 0$.
 
+Besides truncation and floor division, ceil division is also commonly used.
+Although there is very little programming language implementing its division operator `/` as ceil division,
+programs commonly implement ceil division as its utility.
+The definition of ceil division is as follow:
+
+- **ceil division:**
+  - $a/b \coloneqq \mathrm{ceil}(a \div b)$
+  - $a\mathbin{\\%}b$ defined by the fundamental division-with-remainder equation
+
 ## 4. Properties of Truncation Division
 
 In this section, I will study truncation division and its properties.
@@ -826,5 +835,47 @@ $\square$
 
 </details>
 
-## Properties of Ceil Division
+## 5. Properties of Ceil Division
 
+In this section, I will study ceil division and its properties.
+I will first redefine ceil division using the same language as in Euclid's division lemma,
+which will be convenient for proving theorems.
+I will then prove that this new definition is equivalent to the definition of ceil division as described in [section 3](#3-implementations-of-div-and-mod).
+Then I will study the theorems in [section 2](#2-more-theorems-of-euclidean-division) to find out which is true and which needs change.
+All $/$ and $\mathbin{\\%}$ in this section are using ceil division.
+
+**Definition 5.0:** For any integers $a$ and $b$ ($b \neq 0$), there exist unique integers $q$ and $r$ such that
+1. if $b > 0$, $-b < r \le 0$, otherwise $0 \le r < |b|$.
+2. $a = bq + r$
+We can then define $a/b \coloneqq q$, $a\mathbin{\\%}b \coloneqq r$.
+
+**Theorem 5.0:** Definition 5.0 is equivalent to the definition of ceil division in
+[section 3](#3-implementations-of-div-and-mod).
+
+<details>
+
+**<summary>Proof:</summary>**
+
+According to Theorem 1.1, there exist unique integers $q'$ and $r'$ such that:
+1. $0 \leq r' < |b|$
+2. $a = b \cdot q' + r'$
+
+We can define $r$ as:
+
+- $r'$ if $r' = 0$ or $b < 0$
+- $r' - b$ otherwise
+
+It is easy to verify that condition 1 is satisfied.
+
+Also, we can define $q$ as $q'$ if $r' = 0$ or $b < 0$, otherwise define $q$ as $q' + 1$.
+It is easy to verify that $a = b \cdot q + r$.
+
+To verify that $q = \mathrm{ceil}(a \div b)$, we observe that $q = (a - r) \div b = a \div b - r \div b$.
+If $r = 0$, $q = a \div b = \mathrm{ceil}(a \div b)$.
+If $r \neq 0$, we always have $0 < - r \div b < 1$,
+which is to "add a positive portition to $a \div b$ to make it an integer",
+which matches with the definition of $\mathrm{ceil}$.
+
+$\square$
+
+</details>
