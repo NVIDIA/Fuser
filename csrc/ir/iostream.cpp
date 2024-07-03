@@ -80,37 +80,42 @@ void IrPrinter::handle(kir::Kernel& kernel) {
   handle(&kernel);
 }
 
-void IrPrinter::handle(const hir::HostIrContainer* host_fusion) {
-  NVF_CHECK(host_fusion != nullptr);
+void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
+  NVF_CHECK(host_ir_container != nullptr);
 
-  // host_fusion declaration
-  os() << "\nHOST FUSION (";
-  for (auto in : host_fusion->inputs()) {
+  // host_ir_container declaration
+  os() << "\nHOST IRS: (";
+  for (auto in : host_ir_container->inputs()) {
     os() << in->toString(indent_size_);
-    if (in != host_fusion->inputs().back()) {
+    if (in != host_ir_container->inputs().back()) {
       os() << ", ";
     }
   }
   os() << ") -> (";
-  for (auto out : host_fusion->outputs()) {
+  for (auto out : host_ir_container->outputs()) {
     os() << out->toString(indent_size_);
-    if (out != host_fusion->outputs().back()) {
+    if (out != host_ir_container->outputs().back()) {
       os() << ", ";
     }
   }
   os() << ") :\n";
 
-  // host_fusion body
+  // host_ir_container body
   indent_size_++;
-  for (auto expr : host_fusion->topLevelExprs()) {
-    os() << expr->toString(indent_size_);
+  for (auto expr : host_ir_container->topLevelExprs()) {
+    os() << expr->toString(indent_size_) << std::endl;
   }
   indent_size_--;
+  for (auto* host_unit : ir_utils::filterByType<hir::HostUnit>(
+           host_ir_container->unordered_exprs())) {
+    os() << std::endl;
+    os() << host_unit->toString(indent_size_);
+  }
   os() << "END.\n\n";
 }
 
-void IrPrinter::handle(hir::HostIrContainer& host_fusion) {
-  handle(&host_fusion);
+void IrPrinter::handle(hir::HostIrContainer& host_ir_container) {
+  handle(&host_ir_container);
 }
 
 void IrTransformPrinter::handle(Fusion* f) {
