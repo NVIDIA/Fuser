@@ -448,6 +448,7 @@ void decomposeCatOp(Fusion* fusion) {
   }
 }
 
+// This pass merges neighboring `PadOp` when possible (identical pad value).
 void mergeNeighboringPad(Fusion* fusion) {
   std::vector<Expr*> exprs = fusion->exprs();
   // traverse in topo order. We'll merge neighboring pad and replace the uses of
