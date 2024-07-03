@@ -779,7 +779,7 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   for (const auto i : c10::irange(alloc_info.domains.size())) {
     Val* stride = alloc_info.strides.at(i);
     index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(stride, indices.at(i)));
+        index, SimplifyingIrBuilder::mulExpr(indices.at(i), stride));
   }
 
   return index;
