@@ -55,6 +55,18 @@ class HostIrExecutor final : public OptInDispatch {
   std::vector<at::Tensor> runWithInput(
       std::unordered_map<Val*, c10::IValue> val_to_IValue);
 
+  const std::vector<Val*>& inputs() {
+    return container_->inputs();
+  }
+
+  std::ostream& print(std::ostream& os) const {
+    return container_->print(os);
+  };
+
+  const auto& getFusionExecutorCaches() {
+    return fec_;
+  };
+
  private:
   using OptInDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;

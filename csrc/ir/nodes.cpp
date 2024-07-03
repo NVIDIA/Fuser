@@ -3959,7 +3959,6 @@ std::vector<PolymorphicValue> PadOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
-  double value = (double)inputs.at(1);
 
   std::vector<int64_t> pad_widths;
   auto pad_width_offset = getPadWidthInputOffset();
@@ -3972,7 +3971,18 @@ std::vector<PolymorphicValue> PadOp::evaluate(
     pad_widths.push_back(right_pad);
   }
 
-  return {at::pad(in, pad_widths, "constant", value)};
+  if (isComplexType(*out()->getDataType())) {
+    std::complex<double> value =
+        static_cast<std::complex<double>>(inputs.at(1));
+    auto real = at::real(in);
+    auto imag = at::imag(in);
+    auto padded_real = at::pad(real, pad_widths, "constant", value.real());
+    auto padded_imag = at::pad(imag, pad_widths, "constant", value.imag());
+    return {at::complex(padded_real, padded_imag)};
+  } else {
+    double value = static_cast<double>(inputs.at(1));
+    return {at::pad(in, pad_widths, "constant", value)};
+  }
 }
 
 SliceOp::SliceOp(
