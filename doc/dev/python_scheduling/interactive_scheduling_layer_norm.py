@@ -5,8 +5,6 @@
 
 
 import torch
-from torch.testing._internal.jit_utils import RUN_CUDA
-
 from nvfuser import (
     FusionDefinition,
     DataType,
@@ -143,14 +141,14 @@ print(fn._user_schedule_ir())
 fn._finalize_schedule(inputs)
 
 
-# In[ ]:
+# In[13]:
 
 
 nvf_out = fn.execute(inputs, profile=True)
 print(nvf_out)
 
 
-# In[ ]:
+# In[14]:
 
 
 torch_out = torch.nn.functional.layer_norm(
@@ -159,13 +157,13 @@ torch_out = torch.nn.functional.layer_norm(
 print(torch_out)
 
 
-# In[ ]:
+# In[15]:
 
 
 print("all_close", torch.allclose(nvf_out[0], torch_out))
 
 
-# In[ ]:
+# In[16]:
 
 
 def print_kernel_profile(kp):
@@ -180,6 +178,9 @@ def print_kernel_profile(kp):
 
     bandwidth_information = f"Effective Bandwidth: {kp.effective_bandwidth_gbs:.2f} GB/s, Peak Bandwidth: {kp.percentage_peak_bandwidth:2f}%"
     print(bandwidth_information)
+
+
+# In[17]:
 
 
 kps = fn.profile().kernel_profiles
