@@ -1457,16 +1457,18 @@ class AllocationDomainSetup : private kir::IrVisitor {
       }
     }
 
-    // WAR for vectorization
-    if (auto patched_allocation_domains =
-            patchAllocationDomainWithVectorization(
-                tv, allocation_domains, id_model.idGraph(IdMappingMode::EXACT));
-        patched_allocation_domains.has_value()) {
-      VERBOSE() << "Allocation domain patched for vectorization: "
-                << tv->toString() << std::endl;
-      allocation_domains = patched_allocation_domains.value();
+    if (auto reordered_domains = reorderAllocationDomains(
+            tv, allocation_domains, id_model.idGraph(IdMappingMode::EXACT));
+        reordered_domains.has_value()) {
+      VERBOSE() << "Allocation domain reorderred: " << tv->toString()
+                << ". Oriignal: " << toDelimitedString(allocation_domains)
+                << ", reordered: "
+                << toDelimitedString(reordered_domains.value()) << std::endl;
+      allocation_domains = reordered_domains.value();
+      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+        return b.has_value() && b.value();
+      }));
     }
-
     // WAR for transpose
     if (auto transposed_smem_alloc_dom = patchAllocationOfTransposedSmemTensor(
             tv, id_model.idGraph(IdMappingMode::EXACT));
@@ -1474,6 +1476,10 @@ class AllocationDomainSetup : private kir::IrVisitor {
       VERBOSE()
           << "Using consumer domain as the allocation domain of the shared memory producer: "
           << tv->toString() << std::endl;
+      allocation_domains = transposed_smem_alloc_dom.value();
+      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+        return b.has_value() && b.value();
+      }));
       contiguity =
           std::vector<std::optional<bool>>(allocation_domains.size(), true);
     }
@@ -1689,89 +1695,116 @@ class AllocationDomainSetup : private kir::IrVisitor {
     return consumer_non_inlined_domains;
   }
 
-  // TODO: Fix alloation domains with vectorization
-  // This is an ugly workaround, but the allocation domain of a tensor
-  // with vectorized domains may not be the same as the leaf fomain
-  // since the vectorized domain must be at the innermost position in
-  // the allocation domain, but it's allowed to be located anywhwere
-  // in the leaf domain.
-  // This shouldn't be necessary for global memory tensors as their
-  // allocation domains are rfactor domains
-  std::optional<std::vector<IterDomain*>> patchAllocationDomainWithVectorization(
-      TensorView* tv,
+  // Reorder non-logical allocation domains to follow the ordering of
+  // the logical domain. This is necessary when an allocation domain
+  // includes a vectorized loop iter domain since it must be at the
+  // innermost position but that may not be the case in the loop
+  // domain. Not strictly necessary otherwise, but this should also
+  // minimize the deviation from the old indexing scheme which always
+  // uses the logical domain to index.
+  //
+  // Returns reordered allocation domains if reordering is done.
+  std::optional<std::vector<IterDomain*>> reorderAllocationDomains(
+      const TensorView* tv,
       const std::vector<IterDomain*>& allocation_domains,
       const ValGraph& exact_graph) const {
-    if (tv->getMemoryType() == MemoryType::Global) {
+    // Don't change the set allocation domain. Ignore allocation
+    // domains of non-global tensors. For example,
+    // AliasTest.NotAllOutputAlias_Reduction has a tensor, tv6, that
+    // is a Local tensor with CA position of 4 but has an allocation
+    // domain that's just a permutation of its logical domain. Such
+    // invalid allocations need to be ignored.
+    if (tv->hasAllocation() && tv->getMemoryType() == MemoryType::Global) {
       return std::nullopt;
     }
 
-    IterDomain* id_to_move_back = nullptr;
-    // Vectorized load
-    IterDomain* vec_load = nullptr;
-    if (tv->definition() != nullptr && tv->definition()->isA<LoadStoreOp>() &&
-        tv->definition()->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set) {
-      auto vec_it = std::find_if(
-          allocation_domains.begin(),
-          allocation_domains.end(),
-          [](auto index_domain) -> bool {
-            return isParallelTypeVectorize(index_domain->getParallelType());
-          });
-      if (vec_it != allocation_domains.end()) {
-        vec_load = *vec_it;
-      }
-    }
+    auto exprs = DependencyCheck::getAllExprsBetween(
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+        {allocation_domains.begin(), allocation_domains.end()});
 
-    if (vec_load != nullptr) {
-      if (vec_load != allocation_domains.back()) {
-        id_to_move_back = vec_load;
-      }
-    }
-
-    // Vectorized store
-    if (!vec_load) {
-      for (const auto ls_use :
-           ir_utils::filterByType<LoadStoreOp>(tv->uses())) {
-        if (ls_use->opType() != LoadStoreOpType::Set) {
-          continue;
-        }
-        auto consumer_tv = ls_use->out()->as<TensorView>();
-        auto vec_it = std::find_if(
-            consumer_tv->getLoopDomain().begin(),
-            consumer_tv->getLoopDomain().end(),
-            [](auto consumer_leaf_id) -> bool {
-              return isParallelTypeVectorize(
-                  consumer_leaf_id->getParallelType());
-            });
-        if (vec_it == consumer_tv->getLoopDomain().end()) {
-          continue;
-        }
-        const auto& vec_group = exact_graph.toGroup(*vec_it);
-        auto index_it = std::find_if(
-            allocation_domains.begin(),
-            allocation_domains.end(),
-            [&](auto index_id) -> bool { return vec_group->has(index_id); });
-        if (index_it == allocation_domains.end() ||
-            *index_it == allocation_domains.back()) {
-          continue;
-        }
-        id_to_move_back = *index_it;
-      }
-    }
-
-    if (id_to_move_back == nullptr) {
+    if (exprs.empty()) {
       return std::nullopt;
     }
 
-    // reorder the vec domain to the end of the index domains
-    std::vector<IterDomain*> reordered_index_domains;
-    reordered_index_domains.reserve(allocation_domains.size());
-    for (const auto id : allocation_domains) {
-      if (id != id_to_move_back) {
-        reordered_index_domains.push_back(id);
+    // Replay exprs from the logical domain to get the non-reordered
+    // domains
+    auto ordered_domains = tv->getLogicalDomain();
+    for (auto expr : exprs) {
+      // Find the position to insert the outputs.
+      int64_t insertion_pos = -1;
+      for (auto inp : expr->inputs()) {
+        auto it =
+            std::find(ordered_domains.begin(), ordered_domains.end(), inp);
+        if (it == ordered_domains.end()) {
+          continue;
+        }
+        // Insert right after the input
+        int64_t pos = std::distance(ordered_domains.begin(), it) + 1;
+        if (insertion_pos == -1 || pos > insertion_pos) {
+          insertion_pos = pos;
+        }
+      }
+      NVF_ERROR(
+          insertion_pos >= 0,
+          "Failed to replay: ",
+          expr->toString(),
+          " in ",
+          tv->toString());
+      // Insert the outputs
+      for (auto out : expr->outputs()) {
+        ordered_domains.insert(
+            ordered_domains.begin() + insertion_pos, out->as<IterDomain>());
+        ++insertion_pos;
+      }
+      // Delete the inputs
+      for (auto inp : expr->inputs()) {
+        auto it =
+            std::find(ordered_domains.begin(), ordered_domains.end(), inp);
+        if (it == ordered_domains.end()) {
+          continue;
+        }
+        ordered_domains.erase(it);
       }
     }
-    reordered_index_domains.push_back(id_to_move_back);
-    return reordered_index_domains;
+
+    if (tv->name() == 6) {
+      VERBOSE() << "Ordered domains: " << toDelimitedString(ordered_domains)
+                << std::endl;
+    }
+
+    // At this point, all domains of allocation_domains must exist in
+    // domains.
+    for (auto alloc_dom : allocation_domains) {
+      auto it =
+          std::find(ordered_domains.begin(), ordered_domains.end(), alloc_dom);
+      NVF_ERROR(
+          it != ordered_domains.end(),
+          "Missing allocation domain: ",
+          alloc_dom->toString(),
+          ", domains: ",
+          toDelimitedString(ordered_domains));
+    }
+
+    // Pick only the allocation domains from the ordered domains
+    std::vector<IterDomain*> reordered_allocation_domains;
+    reordered_allocation_domains.reserve(allocation_domains.size());
+
+    for (auto dom : ordered_domains) {
+      auto it =
+          std::find(allocation_domains.begin(), allocation_domains.end(), dom);
+      if (it == allocation_domains.end()) {
+        continue;
+      }
+      reordered_allocation_domains.push_back(dom);
+    }
+
+    // If it's the same order, just return nullopt to tell nothing
+    // needs to be reordered
+    if (reordered_allocation_domains == allocation_domains) {
+      return std::nullopt;
+    }
+
+    return reordered_allocation_domains;
   }
 
   std::unordered_map<TensorView*, IndexingAllocationInfo> tv_alloc_info_map;
