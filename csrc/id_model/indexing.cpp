@@ -1427,15 +1427,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       } else {
         int64_t allocation_pos =
             lower_utils::getAllocInformation(tv, for_loops).alloc_pos;
-        if (tv->name() == 2) {
-          std::cerr << "alloc pos: " << allocation_pos << std::endl;
-          if (allocation_pos == 1) {
-            for (auto fl : for_loops) {
-              std::cerr << "FL : " << fl->iter_domain()->toString()
-                        << std::endl;
-            }
-          }
-        }
+
         if (tv->isCircularBuffered()) {
           allocation_pos = getCircularBufferAxisPosition(tv) + 1;
         }
