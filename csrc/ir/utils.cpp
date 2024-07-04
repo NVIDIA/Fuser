@@ -456,7 +456,6 @@ bool hasAnyReductionOps(Fusion* fusion) {
   return hasOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
 }
 
-
 namespace {
 
 class ValReplacementMutator : private OptOutMutator {

@@ -181,12 +181,12 @@ bool checkCanSchedule(
   // scheduler, all other schedulers should reject them.
   if (ir_utils::hasOpsOfType<SdpaFwdOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        SchedulerType::heuristicType(),
-        "SdpaOps are not supported.");
+        SchedulerType::heuristicType(), "SdpaOps are not supported.");
     return false;
   }
 
-  // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul scheduler.
+  // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
+  // scheduler.
   if (SchedulerType::heuristicType() != ScheduleHeuristic::Matmul &&
       ir_utils::hasOpsOfType<MatmulOp, LinearOp, MmaOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
