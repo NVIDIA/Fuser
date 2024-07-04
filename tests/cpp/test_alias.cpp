@@ -673,8 +673,9 @@ TEST_F(AliasTest, Issue1452) {
 
   // Large enough to trigger vectorization.
   TensorView* in = makeContigConcreteTensor({1024, 1024});
-  TensorView* set_out = set(in);
-  TensorView* add_out = add(in, fusion->oneVal());
+  TensorView* t = reshape(in, {1024, 1024}, {1024 * 1024});
+  TensorView* set_out = set(t);
+  TensorView* add_out = add(t, fusion->oneVal());
   fusion->addInput(in);
   fusion->addOutput(set_out);
   fusion->addOutput(add_out);
