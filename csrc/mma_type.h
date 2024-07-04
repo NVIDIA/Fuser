@@ -26,7 +26,7 @@ namespace nvfuser {
 constexpr std::string_view MATMUL_LOG_PREFIX = "[MATMUL DEBUG] ";
 
 //! Named descriptors of domains in matmul
-enum class MatmulDomain { M = 0, N, K, Batch };
+enum class MatmulDimRole { M = 0, N, K, Batch };
 
 //! Named descriptors of TensorView roles in fusion
 //!  OPERAND_A - an input to the fusion that is a producer of a matmul "A" input
@@ -36,7 +36,12 @@ enum class MatmulDomain { M = 0, N, K, Batch };
 //!    OUTPUT, but not of an MMA input
 //!
 //!  Note: bias vector tensors will be assigned to the EPILOGUE_INPUT role.
-enum class MatmulRole { OPERAND_A = 0, OPERAND_B, OUTPUT, EPILOGUE_INPUT };
+enum class MatmulTensorRole {
+  OPERAND_A = 0,
+  OPERAND_B,
+  OUTPUT,
+  EPILOGUE_INPUT
+};
 
 //! The expected number of occurances of core TensorView roles in fusion
 static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;
