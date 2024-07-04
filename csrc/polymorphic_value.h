@@ -279,6 +279,26 @@ inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
   return a == b;
 }
 
+inline PolymorphicValue fmod(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  // TODO: relax the type check
+  NVF_ERROR(
+      a.type() == b.type(), "fmod is not implemented for mismatch dtypes");
+  // TODO: int64_t for fmod shouldn't be allowed
+  if (a.is<int64_t>()) {
+    return PolymorphicValue((a % b).as<double>());
+  }
+  if (a.is<double>()) {
+    return PolymorphicValue(std::fmod(a.as<double>(), b.as<double>()));
+  }
+  if (a.is<at::Tensor>()) {
+    return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<at::Tensor>()));
+  }
+  NVF_ERROR(
+      false, "PolymorphicValue abs not implemented for ", a.type().name());
+}
+
 inline PolymorphicValue ceildiv(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {

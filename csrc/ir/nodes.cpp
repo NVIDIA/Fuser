@@ -464,6 +464,17 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Sin:
       return {in.as<at::Tensor>().sin()};
       break;
+    case UnaryOpType::Signbit:
+      if (in.is<at::Tensor>()) {
+        return {in.as<at::Tensor>().signbit()};
+      } else if (in.is<int64_t>()) {
+        return {PolymorphicValue(std::signbit((int64_t)in))};
+      } else if (in.is<double>()) {
+        return {PolymorphicValue(std::signbit((double)in))};
+      } else {
+        NVF_CHECK(false, "signbit called on unsupported input ", in);
+      }
+      break;
     case UnaryOpType::Cos:
       return {in.as<at::Tensor>().cos()};
       break;
@@ -595,6 +606,10 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Mod:
       NVF_CHECK(rhs != 0);
       return {lhs % rhs};
+      break;
+    case BinaryOpType::Fmod:
+      NVF_CHECK(rhs != 0);
+      return {fmod(lhs, rhs)};
       break;
     case BinaryOpType::CeilDiv:
       NVF_CHECK(rhs != 0);
