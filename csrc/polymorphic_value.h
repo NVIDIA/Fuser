@@ -287,7 +287,7 @@ inline PolymorphicValue fmod(
       a.type() == b.type(), "fmod is not implemented for mismatch dtypes");
   // TODO: int64_t for fmod shouldn't be allowed
   if (a.is<int64_t>()) {
-    return PolymorphicValue((a % b).as<double>());
+    return PolymorphicValue(static_cast<double>((a % b).as<int64_t>()));
   }
   if (a.is<double>()) {
     return PolymorphicValue(std::fmod(a.as<double>(), b.as<double>()));
