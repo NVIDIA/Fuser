@@ -164,11 +164,11 @@ the IterDomain transformations in Figure 7 below are equivalent:
 ![Figure 7: Equivalence of Split-Split](../reading/iterdomain/split-split.svg)
 
 We support defining boxes by both rotating left and rotating right.
-For example, in the Figure TODO below:
+For example, in the Figure 8 below:
 
-![Figure TODO: Define box by rotation](tma/box-by-rotation.svg)
+![Figure 8: Define box by rotation](tma/box-by-rotation.svg)
 
-For the schedule on the left hand side of Figure TODO,
+For the schedule on the left hand side of Figure 8,
 we can define `[I3, I4]` as the box IterDomain.
 Because the schedule on the left hand side is mathematically equivalent to the schedule on the right hand side,
 we can imagine the schedule on the left hand side as the right hand side,
@@ -183,20 +183,20 @@ Note that in order to be able to rotate the right hand side schedule as the left
 the split defining `I4` must be divisible.
 However, the split defining `I1` does not have to be divisible.
 
-This way of thinking is illustrated in the Figure TODO below:
+This way of thinking is illustrated in the Figure 9 below:
 
-![Figure TODO: Define box by rotation imagined](tma/box-by-rotation-imagined.svg)
+![Figure 9: Define box by rotation imagined](tma/box-by-rotation-imagined.svg)
 
-It is possible to define box by multiple rotation, as shown in the following Figure TODO:
+It is possible to define box by multiple rotation, as shown in the following Figure 10:
 
-![Figure TODO: Define box by rotation imagined](tma/box-by-multiple-rotation.svg)
+![Figure 10: Define box by rotation imagined](tma/box-by-multiple-rotation.svg)
 
 ##### Mixing different strategies
 
 We can use different box defining strategies together at the same time in the same tensor.
-For example, in Figure 8 below:
+For example, in Figure 11 below:
 
-![Figure 8: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
+![Figure 11: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
 
 The TMA domain of the tensor has nine IterDomains.
 The contiguities of these nine IterDomains are `(T, T, T, F, T, T, T, T, T)`.
@@ -222,9 +222,9 @@ and use the word *tile* and *box* interchangeably.
 For strided tile, we do an inner-split on the box IterDomain by the *element stride*.
 We call this split "*striding split*", the inner output of this split "*stride IterDomain*",
 and the outer output of this split "*tile IterDomain*".
-For the example in Figure 1 on the right hand side, the schedule looks like the Figure 9 below:
+For the example in Figure 1 on the right hand side, the schedule looks like the Figure 12 below:
 
-![Figure 9: Strided tile](tma/strided-tile.svg)
+![Figure 12: Strided tile](tma/strided-tile.svg)
 
 Note that if the box is defined by compositing,
 the box IterDomain can be a list of IterDomains instead of a single IterDomain.
@@ -255,11 +255,11 @@ the allocation domain is also required to be a multiple of whole tiles,
 because tile is the minimum unit of a TMA operation.
 If a schedule indicates the opposite, then this schedule is wrong.
 
-The Figure 10 below shows some invalid schedule on the shared memory tensor:
+The Figure 13 below shows some invalid schedule on the shared memory tensor:
 
-![Figure 10: Some invalid smem schedule](tma/invalid-smem-discontiguous.svg)
+![Figure 13: Some invalid smem schedule](tma/invalid-smem-discontiguous.svg)
 
-These examples can also be found in unit tests `TMADocTest.Figure8*`.
+These examples can also be found in unit tests `TMADocTest.Figure13*`.
 
 These examples have the same reason for being invalid: The tile in shared memory is not contiguous.
 
@@ -284,11 +284,11 @@ Also `I2` is not a multiple of `I6`, which is not allowed as well.
 In the example (e), the allocated IterDomains are `[I3, I4, I5, I6]`.
 The `I5` between `I4` and `I6` makes the tile discontiguous in shared memory.
 
-The Figure 11 below shows some valid schedule on the shared memory tensor:
+The Figure 14 below shows some valid schedule on the shared memory tensor:
 
-![Figure 11: Some valid smem schedule](tma/valid-smem-contig.svg)
+![Figure 14: Some valid smem schedule](tma/valid-smem-contig.svg)
 
-These examples can also be found in unit tests `TMADocTest.Figure9*`.
+These examples can also be found in unit tests `TMADocTest.Figure14*`.
 
 Example (a) is valid because it flipped the order of `I8` and `I7` to make `I7` inner,
 and the `I5` between `I7` and `I6` is `blockIdx.x` parallelized therefore not allocated.
@@ -306,11 +306,11 @@ Except for the above mentioned constraints,
 we do not have further limitation on what the allocation domain should look like.
 Especially, as long as we are keeping each tile contiguous in memory, we can view it arbitrarily.
 
-The following Figure 12 shows some additional valid and invalid schedules:
+The following Figure 15 shows some additional valid and invalid schedules:
 
-![Figure 12: Additional valid and invalid smem schedule](tma/arbitrary-view.svg)
+![Figure 15: Additional valid and invalid smem schedule](tma/arbitrary-view.svg)
 
-These examples can also be found in unit tests `TMADocTest.Figure10*`.
+These examples can also be found in unit tests `TMADocTest.Figure15*`.
 
 In the above figure, example (a) and (b) are valid because the allocation domains satisfy the constraint that they must be a multiple of whole tiles and each tile is contiguous in memory.
 
@@ -357,9 +357,9 @@ TMA can store a tile in shared memory in a swizzled layout.
 There are four swizzling mode: no swizzle, 32 byte swizzle, 64 byte swizzle, and 128 byte swizzle.
 The no swizzle mode is the the mode that we have been assuming.
 
-The `N` byte swizzle mode can be considered as the Figure 13 below:
+The `N` byte swizzle mode can be considered as the Figure 16 below:
 
-![Figure 13: Swizzle](tma/swizzle.svg)
+![Figure 16: Swizzle](tma/swizzle.svg)
 
 TMA requires the size of the innermost dimension to be the swizzle size (`N` bytes).
 For example, if using 64 byte swizzle on `fp16` tensors,
@@ -453,9 +453,9 @@ For 128 byte swizzle, the above shape is `[-1, 8, 1, 8, 16B]`,
 where the `1` can be omitted and just use `[-1, 8, 8, 16B]` in practice
 (and be sure that you use the correct axis for swizzle if you do so).
 
-The Figure 14 below shows an example schedule of the consumer of a TMA load of a `fp16` tensor with 64 byte swizzle:
+The Figure 17 below shows an example schedule of the consumer of a TMA load of a `fp16` tensor with 64 byte swizzle:
 
-![Figure 14: Schedule of 64 byte swizzle](tma/swizzle-schedule.svg)
+![Figure 17: Schedule of 64 byte swizzle](tma/swizzle-schedule.svg)
 
 ### Step 5: schedule the consumer tensor
 
@@ -464,9 +464,9 @@ and the loop domain of the consumer has the responsibility of specifying these i
 
 Most generally, when we enter this step,
 we might see the loop domain of the consumer tensor already scheduled partially,
-as shown in the Figure 15 below:
+as shown in the Figure 18 below:
 
-![Figure 15: Consumer schedule](./tma/consumer-schedule.svg)
+![Figure 18: Consumer schedule](./tma/consumer-schedule.svg)
 
 It is important to note that, tile IterDomains and non-tile IterDomains must be transformed separately in the consumer of a TMA expression.
 Transforming tile IterDomain and non-tile IterDomain together,
