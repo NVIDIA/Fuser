@@ -101,7 +101,7 @@ the schedule should look like the Figure 4 below:
 
 Please note that, although in the above example, the split is divisible, this does not have to be the case in general.
 
-#### Other ways to define box
+#### Define box by mathematical equivalence
 
 Ideally, for an arbitrary schedule,
 as long as there exist a canonical way of defining box that is mathematically equivalent to this schedule,
