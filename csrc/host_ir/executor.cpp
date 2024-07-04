@@ -34,7 +34,9 @@ HostIrExecutor::HostIrExecutor(
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
   // process input values
-  val_to_IValue_ = std::move(val_to_IValue);
+  for (auto it : val_to_IValue) {
+    expr_evaluator_.bind(it.first, it.second.toTensor());
+  }
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
@@ -45,8 +47,8 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   // Collect global outputs
   std::vector<at::Tensor> outputs;
   for (auto output_val : container_->outputs()) {
-    auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
-        ? val_to_IValue_.at(output_val).toTensor()
+    auto output = expr_evaluator_.isKnown(output_val)
+        ? expr_evaluator_.evaluate(output_val).as<at::Tensor>()
         : at::Tensor();
     outputs.push_back(output);
   }
@@ -72,12 +74,26 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
   std::vector<c10::IValue> input_IValues;
   for (auto& input : post_ir->inputs()) {
     NVF_ERROR(
-        val_to_IValue_.find(input) != val_to_IValue_.end(),
+        expr_evaluator_.isKnown(input),
         "No buffer associated with Val ",
         input,
         " for handling ",
         post_ir->toString());
-    input_IValues.push_back(val_to_IValue_.at(input));
+    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
+    c10::IValue value;
+    if (input_evaluation.is<at::Tensor>()) {
+      value = input_evaluation.as<at::Tensor>();
+    } else if (input_evaluation.is<int64_t>()) {
+      value = at::Scalar(input_evaluation.as<int64_t>());
+    } else {
+      NVF_ERROR(
+          "Wrong type ",
+          input_evaluation.type().name(),
+          " for the PolymorphicValue ",
+          input_evaluation,
+          ", must be at::Tensor or int64_t");
+    }
+    input_IValues.push_back(value);
   }
 
   // placeholder for storing the outputs
@@ -114,7 +130,8 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
-    val_to_IValue_[post_ir->outputs().at(output_idx)] = outputs.at(output_idx);
+    expr_evaluator_.bind(
+        post_ir->outputs().at(output_idx), outputs.at(output_idx));
   }
 }
 
@@ -126,12 +143,12 @@ void HostIrExecutor::handle(Communication* communication) {
   Val* input_val = communication->input(0);
   Val* output_val = communication->output(0);
   at::Tensor input_tensor;
-  if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
-    input_tensor = val_to_IValue_.at(input_val).toTensor();
+  if (expr_evaluator_.isKnown(input_val)) {
+    input_tensor = expr_evaluator_.evaluate(input_val).as<at::Tensor>();
   }
   at::Tensor output_tensor;
-  if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
-    output_tensor = val_to_IValue_.at(output_val).toTensor();
+  if (expr_evaluator_.isKnown(output_val)) {
+    output_tensor = expr_evaluator_.evaluate(output_val).as<at::Tensor>();
   }
 
   c10d::Backend* backend =
@@ -164,7 +181,7 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
 
   for (auto i = start; i < stop; i += step) {
     for (Expr* expr : for_loop->body().exprs()) {
-      val_to_IValue_[for_loop->index()] = at::Scalar(i);
+      expr_evaluator_.bind(for_loop->index(), i);
       dispatch(expr);
     }
   }
