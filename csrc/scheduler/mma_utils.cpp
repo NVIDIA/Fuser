@@ -27,16 +27,16 @@ namespace mma_utils {
 //!   The order of returned types: A, B, OUTPUT
 inline mma_utils::MmaDataTypes getMmaDataTypes(
     const TensorRolesMap& tensor_roles) {
-  auto getMMADataType = [&](MatmulRole role) {
+  auto getMMADataType = [&](MatmulTensorRole role) {
     auto entry = tensor_roles.find(role);
     if (entry != tensor_roles.end() && !entry->second.empty()) {
       return entry->second.front()->dtype();
     }
     NVF_ERROR(false, "Get MMA Tensor data type failed!");
   };
-  const auto a_type = getMMADataType(MatmulRole::OPERAND_A);
-  const auto b_type = getMMADataType(MatmulRole::OPERAND_B);
-  const auto c_type = getMMADataType(MatmulRole::OUTPUT);
+  const auto a_type = getMMADataType(MatmulTensorRole::OPERAND_A);
+  const auto b_type = getMMADataType(MatmulTensorRole::OPERAND_B);
+  const auto c_type = getMMADataType(MatmulTensorRole::OUTPUT);
   return mma_utils::MmaDataTypes{a_type, b_type, c_type};
 }
 
@@ -176,7 +176,9 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       promote_prologue_smem_reuse};
 }
 
-TensorView* getOperandTv(const TensorRolesMap& tensor_roles, MatmulRole role) {
+TensorView* getOperandTv(
+    const TensorRolesMap& tensor_roles,
+    MatmulTensorRole role) {
   const auto it = tensor_roles.find(role);
   NVF_ERROR(it != tensor_roles.end(), "Could not find any tensors with role");
   const std::vector<TensorView*>& operands = it->second;
@@ -225,8 +227,8 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // cases, we check that there is no re-use when there is more than one use of
   // either a or b. If there are multiple uses we might wind up re-using memory,
   // but in that case the calculation below will be overly conservative.
-  const TensorView* a = getOperandTv(tensor_roles, MatmulRole::OPERAND_A);
-  const TensorView* b = getOperandTv(tensor_roles, MatmulRole::OPERAND_B);
+  const TensorView* a = getOperandTv(tensor_roles, MatmulTensorRole::OPERAND_A);
+  const TensorView* b = getOperandTv(tensor_roles, MatmulTensorRole::OPERAND_B);
   bool smem_a_reuse_guaranteed = a->uses().size() == 1;
   bool smem_b_reuse_guaranteed = b->uses().size() == 1;
 
@@ -1014,7 +1016,7 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
   }
 }
 
-std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
+std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     TensorView* tv,
     const ValGraph& permissive_graph,
     const DimRolesMap& dim_roles,
@@ -1044,10 +1046,10 @@ std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
     return it->second;
   };
   // Loop from inner to outer, merging when needed
-  MatmulDomain prev_role = getRole(tv->axis(-1));
-  std::vector<MatmulDomain> roles{prev_role};
+  MatmulDimRole prev_role = getRole(tv->axis(-1));
+  std::vector<MatmulDimRole> roles{prev_role};
   for (int64_t dim = tv->nDims() - 2; dim >= 0; --dim) {
-    MatmulDomain role = getRole(tv->axis(dim));
+    MatmulDimRole role = getRole(tv->axis(dim));
     if (role == prev_role) {
       tv->merge(dim);
     } else {
@@ -1062,7 +1064,7 @@ std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
 
 namespace {
 
-inline void resolveTvToMatmulDomainsMapping(
+inline void resolveTvToMatmulDimRolesMapping(
     DependenciesMap& deps_map,
     const std::vector<TensorView*>& tensors,
     IterDomain* m,
@@ -1076,15 +1078,15 @@ inline void resolveTvToMatmulDomainsMapping(
     deps_map[tv] = {};
     for (const auto domain : tv->getLoopDomain()) {
       if (ca_map.areMapped(m, domain, IdMappingMode::EXACT)) {
-        deps_map[tv].push_back(MatmulDomain::M);
+        deps_map[tv].push_back(MatmulDimRole::M);
         continue;
       }
       if (ca_map.areMapped(n, domain, IdMappingMode::EXACT)) {
-        deps_map[tv].push_back(MatmulDomain::N);
+        deps_map[tv].push_back(MatmulDimRole::N);
         continue;
       }
       if (ca_map.areMapped(k, domain, IdMappingMode::EXACT)) {
-        deps_map[tv].push_back(MatmulDomain::K);
+        deps_map[tv].push_back(MatmulDimRole::K);
         continue;
       }
     }
@@ -1120,41 +1122,41 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
   const ValGraph& permissive_graph =
       id_model.idGraph(IdMappingMode::PERMISSIVE);
 
-  // Note: using DataWrapperOpt<MatmulDomain> would be preferable here. However,
-  // using DataWrapperOpt<MatmulDomain>(std::move(dom)) leads to a clang-tidy
-  // warning because MatmulDomain is trivially movable. There is only a move
-  // constructor for DataWrapperOpt to prevent inadvertent copying. To avoid
-  // this complication I'm using an unwrapped variant for the lambda's result
-  // type.
-  using MatmulDomainOpt = std::variant<std::string, MatmulDomain>;
+  // Note: using DataWrapperOpt<MatmulDimRole> would be preferable here.
+  // However, using DataWrapperOpt<MatmulDimRole>(std::move(dom)) leads to a
+  // clang-tidy warning because MatmulDimRole is trivially movable. There is
+  // only a move constructor for DataWrapperOpt to prevent inadvertent copying.
+  // To avoid this complication I'm using an unwrapped variant for the lambda's
+  // result type.
+  using MatmulDimRoleOpt = std::variant<std::string, MatmulDimRole>;
   const auto findInnerDim =
-      [&dim_roles, &permissive_graph](TensorView* tv) -> MatmulDomainOpt {
+      [&dim_roles, &permissive_graph](TensorView* tv) -> MatmulDimRoleOpt {
     IterDomain* inner_id =
         TensorDomain::noReductions(tv->getMaybeAllocationDomain()).back();
     const ValGroup& g = permissive_graph.toGroup(inner_id);
     auto g_it = dim_roles.find(g);
     if (g_it == dim_roles.end()) {
-      return "Inner domain of tensor was not mapped to a MatmulDomain";
+      return "Inner domain of tensor was not mapped to a MatmulDimRole";
     }
     return g_it->second;
   };
-  TensorView* a = getOperandTv(tensor_roles, MatmulRole::OPERAND_A);
-  TensorView* b = getOperandTv(tensor_roles, MatmulRole::OPERAND_B);
+  TensorView* a = getOperandTv(tensor_roles, MatmulTensorRole::OPERAND_A);
+  TensorView* b = getOperandTv(tensor_roles, MatmulTensorRole::OPERAND_B);
 
-  const MatmulDomainOpt innerdim_a_opt = findInnerDim(a);
+  const MatmulDimRoleOpt innerdim_a_opt = findInnerDim(a);
   if (std::holds_alternative<std::string>(innerdim_a_opt)) {
     std::string err = std::get<std::string>(innerdim_a_opt);
     return err;
   }
-  const MatmulDomainOpt innerdim_b_opt = findInnerDim(b);
+  const MatmulDimRoleOpt innerdim_b_opt = findInnerDim(b);
   if (std::holds_alternative<std::string>(innerdim_b_opt)) {
     std::string err = std::get<std::string>(innerdim_b_opt);
     return err;
   }
-  const MatmulDomain innerdim_a = std::get<MatmulDomain>(innerdim_a_opt);
-  const MatmulDomain innerdim_b = std::get<MatmulDomain>(innerdim_b_opt);
+  const MatmulDimRole innerdim_a = std::get<MatmulDimRole>(innerdim_a_opt);
+  const MatmulDimRole innerdim_b = std::get<MatmulDimRole>(innerdim_b_opt);
 
-  return std::vector<MatmulDomain>{innerdim_a, innerdim_b};
+  return std::vector<MatmulDimRole>{innerdim_a, innerdim_b};
 }
 
 TensorRolesMapOpt getTensorRoles(
@@ -1199,9 +1201,9 @@ TensorRolesMapOpt getTensorRoles(
         has.unmapped = true;
         continue;
       }
-      has.m = has.m || it->second == MatmulDomain::M;
-      has.n = has.n || it->second == MatmulDomain::N;
-      has.k = has.k || it->second == MatmulDomain::K;
+      has.m = has.m || it->second == MatmulDimRole::M;
+      has.n = has.n || it->second == MatmulDimRole::N;
+      has.k = has.k || it->second == MatmulDimRole::K;
     }
     return has;
   };
@@ -1213,10 +1215,11 @@ TensorRolesMapOpt getTensorRoles(
       continue;
     }
     if (has.k) {
-      tensor_roles[has.m ? MatmulRole::OPERAND_A : MatmulRole::OPERAND_B]
-          .push_back(tv);
+      tensor_roles
+          [has.m ? MatmulTensorRole::OPERAND_A : MatmulTensorRole::OPERAND_B]
+              .push_back(tv);
     } else {
-      tensor_roles[MatmulRole::EPILOGUE_INPUT].push_back(tv);
+      tensor_roles[MatmulTensorRole::EPILOGUE_INPUT].push_back(tv);
       continue;
     }
   }
@@ -1242,7 +1245,7 @@ TensorRolesMapOpt getTensorRoles(
   }
 
   if (!storage.empty()) {
-    tensor_roles[MatmulRole::OUTPUT] = storage;
+    tensor_roles[MatmulTensorRole::OUTPUT] = storage;
   }
 
   for (auto& [role, tvs] : tensor_roles) {
@@ -1657,7 +1660,7 @@ DimRolesMap matmulOrLinearOpDimRoles(
     const std::vector<IterDomain*>& out_logical,
     const std::vector<IterDomain*>& mapping_a,
     const std::vector<IterDomain*>& mapping_b) {
-  std::unordered_map<ValGroup, MatmulDomain> dim_roles;
+  std::unordered_map<ValGroup, MatmulDimRole> dim_roles;
   NVF_ERROR(mapping_a.size() == out_logical.size());
   NVF_ERROR(mapping_a.size() == mapping_b.size());
   for (size_t i : c10::irange(out_logical.size())) {
@@ -1665,7 +1668,7 @@ DimRolesMap matmulOrLinearOpDimRoles(
     const ValGroup& g = permissive_graph.toGroup(id_out);
 
     if (id_out->isReduction()) {
-      dim_roles[g] = MatmulDomain::K;
+      dim_roles[g] = MatmulDimRole::K;
       continue;
     }
 
@@ -1676,11 +1679,11 @@ DimRolesMap matmulOrLinearOpDimRoles(
     // If both operand IterDomains are Broadcast, treat as Batch dimension
     // If they mismatch, then one must be broadcast which determines M or N
     if (has_a == has_b) {
-      dim_roles[g] = MatmulDomain::Batch;
+      dim_roles[g] = MatmulDimRole::Batch;
     } else if (has_a) {
-      dim_roles[g] = MatmulDomain::M;
+      dim_roles[g] = MatmulDimRole::M;
     } else if (has_b) {
-      dim_roles[g] = MatmulDomain::N;
+      dim_roles[g] = MatmulDimRole::N;
     }
   }
   return dim_roles;
@@ -1693,7 +1696,7 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
       id_model.idGraph(IdMappingMode::PERMISSIVE);
 
   // There are four types of ValGroup involved in a MatmulPattern: M, N, K, and
-  // Batch. These are enumerated in the MatmulDomain enum class. They are
+  // Batch. These are enumerated in the MatmulDimRole enum class. They are
   // defined by their membership as follows:
   //   M: present in A and output, but not B
   //   N: present in B and output, but not A
@@ -1756,13 +1759,13 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
     if (concrete_flags.all() || concrete_flags.none()) {
       // Batch dimensions are any of those that are not concretized or reduced.
       // These could be all Iteration or all Broadcast
-      dim_roles[g] = MatmulDomain::Batch;
+      dim_roles[g] = MatmulDimRole::Batch;
     } else if (concrete_flags == 0b011) {
-      dim_roles[g] = MatmulDomain::K;
+      dim_roles[g] = MatmulDimRole::K;
     } else if (concrete_flags == 0b101) {
-      dim_roles[g] = MatmulDomain::M;
+      dim_roles[g] = MatmulDimRole::M;
     } else if (concrete_flags == 0b110) {
-      dim_roles[g] = MatmulDomain::N;
+      dim_roles[g] = MatmulDimRole::N;
     } else {
       NVF_ERROR(
           false,
@@ -1784,11 +1787,11 @@ std::vector<ValGroup> canonicalDimOrdering(
   // This is +1 if N should come before M and -1 otherwise. It is zero until the
   // M/N ordering has been determined.
   int64_t n_inside_m = 0;
-  for (MatmulRole tv_role :
-       {MatmulRole::OUTPUT,
-        MatmulRole::OPERAND_A,
-        MatmulRole::OPERAND_B,
-        MatmulRole::EPILOGUE_INPUT}) {
+  for (MatmulTensorRole tv_role :
+       {MatmulTensorRole::OUTPUT,
+        MatmulTensorRole::OPERAND_A,
+        MatmulTensorRole::OPERAND_B,
+        MatmulTensorRole::EPILOGUE_INPUT}) {
     const auto it = tensor_roles.find(tv_role);
     if (it == tensor_roles.end()) {
       continue;
@@ -1816,27 +1819,27 @@ std::vector<ValGroup> canonicalDimOrdering(
           other_dims.pushBack(g);
         } else {
           switch (it->second) {
-            case MatmulDomain::Batch:
+            case MatmulDimRole::Batch:
               batch_dims.pushBack(g);
               break;
-            case MatmulDomain::M:
+            case MatmulDimRole::M:
               if (n_inside_m == 0) {
                 // We encountered an M dimension before an N dimension
                 n_inside_m = -1;
               }
               m_dims.pushBack(g);
               break;
-            case MatmulDomain::N:
+            case MatmulDimRole::N:
               if (n_inside_m == 0) {
                 // We encountered an N dimension before an M dimension
                 n_inside_m = 1;
               }
               n_dims.pushBack(g);
               break;
-            case MatmulDomain::K:
+            case MatmulDimRole::K:
               // Order K dimensions like operands, and all others like outputs
-              if (tv_role == MatmulRole::OPERAND_A ||
-                  tv_role == MatmulRole::OPERAND_B) {
+              if (tv_role == MatmulTensorRole::OPERAND_A ||
+                  tv_role == MatmulTensorRole::OPERAND_B) {
                 k_dims.pushBack(g);
               }
               break;
@@ -1854,16 +1857,16 @@ std::vector<ValGroup> canonicalDimOrdering(
   for (const auto& [g, role] : dim_roles) {
     VectorOfUniqueEntries<ValGroup>* inserted = nullptr;
     switch (role) {
-      case MatmulDomain::Batch:
+      case MatmulDimRole::Batch:
         inserted = &batch_dims;
         break;
-      case MatmulDomain::M:
+      case MatmulDimRole::M:
         inserted = &m_dims;
         break;
-      case MatmulDomain::N:
+      case MatmulDimRole::N:
         inserted = &n_dims;
         break;
-      case MatmulDomain::K:
+      case MatmulDimRole::K:
         inserted = &k_dims;
         break;
     }
