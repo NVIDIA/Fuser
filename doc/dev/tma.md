@@ -169,13 +169,13 @@ For example, in the Figure 8 below:
 ![Figure 8: Define box by rotation](tma/box-by-rotation.svg)
 
 For the schedule on the left hand side of Figure 8,
-we can define `[I3, I4]` as the box IterDomain.
+if we define `[I3, I4]` as the box IterDomain.
 Because the schedule on the left hand side is mathematically equivalent to the schedule on the right hand side,
 we can imagine the schedule on the left hand side as the right hand side,
 and consider `I1` as the box IterDomain.
 
 Similarly, for the schedule on the right hand side,
-we can define `I4` as the box IterDomain.
+if we define `I4` as the box IterDomain.
 Because the schedule on the right hand side is mathematically equivalent to the schedule on the left hand side,
 we can imagine the schedule on the right hand side as the left hand side,
 and consider `I5` as the coordinate IterDomain.
