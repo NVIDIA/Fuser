@@ -1722,7 +1722,6 @@ TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
 }
 
 // Tests for the examples in doc/dev/tma.md
-// TODO: update figure numbers in the test names
 
 class TMADocTest : public TMATest {};
 
