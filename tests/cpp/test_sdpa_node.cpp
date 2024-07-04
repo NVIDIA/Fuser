@@ -38,7 +38,7 @@ constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
 // Note: Flash Attention is only supported on Ampere and above.
 
-auto addSdpaFwdOutputs = [](Fusion* fusion, SdpfaFwdResult output){
+auto addSdpaFwdOutputs = [](Fusion* fusion, SdpfaFwdResult output) {
   fusion->addOutput(output.output);
   fusion->addOutput(output.log_sumexp);
   fusion->addOutput(output.cum_seq_q);
@@ -48,9 +48,20 @@ auto addSdpaFwdOutputs = [](Fusion* fusion, SdpfaFwdResult output){
   fusion->addOutput(output.debug_attn_mask);
 };
 
-using AtenSdpaOut = std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, c10::SymInt, c10::SymInt, at::Tensor, at::Tensor, at::Tensor>;
-auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out, AtenSdpaOut aten_out){
-  auto [attn,
+using AtenSdpaOut = std::tuple<
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    c10::SymInt,
+    c10::SymInt,
+    at::Tensor,
+    at::Tensor,
+    at::Tensor>;
+auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
+                                 AtenSdpaOut aten_out) {
+  auto
+      [attn,
        log_sumexp,
        cum_seq_q,
        cum_seq_k,
@@ -59,9 +70,12 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out, AtenSdpaOut at
        philox_seed,
        philox_offset,
        debug_attn_mask] = aten_out;
-  // nvf_out = {attn, log_sumexp, cum_seq_q, cum_seq_k, philox_seed, philox_offset, debug_attn_mask}
-  // Since, dropout_p = 0.0 to validate outputs, philox_seed and philox_offset are uninitialized empty tensors with garbage values for this case, so we skip validating those values.
-  // TODO: Validate query_seq_len/key_seq_len once scalar fusion outputs are supported.
+  // nvf_out = {attn, log_sumexp, cum_seq_q, cum_seq_k, philox_seed,
+  // philox_offset, debug_attn_mask} Since, dropout_p = 0.0 to validate outputs,
+  // philox_seed and philox_offset are uninitialized empty tensors with garbage
+  // values for this case, so we skip validating those values.
+  // TODO: Validate query_seq_len/key_seq_len once scalar fusion outputs are
+  // supported.
   EXPECT_TRUE(at::allclose(nvf_out[0], attn));
   EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
   EXPECT_FALSE(nvf_out[2].defined());
@@ -245,14 +259,15 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
   for (auto role : {AttnRole::Q, AttnRole::K, AttnRole::V}) {
     auto producer_tv = producer_tvs[(int)role];
 
-    for (Val* consumer: fusion->outputs()){
+    for (Val* consumer : fusion->outputs()) {
       auto consumer_tv = consumer->as<TensorView>();
       auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
                               .mapProducerToConsumer();
       auto mappingExists = [&pairwise_map](
-                              IterDomain* p_id, IterDomain* c_id) -> bool {
+                               IterDomain* p_id, IterDomain* c_id) -> bool {
         return pairwise_map.find(p_id) != pairwise_map.end() &&
-            pairwise_map[p_id] == c_id;};
+            pairwise_map[p_id] == c_id;
+      };
 
       // For cum_seq_q/k, root_domain = {iN}, logical_domain = {i(N+1)}
       // Mapping exists from root domain to producer.
@@ -260,7 +275,8 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
       for (auto idx : c10::irange(consumer_tv->nDims())) {
         // Mapping for N, H exists from Q/K/V to any output.
         if (idx < 2) {
-          EXPECT_TRUE(mappingExists(producer_tv->axis(idx), consumer_root.at(idx)));
+          EXPECT_TRUE(
+              mappingExists(producer_tv->axis(idx), consumer_root.at(idx)));
         }
         // Mapping for L exists between Q and output, log_sumexp.
         if (idx == 2 && role == AttnRole::Q) {
