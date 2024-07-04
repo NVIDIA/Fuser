@@ -118,7 +118,7 @@ Some known supported mathematical equivalence are listed below:
 Mathematically, if we merge two IterDomains `[I0, I1]` together and split with the factor of `I1`'s extent, we get back equivalent IterDomains.
 Visually, we have:
 
-![Figure 5: Merge-split = identity transformation](./tma/merge-split.svg)
+![Figure 5: Merge-split = identity transformation](tma/merge-split.svg)
 
 TODO: add a proof to [The Mathematical Theory of IterDomain](../reading/iterdomain.md)
 
@@ -153,7 +153,47 @@ It can be as small as 0 IterDomains, or as large as the entire slice.
 When 0 IterDomains are selected as box, the box size is implicitly one.
 When the entire slice is selected as box, the tensor only have one box on that dimension, and the size of the box equals the size of that dimension.
 
-We can use both styles of box defining at the same time in the same tensor.
+##### Define box by rotation
+
+TODO: this is not implemented yet
+
+The name "rotation" comes from [tree rotation](https://en.wikipedia.org/wiki/Tree_rotation).
+According to Theorem 2.1 in [The Mathematical Theory of IterDomain](../reading/iterdomain.md),
+the IterDomain transformations in Figure 7 below are equivalent:
+
+![Figure 7: Equivalence of Split-Split](../reading/iterdomain/split-split.svg)
+
+We support defining boxes by both rotating left and rotating right.
+For example, in the Figure TODO below:
+
+![Figure TODO: Define box by rotation](tma/box-by-rotation.svg)
+
+For the schedule on the left hand side of Figure TODO,
+we can define `[I3, I4]` as the box IterDomain.
+Because the schedule on the left hand side is mathematically equivalent to the schedule on the right hand side,
+we can imagine the schedule on the left hand side as the right hand side,
+and consider `I1` as the box IterDomain.
+
+Similarly, for the schedule on the right hand side,
+we can define `I4` as the box IterDomain.
+Because the schedule on the right hand side is mathematically equivalent to the schedule on the left hand side,
+we can imagine the schedule on the right hand side as the left hand side,
+and consider `I5` as the coordinate IterDomain.
+Note that in order to be able to rotate the right hand side schedule as the left hand side,
+the split defining `I4` must be divisible.
+However, the split defining `I1` does not have to be divisible.
+
+This way of thinking is illustrated in the Figure TODO below:
+
+![Figure TODO: Define box by rotation imagined](tma/box-by-rotation-imagined.svg)
+
+It is possible to define box by multiple rotation, as shown in the following Figure TODO:
+
+![Figure TODO: Define box by rotation imagined](tma/box-by-multiple-rotation.svg)
+
+##### Mixing different strategies
+
+We can use different box defining strategies together at the same time in the same tensor.
 For example, in Figure 8 below:
 
 ![Figure 8: Define box by partitioning and compositing](tma/box-by-partitioning-and-compositing.svg)
@@ -161,6 +201,7 @@ For example, in Figure 8 below:
 The TMA domain of the tensor has nine IterDomains.
 The contiguities of these nine IterDomains are `(T, T, T, F, T, T, T, T, T)`.
 We scheduled a 5D TMA operation, where in these five dimensions, one of them defines box by partitioning, and others define box by compositing.
+There is no other box defining strategies used.
 Green color means box IterDomain and brown color means coordinate IterDomain.
 The first dimension is `[I1, I2]`, where `I1` is coordinate IterDomain and `I2` is box IterDomain.
 The second dimension is `I3`, it is the only dimension that defines box by partitioning.
