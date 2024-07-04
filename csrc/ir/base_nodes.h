@@ -151,12 +151,8 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
     return name_;
   }
 
-  // Set the statements' name. Typically the container will set the name,
-  // however if we're dealing with cloning, IrBuilder will set the name, this
-  // maybe should be from IrCloner, however I didn't want to add another
-  // passkey.
+  // Set the statements' name
   void setName(IrContainerPasskey, StmtNameType name);
-  void setName(IrBuilderPasskey, StmtNameType name);
 
   virtual bool sameType(const Statement* const other) {
     return typeid(*this) == typeid(*other);
