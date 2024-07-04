@@ -116,7 +116,7 @@ Some known supported mathematical equivalence are listed below:
 ##### Define box by compositing
 
 Mathematically, if we merge two IterDomains `[I0, I1]` together and split with the factor of `I1`'s extent, we get back equivalent IterDomains.
-Visually, we have:
+Visually, we have the Figure 5 below:
 
 ![Figure 5: Merge-split = identity transformation](tma/merge-split.svg)
 
