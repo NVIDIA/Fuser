@@ -177,20 +177,20 @@ bool checkCanSchedule(
 
   FusionGuard fg(fusion);
 
-  // Fusions with `MatmulOp/LinearOp/SdpaOp` are only accepted in `ExprEval`
+  // Fusions with `SdpaFwdOp` are only accepted in `ExprEval`
   // scheduler, all other schedulers should reject them.
-  if (ir_utils::hasOpsOfType<MatmulOp, LinearOp, SdpaFwdOp>(fusion)) {
+  if (ir_utils::hasOpsOfType<SdpaFwdOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         SchedulerType::heuristicType(),
-        "ExprEval-only nodes (MatmulOp/LinearOp/SdpaOps) are not supported.");
+        "SdpaOps are not supported.");
     return false;
   }
 
-  // Fusions with `MmaOp` are only accepted by Matmul scheduler.
+  // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul scheduler.
   if (SchedulerType::heuristicType() != ScheduleHeuristic::Matmul &&
-      ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+      ir_utils::hasOpsOfType<MatmulOp, LinearOp, MmaOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        SchedulerType::heuristicType(), "MmaOp is not supported.");
+        SchedulerType::heuristicType(), "Matmul ops are not supported.");
     return false;
   }
 
