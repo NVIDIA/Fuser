@@ -82,8 +82,8 @@ struct SdpfaFwdResult {
   TensorView* log_sumexp = nullptr;
   TensorView* cum_seq_q = nullptr;
   TensorView* cum_seq_k = nullptr;
-  Val* query_seq_len = nullptr;
-  Val* key_seq_len = nullptr;
+  TensorView* query_seq_len = nullptr;
+  TensorView* key_seq_len = nullptr;
   TensorView* philox_seed = nullptr;
   TensorView* philox_offset = nullptr;
   TensorView* debug_attn_mask = nullptr;

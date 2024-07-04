@@ -492,8 +492,8 @@ SdpfaFwdResult sdpfa_fwd(
   TensorView* cum_seq_q = newForCumulativeSeq();
   TensorView* cum_seq_k = newForCumulativeSeq();
 
-  Val* query_seq_len = IrBuilder::create<Val>(DataType::Int);
-  Val* key_seq_len = IrBuilder::create<Val>(DataType::Int);
+  TensorView* query_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
+  TensorView* key_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
 
   // Scalar tensors of int64_t dtype.
   TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();

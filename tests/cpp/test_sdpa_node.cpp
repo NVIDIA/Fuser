@@ -43,6 +43,8 @@ auto addSdpaFwdOutputs = [](Fusion* fusion, SdpfaFwdResult output) {
   fusion->addOutput(output.log_sumexp);
   fusion->addOutput(output.cum_seq_q);
   fusion->addOutput(output.cum_seq_k);
+  fusion->addOutput(output.query_seq_len);
+  fusion->addOutput(output.key_seq_len);
   fusion->addOutput(output.philox_seed);
   fusion->addOutput(output.philox_offset);
   fusion->addOutput(output.debug_attn_mask);
@@ -80,7 +82,9 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
   EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
   EXPECT_FALSE(nvf_out[2].defined());
   EXPECT_FALSE(nvf_out[3].defined());
-  EXPECT_TRUE(at::equal(nvf_out[6], debug_attn_mask));
+  EXPECT_EQ(nvf_out[4].item<int64_t>(), query_seq_len);
+  EXPECT_EQ(nvf_out[5].item<int64_t>(), key_seq_len);
+  EXPECT_TRUE(at::equal(nvf_out[8], debug_attn_mask));
 };
 
 TEST_F(SDPATest, NonCausalAttnConcrete) {
