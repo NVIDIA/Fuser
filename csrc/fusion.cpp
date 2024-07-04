@@ -405,7 +405,7 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     IrTransformPrinter t_exprs(os);
     t_exprs.handle(this);
   }
-  os << "}\n";
+  os << "} // %kernel\n";
 
   return os;
 }
@@ -525,7 +525,7 @@ void Fusion::printMath(bool from_outputs_only) {
   for (auto expr : exprs_for_print) {
     debug() << expr;
   }
-  debug() << "}\n\n";
+  debug() << "} // %kernel_math \n\n";
 }
 
 std::vector<Val*> Fusion::inputsAndCreated() {

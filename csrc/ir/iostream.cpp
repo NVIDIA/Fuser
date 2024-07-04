@@ -51,7 +51,7 @@ void IrPrinter::handle(const kir::Kernel* kernel) {
   NVF_CHECK(kernel != nullptr);
 
   // kernel declaration
-  os_ << "\nKERNEL (";
+  os_ << "\n%Kernel { (";
   for (auto in : kernel->inputs()) {
     os_ << in->toString();
     if (in != kernel->inputs().back()) {
@@ -73,7 +73,7 @@ void IrPrinter::handle(const kir::Kernel* kernel) {
     os_ << expr->toString();
   }
   indent_size_--;
-  os_ << "END.\n\n";
+  os_ << "\n} // %Kernel.\n\n";
 }
 
 void IrPrinter::handle(kir::Kernel& kernel) {
@@ -84,7 +84,7 @@ void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
   NVF_CHECK(host_ir_container != nullptr);
 
   // host_ir_container declaration
-  os() << "\nHOST IRS: (";
+  os() << "\n%HostIrContainer { (";
   for (auto in : host_ir_container->inputs()) {
     os() << in->toString(indent_size_);
     if (in != host_ir_container->inputs().back()) {
@@ -111,7 +111,7 @@ void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
     os() << std::endl;
     os() << host_unit->toString(indent_size_);
   }
-  os() << "END.\n\n";
+  os() << "\n} // %HostIrContainer\n\n";
 }
 
 void IrPrinter::handle(hir::HostIrContainer& host_ir_container) {
