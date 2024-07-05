@@ -1889,6 +1889,29 @@ std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
     for (const auto& out_val : fusion()->outputs()) {
       auto out_tensor =
           expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+      if (auto out_tv = dynamic_cast<TensorView*>(out_val)) {
+        const std::vector<IterDomain*>& tv_logical =
+            TensorDomain::noReductions(out_tv->getLogicalDomain());
+        NVF_ERROR(
+            out_tensor.dim() == tv_logical.size(),
+            "ATen-evaluated tensor with shape ",
+            out_tensor.sizes(),
+            " does not match expected dimension of TensorView ",
+            out_tv->toString());
+        for (size_t i : c10::irange(tv_logical.size())) {
+          IterDomain* id = tv_logical[i];
+          if (id->isBroadcast() && !id->hasExpandedExtent()) {
+            NVF_ERROR(
+                out_tensor.size(i) == 1,
+                "Expected size-1 axis at position ",
+                i,
+                " of ATen-evaluated tensor ",
+                out_tv->toString(),
+                " but found size ",
+                out_tensor.size(i));
+          }
+        }
+      }
       outputs.emplace_back(out_tensor);
     }
   }
