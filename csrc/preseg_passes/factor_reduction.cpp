@@ -307,26 +307,26 @@ TensorView* findUpstreamReduction(Fusion* fusion, TensorView* amax_reduction) {
     return nullptr;
   }
 
-  std::vector<TensorView*> upstream_reductions;
-  std::copy_if(
-      reduction_tvs.begin(),
-      reduction_tvs.end(),
-      std::back_inserter(upstream_reductions),
-      [amax_reduction](TensorView* tv) {
-        if (tv == amax_reduction) {
-          return false;
-        }
-        if (!DependencyCheck::isDependencyOf(
-                /*dependency=*/tv, /*of=*/amax_reduction)) {
-          return false;
-        }
-        return true;
-      });
+  // Find the closest upstream reduction that is not amax reduction.
+  TensorView* upstream_reduction = nullptr;
+  size_t distance = ULONG_MAX;
+  for (TensorView* tv : reduction_tvs) {
+    if (tv == amax_reduction) {
+      continue;
+    }
 
-  if (upstream_reductions.empty()) {
-    return nullptr;
+    std::deque<Val*> chain = DependencyCheck::getSingleDependencyChain(
+        /*dependency=*/tv, /*of=*/amax_reduction);
+    if (chain.empty()) {
+      continue;
+    }
+
+    if (chain.size() < distance) {
+      upstream_reduction = tv;
+      distance = chain.size();
+    }
   }
-  return upstream_reductions.front();
+  return upstream_reduction;
 }
 
 // Find the subset of reduction iterDomains to factor from
