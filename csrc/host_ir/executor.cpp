@@ -47,9 +47,9 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   // Collect global outputs
   std::vector<at::Tensor> outputs;
   for (auto output_val : container_->outputs()) {
-    auto output = expr_evaluator_.isKnown(output_val)
-        ? expr_evaluator_.evaluate(output_val).as<at::Tensor>()
-        : at::Tensor();
+    PolymorphicValue maybe_output = expr_evaluator_.evaluate(output_val);
+    at::Tensor output =
+        maybe_output.hasValue() ? maybe_output.as<at::Tensor>() : at::Tensor();
     outputs.push_back(output);
   }
 
@@ -73,13 +73,13 @@ void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
 void HostIrExecutor::handle(PostOnStream* post_ir) {
   std::vector<c10::IValue> input_IValues;
   for (auto& input : post_ir->inputs()) {
+    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
     NVF_ERROR(
-        expr_evaluator_.isKnown(input),
+        input_evaluation.hasValue(),
         "No buffer associated with Val ",
         input,
         " for handling ",
         post_ir->toString());
-    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
     c10::IValue value;
     if (input_evaluation.is<at::Tensor>()) {
       value = input_evaluation.as<at::Tensor>();
@@ -143,12 +143,14 @@ void HostIrExecutor::handle(Communication* communication) {
   Val* input_val = communication->input(0);
   Val* output_val = communication->output(0);
   at::Tensor input_tensor;
-  if (expr_evaluator_.isKnown(input_val)) {
-    input_tensor = expr_evaluator_.evaluate(input_val).as<at::Tensor>();
+  if (auto evaluated_tensor = expr_evaluator_.evaluate(input_val);
+      evaluated_tensor.hasValue()) {
+    input_tensor = evaluated_tensor.as<at::Tensor>();
   }
   at::Tensor output_tensor;
-  if (expr_evaluator_.isKnown(output_val)) {
-    output_tensor = expr_evaluator_.evaluate(output_val).as<at::Tensor>();
+  if (auto evaluated_tensor = expr_evaluator_.evaluate(output_val);
+      evaluated_tensor.hasValue()) {
+    output_tensor = evaluated_tensor.as<at::Tensor>();
   }
 
   c10d::Backend* backend =
