@@ -1840,9 +1840,7 @@ TEST_F(NVFuserTest, FusionSimpleCpAsync_CUDA) {
   // requires ampere+ GPU
   if (!deviceMajorMinorCheck(8)) {
     ASSERT_THAT(
-        [&]() {
-          fe.compileFusion(&fusion, {t0, t1});
-        },
+        [&]() { fe.compileFusion(&fusion, {t0, t1}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
             "Reason: LoadStoreOpType::CpAsync requires Ampere")));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
@@ -8351,6 +8349,44 @@ TEST_F(NVFuserTest, ReplayRFactorMergeBcast) {
 
     testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
+}
+
+TEST_F(NVFuserTest, DifferentVectorizationFactorsReduction) {
+  auto dtype = DataType::Half;
+  const std::vector<int64_t> input_shape = {256, 128};
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  TensorView* tv0 = makeConcreteTensor(input_shape, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {-1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = div(tv1, tv3);
+  // output is fp32, max vectorization factor is 4
+  fusion.addOutput(tv4);
+  auto tv5 = add(tv1, tv3);
+  auto tv6 = castOp(DataType::Half, tv5);
+  // output is fp16, max vectorization factor is 8
+  fusion.addOutput(tv6);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor at_x = at::ones(input_shape, options);
+  std::vector<c10::IValue> aten_inputs = {at_x};
+
+  const int expected_vect_factor = 8;
+  auto hp = getInnerPersistentHeuristics(&fusion, aten_inputs);
+  NVF_CHECK(hp, "getInnerPersistentHeuristics failed!");
+  EXPECT_EQ(hp->unroll_factor_inner_reduction, expected_vect_factor);
+  scheduleInnerPersistentKernel(&fusion, *hp);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, hp->lparams);
+  auto cg_outputs = fe.runFusion(aten_inputs, hp->lparams);
+  auto t1 = at_x.to(at::kFloat);
+  auto t3 = t1.sum(-1).unsqueeze(-1);
+  auto t4 = t1 / t3;
+  auto t6 = (t1 + t3).to(at::kHalf);
+  testValidate(&fusion, cg_outputs, aten_inputs, {t4, t6}, __LINE__, __FILE__);
 }
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
