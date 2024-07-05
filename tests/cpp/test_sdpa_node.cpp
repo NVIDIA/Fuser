@@ -496,6 +496,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
       __FILE__);
 }
 
+// Test SDPA is segmented correctly. See issue #2517:
+// https://github.com/NVIDIA/Fuser/issues/2517
 TEST_F(SDPATest, AttnProgram) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
