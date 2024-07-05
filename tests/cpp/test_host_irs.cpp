@@ -629,6 +629,84 @@ INSTANTIATE_TEST_SUITE_P(
       return ss.str();
     });
 
+using SliceHostIrTestParams = bool;
+using SliceHostIrTest = NVFuserFixtureParamTest<SliceHostIrTestParams>;
+
+// The following test simply demonstrate how to change current CUDA stream in
+// the host program
+TEST_P(SliceHostIrTest, SlicingTensor) {
+  constexpr int64_t ndims = 2;
+  constexpr int64_t axis = 1;
+  constexpr int64_t start = 3;
+  constexpr int64_t stop = 13;
+  constexpr int64_t step = 1;
+  const std::vector<int64_t> input_sizes = {32, 32};
+
+  ASSERT_LT(axis, ndims);
+  ASSERT_LT(start, stop);
+  ASSERT_EQ(
+      step,
+      1); // only "1" is supported at the moment,
+          // https://github.com/NVIDIA/Fuser/blob/bad998ae277ffc2f43fdc28dca07d01d737a1623/csrc/ops/alias.cpp#L764
+  ASSERT_EQ(input_sizes.size(), ndims);
+
+  const bool put_slice_op_in_top_level_expr = GetParam();
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* tv = makeContigTensor(ndims);
+  auto* start_val = IrBuilder::create<Val>(start, DataType::Index);
+  auto* stop_val = IrBuilder::create<Val>(stop, DataType::Index);
+  auto* step_val = IrBuilder::create<Val>(step, DataType::Index);
+  Slice range = {.start = start_val, .stop = stop_val, .step = step_val};
+  std::vector<Slice> ranges(ndims);
+  ranges.at(axis) = range;
+  TensorView* sliced_tv = slice(tv, ranges);
+
+  hic->addInput(tv);
+  hic->addOutput(sliced_tv);
+
+  if (put_slice_op_in_top_level_expr) {
+    hic->pushBackTopLevelExprs(sliced_tv->definition());
+  }
+
+  HostIrExecutor hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  c10::IValue input = at::randn(input_sizes, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {hie.inputs().at(0), input}};
+
+  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+
+  // validate
+  at::Tensor input_aten = input.toTensor();
+  std::vector<at::indexing::TensorIndex> ranges_aten(
+      input_aten.dim(), at::indexing::Slice());
+  ranges_aten.at(axis) = at::indexing::Slice(start, stop, step);
+  auto ref_output = input_aten.index(ranges_aten);
+
+  EXPECT_TRUE(ref_output.equal(output))
+      << "input=" << input << "\nobtained output=" << output
+      << "\nexpected output=" << ref_output;
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    SliceHostIrTest,
+    testing::Bool(),
+    [](const testing::TestParamInfo<SliceHostIrTestParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "SliceOp";
+      if (!info.param) {
+        ss << "Not";
+      }
+      ss << "InTopLevelExpr";
+      return ss.str();
+    });
+
 } // namespace hir
 
 } // namespace nvfuser
