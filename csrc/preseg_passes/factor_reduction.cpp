@@ -16,6 +16,8 @@
 
 namespace nvfuser::preseg_passes {
 
+namespace {
+
 // Transform the provided tensor domain to two domains, a producer and
 // consumer domain. These domains are created by taking axes and reducing them
 // in the producer domain, and taking the remaining reduction axes and
@@ -219,7 +221,8 @@ TensorView* detectAmaxPattern(TensorView* tv) {
 
   // Create state transition map
   std::unordered_map<State, std::vector<State>> valid_states;
-  valid_states.emplace(Start, std::vector<State>({Broadcast, Cast, MaxReduction}));
+  valid_states.emplace(
+      Start, std::vector<State>({Broadcast, Cast, MaxReduction}));
   valid_states.emplace(Broadcast, std::vector<State>({MaxReduction}));
   valid_states.emplace(Cast, std::vector<State>({Broadcast, MaxReduction}));
   valid_states.emplace(MaxReduction, std::vector<State>({Abs}));
@@ -288,22 +291,23 @@ TensorView* detectAmaxPattern(TensorView* tv) {
   return max_reduction_tv;
 }
 
-std::vector<TensorView*> findAmaxReductionDependencies(
-    Fusion* fusion,
-    TensorView* amax_reduction) {
+// Find reduction TensorView that is a dependency to amax reduction.
+TensorView* findUpstreamReduction(Fusion* fusion, TensorView* amax_reduction) {
   NVF_ERROR(
       amax_reduction != nullptr &&
           findReductionDefinition(amax_reduction, BinaryOpType::Max),
       "Expected max reduction TensorView");
 
-  std::vector<TensorView*> upstream_reductions;
-
   std::vector<TensorView*> reduction_tvs =
       scheduler_utils::getReductionTvs(fusion);
-  if (reduction_tvs.size() <= 1) {
-    return upstream_reductions;
+
+  // Short-circuit: Return nullptr if there is not any upstream reduction
+  // TensorViews.
+  if (reduction_tvs.empty()) {
+    return nullptr;
   }
 
+  std::vector<TensorView*> upstream_reductions;
   std::copy_if(
       reduction_tvs.begin(),
       reduction_tvs.end(),
@@ -319,56 +323,65 @@ std::vector<TensorView*> findAmaxReductionDependencies(
         return true;
       });
 
-  return upstream_reductions;
+  if (upstream_reductions.empty()) {
+    return nullptr;
+  }
+  return upstream_reductions.front();
 }
 
+// Find the subset of reduction iterDomains to factor from
+// reference TensorView given upstream TensorView.
 std::unordered_set<IterDomain*> findIdSubset(
     const DisjointSets<Val*>& exact_val_sets,
-    TensorView* tv,
-    TensorView* amax_reduction) {
-  // Common reduction iterDomains for reference TensorView
-  std::unordered_set<IterDomain*> id_subset;
+    TensorView* reference_tv,
+    TensorView* upstream_tv) {
+  // Gather reduction iterDomains from reference_tv
+  std::unordered_set<IterDomain*> reduction_ids_for_reference_tv;
   std::copy_if(
-      amax_reduction->getLogicalDomain().begin(),
-      amax_reduction->getLogicalDomain().end(),
-      std::inserter(id_subset, id_subset.begin()),
+      reference_tv->getLogicalDomain().begin(),
+      reference_tv->getLogicalDomain().end(),
+      std::inserter(
+          reduction_ids_for_reference_tv, reduction_ids_for_reference_tv.end()),
       [](IterDomain* id) { return id->isReduction(); });
 
-  std::cout << amax_reduction->toString() << std::endl;
-  std::cout << amax_reduction->getLogicalDomain().size() << std::endl;
-  std::cout << "!!\t" << id_subset.size() << std::endl;
+  // Return empty set if reference TensorView does not have any reduction
+  // iterDomains.
+  if (reduction_ids_for_reference_tv.empty()) {
+    return std::unordered_set<IterDomain*>();
+  }
 
-  const std::vector<IterDomain*>& tv_logical_domain = tv->getLogicalDomain();
-
-  // Collect reduction ids for this TensorView
-  std::vector<IterDomain*> reduction_ids;
+  // Collect reduction ids from upstream_tv
+  std::vector<IterDomain*> reduction_ids_for_upstream_tv;
   std::copy_if(
-      tv_logical_domain.begin(),
-      tv_logical_domain.end(),
-      std::back_inserter(reduction_ids),
+      upstream_tv->getLogicalDomain().begin(),
+      upstream_tv->getLogicalDomain().end(),
+      std::back_inserter(reduction_ids_for_upstream_tv),
       [](IterDomain* id) { return id->isReduction(); });
 
-  // Get intersection from reference subset and this TensorView
-  //  * Keep reference id if any of this TensorView's reduction ids are
-  //    mapped via Exact IdGraph.
+  // Return reduction ids for reference TensorView if upstream TensorView does
+  // not have any reduction axes.
+  if (reduction_ids_for_upstream_tv.empty()) {
+    return reduction_ids_for_reference_tv;
+  }
+
+  // Get the intersection between reference and upstream TensorViews. Keep
+  // reference iterDomain if any of the reduction iterDomains from upstream
+  // TensorView are mapped via Exact IdGraph.
   std::unordered_set<IterDomain*> intersection;
   std::copy_if(
-      id_subset.begin(),
-      id_subset.end(),
+      reduction_ids_for_reference_tv.begin(),
+      reduction_ids_for_reference_tv.end(),
       std::inserter(intersection, intersection.begin()),
       [&](IterDomain* subset_id) {
         return std::any_of(
-            reduction_ids.begin(), reduction_ids.end(), [&](IterDomain* id) {
+            reduction_ids_for_upstream_tv.begin(),
+            reduction_ids_for_upstream_tv.end(),
+            [&](IterDomain* id) {
               return exact_val_sets.permissiveAreMapped(subset_id, id);
             });
       });
 
-  // Update subsets if this TensorView has any common reduction axes
-  if (!intersection.empty()) {
-    id_subset.swap(intersection);
-  }
-  std::cout << "!!\t" << id_subset.size() << std::endl;
-  return id_subset;
+  return intersection;
 }
 
 // Get reduction indices to factor from current TensorView
@@ -400,6 +413,8 @@ std::vector<int64_t> convertIterDomainToInteger(
   return indices;
 }
 
+} // namespace
+
 void FactorReductionPass::runPass(Fusion* fusion) {
   // Gather all amax reduction TensorViews
   std::vector<TensorView*> amax_reduction_tvs;
@@ -420,13 +435,17 @@ void FactorReductionPass::runPass(Fusion* fusion) {
     return;
   }
 
+  // Create Exact Id Graph
+  FusionGuard fg(fusion);
+  IdModel id_model(fusion, /*build_graphs=*/false, /*allow_self_mapping=*/true);
+  id_model.buildExactGraph();
+  ValGraph exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const DisjointSets<Val*>& exact_val_sets = exact_graph.disjointValSets();
+
   for (TensorView* amax_reduction : amax_reduction_tvs) {
-    std::cout << amax_reduction->toString() << std::endl;
     // Detect dependency chain between amax and some reduction operation
     // Stop if we cannot find any compatible reduction tvs
-    std::vector<TensorView*> dependency_tvs =
-        findAmaxReductionDependencies(fusion, amax_reduction);
-    TensorView* upstream_tv = dependency_tvs.front();
+    TensorView* upstream_tv = findUpstreamReduction(fusion, amax_reduction);
     if (upstream_tv == nullptr && upstream_tv != amax_reduction) {
       std::cout
           << "Failed to compatible reduction TensorView for amax reduction pattern"
@@ -434,17 +453,9 @@ void FactorReductionPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    // Create Exact Id Graph
-    FusionGuard fg(fusion);
-    IdModel id_model(
-        fusion, /*build_graphs=*/false, /*allow_self_mapping=*/true);
-    id_model.buildExactGraph();
-    ValGraph exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-    const DisjointSets<Val*>& exact_val_sets = exact_graph.disjointValSets();
-
     // Partition amax reduction axes into partial reduction.
     std::unordered_set<IterDomain*> reduction_id_subset =
-        findIdSubset(exact_val_sets, upstream_tv, amax_reduction);
+        findIdSubset(exact_val_sets, amax_reduction, upstream_tv);
     NVF_ERROR(std::all_of(
         reduction_id_subset.begin(),
         reduction_id_subset.end(),
@@ -459,14 +470,13 @@ void FactorReductionPass::runPass(Fusion* fusion) {
         amax_reduction->getLogicalDomain().end(),
         [](IterDomain* id) { return id->isReduction(); });
 
-    // Skip if all ids are used for this TensorView
+    // Skip if all IterDomains are used for this TensorView
     if (rfactor_indices.size() == num_reduction_ids) {
       continue;
     }
 
     // Create partial reduction given selected axes
     factorReductionTensorView(amax_reduction, rfactor_indices);
-    fusion->printMath();
   }
 }
 
