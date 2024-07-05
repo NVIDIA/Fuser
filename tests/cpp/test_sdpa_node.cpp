@@ -632,4 +632,115 @@ TEST_F(SDPATest, AttnProgram) {
   EXPECT_TRUE(at::allclose(out[0], expected_out));
 }
 
+TEST_F(SDPATest, AttnFwdBwd) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> q_shape({n, h, l, e});
+  std::vector<int64_t> k_shape({n, h, s, e});
+  std::vector<int64_t> v_shape({n, h, s, e});
+  std::vector<int64_t> attn_shape({n, h, l, e});
+
+  auto tvq = makeConcreteTensor(q_shape, DataType::Half);
+  auto tvk = makeConcreteTensor(k_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(v_shape, DataType::Half);
+
+  fusion->addInput(tvq);
+  fusion->addInput(tvk);
+  fusion->addInput(tvv);
+
+  auto sdpa_fwd_out = sdpfa_fwd(
+      tvq,
+      tvk,
+      tvv,
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(false),
+      /*scale=*/nullptr);
+
+  auto tv_grad_output = makeConcreteTensor(attn_shape, DataType::Half);
+  fusion->addInput(tv_grad_output);
+
+  auto sdpa_grad = sdpfa_bwd(
+      tv_grad_output,
+      tvq,
+      tvk,
+      tvv,
+      sdpa_fwd_out.output,
+      sdpa_fwd_out.log_sumexp,
+      sdpa_fwd_out.cum_seq_q,
+      sdpa_fwd_out.cum_seq_k,
+      sdpa_fwd_out.query_seq_len,
+      sdpa_fwd_out.key_seq_len,
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(false),
+      sdpa_fwd_out.philox_seed,
+      sdpa_fwd_out.philox_offset,
+      /*scale=*/nullptr
+  );
+
+  fusion->addOutput(sdpa_fwd_out.output);
+  fusion->addOutput(sdpa_grad.grad_query);
+  fusion->addOutput(sdpa_grad.grad_key);
+  fusion->addOutput(sdpa_grad.grad_value);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor q = at::randn(q_shape, options).set_requires_grad(true);
+  at::Tensor k = at::randn(k_shape, options).set_requires_grad(true);
+  at::Tensor v = at::randn(v_shape, options).set_requires_grad(true);
+  at::Tensor grad_out = at::randn(attn_shape, options);
+
+  FusionExecutor fe;
+  std::for_each(
+      fusion->outputs().begin(), fusion->outputs().end(), [&](Val* out) {
+        fusion->aliasOutputToInput(
+            out, /*input=*/nullptr, AllocationType::Evaluate);
+      });
+  fe.compileFusion(fusion.get(), {q, k, v, grad_out});
+  auto nvf_grad_out = fe.runFusion({q, k, v, grad_out});
+
+  double scale = 1.0 / std::sqrt(e);
+  auto [attn,
+       log_sumexp,
+       cum_seq_q,
+       cum_seq_k,
+       query_seq_len,
+       key_seq_len,
+       philox_seed,
+       philox_offset,
+       debug_attn_mask] = at::_scaled_dot_product_flash_attention(
+      q,
+      k,
+      v,
+      /*dropout_p=*/0.0,
+      /*is_causal=*/false,
+      /*return_debug_mask=*/false,
+      scale);
+  
+  auto [ref_grad_query, ref_grad_key, ref_grad_value] =
+    at::_scaled_dot_product_flash_attention_backward(
+        grad_out,
+        q,
+        k,
+        v,
+        attn,
+        log_sumexp,
+        cum_seq_q,
+        cum_seq_k,
+        /*max_q=*/*query_seq_len.maybe_as_int(),
+        /*max_k=*/*key_seq_len.maybe_as_int(),
+        /*dropout_p=*/0.0,
+        /*is_causal=*/false,
+        philox_seed,
+        philox_offset,
+        /*scale=*/scale);
+  
+  testValidate(
+      fusion.get(),
+      nvf_grad_out,
+      {q, k, v, grad_out},
+      {attn, ref_grad_query, ref_grad_key, ref_grad_value},
+      __LINE__,
+      __FILE__);
+}
 } // namespace nvfuser
