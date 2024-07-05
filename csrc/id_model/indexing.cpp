@@ -46,7 +46,7 @@ IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
 
 // True if a given domain is a loop domain of a given tensor and its
 // loop is partitioned with respect to the memory type of the tensor
-bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
+bool isPartitionedLoop(const TensorView* tv, IterDomain* id) {
   // False if id is not a loop ID
   if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
       tv->getLoopDomain().end()) {
@@ -64,7 +64,7 @@ bool isSizeOneDomain(IterDomain* id) {
 }
 
 // True if a given domain of a tensor *may* require allocation
-bool mayRequireAllocation(TensorView* tv, IterDomain* id) {
+bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
   // Conditions to consider:
   // - Fully partitioned
   // - Size one: Allocation is done based on the promotion ID, but as
@@ -619,14 +619,17 @@ class AllocationDomainSetup : private kir::IrVisitor {
       Expr* expr = *it;
       for (auto out : expr->outputs()) {
         auto it = equiv_domain_set.find(out->as<IterDomain>());
-        if (it == equiv_domain_set.end()) {
+        if (it == equiv_domain_set.end() &&
+            mayRequireAllocation(tv, out->as<IterDomain>())) {
           // missing dependency
           return std::nullopt;
         }
-        equiv_domain_set.erase(it);
-        for (auto input : expr->inputs()) {
-          equiv_domain_set.insert(input->as<IterDomain>());
+        if (it != equiv_domain_set.end()) {
+          equiv_domain_set.erase(it);
         }
+      }
+      for (auto input : expr->inputs()) {
+        equiv_domain_set.insert(input->as<IterDomain>());
       }
     }
 
