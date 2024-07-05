@@ -202,6 +202,11 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
   }
 }
 
+void HostIrExecutor::handle(SliceOp* slice_op) {
+  Val* output = slice_op->out();
+  expr_evaluator_.bind(output, expr_evaluator_.evaluate(output), true);
+}
+
 } // namespace hir
 
 } // namespace nvfuser
