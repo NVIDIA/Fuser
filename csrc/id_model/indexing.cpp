@@ -1835,20 +1835,32 @@ class AllocationDomainSetup : private kir::IrVisitor {
         {producer_common_merge->out()},
         {allocation_domains.begin(), allocation_domains.end()});
 
-    std::unordered_set<IterDomain*> allocation_domain_set(
+    std::unordered_set<IterDomain*> equiv_domain_set(
         allocation_domains.begin(), allocation_domains.end());
-    for (auto expr : producer_merge_dep_exprs) {
+
+    // Traverse back from the allocation domains to the merge output
+    // and see if they are equivalent
+    for (auto it = producer_merge_dep_exprs.rbegin();
+         it != producer_merge_dep_exprs.rend();
+         ++it) {
+      Expr* expr = *it;
       for (auto out : expr->outputs()) {
-        auto it = allocation_domain_set.find(out->as<IterDomain>());
-        if (it == allocation_domain_set.end()) {
+        auto it = equiv_domain_set.find(out->as<IterDomain>());
+        if (it == equiv_domain_set.end()) {
           // missing dependency
           return std::nullopt;
         }
-        allocation_domain_set.erase(it);
+        equiv_domain_set.erase(it);
+        for (auto input : expr->inputs()) {
+          equiv_domain_set.insert(input->as<IterDomain>());
+        }
       }
     }
 
-    if (!allocation_domain_set.empty()) {
+    // If they are equivalent, the merge output should be the only
+    // remaining domain
+    if (!(equiv_domain_set.size() == 1 &&
+          *(equiv_domain_set.begin()) == producer_common_merge->out())) {
       // Not all allocation domains are used, meaning the merge output
       // is not equivalent to the allocation domains
       return std::nullopt;
