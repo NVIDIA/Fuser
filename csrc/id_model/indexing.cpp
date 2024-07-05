@@ -836,7 +836,8 @@ Val* TensorIndexer::getLinearIndex(
         SimplifyingIrBuilder::mulExpr(replaced_idx, contig_strides.at(i)));
   }
 
-  // Process double buffering when for-loops are given
+  // If a tensor is circular buffered, it also requires indexing of
+  // the circular buffer itself
   if (tv->isCircularBuffered() && GpuLower::hasCurrent()) {
     auto adjusted_index =
         adjustIndexToSwitchBuffer(tv, as_consumer, for_loops, linear_index);
@@ -1106,16 +1107,9 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
   NVF_ERROR(db_loop != nullptr);
 
   // Mostly just copied from getNonGlobalConsumerStridedIndices
-  auto stage_depth = (int64_t)gpu_lower->circularBufferInfo().getStageDepthFor(
-      db_loop->iter_domain());
-  bool is_circular_buffer_loop = stage_depth > 2;
-  bool is_prolog =
-      db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
-
-  NVF_ERROR(!is_circular_buffer_loop, "Circular buffering not supported yet");
 
   // Prologue doesn't need anything here
-  if (is_prolog) {
+  if (db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
     return idx;
   }
 
@@ -1123,6 +1117,10 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
   if (db_loop->isTrivial()) {
     loop_index = db_loop->start();
   }
+
+  const auto stage_depth =
+      (int64_t)gpu_lower->circularBufferInfo().getStageDepthFor(
+          db_loop->iter_domain());
 
   auto db_index_offset = loop_index;
   if (as_consumer) {
@@ -2154,14 +2152,11 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
   for (const auto& tv : all_tvs) {
     std::stringstream reason;
 
-    if (tv->isCircularBuffered()) {
-      reason << "Circular buffering is used: " << tv->toString();
-    } else if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
-               loadstore != nullptr &&
-               (loadstore->opType() == LoadStoreOpType::LdMatrix ||
-                loadstore->opType() == LoadStoreOpType::CpAsync ||
-                loadstore->opType() ==
-                    LoadStoreOpType::CpAsyncBulkTensorTile)) {
+    if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
+        loadstore != nullptr &&
+        (loadstore->opType() == LoadStoreOpType::LdMatrix ||
+         loadstore->opType() == LoadStoreOpType::CpAsync ||
+         loadstore->opType() == LoadStoreOpType::CpAsyncBulkTensorTile)) {
       reason << "LoadStoreOp not supported: " << loadstore->toString();
     } else {
       for (const auto& id : ir_utils::allIDsOf(tv)) {
