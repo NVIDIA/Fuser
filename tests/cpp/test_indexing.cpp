@@ -167,7 +167,8 @@ class IndexValidator : public kir::IrVisitor {
     // If no ref is obtained, skip validation
   }
 
-  static void validate(Fusion* fusion) {
+  template <typename... Args>
+  static void validate(Fusion* fusion, Args... args) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"consumer_index", "producer_index"});
@@ -188,7 +189,7 @@ class IndexValidator : public kir::IrVisitor {
     testing::internal::GetCapturedStderr();
 
     IndexValidator<GetReference> validator(
-        lower, GetReference(lower.tensorIndexer()));
+        lower, GetReference(lower.tensorIndexer(), args...));
 
     FusionGuard fg(kernel);
     validator.handle(kernel->topLevelExprs());
@@ -1432,6 +1433,97 @@ TEST_F(IndexingTest, InlinedUnroll) {
   };
 
   IndexValidator<GetReference>::validate(&fusion);
+}
+
+TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = transpose(tv1, 0, 1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  // Reproduce the transpose scheduler manually
+  tv3->setMemoryType(MemoryType::Shared);
+
+  for (auto tv : {tv2, tv3}) {
+    tv->reorder({{0, 1}});
+  }
+
+  // [I0, I1] -> [(I0/32 * I1/32), (32 * 32) / 4, 4]
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    tv->split(0, 32);
+    tv->split(2, 32);
+    tv->reorder({{1, 2}});
+    tv->merge(2, 3);
+    if (tv == tv4) {
+      tv->merge(1, 0);
+    } else {
+      tv->merge(0, 1);
+    }
+    tv->split(-1, 4);
+
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  // tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv4->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // Validate the smem tensor index. Its allocation domain should be
+  // [32, 32], where each "32" comes from I1 and I0, respectively.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, StmtNameType smem_tv_name)
+        : AbstractGetReference(indexer), smem_tv_name(smem_tv_name) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      if (tv->name() != smem_tv_name) {
+        return nullptr;
+      }
+
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      auto merge_output_idx = IrBuilder::addExpr(
+          mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+          (as_consumer ? loop_indices.at(2) : tv->fusion()->zeroVal()));
+
+      auto val32 = tv->axis(-1)
+                       ->definition()
+                       ->input(0)
+                       ->definition()
+                       ->input(0)
+                       ->as<IterDomain>()
+                       ->extent();
+      auto merge_outer_idx = divExpr(merge_output_idx, val32);
+      auto merge_inner_idx = modExpr(merge_output_idx, val32);
+
+      if (as_consumer) {
+        return addExpr(mulExpr(merge_inner_idx, val32), merge_outer_idx);
+      } else {
+        return addExpr(mulExpr(merge_outer_idx, val32), merge_inner_idx);
+      }
+    }
+
+    StmtNameType smem_tv_name;
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, tv3->name());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input0 = at::randn({256, 256}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {input0});
+  auto outputs = fe.runFusion({input0});
+
+  testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
