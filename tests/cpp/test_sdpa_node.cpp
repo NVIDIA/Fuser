@@ -341,6 +341,10 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   auto tv_logsumexp = makeConcreteTensor({n, h, l}, DataType::Float);
   auto tv_cumq = makeConcreteTensor({0}, DataType::Null);
   auto tv_cumk = makeConcreteTensor({0}, DataType::Null);
+  auto tv_maxq = makeConcreteTensor({}, DataType::Int);
+  tv_maxq->setCpuScalar(true);
+  auto tv_maxk = makeConcreteTensor({}, DataType::Int);
+  tv_maxk->setCpuScalar(true);
   auto tv_seed = makeConcreteTensor({}, DataType::Int);
   tv_seed->setCpuScalar(true);
   auto tv_offset = makeConcreteTensor({}, DataType::Int);
@@ -354,6 +358,8 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   fusion->addInput(tv_logsumexp);
   fusion->addInput(tv_cumq);
   fusion->addInput(tv_cumk);
+  fusion->addInput(tv_maxq);
+  fusion->addInput(tv_maxk);
   fusion->addInput(tv_seed);
   fusion->addInput(tv_offset);
 
@@ -366,8 +372,8 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       tv_logsumexp,
       tv_cumq,
       tv_cumk,
-      /*max_q=*/IrBuilder::create<Val>(*query_seq_len.maybe_as_int()),
-      /*max_k=*/IrBuilder::create<Val>(*key_seq_len.maybe_as_int()),
+      tv_maxq,
+      tv_maxk,
       /*dropout_p=*/IrBuilder::create<Val>(dropout_p),
       /*is_causal=*/IrBuilder::create<Val>(is_causal),
       tv_seed,
@@ -379,7 +385,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   fusion->addOutput(tvgrad.grad_value);
 
   at::Tensor grad_out = at::randn(attn_shape, options);
-
+  
   std::vector<c10::IValue> sdpa_bwd_inputs = {
       grad_out,
       q,
@@ -389,6 +395,9 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       log_sumexp,
       cum_seq_q,
       cum_seq_k,
+      // max_q/k are represented as CPU scalar tensors in nvFuser and integers in ATen.
+      at::scalar_tensor(*query_seq_len.maybe_as_int(), at::dtype(at::kLong)),
+      at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       philox_seed,
       philox_offset};
   FusionExecutor fe;
@@ -474,6 +483,10 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
   auto tv_cumq = makeSymbolicTensor(1, DataType::Null);
   auto tv_cumk = makeSymbolicTensor(1, DataType::Null);
+  auto tv_maxq = makeSymbolicTensor({}, DataType::Int);
+  tv_maxq->setCpuScalar(true);
+  auto tv_maxk = makeSymbolicTensor({}, DataType::Int);
+  tv_maxk->setCpuScalar(true);
   auto tv_seed = makeSymbolicTensor({}, DataType::Int);
   tv_seed->setCpuScalar(true);
   auto tv_offset = makeSymbolicTensor({}, DataType::Int);
@@ -487,6 +500,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   fusion->addInput(tv_logsumexp);
   fusion->addInput(tv_cumq);
   fusion->addInput(tv_cumk);
+  fusion->addInput(tv_maxq);
+  fusion->addInput(tv_maxk);
   fusion->addInput(tv_seed);
   fusion->addInput(tv_offset);
 
@@ -499,8 +514,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
       tv_logsumexp,
       tv_cumq,
       tv_cumk,
-      /*max_q=*/IrBuilder::create<Val>(*query_seq_len.maybe_as_int()),
-      /*max_k=*/IrBuilder::create<Val>(*key_seq_len.maybe_as_int()),
+      tv_maxq,
+      tv_maxk,
       /*dropout_p=*/IrBuilder::create<Val>(dropout_p),
       /*is_causal=*/IrBuilder::create<Val>(is_causal),
       tv_seed,
@@ -522,6 +537,9 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
       log_sumexp,
       cum_seq_q,
       cum_seq_k,
+      // max_q/k are represented as CPU scalar tensors in nvFuser and integers in ATen.
+      at::scalar_tensor(*query_seq_len.maybe_as_int(), at::dtype(at::kLong)),
+      at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       philox_seed,
       philox_offset};
   FusionExecutor fe;
