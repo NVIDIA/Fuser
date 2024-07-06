@@ -11,6 +11,7 @@
 
 #include <kernel_cache.h>
 #include <python_frontend/fusion_record.h>
+#include <scheduler/registry.h>
 
 #include <memory>
 #include <mutex>
@@ -23,6 +24,8 @@ namespace nvfuser::python_frontend {
 struct UserSchedule {
   UserSchedule();
 
+  //! Runtime information for schedulers
+  std::unique_ptr<SchedulerRuntimeInfo> runtime_info;
   //! Scheduled Fusion IR
   std::unique_ptr<Fusion> schedule;
   //! Generated kernel container

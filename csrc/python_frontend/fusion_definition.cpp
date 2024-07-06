@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <debug.h>
+#include <executor_kernel_arg.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <multidevice/communicator.h>
@@ -109,8 +110,8 @@ void FusionDefinition::finalizeDefinition() {
 void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
-  auto scheds = fusionCache()->queryFusionSchedules(id().value());
-  auto device = getCommonDeviceCUDA(inputs);
+  FusionSchedules* scheds = fusionCache()->queryFusionSchedules(id().value());
+  int8_t device = getCommonDeviceCUDA(inputs);
   NVF_CHECK(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
   NVF_CHECK(user_sched_ == nullptr, "Expected User Scheduler to be null!");
@@ -122,6 +123,14 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // members that represent tensors would refer to the IR objects in the
   // original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
+
+  // Create runtime info for schedulers
+  Fusion* user_schedule_fusion = user_sched_->schedule.get();
+  user_sched_->runtime_info = std::make_unique<SchedulerRuntimeInfo>(
+      user_schedule_fusion,
+      KernelArgumentHolder::createKernelArgumentHolder(inputs, device),
+      /*precomuted_values=*/nullptr,
+      ir_utils::allTvs(user_schedule_fusion));
 
   // Manually setting the fusion guard as there is not a good way of using a
   // guard in a local scope across the schedule function
