@@ -631,7 +631,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
   testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
+TEST_F(NVFuserTest, FusionFactorAmaxBroadcast_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -668,11 +668,13 @@ TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
   runtime.compileFusionParallel(args);
 
+  // Two segments are created because a partial reduction and a full reduction
+  // cannot be in the same fusion.
   std::vector<std::unique_ptr<Fusion>> segments = runtime.getFusionSegments();
   EXPECT_EQ(segments.size(), 2);
 
+  // Expect partial reduction for amax to be saved as output of first fusion
   Fusion* first_fusion = segments.front().get();
-
   EXPECT_EQ(first_fusion->outputs().size(), 2);
   Val* last_output = first_fusion->outputs().back();
 
@@ -684,12 +686,14 @@ TEST_F(NVFuserTest, FusionFactorAbsMax_CUDA) {
       partial_amax->definition()->as<ReductionOp>()->getReductionOpType() ==
           BinaryOpType::Max);
 
+  // Check that there is a single reduction axis
   std::vector<IterDomain*> logical_domain = partial_amax->getLogicalDomain();
   int64_t num_reduction_axes = std::count_if(
-      logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
-        return id->isReduction();
-      });
+      partial_amax->getLogicalDomain().begin(),
+      partial_amax->getLogicalDomain().end(),
+      [](IterDomain* id) { return id->isReduction(); });
   EXPECT_EQ(num_reduction_axes, 1);
+  EXPECT_EQ(partial_amax->getLogicalDomain().size(), 2);
 
   auto outputs = runtime.runWithInputs(args);
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
