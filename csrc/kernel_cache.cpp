@@ -437,9 +437,11 @@ void prepareRuntimeOrder(
 
 FusionExecutorCache::FusionExecutorCache(
     std::unique_ptr<Fusion> fusion,
+    Communicator* communicator,
     int64_t fusion_id,
     bool auto_schedule)
     : fusion_(std::move(fusion)),
+      communicator_(communicator),
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
