@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/factor_reduction.h>
+#include <preseg_passes/factor_amax_reduction.h>
 
 #include <id_model/id_model.h>
 #include <scheduler/utils.h>
@@ -415,7 +415,7 @@ std::vector<int64_t> convertIterDomainToInteger(
 
 } // namespace
 
-void FactorReductionPass::runPass(Fusion* fusion) {
+void FactorAmaxReductionPass::runPass(Fusion* fusion) {
   // Gather all amax reduction TensorViews
   std::vector<TensorView*> amax_reduction_tvs;
   for (Val* output : fusion->outputs()) {

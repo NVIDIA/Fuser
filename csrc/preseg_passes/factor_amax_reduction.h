@@ -63,13 +63,14 @@ namespace nvfuser::preseg_passes {
 //  * Absolute reduction output but not maximum definition
 //  * A maximum output but not an absolute value
 
-class FactorReductionPass : public OptimizationPass<FactorReductionPass> {
-  friend class OptimizationPass<FactorReductionPass>;
+class FactorAmaxReductionPass
+    : public OptimizationPass<FactorAmaxReductionPass> {
+  friend class OptimizationPass<FactorAmaxReductionPass>;
 
  protected:
   NVF_API static void runPass(Fusion* fusion);
   static std::string name() {
-    return "AmaxFactorReductionPass";
+    return "FactorAmaxReductionPass";
   }
 };
 
