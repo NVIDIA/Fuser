@@ -523,19 +523,15 @@ std::vector<IterDomain*> getPredicateDomains(
 
 ForLoop* getForLoop(
     IterDomain* loop_id,
-    const std::optional<std::vector<ForLoop*>>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     const ValGraph& loop_graph) {
-  if (!for_loops.has_value()) {
-    return nullptr;
-  }
-
   auto it = std::find_if(
-      for_loops->begin(), for_loops->end(), [&](ForLoop* for_loop) -> bool {
+      for_loops.begin(), for_loops.end(), [&](ForLoop* for_loop) -> bool {
         IterDomain* for_loop_id = for_loop->iter_domain();
         return loop_graph.disjointValSets().strictAreMapped(
             loop_id, for_loop_id);
       });
-  if (it != for_loops->end()) {
+  if (it != for_loops.end()) {
     return *it;
   } else {
     return nullptr;
@@ -639,7 +635,8 @@ Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
 }
 
 std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
-    const std::vector<IterDomain*>& loop_domains) const {
+    const std::vector<IterDomain*>& loop_domains,
+    const std::vector<ForLoop*>& for_loops) const {
   std::unordered_map<ValGroup, Val*> initial_index_map;
 
   // For a given list of the loop domains, assign its corresponding
@@ -666,6 +663,35 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
       continue;
     }
 
+    // This is a WAR for circular buffering. The loop graph is
+    // designed to represent each loop and each loop group is supposed
+    // to have a one-to-one relationship with each loop. However, for
+    // circular buffering, this assumption is broken as we are using
+    // the same iter domain for the prologue, main and epilogue
+    // loops. Those loops should have distinctive loop groups, but for
+    // now, here's a workaround to assign a correct loop index
+    {
+      const IdModel& id_model = GpuLower::current()->idModel();
+      const ValGroup& loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
+      auto loop_it =
+          std::find_if(for_loops.begin(), for_loops.end(), [&](auto fl) {
+            return loop_group->has(fl->iter_domain());
+          });
+      // It's possible that there's no corresponding ForLoop, i.e,
+      // when this loop ID corresponds to a reduction
+      // domain and we are building a map for the expression to
+      // initialize the reduction buffer. For such a case, this WAR is
+      // irrelevant.
+      if (loop_it != for_loops.end()) {
+        ForLoop* fl = *loop_it;
+        if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog ||
+            fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
+          loop_index = fl->indexOrStartIfTrivial();
+        }
+      }
+    }
+
     initial_index_map.emplace(almost_exact_group, loop_index);
   }
 
@@ -675,7 +701,7 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 std::vector<Val*> TensorIndexer::getIndexFor(
     const Expr* expr,
     bool as_consumer,
-    const std::optional<std::vector<ForLoop*>>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     const ValGroups& index_groups) const {
   const auto& info = computeIndex(expr, for_loops, index_groups, false, false);
   const auto& replacement_map = getIndexReplacementMap(
@@ -875,7 +901,7 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
-    const std::optional<std::vector<ForLoop*>>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     const ValGroups& index_groups,
     bool is_predicate,
     bool is_unswitch) const {
@@ -914,12 +940,12 @@ IndexingInfo TensorIndexer::computeIndex(
   VERBOSE() << "--- path done ---\n";
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
-      getInitialIndexMap(loop_domains);
+      getInitialIndexMap(loop_domains, for_loops);
 
   const std::unordered_set<ValGroup> max_path_loop_domains = is_unswitch
       ? getMaxPathLoopDomains(
             ir_utils::getTvOutput(expr),
-            for_loops.value(),
+            for_loops,
             id_model_.idGraph(IdMappingMode::LOOP),
             traversalGraph())
       : std::unordered_set<ValGroup>{};
@@ -939,7 +965,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     const Expr* expr,
     bool as_consumer,
     const std::vector<IterDomain*>& loop_domains,
-    const std::optional<std::vector<ForLoop*>>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
@@ -981,7 +1007,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
       }
     }
 
-    if (replacement_index == nullptr) {
+    if (replacement_index == nullptr || cur_index == nullptr) {
       continue;
     }
 
@@ -997,7 +1023,7 @@ std::vector<Val*> TensorIndexer::getPerDimIndex(
     TensorView* tv,
     const std::vector<IterDomain*>& index_domains,
     const Expr* expr,
-    const std::optional<std::vector<ForLoop*>>& for_loops) {
+    const std::vector<ForLoop*>& for_loops) {
   const auto& traversal_graph = id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
 
   VERBOSE() << "getPerDimIndex of " << toDelimitedString(index_domains)
@@ -1108,31 +1134,29 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
 
   // Mostly just copied from getNonGlobalConsumerStridedIndices
 
-  // Prologue doesn't need anything here
-  if (db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
-    return idx;
-  }
+  bool is_epilogue =
+      db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
 
-  auto loop_index = getLoopIndex(db_loop->iter_domain());
-  if (db_loop->isTrivial()) {
-    loop_index = db_loop->start();
-  }
+  auto loop_index = db_loop->indexOrStartIfTrivial();
 
   const auto stage_depth =
       (int64_t)gpu_lower->circularBufferInfo().getStageDepthFor(
           db_loop->iter_domain());
 
   auto db_index_offset = loop_index;
-  if (as_consumer) {
+  if (as_consumer && !is_epilogue) {
     // Read-ahead offset for consumer indexing
     db_index_offset = SimplifyingIrBuilder::addExpr(
         db_index_offset,
         SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
   }
 
-  db_index_offset = SimplifyingIrBuilder::modExpr(
-      db_index_offset,
-      SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
+  // % `num_stages` not necessary in epilogue
+  if (!is_epilogue) {
+    db_index_offset = SimplifyingIrBuilder::modExpr(
+        db_index_offset,
+        SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
+  }
 
   auto original_alloc_size =
       gpu_lower->circularBufferInfo().getOriginalAllocSize(tv);
@@ -1939,7 +1963,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
 std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
-    const std::optional<std::vector<ForLoop*>>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     bool is_unswitch) {
   if (is_unswitch) {
     VERBOSE() << "get unswitch predicates of " << tv->toString() << " in "
@@ -1949,8 +1973,6 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
               << expr->toString();
   }
 
-  NVF_ERROR(for_loops.has_value());
-
   // For a double buffered tensor, use the predicate from the main
   // loop only. The prologue loop is only for the first element, so it
   // should be ignored. Double buffering may or may not create the
@@ -1958,7 +1980,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
   // predicate of the main loop.
   if (is_unswitch) {
     if (auto loop_stage = getCircularBufferLoopStage(
-            tv, *for_loops, id_model_.idGraph(IdMappingMode::LOOP));
+            tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
         loop_stage.has_value() &&
         loop_stage.value() != CircularBufferLoopStage::Main) {
       return {};
@@ -1982,10 +2004,10 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
   const auto& index_map = index_info.index_map;
 
   auto replacement_map_start = getPredicateIndexReplacementMap(
-      tv, for_loops.value(), true, is_unswitch, index_map, traversal_graph);
+      tv, for_loops, true, is_unswitch, index_map, traversal_graph);
 
   auto replacement_map_stop = getPredicateIndexReplacementMap(
-      tv, for_loops.value(), false, is_unswitch, index_map, traversal_graph);
+      tv, for_loops, false, is_unswitch, index_map, traversal_graph);
 
   auto non_divisible_splits = getNonDivisibleConsumerDomainsToPredicate(tv);
 
@@ -2155,7 +2177,7 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
     if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
         loadstore != nullptr &&
         (loadstore->opType() == LoadStoreOpType::LdMatrix ||
-         loadstore->opType() == LoadStoreOpType::CpAsync ||
+         // loadstore->opType() == LoadStoreOpType::CpAsync ||
          loadstore->opType() == LoadStoreOpType::CpAsyncBulkTensorTile)) {
       reason << "LoadStoreOp not supported: " << loadstore->toString();
     } else {

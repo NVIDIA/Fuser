@@ -81,7 +81,7 @@ class TensorIndexer {
   std::vector<Val*> getIndexFor(
       const Expr* expr,
       bool as_consumer,
-      const std::optional<std::vector<ForLoop*>>& for_loops,
+      const std::vector<ForLoop*>& for_loops,
       const ValGroups& index_groups) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
@@ -95,7 +95,7 @@ class TensorIndexer {
   std::vector<RootPredicateInfo> getPredicates(
       TensorView* tv,
       const Expr* expr,
-      const std::optional<std::vector<ForLoop*>>& loops,
+      const std::vector<ForLoop*>& for_loops,
       bool is_unswitch);
 
   // TODO: Drop tv
@@ -103,7 +103,7 @@ class TensorIndexer {
       TensorView* tv,
       const std::vector<IterDomain*>& index_domains,
       const Expr* expr,
-      const std::optional<std::vector<ForLoop*>>& loops);
+      const std::vector<ForLoop*>& loops);
 
   // Traverse exprs and set allocation info for each tensor
   void setupAllocationDomains(const std::vector<Expr*>& exprs);
@@ -130,7 +130,7 @@ class TensorIndexer {
   // getIndexFor.
   IndexingInfo computeIndex(
       const Expr* expr,
-      const std::optional<std::vector<ForLoop*>>& loops,
+      const std::vector<ForLoop*>& for_loops,
       const ValGroups& index_domains,
       bool is_predicate,
       bool is_unswitch) const;
@@ -150,7 +150,8 @@ class TensorIndexer {
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
   // index map, which is built for the Loop graph.
   std::unordered_map<ValGroup, Val*> getInitialIndexMap(
-      const std::vector<IterDomain*>& loop_domains) const;
+      const std::vector<IterDomain*>& loop_domains,
+      const std::vector<ForLoop*>& for_loops) const;
 
   // Get the loop domains of a given expr. Currently, they're always
   // the loop domains of a consumer tensor, but in the future this
@@ -186,7 +187,7 @@ class TensorIndexer {
       const Expr* expr,
       bool as_consumer,
       const std::vector<IterDomain*>& loop_domains,
-      const std::optional<std::vector<ForLoop*>>& for_loops,
+      const std::vector<ForLoop*>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
   std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
