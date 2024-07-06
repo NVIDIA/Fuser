@@ -171,17 +171,31 @@ INSTANTIATE_TEST_SUITE_P(
          {{1, 2}, {0, 1}}, //
          {{1, 2}, {1, 0}}})));
 
-using LowerCollectiveTest = MultiDeviceTest;
+enum class ExecutionMode {
+  kFusionExecutor,
+  kFusionExecutorCache,
+};
+
+class LowerCollectiveTest : public MultiDeviceTest,
+                            public testing::WithParamInterface<ExecutionMode> {
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    LowerCollectiveTest,
+    testing::Values(
+        ExecutionMode::kFusionExecutor,
+        ExecutionMode::kFusionExecutorCache));
 
 TEST_F(LowerCollectiveTest, Allgather) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   const auto num_devices = communicator_->size();
   TensorView* in = makeContigTensor(2);
   TensorView* out = set(in);
-  fusion.addInput(in);
-  fusion.addOutput(out);
+  fusion->addInput(in);
+  fusion->addOutput(out);
 
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
   in->setDeviceMesh(mesh);
@@ -194,7 +208,7 @@ TEST_F(LowerCollectiveTest, Allgather) {
       shardTensor(unsharded_tensor, in, communicator_->deviceId());
 
   FusionExecutor fe(communicator_);
-  fe.compileFusion(&fusion, {in_tensor});
+  fe.compileFusion(fusion.get(), {in_tensor});
   assertIsCompiledToHostIrContainer(fe);
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
 
