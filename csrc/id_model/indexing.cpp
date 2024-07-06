@@ -2176,9 +2176,9 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
 
     if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
         loadstore != nullptr &&
-        (loadstore->opType() == LoadStoreOpType::LdMatrix ||
+        (loadstore->opType() == LoadStoreOpType::LdMatrix)) {
          // loadstore->opType() == LoadStoreOpType::CpAsync ||
-         loadstore->opType() == LoadStoreOpType::CpAsyncBulkTensorTile)) {
+         //loadstore->opType() == LoadStoreOpType::CpAsyncBulkTensorTile)) {
       reason << "LoadStoreOp not supported: " << loadstore->toString();
     } else {
       for (const auto& id : ir_utils::allIDsOf(tv)) {
