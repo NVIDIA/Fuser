@@ -9,6 +9,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <fusion_profiler.h>
 #include <grouped_reduction.h>
 #include <inlining.h>
 #include <ir/utils.h>
@@ -171,8 +172,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         __LINE__,
         __FILE__);
     if (isBenchmark) {
-      FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
-      fkr->enableKernelTimeMeasurement();
+      ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
 
       constexpr int nwarm = 5;
       constexpr int niter = 10;
@@ -203,12 +203,9 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         // fe.runFusion(inputs, outputs, launch_constraints);
         auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
         if (i >= nwarm) {
-          float runTimeus = 0.0f;
-          int num_kernels = fkr->executors().size();
-          for (int i = 0; i < num_kernels; i++) {
-            const FusionExecutor& fe = fkr->executors()[i];
-            runTimeus += fe.kernelTimeMs() * 1e3;
-          }
+          float runTimeus =
+              static_cast<float>(FusionProfiler::profile().kernel_time_ms) *
+              1.0e3;
           float bandwidth = read_write_bytes / 1e9 / (runTimeus * 1e-6);
           timeus[i - nwarm] = runTimeus;
           bw[i - nwarm] = bandwidth;
@@ -217,6 +214,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
                       << ", time= " << runTimeus << " us" << std::endl;
         }
       }
+      ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
       return getMeanVar(timeus);
     } else {
       if (verbose == 1) {

@@ -108,7 +108,6 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"cuda_to_file", DebugDumpOption::CudaToFile},
       {"debug_info", DebugDumpOption::DebugInfo},
       {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
-      {"dump_eff_bandwidth", DebugDumpOption::EffectiveBandwidth},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
       {"expr_sort_verbose", DebugDumpOption::ExprSortVerbose},

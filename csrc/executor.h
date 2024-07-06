@@ -255,20 +255,6 @@ class FusionExecutor : public NonCopyable {
     execute_kernel_ = execute_kernel;
   }
 
-  //! Internal knob used for debugging/profiling only
-  void setMeasureKernelTimeFlag(bool measure_kernel_time) {
-    measure_kernel_time_ = measure_kernel_time;
-  }
-
-  //! Returns the last kernel execution time, in milliseconds
-  //!
-  //! \note The kernel time is only tracked if enabled by calling
-  //!    setMeasureKernelTimeFlag(true)
-  //!
-  float kernelTimeMs() const {
-    return measure_kernel_time_ ? kernel_time_ms_ : 0;
-  }
-
   //! get occupancy of the last kernel execution
   float getKernelOccupancy() const {
     NVF_ERROR(
@@ -291,34 +277,6 @@ class FusionExecutor : public NonCopyable {
   int64_t inputBytesProcessed(const KernelArgumentHolder& args);
   //! Returns the output bytes accessed for a kernel
   int64_t outputBytesProcessed(const std::vector<at::Tensor>& outputs);
-
-  //! Returns the number of bytes processed last kernel execution
-  int64_t bytesProcessed() const {
-    int64_t bytes_processed = 0;
-    for (auto bp : bytesInputsProcessed()) {
-      bytes_processed += bp;
-    }
-    for (auto bp : bytesOutputsProcessed()) {
-      bytes_processed += bp;
-    }
-    return bytes_processed;
-  }
-
-  //! Get a vector of bytes processed across all kernel inputs
-  const std::vector<int64_t>& bytesInputsProcessed() const {
-    NVF_CHECK(
-        bytes_processed_per_input_.has_value(),
-        "bytes_processed_per_input_ is not defined!");
-    return bytes_processed_per_input_.value();
-  }
-
-  //! Get a vector of bytes processed across all kernel outputs
-  const std::vector<int64_t>& bytesOutputsProcessed() const {
-    NVF_CHECK(
-        bytes_processed_per_output_.has_value(),
-        "bytes_processed_per_output_ is not defined!");
-    return bytes_processed_per_output_.value();
-  }
 
   //! Returns the launch parameters from the last kernel execution
   LaunchParams lastLaunchParams() const {
@@ -631,23 +589,9 @@ class FusionExecutor : public NonCopyable {
   // kernel on the GPU or not
   bool execute_kernel_ = true;
 
-  // Profiling support: knob to enable measuring kernel execution time
-  bool measure_kernel_time_ = false;
-
-  // Profiling support: the last kernel execution time, if measure_kernel_time_
-  // is true
-  float kernel_time_ms_ = 0;
-
   // Heuristic tuning support: the last kernel occupancy, if
   // DebugDumpOption::Occupancy is true
   float kernel_occupancy_ = -1.0f;
-
-  // Profiling support: last kernel bytes processed in each input
-  std::optional<std::vector<int64_t>> bytes_processed_per_input_ = std::nullopt;
-
-  // Profiling support: last kernel bytes processed in each output
-  std::optional<std::vector<int64_t>> bytes_processed_per_output_ =
-      std::nullopt;
 
   // Profiling support: the last launch param used
   LaunchParams launch_params_;
