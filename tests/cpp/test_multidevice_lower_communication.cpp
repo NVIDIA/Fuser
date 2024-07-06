@@ -176,6 +176,20 @@ enum class ExecutionMode {
   kFusionExecutorCache,
 };
 
+std::ostream& operator<<(std::ostream& os, const ExecutionMode mode) {
+  switch (mode) {
+    case ExecutionMode::kFusionExecutor:
+      os << "FusionExecutor";
+      break;
+    case ExecutionMode::kFusionExecutorCache:
+      os << "FusionExecutorCache";
+      break;
+    default:
+      os << "<undefined>";
+  }
+  return os;
+}
+
 class LowerCollectiveTest : public MultiDeviceTest,
                             public testing::WithParamInterface<ExecutionMode> {
 };
@@ -187,7 +201,7 @@ INSTANTIATE_TEST_SUITE_P(
         ExecutionMode::kFusionExecutor,
         ExecutionMode::kFusionExecutorCache));
 
-TEST_F(LowerCollectiveTest, Allgather) {
+TEST_P(LowerCollectiveTest, Allgather) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -207,10 +221,22 @@ TEST_F(LowerCollectiveTest, Allgather) {
   at::Tensor in_tensor =
       shardTensor(unsharded_tensor, in, communicator_->deviceId());
 
-  FusionExecutor fe(communicator_);
-  fe.compileFusion(fusion.get(), {in_tensor});
-  assertIsCompiledToHostIrContainer(fe);
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  at::Tensor out_tensor;
+  ExecutionMode mode = GetParam();
+  switch (mode) {
+    case ExecutionMode::kFusionExecutor: {
+      FusionExecutor fe(communicator_);
+      fe.compileFusion(fusion.get(), {in_tensor});
+      assertIsCompiledToHostIrContainer(fe);
+      out_tensor = fe.runFusion({in_tensor})[0];
+    } break;
+    case ExecutionMode::kFusionExecutorCache: {
+      FusionExecutorCache fec(std::move(fusion), communicator_);
+      out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+    } break;
+    default:
+      NVF_ERROR(false, "Undefined ExecutionMode: ", mode);
+  }
 
   EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor));
 }
