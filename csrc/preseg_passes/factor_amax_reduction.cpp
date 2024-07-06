@@ -242,7 +242,7 @@ TensorView* detectAmaxPattern(TensorView* tv) {
       break;
     } else if (findReductionDefinition(current_tv, BinaryOpType::Max)) {
       next_state = MaxReduction;
-    } else if (tv->definition()->isA<BroadcastOp>()) {
+    } else if (current_tv->definition()->isA<BroadcastOp>()) {
       next_state = Broadcast;
     } else {
       next_state = Invalid;

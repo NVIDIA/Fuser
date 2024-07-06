@@ -852,4 +852,91 @@ TEST_F(NVFuserTest, FusionFactorAmaxCast_CUDA) {
       __FILE__);
 }
 
+TEST_F(NVFuserTest, FusionFactorAmaxBroadcastCast_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  TensorView* tv0 = makeContigTensor(2, DataType::Half);
+  TensorView* tv1 = makeContigTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Partial Reduction
+  TensorView* tv0_cast = castOp(DataType::Float, tv0);
+  TensorView* tv2 = sum(tv0_cast, {1}, /*keepdim=*/false);
+  TensorView* tv3 = broadcast(tv2, {false, true});
+  TensorView* tv4 = add(tv0_cast, tv3);
+  TensorView* tv4_cast = castOp(DataType::Half, tv4);
+  fusion.addOutput(tv4_cast);
+
+  // Full Amax Reduction
+  TensorView* tv5 = abs(tv4);
+  TensorView* tv6 = max(tv5, {0, 1}, /*keepdim=*/true);
+  TensorView* tv6_cast = castOp(DataType::Half, tv6);
+
+  // Amax Aliased Output
+  fusion.aliasOutputToInput(tv6_cast, tv1, AllocationType::ReuseBuffer);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor x = at::randn({32, 1228}, options);
+  at::Tensor fp8_amax_history = at::zeros({1, 1}, options);
+  std::vector<c10::IValue> aten_inputs = {x, fp8_amax_history};
+
+  at::Tensor x_cast = x.to(at::kFloat);
+
+  at::Tensor at_t1 = at::sum(x_cast, {1}, /*keepdim=*/true);
+  at::Tensor at_t2 = x_cast + at_t1;
+  at::Tensor at_t3 = at::abs(at_t2);
+  at::Tensor at_t4 = at::max(at_t3);
+
+  at::Tensor at_t2_cast = at_t2.to(at::kHalf);
+  at::Tensor at_t4_cast = at_t4.to(at::kHalf);
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+  runtime.compileFusionParallel(args);
+
+  // Two segments are created because a partial reduction and a full reduction
+  // cannot be in the same fusion.
+  std::vector<std::unique_ptr<Fusion>> segments = runtime.getFusionSegments();
+  EXPECT_EQ(segments.size(), 2);
+
+  // Expect partial reduction for amax to be saved as output of first fusion
+  Fusion* first_fusion = segments.front().get();
+  first_fusion->printMath();
+
+  EXPECT_EQ(first_fusion->outputs().size(), 2);
+  Val* last_output = first_fusion->outputs().back();
+
+  EXPECT_TRUE(last_output->isA<TensorView>());
+  TensorView* partial_amax = last_output->as<TensorView>();
+
+  EXPECT_TRUE(
+      partial_amax->definition()->isA<ReductionOp>() &&
+      partial_amax->definition()->as<ReductionOp>()->getReductionOpType() ==
+          BinaryOpType::Max);
+
+  // Check that there is a single reduction axis
+  std::vector<IterDomain*> logical_domain = partial_amax->getLogicalDomain();
+  int64_t num_reduction_axes = std::count_if(
+      partial_amax->getLogicalDomain().begin(),
+      partial_amax->getLogicalDomain().end(),
+      [](IterDomain* id) { return id->isReduction(); });
+  EXPECT_EQ(num_reduction_axes, 1);
+  EXPECT_EQ(partial_amax->getLogicalDomain().size(), 2);
+
+  auto outputs = runtime.runWithInputs(args);
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  testValidate(
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at_t2_cast, at_t4_cast},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser::preseg_passes
