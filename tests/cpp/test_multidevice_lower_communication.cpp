@@ -173,7 +173,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 using LowerCollectiveTest = MultiDeviceTest;
 
-TEST_F(LowerCollectiveTest, AllGather) {
+TEST_F(LowerCollectiveTest, Allgather) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
