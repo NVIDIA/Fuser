@@ -701,11 +701,67 @@ class TestScheduleOps(TestCase):
             def schedule(self):
                 if (fd.sched.can_schedule_pointwise()):
                     fd.sched.schedule_pointwise()
-                print(fd.sched.user_schedule_ir())
 
         fd = Pointwise()
         nvf_out = fd.execute(inputs)
         eager_out = torch.exp(inputs[0] + inputs[1])
+        self.assertEqual(eager_out, nvf_out[0])
+
+
+    def test_reduction_auto_scheduler(self):
+        """
+        Implement a simple reduction kernel with user defined schedule
+         * Uses nvfuser's PointwiseScheduler to see test failure
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Reduction(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.ops.sum(self.t0, dims=[1])
+                self.t2 = self.ops.exp(self.t1)
+                self.add_output(self.t2)
+
+            def schedule(self):
+                assert not fd.sched.can_schedule_pointwise()
+
+                cache_after_t0 = fd.sched.cache_after(self.t0)
+                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
+                cache_before_t2 = fd.sched.cache_before(self.t2)
+                cache_tensors = [cache_after_t0, cache_before_t2]
+
+                reference_tensor = self.t0
+
+                # Schedule Reference
+                fd.sched.split(reference_tensor, dim=-1, factor=256 * 4)
+                fd.sched.split(reference_tensor, dim=-1, factor=4)
+                fd.sched.transform_like(reference_tensor)
+
+                # Add rfactor
+                reduction_tensors = list(
+                    filter(fd.sched.is_reduction, fd.sched.tensors())
+                )
+                assert len(reduction_tensors) == 1
+                rfactor_tensors = [
+                    fd.sched.rfactor(tensor, dims=[-1]) for tensor in reduction_tensors
+                ]
+
+                # Add common parallelization
+                fd.sched.parallelize(reference_tensor, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(reference_tensor, axis := -2, ParallelType.block_x)
+                fd.sched.parallelize_like(reference_tensor)
+
+                # Vectorize input load and output store
+                fd.sched.parallelize(cache_after_t0, axis := -1, ParallelType.vectorize)
+
+                # Add computeAt
+                fd.sched.inline_most()
+
+        fd = Reduction()
+        nvf_out = fd.execute(inputs)
+        eager_out = torch.exp(inputs[0].sum(1))
         self.assertEqual(eager_out, nvf_out[0])
 
 if __name__ == "__main__":
