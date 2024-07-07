@@ -20,6 +20,7 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
+#include <scheduler/registry.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>
@@ -3266,5 +3267,39 @@ void initNvFuserPythonBindings(PyObject* module) {
             !isResharding(tv->definition()));
       },
       py::arg("tensor"));
+  nvf_sched.def(
+      "can_schedule_pointwise", [](FusionDefinition::SchedOperators& self) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        UserSchedule* sched = fd->userSchedule();
+        NVF_ERROR(
+            sched->runtime_info != nullptr,
+            "Requires SchedulerRuntimeInfo to use heuristic schedulers");
+        return PointWiseScheduler::canScheduleCompileTime(
+                   sched->schedule.get()) &&
+            PointWiseScheduler::canScheduleRunTime(
+                   sched->schedule.get(), *sched->runtime_info);
+      });
+  nvf_sched.def(
+      "schedule_pointwise", [](FusionDefinition::SchedOperators& self) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        UserSchedule* sched = fd->userSchedule();
+        NVF_ERROR(
+            sched->runtime_info != nullptr,
+            "Requires SchedulerRuntimeInfo to use heuristic schedulers");
+        bool can_schedule =
+            PointWiseScheduler::canScheduleCompileTime(sched->schedule.get()) &&
+            PointWiseScheduler::canScheduleRunTime(
+                sched->schedule.get(), *sched->runtime_info);
+        NVF_CHECK(can_schedule, "Cannot schedule with pointwise scheduler");
+        PointWiseScheduler pointwise(
+            sched->schedule.get(), *sched->runtime_info);
+        pointwise.schedule(sched->schedule.get());
+      });
 }
 } // namespace nvfuser::python_frontend

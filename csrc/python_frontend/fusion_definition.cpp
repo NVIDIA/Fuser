@@ -256,6 +256,15 @@ std::string FusionDefinition::fusionIr() {
   return ss.str();
 }
 
+UserSchedule* FusionDefinition::userSchedule() {
+  NVF_CHECK(id().has_value(), "Invalid fusion definition!");
+
+  if (user_sched_ == nullptr) {
+    NVF_ERROR(false, "User schedule is not defined.");
+  }
+  return user_sched_;
+}
+
 std::string FusionDefinition::userScheduleIr() {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
 
