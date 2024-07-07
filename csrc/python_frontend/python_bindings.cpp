@@ -9,6 +9,7 @@
 
 #include <c10/util/ArrayRef.h>
 #include <c10/util/irange.h>
+#include <debug.h>
 #include <fusion_profiler.h>
 #include <inlining.h>
 #include <instrumentation.h>
@@ -3277,10 +3278,22 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_ERROR(
             sched->runtime_info != nullptr,
             "Requires SchedulerRuntimeInfo to use heuristic schedulers");
-        return PointWiseScheduler::canScheduleCompileTime(
-                   sched->schedule.get()) &&
+
+        // Enable collection of messages from canScheduleRejectReason
+        ebugDumpOptionsGuard debug_dump_options_guard;
+        DebugDumpOptionsGuard::getCurOptions().set(
+            D ebugDumpOption::FusionSegmenterLog);
+
+        // Send debug messages to stringstream
+        std::stringstream ss;
+        DebugStreamGuard dsg(ss);
+
+        bool can_schedule =
+            ointWiseScheduler::canScheduleCompileTime(ched->schedule.get()) &&
             PointWiseScheduler::canScheduleRunTime(
-                   sched->schedule.get(), *sched->runtime_info);
+
+                ched->schedule.get(), *sched->runtime_info);
+        return std::make_tuple(can_schedule, ss.str());
       });
   nvf_sched.def(
       "schedule_pointwise", [](FusionDefinition::SchedOperators& self) {
@@ -3303,3 +3316,4 @@ void initNvFuserPythonBindings(PyObject* module) {
       });
 }
 } // namespace nvfuser::python_frontend
+ 

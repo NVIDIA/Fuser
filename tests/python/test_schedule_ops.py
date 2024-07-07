@@ -699,14 +699,13 @@ class TestScheduleOps(TestCase):
                 self.add_output(self.t3)
 
             def schedule(self):
-                if (fd.sched.can_schedule_pointwise()):
+                if fd.sched.can_schedule_pointwise()[0]:
                     fd.sched.schedule_pointwise()
 
         fd = Pointwise()
         nvf_out = fd.execute(inputs)
         eager_out = torch.exp(inputs[0] + inputs[1])
         self.assertEqual(eager_out, nvf_out[0])
-
 
     def test_reduction_auto_scheduler(self):
         """
@@ -725,7 +724,11 @@ class TestScheduleOps(TestCase):
                 self.add_output(self.t2)
 
             def schedule(self):
-                assert not fd.sched.can_schedule_pointwise()
+                assert not fd.sched.can_schedule_pointwise()[0]
+                assert (
+                    fd.sched.can_schedule_pointwise()[1].strip()
+                    == "Scheduler _pointwise_ ***rejected*** because : cannot find reference tensor"
+                )
 
                 cache_after_t0 = fd.sched.cache_after(self.t0)
                 fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
@@ -763,6 +766,7 @@ class TestScheduleOps(TestCase):
         nvf_out = fd.execute(inputs)
         eager_out = torch.exp(inputs[0].sum(1))
         self.assertEqual(eager_out, nvf_out[0])
+
 
 if __name__ == "__main__":
     run_tests()
