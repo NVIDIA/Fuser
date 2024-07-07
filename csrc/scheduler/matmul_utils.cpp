@@ -152,7 +152,7 @@ inline bool initCoreHeuristics(
 
   if (!params->async_gmem_load_operands) {
     // Circular buffering requires async load. If we cannot use async load due
-    // to unsupported vectorization width, then we can only double buffer at
+    // to unsupported vectorization width, then we can only circular buffer at
     // most.
     params->circular_buffer_options.smem_circular_buffer_stage =
         std::min(2, params->circular_buffer_options.smem_circular_buffer_stage);
