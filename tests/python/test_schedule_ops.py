@@ -680,6 +680,33 @@ class TestScheduleOps(TestCase):
         eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_pointwise_auto_scheduler(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses nvfuser's PointwiseScheduler
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.t3 = self.ops.exp(self.t2)
+                self.add_output(self.t3)
+
+            def schedule(self):
+                if (fd.sched.can_schedule_pointwise()):
+                    fd.sched.schedule_pointwise()
+                print(fd.sched.user_schedule_ir())
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = torch.exp(inputs[0] + inputs[1])
+        self.assertEqual(eager_out, nvf_out[0])
 
 if __name__ == "__main__":
     run_tests()
