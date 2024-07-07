@@ -3280,19 +3280,18 @@ void initNvFuserPythonBindings(PyObject* module) {
             "Requires SchedulerRuntimeInfo to use heuristic schedulers");
 
         // Enable collection of messages from canScheduleRejectReason
-        ebugDumpOptionsGuard debug_dump_options_guard;
+        DebugDumpOptionsGuard debug_dump_options_guard;
         DebugDumpOptionsGuard::getCurOptions().set(
-            D ebugDumpOption::FusionSegmenterLog);
+            DebugDumpOption::FusionSegmenterLog);
 
         // Send debug messages to stringstream
         std::stringstream ss;
         DebugStreamGuard dsg(ss);
 
         bool can_schedule =
-            ointWiseScheduler::canScheduleCompileTime(ched->schedule.get()) &&
+            PointWiseScheduler::canScheduleCompileTime(sched->schedule.get()) &&
             PointWiseScheduler::canScheduleRunTime(
-
-                ched->schedule.get(), *sched->runtime_info);
+                sched->schedule.get(), *sched->runtime_info);
         return std::make_tuple(can_schedule, ss.str());
       });
   nvf_sched.def(
@@ -3316,4 +3315,3 @@ void initNvFuserPythonBindings(PyObject* module) {
       });
 }
 } // namespace nvfuser::python_frontend
- 
