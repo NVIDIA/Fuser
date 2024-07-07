@@ -290,6 +290,42 @@ TEST_F(LowerCollectiveTest, Allreduce) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
+TEST_F(LowerCollectiveTest, AllreduceAndScatter) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const auto num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+
+  TensorView* in = makeContigTensor(3);
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  TensorView* out = sum(in, {0});
+  out->setDeviceMesh(mesh);
+
+  out = set(out);
+  out->setDeviceMesh(mesh);
+  out->axis(0)->parallelize(ParallelType::DIDx);
+
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  at::Tensor unsharded_in_tensor =
+      at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
+  const auto device_id = communicator_->deviceId();
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in, device_id);
+
+  FusionExecutor fe(communicator_);
+  fe.compileFusion(&fusion, {in_tensor});
+  assertIsCompiledToHostIrContainer(fe);
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+
+  at::Tensor unsharded_out_tensor = unsharded_in_tensor.sum(0);
+  EXPECT_TRUE(at::allclose(
+      out_tensor, shardTensor(unsharded_out_tensor, out, device_id)));
+}
+
 TEST_F(LowerCollectiveTest, ReduceScatter) {
   Fusion fusion;
   FusionGuard fg(&fusion);

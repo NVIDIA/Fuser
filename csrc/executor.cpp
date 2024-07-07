@@ -1978,6 +1978,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       c10d::Backend* backend =
           communicator_->getBackendForTeam(communication->team(), std::nullopt);
       auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
+      NVF_ERROR(
+          communication->out()->isFusionOutput(),
+          "Currently, we allocate only outputs not intermediates "
+          "for a communication-only fusion: ",
+          communication->out());
       at::Tensor out_tensor = findBufferForFusionOutput(
           outputs, communication->out(), host_ir_container_.get());
       c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
