@@ -69,6 +69,33 @@ class AbstractTensorSchedule {
   //! (including siblings) in concrete_ids_. Assert that we do find a
   //! scheduled ValGroup, otherwise we would not know where to place this
   //! IterDomain.
+  //!
+  //! For example, suppose we have the following:
+  //!
+  //!   concrete_:
+  //!     root: iS0{i0} iS1{i1}
+  //!     loop: iS3{ceilDiv(i0 * i1, 16)} iS4{16}
+  //!     transforms:
+  //!       iS2 = merge(iS0, iS1)
+  //!       iS3, iS4 = split(iS2, 16)
+  //!   graph:
+  //!     ValGroup 0: 0 8
+  //!     ValGroup 1: 1 9
+  //!     ValGroup 2: 2 10
+  //!     ValGroup 3: 3
+  //!     ValGroup 4: 4
+  //!     ValGroup 5: 11
+  //!     ValGroup 6: 12
+  //!     ExprGroup 0: iS11{ceilDiv(i0 * i1, 32)}, iS12{32} = split(iS10, 32)
+  //!   abstract_:
+  //!     {{ValGroup 5, graph}, {ValGroup 6, graph}}
+  //!
+  //! Then findNearestProducers() work backward from the loop domain of
+  //! concrete_ (ValGroups 3 and 4) and will identify ValGroup 2 as a producer
+  //! to abstract_ and map it to the concrete domain iS2{i0}.
+  //!
+  //! Note that any dangling transforms will be discarded; in this example since
+  //! we work from iS2, we will discard the split that produced iS3 and iS4.
   void findNearestProducers() {
     // Record all ValGroups that are producers of those in abstract_. This lets
     // us find starting IterDomains for scheduling concrete's loop domain.
