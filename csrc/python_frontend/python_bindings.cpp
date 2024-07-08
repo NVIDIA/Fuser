@@ -3309,7 +3309,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("heuristic"));
   nvf_sched.def(
-      "schedule_pointwise", [](FusionDefinition::SchedOperators& self) {
+      "schedule",
+      [](FusionDefinition::SchedOperators& self,
+         const ScheduleHeuristic& heuristic) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
@@ -3319,13 +3321,12 @@ void initNvFuserPythonBindings(PyObject* module) {
             sched->runtime_info != nullptr,
             "Requires SchedulerRuntimeInfo to use heuristic schedulers");
         bool can_schedule = SchedulerEntry::canSchedule(
-            ScheduleHeuristic::PointWise,
-            sched->schedule.get(),
-            *sched->runtime_info);
-        NVF_CHECK(can_schedule, "Cannot schedule with pointwise scheduler");
-        PointWiseScheduler pointwise(
-            sched->schedule.get(), *sched->runtime_info);
-        pointwise.schedule(sched->schedule.get());
-      });
+            heuristic, sched->schedule.get(), *sched->runtime_info);
+        NVF_CHECK(can_schedule, "Cannot schedule with specified scheduler");
+        std::unique_ptr<SchedulerEntry> scheduler = SchedulerEntry::makeEntry(
+            heuristic, sched->schedule.get(), *sched->runtime_info);
+        scheduler->schedule(sched->schedule.get());
+      },
+      py::arg("heuristic"));
 }
 } // namespace nvfuser::python_frontend

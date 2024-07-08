@@ -707,7 +707,7 @@ class TestScheduleOps(TestCase):
             def schedule(self):
                 status, _ = fd.sched.can_schedule(SchedulerHeuristic.pointwise)
                 assert status
-                fd.sched.schedule_pointwise()
+                fd.sched.schedule(SchedulerHeuristic.pointwise)
 
         fd = Pointwise()
         nvf_out = fd.execute(inputs)
@@ -731,12 +731,18 @@ class TestScheduleOps(TestCase):
                 self.add_output(self.t2)
 
             def schedule(self):
-                status, error_msg = fd.sched.can_schedule(SchedulerHeuristic.pointwise)
-                assert not status
+                pointwise_status, error_msg = fd.sched.can_schedule(
+                    SchedulerHeuristic.pointwise
+                )
+                assert not pointwise_status
                 assert (
                     error_msg.strip()
                     == "Scheduler _pointwise_ ***rejected*** because : cannot find reference tensor"
                 )
+                reduction_status, _ = fd.sched.can_schedule(
+                    SchedulerHeuristic.reduction
+                )
+                assert reduction_status
 
                 cache_after_t0 = fd.sched.cache_after(self.t0)
                 fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
