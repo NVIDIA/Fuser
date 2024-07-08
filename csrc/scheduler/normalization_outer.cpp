@@ -96,7 +96,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
       runtime_info,
       reduced_tv,
       data_cache,
-      reduced_tv->nDims() - properties.inner_most_dimension_ndims);
+      reduced_tv->nDims() - properties.inner_most_dimension_ndims).first;
 
   // Minimum required multi reduction factor.
   const int64_t min_multi_reduction_factor = vectorization_factor *

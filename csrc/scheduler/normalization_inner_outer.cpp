@@ -482,7 +482,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
       runtime_info,
       reduced_tv,
       data_cache,
-      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
+      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims)).first;
 
   // check if there is enough register and shared memory for persistence
   const auto buffer_params = getPersistentBufferStorageParams(
@@ -888,7 +888,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       reduced_tv,
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims)).first;
 
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(

@@ -978,7 +978,7 @@ PersistentKernelProperties getPersistentKernelProperties(
       reduced_tv,
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims)).first;
 
   // (4) info about persistent buffer
   auto persistent_buffer_info_entry =

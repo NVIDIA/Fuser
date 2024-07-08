@@ -426,7 +426,6 @@ void propagateParallelization(
           {ParallelType::Unroll,
            ParallelType::Vectorize,
            ParallelType::MisalignedVectorize}));
-
   if (unroll) {
     // Find all tensor views that should have unroll or vectorization
     std::unordered_set<TensorView*> are_unrolled;
@@ -437,17 +436,25 @@ void propagateParallelization(
     auto vectorizable_inputs_outputs =
         scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
 
+    for(auto io : vectorizable_inputs_outputs) {
+      std::cout << "Vectorizable input/output: " << io->name() << std::endl;
+    }
+
     auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 
     for (auto cached_input : cached_inputs) {
       if (vectorize) {
         auto producer_tvs = ir_utils::producerTvsOf(cached_input);
+        std::cout << "Cached input: " << cached_input->toString() << std::endl;
+        std::cout << "producer_tvs.size(): " << producer_tvs.size() << std::endl;
+        std::cout << "producer_tvs[0]: " << producer_tvs[0]->toString() << std::endl;
         if (producer_tvs.size() == 1 &&
             vectorizable_expr(cached_input->definition()) &&
             std::find(
                 vectorizable_inputs_outputs.begin(),
                 vectorizable_inputs_outputs.end(),
                 producer_tvs[0]) != vectorizable_inputs_outputs.end()) {
+          std::cout << "Vectorizing input: " << cached_input->name() << std::endl;
           are_unrolled.emplace(cached_input);
         }
       } else {
@@ -463,6 +470,7 @@ void propagateParallelization(
                 vectorizable_inputs_outputs.begin(),
                 vectorizable_inputs_outputs.end(),
                 output) != vectorizable_inputs_outputs.end()) {
+          std::cout << "Vectorizing output: " << output->name() << std::endl;
           are_unrolled.emplace(output);
         }
       } else {
