@@ -182,18 +182,18 @@ struct AbstractTensor {
   virtual void split(int64_t axis, int64_t factor, bool inner_split = true);
 
   virtual void merge(int64_t axis_o, int64_t axis_i);
-  virtual void merge(int64_t axis) {
+  void merge(int64_t axis) {
     merge(axis, axis + 1);
   }
 
   virtual void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
-  virtual void reorder(
+  void reorder(
       const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
     return reorder(std::unordered_map<int64_t, int64_t>(old2new));
   }
   // old2new[index] = permutation[index]
   virtual void reorder(const std::vector<int64_t>& permutation);
-  virtual void reorder(const std::initializer_list<int64_t>& permutation) {
+  void reorder(const std::initializer_list<int64_t>& permutation) {
     reorder(std::vector<int64_t>(permutation));
   }
 
@@ -228,6 +228,20 @@ struct TaggedAbstractTensor : AbstractTensor {
 
   bool hasTag(int64_t i, Tag tag) const {
     return (bool)getTags(i).count(tag);
+  }
+
+  //! Return tag if there is a single tag, otherwise nullopt
+  //!
+  //! This is just a convenience function for the common case where axes with
+  //! different tags have not been merged. In these cases there is a single Tag
+  //! for each axis and it is cumbersome to extract it manually each time it's
+  //! needed.
+  std::optional<Tag> getTag(int64_t i) const {
+    const auto& tags = getTags(i);
+    if (tags.size() == 1) {
+      return *tags.begin();
+    }
+    return std::nullopt;
   }
 
   template <typename T>

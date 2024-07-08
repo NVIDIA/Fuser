@@ -68,14 +68,13 @@ NVF_API void scheduleWarpTileWithNoReduction(
 void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes);
 
 //! We model each dimension of every tensor in the Fusion with ID roles
-//! described by MatmulDomain.
-using AbstractMatmulTensor = TaggedAbstractTensor<MatmulDomain>;
+//! described by MatmulDimRole.
+using AbstractMatmulTensor = TaggedAbstractTensor<MatmulDimRole>;
 
 //! Abstract version of the above utility. Schedules the provided
 //! AbstractTensor and returns the resulting ID roles.
-std::vector<MatmulDomain> makeTile(
+void makeTile(
     AbstractMatmulTensor& canonicalized_abstract_tensor,
-    const std::vector<MatmulDomain>& canonical_dim_roles,
     const std::vector<int64_t>& tile_sizes);
 
 //! Order the inner tile dimensions as the original order in

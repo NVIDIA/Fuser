@@ -176,18 +176,6 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       promote_prologue_smem_reuse};
 }
 
-TensorView* getOperandTv(
-    const TensorRolesMap& tensor_roles,
-    MatmulTensorRole role) {
-  const auto it = tensor_roles.find(role);
-  NVF_ERROR(it != tensor_roles.end(), "Could not find any tensors with role");
-  const std::vector<TensorView*>& operands = it->second;
-  NVF_ERROR(
-      operands.size() == 1,
-      "Exactly one operand is expected in each A and B role");
-  return operands.front();
-}
-
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_circular_buffer_stage,
@@ -227,22 +215,19 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   // cases, we check that there is no re-use when there is more than one use of
   // either a or b. If there are multiple uses we might wind up re-using memory,
   // but in that case the calculation below will be overly conservative.
-<<<<<<< HEAD
 
   // TODO: account for multiple operands in this computation
-  auto a_it = tensor_roles.find(MatmulRole::OPERAND_A);
+  auto a_it = tensor_roles.find(MatmulTensorRole::OPERAND_A);
   NVF_ERROR(
       a_it != tensor_roles.end() && !a_it->second.empty(),
       "Expected at least one A operand");
   const TensorView* a = a_it->second.front();
-  auto b_it = tensor_roles.find(MatmulRole::OPERAND_B);
+  auto b_it = tensor_roles.find(MatmulTensorRole::OPERAND_B);
   NVF_ERROR(
       b_it != tensor_roles.end() && !b_it->second.empty(),
       "Expected at least one B operand");
   const TensorView* b = b_it->second.front();
 
-  const TensorView* a = getOperandTv(tensor_roles, MatmulTensorRole::OPERAND_A);
-  const TensorView* b = getOperandTv(tensor_roles, MatmulTensorRole::OPERAND_B);
   bool smem_a_reuse_guaranteed = a->uses().size() == 1;
   bool smem_b_reuse_guaranteed = b->uses().size() == 1;
 
@@ -444,9 +429,8 @@ void makeTile(
   tv->reorder(reorder_map_old_to_new);
 }
 
-std::vector<MatmulDomain> makeTile(
+void makeTile(
     AbstractMatmulTensor& abten,
-    const std::vector<MatmulDomain>& canonical_dim_roles,
     const std::vector<int64_t>& tile_sizes) {
   NVF_CHECK(
       abten.size() >= tile_sizes.size(),
@@ -454,20 +438,21 @@ std::vector<MatmulDomain> makeTile(
 
   // Split the inner dimensions
   size_t num_split_axes = 0;
-  NVF_ERROR(abten.size() == canonical_dim_roles.size());
   for (int64_t i = abten.size() - 1; i >= 0; ++i) {
     if (num_split_axes > 2) {
       break;
     }
-    const MatmulDomain id_role = canonical_dim_roles.at(i);
+    const std::optional<MatmulDimRole> id_role_opt = abten.getTag(i);
+    NVF_ERROR(id_role_opt.has_value(), "Unique tag not found for axis ", i);
+    const MatmulDimRole id_role = id_role_opt.value();
     switch (id_role) {
-      case MatmulDomain::M:
+      case MatmulDimRole::M:
         abten.split(i, tile_sizes.at(0));
         break;
-      case MatmulDomain::N:
+      case MatmulDimRole::N:
         abten.split(i, tile_sizes.at(1));
         break;
-      case MatmulDomain::K:
+      case MatmulDimRole::K:
         abten.split(i, tile_sizes.at(2));
         break;
       default:
@@ -515,19 +500,6 @@ std::vector<MatmulDomain> makeTile(
 
   // Apply the re-order map to abstract tensor
   abten.reorder(reorder_map_old_to_new);
-
-  // We have now split the last num_split_axes many dimensions and moved the new
-  // inner split dimensions together in the innermost position. So we need to
-  // update canonical_dim_roles by replicating its last num_split_axes many
-  // entries.
-  std::vector<MatmulDomain> tiled_axis_roles(canonical_dim_roles);
-  for (size_t i : c10::irange(num_split_axes)) {
-    tiled_axis_roles.push_back(
-        canonical_dim_roles
-            [canonical_dim_roles.size() - num_split_axes - 1 + i]);
-  }
-
-  return tiled_axis_roles;
 }
 
 namespace {
@@ -1180,29 +1152,19 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
 void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor) {
   // Now merge dims that have the same role
   const auto getRole = [&abstract_tensor](const int64_t pos) {
-    const std::unordered_set<MatmulDimRole>& tags =
-        abstract_tensor.getTags(pos);
-    NVF_ERROR(
-        tags.size() == 1,
-        "There should be no merged dims yet, so we expect exactly 1 tag per dim");
-    return *tags.begin();
+    // There should be no merged dims yet, so we expect exactly 1 tag per dim
+    return abstract_tensor.getTag(pos).value();
   };
   // Loop from inner to outer, merging when needed
   NVF_ERROR(abstract_tensor.size() > 0);
-  MatmulDimRole prev_role = getRole(abstract_tensor[-1]);
-  std::vector<MatmulDimRole> roles{prev_role};
+  MatmulDimRole prev_role = getRole(-1);
   for (int64_t dim = abstract_tensor.size() - 2; dim >= 0; --dim) {
-    MatmulDimRole role = getRole(abstract_tensor[dim]);
+    MatmulDimRole role = getRole(dim);
     if (role == prev_role) {
       abstract_tensor.merge(dim);
-    } else {
-      roles.push_back(role);
     }
     prev_role = role;
   }
-  // Roles are inserted in reverse order
-  std::reverse(roles.begin(), roles.end());
-  return roles;
 }
 
 namespace {
@@ -1283,11 +1245,9 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
     }
     return g_it->second;
   };
-  TensorView* a = getOperandTv(tensor_roles, MatmulTensorRole::OPERAND_A);
-  TensorView* b = getOperandTv(tensor_roles, MatmulTensorRole::OPERAND_B);
 
   std::optional<MatmulDimRole> innerdim_a = std::nullopt;
-  const auto a_it = tensor_roles.find(MatmulRole::OPERAND_A);
+  const auto a_it = tensor_roles.find(MatmulTensorRole::OPERAND_A);
   NVF_ERROR(a_it != tensor_roles.end(), "No A roles found");
   for (TensorView* a : a_it->second) {
     const MatmulDimRoleOpt innerdim_a_opt = findInnerDim(a);
@@ -1295,7 +1255,8 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
       std::string err = std::get<std::string>(innerdim_a_opt);
       return err;
     }
-    const MatmulDimRole this_inner_dim = std::get<MatmulDimRole>(innerdim_a_opt);
+    const MatmulDimRole this_inner_dim =
+        std::get<MatmulDimRole>(innerdim_a_opt);
     if (!innerdim_a.has_value()) {
       innerdim_a = this_inner_dim;
     } else if (innerdim_a.value() != this_inner_dim) {
@@ -1303,19 +1264,7 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
       // for all A and all B TVs
       return std::string("Found conflicting inner dims for A operands");
     }
-  const MatmulDimRoleOpt innerdim_a_opt = findInnerDim(a);
-  if (std::holds_alternative<std::string>(innerdim_a_opt)) {
-    std::string err = std::get<std::string>(innerdim_a_opt);
-    return err;
   }
-  const MatmulDimRoleOpt innerdim_b_opt = findInnerDim(b);
-  if (std::holds_alternative<std::string>(innerdim_b_opt)) {
-    std::string err = std::get<std::string>(innerdim_b_opt);
-    return err;
-  }
-  const MatmulDimRole innerdim_a = std::get<MatmulDimRole>(innerdim_a_opt);
-  const MatmulDimRole innerdim_b = std::get<MatmulDimRole>(innerdim_b_opt);
-
   std::optional<MatmulDimRole> innerdim_b = std::nullopt;
   const auto b_it = tensor_roles.find(MatmulTensorRole::OPERAND_B);
   NVF_ERROR(b_it != tensor_roles.end(), "No B roles found");
@@ -1325,7 +1274,8 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
       std::string err = std::get<std::string>(innerdim_b_opt);
       return err;
     }
-    const MatmulDimRole this_inner_dim = std::get<MatmulDimRole>(innerdim_b_opt);
+    const MatmulDimRole this_inner_dim =
+        std::get<MatmulDimRole>(innerdim_b_opt);
     if (!innerdim_b.has_value()) {
       innerdim_b = this_inner_dim;
     } else if (innerdim_b.value() != this_inner_dim) {
@@ -1338,8 +1288,7 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(
   NVF_ERROR(innerdim_a.has_value());
   NVF_ERROR(innerdim_b.has_value());
 
-  return std::vector<MatmulDomain>{innerdim_a.value(), innerdim_b.value()};
-  return std::vector<MatmulDimRole>{innerdim_a, innerdim_b};
+  return std::vector<MatmulDimRole>{innerdim_a.value(), innerdim_b.value()};
 }
 
 TensorRolesMapOpt getTensorRoles(

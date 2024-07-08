@@ -97,15 +97,15 @@ class MultipleMatmulScheduler {
     NVF_ERROR(inner_dims_opt.isValid(), inner_dims_opt.getErrorMsg());
     inner_dims_ = inner_dims_opt.getData();
 
-    as_ = tensor_roles_.at(MatmulRole::OPERAND_A);
-    bs_ = tensor_roles_.at(MatmulRole::OPERAND_B);
+    as_ = tensor_roles_.at(MatmulTensorRole::OPERAND_A);
+    bs_ = tensor_roles_.at(MatmulTensorRole::OPERAND_B);
 
     const bool has_epilogue =
         std::any_of(mma_ops_.begin(), mma_ops_.end(), [](MmaOp* mma) {
           return !mma->out()->isFusionOutput();
         });
     const bool has_fusion_c_roles =
-        (0 != tensor_roles_.count(MatmulRole::EPILOGUE_INPUT));
+        (0 != tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT));
     has_non_mma_input_tvs_ = has_epilogue && has_fusion_c_roles;
   }
 
@@ -259,23 +259,20 @@ class MultipleMatmulScheduler {
     mma_utils::AbstractMatmulTensor merged;
     merged.domain.resize(canonical_dim_ordering_.size());
     for (ValGroup vg : canonical_dim_ordering_) {
-      merged.domain.push_back({vg, &graph});
+      merged.domain.push_back(ValGroupAndItsGraph{vg, &graph});
       // Tag each dimension with a MatmulDimRole
       auto it = id_roles_.find(vg);
       NVF_ERROR(it != id_roles_.end());
-      merged.tags.push_back(it->second);
+      merged.tags.push_back({it->second});
     }
 
     mma_utils::mergeCanonicalAbstractTensor(merged);
 
-    at_tiled_ = mma_utils::makeTile(
-        merged,
-        canonical_merged_dim_roles_,
-        params_.tile_sizes.cta_tile.toVector());
+    mma_utils::makeTile(merged, params_.tile_sizes.cta_tile.toVector());
 
     for (Val* v : fusion_->usedMathVals()) {
       if (auto tv = dynamic_cast<TensorView*>(v)) {
-        applyAbstractSchedule(at_tiled_, tv, graph);
+        applyAbstractTransforms(at_tiled_, tv, graph);
       }
     }
   }
@@ -339,10 +336,10 @@ class MultipleMatmulScheduler {
   std::vector<ValGroup> canonical_dim_ordering_;
   // Merged dimensions pre-tiling, e.g. [B, M, N, K]
   // Multiple M dimensions or N dimensions will be reordered and merged here
-  std::vector<MatmulDomain> canonical_merged_dim_roles_;
+  std::vector<MatmulDimRole> canonical_merged_dim_roles_;
 
   // Track the role of each axis for each tensor in the Fusion
-  std::unordered_map<TensorView*, std::vector<MatmulDomain>> all_tv_dims_;
+  std::unordered_map<TensorView*, std::vector<MatmulDimRole>> all_tv_dims_;
 
   mma_utils::AbstractMatmulTensor
       // Unscheduled abstract tensor
