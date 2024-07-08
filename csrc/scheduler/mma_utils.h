@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <abstract_tensor.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <id_model/id_model.h>
@@ -64,12 +65,18 @@ NVF_API void scheduleWarpTileWithNoReduction(
 //! canonicalizeMmaTvOrdering before calling makeTile and the merged axis
 //! position should be provided. If any of these dimensions is missing, its
 //! position should be passed as -1.
-void makeTile(
-    TensorView* tv,
-    const std::vector<int64_t>& tile_sizes,
-    int64_t m_pos,
-    int64_t n_pos,
-    int64_t k_pos);
+void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes);
+
+//! We model each dimension of every tensor in the Fusion with ID roles
+//! described by MatmulDomain.
+using AbstractMatmulTensor = TaggedAbstractTensor<MatmulDomain>;
+
+//! Abstract version of the above utility. Schedules the provided
+//! AbstractTensor and returns the resulting ID roles.
+std::vector<MatmulDomain> makeTile(
+    AbstractMatmulTensor& canonicalized_abstract_tensor,
+    const std::vector<MatmulDomain>& canonical_dim_roles,
+    const std::vector<int64_t>& tile_sizes);
 
 //! Order the inner tile dimensions as the original order in
 //! (maybe allocation) domain. Also putting broadcast domains on the left.
@@ -86,6 +93,10 @@ std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
     const ValGraph& permissive_graph,
     const DimRolesMap& dim_roles,
     const std::vector<ValGroup>& ordering);
+
+//! Given an AbstractTensor matching the canonicalDimOrdering schedule it by
+//! merging matching dimensions. Returns the domains of the merged dimensions.
+void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor);
 
 //! [WarpMmaSwizzler]:
 //!   This class is used to implement the thread swizzle format

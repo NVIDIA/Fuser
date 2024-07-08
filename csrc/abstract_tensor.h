@@ -9,6 +9,7 @@
 
 #include <ir/builder.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/utils.h>
 #include <val_graph.h>
 
 #ifndef DYNAMIC_TYPE_CHECK
@@ -137,6 +138,8 @@ struct AbstractTensor {
       : domain(domain.begin(), domain.end()) {}
   AbstractTensor(std::initializer_list<AbstractId> domain) : domain(domain) {}
 
+  virtual ~AbstractTensor() = default;
+
   template <typename T>
   std::vector<T> as() const {
     std::vector<T> result;
@@ -175,38 +178,132 @@ struct AbstractTensor {
     return !operator==(std::forward<T>(t));
   }
 
-  void split(int64_t axis, Val* factor, bool inner_split = true);
-  void split(int64_t axis, int64_t factor, bool inner_split = true);
+  virtual void split(int64_t axis, Val* factor, bool inner_split = true);
+  virtual void split(int64_t axis, int64_t factor, bool inner_split = true);
 
-  void merge(int64_t axis_o, int64_t axis_i);
-  void merge(int64_t axis) {
+  virtual void merge(int64_t axis_o, int64_t axis_i);
+  virtual void merge(int64_t axis) {
     merge(axis, axis + 1);
   }
 
-  void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
-  void reorder(
+  virtual void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
+  virtual void reorder(
       const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
     return reorder(std::unordered_map<int64_t, int64_t>(old2new));
   }
   // old2new[index] = permutation[index]
-  void reorder(const std::vector<int64_t>& permutation);
-  void reorder(const std::initializer_list<int64_t>& permutation) {
+  virtual void reorder(const std::vector<int64_t>& permutation);
+  virtual void reorder(const std::initializer_list<int64_t>& permutation) {
     reorder(std::vector<int64_t>(permutation));
   }
 
   // Both `from` and `to` are inclusive.
-  void flatten(int64_t from = 0, int64_t to = -1);
+  virtual void flatten(int64_t from = 0, int64_t to = -1);
 
-  void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
+  virtual void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
 
   // Temporary helper for legacy swizzle, should be removed eventually.
   // This is a copy-paste of AbstractTensor::swizzle(SwizzleType
-  void swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y);
+  virtual void swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y);
 
   // Unzip the AbstractTensor to separate tensors. For example, if this
   // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], then the return value
   // will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}.
   std::vector<AbstractTensor> unzip() const;
+};
+
+//! This is a wrapper around AbstractTensor which propagates a set of tags for
+//! each axis. The tags can be any hashable type with equality; typically Tag
+//! would be an enum. See AbstractMatmulTensor, in which case Tag =
+//! MatmulDimRole.
+template <typename Tag>
+struct TaggedAbstractTensor : AbstractTensor {
+  //! Holds a set of tags for each dimension
+  std::vector<std::unordered_set<Tag>> tags;
+
+  const std::unordered_set<Tag>& getTags(int64_t i) const {
+    i = wrapDim(i, (int64_t)domain.size());
+    return tags[i];
+  }
+
+  bool hasTag(int64_t i, Tag tag) const {
+    return (bool)getTags(i).count(tag);
+  }
+
+  template <typename T>
+  bool operator==(T&& t) const {
+    if constexpr (std::is_same_v<TaggedAbstractTensor<Tag>, std::decay_t<T>>) {
+      return domain == t.domain && tags == t.tags;
+    } else {
+      // Only compare true for other TaggedAbstractTensors
+      return false;
+    }
+  }
+
+  void split(int64_t axis, Val* factor, bool inner_split = true) override {
+    AbstractTensor::split(axis, factor, inner_split);
+    axis = wrapDim(axis, (int64_t)domain.size());
+    // copy tags from original axis
+    tags.insert(tags.begin() + axis, tags[axis]);
+  }
+  void split(int64_t axis, int64_t factor, bool inner_split = true) override {
+    AbstractTensor::split(axis, factor, inner_split);
+    axis = wrapDim(axis, (int64_t)domain.size());
+    // copy tags from original axis
+    tags.insert(tags.begin() + axis, tags[axis]);
+  }
+
+  void merge(int64_t axis_o, int64_t axis_i) override {
+    AbstractTensor::merge(axis_o, axis_i);
+    axis_o = wrapDim(axis_o, (int64_t)domain.size());
+    axis_i = wrapDim(axis_i, (int64_t)domain.size());
+    // merge tags from these axes into outer position
+    if (axis_o >= axis_i) {
+      std::swap(axis_o, axis_i);
+    }
+    tags[axis_o].insert(tags[axis_i].begin(), tags[axis_o].end());
+    tags.erase(tags.begin() + axis_i);
+  }
+
+  void reorder(const std::unordered_map<int64_t, int64_t>& old2new) override {
+    AbstractTensor::reorder(old2new);
+    auto new2old = ir_utils::normalizeOld2New(old2new, (int64_t)domain.size());
+    std::vector<std::unordered_set<Tag>> reordered_tags;
+    std::transform(
+        new2old.begin(),
+        new2old.end(),
+        std::back_inserter(reordered_tags),
+        [this](int64_t i) { return tags[i]; });
+    tags = std::move(reordered_tags);
+  }
+
+  // Both `from` and `to` are inclusive.
+  void flatten(int64_t from = 0, int64_t to = -1) override {
+    from = wrapDim(from, (int64_t)domain.size());
+    to = wrapDim(to, (int64_t)domain.size());
+    for (size_t i : c10::irange(from, to)) {
+      tags[from].insert(tags[i + 1].begin(), tags[i + 1].end());
+    }
+    tags.erase(tags.begin() + from + 1, tags.begin() + to + 1);
+  }
+
+  // swizzle mixes axes, so the tag sets for both x and y become the union of
+  // the input tag sets
+  void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y) override {
+    AbstractTensor::swizzle(swizzle_type, x, y);
+    x = wrapDim(x, (int64_t)domain.size());
+    y = wrapDim(y, (int64_t)domain.size());
+    tags[x].insert(tags[y].begin(), tags[y].end());
+  }
+
+  // Temporary helper for legacy swizzle, should be removed eventually.
+  // This is a copy-paste of AbstractTensor::swizzle(SwizzleType
+  void swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y) override {
+    AbstractTensor::swizzle(swizzle_type, x, y);
+    x = wrapDim(x, (int64_t)domain.size());
+    y = wrapDim(y, (int64_t)domain.size());
+    tags[x].insert(tags[y].begin(), tags[y].end());
+  }
 };
 
 } // namespace nvfuser

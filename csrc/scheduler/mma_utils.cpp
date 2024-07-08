@@ -429,6 +429,92 @@ void makeTile(
   tv->reorder(reorder_map_old_to_new);
 }
 
+std::vector<MatmulDomain> makeTile(
+    AbstractMatmulTensor& abten,
+    const std::vector<MatmulDomain>& canonical_dim_roles,
+    const std::vector<int64_t>& tile_sizes) {
+  NVF_CHECK(
+      abten.size() >= tile_sizes.size(),
+      "Tensor dimension less than tile dimension!");
+
+  // Split the inner dimensions
+  size_t num_split_axes = 0;
+  NVF_ERROR(abten.size() == canonical_dim_roles.size());
+  for (int64_t i = abten.size() - 1; i >= 0; ++i) {
+    if (num_split_axes > 2) {
+      break;
+    }
+    const MatmulDomain id_role = canonical_dim_roles.at(i);
+    switch (id_role) {
+      case MatmulDomain::M:
+        abten.split(i, tile_sizes.at(0));
+        break;
+      case MatmulDomain::N:
+        abten.split(i, tile_sizes.at(1));
+        break;
+      case MatmulDomain::K:
+        abten.split(i, tile_sizes.at(2));
+        break;
+      default:
+        break;
+    }
+    num_split_axes++;
+  }
+
+  // The transformation happened should look like:
+  //   Before               After
+  // [..., M, N, K] -> [..., Mo, Mi, No, Ni, Ko, Ki]
+
+  // Re-order the tiles so that all the outer tiles are
+  //  on the left of all the inner tiles
+  std::unordered_map<int64_t, int64_t> reorder_map_old_to_new;
+
+  // Number of tiled inner dimensions after we split.
+  const auto split_tile_dimension_size = 2 * num_split_axes;
+  for (auto idx : c10::irange(split_tile_dimension_size)) {
+    // We want to reorder as follows:
+    //           Before
+    //
+    // [..., Mo, Mi, No, Ni, Ko, Ki] ->
+    //                 After
+    //      vvv group0 vvv  vvv group1 vvv
+    // [..., Mo, No, Ko,     Mi, Ni, Ki]
+
+    // The index offset within group of current
+    //  iterdomain, with grouping specified above.
+    auto index_within_group = idx / 2;
+
+    // The index of the group the current id belongs
+    //  to, as specified above.
+    auto group_index = idx % 2;
+
+    // Calculate the actual index after reordering
+    auto index_after_reorder =
+        group_index * num_split_axes + index_within_group;
+
+    // Add pair {idx_before, idx_after} to re-order map.
+    reorder_map_old_to_new.insert(std::make_pair(
+        idx - split_tile_dimension_size,
+        index_after_reorder - split_tile_dimension_size));
+  }
+
+  // Apply the re-order map to abstract tensor
+  abten.reorder(reorder_map_old_to_new);
+
+  // We have now split the last num_split_axes many dimensions and moved the new
+  // inner split dimensions together in the innermost position. So we need to
+  // update canonical_dim_roles by replicating its last num_split_axes many
+  // entries.
+  std::vector<MatmulDomain> tiled_axis_roles(canonical_dim_roles);
+  for (size_t i : c10::irange(num_split_axes)) {
+    tiled_axis_roles.push_back(
+        canonical_dim_roles
+            [canonical_dim_roles.size() - num_split_axes - 1 + i]);
+  }
+
+  return tiled_axis_roles;
+}
+
 namespace {
 
 std::optional<IterDomain*> getMaybeAllocationIfInnermostTiled(
@@ -1066,6 +1152,34 @@ std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
     MatmulDomain role = getRole(tv->axis(dim));
     if (role == prev_role) {
       tv->merge(dim);
+    } else {
+      roles.push_back(role);
+    }
+    prev_role = role;
+  }
+  // Roles are inserted in reverse order
+  std::reverse(roles.begin(), roles.end());
+  return roles;
+}
+
+void mergeCanonicalAbstractTensor(AbstractMatmulTensor& abstract_tensor) {
+  // Now merge dims that have the same role
+  const auto getRole = [&abstract_tensor](const int64_t pos) {
+    const std::unordered_set<MatmulDimRole>& tags =
+        abstract_tensor.getTags(pos);
+    NVF_ERROR(
+        tags.size() == 1,
+        "There should be no merged dims yet, so we expect exactly 1 tag per dim");
+    return *tags.begin();
+  };
+  // Loop from inner to outer, merging when needed
+  NVF_ERROR(abstract_tensor.size() > 0);
+  MatmulDimRole prev_role = getRole(abstract_tensor[-1]);
+  std::vector<MatmulDimRole> roles{prev_role};
+  for (int64_t dim = abstract_tensor.size() - 2; dim >= 0; --dim) {
+    MatmulDimRole role = getRole(abstract_tensor[dim]);
+    if (role == prev_role) {
+      abstract_tensor.merge(dim);
     } else {
       roles.push_back(role);
     }
