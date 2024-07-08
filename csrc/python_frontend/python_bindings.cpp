@@ -3318,8 +3318,10 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_ERROR(
             sched->runtime_info != nullptr,
             "Requires SchedulerRuntimeInfo to use heuristic schedulers");
-        bool can_schedule = checkCanSchedule<PointWiseScheduler>(
-            sched->schedule.get(), *sched->runtime_info);
+        bool can_schedule = SchedulerEntry::canSchedule(
+            ScheduleHeuristic::PointWise,
+            sched->schedule.get(),
+            *sched->runtime_info);
         NVF_CHECK(can_schedule, "Cannot schedule with pointwise scheduler");
         PointWiseScheduler pointwise(
             sched->schedule.get(), *sched->runtime_info);

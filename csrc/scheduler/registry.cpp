@@ -162,11 +162,14 @@ bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
   return heuristic_ == other->heuristic_ && params_->sameAs(other->params_);
 }
 
+namespace {
+//! A Utility for checking both dynamic and static part of
+//!  can schedule
 template <typename SchedulerType>
 bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+    HeuristicSummary* data_cache = nullptr) {
   // ExprEval scheduler only requires `canScheduleCompileTime` check and should
   // not use this fn. The following checks build the computeAt map that do not
   // work with SDPAOp.
@@ -214,6 +217,8 @@ bool checkCanSchedule(
 
   return SchedulerType::canScheduleRunTime(fusion, runtime_info, data_cache);
 }
+
+} // namespace
 
 // Simple dispatcher interface
 /*static*/ bool SchedulerEntry::canSchedule(

@@ -270,12 +270,4 @@ class SchedulerEntryHash {
   size_t operator()(const SchedulerEntry& se) const;
 };
 
-//! A Utility for checking both dynamic and static part of
-//!  can schedule
-template <typename SchedulerType>
-bool checkCanSchedule(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
-
 } // namespace nvfuser
