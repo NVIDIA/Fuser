@@ -2487,4 +2487,44 @@ TEST_F(GpuViewTest, GroupNorm) {
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
+
+TEST_F(GpuViewTest, ReductionReshapeReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 4, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, G, C, H, W};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = sum(tv2, {-1, -2, -3});
+  auto tv4 = broadcast(tv3, {false, false, true, true, true});
+  auto tv5 = div(tv2, tv4);
+  // These two reshapes are visited in topological order in
+  // reductionInterferingView(), and it detects the merge of an Iter dim and a
+  // reduction dim in the 2nd reshape.
+  auto tv6 = reshape(tv5, input_shape, {N, G, C * H * W});
+  auto tv7 = reshape(tv6, {N, G, C * H * W}, {N, G * C * H * W});
+  auto tv8 = castOp(dtype, tv7);
+  fusion->addOutput(tv8);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.to(at::kFloat);
+  auto t2 = t1.sum({-1, -2, -3}).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+  auto ref = t3.reshape({N, G * C * H * W}).to(at::kHalf);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have 2 segmented groups
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 2);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
