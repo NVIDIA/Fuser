@@ -51,17 +51,16 @@ class AbstractTensorSchedule {
   }
 
   ValGroup abstractIdToValGroup(const AbstractId& abs_id) {
-    if (abs_id.is<IterDomain*>()) {
-      return graph_->toGroup(abs_id.as<IterDomain*>());
-    } else if (abs_id.is<ValGroupAndItsGraph>()) {
-      if (graph_ == nullptr) {
-        graph_ = abs_id.as<ValGroupAndItsGraph>().graph;
-      } else {
-        NVF_ERROR(graph_ == abs_id.as<ValGroupAndItsGraph>().graph);
-      }
-      return abs_id.as<ValGroupAndItsGraph>().group;
+    NVF_ERROR(
+        abs_id.is<ValGroupAndItsGraph>(),
+        "AbstractId must be a ValGroupAndItsGraph");
+    const ValGroupAndItsGraph& vgg = abs_id.as<ValGroupAndItsGraph>();
+    if (graph_ == nullptr) {
+      graph_ = vgg.graph;
+    } else {
+      NVF_ERROR(graph_ == vgg.graph);
     }
-    NVF_ERROR(false, "AbstractId must be IterDomain* or ValGroupAndItsGraph");
+    return vgg.group;
   }
 
   //! Work backward from each loop IterDomain in concrete. When we find an
