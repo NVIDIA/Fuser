@@ -60,8 +60,8 @@ HostIrExecutor::HostIrExecutor(
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
   // process input values
-  for (auto it : val_to_IValue) {
-    expr_evaluator_.bind(it.first, it.second.toTensor());
+  for (const auto& [val, ivalue] : val_to_IValue) {
+    expr_evaluator_.bind(val, ivalue.toTensor());
   }
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
