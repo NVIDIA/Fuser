@@ -478,11 +478,13 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
   const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims)).first;
+  const auto vectorize_factor =
+      vectorize_helper::getVectorizationFactor(
+          runtime_info,
+          reduced_tv,
+          data_cache,
+          (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims))
+          .first;
 
   // check if there is enough register and shared memory for persistence
   const auto buffer_params = getPersistentBufferStorageParams(
@@ -883,12 +885,14 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   auto properties =
       scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
   auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims)).first;
+  const auto vectorize_factor =
+      vectorize_helper::getVectorizationFactor(
+          runtime_info,
+          reduced_tv,
+          data_cache,
+          vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+              ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims))
+          .first;
 
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
@@ -1112,11 +1116,9 @@ void scheduleInnerOuterPersistentKernel(
   }
 
   const bool unroll = rparams.isUnrolled();
-  const bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
       rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
-
+  const int64_t vectorization_factor = rparams.unroll_factor_inner_reduction;
   // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
   // propagation will not propagate to the final outer reduction.
   reduction_scheduler_utils::propagateTransformation(
@@ -1127,16 +1129,18 @@ void scheduleInnerOuterPersistentKernel(
   // Don't allow parallelization propagation goes through boundaryNodesSet
   const auto& selected_tvs_inner =
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
+
+  const auto& unrolled_vectorized_tvs =
+      reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
+          inner_reference_tv, rparams.vectorization_factor_map, cached_inputs, cached_outputs, vectorization_factor);
   reduction_scheduler_utils::propagateParallelization(
       fusion,
       inner_reduction_tvs[0],
       inner_reference_tv,
       unroll,
-      vectorize,
       is_outer_grid_persistence,
       inner_reduction_tvs,
-      cached_inputs,
-      cached_outputs,
+      unrolled_vectorized_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   // Propagate outer reduction. Each outer reduction is connected with its
@@ -1151,16 +1155,17 @@ void scheduleInnerOuterPersistentKernel(
         {outer_reduction_tvs[i]}, {cached_gmem[i]});
     reduction_scheduler_utils::propagateTransformation(
         outer_reference_tvs[i], boundaryNodesSet);
+    const auto& unrolled_vectorized_tvs =
+        reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
+            outer_reference_tvs[i], rparams.vectorization_factor_map, cached_inputs, cached_outputs, vectorization_factor);
     reduction_scheduler_utils::propagateParallelization(
         fusion,
         outer_reduction_tvs[i],
         outer_reference_tvs[i],
         unroll,
-        vectorize,
         is_outer_grid_persistence,
         outer_reduction_tvs,
-        cached_inputs,
-        cached_outputs,
+        unrolled_vectorized_tvs,
         {selected_tvs_outer.begin(), selected_tvs_outer.end()});
   }
 

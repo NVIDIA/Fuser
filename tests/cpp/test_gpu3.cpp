@@ -8357,7 +8357,7 @@ TEST_F(NVFuserTest, DifferentVectorizationFactorsReduction) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
-  TensorView* tv0 = makeConcreteTensor(input_shape, dtype);
+  TensorView* tv0 = makeContigConcreteTensor(input_shape, dtype);
   fusion.addInput(tv0);
   auto tv1 = castOp(DataType::Float, tv0);
   auto tv2 = sum(tv1, {-1});

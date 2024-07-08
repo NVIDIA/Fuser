@@ -820,7 +820,7 @@ std::pair<int64_t, std::unordered_map<TensorView*, int64_t>> getVectorizationFac
                     reference_tv, logical_reorder_map));
           });
 
-  int64_t max_vec_size = 16;
+  int64_t max_vec_size = 1;
   std::unordered_map<TensorView*, int64_t> tv_to_vectorization_factor;
 
   if (vectorizable_inputs_outputs.empty()) {
@@ -869,7 +869,9 @@ std::pair<int64_t, std::unordered_map<TensorView*, int64_t>> getVectorizationFac
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
         my_vect_factor);
     tv_to_vectorization_factor.insert({inp_or_out, my_vect_factor});
-    max_vec_size = std::min(max_vec_size, my_vect_factor);
+    std::cout << "Vectorization factor for " << inp_or_out->name() << " is "
+              << my_vect_factor << std::endl;
+    max_vec_size = std::max(max_vec_size, my_vect_factor);
   }
 
   return std::make_pair(max_vec_size, tv_to_vectorization_factor);

@@ -33,8 +33,9 @@ void multiReductionInliner(
     TensorView* reduction_tv,
     TensorView* reference_tv,
     const bool unroll,
-    const bool vectorize,
+    const int64_t vectorization_factor,
     const bool use_grouped_reduction,
+    const std::unordered_map<TensorView*, int64_t>& vectorization_factor_map,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -65,11 +66,9 @@ NVF_API void propagateParallelization(
     TensorView* reduction_tv,
     TensorView* reference_tv,
     const bool unroll,
-    const bool vectorize,
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
-    const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const std::unordered_set<TensorView*>& unrolled_vectorized_tvs,
     const std::vector<TensorView*>& selected_tvs = {});
 
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.
@@ -105,5 +104,12 @@ std::string toString(ReductionType reduction_type);
 ReductionType getReductionType(Fusion* fusion);
 ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
 
+// Return the set of TensorViews that should be unrolled or vectorized
+std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
+    TensorView* reference_tv,
+    const std::unordered_map<TensorView*, int64_t>& vectorization_factor_map,
+    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const int64_t vectorization_factor);
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

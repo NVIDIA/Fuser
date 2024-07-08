@@ -973,12 +973,12 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // (3) vectorization factor
   auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-  auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+  const auto& [vectorize_factor, vectorization_factor_map] = vectorize_helper::getVectorizationFactor(
       runtime_info,
       reduced_tv,
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims)).first;
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   // (4) info about persistent buffer
   auto persistent_buffer_info_entry =
@@ -1077,7 +1077,8 @@ PersistentKernelProperties getPersistentKernelProperties(
       .project_persistent_buffers = project_persistent_buffers,
       .index_type = runtime_info.getIndexType(),
       .has_exp_op = has_exp_op,
-      .persistent_buffers = persistent_buffer_info.persistent_buffers};
+      .persistent_buffers = persistent_buffer_info.persistent_buffers,
+      .vectorization_factor_map = vectorization_factor_map};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
@@ -1435,17 +1436,20 @@ void schedulePersistentKernel(
   }
 
   const bool unroll = rparams.isUnrolled();
-  const bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
       rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+  const int64_t vectorization_factor = rparams.fastest_dim
+      ? rparams.unroll_factor_inner_reduction
+      : rparams.unroll_factor_iter_dom;
+      
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
       reduction_tvs[0],
       reference_tv,
       unroll,
-      vectorize,
+      vectorization_factor,
       is_outer_grid_persistence,
+      rparams.vectorization_factor_map,
       reduction_tvs,
       cached_inputs,
       cached_outputs,

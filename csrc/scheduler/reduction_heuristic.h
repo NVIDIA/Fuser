@@ -144,7 +144,9 @@ class ReductionParams : public HeuristicParams {
   // allow the move of these intermediate persistent tensors to shared memory
   // when the shared memory is much larger than the register file.
   std::vector<TensorView*> smem_persistent_buffers;
-
+  
+  // map from TensorView to its max allowed vectorization factor
+  std::unordered_map<TensorView*, int64_t> vectorization_factor_map;
  public:
   using HeuristicParams::HeuristicParams;
 
