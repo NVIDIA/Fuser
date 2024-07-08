@@ -837,82 +837,108 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
   setWarpMapped(tv, 2);
 }
 
-// Please note that we currently do not fully support
-// not splitting the outer dimension. This only works when
-// the inner-dimension is not split, that is the inner dim
-// is less or equal to the swizzle size (in bytes).
-void WarpMmaSwizzler::scheduleTMALoad(
+void WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
     TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    bool split_outer_dim) {
-  int numer_of_inner_ids_as_tma_box = 0;
-  // In the comments below I have kept K as the outer dimension. That is
-  // just to have a concrete running example - it can inner or outer.
-  if (swizzle == MmaInputSmemSwizzle::None) {
-    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
-    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
-    // memory. [K, M]
-    tv->split(-2, 8);
-    tv->split(-1, 8);
-    // [Ko, K8, Mo, M8]
-    tv->reorder({{-2, -3}});
-    // [Ko, Mo, K8, M8]
-
-    // Mark K8 and M8 as parallel bulk type.
-    numer_of_inner_ids_as_tma_box = 2;
-  } else {
-    auto dtype = tv->getDataType().value();
-
-    // Assume K=16 N=32 and swizzle is 32B and dtype is half
-    if (split_outer_dim) {
-      // {B, K, N}
-      // {B, KO(2), KI(8), N}
-      //  We use 8 because it's 128 / getBytesFromSwizzle(swizzle)  *
-      //  getBytesFromSwizzle(swizzle) / 16
-      tv->split(-2, 8);
-    } else {
-      // {B, K, N}
-      // [Outer is not split]
-      // {B, 1, KI(16), N}
-      tv->split(-2, tv->axis(-2)->extent());
-    }
-
-    // {B, KO(2), KI(8), NO(2), NI(16)} [Outer  is split]
-    // {B, KO(1), KI(16), NO(2), NI(16)} [Outer is not split]
-    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
-
-    // {B, NO(2), KO(2), KI(8), NI(16) } [Outer  is split]
-    // {B, NO(2), KO(1), KI(16), NI(16) } [Outer is not split]
-    tv->reorder({{2, 3}, {3, 2}});
-
-    // {B, NO(2), KO(2), KIO(2), KII(4),  NI(16) } [Outer  is split]
-    // {B, NO(2), KO(1), KIO(4), KII(4),  NI(16) } [Outer  is not split]
-    tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
-
-    // {B, NO(2), KO(2), KIO(2), KII(4),  NIO(2), NII(8) } [Outer  is split]
-    // {B, NO(2), KO(1), KIO(4), KII(4),  NIO(2), NII(8) } [Outer  is not split]
-    tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
-
-    if (!split_outer_dim) {
-      // {B, NO(2), KO(1), KIOO(2), KIOI(2), KII(4),  NIO(2), NII(8) } [Outer
-      // not split]
-      tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
-    }
-
-    numer_of_inner_ids_as_tma_box = split_outer_dim ? 4 : 5;
-    tv->swizzle(SwizzleType::XOR, -4, -2);
-  }
-
-  // Make the required number of inner IDs parallel bulk type.
+    size_t first_ids_to_skip) {
   size_t skip = 0;
-  const auto count = tv->getLoopDomain().size() - numer_of_inner_ids_as_tma_box;
   for (auto id : tv->getLoopDomain()) {
-    if (skip < count) {
+    if (skip < first_ids_to_skip) {
       skip++;
       continue;
     }
     id->parallelize(ParallelType::Bulk);
   }
+}
+
+void WarpMmaSwizzler::scheduleTMABox(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
+    bool split_outer_dim) {
+  auto dtype = tv->getDataType().value();
+  // Input is on the form:
+  // {...., K (assume is 16), NI (16 .. say dtype is half and swizzle
+  // size is 32B, N could have already been split to create the TMA box)}
+
+  // Split outer Dim:
+  // [..., KO(2), KI(8), NI (16)] ->
+  // [..., KO(2), KI0(2), KII(4), NI (16)]
+  // Not Split:
+  // [..., K(16),  NI(16)] ->
+  // [..., KO(4), KI(4), NI(16)]
+  tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
+
+  // Split outer Dim:
+  // [..., KO(2), KI0(2), KII(4), NI (16)] ->
+  // [..., KO(2), KI0(2), KII(4), NIO(2) ,NII(8)]
+  // Not Split:
+  // [..., KO(4), KI(4), NI(16)] ->
+  // [..., KO(4), KI(4), NIO(2), NII(8)]
+  tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
+
+  if (!split_outer_dim) {
+    // [..., KO(4), KI(4), NIO(2), NII(8)] -> [..., KOO(2), KOI(2) KI(4),
+    // NIO(2), NII(8)]
+    tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
+  }
+
+  tv->swizzle(SwizzleType::XOR, -4, -2);
+}
+
+// Please note that we currently do not fully support
+// not splitting the outer dimension. This only works when
+// the inner-dimension is not split, that is the inner dim
+// is less or equal to the swizzle size (in bytes).
+void WarpMmaSwizzler::scheduleTMALoadForMma(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
+    bool split_outer_dim) {
+  // In the comments below I have kept K as the outer dimension. That is
+  // just to have a concrete running example - it can be inner or outer.
+
+  auto num_ids_to_skip = tv->getLoopDomain().size() - 2;
+  NVF_ERROR(num_ids_to_skip >= 0);
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, N]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, No, N8]
+    tv->reorder({{-2, -3}});
+    // [Ko, No, K8, N8]
+    num_ids_to_skip += 2;
+  } else {
+    auto dtype = tv->getDataType().value();
+
+    // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
+    if (split_outer_dim) {
+      // [..., K(16),  N(326)] ->
+      // [..., KO(2), KI(8), N(32)]
+      //  We use 8 because it's 128 / getBytesFromSwizzle(swizzle)  *
+      //  getBytesFromSwizzle(swizzle) / 16
+      tv->split(-2, 8);
+      num_ids_to_skip++;
+    }
+
+    // split the inner-dim
+    // [..., K(16), N(32)] -> [...K(16), N0(2), NI(16)]
+    // [..., KO(2), KI(8), N(32)] ->
+    // [..., KO(2), KI(8), NO(2), NI(16))] (outer split)
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+    num_ids_to_skip++;
+
+    // [...K(16), N0(2), NI(16)] -> [..., N0(2), K(16), NI(16)]
+    // [..., KO(2), KI(8), NO(2), NI(16))] ->
+    // [..., KO(2), NO(2), KI(8), NI(16))] (outer split)
+    tv->reorder({{-2, -3}});
+
+    // Outer Dim split,box is: [KI(8), NI(16)]
+    // Outer Dim is not split,box is [K(16), NI(16)]
+    // Everything inside a box should be marked parallel bulk
+    WarpMmaSwizzler::scheduleTMABox(tv, swizzle, split_outer_dim);
+  }
+
+  parallelizeAsBulkSkippingFirstIDs(tv, num_ids_to_skip);
 
   // Set the allocation to the loop domain.
   tv->setAllocationDomain(tv->getLoopDomain(), true);
