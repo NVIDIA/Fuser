@@ -14,6 +14,32 @@ namespace nvfuser {
 
 namespace hir {
 
+namespace {
+
+at::Tensor getKnownTensorOrEmptyTensor(
+    Val* val,
+    const ExpressionEvaluator& expr_evaluator) {
+  return expr_evaluator.isKnown(val)
+      ? expr_evaluator.evaluate(val).as<at::Tensor>()
+      : at::Tensor();
+}
+
+std::vector<at::Tensor> getKnownTensorOrEmptyTensor(
+    const std::vector<Val*>& vals,
+    const ExpressionEvaluator& expr_evaluator) {
+  std::vector<at::Tensor> tensors(vals.size());
+  std::transform(
+      vals.begin(),
+      vals.end(),
+      tensors.begin(),
+      [&expr_evaluator](Val* val) -> at::Tensor {
+        return getKnownTensorOrEmptyTensor(val, expr_evaluator);
+      });
+  return tensors;
+}
+
+} // namespace
+
 HostIrExecutor::HostIrExecutor(
     std::unique_ptr<HostIrContainer> container,
     Communicator* communicator,
@@ -45,15 +71,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   }
 
   // Collect global outputs
-  std::vector<at::Tensor> outputs;
-  for (auto output_val : container_->outputs()) {
-    PolymorphicValue maybe_output = expr_evaluator_.evaluate(output_val);
-    at::Tensor output =
-        maybe_output.hasValue() ? maybe_output.as<at::Tensor>() : at::Tensor();
-    outputs.push_back(output);
-  }
-
-  return outputs;
+  return getKnownTensorOrEmptyTensor(container_->outputs(), expr_evaluator_);
 }
 
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
@@ -73,13 +91,13 @@ void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
 void HostIrExecutor::handle(PostOnStream* post_ir) {
   std::vector<c10::IValue> input_IValues;
   for (auto& input : post_ir->inputs()) {
-    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
     NVF_ERROR(
-        input_evaluation.hasValue(),
+        expr_evaluator_.isKnown(input),
         "No buffer associated with Val ",
         input,
         " for handling ",
         post_ir->toString());
+    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
     c10::IValue value;
     if (input_evaluation.is<at::Tensor>()) {
       value = input_evaluation.as<at::Tensor>();
@@ -140,18 +158,10 @@ void HostIrExecutor::handle(Communication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
-  Val* input_val = communication->input(0);
-  Val* output_val = communication->output(0);
-  at::Tensor input_tensor;
-  if (auto evaluated_tensor = expr_evaluator_.evaluate(input_val);
-      evaluated_tensor.hasValue()) {
-    input_tensor = evaluated_tensor.as<at::Tensor>();
-  }
-  at::Tensor output_tensor;
-  if (auto evaluated_tensor = expr_evaluator_.evaluate(output_val);
-      evaluated_tensor.hasValue()) {
-    output_tensor = evaluated_tensor.as<at::Tensor>();
-  }
+  at::Tensor input_tensor =
+      getKnownTensorOrEmptyTensor(communication->input(0), expr_evaluator_);
+  at::Tensor output_tensor =
+      getKnownTensorOrEmptyTensor(communication->output(0), expr_evaluator_);
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), std::nullopt);
