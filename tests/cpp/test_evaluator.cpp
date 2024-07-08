@@ -772,10 +772,10 @@ TEST_F(ExprEvalTest, BinaryOpFmod) {
 
   EXPECT_EQ(pv.getMaybeValueFor(out0).as<double>(), std::fmod(7.0, 3.8));
   EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(7.0, 8));
-  EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(8, 3));
-  EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(8, 3.8));
-  EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(7.0, -0.8));
-  EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(8, -0.8));
+  EXPECT_EQ(pv.getMaybeValueFor(out2).as<double>(), std::fmod(8, 3));
+  EXPECT_EQ(pv.getMaybeValueFor(out3).as<double>(), std::fmod(8, 3.8));
+  EXPECT_EQ(pv.getMaybeValueFor(out4).as<double>(), std::fmod(7.0, -0.8));
+  EXPECT_EQ(pv.getMaybeValueFor(out5).as<double>(), std::fmod(8, -0.8));
 }
 
 } // namespace nvfuser
