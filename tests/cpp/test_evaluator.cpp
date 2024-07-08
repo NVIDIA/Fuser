@@ -728,6 +728,8 @@ TEST_F(ExprEvalTest, UnaryOpSignbit) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  ExpressionEvaluator evaluator;
+
   auto* a = IrBuilder::create<Val>(7.0);
   auto* b = IrBuilder::create<Val>(3.8);
   auto* c = IrBuilder::create<Val>(8);
@@ -740,19 +742,18 @@ TEST_F(ExprEvalTest, UnaryOpSignbit) {
   auto* signbit_d = signbit(d);
   auto* signbit_e = signbit(e);
 
-  PrecomputedValues pv(&fusion);
-  pv.evaluate();
-
-  EXPECT_EQ(pv.getMaybeValueFor(signbit_a).as<bool>(), false);
-  EXPECT_EQ(pv.getMaybeValueFor(signbit_b).as<bool>(), false);
-  EXPECT_EQ(pv.getMaybeValueFor(signbit_c).as<bool>(), false);
-  EXPECT_EQ(pv.getMaybeValueFor(signbit_d).as<bool>(), false);
-  EXPECT_EQ(pv.getMaybeValueFor(signbit_e).as<bool>(), true);
+  EXPECT_EQ(evaluator.evaluate(signbit_a).as<bool>(), false);
+  EXPECT_EQ(evaluator.evaluate(signbit_b).as<bool>(), false);
+  EXPECT_EQ(evaluator.evaluate(signbit_c).as<bool>(), false);
+  EXPECT_EQ(evaluator.evaluate(signbit_d).as<bool>(), false);
+  EXPECT_EQ(evaluator.evaluate(signbit_e).as<bool>(), true);
 }
 
 TEST_F(ExprEvalTest, BinaryOpFmod) {
   Fusion fusion;
   FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
 
   auto* a = IrBuilder::create<Val>(7.0);
   auto* b = IrBuilder::create<Val>(3.8);
@@ -767,15 +768,12 @@ TEST_F(ExprEvalTest, BinaryOpFmod) {
   auto* out4 = fmod(a, e);
   auto* out5 = fmod(d, e);
 
-  PrecomputedValues pv(&fusion);
-  pv.evaluate();
-
-  EXPECT_EQ(pv.getMaybeValueFor(out0).as<double>(), std::fmod(7.0, 3.8));
-  EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(7.0, 8));
-  EXPECT_EQ(pv.getMaybeValueFor(out2).as<double>(), std::fmod(8, 3));
-  EXPECT_EQ(pv.getMaybeValueFor(out3).as<double>(), std::fmod(8, 3.8));
-  EXPECT_EQ(pv.getMaybeValueFor(out4).as<double>(), std::fmod(7.0, -0.8));
-  EXPECT_EQ(pv.getMaybeValueFor(out5).as<double>(), std::fmod(8, -0.8));
+  EXPECT_EQ(evaluator.evaluate(out0).as<double>(), std::fmod(7.0, 3.8));
+  EXPECT_EQ(evaluator.evaluate(out1).as<double>(), std::fmod(7.0, 8));
+  EXPECT_EQ(evaluator.evaluate(out2).as<double>(), std::fmod(8, 3));
+  EXPECT_EQ(evaluator.evaluate(out3).as<double>(), std::fmod(8, 3.8));
+  EXPECT_EQ(evaluator.evaluate(out4).as<double>(), std::fmod(7.0, -0.8));
+  EXPECT_EQ(evaluator.evaluate(out5).as<double>(), std::fmod(3, -0.8));
 }
 
 } // namespace nvfuser
