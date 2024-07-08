@@ -9,8 +9,13 @@
 #include <gtest/gtest.h>
 
 #include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 #include <abstract_tensor.h>
+#include <abstract_tensor_schedule.h>
+#include <executor.h>
+#include <inlining.h>
+#include <ops/arith.h>
 
 namespace nvfuser {
 
@@ -710,6 +715,64 @@ TEST_F(AbstractTensorTest, UnzipBroadcasting) {
   AbstractTensor expect1{id0, id2};
   EXPECT_EQ(ub[0], expect0);
   EXPECT_EQ(ub[1], expect1);
+}
+
+TEST_F(AbstractTensorTest, TestApplyScheduling) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  auto tv1 = makeSymbolicTensor(2);
+  auto tv2 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  // This fusion does not have a reference tensor
+  auto tv3 = broadcast(tv0, {false, true});
+  auto tv4 = mul(tv3, tv1);
+  auto tv5 = broadcast(tv0, {true, false});
+  auto tv6 = mul(tv5, tv2);
+
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv6);
+
+  IdModel id_model(&fusion);
+  ValGraph& graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+  AbstractTensor abten;
+
+  abten.domain.reserve(3);
+  const auto addAbstractAxis = [&abten, &graph](IterDomain* id) {
+    ValGroup g = graph.toGroup(id);
+    abten.domain.emplace_back(ValGroupAndItsGraph{g, &graph});
+  };
+  addAbstractAxis(tv2->axis(0));
+  addAbstractAxis(tv1->axis(0));
+  addAbstractAxis(tv1->axis(1));
+
+  abten.merge(0);
+  abten.merge(0);
+  abten.split(0, 128);
+
+  for (TensorView* tv : {tv3, tv4, tv5, tv6}) {
+    applyAbstractTransforms(abten, tv, &graph);
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+    tv->axis(-2)->parallelize(ParallelType::BIDx);
+  }
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({24}, options);
+  at::Tensor t1 = at::randn({24, 1024}, options);
+  at::Tensor t2 = at::randn({2048, 24}, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
