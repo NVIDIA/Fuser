@@ -4347,12 +4347,20 @@ class TestNvFuserFrontend(TestCase):
     def test_reshape_dynamic(self):
         inputs = [
             32,
-            torch.randn((192,), dtype=torch.float32, device='cuda:0').as_strided((4, 8, 6), (48, 6, 1)),
+            torch.randn((192,), dtype=torch.float32, device='cuda:0').as_strided(
+                (4, 8, 6), (48, 6, 1)
+            ),
         ]
 
-        def fusion_func(fd : FusionDefinition) -> None :
+        def fusion_func(fd : FusionDefinition) -> None:
             S0 = fd.define_scalar(None, dtype=DataType.Int)
-            T1 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0])
+            T1 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0
+            )
             S2 = fd.define_scalar(1, dtype=DataType.Int)
             S3 = fd.ops.mul(S2, S0)
             S4 = fd.ops.signbit(S3)
