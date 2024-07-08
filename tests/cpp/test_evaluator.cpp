@@ -741,14 +741,13 @@ TEST_F(ExprEvalTest, UnaryOpSignbit) {
   auto* signbit_e = signbit(e);
 
   PrecomputedValues pv(&fusion);
-  evaluator.bindPrecomputedValues(&pv);
-  pv->evaluate();
+  pv.evaluate();
 
-  EXPECT_EQ(pv->getMaybeValueFor(signbit_a).as<bool>(), false);
-  EXPECT_EQ(pv->getMaybeValueFor(signbit_b).as<bool>(), false);
-  EXPECT_EQ(pv->getMaybeValueFor(signbit_c).as<bool>(), false);
-  EXPECT_EQ(pv->getMaybeValueFor(signbit_d).as<bool>(), false);
-  EXPECT_EQ(pv->getMaybeValueFor(signbit_e).as<bool>(), true);
+  EXPECT_EQ(pv.getMaybeValueFor(signbit_a).as<bool>(), false);
+  EXPECT_EQ(pv.getMaybeValueFor(signbit_b).as<bool>(), false);
+  EXPECT_EQ(pv.getMaybeValueFor(signbit_c).as<bool>(), false);
+  EXPECT_EQ(pv.getMaybeValueFor(signbit_d).as<bool>(), false);
+  EXPECT_EQ(pv.getMaybeValueFor(signbit_e).as<bool>(), true);
 }
 
 TEST_F(ExprEvalTest, BinaryOpFmod) {
@@ -769,15 +768,14 @@ TEST_F(ExprEvalTest, BinaryOpFmod) {
   auto* out5 = fmod(d, e);
 
   PrecomputedValues pv(&fusion);
-  evaluator.bindPrecomputedValues(&pv);
-  pv->evaluate();
+  pv.evaluate();
 
-  EXPECT_EQ(pv->getMaybeValueFor(out0).as<double>(), std::fmod(7.0, 3.8));
-  EXPECT_EQ(pv->getMaybeValueFor(out1).as<double>(), std::fmod(7.0, 8));
-  EXPECT_EQ(pv->getMaybeValueFor(out1).as<double>(), std::fmod(8, 3));
-  EXPECT_EQ(pv->getMaybeValueFor(out1).as<double>(), std::fmod(8, 3.8));
-  EXPECT_EQ(pv->getMaybeValueFor(out1).as<double>(), std::fmod(7.0, -0.8));
-  EXPECT_EQ(pv->getMaybeValueFor(out1).as<double>(), std::fmod(8, -0.8));
+  EXPECT_EQ(pv.getMaybeValueFor(out0).as<double>(), std::fmod(7.0, 3.8));
+  EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(7.0, 8));
+  EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(8, 3));
+  EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(8, 3.8));
+  EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(7.0, -0.8));
+  EXPECT_EQ(pv.getMaybeValueFor(out1).as<double>(), std::fmod(8, -0.8));
 }
 
 } // namespace nvfuser
