@@ -465,7 +465,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       return {in.as<at::Tensor>().sin()};
       break;
     case UnaryOpType::Signbit:
-      return signbit(in);
+      return {signbit(in)};
       break;
     case UnaryOpType::Cos:
       return {in.as<at::Tensor>().cos()};
