@@ -157,6 +157,37 @@ class AbstractTensorSchedule {
     // This holds ValGroups that we cannot compute from concrete_'s root. When
     // we detect that any inputs of an ExprGroup are in these groups, we know
     // that we cannot compute that ExprGroup so we should skip it.
+    //
+    // For example, suppose we had
+    //   concrete_:
+    //     root: iS0{i0} iS1{i1}
+    //
+    //   graph:
+    //     ValGroup 0: iS0 iS5
+    //     ValGroup 1: iS1
+    //     ValGroup 2: iS2
+    //     ValGroup 3: iS3
+    //     ValGroup 4: iS4
+    //     ValGroup 5: iS6
+    //     ValGroup 6: iS7
+    //     ExprGroup 0:
+    //       iS2 = merge(iS0, iS1)
+    //     ExprGroup 1:
+    //       iS3, iS4 = split(iS2, 16)
+    //     ExprGroup 2:
+    //       iS7 = merge(iS5, iS6)
+    //
+    //   abstract_.domain:
+    //     ValGroup 3, ValGroup 4, ValGroup 6
+    //
+    // In this case, ValGroups 3 and 4 are computable since those ValGroups are
+    // produced by ExprGroup 1 which itself produced by ExprGroup 0, and
+    // concrete_ includes iS0 and iS1.
+    //
+    // However, ValGroup 6 is not computable. It is produced by ExprGroup 2
+    // whose producer ValGroups are 0 and 5. ValGroup 0 is computable since iS0
+    // is in concrete_, however there is no IterDomain in concrete_ that can be
+    // used to represent ValGroup 5 which has no producer ValGroups.
     std::unordered_set<ValGroup> uncomputable_groups;
 
     std::stack<ValGroup> vg_stack({g});
