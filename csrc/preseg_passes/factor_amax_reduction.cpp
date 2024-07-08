@@ -233,6 +233,11 @@ TensorView* detectAmaxPattern(TensorView* tv) {
   State current_state = Start;
   State next_state = Start;
 
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << "==== Running detectAmaxPattern " << tv->toString()
+            << " ====" << std::endl;
+  }
+
   while (current_tv != nullptr) {
     // Get potential next state based on TensorView definition
     if (findUnaryDefinition(current_tv, UnaryOpType::Cast)) {
@@ -246,6 +251,11 @@ TensorView* detectAmaxPattern(TensorView* tv) {
       next_state = Broadcast;
     } else {
       next_state = Invalid;
+    }
+
+    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+      debug() << "From\t" << current_state << "\tTo\t" << next_state
+              << std::endl;
     }
 
     // Validate next state given current state
@@ -283,6 +293,10 @@ TensorView* detectAmaxPattern(TensorView* tv) {
       }
     }
     current_state = next_state;
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << "==== Finish detectAmaxPattern ====" << std::endl;
   }
 
   NVF_ERROR(
@@ -433,6 +447,9 @@ void FactorAmaxReductionPass::runPass(Fusion* fusion) {
 
   // Stop if we cannot find amax reduction pattern
   if (amax_reduction_tvs.empty()) {
+    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+      debug() << "Failed to find amax reduction pattern." << std::endl;
+    }
     return;
   }
 
@@ -448,6 +465,11 @@ void FactorAmaxReductionPass::runPass(Fusion* fusion) {
     // Stop if we cannot find any compatible reduction tvs
     TensorView* upstream_tv = findUpstreamReduction(fusion, amax_reduction);
     if (upstream_tv == nullptr && upstream_tv != amax_reduction) {
+      if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+        debug()
+            << "Failed to compatible reduction TensorView for amax reduction pattern"
+            << std::endl;
+      }
       continue;
     }
 
@@ -474,6 +496,11 @@ void FactorAmaxReductionPass::runPass(Fusion* fusion) {
     }
 
     // Create partial reduction given selected axes
+    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+      debug() << "Successfully factored amax reduction "
+              << amax_reduction->toString()
+              << " with reduction axes: " << rfactor_indices << std::endl;
+    }
     factorReductionTensorView(amax_reduction, rfactor_indices);
   }
 }
