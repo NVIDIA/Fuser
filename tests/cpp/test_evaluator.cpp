@@ -724,4 +724,31 @@ TEST_F(ExprEvalTest, CatOp) {
   EXPECT_TRUE(at::equal(out, at::cat({t0, t1}, 0)));
 }
 
+TEST_F(ExprEvalTest, Signbit) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto* a = IrBuilder::create<Val>(7.0);
+  auto* b = IrBuilder::create<Val>(3.8);
+  auto* c = IrBuilder::create<Val>(8);
+  auto* d = IrBuilder::create<Val>(7);
+  auto* e = IrBuilder::create<Val>(-0.8);
+
+  auto* signbit_a = signbit(a);
+  auto* signbit_b = signbit(b);
+  auto* signbit_c = signbit(c);
+  auto* signbit_d = signbit(d);
+  auto* signbit_e = signbit(e);
+
+  PrecomputedValues pv(&fusion);
+  evaluator.bindPrecomputedValues(&pv);
+  pv->evaluate();
+
+  EXPECT_EQ(pv->getMaybeValueFor(signbit_a).as<bool>(), false);
+  EXPECT_EQ(pv->getMaybeValueFor(signbit_b).as<bool>(), false);
+  EXPECT_EQ(pv->getMaybeValueFor(signbit_c).as<bool>(), false);
+  EXPECT_EQ(pv->getMaybeValueFor(signbit_d).as<bool>(), false);
+  EXPECT_EQ(pv->getMaybeValueFor(signbit_e).as<bool>(), true);
+}
+
 } // namespace nvfuser
