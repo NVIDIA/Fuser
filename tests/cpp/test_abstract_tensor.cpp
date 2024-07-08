@@ -755,7 +755,7 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
   abten.split(0, 128);
 
   for (TensorView* tv : {tv3, tv4, tv5, tv6}) {
-    applyAbstractSchedule(abten, tv, &graph);
+    applyAbstractTransforms(abten, tv, &graph);
     tv->axis(-1)->parallelize(ParallelType::TIDx);
     tv->axis(-2)->parallelize(ParallelType::BIDx);
   }

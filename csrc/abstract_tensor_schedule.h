@@ -15,7 +15,7 @@ namespace nvfuser {
 
 //! Apply the transformations found in an AbstractTensor to a concrete
 //! TensorView.
-void applyAbstractSchedule(
+void applyAbstractTransforms(
     const AbstractTensor& abstract,
     TensorView* concrete,
     ValGraph* graph = nullptr);

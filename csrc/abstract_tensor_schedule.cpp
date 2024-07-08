@@ -309,7 +309,7 @@ class AbstractTensorSchedule {
 
 } // namespace
 
-void applyAbstractSchedule(
+void applyAbstractTransforms(
     const AbstractTensor& abstract,
     TensorView* concrete,
     ValGraph* graph) {
