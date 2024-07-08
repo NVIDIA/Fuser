@@ -221,6 +221,28 @@ struct DimInfo {
   }
 };
 
+// Return if we can schedule FusionDefinition with heuristic
+std::tuple<bool, std::string> canSchedule(
+    UserSchedule* sched,
+    const ScheduleHeuristic& heuristic) {
+  NVF_ERROR(
+      sched->runtime_info != nullptr,
+      "Requires SchedulerRuntimeInfo to use heuristic schedulers");
+
+  // Enable collection of messages from canScheduleRejectReason
+  DebugDumpOptionsGuard debug_dump_options_guard;
+  DebugDumpOptionsGuard::getCurOptions().set(
+      DebugDumpOption::FusionSegmenterLog);
+
+  // Send debug messages to stringstream
+  std::stringstream ss;
+  DebugStreamGuard dsg(ss);
+
+  bool can_schedule = SchedulerEntry::canSchedule(
+      heuristic, sched->schedule.get(), *sched->runtime_info);
+  return std::make_tuple(can_schedule, ss.str());
+}
+
 } // namespace
 
 std::vector<std::optional<bool>> computeContiguity(
@@ -3287,24 +3309,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        UserSchedule* sched = fd->userSchedule();
-        NVF_ERROR(
-            sched->runtime_info != nullptr,
-            "Requires SchedulerRuntimeInfo to use heuristic schedulers");
-
-        // Enable collection of messages from canScheduleRejectReason
-        DebugDumpOptionsGuard debug_dump_options_guard;
-        DebugDumpOptionsGuard::getCurOptions().set(
-            DebugDumpOption::FusionSegmenterLog);
-
-        // Send debug messages to stringstream
-        std::stringstream ss;
-        DebugStreamGuard dsg(ss);
-
-        bool can_schedule = SchedulerEntry::canSchedule(
-            heuristic, sched->schedule.get(), *sched->runtime_info);
-        return std::make_tuple(can_schedule, ss.str());
+        return canSchedule(self.fusion_definition->userSchedule(), heuristic);
       },
       py::arg("heuristic"));
   nvf_sched.def(
@@ -3323,9 +3328,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             sched->heuristic_scheduler == nullptr,
             "Heuristic Scheduler is already defined for this UserSchedule");
 
-        bool can_schedule = SchedulerEntry::canSchedule(
-            heuristic, sched->schedule.get(), *sched->runtime_info);
-        NVF_CHECK(can_schedule, "Cannot schedule with specified scheduler");
+        auto&& [can_schedule, error_msg] = canSchedule(sched, heuristic);
+        NVF_CHECK(can_schedule, error_msg);
 
         sched->heuristic_scheduler = SchedulerEntry::makeEntry(
             heuristic, sched->schedule.get(), *sched->runtime_info);
