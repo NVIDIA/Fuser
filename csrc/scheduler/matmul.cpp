@@ -13,6 +13,7 @@
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/multi_matmul.h>
 #include <scheduler/utils.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
@@ -751,6 +752,9 @@ void scheduleSplitKSum(
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
+  // TODO: hide behind an option
+  scheduleMultipleMatmuls(fusion, params);
+
   FusionGuard fg(fusion);
 
   // Make sure we don't have global memory set on intermediate tensors from
@@ -947,7 +951,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       num_device_dims + num_local_batch_dims;
 
   // [... M,N,K]
-  mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
+  mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector(), -3, -2, -1);
   // [..., Mo, No, Ko, Mi, Ni, Ki]
 
   // Unswizzle mma result in shared memory

@@ -65,7 +65,12 @@ NVF_API void scheduleWarpTileWithNoReduction(
 //! canonicalizeMmaTvOrdering before calling makeTile and the merged axis
 //! position should be provided. If any of these dimensions is missing, its
 //! position should be passed as -1.
-void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes);
+void makeTile(
+    TensorView* tv,
+    const std::vector<int64_t>& tile_sizes,
+    int64_t m_pos,
+    int64_t n_pos,
+    int64_t k_pos);
 
 //! We model each dimension of every tensor in the Fusion with ID roles
 //! described by MatmulDimRole.

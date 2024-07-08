@@ -267,6 +267,7 @@ struct TaggedAbstractTensor : AbstractTensor {
     tags.insert(tags.begin() + axis, tags[axis]);
   }
 
+  using AbstractTensor::merge;
   void merge(int64_t axis_o, int64_t axis_i) override {
     AbstractTensor::merge(axis_o, axis_i);
     axis_o = wrapDim(axis_o, (int64_t)domain.size());

@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <abstract_tensor.h>
+#include <abstract_tensor_schedule.h>
 #include <disjoint_set.h>
 #include <inlining.h>
 #include <instrumentation.h>
@@ -272,7 +273,7 @@ class MultipleMatmulScheduler {
 
     for (Val* v : fusion_->usedMathVals()) {
       if (auto tv = dynamic_cast<TensorView*>(v)) {
-        applyAbstractTransforms(at_tiled_, tv, graph);
+        applyAbstractTransforms(at_tiled_, tv, &graph);
       }
     }
   }
@@ -350,7 +351,7 @@ class MultipleMatmulScheduler {
 
 } // namespace
 
-void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
+void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams& params) {
   FusionGuard fg(fusion);
 
   MultipleMatmulScheduler(fusion, params).run();
