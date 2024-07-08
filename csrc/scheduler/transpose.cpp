@@ -34,13 +34,6 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  // Fusions handled by transpose scheduler cannot have matmul ops.
-  if (ir_utils::hasAnyMatmulOps(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no support for matmul ops.");
-    return false;
-  }
-
   for (auto select : ir_utils::getOpsOfType<SelectOp>(fusion)) {
     auto inner = TensorDomain::noReductions(
         select->input(0)->as<TensorView>()->getMaybeAllocationDomain());

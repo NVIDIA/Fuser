@@ -471,16 +471,22 @@ SdpfaFwdResult sdpfa_fwd(
 
   // Create a new Tensorview for cum_seq_q, cum_seq_k of shape (N + 1)
   auto newForCumulativeSeq = [&]() -> TensorView* {
-    IterDomain* batch_id = ops::newOutputIterDomain({query_domain.front()});
-    batch_id = IterDomain::resize(
+    IterDomain* batch_id = ops::newOutputIterDomain(
+        {query_domain.front(), key_domain.front(), value_domain.front()});
+    IterDomain* resized_batch_id = IterDomain::resize(
         batch_id,
         IrBuilder::create<Val>(0, DataType::Index),
-        IrBuilder::create<Val>(1, DataType::Index));
+        IrBuilder::create<Val>(1, DataType::Index),
+        /*mark_as_rfactor=*/true);
 
-    TensorDomain* batch_dom = IrBuilder::create<TensorDomain>(
-        std::vector({batch_id}),
-        TensorDomain::getContiguityFilledWith(std::vector({batch_id}), true));
-    return IrBuilder::create<TensorView>(batch_dom, DataType::Int);
+    return IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            std::vector({batch_id}),
+            std::vector({resized_batch_id}),
+            std::vector({resized_batch_id}),
+            TensorDomain::getContiguityFilledWith(
+                std::vector({resized_batch_id}), true)),
+        DataType::Int);
   };
 
   TensorView* cum_seq_q = newForCumulativeSeq();
@@ -492,8 +498,12 @@ SdpfaFwdResult sdpfa_fwd(
   // Scalar tensors of int64_t dtype.
   TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
+
+  // Thunder metadata represents debug_attn_mask of type int64_t, although the
+  // debug_attn_mask is of query.dtype. Since we use return_debug_mask=false in
+  // the internal flash attention call, this is a scalar zero tensor.
   TensorView* debug_attn_mask =
-      TensorViewBuilder().dtype(DataType::Int).build();
+      TensorViewBuilder().dtype(query->dtype()).build();
 
   // Set default values for dropout_p (0.0), is_causal(false)
   if (dropout_p == nullptr) {
