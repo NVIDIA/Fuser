@@ -16,8 +16,8 @@ namespace nvfuser {
 //! Apply the transformations found in an AbstractTensor to a concrete
 //! TensorView.
 void applyAbstractTransforms(
-    const AbstractTensor& abstract,
-    TensorView* concrete,
+    const AbstractTensor& abstract_tensor,
+    TensorView* tv,
     ValGraph* graph = nullptr);
 
 } // namespace nvfuser
