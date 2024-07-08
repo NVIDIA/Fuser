@@ -89,7 +89,7 @@ class AbstractTensorSchedule {
   //!   abstract_tensor_:
   //!     {{ValGroup 5, graph}, {ValGroup 6, graph}}
   //!
-  //! Then findNearestProducers() work backward from the loop domain of
+  //! Then findNearestProducers() works backward from the loop domain of
   //! tv_ (ValGroups 3 and 4) and will identify ValGroup 2 as a producer
   //! to abstract_tensor_ and map it to the concrete domain iS2{i0}.
   //!
@@ -160,34 +160,35 @@ class AbstractTensorSchedule {
     //
     // For example, suppose we had
     //   tv_:
-    //     root: iS0{i0} iS1{i1}
+    //     root: iS0{i0} iS1{i1} iS2{i2}
     //
     //   graph:
-    //     ValGroup 0: iS0 iS5
+    //     ValGroup 0: iS0
     //     ValGroup 1: iS1
-    //     ValGroup 2: iS2
+    //     ValGroup 2: iS2 iS6
     //     ValGroup 3: iS3
     //     ValGroup 4: iS4
-    //     ValGroup 5: iS6
+    //     ValGroup 5: iS5
     //     ValGroup 6: iS7
+    //     ValGroup 7: iS8
     //     ExprGroup 0:
-    //       iS2 = merge(iS0, iS1)
+    //       iS3 = merge(iS0, iS1)
     //     ExprGroup 1:
-    //       iS3, iS4 = split(iS2, 16)
+    //       iS4, iS5 = split(iS3, 16)
     //     ExprGroup 2:
-    //       iS7 = merge(iS5, iS6)
+    //       iS8 = merge(iS6, iS7)
     //
     //   abstract_tensor_.domain:
-    //     ValGroup 3, ValGroup 4, ValGroup 6
+    //     ValGroup 4, ValGroup 5, ValGroup 7
     //
-    // In this case, ValGroups 3 and 4 are computable since those ValGroups are
+    // In this case, ValGroups 4 and 5 are computable since those ValGroups are
     // produced by ExprGroup 1 which itself produced by ExprGroup 0, and
     // tv_ includes iS0 and iS1.
     //
-    // However, ValGroup 6 is not computable. It is produced by ExprGroup 2
-    // whose producer ValGroups are 0 and 5. ValGroup 0 is computable since iS0
+    // However, ValGroup 7 is not computable. It is produced by ExprGroup 2
+    // whose producer ValGroups are 2 and 6. ValGroup 2 is computable since iS0
     // is in tv_, however there is no IterDomain in tv_ that can be
-    // used to represent ValGroup 5 which has no producer ValGroups.
+    // used to represent ValGroup 6 which also has no producer ValGroups.
     std::unordered_set<ValGroup> uncomputable_groups;
 
     std::stack<ValGroup> vg_stack({g});
