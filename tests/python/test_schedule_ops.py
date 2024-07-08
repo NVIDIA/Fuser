@@ -750,6 +750,53 @@ class TestScheduleOps(TestCase):
         eager_out = torch.exp(inputs[0].sum(1))
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_matmul_auto_scheduler(self):
+        m = 24
+        n = 16
+        k = 8
+        inputs_tt = [
+            torch.randn(m, k, device="cuda", dtype=torch.float16),
+            torch.randn(k, n, device="cuda", dtype=torch.float16),
+        ]
+
+        inputs_tn = [
+            inputs_tt[0].clone(),
+            inputs_tt[1].clone().as_strided(size=[k, n], stride=[1, k]),
+        ]
+
+        inputs_nt = [
+            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, m]),
+            inputs_tt[1].clone(),
+        ]
+
+        inputs_tn = [inputs_tt[0].clone(), inputs_tn[1].clone()]
+
+        inputs_nn = [inputs_nt[0].clone(), inputs_tn[1].clone()]
+
+        class Matmul(FusionDefinition):
+            def __init__(self, inputs):
+                super().__init__()
+                self.inps = inputs
+
+            def definition(self):
+                t0 = fd.from_pytorch(self.inps[0])
+                t1 = fd.from_pytorch(self.inps[1])
+                t2 = fd.ops.matmul(t0, t1)
+                fd.add_output(t2)
+
+            def schedule(self):
+                expr_eval_status, _ = fd.sched.can_schedule(
+                    SchedulerHeuristic.expr_eval
+                )
+                assert expr_eval_status
+                fd.sched.schedule(SchedulerHeuristic.expr_eval)
+
+        for inputs in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
+            fd = Matmul(inputs)
+            nvf_out = fd.execute(inputs)
+            eager_out = torch.matmul(inputs[0], inputs[1])
+            self.assertEqual(eager_out, nvf_out[0])
+
 
 if __name__ == "__main__":
     run_tests()
