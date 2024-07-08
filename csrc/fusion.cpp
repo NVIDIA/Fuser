@@ -320,7 +320,11 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
     }
     if (output->getValType().value() == ValType::TensorView) {
       output->setIsFusionOutput(false);
-      output->as<TensorView>()->setMemoryType(MemoryType::Local);
+      // If `output` is both an input and an output before the replacement,
+      // don't localize it.
+      if (!output->isFusionInput()) {
+        output->as<TensorView>()->setMemoryType(MemoryType::Local);
+      }
     }
     // Mark uses invalid so that they will be reset next time uses() is called
     invalidateTvUses();
