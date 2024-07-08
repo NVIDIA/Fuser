@@ -196,10 +196,19 @@ class WarpMmaSwizzler {
   //! called before this function.
   static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
 
-  static void scheduleTMALoad(
+  static void scheduleTMALoadForMma(
       TensorView* tv,
       MmaInputSmemSwizzle swizzle,
       bool split_outer_dim = true);
+
+  static void scheduleTMABox(
+      TensorView* tv,
+      MmaInputSmemSwizzle swizzle,
+      bool split_outer_dim = true);
+
+  static void parallelizeAsBulkSkippingFirstIDs(
+      TensorView* tv,
+      size_t first_ids_to_skip);
 };
 
 void checkDimSize(

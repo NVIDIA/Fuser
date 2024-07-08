@@ -1337,7 +1337,8 @@ void TensorView::applyMmaSwizzleForTMALoad(
       definition()->as<LoadStoreOp>()->opType() ==
           LoadStoreOpType::CpAsyncBulkTensorTile,
       "Operation requires a TMA operation");
-  mma_utils::WarpMmaSwizzler::scheduleTMALoad(this, swizzle, split_outer_dim);
+  mma_utils::WarpMmaSwizzler::scheduleTMALoadForMma(
+      this, swizzle, split_outer_dim);
 }
 
 void TensorView::commitLeafToLogical() {
