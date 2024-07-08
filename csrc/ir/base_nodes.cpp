@@ -39,6 +39,10 @@ void Statement::setName(IrContainerPasskey, StmtNameType name) {
   name_ = name;
 }
 
+void Statement::setName(IrBuilderPasskey, StmtNameType name) {
+  name_ = name;
+}
+
 Val* Statement::asVal() {
   NVF_ERROR(isVal(), "Cannot cast to Val as this is not a Val.");
   return this->as<Val>();
