@@ -1531,4 +1531,102 @@ TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
   testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
 }
 
+// Same fusion as ResizeTest.Slice2. There exist two paths from
+// loop domains to allocation domains, and indexing needs to select
+// the right one.
+TEST_F(IndexingTest, ResizePath) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({11, 30});
+
+  NVF_CHECK(shape[1] % 2 == 0);
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(tv0, {0, 0}, {shape[0], shape[1] / 2});
+  auto tv2 = slice(tv0, {0, shape[1] / 2}, {shape[0], shape[1]});
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  // TransformPrinter :
+  // T0_g[ iS0{11}, iS1{30} ]
+  //  logical domain : (iS0{11}, iS1{30})
+  //  contiguity: f f
+  //  loop domain : (iS0{11}, iS1{30})
+  // T1_l[ iS2{11}rf, iS4{15}rf ]
+  //  root domain : (iS2{11}rf, iS3{30}rf)
+  //   Resize: iS3{30}rf by 0 and -15 -> iS4{15}rf
+  //  logical domain : (iS2{11}rf, iS4{15}rf)
+  //  contiguity: t t
+  //  loop domain : (iS2{11}rf, iS4{15}rf)
+  // T2_l[ iS5{11}rf, iS7{15}rf ]
+  //  root domain : (iS5{11}rf, iS6{30}rf)
+  //   Resize: iS6{30}rf by -15 and 0 -> iS7{15}rf
+  //  logical domain : (iS5{11}rf, iS7{15}rf)
+  //  contiguity: t t
+  //  loop domain : (iS5{11}rf, iS7{15}rf)
+  // T3_g[ iS8{11}, iS9{15} ]
+  //  logical domain : (iS8{11}, iS9{15})
+  //  contiguity: t t
+  //  loop domain : (iS8{11}, iS9{15})
+  // }
+
+  // Notice that due to `add(tv1, tv2)`, the inner domains of tv1, tv2
+  // and tv3 are all mapped, and that all of them are derived from
+  // iS1. This means that when indexing tv0 as the consumer of tv1,
+  // for example, there're two paths from the inner domain of tv1
+  // (i.e., iS4) to the inner allocation domain of tv0 (i.e.,
+  // iS1). One is through the resize of tv1 itself, but the resize for
+  // tv2 can also allow traversal reaching iS1 from iS4 since iS7 is
+  // mapped with iS7. In this case, indexng tv0 for tv1 needs to use
+  // the resize for tv1 and ignore the other resize. Similarly when
+  // indexing tv0 as the producer of tv2, the resize of tv2 needs to
+  // be used.
+
+  // Validate the smem tensor index. Its allocation domain should be
+  // [32, 32], where each "32" comes from I1 and I0, respectively.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      // We are only interested in producer indexing of tv0
+      if (tv->name() != 0) {
+        return nullptr;
+      }
+
+      NVF_ERROR(maybe_consumer != nullptr);
+      auto consumer_tv = maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      switch (consumer_tv->name()) {
+        case 1: {
+          // Slice takes the first half, so the producer index should
+          // be as the consumer index.
+          return addExpr(
+              mulExpr(
+                  loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
+              loop_indices.at(1));
+        }
+        case 2: {
+          // Slice takes the second half, so the producer index should
+          // have an offset of the slice.
+          return addExpr(
+              mulExpr(
+                  loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
+              addExpr(loop_indices.at(1), IrBuilder::create<Val>(15)));
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, false);
+}
+
 } // namespace nvfuser
