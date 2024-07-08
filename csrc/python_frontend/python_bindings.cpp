@@ -450,7 +450,6 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   //! Scheduler Type
   py::enum_<ScheduleHeuristic>(nvfuser, "SchedulerHeuristic")
-      .value("none", ScheduleHeuristic::None)
       .value("no_op", ScheduleHeuristic::NoOp)
       .value("pointwise", ScheduleHeuristic::PointWise)
       .value("reduction", ScheduleHeuristic::Reduction)

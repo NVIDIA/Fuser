@@ -18,6 +18,11 @@ from nvfuser import (
     SchedulerHeuristic,
 )
 
+# NOTE We cannot iterate pybind11 enum directly, so we extract the entries here.
+all_scheduler_heuristics = [
+    heuristic for heuristic, _ in SchedulerHeuristic.__entries.values()
+]
+
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
 
@@ -705,9 +710,18 @@ class TestScheduleOps(TestCase):
                 self.add_output(self.t3)
 
             def schedule(self):
-                status, _ = fd.sched.can_schedule(SchedulerHeuristic.pointwise)
+                selected_heuristic = SchedulerHeuristic.pointwise
+                status, _ = fd.sched.can_schedule(selected_heuristic)
                 assert status
-                fd.sched.schedule(SchedulerHeuristic.pointwise)
+                # Check that the other schedulers are not compatible with this fusion
+                assert all(
+                    [
+                        not fd.sched.can_schedule(h)[0]
+                        for h in all_scheduler_heuristics
+                        if h is not selected_heuristic
+                    ]
+                )
+                fd.sched.schedule(selected_heuristic)
 
         fd = Pointwise()
         nvf_out = fd.execute(inputs)
@@ -717,7 +731,8 @@ class TestScheduleOps(TestCase):
     def test_reduction_auto_scheduler(self):
         """
         Implement a simple reduction kernel with user defined schedule
-         * Uses nvfuser's PointwiseScheduler to see test failure
+         * Expects failure with PointwiseScheduler
+         * Uses nvfuser's ReductionScheduler
         """
         inputs = [
             torch.randn(4, 4, device="cuda"),
@@ -739,6 +754,15 @@ class TestScheduleOps(TestCase):
                     error_msg.strip()
                     == "Scheduler _pointwise_ ***rejected*** because : cannot find reference tensor"
                 )
+                # Check that the other schedulers are not compatible with this fusion
+                assert all(
+                    [
+                        not fd.sched.can_schedule(h)[0]
+                        for h in all_scheduler_heuristics
+                        if h is not selected_heuristic
+                    ]
+                )
+
                 reduction_status, _ = fd.sched.can_schedule(
                     SchedulerHeuristic.reduction
                 )
@@ -750,7 +774,62 @@ class TestScheduleOps(TestCase):
         eager_out = torch.exp(inputs[0].sum(1))
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_inner_persistent_auto_scheduler(self):
+        """
+        Implement a simple normalization kernel with a user defined schedule
+         * Uses nvfuser's InnerPersistentScheduler
+        """
+        tensor_size = 4
+        inputs = [torch.randn(tensor_size, tensor_size, device="cuda")]
+
+        class VarMean(FusionDefinition):
+            def definition(self):
+                self.t0 = fd.from_pytorch(inputs[0])
+                self.s0 = fd.define_scalar(1e-6, dtype=DataType.Double)
+                self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
+
+                self.sum0 = fd.ops.sum(self.t0, dims=[-1])
+                # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
+                self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
+                self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
+
+                self.diff = fd.ops.sub(self.t0, self.mean)
+                self.diff_sq = fd.ops.mul(self.diff, self.diff)
+                self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
+                # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
+                self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
+                self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
+
+                self.t0_diff = fd.ops.sub(self.t0, self.mean)
+                self.var_eps = fd.ops.sqrt(fd.ops.add(self.var, self.s0))
+                self.t0_norm = fd.ops.div(self.t0_diff, self.var_eps)
+                self.add_output(self.t0_norm)
+
+            def schedule(self):
+                selected_heuristic = SchedulerHeuristic.inner_persistent
+                status, _ = fd.sched.can_schedule(selected_heuristic)
+                assert status
+                # Check that the other schedulers are not compatible with this fusion
+                assert all(
+                    [
+                        not fd.sched.can_schedule(h)[0]
+                        for h in all_scheduler_heuristics
+                        if h is not selected_heuristic
+                    ]
+                )
+                fd.sched.schedule(selected_heuristic)
+
+        fd = VarMean()
+        nvf_out = fd.execute(inputs)
+        var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
+        eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
+        self.assertEqual(eager_out, nvf_out[0])
+
     def test_matmul_auto_scheduler(self):
+        """
+        Implement a simple matmul kernel with a user defined schedule
+         * Uses nvfuser's ExprEvalScheduler
+        """
         m = 24
         n = 16
         k = 8
@@ -785,11 +864,18 @@ class TestScheduleOps(TestCase):
                 fd.add_output(t2)
 
             def schedule(self):
-                expr_eval_status, _ = fd.sched.can_schedule(
-                    SchedulerHeuristic.expr_eval
+                selected_heuristic = SchedulerHeuristic.expr_eval
+                status, _ = fd.sched.can_schedule(selected_heuristic)
+                assert status
+                # Check that the other schedulers are not compatible with this fusion
+                assert all(
+                    [
+                        not fd.sched.can_schedule(h)[0]
+                        for h in all_scheduler_heuristics
+                        if h is not selected_heuristic
+                    ]
                 )
-                assert expr_eval_status
-                fd.sched.schedule(SchedulerHeuristic.expr_eval)
+                fd.sched.schedule(selected_heuristic)
 
         for inputs in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
             fd = Matmul(inputs)
