@@ -115,11 +115,8 @@ class AbstractTensorSchedule {
         continue;
       }
       for (const ExprGroup& eg : graph_->getDefinitions(vg)) {
-        for (Expr* e : *eg) {
-          for (Val* inp : e->inputs()) {
-            ValGroup vg_inp = graph_->toGroup(inp);
-            vg_stack.push(vg_inp);
-          }
+        for (ValGroup vg_inp : graph_->inputGroups(eg)) {
+          vg_stack.push(vg_inp);
         }
       }
     }
@@ -200,74 +197,76 @@ class AbstractTensorSchedule {
       // (uncomputable_groups).
       std::vector<ValGroup> uncomputed_producer_groups;
       for (const ExprGroup& eg : graph_->getDefinitions(vg)) {
-        for (Expr* e : *eg) {
-          if (!uncomputed_producer_groups.empty()) {
-            // We already have something to compute in the next round, so skip.
-            continue;
-          }
-          std::vector<ValGroup> vg_inps;
-          std::vector<IterDomain*> id_inps;
-          bool all_inputs_computed = true;
-          for (Val* inp : e->inputs()) {
-            ValGroup vg_inp = graph_->toGroup(inp);
-            vg_inps.push_back(vg_inp);
-            auto inp_it = tv_ids_.find(vg_inp);
-            if (inp_it != tv_ids_.end()) {
-              id_inps.push_back(inp_it->second);
-            } else {
-              // this input is not yet computed
-              all_inputs_computed = false;
-              if (uncomputable_groups.count(vg_inp) == 0) {
-                // Input is not yet proven to be incomputable, so try and
-                // compute it in the next iteration
-                uncomputed_producer_groups.push_back(vg_inp);
-              }
-            }
-          }
-          // some input is not yet computed
-          if (!all_inputs_computed) {
-            if (uncomputed_producer_groups.empty() && !id_inps.empty()) {
-              // There might be some uncomputable producer groups, but some are
-              // computed. Just pass those computed inputs through.
-              NVF_ERROR(id_inps.size() == 1);
-              tv_ids_.emplace(vg, id_inps.front());
-            }
-            continue;
-          }
-          // Compute new ID expression
-          Expr* id_expr = nullptr;
-          if (auto* m = dynamic_cast<Merge*>(e)) {
-            NVF_ERROR(id_inps.size() == 2);
-            auto* new_id = IterDomain::merge(id_inps[0], id_inps[1]);
-            id_expr = new_id->definition();
-          } else if (auto* s = dynamic_cast<Split*>(e)) {
-            NVF_ERROR(id_inps.size() == 1);
-            auto new_ids =
-                IterDomain::split(id_inps[0], s->factor(), s->innerSplit());
-            id_expr = new_ids.first->definition();
-          } else if (auto* s = dynamic_cast<Swizzle*>(e)) {
-            NVF_ERROR(id_inps.size() == 2);
-            auto new_ids =
-                IterDomain::swizzle(s->swizzleType(), id_inps[0], id_inps[1]);
-            id_expr = new_ids.first->definition();
-          } else if (auto* s = dynamic_cast<Swizzle2D*>(e)) {
-            NVF_ERROR(id_inps.size() == 2);
-            auto new_ids = IterDomain::swizzle(
-                s->swizzleType(), id_inps[0], id_inps[1], s->swizzleMode());
-            id_expr = new_ids.first->definition();
+        // NOTE: it suffices to use any Expr* in eg, since they are all
+        // guaranteed to have the same type and identical attributes.
+        Expr* expr = eg->front();
+        if (!uncomputed_producer_groups.empty()) {
+          // We already have something to compute in the next round, so skip.
+          continue;
+        }
+        std::vector<ValGroup> vg_inps;
+        std::vector<IterDomain*> id_inps;
+        bool all_inputs_computed = true;
+        for (Val* inp : expr->inputs()) {
+          ValGroup vg_inp = graph_->toGroup(inp);
+          vg_inps.push_back(vg_inp);
+          auto inp_it = tv_ids_.find(vg_inp);
+          if (inp_it != tv_ids_.end()) {
+            id_inps.push_back(inp_it->second);
           } else {
-            NVF_ERROR(false, "Unhandled IterDomain expression ", e->toString());
+            // this input is not yet computed
+            all_inputs_computed = false;
+            if (uncomputable_groups.count(vg_inp) == 0) {
+              // Input is not yet proven to be incomputable, so try and
+              // compute it in the next iteration
+              uncomputed_producer_groups.push_back(vg_inp);
+            }
           }
-          // Update the mapping to point to all of the newly created Expr's
-          // outputs
-          NVF_ERROR(id_expr != nullptr);
-          NVF_ERROR(id_expr->outputs().size() == e->outputs().size());
-          for (size_t i : c10::irange(e->outputs().size())) {
-            ValGroup vg_outp = graph_->toGroup(e->output((int64_t)i));
-            auto* id_outp = id_expr->output((int64_t)i)->as<IterDomain>();
-            graph_->initializeVal(id_outp, vg_outp);
-            tv_ids_.emplace(vg_outp, id_outp);
+        }
+        // some input is not yet computed
+        if (!all_inputs_computed) {
+          if (uncomputed_producer_groups.empty() && !id_inps.empty()) {
+            // There might be some uncomputable producer groups, but some are
+            // computed. Just pass those computed inputs through.
+            NVF_ERROR(id_inps.size() == 1);
+            tv_ids_.emplace(vg, id_inps.front());
           }
+          continue;
+        }
+        // Compute new ID expression
+        Expr* id_expr = nullptr;
+        if (auto* m = dynamic_cast<Merge*>(expr)) {
+          NVF_ERROR(id_inps.size() == 2);
+          auto* new_id = IterDomain::merge(id_inps[0], id_inps[1]);
+          id_expr = new_id->definition();
+        } else if (auto* s = dynamic_cast<Split*>(expr)) {
+          NVF_ERROR(id_inps.size() == 1);
+          auto new_ids =
+              IterDomain::split(id_inps[0], s->factor(), s->innerSplit());
+          id_expr = new_ids.first->definition();
+        } else if (auto* s = dynamic_cast<Swizzle*>(expr)) {
+          NVF_ERROR(id_inps.size() == 2);
+          auto new_ids =
+              IterDomain::swizzle(s->swizzleType(), id_inps[0], id_inps[1]);
+          id_expr = new_ids.first->definition();
+        } else if (auto* s = dynamic_cast<Swizzle2D*>(expr)) {
+          NVF_ERROR(id_inps.size() == 2);
+          auto new_ids = IterDomain::swizzle(
+              s->swizzleType(), id_inps[0], id_inps[1], s->swizzleMode());
+          id_expr = new_ids.first->definition();
+        } else {
+          NVF_ERROR(
+              false, "Unhandled IterDomain expression ", expr->toString());
+        }
+        // Update the mapping to point to all of the newly created Expr's
+        // outputs
+        NVF_ERROR(id_expr != nullptr);
+        NVF_ERROR(id_expr->outputs().size() == expr->outputs().size());
+        for (size_t i : c10::irange(expr->outputs().size())) {
+          ValGroup vg_outp = graph_->toGroup(expr->output((int64_t)i));
+          auto* id_outp = id_expr->output((int64_t)i)->as<IterDomain>();
+          graph_->initializeVal(id_outp, vg_outp);
+          tv_ids_.emplace(vg_outp, id_outp);
         }
       }
       if (uncomputed_producer_groups.empty()) {
@@ -315,7 +314,7 @@ void applyAbstractTransforms(
     const AbstractTensor& abstract_tensor,
     TensorView* tv,
     ValGraph* graph) {
-  AbstractTensorSchedule::apply(abstract_tensor, concrete, graph);
+  AbstractTensorSchedule::apply(abstract_tensor, tv, graph);
 }
 
 } // namespace nvfuser
