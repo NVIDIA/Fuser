@@ -31,31 +31,21 @@ namespace nvfuser::preseg_passes {
 // Limitations:
 // This optimization is restricted to the absolute, maximum reduction operation.
 //
+// Approach:
 // 1. Get all reduction operations.
 // 2. Find amax pattern.
 //  * The reduction is an output tensor.
 //  * It has a maximum reduction definition.
 //  * Its producer is absolute unary operation.
-// 3. Gather all reductions along its dependency chains.
-// 4. Given the reduction axes of those operations, factor amax into two partial
-// reductions.
-//
-// The goal of pattern matching is find chain of operations. The general
-// solution is to apply BFS to nodes of a tree.
-//
-// Identify amax scaling factor:
-//  * We can use detailed information to avoid BFS. Specifically, the pattern
-//    contains an output, so we search the fusion outputs for a maximum
-//    reduction. Then, check if the producer of input TensorView is an
-//    absolute unary operation.
-//
-// Find axes for partial reduction:
-//  * Get input tensor associated with amax scaling factor.
-//  * Get all dependency chains between input and scaling factor.
-//  * Filter all reduction operations.
-//
-// Apply modification:
-//  * Factor amax into partial reductions.
+// 3. Select upstream, partial reduction.
+//  * Ideally, we would pick the partial reduction that lets us save the
+//    smallest partial amax reduction. However, in this presegmentation pass,
+//    we do not know how the fusion could be segmented nor the size of the
+//    tensors.
+//  * Given this lack of information, we select the partial reduction with
+//    shortest dependency chain with amax reduction.
+// 4. Given the reduction axes of the selected reference, factor amax into two
+// partial reductions.
 //
 // Error Testing:
 //  * A tensor with multiple reduction operations with incompatible axes

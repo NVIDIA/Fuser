@@ -291,7 +291,9 @@ TensorView* detectAmaxPattern(TensorView* tv) {
   return max_reduction_tv;
 }
 
-// Find reduction TensorView that is a dependency to amax reduction.
+// Select a partial reduction TensorView to factor the amax reduction.
+// Given the lack of information in the presegmentation pass, we select the
+// partial reduction with shortest dependency chain with amax reduction.
 TensorView* findUpstreamReduction(Fusion* fusion, TensorView* amax_reduction) {
   NVF_ERROR(
       amax_reduction != nullptr &&
