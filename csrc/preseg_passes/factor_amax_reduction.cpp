@@ -433,7 +433,6 @@ void FactorAmaxReductionPass::runPass(Fusion* fusion) {
 
   // Stop if we cannot find amax reduction pattern
   if (amax_reduction_tvs.empty()) {
-    std::cout << "Failed to find amax reduction pattern." << std::endl;
     return;
   }
 
@@ -449,9 +448,6 @@ void FactorAmaxReductionPass::runPass(Fusion* fusion) {
     // Stop if we cannot find any compatible reduction tvs
     TensorView* upstream_tv = findUpstreamReduction(fusion, amax_reduction);
     if (upstream_tv == nullptr && upstream_tv != amax_reduction) {
-      std::cout
-          << "Failed to compatible reduction TensorView for amax reduction pattern"
-          << std::endl;
       continue;
     }
 

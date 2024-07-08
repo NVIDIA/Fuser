@@ -878,8 +878,6 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcastCast_CUDA) {
   // Amax Aliased Output
   fusion.aliasOutputToInput(tv6_cast, tv1, AllocationType::ReuseBuffer);
 
-  fusion.printMath();
-
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor x = at::randn({32, 1228}, options);
   at::Tensor fp8_amax_history = at::zeros({1, 1}, options);
@@ -906,7 +904,6 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcastCast_CUDA) {
 
   // Expect partial reduction for amax to be saved as output of first fusion
   Fusion* first_fusion = segments.front().get();
-  first_fusion->printMath();
 
   EXPECT_EQ(first_fusion->outputs().size(), 2);
   Val* last_output = first_fusion->outputs().back();
