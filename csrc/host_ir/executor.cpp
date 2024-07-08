@@ -203,8 +203,16 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
 }
 
 void HostIrExecutor::handle(SliceOp* slice_op) {
-  Val* output = slice_op->out();
-  expr_evaluator_.bind(output, expr_evaluator_.evaluate(output), true);
+  return handleWithExpressionEvaluator(slice_op);
+}
+
+void HostIrExecutor::handleWithExpressionEvaluator(Expr* expr) {
+  for (auto input: ir_utils::filterByType<TensorView>(expr->inputs())) {
+    NVF_ERROR(expr_evaluator_.isKnown(input), "input ", input->toString(), " of the expression ", expr->toString(), "must be precomputed before being retrieved");
+  }
+  for (auto output: expr->outputs()) {
+    expr_evaluator_.bind(output, expr_evaluator_.evaluate(output), true);
+  }
 }
 
 } // namespace hir
