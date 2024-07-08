@@ -21,6 +21,7 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
+#include <scheduler/heuristic_types.h>
 #include <scheduler/registry.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
@@ -446,6 +447,18 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("local", MemoryType::Local)
       .value("shared", MemoryType::Shared)
       .value("global", MemoryType::Global);
+
+  //! Scheduler Type
+  py::enum_<ScheduleHeuristic>(nvfuser, "SchedulerHeuristic")
+      .value("none", ScheduleHeuristic::None)
+      .value("no_op", ScheduleHeuristic::NoOp)
+      .value("pointwise", ScheduleHeuristic::PointWise)
+      .value("reduction", ScheduleHeuristic::Reduction)
+      .value("inner_persistent", ScheduleHeuristic::InnerPersistent)
+      .value("inner_outer_persistent", ScheduleHeuristic::InnerOuterPersistent)
+      .value("outer_persistent", ScheduleHeuristic::OuterPersistent)
+      .value("transpose", ScheduleHeuristic::Transpose)
+      .value("expr_eval", ScheduleHeuristic::ExprEval);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -3269,7 +3282,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("tensor"));
   nvf_sched.def(
-      "can_schedule_pointwise", [](FusionDefinition::SchedOperators& self) {
+      "can_schedule",
+      [](FusionDefinition::SchedOperators& self,
+         const ScheduleHeuristic& heuristic) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
@@ -3288,10 +3303,11 @@ void initNvFuserPythonBindings(PyObject* module) {
         std::stringstream ss;
         DebugStreamGuard dsg(ss);
 
-        bool can_schedule = checkCanSchedule<PointWiseScheduler>(
-            sched->schedule.get(), *sched->runtime_info);
+        bool can_schedule = SchedulerEntry::canSchedule(
+            heuristic, sched->schedule.get(), *sched->runtime_info);
         return std::make_tuple(can_schedule, ss.str());
-      });
+      },
+      py::arg("heuristic"));
   nvf_sched.def(
       "schedule_pointwise", [](FusionDefinition::SchedOperators& self) {
         NVF_CHECK(

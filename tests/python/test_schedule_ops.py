@@ -10,7 +10,13 @@ import torch
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
-from nvfuser import FusionDefinition, DataType, ParallelType, MemoryType
+from nvfuser import (
+    FusionDefinition,
+    DataType,
+    ParallelType,
+    MemoryType,
+    SchedulerHeuristic,
+)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -699,7 +705,7 @@ class TestScheduleOps(TestCase):
                 self.add_output(self.t3)
 
             def schedule(self):
-                status, _ = fd.sched.can_schedule_pointwise()
+                status, _ = fd.sched.can_schedule(SchedulerHeuristic.pointwise)
                 assert status
                 fd.sched.schedule_pointwise()
 
@@ -725,7 +731,7 @@ class TestScheduleOps(TestCase):
                 self.add_output(self.t2)
 
             def schedule(self):
-                status, error_msg = fd.sched.can_schedule_pointwise()
+                status, error_msg = fd.sched.can_schedule(SchedulerHeuristic.pointwise)
                 assert not status
                 assert (
                     error_msg.strip()
