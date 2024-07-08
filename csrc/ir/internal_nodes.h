@@ -2492,7 +2492,7 @@ class ForLoop final : public Expr {
   //! True if loop is grouped reduction/welford
   bool isGroup() const;
 
-  //! Returns the stage of a double buffered iterdomain
+  //! Returns the stage of a circular buffered iterdomain
   //!  that this for loop materializes.
   auto circularBufferLoopStage() const {
     return attribute<CircularBufferLoopStage>(6);
