@@ -264,6 +264,7 @@ class AbstractTensorSchedule {
           for (size_t i : c10::irange(e->outputs().size())) {
             ValGroup vg_outp = graph_->toGroup(e->output((int64_t)i));
             auto* id_outp = id_expr->output((int64_t)i)->as<IterDomain>();
+            graph_->initializeVal(id_outp, vg_outp);
             concrete_ids_.emplace(vg_outp, id_outp);
           }
         }
