@@ -3320,12 +3320,17 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_ERROR(
             sched->runtime_info != nullptr,
             "Requires SchedulerRuntimeInfo to use heuristic schedulers");
+        NVF_CHECK(
+            sched->heuristic_scheduler == nullptr,
+            "Heuristic Scheduler is already defined for this UserSchedule");
+
         bool can_schedule = SchedulerEntry::canSchedule(
             heuristic, sched->schedule.get(), *sched->runtime_info);
         NVF_CHECK(can_schedule, "Cannot schedule with specified scheduler");
-        std::unique_ptr<SchedulerEntry> scheduler = SchedulerEntry::makeEntry(
+
+        sched->heuristic_scheduler = SchedulerEntry::makeEntry(
             heuristic, sched->schedule.get(), *sched->runtime_info);
-        scheduler->schedule(sched->schedule.get());
+        sched->heuristic_scheduler->schedule(sched->schedule.get());
       },
       py::arg("heuristic"));
 }

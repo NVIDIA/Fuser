@@ -743,38 +743,7 @@ class TestScheduleOps(TestCase):
                     SchedulerHeuristic.reduction
                 )
                 assert reduction_status
-
-                cache_after_t0 = fd.sched.cache_after(self.t0)
-                fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
-                cache_before_t2 = fd.sched.cache_before(self.t2)
-                cache_tensors = [cache_after_t0, cache_before_t2]
-
-                reference_tensor = self.t0
-
-                # Schedule Reference
-                fd.sched.split(reference_tensor, dim=-1, factor=256 * 4)
-                fd.sched.split(reference_tensor, dim=-1, factor=4)
-                fd.sched.transform_like(reference_tensor)
-
-                # Add rfactor
-                reduction_tensors = list(
-                    filter(fd.sched.is_reduction, fd.sched.tensors())
-                )
-                assert len(reduction_tensors) == 1
-                rfactor_tensors = [
-                    fd.sched.rfactor(tensor, dims=[-1]) for tensor in reduction_tensors
-                ]
-
-                # Add common parallelization
-                fd.sched.parallelize(reference_tensor, axis := 0, ParallelType.grid_x)
-                fd.sched.parallelize(reference_tensor, axis := -2, ParallelType.block_x)
-                fd.sched.parallelize_like(reference_tensor)
-
-                # Vectorize input load and output store
-                fd.sched.parallelize(cache_after_t0, axis := -1, ParallelType.vectorize)
-
-                # Add computeAt
-                fd.sched.inline_most()
+                fd.sched.schedule(SchedulerHeuristic.reduction)
 
         fd = Reduction()
         nvf_out = fd.execute(inputs)

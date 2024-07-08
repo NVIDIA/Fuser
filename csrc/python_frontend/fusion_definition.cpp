@@ -213,14 +213,33 @@ std::vector<at::Tensor> FusionDefinition::execute(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
-      if (!user_sched.executor->isCompiled()) {
-        user_sched.executor->compileFusion(
-            user_sched.schedule.get(),
+      if (user_sched.heuristic_scheduler == nullptr) {
+        if (!user_sched.executor->isCompiled()) {
+          user_sched.executor->compileFusion(
+              user_sched.schedule.get(),
+              inputs,
+              user_sched.fusion_id_,
+              user_sched.device_id_);
+        }
+        outputs = user_sched.executor->runFusion(inputs);
+      } else {
+        if (!user_sched.executor->isCompiled()) {
+          user_sched.executor->compileFusion(
+              user_sched.schedule.get(),
+              KernelArgumentHolder::createKernelArgumentHolder(
+                  inputs, getCommonDeviceCUDA(inputs)),
+              user_sched.heuristic_scheduler->params()->lparams,
+              user_sched.heuristic_scheduler->params()->cparams,
+              user_sched.heuristic_scheduler->heuristic(),
+              user_sched.fusion_id_,
+              user_sched.device_id_);
+        }
+        outputs = user_sched.executor->runFusion(
             inputs,
-            user_sched.fusion_id_,
-            user_sched.device_id_);
+            user_sched.heuristic_scheduler->params()->lparams,
+            user_sched.heuristic_scheduler->params()->cparams);
       }
-      outputs = user_sched.executor->runFusion(inputs);
+
       if (isProfilerEnabledWithCupti()) {
         FusionProfiler::segment(0).scheduler("user");
         FusionProfiler::stop();
