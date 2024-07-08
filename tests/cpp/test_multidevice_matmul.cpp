@@ -37,7 +37,7 @@ class DistributedMatmulTest : public MultiDeviceTest {
     }
   }
 
-  MultiDeviceExecutorParams executor_params_{
+  hir::HostIrExecutorParams executor_params_{
       .use_fusion_executor_cache = true,
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
@@ -113,11 +113,11 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_FALSE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -183,11 +183,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -250,11 +250,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -311,11 +311,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   testValidate(
       runtime.completeFusion(), outputs, inputs, {out}, __LINE__, __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -385,11 +385,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()

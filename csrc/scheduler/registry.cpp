@@ -170,7 +170,30 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr) {
+  // ExprEval scheduler only requires `canScheduleCompileTime` check and should
+  // not use this fn. The following checks build the computeAt map that do not
+  // work with SDPAOp.
+  NVF_ERROR(SchedulerType::heuristicType() != ScheduleHeuristic::ExprEval);
+
   FusionGuard fg(fusion);
+
+  // Fusions with `SdpaFwdOp` are only accepted in `ExprEval`
+  // scheduler, all other schedulers should reject them.
+  if (ir_utils::hasOpsOfType<SdpaFwdOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        SchedulerType::heuristicType(), "SdpaOps are not supported.");
+    return false;
+  }
+
+  // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
+  // scheduler.
+  if (SchedulerType::heuristicType() != ScheduleHeuristic::Matmul &&
+      ir_utils::hasOpsOfType<MatmulOp, LinearOp, MmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        SchedulerType::heuristicType(), "Matmul ops are not supported.");
+    return false;
+  }
+
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since for all current use cases
   //  it has to pass all the compile time checks to create a data cache for this
@@ -203,15 +226,6 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  // Temporary: The scheduler tries different combinations including with the segmenter_set
-  // To prevent this if we see SDPA in the fusion and the length != 1, return false
-  if (fusion->exprs().size() > 1) {
-    for (auto expr : fusion->exprs()) {
-      if (expr->isA<SdpaFwdOp>()) {
-        return false;
-      }
-    }
-  }
   
   switch (sh) {
     case ScheduleHeuristic::NoOp:

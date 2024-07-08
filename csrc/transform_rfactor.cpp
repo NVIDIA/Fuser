@@ -185,11 +185,15 @@ class ReplayRFactor : public ReplayTransformations {
     Val* merged_id_size =
         mul(id_outer_mapped->extent(), id_inner_mapped->extent());
 
+    bool is_bcast =
+        id_outer_mapped->isBroadcast() && id_inner_mapped->isBroadcast();
+    auto iter_type = rfactor_axes_.count(m->out())
+        ? IterType::Reduction
+        : (is_bcast ? IterType::Broadcast : IterType::Iteration);
+
     IterDomain* merged_id =
         IterDomainBuilder(m->container()->zeroVal(), merged_id_size)
-            .iter_type(
-                rfactor_axes_.count(m->out()) ? IterType::Reduction
-                                              : IterType::Iteration)
+            .iter_type(iter_type)
             .is_rfactor_domain(static_logical_ids_.count(m->out()))
             .build();
 
