@@ -66,9 +66,14 @@ struct ReduceOptions {
   int64_t rootRank = 0;
 };
 
+struct BarrierOptions {
+  std::vector<int64_t> device_ids;
+};
+
 class Backend : public torch::CustomClassHolder {
  public:
-  c10::intrusive_ptr<Work> barrier() {
+  c10::intrusive_ptr<Work> barrier(
+      const BarrierOptions& opts = BarrierOptions()) {
     return c10::make_intrusive<Work>();
   }
 
