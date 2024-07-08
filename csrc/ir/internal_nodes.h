@@ -2492,7 +2492,7 @@ class ForLoop final : public Expr {
   //! True if loop is grouped reduction/welford
   bool isGroup() const;
 
-  //! Returns the stage of a double buffered iterdomain
+  //! Returns the stage of a circular buffered iterdomain
   //!  that this for loop materializes.
   auto circularBufferLoopStage() const {
     return attribute<CircularBufferLoopStage>(6);
@@ -2506,6 +2506,153 @@ class ForLoop final : public Expr {
   //! simplifiedStop. We are not interested in keeping this across clone/serde,
   //! etc.
   mutable Val* simplified_stop_ = nullptr;
+};
+
+/*
+SDPA bwd node with same functionality
+at::_scaled_dot_product_flash_attention_backward
+grad_query = [N, H, L, E]
+grad_key = [N, H, S, E]
+grad_value = [N, H, S, Ev]
+
+grad_output = [N, H, L, Ev]
+query = [N, H, L, E]
+key = [N, H, S, E]
+value = [N, H, S, Ev]
+output = [N, H, L, Ev]
+logsumexp = [N, H, L]
+cum_seq_q = [N + 1,] (undefined tensor for non-nested tensor)
+cum_seq_k = [N + 1,] (undefined tensor for non-nested tensor)
+query_seq_len = scalar(int)
+key_seq_len = scalar(int)
+dropout_p = scalar(double)
+is_causal = scalar(bool)
+philox_seed = scalar CPU tensor
+philox_offset = scalar CPU tensor
+scale = scalar(double)
+
+N = number of sequences / batch size
+H = num of heads
+L = query sequence length / target sequence length
+S = key/value sequence length / src sequence length
+E = query/key embd dimension
+Ev = value embd dimension
+
+For flash attention, E = Ev
+*/
+
+class SdpaBwdOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  SdpaBwdOp(
+      IrBuilderPasskey,
+      TensorView* grad_query,
+      TensorView* grad_key,
+      TensorView* grad_value,
+      TensorView* grad_output,
+      TensorView* query,
+      TensorView* key,
+      TensorView* value,
+      TensorView* output,
+      TensorView* log_sumexp,
+      TensorView* cum_seq_q,
+      TensorView* cum_seq_k,
+      Val* query_seq_len,
+      Val* key_seq_len,
+      Val* dropout_p,
+      Val* is_causal,
+      TensorView* philox_seed,
+      TensorView* philox_offset,
+      Val* scale);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "SdpaBwdOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* grad_query() const {
+    return output(0);
+  }
+
+  Val* grad_key() const {
+    return output(1);
+  }
+
+  Val* grad_value() const {
+    return output(2);
+  }
+
+  Val* grad_attn() const {
+    return input(0);
+  }
+
+  Val* query() const {
+    return input(1);
+  }
+
+  Val* key() const {
+    return input(2);
+  }
+
+  Val* value() const {
+    return input(3);
+  }
+
+  Val* attn_out() const {
+    return input(4);
+  }
+
+  Val* logsumexp() const {
+    return input(5);
+  }
+
+  Val* cum_seq_q() const {
+    return input(6);
+  }
+
+  Val* cum_seq_k() const {
+    return input(7);
+  }
+
+  Val* max_q() const {
+    return input(8);
+  }
+
+  Val* max_k() const {
+    return input(9);
+  }
+
+  Val* dropout_p() const {
+    return input(10);
+  }
+
+  Val* is_causal() const {
+    return input(11);
+  }
+
+  Val* philox_seed() const {
+    return input(12);
+  }
+
+  Val* philox_offset() const {
+    return input(13);
+  }
+
+  Val* scale() const {
+    if (inputs().size() > 14) {
+      return input(14);
+    }
+    return nullptr;
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 } // namespace nvfuser

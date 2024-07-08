@@ -44,7 +44,7 @@ class DistributedMatmulTest : public MultiDeviceTest,
     }
   }
 
-  MultiDeviceExecutorParams executor_params_{
+  hir::HostIrExecutorParams executor_params_{
       .use_fusion_executor_cache = true,
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
@@ -120,11 +120,11 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_FALSE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -190,11 +190,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -257,11 +257,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -318,11 +318,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   testValidate(
       runtime.completeFusion(), outputs, inputs, {out}, __LINE__, __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -392,11 +392,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -416,19 +416,12 @@ TEST_P(DistributedMatmulTest, MLP_Layer) {
   int64_t h = 128;
   int64_t h4 = 4 * h;
 
-  // TODO: error with dynamic shape
-  // C++ exception with description "ext_opt.hasValue() INTERNAL ASSERT FAILED
-  // at "csrc/dynamic_transform.cpp":276, Could not evaluate dynamic extent: i3
-  // Exception raised from DynamicTransformConcretizationInfo at
-  // csrc/dynamic_transform.cpp:276
-  TensorView* x = makeContigConcreteTensor({sb, h}, DataType::BFloat16);
-  TensorView* w0 = makeContigConcreteTensor(
-      {num_devices_, h4 / num_devices_, h}, DataType::BFloat16);
-  TensorView* b0 = makeContigConcreteTensor(
-      {num_devices_, h4 / num_devices_}, DataType::BFloat16);
-  TensorView* w1 = makeContigConcreteTensor(
-      {num_devices_, h, h4 / num_devices_}, DataType::BFloat16);
-  TensorView* b1 = makeContigConcreteTensor({h}, DataType::BFloat16);
+  TensorView* x = makeContigTensor(2, DataType::BFloat16);
+  TensorView* w0 = makeContigTensor(3, DataType::BFloat16);
+  TensorView* b0 = makeContigTensor(2, DataType::BFloat16);
+  TensorView* w1 = makeContigTensor(3, DataType::BFloat16);
+  TensorView* b1 = makeContigTensor(1, DataType::BFloat16);
+
   fusion->addInput(x);
   fusion->addInput(w0);
   fusion->addInput(b0);

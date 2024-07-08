@@ -2582,9 +2582,27 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
       reduction_params->lparams);
 }
 
-namespace {
-void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
-  const int axis = red_axis;
+using WelfordReductionParams = std::tuple<DataType, int64_t, int64_t, int64_t>;
+using WelfordReduction = NVFuserFixtureParamTest<WelfordReductionParams>;
+TEST_P(WelfordReduction, Test) {
+  auto [dtype, rdim, odim, axis] = GetParam();
+
+  // TODO: original welford algorithm actually keeps a running sum of
+  // squares, i.e. M_{2n} in the
+  //       cf:
+  //       https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+  //       algorithm notation, and it can reach inf for large numbers
+  //       with half precision. skipping too large volumes for half for
+  //       nwo might need further numerical experiments to re-design
+  //       this.
+  if (rdim > 32768 &&
+      (dtype == DataType::Half || dtype == DataType::BFloat16)) {
+    GTEST_SKIP() << "Skipping large reduction dims (" << rdim
+                 << ") for half and bfloat16";
+  }
+
+  maybeClearAllocator();
+
   at::ScalarType aten_dtype = data_type_to_aten(dtype);
 
   Fusion fusion;
@@ -2670,57 +2688,27 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
       "validate welford",
       reduction_params->lparams);
 }
-} // namespace
-
-TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::ComplexFloat,
-      DataType::ComplexDouble,
-      DataType::Double,
-      DataType::Float,
-      DataType::Half};
-
-  if (at::cuda::getDeviceProperties(0)->major >= 8) {
-    dtypes.insert(dtypes.end(), DataType::BFloat16);
-  }
-
-  std::vector<int> red_axis = {1, 0};
-  std::vector<int> output_dims = {160, 320};
-  std::vector<int64_t> red_dims;
-
-  // Tried to cut down the number iterations with just
-  // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
-    red_dims.push_back(i);
-  }
-
-  for (auto dtype : dtypes) {
-    for (auto& axis : red_axis) {
-      for (auto& odim : output_dims) {
-        for (auto& rdim : red_dims) {
-          // TODO: original welford algorithm actually keeps a running sum of
-          // squares, i.e. M_{2n} in the
-          //       cf:
-          //       https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
-          //       algorithm notation, and it can reach inf for large numbers
-          //       with half precision. skipping too large volumes for half for
-          //       nwo might need further numerical experiments to re-design
-          //       this.
-          if (rdim > 32768 &&
-              (dtype == DataType::Half || dtype == DataType::BFloat16)) {
-            continue;
-          }
-          // Shmoo tests can occupy a lot of memory due to allocating many
-          // different tensor sizes. So in order to avoid an OOM during this
-          // test, we manually clear the allocator after it's reached a certain
-          // threshold.
-          maybeClearAllocator();
-          testWelford(dtype, axis, odim, rdim);
-        }
-      }
-    }
-  }
-}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    WelfordReduction,
+    ::testing::Combine(
+        testing::ValuesIn(getFloatingDataTypes()), // data type
+        testing::ValuesIn(Pow2Vals1to1Million), // reduction dimension size
+        testing::Values(160, 320), // iteration dimension size
+        testing::Values(0, 1)), // reduction axis
+    // when using structured bindings within TestParamInfo,
+    // parentheses are required to avoid compile errors,
+    // see https://github.com/google/googletest/issues/3848
+    ([](const testing::TestParamInfo<WelfordReductionParams>& info)
+         -> std::string {
+      std::stringstream ss;
+      auto [dtype, rdim, odim, axis] = info.param;
+      ss << "dtype_" << dtype;
+      ss << "_redu_" << rdim;
+      ss << "_iter_" << odim;
+      ss << "_axis_" << axis;
+      return sanitizeTestName(ss.str());
+    }));
 
 namespace {
 void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {

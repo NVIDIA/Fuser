@@ -15,6 +15,20 @@
 
 namespace nvfuser {
 
+class MultiDeviceTestEnvironment : public testing::Environment {
+ public:
+  ~MultiDeviceTestEnvironment() override {}
+  void SetUp() override;
+  void TearDown() override;
+
+  static Communicator* getCommunicator() {
+    return communicator_;
+  }
+
+ private:
+  static Communicator* communicator_;
+};
+
 class MultiDeviceTest : public NVFuserTest {
  protected:
   MultiDeviceTest();
@@ -30,8 +44,6 @@ class MultiDeviceTest : public NVFuserTest {
       at::Tensor tensor,
       TensorView* tv,
       DeviceIdxType deviceId);
-
-  static Communicator* getOrCreateCommunicator();
 
   Communicator* communicator_;
   c10::TensorOptions tensor_options;
@@ -60,8 +72,7 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<c10::IValue> unsharded_inputs;
   std::vector<at::Tensor> outputs;
   std::vector<at::Tensor> ref_unsharded_outputs;
-  MultiDeviceExecutorParams multi_device_executor_params;
-  LaunchParams l_params = {};
+  hir::HostIrExecutorParams host_ir_executor_params;
 };
 
 } // namespace nvfuser

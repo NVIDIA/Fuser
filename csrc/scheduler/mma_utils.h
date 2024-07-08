@@ -26,9 +26,9 @@ namespace mma_utils {
 //! Utilities in this namespace facilitates scheduling matmul kernels with
 //!  hierarchichal tiling specified in MatMulTileOptions.
 
-//! A mapping from ValGroup pointers to MatmulDomain. The ValGroups should
+//! A mapping from ValGroup pointers to MatmulDimRole. The ValGroups should
 //! correspond to IterDomain groups from an IdModel's exact graph. This
-using DimRolesMap = std::unordered_map<ValGroup, MatmulDomain>;
+using DimRolesMap = std::unordered_map<ValGroup, MatmulDimRole>;
 
 //! Schedule utility for matmul prolog:
 //!   Use all the threads on a CTA tile to load matmul operands
@@ -88,7 +88,7 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv);
 
 //! Orders the leaf ID canonically, and merges dims of the same role
 //! The return value gives the role of each loop IterDomain in tv.
-std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
+std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     TensorView* tv,
     const ValGraph& permissive_graph,
     const DimRolesMap& dim_roles,
@@ -235,7 +235,8 @@ using ProblemIterDomains = std::array<IterDomain*, 3>;
 //! An alias for mapping between TensorView instance and its role in
 //!  matmul fusion definition, some roles can be assigned to more than
 //!  a single tv, for example input for beta scaling in epilogue
-using TensorRolesMap = std::unordered_map<MatmulRole, std::vector<TensorView*>>;
+using TensorRolesMap =
+    std::unordered_map<MatmulTensorRole, std::vector<TensorView*>>;
 
 //! An alias for storing data types of the tensors in the mma op
 //!  the order is A, B, OUTPUT
@@ -291,7 +292,7 @@ struct MatmulPattern {
   MmaOp* translateToMmaOp();
 
   //! Given an IdModel, map groups of IterDomains to dimension roles
-  //! (MatmulDomain). Note that ValGroup is a shared_ptr to a
+  //! (MatmulDimRole). Note that ValGroup is a shared_ptr to a
   //! VectorOfUniqueEntries<Val*>. We copy these as keys so that the returned
   //! object can safely outlive id_model.
   DimRolesMap getDimRoles(IdModel& id_model) const;
@@ -303,14 +304,14 @@ struct MatmulPattern {
 std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion);
 
 //! This is a vector of roles describing the inner dimension of each operand
-using MatmulOperandInnerDims = std::vector<MatmulDomain>;
+using MatmulOperandInnerDims = std::vector<MatmulDimRole>;
 
 using MatmulOperandInnerDimsOpt = DataWrapperOpt<MatmulOperandInnerDims>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
 using DimRolesMapOpt = DataWrapperOpt<DimRolesMap>;
 using TensorRolesMapOpt = DataWrapperOpt<TensorRolesMap>;
 
-using DomainsDesc = std::vector<MatmulDomain>;
+using DomainsDesc = std::vector<MatmulDimRole>;
 using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 
 //! Returns wrapped matmul input memory layout data, if supported, otherwise

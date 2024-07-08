@@ -773,8 +773,8 @@ MmaLayout getMatmulProblemLayout(Fusion* fusion) {
 
   NVF_ERROR(inner_dims.size() == 2, "Found other than two operands");
 
-  const bool A_K_inner = inner_dims.front() == MatmulDomain::K;
-  const bool B_K_inner = inner_dims.back() == MatmulDomain::K;
+  const bool A_K_inner = inner_dims.front() == MatmulDimRole::K;
+  const bool B_K_inner = inner_dims.back() == MatmulDimRole::K;
 
   if (A_K_inner && B_K_inner) {
     return MmaLayout::TN;
