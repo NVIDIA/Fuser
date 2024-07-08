@@ -385,7 +385,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   fusion->addOutput(tvgrad.grad_value);
 
   at::Tensor grad_out = at::randn(attn_shape, options);
-  
+
   std::vector<c10::IValue> sdpa_bwd_inputs = {
       grad_out,
       q,
@@ -395,7 +395,8 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       log_sumexp,
       cum_seq_q,
       cum_seq_k,
-      // max_q/k are represented as CPU scalar tensors in nvFuser and integers in ATen.
+      // max_q/k are represented as CPU scalar tensors in nvFuser and integers
+      // in ATen.
       at::scalar_tensor(*query_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       philox_seed,
@@ -537,7 +538,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
       log_sumexp,
       cum_seq_q,
       cum_seq_k,
-      // max_q/k are represented as CPU scalar tensors in nvFuser and integers in ATen.
+      // max_q/k are represented as CPU scalar tensors in nvFuser and integers
+      // in ATen.
       at::scalar_tensor(*query_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       philox_seed,
@@ -676,8 +678,7 @@ TEST_F(SDPATest, AttnFwdBwd) {
       /*is_causal=*/IrBuilder::create<Val>(false),
       sdpa_fwd_out.philox_seed,
       sdpa_fwd_out.philox_offset,
-      /*scale=*/nullptr
-  );
+      /*scale=*/nullptr);
 
   fusion->addOutput(sdpa_fwd_out.output);
   fusion->addOutput(sdpa_grad.grad_query);
@@ -697,49 +698,26 @@ TEST_F(SDPATest, AttnFwdBwd) {
             out, /*input=*/nullptr, AllocationType::Evaluate);
       });
   fe.compileFusion(fusion.get(), {q, k, v, grad_out});
-  auto nvf_grad_out = fe.runFusion({q, k, v, grad_out});
+  auto nvf_out = fe.runFusion({q, k, v, grad_out});
 
-  double scale = 1.0 / std::sqrt(e);
-  auto [attn,
-       log_sumexp,
-       cum_seq_q,
-       cum_seq_k,
-       query_seq_len,
-       key_seq_len,
-       philox_seed,
-       philox_offset,
-       debug_attn_mask] = at::_scaled_dot_product_flash_attention(
+  auto attn = at::scaled_dot_product_attention(
       q,
       k,
       v,
+      /*attn_mask=*/std::nullopt,
       /*dropout_p=*/0.0,
       /*is_causal=*/false,
-      /*return_debug_mask=*/false,
-      scale);
-  
-  auto [ref_grad_query, ref_grad_key, ref_grad_value] =
-    at::_scaled_dot_product_flash_attention_backward(
-        grad_out,
-        q,
-        k,
-        v,
-        attn,
-        log_sumexp,
-        cum_seq_q,
-        cum_seq_k,
-        /*max_q=*/*query_seq_len.maybe_as_int(),
-        /*max_k=*/*key_seq_len.maybe_as_int(),
-        /*dropout_p=*/0.0,
-        /*is_causal=*/false,
-        philox_seed,
-        philox_offset,
-        /*scale=*/scale);
-  
+      /*scale=*/std::nullopt);
+  q.retain_grad();
+  k.retain_grad();
+  v.retain_grad();
+  attn.backward(grad_out);
+
   testValidate(
       fusion.get(),
-      nvf_grad_out,
+      nvf_out,
       {q, k, v, grad_out},
-      {attn, ref_grad_query, ref_grad_key, ref_grad_value},
+      {attn, q.grad(), k.grad(), v.grad()},
       __LINE__,
       __FILE__);
 }

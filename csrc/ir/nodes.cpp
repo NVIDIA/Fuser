@@ -4378,7 +4378,8 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     output = output.slice(-1, 0, last_dim_size);
   }
 
-  // Query and key seq len are of type c10::SymInt -> convert them to CPU scalar tensors to support adding them as fusion outputs.
+  // Query and key seq len are of type c10::SymInt -> convert them to CPU scalar
+  // tensors to support adding them as fusion outputs.
   return {
       output,
       log_sumexp,
