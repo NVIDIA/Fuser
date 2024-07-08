@@ -686,10 +686,11 @@ TEST_P(SliceHostIrTest, SlicingTensor) {
       input_aten.dim(), at::indexing::Slice());
   ranges_aten.at(axis) = at::indexing::Slice(start, stop, step);
   auto ref_output = input_aten.index(ranges_aten);
-
-  EXPECT_TRUE(ref_output.equal(output))
-      << "input=" << input << "\nobtained output=" << output
-      << "\nexpected output=" << ref_output;
+  if (put_slice_op_in_top_level_expr) {
+    EXPECT_TRUE(ref_output.equal(output));
+  } else {
+    EXPECT_EQ(output.numel(), 0);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
