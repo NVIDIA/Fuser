@@ -3288,10 +3288,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         std::stringstream ss;
         DebugStreamGuard dsg(ss);
 
-        bool can_schedule =
-            PointWiseScheduler::canScheduleCompileTime(sched->schedule.get()) &&
-            PointWiseScheduler::canScheduleRunTime(
-                sched->schedule.get(), *sched->runtime_info);
+        bool can_schedule = checkCanSchedule<PointWiseScheduler>(
+            sched->schedule.get(), *sched->runtime_info);
         return std::make_tuple(can_schedule, ss.str());
       });
   nvf_sched.def(
@@ -3304,10 +3302,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_ERROR(
             sched->runtime_info != nullptr,
             "Requires SchedulerRuntimeInfo to use heuristic schedulers");
-        bool can_schedule =
-            PointWiseScheduler::canScheduleCompileTime(sched->schedule.get()) &&
-            PointWiseScheduler::canScheduleRunTime(
-                sched->schedule.get(), *sched->runtime_info);
+        bool can_schedule = checkCanSchedule<PointWiseScheduler>(
+            sched->schedule.get(), *sched->runtime_info);
         NVF_CHECK(can_schedule, "Cannot schedule with pointwise scheduler");
         PointWiseScheduler pointwise(
             sched->schedule.get(), *sched->runtime_info);
