@@ -213,7 +213,9 @@ std::vector<at::Tensor> FusionDefinition::execute(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
+
       if (user_sched.heuristic_scheduler == nullptr) {
+        // Manual schedule
         if (!user_sched.executor->isCompiled()) {
           user_sched.executor->compileFusion(
               user_sched.schedule.get(),
@@ -223,6 +225,8 @@ std::vector<at::Tensor> FusionDefinition::execute(
         }
         outputs = user_sched.executor->runFusion(inputs);
       } else {
+        // Automatic scheduler was used for UserSchedule.
+        // Pass launch and compile params to compileFusion and runFusion.
         if (!user_sched.executor->isCompiled()) {
           user_sched.executor->compileFusion(
               user_sched.schedule.get(),
