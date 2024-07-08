@@ -1372,8 +1372,8 @@ TEST_F(AliasTest, SegmentMetaOps) {
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  at::Tensor slice_out_tensor = out_tensors[0];
-  EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
+  at::Tensor permute_out_tensor = out_tensors[0];
+  EXPECT_TRUE(permute_out_tensor.is_alias_of(in_tensor));
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   // MarkAliasesPrepare adds a `segment_set` between `in` and `permute`, which
