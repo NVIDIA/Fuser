@@ -17,7 +17,6 @@ namespace nvfuser {
 bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto exprs = fusion->exprs();
   if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
-    std::cout << "Expression size " << exprs.size() << std::endl;
     if (exprs.size() == 1 &&
         (exprs.front()->isOneOf<LinearOp, MatmulOp, SdpaFwdOp>())) {
       return true;

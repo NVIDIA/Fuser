@@ -203,6 +203,16 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
+  // Temporary: The scheduler tries different combinations including with the segmenter_set
+  // To prevent this if we see SDPA in the fusion and the length != 1, return false
+  if (fusion->exprs().size() > 1) {
+    for (auto expr : fusion->exprs()) {
+      if (expr->isA<SdpaFwdOp>()) {
+        return false;
+      }
+    }
+  }
+  
   switch (sh) {
     case ScheduleHeuristic::NoOp:
       return checkCanSchedule<NoOpScheduler>(fusion, runtime_info, data_cache);

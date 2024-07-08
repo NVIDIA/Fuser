@@ -38,6 +38,58 @@ constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
 // Note: Flash Attention is only supported on Ampere and above.
 
+TEST_F(SDPATest, AttnProgram) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> q_shape({n, h, l, e});
+  std::vector<int64_t> k_shape({n, h, s, e});
+  std::vector<int64_t> v_shape({n, h, s, e});
+
+  auto tvq = makeConcreteTensor(q_shape, DataType::Half);
+  auto tvk = makeConcreteTensor(k_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(v_shape, DataType::Half);
+
+  fusion->addInput(tvq);
+  fusion->addInput(tvk);
+  fusion->addInput(tvv);
+
+  tvq = add(tvq, tvq);
+  tvq = castOp(DataType::Half, tvq);
+  tvq = segment_set(tvq);
+  auto tvattn = sdpfa_fwd(
+      tvq,
+      tvk,
+      tvv,
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(false),
+      /*scale=*/nullptr);
+  TensorView* tvsdpa = segment_set(tvattn.output);
+
+  TensorView* tvout = add(tvsdpa, tvsdpa);    
+  fusion->addOutput(tvout);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor q = at::randn(q_shape, options);
+  at::Tensor k = at::randn(k_shape, options);
+  at::Tensor v = at::randn(v_shape, options);
+
+  double scale = 1.0 / std::sqrt(e);
+  auto aten_outputs = at::_scaled_dot_product_flash_attention(
+      q+q,
+      k,
+      v,
+      /*dropout_p=*/0.0,
+      /*is_causal=*/false,
+      /*return_debug_mask=*/false,
+      scale);
+  auto expected_out = std::get<0>(aten_outputs) + std::get<0>(aten_outputs);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out = fec.runFusionWithInputs({q, k, v});
+  EXPECT_TRUE(at::allclose(out[0], expected_out));
+}
+
 TEST_F(SDPATest, NonCausalAttnConcrete) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
@@ -143,14 +195,9 @@ TEST_F(SDPATest, CausalAttn) {
   fusion->addInput(tvq);
   fusion->addInput(tvk);
   fusion->addInput(tvv);
-
-  auto tvq2 = add(tvq, tvq);
-  tvq2 = div(tvq, IrBuilder::create<Val>(2.0));
-  tvq2 = castOp(DataType::Half, tvq2);
-  tvq2 = segment_set(tvq2);
   
   auto tvattn = sdpfa_fwd(
-      tvq2,
+      tvq,
       tvk,
       tvv,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
@@ -174,7 +221,6 @@ TEST_F(SDPATest, CausalAttn) {
 
   FusionExecutorCache fec(std::move(fusion));
   auto out = fec.runFusionWithInputs({q, k, v});
-  std::cout << (out[0] - std::get<0>(aten_outputs)).abs().max() << std::endl;
   EXPECT_TRUE(at::allclose(out[0], std::get<0>(aten_outputs)));
 }
 
