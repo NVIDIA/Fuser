@@ -4359,7 +4359,7 @@ class TestNvFuserFrontend(TestCase):
                 contiguity=[True, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
-                stride_order=[2, 1, 0
+                stride_order=[2, 1, 0]
             )
             S2 = fd.define_scalar(1, dtype=DataType.Int)
             S3 = fd.ops.mul(S2, S0)
