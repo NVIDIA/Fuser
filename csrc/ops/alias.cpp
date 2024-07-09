@@ -790,7 +790,8 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       out_rf_id = IterDomain::resize(
           out_root_id,
           SimplifyingIrBuilder::negExpr(range.start),
-          SimplifyingIrBuilder::subExpr(range.stop, inp_root_id->extent()),
+          SimplifyingIrBuilder::subExpr(
+              range.stop, inp_root_id->getMaybeExpandedExtent()),
           true);
       needs_real_slicing = true;
     }
