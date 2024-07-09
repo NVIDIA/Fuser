@@ -16,7 +16,7 @@ namespace hir {
 
 namespace {
 
-at::Tensor getKnownTensorOrEmptyTensor(
+at::Tensor getKnownTensorOrUndefined(
     Val* val,
     const ExpressionEvaluator& expr_evaluator) {
   return expr_evaluator.isKnown(val)
@@ -24,7 +24,7 @@ at::Tensor getKnownTensorOrEmptyTensor(
       : at::Tensor();
 }
 
-std::vector<at::Tensor> getKnownTensorOrEmptyTensor(
+std::vector<at::Tensor> getKnownTensorOrUndefined(
     const std::vector<Val*>& vals,
     const ExpressionEvaluator& expr_evaluator) {
   std::vector<at::Tensor> tensors(vals.size());
@@ -33,7 +33,7 @@ std::vector<at::Tensor> getKnownTensorOrEmptyTensor(
       vals.end(),
       tensors.begin(),
       [&expr_evaluator](Val* val) -> at::Tensor {
-        return getKnownTensorOrEmptyTensor(val, expr_evaluator);
+        return getKnownTensorOrUndefined(val, expr_evaluator);
       });
   return tensors;
 }
@@ -71,7 +71,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   }
 
   // Collect global outputs
-  return getKnownTensorOrEmptyTensor(container_->outputs(), expr_evaluator_);
+  return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
 
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
@@ -159,9 +159,9 @@ void HostIrExecutor::handle(Communication* communication) {
       "A valid communicator must be provided");
 
   at::Tensor input_tensor =
-      getKnownTensorOrEmptyTensor(communication->input(0), expr_evaluator_);
+      getKnownTensorOrUndefined(communication->input(0), expr_evaluator_);
   at::Tensor output_tensor =
-      getKnownTensorOrEmptyTensor(communication->output(0), expr_evaluator_);
+      getKnownTensorOrUndefined(communication->output(0), expr_evaluator_);
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), std::nullopt);
