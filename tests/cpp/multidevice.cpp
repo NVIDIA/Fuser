@@ -9,6 +9,13 @@
 #include <unistd.h>
 #include <mutex>
 
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/debug.h>
+#else
+#include <multidevice/c10d_mock.h>
+#endif
+#include <torch/cuda.h>
+
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>
@@ -16,12 +23,25 @@
 #include <options.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
-#include <torch/cuda.h>
 
 namespace nvfuser {
 
+void MultiDeviceTestEnvironment::SetUp() {
+  communicator_ = new Communicator();
+}
+
+void MultiDeviceTestEnvironment::TearDown() {
+  delete communicator_;
+}
+
+/*static=*/Communicator* MultiDeviceTestEnvironment::communicator_ = nullptr;
+
 MultiDeviceTest::MultiDeviceTest() {
-  communicator_ = getOrCreateCommunicator();
+  // Enable logging in c10d so debug messages can be printed out via
+  // `TORCH_DISTRIBUTED_DEBUG`.
+  c10d::setDebugLevelFromEnvironment();
+
+  communicator_ = MultiDeviceTestEnvironment::getCommunicator();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
@@ -121,11 +141,6 @@ void MultiDeviceTest::SetUp() {
   return tensor.slice(sharded_dim, i, i + 1).contiguous();
 }
 
-/*static*/ Communicator* MultiDeviceTest::getOrCreateCommunicator() {
-  static Communicator* communicator = new Communicator();
-  return communicator;
-}
-
 void PipelineTest::validate(bool validate_with_prescribed_values) {
   if (!validate_with_prescribed_values) {
     // execute the fusion on one device without pipeline scheduling
@@ -193,12 +208,12 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   }
 
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::move(fusion), *communicator_, multi_device_executor_params);
+      std::move(fusion), *communicator_, host_ir_executor_params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
   }
-  outputs = runtime->runWithInput(inputs, l_params);
+  outputs = runtime->runWithInput(inputs);
 
   if (debug_print) {
     if (!communicator_->deviceId()) {
@@ -222,3 +237,9 @@ PipelineTest::PipelineTest() {
 }
 
 } // namespace nvfuser
+
+int main(int argc, char** argv) {
+  testing::InitGoogleTest(&argc, argv);
+  testing::AddGlobalTestEnvironment(new nvfuser::MultiDeviceTestEnvironment());
+  return RUN_ALL_TESTS();
+}

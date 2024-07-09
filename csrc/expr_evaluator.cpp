@@ -66,7 +66,7 @@ void validateValWithConcreteValue(
           " elements");
     } else {
       NVF_CHECK(
-          t.is_cuda() || t.is_meta(),
+          !t.defined() || t.is_cuda() || t.is_meta(),
           "Expected ",
           tv->toString(),
           " to be bound to a CUDA or meta tensor, but got a tensor on device ",
@@ -155,9 +155,14 @@ void ExpressionEvaluator::bind_(
             id->toString(),
             "is sharded and must have size 1, but input tensor has size ",
             t.size(i));
+        NVF_CHECK(
+            tv->getDeviceMesh().size() > 0,
+            "TV ",
+            tv->toString(),
+            " has an empty DeviceMesh with DID parallelization")
         bind_(
             logical_domain[i]->extent(),
-            (int)tv->getDeviceMesh().vector().size(),
+            (int)tv->getDeviceMesh().size(),
             evaluate_validate);
       } else {
         bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);

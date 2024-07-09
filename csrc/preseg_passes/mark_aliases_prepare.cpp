@@ -21,23 +21,10 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
   }
 
-  // Fusion outputs that are (1) aliased by another fusion output, (2) not
-  // aliases themselves, and (3) not fusion inputs (yes, a fusion may trivially
-  // forward an input). Code will later add `segment_set` before them so aliases
-  // are separated from non-aliases and more likely to be accepted by the no-op
-  // scheduler.
-  std::unordered_set<TensorView*> aliased_outs;
-
   for (TensorView* tv : ir_utils::allTvs(fusion)) {
     TensorView* aliased_io = analysis.getNearestAliasedIo(tv);
     if (aliased_io == nullptr) {
       continue;
-    }
-
-    if (tv->isFusionOutput() && aliased_io->isFusionOutput() &&
-        !aliased_io->isFusionInput() &&
-        analysis.getNearestAliasedIo(aliased_io) == nullptr) {
-      aliased_outs.insert(aliased_io);
     }
 
     // `AliasAnalysisResult::finalize` already checked the alias-enabling layout
@@ -59,6 +46,22 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "Set the layout of " << ir_utils::varName(tv) << " to "
               << preferred_layout.toString() << std::endl;
+    }
+  }
+
+  // Fusion outputs that are (1) aliased by another fusion output, (2) not
+  // aliases themselves, and (3) not fusion inputs (yes, a fusion may trivially
+  // forward an input). Code will later add `segment_set` before them so aliases
+  // are separated from non-aliases and more likely to be accepted by the no-op
+  // scheduler.
+  std::unordered_set<TensorView*> aliased_outs;
+  for (TensorView* out_tv :
+       ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    if (TensorView* aliased_io = analysis.getNearestAliasedIo(out_tv)) {
+      if (aliased_io->isFusionOutput() && !aliased_io->isFusionInput() &&
+          analysis.getNearestAliasedIo(aliased_io) == nullptr) {
+        aliased_outs.insert(aliased_io);
+      }
     }
   }
 

@@ -773,8 +773,8 @@ MmaLayout getMatmulProblemLayout(Fusion* fusion) {
 
   NVF_ERROR(inner_dims.size() == 2, "Found other than two operands");
 
-  const bool A_K_inner = inner_dims.front() == MatmulDomain::K;
-  const bool B_K_inner = inner_dims.back() == MatmulDomain::K;
+  const bool A_K_inner = inner_dims.front() == MatmulDimRole::K;
+  const bool B_K_inner = inner_dims.back() == MatmulDimRole::K;
 
   if (A_K_inner && B_K_inner) {
     return MmaLayout::TN;
@@ -785,6 +785,27 @@ MmaLayout getMatmulProblemLayout(Fusion* fusion) {
   } else {
     return MmaLayout::NT;
   }
+}
+
+// get supported floating data types
+std::vector<DataType> getFloatingDataTypes() {
+  std::vector<DataType> dtypes = {
+      DataType::Double,
+      DataType::Float,
+      DataType::Half,
+      DataType::ComplexFloat,
+      DataType::ComplexDouble};
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
+  if (at::cuda::getDeviceProperties(0)->major >= 8) {
+    dtypes.push_back(DataType::BFloat16);
+  }
+#endif
+  return dtypes;
+}
+
+std::string sanitizeTestName(const std::string& name) {
+  // Replace all non-alphanumeric characters with underscores
+  return std::regex_replace(name, std::regex("[^a-zA-Z0-9]"), "_");
 }
 
 } // namespace nvfuser

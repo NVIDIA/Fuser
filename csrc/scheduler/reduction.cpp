@@ -1041,13 +1041,6 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  // Fusions handled by reduction scheduler cannot have matmul ops.
-  if (ir_utils::hasAnyMatmulOps(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no support for matmul ops.");
-    return false;
-  }
-
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
   if (reduction_tvs.empty()) {

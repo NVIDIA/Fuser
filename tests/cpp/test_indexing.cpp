@@ -423,6 +423,54 @@ TEST_F(IndexingTest, SimpleReduction) {
   IndexValidator<GetReference>::validate(&fusion);
 }
 
+// Reduction with inlining. Loop promotion picks a reduction domain,
+// which indexing should not ignore.
+TEST_F(IndexingTest, PromotionToReductionDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = sum(tv1, {1});
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  inlineMost();
+
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  // tv1's index should be "threadIdx.x". However, since its
+  // allocation domain, tv1->axis(1), is promoted to tv2->axis(1),
+  // which is a reduction domain, the initial version of indexing
+  // mistakenly excluded the domain from indexing.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      switch (tv->name()) {
+        case 1: {
+          return loop_indices.at(1);
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
 // Fusion copied from AllocationDomainTest.TransposedIntermediate
 TEST_F(IndexingTest, AllocationDomain) {
   Fusion fusion;
@@ -1147,7 +1195,7 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
   IndexValidator<GetReference>::validate(&fusion);
 }
 
-TEST_F(IndexingTest, DISABLED_Swizzle) {
+TEST_F(IndexingTest, Swizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
