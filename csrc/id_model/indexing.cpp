@@ -1413,32 +1413,47 @@ class AllocationDomainSetup : private kir::IrVisitor {
 
     bool use_set_allocatin_domain = false;
 
+    // Set allocation domains are not necessrily truth. Ideally, we
+    // should make sure the set domain is always valid, but for now do
+    // some inference if it's likely valid
     if (tv->hasAllocation()) {
-      // For now, only uses the set allocation domain when it's a
-      // permutation or Swizzle is used.
-      if (tv->getMemoryType() == MemoryType::Shared ||
-          tv->getMemoryType() == MemoryType::Local) {
-        if (std::is_permutation(
-                tv->getLoopDomain().begin(),
-                tv->getLoopDomain().end(),
-                tv->getAllocationDomain().begin())) {
-          use_set_allocatin_domain = true;
-        }
-        if (std::any_of(
+      // If the tensor is global, it's likely valid
+      if (tv->getMemoryType() == MemoryType::Global) {
+        use_set_allocatin_domain = true;
+      }
+      // If the tensor is shared and swizzle or TMA is used, it should
+      // be the valid domain. Also, if the allocation domain is just a
+      // permutation of the loop domain, use the set allocation
+      // domain. This seems to happen only with
+      // AllocationDomainTest.TransposedIntermediate.
+      if (tv->getMemoryType() == MemoryType::Shared &&
+          (std::any_of(
+               tv->getAllocationDomain().begin(),
+               tv->getAllocationDomain().end(),
+               [](IterDomain* allocation_domain) {
+                 return dynamic_cast<Swizzle*>(
+                            allocation_domain->definition()) != nullptr ||
+                     allocation_domain->getParallelType() == ParallelType::Bulk;
+               }) ||
+           std::is_permutation(
+               tv->getLoopDomain().begin(),
+               tv->getLoopDomain().end(),
+               tv->getAllocationDomain().begin()))) {
+        if (std::none_of(
                 tv->getAllocationDomain().begin(),
                 tv->getAllocationDomain().end(),
                 [](IterDomain* allocation_domain) {
                   return dynamic_cast<Swizzle*>(
-                             allocation_domain->definition()) != nullptr;
+                             allocation_domain->definition()) != nullptr ||
+                      allocation_domain->getParallelType() ==
+                      ParallelType::Bulk;
                 })) {
-          use_set_allocatin_domain = true;
+          std::cerr << "Permutation allocation domain\n";
         }
-      } else {
         use_set_allocatin_domain = true;
       }
     }
 
-    // Ignore allocation of non-global tensors for now
     if (use_set_allocatin_domain) {
       allocation_domains = tv->getAllocationDomain();
       contiguity = tv->domain()->contiguity();
@@ -1485,33 +1500,36 @@ class AllocationDomainSetup : private kir::IrVisitor {
         contiguity =
             std::vector<std::optional<bool>>(allocation_domains.size(), true);
       }
-    }
 
-    if (auto reordered_domains =
-            reorderAllocationDomains(tv, allocation_domains);
-        reordered_domains.has_value()) {
-      VERBOSE() << "Allocation domain reorderred: " << tv->toString()
-                << ". Oriignal: " << toDelimitedString(allocation_domains)
-                << ", reordered: "
-                << toDelimitedString(reordered_domains.value()) << std::endl;
-      allocation_domains = reordered_domains.value();
-      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
-        return b.has_value() && b.value();
-      }));
-    }
-    // WAR for transpose
-    if (auto transposed_smem_alloc_dom = patchAllocationOfTransposedSmemTensor(
-            tv, allocation_domains, id_model.idGraph(IdMappingMode::EXACT));
-        transposed_smem_alloc_dom.has_value()) {
-      VERBOSE()
-          << "Using consumer domain as the allocation domain of the shared memory producer: "
-          << tv->toString() << std::endl;
-      allocation_domains = transposed_smem_alloc_dom.value();
-      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
-        return b.has_value() && b.value();
-      }));
-      contiguity =
-          std::vector<std::optional<bool>>(allocation_domains.size(), true);
+      if (auto reordered_domains =
+              reorderAllocationDomains(tv, allocation_domains);
+          reordered_domains.has_value()) {
+        VERBOSE() << "Allocation domain reorderred: " << tv->toString()
+                  << ". Oriignal: " << toDelimitedString(allocation_domains)
+                  << ", reordered: "
+                  << toDelimitedString(reordered_domains.value()) << std::endl;
+        allocation_domains = reordered_domains.value();
+        NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+          return b.has_value() && b.value();
+        }));
+      }
+      // WAR for transpose
+      if (auto transposed_smem_alloc_dom =
+              patchAllocationOfTransposedSmemTensor(
+                  tv,
+                  allocation_domains,
+                  id_model.idGraph(IdMappingMode::EXACT));
+          transposed_smem_alloc_dom.has_value()) {
+        VERBOSE()
+            << "Using consumer domain as the allocation domain of the shared memory producer: "
+            << tv->toString() << std::endl;
+        allocation_domains = transposed_smem_alloc_dom.value();
+        NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+          return b.has_value() && b.value();
+        }));
+        contiguity =
+            std::vector<std::optional<bool>>(allocation_domains.size(), true);
+      }
     }
 
     NVF_ERROR(allocation_domains.size() == contiguity.size());
@@ -1624,16 +1642,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::optional<std::vector<IterDomain*>> reorderAllocationDomains(
       const TensorView* tv,
       const std::vector<IterDomain*>& allocation_domains) const {
-    // Don't change the set allocation domain. Ignore allocation
-    // domains of non-global tensors. For example,
-    // AliasTest.NotAllOutputAlias_Reduction has a tensor, tv6, that
-    // is a Local tensor with CA position of 4 but has an allocation
-    // domain that's just a permutation of its logical domain. Such
-    // invalid allocations need to be ignored.
-    if (tv->hasAllocation() && tv->getMemoryType() == MemoryType::Global) {
-      return std::nullopt;
-    }
-
     auto exprs = DependencyCheck::getAllExprsBetween(
         {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
         {allocation_domains.begin(), allocation_domains.end()});
@@ -1781,17 +1789,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     if (tv->getMemoryType() != MemoryType::Shared) {
-      return std::nullopt;
-    }
-
-    // If swizzle is used, it's likely the allocation domain is
-    // already set correctly.
-    auto exprs = DependencyCheck::getAllExprsBetween(
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
-        {allocation_domains.begin(), allocation_domains.end()});
-    if (std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
-          return expr->isA<Swizzle>();
-        })) {
       return std::nullopt;
     }
 
