@@ -973,12 +973,18 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // (3) vectorization factor
   auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-  const auto& [vectorize_factor, vectorization_factor_map] = vectorize_helper::getVectorizationFactor(
+  const auto& [min_vectorize_factor, vectorization_factor_map] = vectorize_helper::getVectorizationFactor(
       runtime_info,
       reduced_tv,
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
           ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+
+  // Use max vectorization factor
+  int64_t vectorize_factor = min_vectorize_factor;
+  for(auto pair : vectorization_factor_map) {
+    vectorize_factor = std::max(vectorize_factor, pair.second);
+  }
 
   // (4) info about persistent buffer
   auto persistent_buffer_info_entry =

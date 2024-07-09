@@ -820,17 +820,18 @@ std::pair<int64_t, std::unordered_map<TensorView*, int64_t>> getVectorizationFac
                     reference_tv, logical_reorder_map));
           });
 
-  int64_t max_vec_size = 1;
   std::unordered_map<TensorView*, int64_t> tv_to_vectorization_factor;
 
   if (vectorizable_inputs_outputs.empty()) {
-    return std::make_pair(max_vec_size, tv_to_vectorization_factor);
+    return std::make_pair(1, tv_to_vectorization_factor);
   }
 
   // break point is beyond the range of vectorize_maps_entry, no vectorization.
   if (break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())) {
-    return std::make_pair(max_vec_size, tv_to_vectorization_factor);
+    return std::make_pair(1, tv_to_vectorization_factor);
   }
+
+  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
 
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
@@ -871,7 +872,7 @@ std::pair<int64_t, std::unordered_map<TensorView*, int64_t>> getVectorizationFac
     tv_to_vectorization_factor.insert({inp_or_out, my_vect_factor});
     std::cout << "Vectorization factor for " << inp_or_out->name() << " is "
               << my_vect_factor << std::endl;
-    max_vec_size = std::max(max_vec_size, my_vect_factor);
+    max_vec_size = std::min(max_vec_size, my_vect_factor);
   }
 
   return std::make_pair(max_vec_size, tv_to_vectorization_factor);

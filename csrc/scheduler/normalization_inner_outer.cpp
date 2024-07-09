@@ -478,13 +478,17 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
   const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
 
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
-  const auto vectorize_factor =
+  const auto& [min_vectorize_factor, vectorization_factor_map] =
       vectorize_helper::getVectorizationFactor(
           runtime_info,
           reduced_tv,
           data_cache,
-          (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims))
-          .first;
+          (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
+  // Use max vectorization factor
+  int64_t vectorize_factor = min_vectorize_factor;
+  for(auto pair : vectorization_factor_map) {
+    vectorize_factor = std::max(vectorize_factor, pair.second);
+  }
 
   // check if there is enough register and shared memory for persistence
   const auto buffer_params = getPersistentBufferStorageParams(
@@ -885,15 +889,18 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   auto properties =
       scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
   auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-  const auto vectorize_factor =
+  const auto& [min_vectorize_factor, vectorization_factor_map] = 
       vectorize_helper::getVectorizationFactor(
           runtime_info,
           reduced_tv,
           data_cache,
           vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-              ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims))
-          .first;
-
+              ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+  // Use max vectorization factor
+  int64_t vectorize_factor = min_vectorize_factor;
+  for(auto pair : vectorization_factor_map) {
+    vectorize_factor = std::max(vectorize_factor, pair.second);
+  }
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -922,7 +929,8 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // save persistent tvs should use shared memory, to avoid calling
   // getPersistentBufferStorageParams again during the scheduling.
   rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
-
+  // max vectorization factor of each tv
+  rparams->vectorization_factor_map = vectorization_factor_map;
   return rparams;
 }
 
