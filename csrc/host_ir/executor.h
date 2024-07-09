@@ -9,6 +9,7 @@
 
 #include <dispatch.h>
 #include <executor.h>
+#include <expr_evaluator.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <kernel_cache.h>
@@ -79,7 +80,7 @@ class HostIrExecutor final : public OptInDispatch {
   Communicator* communicator_;
   HostIrExecutorParams params_;
   // Stores concrete computed values
-  std::unordered_map<Val*, c10::IValue> val_to_IValue_;
+  ExpressionEvaluator expr_evaluator_;
   // Cache Fusions, FusionExecutors
   std::unordered_map<HostUnit*, FusionExecutor> fe_;
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;
