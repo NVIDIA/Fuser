@@ -659,14 +659,10 @@ TEST_F(NVFuserTest, FusionFactorAmax_CUDA) {
   at::Tensor fp8_amax_history = at::zeros({}, options);
   std::vector<c10::IValue> aten_inputs = {x, fp8_amax_history};
 
-  at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
-  at::Tensor at_t2 = x + at_t1;
-  at::Tensor at_t3 = at::abs(at_t2);
-  at::Tensor at_t4 = at::max(at_t3);
-
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
   runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
 
   // Two segments are created because a partial reduction and a full reduction
   // cannot be in the same fusion.
@@ -695,7 +691,12 @@ TEST_F(NVFuserTest, FusionFactorAmax_CUDA) {
   EXPECT_EQ(num_reduction_axes, 1);
   EXPECT_EQ(partial_amax->getLogicalDomain().size(), 2);
 
-  auto outputs = runtime.runWithInputs(args);
+  // Aten reference
+  at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
+  at::Tensor at_t2 = x + at_t1;
+  at::Tensor at_t3 = at::abs(at_t2);
+  at::Tensor at_t4 = at::max(at_t3);
+
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
       preseg_fusion, outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
@@ -768,6 +769,8 @@ TEST_F(NVFuserTest, FusionIssue2258_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
+  // Aten reference
+
   /*
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
@@ -804,15 +807,10 @@ TEST_F(NVFuserTest, FusionFactorAmaxHorizontalMultiplePartial_CUDA) {
   at::Tensor fp8_amax_history = at::zeros({}, options);
   std::vector<c10::IValue> aten_inputs = {x, fp8_amax_history};
 
-  at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
-  at::Tensor at_t2 = at::sum(x, {0}, /*keepdim=*/true);
-  at::Tensor at_t3 = at_t1 + at_t2;
-  at::Tensor at_t4 = at::abs(at_t3);
-  at::Tensor at_t5 = at::max(at_t4);
-
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
   runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
 
   // Two segments are created because a partial reduction and a full reduction
   // cannot be in the same fusion.
@@ -841,7 +839,13 @@ TEST_F(NVFuserTest, FusionFactorAmaxHorizontalMultiplePartial_CUDA) {
   EXPECT_EQ(num_reduction_axes, 1);
   EXPECT_EQ(partial_amax->getLogicalDomain().size(), 2);
 
-  auto outputs = runtime.runWithInputs(args);
+  // Aten reference
+  at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
+  at::Tensor at_t2 = at::sum(x, {0}, /*keepdim=*/true);
+  at::Tensor at_t3 = at_t1 + at_t2;
+  at::Tensor at_t4 = at::abs(at_t3);
+  at::Tensor at_t5 = at::max(at_t4);
+
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
       preseg_fusion, outputs, aten_inputs, {at_t3, at_t5}, __LINE__, __FILE__);
@@ -875,14 +879,10 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcast_CUDA) {
   at::Tensor fp8_amax_history = at::zeros({1, 1}, options);
   std::vector<c10::IValue> aten_inputs = {x, fp8_amax_history};
 
-  at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
-  at::Tensor at_t2 = x + at_t1;
-  at::Tensor at_t3 = at::abs(at_t2);
-  at::Tensor at_t4 = at::max(at_t3);
-
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
   runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
 
   // Two segments are created because a partial reduction and a full reduction
   // cannot be in the same fusion.
@@ -911,7 +911,12 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcast_CUDA) {
   EXPECT_EQ(num_reduction_axes, 1);
   EXPECT_EQ(partial_amax->getLogicalDomain().size(), 2);
 
-  auto outputs = runtime.runWithInputs(args);
+  // Aten reference
+  at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
+  at::Tensor at_t2 = x + at_t1;
+  at::Tensor at_t3 = at::abs(at_t2);
+  at::Tensor at_t4 = at::max(at_t3);
+
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
       preseg_fusion, outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
@@ -948,17 +953,10 @@ TEST_F(NVFuserTest, FusionFactorAmaxCast_CUDA) {
   at::Tensor fp8_amax_history = at::zeros({}, options);
   std::vector<c10::IValue> aten_inputs = {x, fp8_amax_history};
 
-  at::Tensor x_cast = x.to(at::kFloat);
-  at::Tensor at_t1 = at::sum(x_cast, {1}, /*keepdim=*/true);
-  at::Tensor at_t2 = x_cast + at_t1;
-  at::Tensor at_t2_cast = at_t2.to(at::kHalf);
-  at::Tensor at_t3 = at::abs(at_t2);
-  at::Tensor at_t4 = at::max(at_t3);
-  at::Tensor at_t4_cast = at_t4.to(at::kHalf);
-
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
   runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
 
   // Two segments are created because a partial reduction and a full reduction
   // cannot be in the same fusion.
@@ -987,7 +985,15 @@ TEST_F(NVFuserTest, FusionFactorAmaxCast_CUDA) {
   EXPECT_EQ(num_reduction_axes, 1);
   EXPECT_EQ(partial_amax->getLogicalDomain().size(), 2);
 
-  auto outputs = runtime.runWithInputs(args);
+  // Aten reference
+  at::Tensor x_cast = x.to(at::kFloat);
+  at::Tensor at_t1 = at::sum(x_cast, {1}, /*keepdim=*/true);
+  at::Tensor at_t2 = x_cast + at_t1;
+  at::Tensor at_t2_cast = at_t2.to(at::kHalf);
+  at::Tensor at_t3 = at::abs(at_t2);
+  at::Tensor at_t4 = at::max(at_t3);
+  at::Tensor at_t4_cast = at_t4.to(at::kHalf);
+
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
       preseg_fusion,
@@ -1029,19 +1035,10 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcastCast_CUDA) {
   at::Tensor fp8_amax_history = at::zeros({1, 1}, options);
   std::vector<c10::IValue> aten_inputs = {x, fp8_amax_history};
 
-  at::Tensor x_cast = x.to(at::kFloat);
-
-  at::Tensor at_t1 = at::sum(x_cast, {1}, /*keepdim=*/true);
-  at::Tensor at_t2 = x_cast + at_t1;
-  at::Tensor at_t3 = at::abs(at_t2);
-  at::Tensor at_t4 = at::max(at_t3);
-
-  at::Tensor at_t2_cast = at_t2.to(at::kHalf);
-  at::Tensor at_t4_cast = at_t4.to(at::kHalf);
-
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
   runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
 
   // Two segments are created because a partial reduction and a full reduction
   // cannot be in the same fusion.
@@ -1071,7 +1068,15 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcastCast_CUDA) {
   EXPECT_EQ(num_reduction_axes, 1);
   EXPECT_EQ(partial_amax->getLogicalDomain().size(), 2);
 
-  auto outputs = runtime.runWithInputs(args);
+  // Aten reference
+  at::Tensor x_cast = x.to(at::kFloat);
+  at::Tensor at_t1 = at::sum(x_cast, {1}, /*keepdim=*/true);
+  at::Tensor at_t2 = x_cast + at_t1;
+  at::Tensor at_t3 = at::abs(at_t2);
+  at::Tensor at_t4 = at::max(at_t3);
+  at::Tensor at_t2_cast = at_t2.to(at::kHalf);
+  at::Tensor at_t4_cast = at_t4.to(at::kHalf);
+
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
       preseg_fusion,
