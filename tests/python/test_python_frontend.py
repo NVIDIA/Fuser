@@ -4383,7 +4383,6 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-
     # Test that we do not hit segfaults when replacing an empty tensor that has multiple uses
     # https://github.com/NVIDIA/Fuser/issues/2545
     def test_remove_empty_issue_2545(self):
