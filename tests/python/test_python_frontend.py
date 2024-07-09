@@ -4343,6 +4343,46 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    def test_reshape_dynamic(self):
+        inputs = [
+            32,
+            torch.randn((192,), dtype=torch.float32, device="cuda:0").as_strided(
+                (4, 8, 6), (48, 6, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            S0 = fd.define_scalar(None, dtype=DataType.Int)
+            T1 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            S2 = fd.define_scalar(1, dtype=DataType.Int)
+            S3 = fd.ops.mul(S2, S0)
+            S4 = fd.ops.signbit(S3)
+            S5 = fd.define_scalar(False, dtype=DataType.Bool)
+            S6 = fd.ops.ne(S4, S5)
+            S7 = fd.define_scalar(192, dtype=DataType.Int)
+            S8 = fd.ops.fmod(S7, S3)
+            S9 = fd.ops.cast(S8, dtype=DataType.Int)
+            S10 = fd.define_scalar(0, dtype=DataType.Int)
+            S11 = fd.ops.ne(S9, S10)
+            S12 = fd.ops.bitwise_and(S6, S11)
+            S13 = fd.define_scalar(192, dtype=DataType.Int)
+            S14 = fd.ops.reciprocal(S3)
+            S15 = fd.ops.mul(S13, S14)
+            S16 = fd.ops.cast(S12, dtype=DataType.Int)
+            S17 = fd.ops.sub(S15, S16)
+            V18 = fd.define_vector([S0, S17], dtype=DataType.Int)
+            T19 = fd.ops.reshape(T1, new_shape=V18)
+            T20 = fd.ops.sum(T19, dims=[1], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T20)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
     # Test that we do not hit segfaults when replacing an empty tensor that has multiple uses
     # https://github.com/NVIDIA/Fuser/issues/2545
     def test_remove_empty_issue_2545(self):
