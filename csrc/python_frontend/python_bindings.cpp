@@ -221,7 +221,8 @@ struct DimInfo {
   }
 };
 
-// Return if we can schedule FusionDefinition with heuristic
+// Return if we can schedule FusionDefinition with heuristic along with any
+// debug messages from canScheduleRejectReason.
 std::tuple<bool, std::string> canSchedule(
     UserSchedule* sched,
     const ScheduleHeuristic& heuristic) {
@@ -473,7 +474,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("shared", MemoryType::Shared)
       .value("global", MemoryType::Global);
 
-  //! Scheduler Type
+  //! Scheduler Type for scheduling
   py::enum_<ScheduleHeuristic>(nvfuser, "SchedulerHeuristic")
       .value("no_op", ScheduleHeuristic::NoOp)
       .value("pointwise", ScheduleHeuristic::PointWise)
