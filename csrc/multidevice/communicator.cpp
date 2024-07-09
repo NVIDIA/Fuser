@@ -268,11 +268,11 @@ c10d::Backend* Communicator::getWorld(
 }
 
 void Communicator::barrier(std::optional<CommunicatorBackend> backend) {
-  // Explicitly specify the device ID to avoid a warning. Without this,
+  // Explicitly specify the (local) device ID to avoid a warning. Without this,
   // ProcessGroupNCCL::barrier may guess the wrong mapping and failed to block
   // CPU properly:
   // https://github.com/pytorch/pytorch/blob/7e4329c258306cc14303895e5f1e6036b009e74f/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L3905-L3912.
-  c10d::BarrierOptions options{.device_ids = {deviceId()}};
+  c10d::BarrierOptions options{.device_ids = {local_rank()}};
   getWorld(backend)->barrier(options)->wait();
 }
 
