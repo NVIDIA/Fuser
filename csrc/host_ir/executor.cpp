@@ -47,10 +47,13 @@ HostIrExecutor::HostIrExecutor(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params) {
-  auto device_index =
+  const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
       : 0;
+  if (isDebugDumpEnabled(DebugDumpOption::HostIr) && device_index == 0) {
+    container_->print(debug());
+  }
   streams_.insert(
       {container_->getDefaultStream(),
        c10::cuda::getDefaultCUDAStream(

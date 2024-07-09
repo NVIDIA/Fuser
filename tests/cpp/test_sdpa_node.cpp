@@ -43,6 +43,8 @@ auto addSdpaFwdOutputs = [](Fusion* fusion, SdpfaFwdResult output) {
   fusion->addOutput(output.log_sumexp);
   fusion->addOutput(output.cum_seq_q);
   fusion->addOutput(output.cum_seq_k);
+  fusion->addOutput(output.query_seq_len);
+  fusion->addOutput(output.key_seq_len);
   fusion->addOutput(output.philox_seed);
   fusion->addOutput(output.philox_offset);
   fusion->addOutput(output.debug_attn_mask);
@@ -80,7 +82,9 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
   EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
   EXPECT_FALSE(nvf_out[2].defined());
   EXPECT_FALSE(nvf_out[3].defined());
-  EXPECT_TRUE(at::equal(nvf_out[6], debug_attn_mask));
+  EXPECT_EQ(nvf_out[4].item<int64_t>(), query_seq_len);
+  EXPECT_EQ(nvf_out[5].item<int64_t>(), key_seq_len);
+  EXPECT_TRUE(at::equal(nvf_out[8], debug_attn_mask));
 };
 
 TEST_F(SDPATest, NonCausalAttnConcrete) {
@@ -337,6 +341,10 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   auto tv_logsumexp = makeConcreteTensor({n, h, l}, DataType::Float);
   auto tv_cumq = makeConcreteTensor({0}, DataType::Null);
   auto tv_cumk = makeConcreteTensor({0}, DataType::Null);
+  auto tv_maxq = makeConcreteTensor({}, DataType::Int);
+  tv_maxq->setCpuScalar(true);
+  auto tv_maxk = makeConcreteTensor({}, DataType::Int);
+  tv_maxk->setCpuScalar(true);
   auto tv_seed = makeConcreteTensor({}, DataType::Int);
   tv_seed->setCpuScalar(true);
   auto tv_offset = makeConcreteTensor({}, DataType::Int);
@@ -350,6 +358,8 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   fusion->addInput(tv_logsumexp);
   fusion->addInput(tv_cumq);
   fusion->addInput(tv_cumk);
+  fusion->addInput(tv_maxq);
+  fusion->addInput(tv_maxk);
   fusion->addInput(tv_seed);
   fusion->addInput(tv_offset);
 
@@ -362,8 +372,8 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       tv_logsumexp,
       tv_cumq,
       tv_cumk,
-      /*max_q=*/IrBuilder::create<Val>(*query_seq_len.maybe_as_int()),
-      /*max_k=*/IrBuilder::create<Val>(*key_seq_len.maybe_as_int()),
+      tv_maxq,
+      tv_maxk,
       /*dropout_p=*/IrBuilder::create<Val>(dropout_p),
       /*is_causal=*/IrBuilder::create<Val>(is_causal),
       tv_seed,
@@ -385,6 +395,10 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       log_sumexp,
       cum_seq_q,
       cum_seq_k,
+      // max_q/k are represented as CPU scalar tensors in nvFuser and integers
+      // in ATen.
+      at::scalar_tensor(*query_seq_len.maybe_as_int(), at::dtype(at::kLong)),
+      at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       philox_seed,
       philox_offset};
   FusionExecutor fe;
@@ -470,6 +484,10 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
   auto tv_cumq = makeSymbolicTensor(1, DataType::Null);
   auto tv_cumk = makeSymbolicTensor(1, DataType::Null);
+  auto tv_maxq = makeSymbolicTensor({}, DataType::Int);
+  tv_maxq->setCpuScalar(true);
+  auto tv_maxk = makeSymbolicTensor({}, DataType::Int);
+  tv_maxk->setCpuScalar(true);
   auto tv_seed = makeSymbolicTensor({}, DataType::Int);
   tv_seed->setCpuScalar(true);
   auto tv_offset = makeSymbolicTensor({}, DataType::Int);
@@ -483,6 +501,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   fusion->addInput(tv_logsumexp);
   fusion->addInput(tv_cumq);
   fusion->addInput(tv_cumk);
+  fusion->addInput(tv_maxq);
+  fusion->addInput(tv_maxk);
   fusion->addInput(tv_seed);
   fusion->addInput(tv_offset);
 
@@ -495,8 +515,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
       tv_logsumexp,
       tv_cumq,
       tv_cumk,
-      /*max_q=*/IrBuilder::create<Val>(*query_seq_len.maybe_as_int()),
-      /*max_k=*/IrBuilder::create<Val>(*key_seq_len.maybe_as_int()),
+      tv_maxq,
+      tv_maxk,
       /*dropout_p=*/IrBuilder::create<Val>(dropout_p),
       /*is_causal=*/IrBuilder::create<Val>(is_causal),
       tv_seed,
@@ -518,6 +538,10 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
       log_sumexp,
       cum_seq_q,
       cum_seq_k,
+      // max_q/k are represented as CPU scalar tensors in nvFuser and integers
+      // in ATen.
+      at::scalar_tensor(*query_seq_len.maybe_as_int(), at::dtype(at::kLong)),
+      at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       philox_seed,
       philox_offset};
   FusionExecutor fe;
@@ -610,4 +634,91 @@ TEST_F(SDPATest, AttnProgram) {
   EXPECT_TRUE(at::allclose(out[0], expected_out));
 }
 
+TEST_F(SDPATest, AttnFwdBwd) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> q_shape({n, h, l, e});
+  std::vector<int64_t> k_shape({n, h, s, e});
+  std::vector<int64_t> v_shape({n, h, s, e});
+  std::vector<int64_t> attn_shape({n, h, l, e});
+
+  auto tvq = makeConcreteTensor(q_shape, DataType::Half);
+  auto tvk = makeConcreteTensor(k_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(v_shape, DataType::Half);
+
+  fusion->addInput(tvq);
+  fusion->addInput(tvk);
+  fusion->addInput(tvv);
+
+  auto sdpa_fwd_out = sdpfa_fwd(
+      tvq,
+      tvk,
+      tvv,
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(false),
+      /*scale=*/nullptr);
+
+  auto tv_grad_output = makeConcreteTensor(attn_shape, DataType::Half);
+  fusion->addInput(tv_grad_output);
+
+  auto sdpa_grad = sdpfa_bwd(
+      tv_grad_output,
+      tvq,
+      tvk,
+      tvv,
+      sdpa_fwd_out.output,
+      sdpa_fwd_out.log_sumexp,
+      sdpa_fwd_out.cum_seq_q,
+      sdpa_fwd_out.cum_seq_k,
+      sdpa_fwd_out.query_seq_len,
+      sdpa_fwd_out.key_seq_len,
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(false),
+      sdpa_fwd_out.philox_seed,
+      sdpa_fwd_out.philox_offset,
+      /*scale=*/nullptr);
+
+  fusion->addOutput(sdpa_fwd_out.output);
+  fusion->addOutput(sdpa_grad.grad_query);
+  fusion->addOutput(sdpa_grad.grad_key);
+  fusion->addOutput(sdpa_grad.grad_value);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor q = at::randn(q_shape, options).set_requires_grad(true);
+  at::Tensor k = at::randn(k_shape, options).set_requires_grad(true);
+  at::Tensor v = at::randn(v_shape, options).set_requires_grad(true);
+  at::Tensor grad_out = at::randn(attn_shape, options);
+
+  FusionExecutor fe;
+  std::for_each(
+      fusion->outputs().begin(), fusion->outputs().end(), [&](Val* out) {
+        fusion->aliasOutputToInput(
+            out, /*input=*/nullptr, AllocationType::Evaluate);
+      });
+  fe.compileFusion(fusion.get(), {q, k, v, grad_out});
+  auto nvf_out = fe.runFusion({q, k, v, grad_out});
+
+  auto attn = at::scaled_dot_product_attention(
+      q,
+      k,
+      v,
+      /*attn_mask=*/std::nullopt,
+      /*dropout_p=*/0.0,
+      /*is_causal=*/false,
+      /*scale=*/std::nullopt);
+  q.retain_grad();
+  k.retain_grad();
+  v.retain_grad();
+  attn.backward(grad_out);
+
+  testValidate(
+      fusion.get(),
+      nvf_out,
+      {q, k, v, grad_out},
+      {attn, q.grad(), k.grad(), v.grad()},
+      __LINE__,
+      __FILE__);
+}
 } // namespace nvfuser

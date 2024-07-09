@@ -82,8 +82,8 @@ struct SdpfaFwdResult {
   TensorView* log_sumexp = nullptr;
   TensorView* cum_seq_q = nullptr;
   TensorView* cum_seq_k = nullptr;
-  Val* query_seq_len = nullptr;
-  Val* key_seq_len = nullptr;
+  TensorView* query_seq_len = nullptr;
+  TensorView* key_seq_len = nullptr;
   TensorView* philox_seed = nullptr;
   TensorView* philox_offset = nullptr;
   TensorView* debug_attn_mask = nullptr;
@@ -117,8 +117,8 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* log_sumexp,
     TensorView* cum_seq_q,
     TensorView* cum_seq_k,
-    Val* query_seq_len,
-    Val* key_seq_len,
+    TensorView* query_seq_len,
+    TensorView* key_seq_len,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
