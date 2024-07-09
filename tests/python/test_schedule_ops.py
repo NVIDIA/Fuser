@@ -710,9 +710,15 @@ class TestScheduleOps(TestCase):
                 self.add_output(self.t3)
 
             def schedule(self):
+                # Check that only pointwise scheduler is available
+                available_heuristics = fd.sched.which_schedulers()
+                assert available_heuristics == [SchedulerHeuristic.pointwise]
+
+                # Double-check with can_schedule
                 selected_heuristic = SchedulerHeuristic.pointwise
                 status, _ = fd.sched.can_schedule(selected_heuristic)
                 assert status
+
                 # Check that the other schedulers are not compatible with this fusion
                 assert all(
                     [
@@ -721,6 +727,8 @@ class TestScheduleOps(TestCase):
                         if h is not selected_heuristic
                     ]
                 )
+
+                # Apply selected scheduler
                 fd.sched.schedule(selected_heuristic)
 
         fd = Pointwise()
@@ -746,6 +754,7 @@ class TestScheduleOps(TestCase):
                 self.add_output(self.t2)
 
             def schedule(self):
+                # Test error msg for can_schedule
                 pointwise_status, error_msg = fd.sched.can_schedule(
                     SchedulerHeuristic.pointwise
                 )
@@ -754,6 +763,16 @@ class TestScheduleOps(TestCase):
                     error_msg.strip()
                     == "Scheduler _pointwise_ ***rejected*** because : cannot find reference tensor"
                 )
+
+                # Check that only reduction scheduler is available
+                available_heuristics = fd.sched.which_schedulers()
+                assert available_heuristics == [SchedulerHeuristic.reduction]
+
+                # Double-check with can_schedule
+                selected_heuristic = SchedulerHeuristic.reduction
+                reduction_status, _ = fd.sched.can_schedule(selected_heuristic)
+                assert reduction_status
+
                 # Check that the other schedulers are not compatible with this fusion
                 assert all(
                     [
@@ -763,10 +782,7 @@ class TestScheduleOps(TestCase):
                     ]
                 )
 
-                reduction_status, _ = fd.sched.can_schedule(
-                    SchedulerHeuristic.reduction
-                )
-                assert reduction_status
+                # Apply selected scheduler
                 fd.sched.schedule(SchedulerHeuristic.reduction)
 
         fd = Reduction()
@@ -789,14 +805,16 @@ class TestScheduleOps(TestCase):
                 self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
 
                 self.sum0 = fd.ops.sum(self.t0, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
+                # NOTE Manually broadcast because fusion definition cannot
+                # access hidden reduction tensor view.
                 self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
                 self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
 
                 self.diff = fd.ops.sub(self.t0, self.mean)
                 self.diff_sq = fd.ops.mul(self.diff, self.diff)
                 self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
+                # NOTE Manually broadcast because fusion definition cannot
+                # access hidden reduction tensor view.
                 self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
                 self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
 
@@ -806,9 +824,15 @@ class TestScheduleOps(TestCase):
                 self.add_output(self.t0_norm)
 
             def schedule(self):
+                # Check that only inner_persistent scheduler is available
+                available_heuristics = fd.sched.which_schedulers()
+                assert available_heuristics == [SchedulerHeuristic.inner_persistent]
+
+                # Double-check with can_schedule
                 selected_heuristic = SchedulerHeuristic.inner_persistent
                 status, _ = fd.sched.can_schedule(selected_heuristic)
                 assert status
+
                 # Check that the other schedulers are not compatible with this fusion
                 assert all(
                     [
@@ -817,6 +841,8 @@ class TestScheduleOps(TestCase):
                         if h is not selected_heuristic
                     ]
                 )
+
+                # Apply selected scheduler
                 fd.sched.schedule(selected_heuristic)
 
         fd = VarMean()
@@ -837,19 +863,16 @@ class TestScheduleOps(TestCase):
             torch.randn(m, k, device="cuda", dtype=torch.float16),
             torch.randn(k, n, device="cuda", dtype=torch.float16),
         ]
-
         inputs_tn = [
             inputs_tt[0].clone(),
             inputs_tt[1].clone().as_strided(size=[k, n], stride=[1, k]),
         ]
-
         inputs_nt = [
             inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, m]),
             inputs_tt[1].clone(),
         ]
 
         inputs_tn = [inputs_tt[0].clone(), inputs_tn[1].clone()]
-
         inputs_nn = [inputs_nt[0].clone(), inputs_tn[1].clone()]
 
         class Matmul(FusionDefinition):
@@ -864,9 +887,15 @@ class TestScheduleOps(TestCase):
                 fd.add_output(t2)
 
             def schedule(self):
+                # Check that only expr_eval scheduler is available
+                available_heuristics = fd.sched.which_schedulers()
+                assert available_heuristics == [SchedulerHeuristic.expr_eval]
+
+                # Double-check with can_schedule
                 selected_heuristic = SchedulerHeuristic.expr_eval
                 status, _ = fd.sched.can_schedule(selected_heuristic)
                 assert status
+
                 # Check that the other schedulers are not compatible with this fusion
                 assert all(
                     [
@@ -875,6 +904,8 @@ class TestScheduleOps(TestCase):
                         if h is not selected_heuristic
                     ]
                 )
+
+                # Apply selected scheduler
                 fd.sched.schedule(selected_heuristic)
 
         for inputs in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
