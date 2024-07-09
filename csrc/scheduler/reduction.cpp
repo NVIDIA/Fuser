@@ -544,10 +544,33 @@ struct outerReduHeuristicParas {
        << "total_iteration_numel: " << total_iteration_numel << "\n"
        << "vectorize_factor: " << iter_unroll_factor << "\n"
        << "redu_unroll_factor: " << redu_unroll_factor << "\n"
-       << "grid(" << gidim << ", " << grdim << ", 1)"
-       << "\n"
+       << "grid(" << gidim << ", " << grdim << ", 1)" << "\n"
        << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
     return ss.str();
+  }
+  // compare block reduction with grid reduction
+  bool isBetterThan(const outerReduHeuristicParas& grid_hp, int sm_count) const {
+    // std::cout << "block: \n " << toString() << std::endl;
+    // std::cout << "gridd: \n " << grid_hp.toString() << std::endl;
+    NVF_ERROR(
+        grdim == 1,
+        "Only support compare block reduction heuristic with grid not vice versa");
+    // use block reduction if its SM usage >= 90%
+    const float min_sm_efficiency = 0.9f;
+    float f_wave = (float)gidim / (float)sm_count;
+    float sm_efficiency = f_wave / std::ceil(f_wave);
+    if (sm_efficiency >= min_sm_efficiency) {
+      return true;
+    }
+    // prefer block reduction if it has more unroll factor
+    if(iter_unroll_factor != grid_hp.iter_unroll_factor) {
+      return iter_unroll_factor > grid_hp.iter_unroll_factor;
+    }
+    // if grid reduction can't use all SMs
+    if (grid_hp.gidim * grid_hp.grdim < sm_count) {
+      return gidim * grdim >= grid_hp.gidim * grid_hp.grdim;
+    }
+    return false;
   }
 };
 
@@ -625,7 +648,7 @@ std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
   return rparams;
 }
 
-std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
+outerReduHeuristicParas getBlockOuterReduction(
     int64_t vectorize_factor,
     int64_t sm_count,
     int64_t max_unroll,
@@ -646,20 +669,21 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
   // (2.2) leave enough blocks to saturate the device.
   // Test on H100 shows the smallest iteration dim we can fully vectorize is
   // 4800, which corresponds to 75 or 56.8 % of SMs. Here 50% is used.
-  const int64_t min_blocks_fully_vectorize = sm_count / 2;
+  // bool small_reduction = false && total_reduction_numel <= 1024;
   int64_t max_iter_unroll = vectorize_factor;
-  // only allow this adjustment when there is only one output tensor
-  // or it's a small reduction where block reduction is enforced.
-  // When has multiple outputs, reduce vectorization leads to regression,
-  // see cpp benchmark of gelu backward which has 2 outputs ( does't seem like a
-  // common usage since thunder.jit generated fusion has only 1).
-  bool small_reduction = total_reduction_numel <= 1024;
-  if (n_tensor_outputs == 1 || small_reduction) {
-    max_iter_unroll = std::min(
-        max_iter_unroll,
-        scheduler_utils::lastPow2(scheduler_utils::safeDiv(
-            total_iteration_numel, hp.bdimx * min_blocks_fully_vectorize)));
-  }
+  // const int64_t min_blocks_fully_vectorize = sm_count / 2;
+  // // only allow this adjustment when there is only one output tensor
+  // // or it's a small reduction where block reduction is enforced.
+  // // When has multiple outputs, reduce vectorization leads to regression,
+  // // see cpp benchmark of gelu backward which has 2 outputs ( does't seem
+  // like a
+  // // common usage since thunder.jit generated fusion has only 1).
+  // if (n_tensor_outputs == 1 || small_reduction) {
+  //   max_iter_unroll = std::min(
+  //       max_iter_unroll,
+  //       scheduler_utils::lastPow2(scheduler_utils::safeDiv(
+  //           total_iteration_numel, hp.bdimx * min_blocks_fully_vectorize)));
+  // }
   while (hp.iDimAvail() > 1 && hp.iDimAvail() % 2 == 0 &&
          hp.iter_unroll_factor * 2 <= max_iter_unroll) {
     hp.iter_unroll_factor *= 2;
@@ -698,72 +722,22 @@ std::optional<outerReduHeuristicParas> maybeBlockOuterReduction(
     hp.bdimx *= 2;
     hp.gidim /= 2;
   }
-
-  // (2) Good heuristic if we have enough blocks to saturate the device or it's
-  // a small reduction. This cut-off is empirical based on A100 and H100.
-  const float min_sm_efficiency = 0.9f;
-  float f_wave = (float)hp.gidim / (float)sm_count;
-  float sm_efficiency = f_wave / std::ceil(f_wave);
-  if (sm_efficiency >= min_sm_efficiency || small_reduction) {
-    return std::make_optional(hp);
-  } else {
-    return std::nullopt;
-  }
+  return hp;
 }
 
-std::shared_ptr<ReductionParams> outerReductionHeuristic(
+outerReduHeuristicParas getBlockGridOuterReduction(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
     const int64_t n_tensor_outputs,
     const int64_t max_input_dtype_size,
+    const int64_t max_unroll,
     const size_t vectorize_factor) {
-  // WARNING: Current device for codegen may not be the target device
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t device_max_threads_per_multiprocessor =
       (int64_t)dev_prop->maxThreadsPerMultiProcessor;
-
   const int64_t device_multiprocessor_count =
       (int64_t)dev_prop->multiProcessorCount;
-
-  // Set register used to store vectorized and unrolled data loaded from gmem.
-  // A large value allows more unroll and vectorization, which is beneficial
-  // for memory-bound kernels. However, it increases register pressure and may
-  // lead to lower occupancy which is bad for compute-bound kernels. In most
-  // cases, the scheduler uses 512 threads and to reach an occupancy of 50%,
-  // each thread can use up to 64 registers, here only 8 registers are reserved
-  // for unroll and vectorization. The fused ops can have 48 registers for other
-  // purposes. Test shows it leads to 50% occupancy for outer reduction without
-  // fused ops and 50% occupancy for gelu backward which fused 21 ops including
-  // the expensive tanh op. Further tuning of this heuristic can utilize the
-  // cost of the fused ops.
-  const int64_t buffer_reg_count = 8L;
-  auto const max_unroll = ceilDiv(
-      // Available unrolling based on size of data type
-      buffer_reg_count * scheduler_utils::bytes_per_register /
-          (int64_t)max_input_dtype_size,
-      // Reduce unrolling if we have many inputs, start reduction at 4 inputs
-      scheduler_utils::lastPow2(
-          std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
-
-  // Try block reduction
-  const int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
-  std::optional<outerReduHeuristicParas> maybe_blk_hp =
-      maybeBlockOuterReduction(
-          (int64_t)vectorize_factor,
-          device_multiprocessor_count,
-          max_unroll,
-          max_threads_per_block,
-          n_tensor_outputs,
-          total_iteration_numel,
-          total_reduction_numel);
-  // If a valid block reduction heuristic is returned, use it.
-  // otherwise, use the default heuristic which usually generates grid reduction
-  // but may also generate block reduction.
-  if (maybe_blk_hp.has_value()) {
-    return heuristicParaToSchedulerPara(maybe_blk_hp.value());
-  }
-
   // grid or block reduction
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
   // Try to use 4 * SM blocks to reduce communication cost. But still
@@ -994,7 +968,69 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   hp.gidim = gidim;
   hp.iter_unroll_factor = iter_unroll_factor;
   hp.redu_unroll_factor = inner_reduction_unroll_factor;
-  return heuristicParaToSchedulerPara(hp);
+  return hp;
+}
+
+std::shared_ptr<ReductionParams> outerReductionHeuristic(
+    const int64_t total_reduction_numel,
+    const int64_t total_iteration_numel,
+    const int64_t n_tensor_inputs,
+    const int64_t n_tensor_outputs,
+    const int64_t max_input_dtype_size,
+    const size_t vectorize_factor) {
+  // WARNING: Current device for codegen may not be the target device
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t device_multiprocessor_count =
+      (int64_t)dev_prop->multiProcessorCount;
+
+  // Set register used to store vectorized and unrolled data loaded from gmem.
+  // A large value allows more unroll and vectorization, which is beneficial
+  // for memory-bound kernels. However, it increases register pressure and may
+  // lead to lower occupancy which is bad for compute-bound kernels. In most
+  // cases, the scheduler uses 512 threads and to reach an occupancy of 50%,
+  // each thread can use up to 64 registers, here only 8 registers are reserved
+  // for unroll and vectorization. The fused ops can have 48 registers for other
+  // purposes. Test shows it leads to 50% occupancy for outer reduction without
+  // fused ops and 50% occupancy for gelu backward which fused 21 ops including
+  // the expensive tanh op. Further tuning of this heuristic can utilize the
+  // cost of the fused ops.
+  const int64_t buffer_reg_count = 8L;
+  auto const max_unroll = ceilDiv(
+      // Available unrolling based on size of data type
+      buffer_reg_count * scheduler_utils::bytes_per_register /
+          (int64_t)max_input_dtype_size,
+      // Reduce unrolling if we have many inputs, start reduction at 4 inputs
+      scheduler_utils::lastPow2(
+          std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
+
+  // block reduction heuristic
+  const int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
+  auto block_hp = getBlockOuterReduction(
+      (int64_t)vectorize_factor,
+      device_multiprocessor_count,
+      max_unroll,
+      max_threads_per_block,
+      n_tensor_outputs,
+      total_iteration_numel,
+      total_reduction_numel);
+
+  // block or grid reduction heuristic
+  auto grid_hp = getBlockGridOuterReduction(
+      total_reduction_numel,
+      total_iteration_numel,
+      n_tensor_inputs,
+      n_tensor_outputs,
+      max_input_dtype_size,
+      max_unroll,
+      vectorize_factor);
+  // If a valid block reduction heuristic is returned and it is better than grid
+  // reduction heuristics, use it. otherwise, use the default heuristic which
+  // usually generates grid reduction but may also generate block reduction.
+  if (block_hp.isBetterThan(grid_hp, device_multiprocessor_count)) {
+    return heuristicParaToSchedulerPara(block_hp);
+  } else {
+    return heuristicParaToSchedulerPara(grid_hp);
+  }
 }
 
 } // namespace
