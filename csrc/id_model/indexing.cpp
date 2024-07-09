@@ -151,7 +151,12 @@ class AllocationDomainSetup : private kir::IrVisitor {
         // Note that since we are dealing with a Kernel IR, a single
         // tensor may show up as consumers multiple times, e.g.,
         // zero initialization and actual definition. Using the last
-        // expr should give us correct allocation info.
+        // expr should give us correct allocation info. See
+        // IndexingTest.InlinedUnroll for a concrete
+        // example. Specifically, the initization expression of t2
+        // doesn't have an unrolling loop, so the allocation info
+        // obtained from that expression would fail to give the
+        // correct allocation domains.
         auto [alloc_domains, contiguity] =
             getAllocationDomainsAndContiguity(out_tv, for_loops_);
         auto alloc_info =
