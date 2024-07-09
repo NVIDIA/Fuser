@@ -770,12 +770,23 @@ TEST_F(NVFuserTest, FusionIssue2258_CUDA) {
   auto outputs = runtime.runWithInputs(args);
 
   // Aten reference
+  at::Tensor at_x_cast = at_x.to(at::kFloat);
+  at::Tensor at_bias_cast = at_bias.to(at::kFloat);
+  at::Tensor at_residual_cast = at_residual.to(at::kFloat);
+  at::Tensor at_ln_weight_cast = at_ln_weight.to(at::kFloat);
+  at::Tensor at_ln_bias_cast = at_ln_bias.to(at::kFloat);
+  at::Tensor at_t1 = at_x_cast + at_bias_cast.unsqueeze(0);
+  at::Tensor at_t2 = at_t1 + at_residual_cast;
+  at::Tensor at_gamma_centered_ln_weight = at_ln_weight_cast + 1.0f;
+  at::Tensor at_t3 = at::layer_norm(at_t2, {1228}, at_gamma_centered_ln_weight, at_ln_bias_cast, 1e-5);
+  at::Tensor at_t4 = at_t3 * at_fp8_scale;
+  at::Tensor at_t5 = at_t4.to(at::kBFloat16);
+  at::Tensor at_t6 = at::abs(at_t3);
+  at::Tensor at_t7 = at::max(at_t6);
 
-  /*
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
-      preseg_fusion, outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
-  */
+      preseg_fusion, outputs, aten_inputs, {at_t2, at_t5, at_t7}, __LINE__, __FILE__);
 }
 
 
