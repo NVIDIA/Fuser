@@ -183,8 +183,46 @@ class AllocationDomainSetup : private kir::IrVisitor {
     std::vector<IterDomain*> allocation_domains;
     std::vector<std::optional<bool>> contiguity;
 
-    // Use the allocation domain if set for the tensor
+    // In general, if the tensor has an allocation domain set, it
+    // should be used with no change. However, set allocation domains
+    // are not always right allocation domains. For example,
+    // AliasTest.NotAllOutputAlias_Reduction has a tensor, tv6, that
+    // is a Local tensor with CA position of 4 but has an allocation
+    // domain that's just a permutation of its logical domain. Such
+    // invalid allocations need to be ignored. If there doesn't seem
+    // to be any clear condition when the set domain can be used, so
+    // it needs to be inferred. Here's what seems to be working
+    // reasonably well.
+    bool use_set_allocation_domain = false;
     if (tv->hasAllocation()) {
+      // Honor the allocation domain if the tensor is global memory
+      if (tv->getMemoryType() == MemoryType::Global) {
+        use_set_allocation_domain = true;
+      } else if (tv->getMemoryType() == MemoryType::Shared) {
+        // If it's a shared memory tensor, the set domain is likely
+        // valid if Swizzle or Bulk is used. Also, if the allocation
+        // domain is just a permutation of the loop domain, use the
+        // set allocation domain. This seems to happen only with
+        // AllocationDomainTest.TransposedIntermediate.
+        if (std::any_of(
+                tv->getAllocationDomain().begin(),
+                tv->getAllocationDomain().end(),
+                [](IterDomain* allocation_domain) {
+                  return dynamic_cast<Swizzle*>(
+                             allocation_domain->definition()) != nullptr ||
+                      allocation_domain->getParallelType() ==
+                      ParallelType::Bulk;
+                }) ||
+            std::is_permutation(
+                tv->getLoopDomain().begin(),
+                tv->getLoopDomain().end(),
+                tv->getAllocationDomain().begin())) {
+          use_set_allocation_domain = true;
+        }
+      }
+    }
+
+    if (use_set_allocation_domain) {
       allocation_domains = tv->getAllocationDomain();
       contiguity = tv->domain()->contiguity();
     } else {
@@ -222,15 +260,18 @@ class AllocationDomainSetup : private kir::IrVisitor {
         contiguity =
             std::vector<std::optional<bool>>(allocation_domains.size(), true);
       }
-    }
 
-    if (auto reordered_domains =
-            reorderAllocationDomains(tv, allocation_domains);
-        reordered_domains.has_value()) {
-      allocation_domains = reordered_domains.value();
-      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
-        return b.has_value() && b.value();
-      }));
+      if (auto reordered_domains =
+              reorderAllocationDomains(tv, allocation_domains);
+          reordered_domains.has_value()) {
+        allocation_domains = reordered_domains.value();
+        NVF_ERROR(
+            std::all_of(
+                contiguity.begin(),
+                contiguity.end(),
+                [](auto b) { return b.has_value() && b.value(); }),
+            tv->toString());
+      }
     }
 
     return {allocation_domains, contiguity};
@@ -329,38 +370,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::optional<std::vector<IterDomain*>> reorderAllocationDomains(
       const TensorView* tv,
       const std::vector<IterDomain*>& allocation_domains) const {
-    // In general, if the tensor has an allocation domain set, it
-    // should be used with no change. However, set allocation domains
-    // are not always right allocation domains. For example,
-    // AliasTest.NotAllOutputAlias_Reduction has a tensor, tv6, that
-    // is a Local tensor with CA position of 4 but has an allocation
-    // domain that's just a permutation of its logical domain. Such
-    // invalid allocations need to be ignored. If there doesn't seem
-    // to be any clear condition when the set domain can be used, so
-    // it needs to be inferred. Here's what seems to be working
-    // reasonably well.
-    if (tv->hasAllocation()) {
-      // Honor the allocation domain if the tensor is global memory
-      if (tv->getMemoryType() == MemoryType::Global) {
-        return std::nullopt;
-      }
-      // If it's a shared memory tensor, the set domain is likely
-      // valid if Swizzle or Bulk is used
-      if (tv->getMemoryType() == MemoryType::Shared) {
-        if (std::any_of(
-                tv->getAllocationDomain().begin(),
-                tv->getAllocationDomain().end(),
-                [](IterDomain* allocation_domain) {
-                  return dynamic_cast<Swizzle*>(
-                             allocation_domain->definition()) != nullptr ||
-                      allocation_domain->getParallelType() ==
-                      ParallelType::Bulk;
-                })) {
-          return std::nullopt;
-        }
-      }
-    }
-
     auto exprs = DependencyCheck::getAllExprsBetween(
         {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
         {allocation_domains.begin(), allocation_domains.end()});
