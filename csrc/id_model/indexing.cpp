@@ -744,6 +744,8 @@ class IdGraphIndexCompute : public OptOutDispatch {
 
   void handle(Swizzle* swizzle) override;
 
+  void handle(Resize* resize) override;
+
   bool isForward(Expr* expr) const;
 
   bool hasIndex(IterDomain* id) const {
@@ -835,6 +837,32 @@ void IdGraphIndexCompute::handle(Swizzle* swizzle) {
     setIndex(swizzle->inX(), result_x);
     setIndex(swizzle->inY(), result_y);
   }
+}
+
+void IdGraphIndexCompute::handle(Resize* resize) {
+  const bool is_forward = isForward(resize);
+
+  auto left_expand = resize->leftExpand();
+
+  auto in_id = is_forward ? resize->in() : resize->out();
+  auto out_id = is_forward ? resize->out() : resize->in();
+
+  if (left_expand->isZeroInt()) {
+    // Just forward as is
+    setIndex(out_id, getIndex(in_id));
+    return;
+  }
+
+  auto in_idx = getIndex(in_id);
+  Val* out_idx = nullptr;
+
+  if (is_forward) {
+    out_idx = SimplifyingIrBuilder::addExpr(in_idx, left_expand);
+  } else {
+    out_idx = SimplifyingIrBuilder::subExpr(in_idx, left_expand);
+  }
+
+  setIndex(out_id, out_idx);
 }
 
 } // namespace
@@ -1058,8 +1086,8 @@ IndexingInfo TensorIndexer::computeIndex(
   const auto loop_domains = getLoopDomains(expr);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
-  const ExprPath traversal_path =
-      ValGraphBFS::getExprsBetween(traversalGraph(), loop_groups, index_groups);
+  const ExprPath traversal_path = IndexingTraversal::getExprsBetween(
+      expr, traversalGraph(), loop_groups, index_groups);
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_domains);
