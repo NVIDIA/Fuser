@@ -322,6 +322,8 @@ Val* getNumThreadsInTensorView(TensorView* tv);
 //! Get the unit dimensions of A and B for the given MmaOp.
 std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr);
 
+bool hasRootToLoopLinearTransformations(const TensorView* tv);
+
 } // namespace lower_utils
 
 } // namespace nvfuser
