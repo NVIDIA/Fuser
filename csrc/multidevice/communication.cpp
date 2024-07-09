@@ -212,18 +212,14 @@ int64_t Communication::getRootRelativeIndex() {
 
 std::string Communication::toString(const int indent_size) const {
   std::stringstream ss;
-
-  indent(ss, indent_size) << "Communication " << type() << ": {" << std::endl;
+  indent(ss, indent_size) << "Communication " << name() << " ("
+                          << "type=" << type() << ", "
+                          << "team=(" << team() << "), ";
   if (hasRoot(type())) {
-    indent(ss, indent_size + 1) << "root: " << root() << "," << std::endl;
+    ss << "root=" << root() << ", ";
   }
-  indent(ss, indent_size + 1)
-      << "sender mesh: " << senderMesh() << "," << std::endl;
-  indent(ss, indent_size + 1)
-      << "receiver mesh: " << receiverMesh() << "," << std::endl;
-  indent(ss, indent_size + 1) << "team: " << team() << "," << std::endl;
-  indent(ss, indent_size) << "}";
-
+  ss << (inputs().empty() ? "" : "Input=" + in()->toString()) << ", "
+     << (outputs().empty() ? "" : "Output=" + out()->toString()) << ")";
   return ss.str();
 }
 
