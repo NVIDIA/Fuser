@@ -736,9 +736,15 @@ TEST_F(NVFuserTest, FusionIssue2258_CUDA) {
   TensorView* t2 = add(t1, residual_cast);
   fusion.addOutput(t2);
 
-  TensorView* gamma_centered_ln_weight = add(ln_weight_cast, IrBuilder::create<Val>(1.0f, DataType::Float));
+  TensorView* gamma_centered_ln_weight =
+      add(ln_weight_cast, IrBuilder::create<Val>(1.0f, DataType::Float));
 
-  ForwardNormResult t3 = layer_norm(t2, /*kNormShapeNumDims=*/1, gamma_centered_ln_weight, ln_bias_cast, scalar_eps);
+  ForwardNormResult t3 = layer_norm(
+      t2,
+      /*kNormShapeNumDims=*/1,
+      gamma_centered_ln_weight,
+      ln_bias_cast,
+      scalar_eps);
   TensorView* t4 = mul(t3.output, fp8_scale);
   TensorView* t5 = castOp(DataType::BFloat16, t4);
   fusion.addOutput(t5);
@@ -758,11 +764,19 @@ TEST_F(NVFuserTest, FusionIssue2258_CUDA) {
   at::Tensor at_ln_weight = at::randn({1228}, options);
   at::Tensor at_ln_bias = at::randn({1228}, options);
 
-  auto fp32_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto fp32_options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_fp8_scale = at::randn({}, fp32_options);
   at::Tensor at_fp8_amax = at::zeros({}, fp32_options);
-  std::vector<c10::IValue> aten_inputs = {at_x, at_bias, at_residual, 
-	  at_ln_weight, at_ln_bias, at_fp8_scale, at_fp8_amax, eps};
+  std::vector<c10::IValue> aten_inputs = {
+      at_x,
+      at_bias,
+      at_residual,
+      at_ln_weight,
+      at_ln_bias,
+      at_fp8_scale,
+      at_fp8_amax,
+      eps};
 
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
@@ -778,7 +792,8 @@ TEST_F(NVFuserTest, FusionIssue2258_CUDA) {
   at::Tensor at_t1 = at_x_cast + at_bias_cast.unsqueeze(0);
   at::Tensor at_t2 = at_t1 + at_residual_cast;
   at::Tensor at_gamma_centered_ln_weight = at_ln_weight_cast + 1.0f;
-  at::Tensor at_t3 = at::layer_norm(at_t2, {1228}, at_gamma_centered_ln_weight, at_ln_bias_cast, 1e-5);
+  at::Tensor at_t3 = at::layer_norm(
+      at_t2, {1228}, at_gamma_centered_ln_weight, at_ln_bias_cast, 1e-5);
   at::Tensor at_t4 = at_t3 * at_fp8_scale;
   at::Tensor at_t5 = at_t4.to(at::kBFloat16);
   at::Tensor at_t6 = at::abs(at_t3);
@@ -786,9 +801,13 @@ TEST_F(NVFuserTest, FusionIssue2258_CUDA) {
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
-      preseg_fusion, outputs, aten_inputs, {at_t2, at_t5, at_t7}, __LINE__, __FILE__);
+      preseg_fusion,
+      outputs,
+      aten_inputs,
+      {at_t2, at_t5, at_t7},
+      __LINE__,
+      __FILE__);
 }
-
 
 TEST_F(NVFuserTest, FusionFactorAmaxHorizontalMultiplePartial_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
