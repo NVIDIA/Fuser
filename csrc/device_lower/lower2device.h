@@ -177,6 +177,10 @@ class GpuLower : public NonCopyable {
     return circular_buffer_info_;
   }
 
+  const CircularBufferInfo& circularBufferInfo() const {
+    return circular_buffer_info_;
+  }
+
   CommonScalarMap& commonScalarMap() {
     return common_scalar_map_;
   }

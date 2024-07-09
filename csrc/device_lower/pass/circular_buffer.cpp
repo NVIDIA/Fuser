@@ -746,7 +746,7 @@ IterDomain* CircularBufferInfo::getCircularBufferAxis(const TensorView* tv) {
 }
 
 unsigned int CircularBufferInfo::getStageDepthFor(
-    IterDomain* circular_buffer_axis) {
+    IterDomain* circular_buffer_axis) const {
   auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
       circular_buffer_axis, IdMappingMode::LOOP);
 
