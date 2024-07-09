@@ -295,20 +295,18 @@ class MultipleMatmulScheduler {
     std::vector<ValGroup> canonical_dim_ordering =
         mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, graph);
 
-    mma_utils::AbstractMatmulTensor merged;
-    merged.domain.reserve(canonical_dim_ordering.size());
+    at_tiled_.domain.reserve(canonical_dim_ordering.size());
     for (const ValGroup& vg : canonical_dim_ordering) {
-      merged.domain.push_back(ValGroupAndItsGraph{vg, &graph});
+      at_tiled_.domain.push_back(ValGroupAndItsGraph{vg, &graph});
       // Tag each dimension with a MatmulDimRole
       auto it = id_roles_.find(vg);
       NVF_ERROR(it != id_roles_.end());
-      merged.tags.push_back({it->second});
+      at_tiled_.tags.push_back({it->second});
     }
 
-    mma_utils::mergeCanonicalAbstractTensor(merged);
+    mma_utils::mergeCanonicalAbstractTensor(at_tiled_);
 
-    mma_utils::makeTile(merged, params_.tile_sizes.cta_tile.toVector());
-    at_tiled_ = merged;
+    mma_utils::makeTile(at_tiled_, params_.tile_sizes.cta_tile.toVector());
 
     applyAbstractTransforms(at_tiled_, ir_utils::allTvs(fusion_), &graph);
   }
@@ -364,9 +362,7 @@ class MultipleMatmulScheduler {
   // Track the role of each axis for each tensor in the Fusion
   std::unordered_map<TensorView*, std::vector<MatmulDimRole>> all_tv_dims_;
 
-  mma_utils::AbstractMatmulTensor
-      // After makeTile
-      at_tiled_;
+  mma_utils::AbstractMatmulTensor at_tiled_;
 };
 
 } // namespace

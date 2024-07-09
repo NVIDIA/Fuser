@@ -440,4 +440,6 @@ void setWarpMapped(TensorView* tv, int64_t number_of_dims);
 
 } // namespace mma_utils
 
+std::string toString(const mma_utils::AbstractMatmulTensor& abten);
+
 } // namespace nvfuser

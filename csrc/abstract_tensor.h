@@ -179,7 +179,7 @@ struct AbstractTensor {
   }
 
   virtual void split(int64_t axis, Val* factor, bool inner_split = true);
-  virtual void split(int64_t axis, int64_t factor, bool inner_split = true);
+  void split(int64_t axis, int64_t factor, bool inner_split = true);
 
   virtual void merge(int64_t axis_o, int64_t axis_i);
   void merge(int64_t axis) {
@@ -254,24 +254,20 @@ struct TaggedAbstractTensor : AbstractTensor {
     }
   }
 
+  using AbstractTensor::split;
+
   void split(int64_t axis, Val* factor, bool inner_split = true) override {
-    AbstractTensor::split(axis, factor, inner_split);
     axis = wrapDim(axis, (int64_t)domain.size());
-    // copy tags from original axis
-    tags.insert(tags.begin() + axis, tags[axis]);
-  }
-  void split(int64_t axis, int64_t factor, bool inner_split = true) override {
     AbstractTensor::split(axis, factor, inner_split);
-    axis = wrapDim(axis, (int64_t)domain.size());
     // copy tags from original axis
-    tags.insert(tags.begin() + axis, tags[axis]);
+    tags.insert(tags.begin() + axis + 1, tags.at(axis));
   }
 
   using AbstractTensor::merge;
   void merge(int64_t axis_o, int64_t axis_i) override {
-    AbstractTensor::merge(axis_o, axis_i);
     axis_o = wrapDim(axis_o, (int64_t)domain.size());
     axis_i = wrapDim(axis_i, (int64_t)domain.size());
+    AbstractTensor::merge(axis_o, axis_i);
     // merge tags from these axes into outer position
     if (axis_o >= axis_i) {
       std::swap(axis_o, axis_i);
@@ -279,6 +275,8 @@ struct TaggedAbstractTensor : AbstractTensor {
     tags[axis_o].insert(tags[axis_i].begin(), tags[axis_o].end());
     tags.erase(tags.begin() + axis_i);
   }
+
+  using AbstractTensor::reorder;
 
   void reorder(const std::unordered_map<int64_t, int64_t>& old2new) override {
     AbstractTensor::reorder(old2new);
@@ -292,6 +290,8 @@ struct TaggedAbstractTensor : AbstractTensor {
     tags = std::move(reordered_tags);
   }
 
+  using AbstractTensor::flatten;
+
   // Both `from` and `to` are inclusive.
   void flatten(int64_t from = 0, int64_t to = -1) override {
     from = wrapDim(from, (int64_t)domain.size());
@@ -302,21 +302,23 @@ struct TaggedAbstractTensor : AbstractTensor {
     tags.erase(tags.begin() + from + 1, tags.begin() + to + 1);
   }
 
+  using AbstractTensor::swizzle;
+
   // swizzle mixes axes, so the tag sets for both x and y become the union of
   // the input tag sets
   void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y) override {
-    AbstractTensor::swizzle(swizzle_type, x, y);
     x = wrapDim(x, (int64_t)domain.size());
     y = wrapDim(y, (int64_t)domain.size());
+    AbstractTensor::swizzle(swizzle_type, x, y);
     tags[x].insert(tags[y].begin(), tags[y].end());
   }
 
   // Temporary helper for legacy swizzle, should be removed eventually.
   // This is a copy-paste of AbstractTensor::swizzle(SwizzleType
   void swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y) override {
-    AbstractTensor::swizzle(swizzle_type, x, y);
     x = wrapDim(x, (int64_t)domain.size());
     y = wrapDim(y, (int64_t)domain.size());
+    AbstractTensor::swizzle(swizzle_type, x, y);
     tags[x].insert(tags[y].begin(), tags[y].end());
   }
 };
