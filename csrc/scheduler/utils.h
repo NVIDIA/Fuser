@@ -672,5 +672,7 @@ int64_t getSharedMemoryOverheadPerBlock(
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block = -1);
 
+bool reshards(Fusion* fusion);
+
 } // namespace scheduler_utils
 } // namespace nvfuser

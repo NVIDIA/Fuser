@@ -11,6 +11,7 @@
 
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
+#include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>

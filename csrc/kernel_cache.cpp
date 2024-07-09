@@ -837,6 +837,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         args,
         /*serde_buffer=*/nullptr,
         forced_index_type,
+        communicator_,
         fusion_id_,
         conc_info_id_map_.at(config),
         kernel_runtimes.size(),
@@ -1000,6 +1001,7 @@ void FusionExecutorCache::deserialize(
           args,
           fb_fusion_kernel_runtime,
           std::nullopt,
+          communicator_,
           fusion_id_,
           fb_device_runtimes->concrete_id(),
           device_runtimes.size()));
@@ -1026,11 +1028,13 @@ FusionKernelRuntime::FusionKernelRuntime(
     const KernelArgumentHolder& args,
     const serde::FusionKernelRuntime* serde_buffer,
     std::optional<PrimDataType> forced_index_type,
+    Communicator* communicator,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,
     bool auto_schedule)
     : args_metadata_{copyMetadataArg(args)},
+      communicator_(communicator),
       fusion_id_{fusion_id},
       concrete_id_{concrete_id},
       runtime_id_{runtime_id},
@@ -1089,7 +1093,9 @@ FusionKernelRuntime::FusionKernelRuntime(
   //  would go directly to kernel launch.
   prepareRuntimeOrder(segmented_fusion_.get(), runtime_workspace_);
 
-  executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
+  for ([[maybe_unused]] auto _ : segmented_fusion_->groups()) {
+    executors_.emplace_back(communicator_);
+  }
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     segmented_fusion_->print();
   }
