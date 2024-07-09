@@ -4384,5 +4384,55 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
 
+    # Test that we do not hit segfaults when replacing an empty tensor that has multiple uses
+    # https://github.com/NVIDIA/Fuser/issues/2545
+    def test_remove_empty_issue_2545(self):
+        inputs = [
+            torch.randint(0, 10, (2,), dtype=torch.int64, device="cuda:0").as_strided(
+                (2,), (1,)
+            ),
+            torch.randint(0, 10, (0,), dtype=torch.int64, device="cuda:0").as_strided(
+                (0,), (1,)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            S2 = fd.define_scalar(0, dtype=DataType.Int)
+            T3 = fd.ops.lt(T0, S2)
+            S4 = fd.define_scalar(5, dtype=DataType.Int)
+            S5 = fd.define_scalar(0, dtype=DataType.Int)
+            T6 = fd.ops.where(T3, S4, S5)
+            T7 = fd.ops.add(T0, T6)
+            S8 = fd.define_scalar(0, dtype=DataType.Int)
+            T9 = fd.ops.add(T7, S8)
+            T10 = fd.ops.cat([T1, T9], dim=0)
+            S11 = fd.define_scalar(0, dtype=DataType.Int)
+            T12 = fd.ops.add(T10, S11)
+            T13 = fd.ops.cat([T1, T12], dim=0)
+            S14 = fd.define_scalar(5, dtype=DataType.Int)
+            T15 = fd.ops.add(T10, S14)
+            T16 = fd.ops.cat([T13, T15], dim=0)
+            S17 = fd.define_scalar(10, dtype=DataType.Int)
+            T18 = fd.ops.add(T10, S17)
+            fd.add_output(T18)
+            fd.add_output(T16)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+
 if __name__ == "__main__":
     run_tests()
