@@ -52,6 +52,9 @@ class MultipleMatmulScheduler {
 
     translatePatterns();
 
+    // Build a new IdModel since translatePatterns creates new TVs
+    id_model_ = IdModel(fusion_);
+
     findRoles();
 
     // This also collects mma_results_
@@ -70,8 +73,7 @@ class MultipleMatmulScheduler {
 
  private:
   void findPatterns() {
-    std::vector<mma_utils::MatmulPattern> patterns_ =
-        mma_utils::findMatmulPatterns(fusion_);
+    patterns_ = mma_utils::findMatmulPatterns(fusion_);
     NVF_ERROR(!patterns_.empty(), "No matmul patterns were found");
   }
 
@@ -91,7 +93,7 @@ class MultipleMatmulScheduler {
     NVF_ERROR(
         roles_opt.has_value(),
         "Incompatible roles found between matmul patterns");
-    auto& [id_roles_, tensor_roles_] = roles_opt.value();
+    std::tie(id_roles_, tensor_roles_) = roles_opt.value();
 
     mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
         mma_utils::getOperandInnerDims(id_model_, id_roles_, tensor_roles_);
@@ -258,7 +260,7 @@ class MultipleMatmulScheduler {
         mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, graph);
 
     mma_utils::AbstractMatmulTensor merged;
-    merged.domain.resize(canonical_dim_ordering_.size());
+    merged.domain.reserve(canonical_dim_ordering_.size());
     for (ValGroup vg : canonical_dim_ordering_) {
       merged.domain.push_back(ValGroupAndItsGraph{vg, &graph});
       // Tag each dimension with a MatmulDimRole
