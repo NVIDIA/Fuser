@@ -15,6 +15,10 @@ namespace nvfuser {
 
 //! Apply the transformations found in an AbstractTensor to a concrete
 //! TensorView.
+//!
+//! Pre-existing loop transforms in the provided TensorView will not be
+//! overwritten; the AbstractTensor must have all of the TensorView's loop
+//! IterDomain ValGroups as producers of its AbstractIds.
 void applyAbstractTransforms(
     const AbstractTensor& abstract_tensor,
     TensorView* tv,

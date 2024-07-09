@@ -34,7 +34,7 @@ class AbstractTensorSchedule {
       : abstract_tensor_(abstract_tensor), tv_(tv), graph_(graph) {}
 
   void run() {
-    findNearestProducers();
+    mapScheduledGroupsToLoopIterDomains();
 
     // Now, for each ValGroup in abstract, find the closest producer ValGroups
     // with entries in tv_ids_ and replay the path from them. If none
@@ -63,39 +63,10 @@ class AbstractTensorSchedule {
     return vgg.group;
   }
 
-  //! Work backward from each loop IterDomain in concrete. When we find an
-  //! IterDomain* with a ValGroup in scheduled_val_groups, we map to it
-  //! (including siblings) in tv_ids_. Assert that we do find a
-  //! scheduled ValGroup, otherwise we would not know where to place this
-  //! IterDomain.
-  //!
-  //! For example, suppose we have the following:
-  //!
-  //!   tv_:
-  //!     root: iS0{i0} iS1{i1}
-  //!     loop: iS3{ceilDiv(i0 * i1, 16)} iS4{16}
-  //!     transforms:
-  //!       iS2 = merge(iS0, iS1)
-  //!       iS3, iS4 = split(iS2, 16)
-  //!   graph:
-  //!     ValGroup 0: 0 8
-  //!     ValGroup 1: 1 9
-  //!     ValGroup 2: 2 10
-  //!     ValGroup 3: 3
-  //!     ValGroup 4: 4
-  //!     ValGroup 5: 11
-  //!     ValGroup 6: 12
-  //!     ExprGroup 0: iS11{ceilDiv(i0 * i1, 32)}, iS12{32} = split(iS10, 32)
-  //!   abstract_tensor_:
-  //!     {{ValGroup 5, graph}, {ValGroup 6, graph}}
-  //!
-  //! Then findNearestProducers() works backward from the loop domain of
-  //! tv_ (ValGroups 3 and 4) and will identify ValGroup 2 as a producer
-  //! to abstract_tensor_ and map it to the concrete domain iS2{i0}.
-  //!
-  //! Note that any dangling transforms will be discarded; in this example since
-  //! we work from iS2, we will discard the split that produced iS3 and iS4.
-  void findNearestProducers() {
+  //! Look at all ValGroups that are producers of abstract_tensor_.domain and
+  //! map any of those containing loop IterDomains in tv_ to those loop
+  //! IterDomains. These provide the starting points for scheduling.
+  void mapScheduledGroupsToLoopIterDomains() {
     // Record all ValGroups that are producers of those in abstract_tensor_.
     // This lets us find starting IterDomains for scheduling concrete's loop
     // domain.
@@ -121,30 +92,20 @@ class AbstractTensorSchedule {
       }
     }
 
-    // Now traverse c2p from concrete loop domain, stopping when we find a
-    // scheduled ValGroup
-    std::stack<IterDomain*> id_stack;
-    for (IterDomain* id : tv_->getLoopDomain()) {
-      id_stack.push(id);
-    }
-    while (!id_stack.empty()) {
-      IterDomain* id = id_stack.top();
-      id_stack.pop();
-      ValGroup g = graph_->toGroup(id);
-      if (scheduled_val_groups.find(g) != scheduled_val_groups.end()) {
-        tv_ids_.emplace(g, id);
-        continue;
-      }
-      NVF_ERROR(
-          id->definition() != nullptr,
-          "Root IterDomain ",
-          id->toString(),
-          " does not appear in the history of any ValGroups in abstract tensor");
-      for (Val* inp : id->definition()->inputs()) {
-        if (auto inp_id = dynamic_cast<IterDomain*>(inp)) {
-          id_stack.push(inp_id);
-        }
-      }
+    // Look up each loop IterDomain in tv_ and assert that it is in
+    // scheduled_val_groups, then map it.
+    for (IterDomain* loop_id : tv_->getLoopDomain()) {
+      ValGroup vg = graph_->toGroup(loop_id);
+      // NOTE: this check guarantees that we will only ever _append_ transforms
+      // to the loop domain of tv_. If instead we searched for producer IDs in
+      // the root->loop path of tv_, then we could wind up silently erasing
+      // some pre-existing transforms.
+      NVF_CHECK(
+          scheduled_val_groups.count(vg) > 0,
+          "Found loop IterDomain ",
+          loop_id->toString(),
+          " that is not described by abstract tensor.");
+      tv_ids_.emplace(vg, loop_id);
     }
   }
 
@@ -157,7 +118,7 @@ class AbstractTensorSchedule {
     //
     // For example, suppose we had
     //   tv_:
-    //     root: iS0{i0} iS1{i1} iS2{i2}
+    //     logical/loop: iS0{i0} iS1{i1} iS2{i2}
     //
     //   graph:
     //     ValGroup 0: iS0
