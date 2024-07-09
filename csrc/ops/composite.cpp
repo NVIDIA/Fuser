@@ -71,14 +71,13 @@ static TensorView* newForLinear(
   auto ndims_out = input_domain.size() + weight_domain.size() - 1;
 
   const std::vector<IterDomain*>& mapping_a =
-      ops::mapLinearOpIterDomains(input_domain, MatmulRole::INPUT_A, ndims_out);
-  const std::vector<IterDomain*>& mapping_b = ops::mapLinearOpIterDomains(
-      weight_domain, MatmulRole::INPUT_B, ndims_out);
+      ops::mapLinearOpIterDomains(input_domain, 0, ndims_out);
+  const std::vector<IterDomain*>& mapping_b =
+      ops::mapLinearOpIterDomains(weight_domain, 1, ndims_out);
   std::vector<IterDomain*> mapping_bias(ndims_out, nullptr);
   if (bias != nullptr) {
     auto bias_domain = TensorDomain::noReductions(bias->getLogicalDomain());
-    mapping_bias = ops::mapLinearOpIterDomains(
-        bias_domain, MatmulRole::INPUT_C, ndims_out);
+    mapping_bias = ops::mapLinearOpIterDomains(bias_domain, 2, ndims_out);
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
@@ -348,10 +347,10 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  const std::vector<IterDomain*>& mapping_a = ops::mapMatmulOpIterDomains(
-      orig_domain_a, MatmulRole::INPUT_A, ndims_out);
-  const std::vector<IterDomain*>& mapping_b = ops::mapMatmulOpIterDomains(
-      orig_domain_b, MatmulRole::INPUT_B, ndims_out);
+  const std::vector<IterDomain*>& mapping_a =
+      ops::mapMatmulOpIterDomains(orig_domain_a, 0, ndims_out);
+  const std::vector<IterDomain*>& mapping_b =
+      ops::mapMatmulOpIterDomains(orig_domain_b, 1, ndims_out);
 
   for (auto idx : c10::irange(ndims_out - 1)) {
     out_domain[idx] =
@@ -389,38 +388,7 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
       " and ",
       tv_b->dtype());
 
-  // Check for K=1 i.e. reduction of broadcast. In these cases we don't need a
-  // matmul so we translate it to a multiplication+cast
-  auto b_k_axis = tv_b->nDims() == 1 ? -1 : -2;
-  NVF_CHECK(
-      tv_a->axis(-1)->isBroadcast() == tv_b->axis(b_k_axis)->isBroadcast(),
-      "K dimension must be broadcast in both operands or none");
-  if (tv_a->axis(-1)->isBroadcast()) {
-    TensorView* float_result = nullptr;
-    if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
-      // [1] @ [1] = []
-      float_result =
-          mul(squeeze(tv_a, std::vector<int64_t>{0}),
-              squeeze(tv_b, std::vector<int64_t>{0}));
-    } else if (tv_a->nDims() == 1) {
-      // [1] @ [..., 1, N] = [..., N]
-      float_result = mul(tv_a, squeeze(tv_b, std::vector<int64_t>{-2}));
-    } else if (tv_b->nDims() == 1) {
-      // [..., M, 1] @ [1] = [..., M]
-      float_result = mul(squeeze(tv_a, std::vector<int64_t>{-1}), tv_b);
-    } else {
-      float_result = mul(tv_a, tv_b);
-    }
-    return maybeCastOp(tv_a->dtype(), float_result);
-  }
-
-  if (tv_a->nDims() == 1 && tv_b->nDims() == 1) {
-    // Return the dot product instead of creating the MatmulOp.
-    // Cast back the output if needed since torch.matmul maintains input dtype.
-    return maybeCastOp(tv_a->dtype(), sum(mul(tv_a, tv_b), {0}));
-  }
-
-  // For all other cases, create a new MatmulOp
+  // Create a new MatmulOp
   TensorView* out = newForMatmul(tv_a, tv_b);
   IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
   return out;
@@ -503,29 +471,39 @@ SdpfaFwdResult sdpfa_fwd(
 
   // Create a new Tensorview for cum_seq_q, cum_seq_k of shape (N + 1)
   auto newForCumulativeSeq = [&]() -> TensorView* {
-    IterDomain* batch_id = ops::newOutputIterDomain({query_domain.front()});
-    batch_id = IterDomain::resize(
+    IterDomain* batch_id = ops::newOutputIterDomain(
+        {query_domain.front(), key_domain.front(), value_domain.front()});
+    IterDomain* resized_batch_id = IterDomain::resize(
         batch_id,
         IrBuilder::create<Val>(0, DataType::Index),
-        IrBuilder::create<Val>(1, DataType::Index));
+        IrBuilder::create<Val>(1, DataType::Index),
+        /*mark_as_rfactor=*/true);
 
-    TensorDomain* batch_dom = IrBuilder::create<TensorDomain>(
-        std::vector({batch_id}),
-        TensorDomain::getContiguityFilledWith(std::vector({batch_id}), true));
-    return IrBuilder::create<TensorView>(batch_dom, DataType::Int);
+    return IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            std::vector({batch_id}),
+            std::vector({resized_batch_id}),
+            std::vector({resized_batch_id}),
+            TensorDomain::getContiguityFilledWith(
+                std::vector({resized_batch_id}), true)),
+        DataType::Int);
   };
 
   TensorView* cum_seq_q = newForCumulativeSeq();
   TensorView* cum_seq_k = newForCumulativeSeq();
 
-  Val* query_seq_len = IrBuilder::create<Val>(DataType::Int);
-  Val* key_seq_len = IrBuilder::create<Val>(DataType::Int);
+  TensorView* query_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
+  TensorView* key_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
 
   // Scalar tensors of int64_t dtype.
   TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
+
+  // Thunder metadata represents debug_attn_mask of type int64_t, although the
+  // debug_attn_mask is of query.dtype. Since we use return_debug_mask=false in
+  // the internal flash attention call, this is a scalar zero tensor.
   TensorView* debug_attn_mask =
-      TensorViewBuilder().dtype(DataType::Int).build();
+      TensorViewBuilder().dtype(query->dtype()).build();
 
   // Set default values for dropout_p (0.0), is_causal(false)
   if (dropout_p == nullptr) {
@@ -562,6 +540,81 @@ SdpfaFwdResult sdpfa_fwd(
       philox_seed,
       philox_offset,
       debug_attn_mask};
+}
+
+SdpfaBwdResult sdpfa_bwd(
+    TensorView* grad_output,
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* output,
+    TensorView* log_sumexp,
+    TensorView* cum_seq_q,
+    TensorView* cum_seq_k,
+    TensorView* query_seq_len,
+    TensorView* key_seq_len,
+    Val* dropout_p,
+    Val* is_causal,
+    TensorView* philox_seed,
+    TensorView* philox_offset,
+    Val* scale) {
+  NVF_CHECK(
+      query->dtype() == key->dtype() && query->dtype() == value->dtype(),
+      "Expected query, key, and value to have the same dtype but got: ",
+      query->dtype(),
+      " ",
+      key->dtype(),
+      " ,and ",
+      value->dtype());
+
+  auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
+  auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
+  auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
+
+  NVF_CHECK(
+      query_domain.size() == 4 && key_domain.size() == 4 &&
+          value_domain.size() == 4,
+      "Expected query, key, and value to be 4D but got: ",
+      query_domain.size(),
+      " ",
+      key_domain.size(),
+      " ,and ",
+      value_domain.size());
+
+  NVF_CHECK(
+      !dropout_p || dropout_p->isScalar(),
+      "Expected dropout to be a scalar double.");
+  NVF_CHECK(
+      !is_causal || is_causal->isScalar(),
+      "Expected is_causal to be a scalar boolean.");
+  NVF_CHECK(
+      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+
+  // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
+  TensorView* grad_query = ops::newOutputTV({query}, query->dtype());
+  TensorView* grad_key = ops::newOutputTV({key}, key->dtype());
+  TensorView* grad_value = ops::newOutputTV({value}, value->dtype());
+
+  IrBuilder::create<SdpaBwdOp>(
+      grad_query,
+      grad_key,
+      grad_value,
+      grad_output,
+      query,
+      key,
+      value,
+      output,
+      log_sumexp,
+      cum_seq_q,
+      cum_seq_k,
+      query_seq_len,
+      key_seq_len,
+      dropout_p,
+      is_causal,
+      philox_seed,
+      philox_offset,
+      scale);
+  return {grad_query, grad_key, grad_value};
 }
 
 } // namespace nvfuser

@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <dynamic_transform.h>
 #include <host_ir/executor.h>
 #include <ir/utils.h>
 
@@ -19,7 +20,16 @@ HostIrExecutor::HostIrExecutor(
     HostIrExecutorParams params)
     : container_(std::move(container)),
       communicator_(communicator),
-      params_(params) {}
+      params_(params) {
+  auto device_index =
+      (communicator_ != nullptr && communicator_->is_available())
+      ? communicator_->deviceId()
+      : 0;
+  streams_.insert(
+      {container_->getDefaultStream(),
+       c10::cuda::getDefaultCUDAStream(
+           static_cast<c10::DeviceIndex>(device_index))});
+}
 
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
@@ -35,7 +45,9 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   // Collect global outputs
   std::vector<at::Tensor> outputs;
   for (auto output_val : container_->outputs()) {
-    auto output = val_to_IValue_.at(output_val).toTensor();
+    auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
+        ? val_to_IValue_.at(output_val).toTensor()
+        : at::Tensor();
     outputs.push_back(output);
   }
 
@@ -51,7 +63,7 @@ void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
     streams_.insert(
         {stream,
          c10::cuda::getStreamFromPool(
-             /*isHighPriority=*/true, static_cast<c10::DeviceIndex>(i))});
+             /*isHighPriority=*/false, static_cast<c10::DeviceIndex>(i))});
   }
   setCurrentCUDAStream(streams_.at(stream));
 }
@@ -88,10 +100,11 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
     }
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
   } else {
-    auto [it, has_emplaced] = fe_.try_emplace(hu);
-    auto& fe = it->second;
-    if (has_emplaced) {
-      fe.compileFusion(hu->fusion_to_execute(), input_IValues);
+    FusionExecutor& fe = fe_[hu];
+    if (!fe.isCompiled()) {
+      Fusion* fusion = hu->fusion_to_execute();
+      DynamicTransform::concretizeFusion(fusion, input_IValues);
+      fe.compileFusion(fusion, input_IValues);
     }
     outputs = fe.runFusion(input_IValues);
     if (!params_.cache_fusion_executor) {
@@ -109,14 +122,6 @@ void HostIrExecutor::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
-  NVF_ERROR(
-      std::find(
-          communication->team().begin(),
-          communication->team().end(),
-          communicator_->deviceId()) != communication->team().end(),
-      "current device index ",
-      communicator_->deviceId(),
-      " must be present in the communication's team");
 
   Val* input_val = communication->input(0);
   Val* output_val = communication->output(0);
@@ -131,14 +136,37 @@ void HostIrExecutor::handle(Communication* communication) {
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), std::nullopt);
-  c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+  works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),
       backend,
       input_tensor,
       output_tensor);
+}
+
+void HostIrExecutor::handle(Wait* wait) {
+  Communication* communication = wait->communication();
+  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
+  auto& work = works_.at(communication);
   if (work != nullptr) {
     work->wait();
+  }
+  works_.erase(communication);
+}
+
+void HostIrExecutor::handle(ForLoop* for_loop) {
+  NVF_ERROR(for_loop->start()->isConstInt());
+  NVF_ERROR(for_loop->step()->isConstInt());
+  NVF_ERROR(for_loop->stop()->isConstInt());
+  auto start = for_loop->start()->value().as<int64_t>();
+  auto step = for_loop->step()->value().as<int64_t>();
+  auto stop = for_loop->stop()->value().as<int64_t>();
+
+  for (auto i = start; i < stop; i += step) {
+    for (Expr* expr : for_loop->body().exprs()) {
+      val_to_IValue_[for_loop->index()] = at::Scalar(i);
+      dispatch(expr);
+    }
   }
 }
 

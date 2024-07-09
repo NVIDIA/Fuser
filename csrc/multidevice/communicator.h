@@ -56,6 +56,7 @@ class Communicator {
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
+  ~Communicator();
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;
@@ -86,9 +87,13 @@ class Communicator {
   }
 
   // returns the backend associated with a team
+  // the argument "prefix" is prepended to the key used to retrieve preexisting
+  // backends. Prefix is used to distinguish between different backends with the
+  // same team
   c10d::Backend* getBackendForTeam(
       const Team& team,
-      std::optional<CommunicatorBackend> backend);
+      std::optional<CommunicatorBackend> backend,
+      const std::string& prefix = "");
 
   // returns the device associated with the current process
   auto device() const {

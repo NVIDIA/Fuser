@@ -8,6 +8,7 @@
 #include <tests/cpp/utils.h>
 
 #include <ops/all_ops.h>
+#include <scheduler/mma_utils.h>
 
 #include <regex>
 #include <sstream>
@@ -758,5 +759,53 @@ bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y) {
   const ValGroup& gy = vg.toGroup(y);
   return gx.get() == gy.get();
 };
+
+MmaLayout getMatmulProblemLayout(Fusion* fusion) {
+  const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
+      mma_utils::getOperandInnerDims(fusion);
+
+  NVF_ERROR(
+      inner_dims_opt.isValid(),
+      "Could not get operand inner dims: ",
+      inner_dims_opt.getErrorMsg());
+
+  const mma_utils::MatmulOperandInnerDims inner_dims = inner_dims_opt.getData();
+
+  NVF_ERROR(inner_dims.size() == 2, "Found other than two operands");
+
+  const bool A_K_inner = inner_dims.front() == MatmulDimRole::K;
+  const bool B_K_inner = inner_dims.back() == MatmulDimRole::K;
+
+  if (A_K_inner && B_K_inner) {
+    return MmaLayout::TN;
+  } else if (A_K_inner && !B_K_inner) {
+    return MmaLayout::TT;
+  } else if (!A_K_inner && B_K_inner) {
+    return MmaLayout::NN;
+  } else {
+    return MmaLayout::NT;
+  }
+}
+
+// get supported floating data types
+std::vector<DataType> getFloatingDataTypes() {
+  std::vector<DataType> dtypes = {
+      DataType::Double,
+      DataType::Float,
+      DataType::Half,
+      DataType::ComplexFloat,
+      DataType::ComplexDouble};
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
+  if (at::cuda::getDeviceProperties(0)->major >= 8) {
+    dtypes.push_back(DataType::BFloat16);
+  }
+#endif
+  return dtypes;
+}
+
+std::string sanitizeTestName(const std::string& name) {
+  // Replace all non-alphanumeric characters with underscores
+  return std::regex_replace(name, std::regex("[^a-zA-Z0-9]"), "_");
+}
 
 } // namespace nvfuser

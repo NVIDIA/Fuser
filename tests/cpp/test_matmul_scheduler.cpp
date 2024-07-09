@@ -172,16 +172,13 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -266,16 +263,13 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -366,16 +360,13 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -462,16 +453,13 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -570,16 +558,13 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -666,16 +651,13 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -755,16 +737,13 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -857,16 +836,13 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -967,16 +943,13 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1084,16 +1057,13 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
@@ -1134,16 +1104,13 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
@@ -1186,16 +1153,13 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
@@ -1236,16 +1200,13 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1292,16 +1253,13 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1350,16 +1308,13 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1417,16 +1372,13 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1492,16 +1444,13 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1573,16 +1522,13 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1658,16 +1604,13 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
 
-  const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1728,16 +1671,13 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -1801,16 +1741,13 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -1887,16 +1824,13 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -1961,16 +1895,13 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -2028,16 +1959,13 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
 
-    const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -2097,17 +2025,13 @@ TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
 
         fusion->addOutput(tv2);
 
-        const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+        const auto fusion_layout = getMatmulProblemLayout(fusion.get());
         NVF_CHECK(
-            fusion_layout.isValid(),
-            "failed to get decide matmul layout through fusion definition. Error: ",
-            fusion_layout.getErrorMsg());
-        NVF_CHECK(
-            fusion_layout.getData() == layout,
+            fusion_layout == layout,
             "mismatch between test layout (",
             toString(layout),
             ") and layout inferred from fusion definition (",
-            toString(fusion_layout.getData()),
+            toString(fusion_layout),
             ")");
 
         FusionExecutorCache executor_cache(std::move(fusion));
@@ -2287,16 +2211,13 @@ TEST_F(MatmulSchedulerTest, StridedInputs) {
 
           fusion->addOutput(tv2);
 
-          const auto fusion_layout = mma_utils::getProblemLayout(fusion.get());
+          const auto fusion_layout = getMatmulProblemLayout(fusion.get());
           NVF_CHECK(
-              fusion_layout.isValid(),
-              "failed to get decide matmul layout through fusion definition");
-          NVF_CHECK(
-              fusion_layout.getData() == layout,
+              fusion_layout == layout,
               "mismatch between test layout (",
               toString(layout),
               ") and layout inferred from fusion definition (",
-              toString(fusion_layout.getData()),
+              toString(fusion_layout),
               ")");
 
           FusionExecutorCache executor_cache(std::move(fusion));
@@ -2605,7 +2526,7 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
   ASSERT_NE(heur, nullptr);
   ASSERT_TRUE(heur->isA<MatmulParams>());
   MatmulParams* mmheur = heur->as<MatmulParams>();
-  EXPECT_EQ(mmheur->double_buffer_options.smem_double_buffer_stage, 0);
+  EXPECT_EQ(mmheur->circular_buffer_options.smem_circular_buffer_stage, 0);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
@@ -2787,7 +2708,21 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
 
   auto outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  at::Tensor t3, t4;
+  if (fusion_enabled) {
+    // More accurate reference, which is what nvfuser computes
+    t3 = at::matmul(t0.to(at::kFloat), t1.to(at::kFloat));
+    t4 = at::matmul(t0.to(at::kFloat), t2.to(at::kFloat));
+  } else {
+    // at::matmul downcasts to half-precision, and we cast back up, which loses
+    // precision. Computing a reference as above leads to allclose failure, so
+    // we use the less accurate reference in this case.
+    t3 = at::matmul(t0, t1).to(at::kFloat);
+    t4 = at::matmul(t0, t2).to(at::kFloat);
+  }
+  at::Tensor tref = ((at::sigmoid(t3) * t3) * t4);
+
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();
@@ -2838,9 +2773,9 @@ class AllocationDomainTest
     params.supported_vec_size = {8, 8, 4};
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
   }
 
   std::pair<TensorView*, TensorView*> getInputTVs(
@@ -3139,5 +3074,36 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(testing::Bool(), testing::Bool()));
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
+
+TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  int M = 32, N = 64, K = 128;
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* b = makeContigConcreteTensor({N, K}, DataType::BFloat16);
+  TensorView* a = makeContigConcreteTensor({M, K}, DataType::BFloat16);
+
+  TensorView* bbcast = broadcast(b, {true, false, false});
+  TensorView* abcast = broadcast(a, {false, true, false});
+  TensorView* ab = mul(abcast, bbcast);
+  TensorView* mm = sum(ab, {-1});
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(mm);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto x_ref = at::randn({M, K}, options);
+  auto y_ref = at::randn({N, K}, options);
+  std::vector<c10::IValue> inputs{x_ref, y_ref};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  auto tref = at::linear(x_ref.to(at::kFloat), y_ref.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
 
 } // namespace nvfuser

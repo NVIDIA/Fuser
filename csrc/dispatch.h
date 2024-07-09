@@ -109,7 +109,9 @@ class Val;
   f(MatmulOp);                    \
   f(LinearOp);                    \
   f(SdpaFwdOp);                   \
-  f(Communication);
+  f(SdpaBwdOp);                   \
+  f(Communication);               \
+  f(ForLoop);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(Asm);                             \
@@ -124,7 +126,6 @@ class Val;
   f(BlockSerializeRelease);           \
   f(AsyncWait);                       \
   f(AsyncCommit);                     \
-  f(ForLoop);                         \
   f(IfThenElse);                      \
   f(GridReduction);                   \
   f(GroupedGridReduction);            \
@@ -140,7 +141,8 @@ class Val;
 #define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
   f(HostUnit);                        \
   f(PostOnStream);                    \
-  f(SetCurrentStream);
+  f(SetCurrentStream);                \
+  f(Wait);
 
 // Forward declarations for all Val and Expr types
 

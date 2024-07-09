@@ -208,7 +208,7 @@ class UnswitchInElseChecker : public kir::IrVisitor {
     within_else_ = prev_within_else;
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     if (for_loop->iter_domain()->getParallelType() == ParallelType::Unswitch) {
       found_in_else_ = found_in_else_ || within_else_;
     }
@@ -251,8 +251,8 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
       }
     }
 
-    if (expr->isA<kir::ForLoop>()) {
-      handle(expr->as<kir::ForLoop>());
+    if (expr->isA<ForLoop>()) {
+      handle(expr->as<ForLoop>());
     } else if (expr->isA<kir::IfThenElse>()) {
       handle(expr->as<kir::IfThenElse>());
     } else {
@@ -426,6 +426,10 @@ size_t getATenRandomSeed();
 class NVFuserTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    // Enable logging so debug messages in PyTorch can be printed out
+    // via `TORCH_CPP_LOG_LEVEL`.
+    c10::initLogging();
+
     // requires PASCAL or newer
     if (!deviceMajorMinorCheck(6)) {
       GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
@@ -456,6 +460,10 @@ class NVFuserTest : public ::testing::Test {
 
     // Make sure capturing of stdout is stopped
     ensureStopCaptureStdout();
+
+    // Make sure profiler is unset in case it was set during test
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
   }
 
   // Start capturing of stdout if not already started
@@ -686,4 +694,21 @@ int64_t getNumSMs();
 
 bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y);
 
+// This uses mma_utils::getOperandInnerDims(fusion) to get the inner allocation
+// dimensions of fusion operands and translate that into one of the MmaOp
+// layouts TT, TN, NT, or NN.
+MmaLayout getMatmulProblemLayout(Fusion* fusion);
+
+// Get floating data types including half, float, double, complex_float,
+// complex_double, and bfloat16 if supported by the device.
+std::vector<DataType> getFloatingDataTypes();
+
+// gtest requires test name contains only alphanumeric characters and
+// underscores. Sanitize name e.g. std::complex<float> -> std_complex_float
+std::string sanitizeTestName(const std::string& name);
+
+// values frequently used in tests
+constexpr std::array<int64_t, 21> Pow2Vals1to1Million = {
+    1,    2,    4,    8,     16,    32,    64,     128,    256,    512,    1024,
+    2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576};
 } // namespace nvfuser

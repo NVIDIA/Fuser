@@ -16,6 +16,7 @@
 #include <ir/builder.h>
 #include <ir/graphviz.h>
 #include <ir/utils.h>
+#include <swizzle.h>
 #include <val_graph_visitor.h>
 
 #include <algorithm>
@@ -42,7 +43,7 @@ IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
   return loop_promotion_map_it->second;
 }
 
-// True if a given domain is a loop doamin of a given tensor and its
+// True if a given domain is a loop domain of a given tensor and its
 // loop is partitioned with respect to the memory type of the tensor
 bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
   // False if id is not a loop ID
@@ -58,12 +59,20 @@ bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
 }
 
 bool isSizeOneDomain(IterDomain* id) {
-  return id->isBroadcast() || id->isReduction() || id->extent()->isOneInt();
+  return id->isBroadcast() || id->extent()->isOneInt();
 }
 
 // True if a given domain of a tensor *may* require allocation
 bool mayRequireAllocation(TensorView* tv, IterDomain* id) {
-  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id);
+  // Conditions to consider:
+  // - Fully partitioned
+  // - Size one: Allocation is done based on the promotion ID, but as
+  // long as the original ID has size one, its allocation should
+  // remain size one.
+  // - Reduction: Check the original ID, not the promotion, which may
+  //   be a reduction ID even though the original ID is not a reduction
+  return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
+      !id->isReduction();
 }
 
 // Get the allocation stride of a given allocation domain
@@ -138,6 +147,9 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     }
   }
 
+  std::vector<IterDomain*> promoted_allocation_domains;
+  promoted_allocation_domains.reserve(allocation_domains.size());
+
   // Loop promotion may affect allocations. Promotions of intermediate
   // domains may not be defined correctly. Only consider loop domains
   // for now.
@@ -146,10 +158,13 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
                        tv->getLoopDomain().begin(),
                        tv->getLoopDomain().end(),
                        allocation_domain) != tv->getLoopDomain().end();
-    if (!is_loop) {
-      continue;
+    IterDomain* promotion_domain = nullptr;
+    if (is_loop) {
+      promotion_domain = getLoopPromotion(allocation_domain, id_model);
+    } else {
+      promotion_domain = allocation_domain;
     }
-    allocation_domain = getLoopPromotion(allocation_domain, id_model);
+    promoted_allocation_domains.push_back(promotion_domain);
   }
 
   // Compute the strides from innermost to outermost domains
@@ -158,6 +173,7 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   for (const auto i : c10::irange(allocation_domains.size())) {
     auto dim = allocation_domains.size() - i - 1;
     auto allocation_domain = allocation_domains.at(dim);
+    auto promotion_domain = promoted_allocation_domains.at(dim);
 
     if (!mayRequireAllocation(tv, allocation_domain)) {
       continue;
@@ -171,13 +187,14 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
     if (contig_flag.value()) {
       strides[dim] = cur_contig_stride;
       cur_contig_stride = SimplifyingIrBuilder::mulExpr(
-          allocation_domains.at(dim)->extent(), cur_contig_stride);
+          promotion_domain->extent(), cur_contig_stride);
     } else {
       // Assume that the tensor should always be a Global memory
       // tensor if it has non-contig allocation domains
       NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
       strides[dim] = getStrideOfGlobalMemoryTensor(tv, (int64_t)dim);
-      cur_contig_stride = strides[dim];
+      cur_contig_stride = SimplifyingIrBuilder::mulExpr(
+          strides[dim], promotion_domain->extent());
     }
   }
 
@@ -190,12 +207,13 @@ std::tuple<std::vector<IterDomain*>, std::vector<Val*>> getAllocationDomains(
   std::vector<Val*> actual_strides;
   for (const auto i : c10::irange(allocation_domains.size())) {
     auto allocation_domain = allocation_domains.at(i);
+    auto promotion_domain = promoted_allocation_domains.at(i);
     if (!mayRequireAllocation(tv, allocation_domain)) {
       continue;
     }
     auto stride = strides.at(i);
     NVF_ERROR(stride != nullptr);
-    actual_allocation_domains.push_back(allocation_domain);
+    actual_allocation_domains.push_back(promotion_domain);
     actual_strides.push_back(stride);
   }
 
@@ -232,6 +250,8 @@ class IdGraphIndexCompute : public OptOutDispatch {
   void handle(Split* split) override;
 
   void handle(Merge* merge) override;
+
+  void handle(Swizzle* swizzle) override;
 
   bool isForward(Expr* expr) const;
 
@@ -303,9 +323,32 @@ void IdGraphIndexCompute::handle(Merge* merge) {
   }
 }
 
+void IdGraphIndexCompute::handle(Swizzle* swizzle) {
+  const bool is_forward = isForward(swizzle);
+
+  auto x_ext = swizzle->inX()->extent();
+  auto y_ext = swizzle->inY()->extent();
+
+  if (is_forward) {
+    auto x_idx = getIndex(swizzle->inX());
+    auto y_idx = getIndex(swizzle->inY());
+    auto [result_x, result_y] =
+        dispatchUnSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
+    setIndex(swizzle->outX(), result_x);
+    setIndex(swizzle->outY(), result_y);
+  } else {
+    auto x_idx = getIndex(swizzle->outX());
+    auto y_idx = getIndex(swizzle->outY());
+    auto [result_x, result_y] =
+        dispatchSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
+    setIndex(swizzle->inX(), result_x);
+    setIndex(swizzle->inY(), result_y);
+  }
+}
+
 } // namespace
 
-TensorIndexer::TensorIndexer(const IdModel& id_model) : id_model_(id_model) {
+TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
   buildLoopIndexMap();
 }
 
@@ -454,6 +497,25 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
   return initial_index_map;
 }
 
+std::vector<Val*> TensorIndexer::getIndexFor(
+    const Expr* expr,
+    const ValGroups& index_groups) const {
+  auto info = computeIndex(expr, index_groups);
+  const auto& replacement_map =
+      getIndexReplacementMap(info.loop_domains, info.index_map);
+
+  std::vector<Val*> result;
+  result.reserve(index_groups.size());
+  for (const auto& g : index_groups) {
+    auto it = info.index_map.find(g);
+    NVF_ERROR(
+        it != info.index_map.end(), "Index not found for ", g->toString());
+    result.push_back(
+        ir_utils::replaceValRecursively(it->second, replacement_map));
+  }
+  return result;
+}
+
 Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
@@ -470,31 +532,20 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   const auto [allocation_domains, strides] =
       getAllocationDomains(tv, id_model_);
 
-  const auto& index_info = computeIndex(expr, allocation_domains);
-  const auto& index_map = index_info.index_map;
+  auto indices =
+      getIndexFor(expr, traversalGraph().toGroups(allocation_domains));
+  NVF_ERROR(indices.size() == allocation_domains.size());
 
   // Linearize the indices with strides.
   // TODO: Contiguous indexing
   Val* index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(allocation_domains.size())) {
-    IterDomain* allocation_domain = allocation_domains.at(i);
-
     Val* stride = strides.at(i);
-
-    auto idx_it = index_map.find(traversalGraph().toGroup(allocation_domain));
-    NVF_ERROR(
-        idx_it != index_map.end(),
-        "Index not found for ",
-        allocation_domain->toString());
-    Val* idx = idx_it->second;
     index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(stride, idx));
+        index, SimplifyingIrBuilder::mulExpr(stride, indices.at(i)));
   }
 
-  const auto& replacement_map =
-      getIndexReplacementMap(index_info.loop_domains, index_info.index_map);
-
-  return ir_utils::replaceValRecursively(index, replacement_map);
+  return index;
 }
 
 // Get the loop domains of a given expr, which are (potentially
@@ -513,11 +564,10 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
-    const std::vector<IterDomain*>& index_domains) const {
+    const ValGroups& index_groups) const {
   const auto loop_domains = getLoopDomains(expr);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
-  const ValGroups index_groups = traversalGraph().toGroups(index_domains);
   const ExprPath traversal_path =
       ValGraphBFS::getExprsBetween(traversalGraph(), loop_groups, index_groups);
 
@@ -540,11 +590,12 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
-    // Replace the index of a vectorized domain with zero. Note that
+    // Replace the index of a vectorized/bulk domain with zero. Note that
     // vectorized domains may need to use N-1, where N is the extent
     // of the domain, for predication, so the replacement is not
     // always done with zero.
-    if (loop_id->getParallelType() != ParallelType::Vectorize) {
+    if (loop_id->getParallelType() != ParallelType::Vectorize &&
+        loop_id->getParallelType() != ParallelType::Bulk) {
       continue;
     }
     const ValGroup& loop_group = traversalGraph().toGroup(loop_id);

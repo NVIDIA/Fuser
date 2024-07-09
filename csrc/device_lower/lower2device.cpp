@@ -13,7 +13,7 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
 #include <device_lower/pass/grid_serialization.h>
@@ -67,7 +67,7 @@ class KIRCleaner : public OptOutDispatch {
  private:
   using OptOutDispatch::handle;
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       OptOutDispatch::dispatch(expr);
     } else {
       // Any non-scoping expr is not considered nop
@@ -75,7 +75,7 @@ class KIRCleaner : public OptOutDispatch {
     }
   }
 
-  void handle(kir::ForLoop* fl) final {
+  void handle(ForLoop* fl) final {
     auto exprs = fl->body().exprs();
     fl->body().clear();
     for (auto expr : exprs) {
@@ -271,7 +271,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
            {"insertWarThreadSynchronization", insertWarThreadSynchronization},
-           {"DoubleBufferPass", DoubleBufferPass::run},
+           {"CircularBufferPass", CircularBufferPass::run},
            {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
            {"processMisalignedVectorization", processMisalignedVectorization},
@@ -331,6 +331,42 @@ kir::Kernel* GpuLower::run() {
   return kernel_.get();
 }
 
+bool requiresIdModel(Fusion* fusion) {
+  // TMA requires IdModel
+  for (auto expr : fusion->exprs()) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        return true;
+      }
+    }
+  }
+  // If a tensor does not have a nice root->logical/allocation->loop
+  // linear transformation history, use IdModel.
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    auto root = tv->getMaybeRootDomain();
+    auto loop = tv->getLoopDomain();
+    std::vector<Val*> loop_val(loop.begin(), loop.end());
+    auto all_ids_vec = DependencyCheck::getAllValsBetween(
+        {root.begin(), root.end()}, loop_val);
+    std::unordered_set<Val*> all_ids_set(
+        all_ids_vec.begin(), all_ids_vec.end());
+    auto alloc = tv->getMaybeAllocationDomain();
+    auto logical = tv->getLogicalDomain();
+    bool has_alloc_id_not_on_path =
+        std::any_of(alloc.begin(), alloc.end(), [&](Val* v) {
+          return !all_ids_set.count(v);
+        });
+    bool has_logical_id_not_on_path =
+        std::any_of(logical.begin(), logical.end(), [&](Val* v) {
+          return !all_ids_set.count(v);
+        });
+    if (has_alloc_id_not_on_path || has_logical_id_not_on_path) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void GpuLower::analysis(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
   NVF_ERROR(fusion != nullptr);
@@ -354,6 +390,8 @@ void GpuLower::analysis(Fusion* fusion) {
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
+
+  this->requiresIdModel() = nvfuser::requiresIdModel(fusion_);
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
@@ -391,7 +429,7 @@ void GpuLower::analysis(Fusion* fusion) {
   // functionality should be affected. New IterDomains may be created,
   // so it is expected that generated code may use diffrent variable
   // names
-  if (isOptionEnabled(EnableOption::IdModel)) {
+  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     // Enable validation in the DEBUG build mode
 #ifdef NDEBUG
     // Not DEBUG build
@@ -496,15 +534,18 @@ void GpuLower::analysis(Fusion* fusion) {
   pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
 
-  doubleBufferInfo().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build doubleBufferInfo");
+  circularBufferInfo().build(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
-  if (isOptionEnabled(EnableOption::IdModel)) {
+  if (this->requiresIdModel() || isOptionEnabled(EnableOption::IdModel)) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
+
+  consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
 }
 
 kir::Kernel* GpuLower::kernel() const {

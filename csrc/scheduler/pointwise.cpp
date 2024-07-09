@@ -10,6 +10,7 @@
 #include <debug.h>
 #include <inlining.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
@@ -43,13 +44,6 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
           fusion, heuristicType())) {
-    return false;
-  }
-
-  // Fusions handled by pointwise scheduler cannot have matmul ops.
-  if (ir_utils::hasAnyMatmulOps(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no support for matmul ops.");
     return false;
   }
 
@@ -223,7 +217,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   }
   // We always cacheBefore output at the beginning of the scheduling. And after
   // cacheBefore, the reference tensor will have all reduction IDs removed.
-  ref_root = TensorDomain::noReductions(ref_root);
+  ref_root = TensorDomain::noDevices(TensorDomain::noReductions(ref_root));
 
   std::vector<int64_t> elem_counts(ref_root.size(), 1);
   int64_t n_elems = 1;
@@ -239,8 +233,9 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   // If zero dimensional or zero size, return default parameters
-  if (TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(largest_out->getLoopDomain()))
+  if (TensorDomain::noDevices(
+          TensorDomain::noReductions(
+              TensorDomain::noBroadcasts(largest_out->getLoopDomain())))
           .empty() ||
       n_elems == 0) {
     auto vectorizable_inputs_outputs_entry = HeuristicSummaryEntry<
@@ -333,7 +328,6 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
   auto& broadcast_byte_multiples = broadcast_info.get().broadcast_multiples;
-
   NVF_ERROR(broadcast_byte_multiples.size() == ref_root.size());
 
   int64_t dtype_sum = 0;
@@ -582,6 +576,9 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
       reference_tv != nullptr,
       "Could not find a fully broadcasted output to reference schedule on.");
 
+  int64_t num_device_dims = numDeviceDims(reference_tv);
+  int64_t device_aware_break_point = params.break_point + num_device_dims;
+
   // Positions of rhs and lhs after merging all dimensions.
   int64_t rhs_i = -1;
   int64_t lhs_i = -1;
@@ -595,6 +592,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // reorder for better merging.
     reference_tv->reorder(
         scheduler_utils::domainReorderAsLogicalMap(reference_tv));
+    // Reorder so that DeviceDims are in front
+    reorderDIDToFront(reference_tv);
 
     // Break point is relative to logical domain, find the loop domain ID's in
     // the left/right side, we really need the values in domain, but easiest way
@@ -602,17 +601,17 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     // values too.
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
         {reference_tv->getLogicalDomain().begin(),
-         reference_tv->getLogicalDomain().begin() + params.break_point},
-        {reference_tv->getLoopDomain().begin(),
+         reference_tv->getLogicalDomain().begin() + device_aware_break_point},
+        {reference_tv->getLoopDomain().begin() + num_device_dims,
          reference_tv->getLoopDomain().end()});
 
     std::unordered_set<Val*> lhs_all_vals_set(
         lhs_all_vals.begin(), lhs_all_vals.end());
 
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
-        {reference_tv->getLogicalDomain().begin() + params.break_point,
+        {reference_tv->getLogicalDomain().begin() + device_aware_break_point,
          reference_tv->getLogicalDomain().end()},
-        {reference_tv->getLoopDomain().begin(),
+        {reference_tv->getLoopDomain().begin() + num_device_dims,
          reference_tv->getLoopDomain().end()});
 
     std::unordered_set<Val*> rhs_all_vals_set(
@@ -670,9 +669,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     if (!logical_reorder_map.empty()) {
       reference_tv->reorder(logical_reorder_map);
     }
+    reorderDIDToFront(reference_tv);
 
     // Merge right side of break point
-    for (int64_t i = reference_tv->nDims(); i > params.break_point; i--) {
+    for (int64_t i = reference_tv->nDims(); i > device_aware_break_point; i--) {
       auto axis_i = i - 1;
       if (rhs_i == -1) {
         rhs_i = axis_i;
@@ -687,7 +687,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     }
 
     // Merge left side of break point
-    for (int64_t i = params.break_point; i > 0; i--) {
+    for (int64_t i = device_aware_break_point; i > num_device_dims; i--) {
       auto axis_i = i - 1;
       if (lhs_i == -1) {
         lhs_i = axis_i;

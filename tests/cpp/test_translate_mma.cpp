@@ -200,9 +200,9 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Schedule) {
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
     auto inputs = matmulAtInput2D(M, N, K, layout);
@@ -271,6 +271,8 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
   }
 }
 
+// Parameters: [A_dim, B_dim, enable_fusion, transpose_a_alloc,
+// expect_segmented, SchedulerHeuristic]
 using MatmulNodeTranslationTestParams =
     std::tuple<int64_t, int64_t, bool, bool, bool, ScheduleHeuristic>;
 using MatmulNodeTranslationTest =
@@ -388,33 +390,33 @@ INSTANTIATE_TEST_SUITE_P(
         std::
             make_tuple(2l, 2l, false, false, true, ScheduleHeuristic::ExprEval),
         std::make_tuple(2l, 2l, false, true, true, ScheduleHeuristic::ExprEval),
+
         // Tests with fusion enabled
+
         std::make_tuple(2l, 2l, true, false, false, ScheduleHeuristic::Matmul),
         // We cannot yet handle allocation domain in matmul scheduler
         std::make_tuple(2l, 2l, true, true, true, ScheduleHeuristic::ExprEval),
         // Size-1 input combinations
         std::make_tuple(1l, 2l, true, false, true, ScheduleHeuristic::ExprEval),
         std::make_tuple(2l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
-        // We fuse this case using the Reduction scheduler
-        std::make_tuple(
-            1l,
-            1l,
-            true,
-            false,
-            false,
-            ScheduleHeuristic::Reduction),
+        std::make_tuple(1l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
         // Batch dims
+
+        // mat-vec handled by ExprEval
         std::make_tuple(3l, 1l, true, false, true, ScheduleHeuristic::ExprEval),
         std::make_tuple(3l, 3l, true, false, false, ScheduleHeuristic::Matmul),
+
+        std::make_tuple(3l, 2l, true, false, false, ScheduleHeuristic::Matmul),
+        std::make_tuple(4l, 4l, true, false, false, ScheduleHeuristic::Matmul),
+
         // TODO: mixed length inputs via broadcasted batch dims
-        // We currently reject differently-sized inputs since these translate to
-        // multiple M or N dims
-        std::make_tuple(3l, 2l, true, false, true, ScheduleHeuristic::ExprEval),
+        // When different numbers of M or N dimensions exist, they must be
+        // consecutive. However, these examples lead to [M, B, M, K] and [N, B,
+        // N, K] patterns which we don't yet support.
         std::make_tuple(2l, 3l, true, false, true, ScheduleHeuristic::ExprEval),
-        // TODO: More than one batch dimension is not yet supported in Matmul
-        // scheduler
         std::
-            make_tuple(4l, 4l, true, false, true, ScheduleHeuristic::ExprEval)),
+            make_tuple(3l, 4l, true, false, true, ScheduleHeuristic::ExprEval)),
+
     [](const testing::TestParamInfo<MatmulNodeTranslationTestParams>& info) {
       std::ostringstream os;
       os << std::get<0>(info.param) << "dA";
@@ -576,7 +578,9 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(1l, 1l, -1l, false, false, true),
         std::make_tuple(3l, 2l, 1l, false, false, true),
         std::make_tuple(4l, 2l, 1l, false, false, true),
+
         // Enable fusion
+
         std::make_tuple(2l, 2l, -1l, true, false, false),
         // We cannot yet handle allocation domain in matmul scheduler
         std::make_tuple(2l, 2l, -1l, true, true, true),
@@ -586,19 +590,14 @@ INSTANTIATE_TEST_SUITE_P(
         // Check that zero-dim output fusion is not claimed by NoOp scheduler
         std::make_tuple(1l, 1l, -1l, true, false, true),
         // Batch dims in input
-        // TODO: mixed length inputs via broadcasted batch dims
-        // We currently reject differently-sized inputs since these translate to
-        // multiple M or N dims
-        std::make_tuple(3l, 2l, -1l, true, false, true),
-        // TODO: We don't yet support multiple batch dims in matmul scheduler
-        std::make_tuple(4l, 2l, -1l, true, false, true),
+        // mixed length inputs via broadcasted batch dims
+        std::make_tuple(3l, 2l, -1l, true, false, false),
+        std::make_tuple(4l, 2l, -1l, true, false, false),
         // Bias cases
         std::make_tuple(2l, 2l, 0l, true, false, false),
         std::make_tuple(2l, 2l, 1l, true, false, false),
-        // TODO: Mixed-length inputs are rejected with bias also
-        std::make_tuple(3l, 2l, 1l, true, false, true),
-        // TODO: We don't yet support multiple batch dims in matmul scheduler
-        std::make_tuple(4l, 2l, 1l, true, false, true)),
+        std::make_tuple(3l, 2l, 1l, true, false, false),
+        std::make_tuple(4l, 2l, 1l, true, false, false)),
     [](const testing::TestParamInfo<LinearNodeTranslationTestParams>& info) {
       std::ostringstream os;
       os << std::get<0>(info.param) << "dA";
@@ -663,16 +662,93 @@ TEST_F(CombineMulSumAsMmaTest, SwapAandB) {
       const ValGroup& m_gp = permissive_graph.toGroup(tv0->axis(-3));
       auto m_it = dim_roles.find(m_gp);
       ASSERT_NE(m_it, dim_roles.end());
-      EXPECT_EQ(m_it->second, MatmulDomain::M);
+      EXPECT_EQ(m_it->second, MatmulDimRole::M);
 
       const ValGroup& n_gp = permissive_graph.toGroup(tv1->axis(-2));
       auto n_it = dim_roles.find(n_gp);
       ASSERT_NE(n_it, dim_roles.end());
-      EXPECT_EQ(n_it->second, MatmulDomain::N);
+      EXPECT_EQ(n_it->second, MatmulDimRole::N);
 
       ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
     }
   }
 }
+
+// Check that a fusion with epilogue does not introduce round-trip casts when
+// translating MatmulOp to MmaOp
+using TranslationCastTestParams = std::tuple<bool, bool, bool>;
+using TranslationCastTest = NVFuserFixtureParamTest<TranslationCastTestParams>;
+TEST_P(TranslationCastTest, CountCasts) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  bool use_linear = std::get<0>(GetParam());
+  bool sin_epilogue = std::get<1>(GetParam());
+  bool output_pre_epilogue = std::get<2>(GetParam());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = use_linear ? linear(tv0, tv1) : matmul(tv0, tv1);
+
+  if (output_pre_epilogue) {
+    // Add the Half output before epilogue. If this is true and we have an
+    // epilogue, then the MmaOp will have two uses: sin and cast.
+    fusion->addOutput(tv2);
+  }
+
+  TensorView* tv3 = tv2;
+  if (sin_epilogue) {
+    tv3 = sin(tv2);
+  }
+  auto tv4 = castOp(DataType::Half, tv3);
+
+  fusion->addOutput(tv4);
+
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion.get());
+
+  ASSERT_EQ(patterns.size(), 1);
+
+  mma_utils::MatmulPattern& pattern = patterns.front();
+
+  EXPECT_EQ(pattern.A, tv0);
+  EXPECT_EQ(pattern.B, tv1);
+  EXPECT_EQ(pattern.output, tv2);
+
+  pattern.translateToMmaOp();
+
+  // Check that we modified the pattern roles
+  EXPECT_NE(pattern.A, tv0);
+  EXPECT_NE(pattern.B, tv1);
+  EXPECT_EQ(
+      pattern.output->dtype(), sin_epilogue ? DataType::Float : DataType::Half);
+
+  // Count cast ops. In any case there should be only a single cast, at the end
+  // of the fusion.
+  const auto exprs = fusion->exprs();
+  size_t num_casts = std::count_if(exprs.begin(), exprs.end(), [](Expr* e) {
+    if (auto* uop = dynamic_cast<UnaryOp*>(e)) {
+      return uop->getUnaryOpType() == UnaryOpType::Cast;
+    }
+    return false;
+  });
+  EXPECT_EQ(num_casts, 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TranslationCastTest,
+    testing::Combine(testing::Bool(), testing::Bool(), testing::Bool()),
+    [](const testing::TestParamInfo<TranslationCastTestParams>& info) {
+      std::ostringstream os;
+      os << (std::get<0>(info.param) ? "linear" : "matmul");
+      os << (std::get<1>(info.param) ? "_epilogue" : "");
+      os << (std::get<2>(info.param) ? "_twooutputs" : "");
+      return os.str();
+    });
 
 } // namespace nvfuser

@@ -29,7 +29,7 @@ class AllocationInserter : public kir::ExprMutator {
   struct AllocationInformation {
     // The for loop that the initialization of this allocation must be
     // placed in, nullptr if not within a loop
-    kir::ForLoop* init_for_loop = nullptr;
+    ForLoop* init_for_loop = nullptr;
 
     // The expression that the initialization of this allocation must
     // be placed before
@@ -39,7 +39,7 @@ class AllocationInserter : public kir::ExprMutator {
     // from init_for_loop only with unswitched shared memory allocations,
     // which are moved outer loops to avoid duplicated allocations
     // (see issue #1133).
-    kir::ForLoop* alloc_for_loop = nullptr;
+    ForLoop* alloc_for_loop = nullptr;
 
     // The expression that this allocation must be placed
     // before. Similar to alloc_for_loop, this is different from
@@ -67,7 +67,7 @@ class AllocationInserter : public kir::ExprMutator {
     info.alloc_for_loop = loop_alloc_info.alloc_for_loop;
     info.alloc_pos = loop_alloc_info.alloc_pos;
 
-    auto next_fl = [](kir::ForLoop* fl, const std::vector<kir::ForLoop*> fls) {
+    auto next_fl = [](ForLoop* fl, const std::vector<ForLoop*> fls) {
       for (auto i : c10::irange(fls.size())) {
         if (fl == fls[i]) {
           if (i + 1 < fls.size()) {
@@ -132,7 +132,7 @@ class AllocationInserter : public kir::ExprMutator {
          init_loop_it != init_dims.rend();
          ++init_loop_it) {
       auto id = *init_loop_it;
-      kir::ForLoop* new_loop = IrBuilder::create<kir::ForLoop>(id);
+      ForLoop* new_loop = IrBuilder::create<ForLoop>(id);
       new_loop->body().push_back(init_expr);
       init_expr = new_loop;
     }
@@ -244,9 +244,9 @@ class AllocationInserter : public kir::ExprMutator {
       alloc_dims.push_back(info.buffer->container()->oneVal());
     }
 
-    // Double the allocation size if double-buffered. Record the
+    // Multiply the allocation size if circular-buffered. Record the
     // original size for indexing.
-    if (info.buffer->isDoubleBuffered() || info.buffer->isCircularBuffered()) {
+    if (info.buffer->isCircularBuffered()) {
       Val* original_alloc_size = nullptr;
       for (auto alloc_dim : alloc_dims) {
         if (original_alloc_size == nullptr) {
@@ -256,14 +256,11 @@ class AllocationInserter : public kir::ExprMutator {
               IrBuilder::mulExpr(original_alloc_size, alloc_dim);
         }
       }
-      GpuLower::current()->doubleBufferInfo().setOriginalAllocSize(
+      GpuLower::current()->circularBufferInfo().setOriginalAllocSize(
           info.buffer, original_alloc_size);
-      int64_t double_buffer_stage = 2L;
-      if (info.buffer->isCircularBuffered()) {
-        double_buffer_stage = (int64_t)info.buffer->circularBufferDepth();
-      }
+      int64_t circular_buffer_stage = info.buffer->circularBufferDepth();
       alloc_dims.push_back(
-          IrBuilder::create<Val>(double_buffer_stage, DataType::Index));
+          IrBuilder::create<Val>(circular_buffer_stage, DataType::Index));
     }
 
     // Create the allocation node
@@ -360,7 +357,7 @@ class AllocationInserter : public kir::ExprMutator {
           registerInsertBefore(exprs_[0], alloc_expr, nullptr);
         } else {
           NVF_ERROR(allocation.alloc_place_before != nullptr);
-          kir::Scope* scope = allocation.alloc_for_loop == nullptr
+          Scope* scope = allocation.alloc_for_loop == nullptr
               ? nullptr
               : &allocation.alloc_for_loop->body();
           registerInsertBefore(
@@ -370,7 +367,7 @@ class AllocationInserter : public kir::ExprMutator {
 
       if (init_expr != nullptr) {
         NVF_ERROR(allocation.init_place_before != nullptr);
-        kir::Scope* scope = allocation.init_for_loop == nullptr
+        Scope* scope = allocation.init_for_loop == nullptr
             ? nullptr
             : &allocation.init_for_loop->body();
         registerInsertBefore(allocation.init_place_before, init_expr, scope);
@@ -401,7 +398,7 @@ class AllocationInserter : public kir::ExprMutator {
 
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
-      kir::Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
+      Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
       registerInsertBefore(expr, mbarrier_alloc, expr_scope);
       registerInsertBefore(expr, mbarrier_init, expr_scope);
       registerInsertBefore(expr, sync_init, expr_scope);

@@ -14,9 +14,10 @@
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/analysis/thread_predicate.h>
+#include <device_lower/analysis/tma.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <device_lower/pass/allocation.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
@@ -172,8 +173,8 @@ class GpuLower : public NonCopyable {
     return divisible_splits_;
   }
 
-  DoubleBufferInfo& doubleBufferInfo() {
-    return double_buffer_info_;
+  CircularBufferInfo& circularBufferInfo() {
+    return circular_buffer_info_;
   }
 
   CommonScalarMap& commonScalarMap() {
@@ -194,6 +195,14 @@ class GpuLower : public NonCopyable {
 
   auto& vectorizedSetInfo() {
     return vectorized_set_info_;
+  }
+
+  bool requiresIdModel() const {
+    return requires_id_model_;
+  }
+
+  bool& requiresIdModel() {
+    return requires_id_model_;
   }
 
   FusedReductionInfo& fusedReductionInfo() {
@@ -250,6 +259,15 @@ class GpuLower : public NonCopyable {
 
   std::vector<Pass>& passes() {
     return passes_;
+  }
+
+  std::unordered_map<TensorView*, const TMAInfo>& consumerToTMAInfo() {
+    return consumer_to_tma_info_;
+  }
+
+  const std::unordered_map<TensorView*, const TMAInfo>& consumerToTMAInfo()
+      const {
+    return consumer_to_tma_info_;
   }
 
   // Register a boolean Val as a predicate to validate at the run time. Optional
@@ -310,7 +328,7 @@ class GpuLower : public NonCopyable {
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
-  DoubleBufferInfo double_buffer_info_;
+  CircularBufferInfo circular_buffer_info_;
   CommonScalarMap common_scalar_map_;
   FusedReductionInfo fused_reduction_info_;
   std::shared_ptr<const SyncMap> sync_map_;
@@ -319,6 +337,7 @@ class GpuLower : public NonCopyable {
   CompileParams cparams_;
   std::unique_ptr<IdModel> id_model_;
   std::unique_ptr<TensorIndexer> tensor_indexer_;
+  std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size
@@ -340,6 +359,10 @@ class GpuLower : public NonCopyable {
   std::vector<std::pair<const Val*, std::string>> validations_;
 
   Fusion* fusion_ = nullptr;
+
+  // A temporary flag which is true if the fusion uses any feature that requires
+  // the new experimental id model
+  bool requires_id_model_ = false;
 };
 
 } // namespace nvfuser
