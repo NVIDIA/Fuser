@@ -151,28 +151,52 @@ std::unordered_set<ValGroup> getMaxPathLoopDomains(
   return max_path_loop_domains;
 }
 
+// BFS traversal for indexing. The only difference with the default
+// ValGraphBFS is that for indexing there must be a special care taken
+// when resize is involved since there can be multiple paths and
+// there's only one correct path. Specifically, any resize expr group
+// node must appear in the root-logical path of the consumer
+// tensor. Otherwise, resize nodes should be ignored. See
+// IndexingTest.ResizePath for a concret example.
 class IndexingTraversal : public ValGraphBFS {
  public:
   IndexingTraversal(
+      const Expr* expr,
       const ValGraph& graph,
       std::vector<GroupType> from_groups,
-      std::vector<GroupType> to_groups,
-      const std::unordered_set<Resize*>& resize_paths)
-      : ValGraphBFS(graph, from_groups, to_groups),
-        resize_paths_(resize_paths) {}
+      std::vector<GroupType> to_groups)
+      : ValGraphBFS(graph, from_groups, to_groups) {
+    auto consumer_tv = ir_utils::getTvOutput(expr);
+    NVF_ERROR(consumer_tv != nullptr);
+    if (consumer_tv->hasRoot()) {
+      // Remember the resize exprs appearing in the consumer
+      // tensro. These resize exprs are the only ones that should be
+      // valid to visit when indexing the inputs and outputs of the expr
+      auto root_to_logical_exprs = StmtSort::getExprsBetween(
+          {consumer_tv->getRootDomain().begin(),
+           consumer_tv->getRootDomain().end()},
+          {consumer_tv->getLogicalDomain().begin(),
+           consumer_tv->getLogicalDomain().end()});
+      for (Expr* root_to_logical_expr : root_to_logical_exprs) {
+        if (auto resize = dynamic_cast<Resize*>(root_to_logical_expr)) {
+          resize_paths_.insert(resize);
+        }
+      }
+    }
+  }
 
   virtual ~IndexingTraversal() = default;
 
   static ExprPath getExprsBetween(
+      const Expr* expr,
       const ValGraph& graph,
       const ValGroups& from_groups,
-      const ValGroups& to_groups,
-      const std::unordered_set<Resize*>& resize_paths) {
+      const ValGroups& to_groups) {
     IndexingTraversal traversal(
+        expr,
         graph,
         {from_groups.vector().begin(), from_groups.vector().end()},
-        {to_groups.vector().begin(), to_groups.vector().end()},
-        resize_paths);
+        {to_groups.vector().begin(), to_groups.vector().end()});
     traversal.traverse();
     return traversal.getShortestExprPath();
   }
@@ -192,6 +216,8 @@ class IndexingTraversal : public ValGraphBFS {
             return resize_paths_.find(expr->as<Resize>()) !=
                 resize_paths_.end();
           })) {
+        // This resize node should never be traversed for indexing of
+        // the given expr
         return true;
       }
     }
@@ -199,7 +225,7 @@ class IndexingTraversal : public ValGraphBFS {
   }
 
  private:
-  const std::unordered_set<Resize*>& resize_paths_;
+  std::unordered_set<Resize*> resize_paths_;
 };
 
 // Currently it's only Shared or Local but Global can be the case
@@ -912,25 +938,8 @@ IndexingInfo TensorIndexer::computeIndex(
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
 
-  std::unordered_set<Resize*> resize_paths;
-  {
-    auto consumer_tv = ir_utils::getTvOutput(expr);
-    if (consumer_tv->hasRoot()) {
-      auto root_to_rf_exprs = StmtSort::getExprsBetween(
-          {consumer_tv->getRootDomain().begin(),
-           consumer_tv->getRootDomain().end()},
-          {consumer_tv->getLogicalDomain().begin(),
-           consumer_tv->getLogicalDomain().end()});
-      for (Expr* root_to_rf_expr : root_to_rf_exprs) {
-        if (auto resize = dynamic_cast<Resize*>(root_to_rf_expr)) {
-          resize_paths.insert(resize);
-        }
-      }
-    }
-  }
-
   auto traversal_path = IndexingTraversal::getExprsBetween(
-      traversalGraph(), loop_groups, index_groups, resize_paths);
+      expr, traversalGraph(), loop_groups, index_groups);
 
   VERBOSE() << "Indexing path:\n";
   for (const auto& [expr_group, direction] : traversal_path) {
@@ -2177,8 +2186,8 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
     if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
         loadstore != nullptr &&
         (loadstore->opType() == LoadStoreOpType::LdMatrix)) {
-         // loadstore->opType() == LoadStoreOpType::CpAsync ||
-         //loadstore->opType() == LoadStoreOpType::CpAsyncBulkTensorTile)) {
+      // loadstore->opType() == LoadStoreOpType::CpAsync ||
+      // loadstore->opType() == LoadStoreOpType::CpAsyncBulkTensorTile)) {
       reason << "LoadStoreOp not supported: " << loadstore->toString();
     } else {
       for (const auto& id : ir_utils::allIDsOf(tv)) {

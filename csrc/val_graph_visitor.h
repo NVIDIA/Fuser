@@ -239,6 +239,8 @@ class ValGraphBFS {
       const GroupType& group,
       const std::pair<Direction, std::vector<GroupType>>& prev_groups);
 
+  // Hook to exclude certain graph nodes. See IndexingTraversal for a
+  // concrete example
   virtual bool excludeFromTraversal(const GroupType& group) const {
     return false;
   }
