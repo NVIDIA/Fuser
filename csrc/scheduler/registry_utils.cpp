@@ -491,14 +491,9 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   // coalesced_ids. If happens, return true.
   for (auto view : view_ops_not_used_by_reduction) {
     auto tv = view->out();
-    std::cout << "View op: " << view->toString() << std::endl;
     // visit exprs between root and logical domains in topologically sorted
-    // order (can't use id_model.idUses() since it is not sorted). This ensures
-    // the exprs are visited in the order they are defined, e.g. when we have
-    // A -> B -> C, we visit in order A, B, C instead of C, B, A or B, C, A.
-    // If the expr inputs exist in [vg_to_coalesced_ids], add the newly created
-    // IDs to the same coalesced_ids as the input IDs. Otherwise, do nothing
-    // since that expr is not interfering with IDs of reduction tv.
+    // order. add the newly created IDs to the same coalesced_ids as the input
+    // IDs.
     for (auto expr : StmtSort::getExprsTo(
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       if (auto merge = dynamic_cast<Merge*>(expr)) {
@@ -517,7 +512,6 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
         // merge of IDs in different coalesced_ids breaks the reduction
         // scheduler
         if (it0->second != it1->second) {
-          std::cout << "illegal merge: " << merge->toString() << std::endl;
           return true;
         } else {
           // add the newly created ID to the same coalesced_ids as the input
