@@ -52,9 +52,6 @@ class MultipleMatmulScheduler {
 
     translatePatterns();
 
-    // Build a new IdModel since translatePatterns creates new TVs
-    id_model_ = IdModel(fusion_);
-
     findRoles();
 
     // This also collects mma_results_
@@ -69,6 +66,8 @@ class MultipleMatmulScheduler {
     makeAllTiles();
 
     doSplitKRFactor();
+
+    fusion_->printMath();
   }
 
  private:
@@ -82,6 +81,9 @@ class MultipleMatmulScheduler {
     for (mma_utils::MatmulPattern& pattern : patterns_) {
       mma_ops_.push_back(pattern.translateToMmaOp());
     }
+
+    // Build a new IdModel since translateToMmaOp creates new TVs
+    updateIdModel();
   }
 
   // Get tensor roles and id roles
@@ -250,18 +252,52 @@ class MultipleMatmulScheduler {
     for (size_t i : c10::irange(bs_.size())) {
       addSetForCacheRead(bcw_smems_[i], &bcrs_[i]);
     }
+
+    // Build a new IdModel since we used cacheAfter
+    updateIdModel();
+  }
+
+  //! Rebuilds IdModel, then updates all ValGroups in abstract tensors to refer
+  //! to the new IdModel. This is necessary whenever we perform an operation
+  //! that creates a new TensorView, such as caching or rFactor
+  void updateIdModel() {
+    // Build new IdModel
+    IdModel new_id_model(fusion_);
+
+    // Get new permissive graph
+    ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::PERMISSIVE);
+
+    // Update AbstractTensors
+    for (mma_utils::AbstractMatmulTensor& abten : {std::ref(at_tiled_)}) {
+      for (AbstractId& abs_id : abten.domain) {
+        ValGroupAndItsGraph& vgg = abs_id.as<ValGroupAndItsGraph>();
+        vgg.group = new_graph.toGroup(vgg.group->front());
+        vgg.graph = &new_graph;
+      }
+    }
+
+    // Update id_roles_
+    std::unordered_map<ValGroup, MatmulDimRole> new_id_roles;
+    for (auto& [k, v] : id_roles_) {
+      const ValGroup& new_group = new_graph.toGroup(k->front());
+      new_id_roles.emplace(new_group, v);
+    }
+    id_roles_ = new_id_roles;
+
+    // Set id_model_ after we are done using the old one
+    id_model_ = std::move(new_id_model);
   }
 
   // Gets canonical dim ordering then uses it to canonicalize each tensor in the
   // fusion, then create tiles and swizzle their ordering.
   void makeAllTiles() {
     ValGraph& graph = id_model_.idGraph(IdMappingMode::PERMISSIVE);
-    canonical_dim_ordering_ =
+    std::vector<ValGroup> canonical_dim_ordering =
         mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, graph);
 
     mma_utils::AbstractMatmulTensor merged;
-    merged.domain.reserve(canonical_dim_ordering_.size());
-    for (ValGroup vg : canonical_dim_ordering_) {
+    merged.domain.reserve(canonical_dim_ordering.size());
+    for (const ValGroup& vg : canonical_dim_ordering) {
       merged.domain.push_back(ValGroupAndItsGraph{vg, &graph});
       // Tag each dimension with a MatmulDimRole
       auto it = id_roles_.find(vg);
@@ -272,24 +308,13 @@ class MultipleMatmulScheduler {
     mma_utils::mergeCanonicalAbstractTensor(merged);
 
     mma_utils::makeTile(merged, params_.tile_sizes.cta_tile.toVector());
+    at_tiled_ = merged;
 
-    for (Val* v : fusion_->usedMathVals()) {
-      if (auto tv = dynamic_cast<TensorView*>(v)) {
-        applyAbstractTransforms(at_tiled_, tv, &graph);
-      }
-    }
+    applyAbstractTransforms(at_tiled_, ir_utils::allTvs(fusion_), &graph);
   }
 
   void doSplitKRFactor() {
-    // rFactor to define splitk_sum
-    splitk_sums_.resize(mma_results_.size(), nullptr);
-    smem_epilogues_.resize(mma_results_.size(), nullptr);
-    for (size_t i : c10::irange(mma_results_.size())) {
-      TensorView* mma_result = mma_results_[i];
-      // We will assign these in this loop
-      TensorView*& smem_epilogue = smem_epilogues_[i];
-      TensorView*& splitk_sum = splitk_sums_[i];
-
+    for (TensorView*& mma_result : mma_results_) {
       if (params_.splitk_factor != 1) {
         // rFactor converts
         //   mma_result = mma(A, B, {/*Kf*/-5, /*Kg*/-4, /*Ki*/-1});
@@ -299,8 +324,9 @@ class MultipleMatmulScheduler {
         // and the method returns "intermediate". We need mma_result to refer to
         // the actual MmaOp output, so here we reassign that to the
         // intermediate.
-        splitk_sum = mma_result;
+        TensorView* splitk_sum = mma_result;
         mma_result = splitk_sum->rFactor({-4, -1});
+        splitk_sums_.push_back(splitk_sum);
       }
 
       // At this point we have the following schedule:
@@ -316,7 +342,7 @@ class MultipleMatmulScheduler {
         // becomes
         //   smem_epilogue = set(mma_result)
         //   splitk_sum = sum(smem_epilogue)
-        smem_epilogue = mma_result->cacheAfter();
+        smem_epilogues_.push_back(mma_result->cacheAfter());
         // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
       }
     }
@@ -335,18 +361,10 @@ class MultipleMatmulScheduler {
       bbs_, mma_results_, splitk_sums_, smem_epilogues_;
   bool has_non_mma_input_tvs_;
 
-  // Canonical dimensions before merging. This is just an ordering
-  std::vector<ValGroup> canonical_dim_ordering_;
-  // Merged dimensions pre-tiling, e.g. [B, M, N, K]
-  // Multiple M dimensions or N dimensions will be reordered and merged here
-  std::vector<MatmulDimRole> canonical_merged_dim_roles_;
-
   // Track the role of each axis for each tensor in the Fusion
   std::unordered_map<TensorView*, std::vector<MatmulDimRole>> all_tv_dims_;
 
   mma_utils::AbstractMatmulTensor
-      // Unscheduled abstract tensor
-      at_unscheduled_,
       // After makeTile
       at_tiled_;
 };
