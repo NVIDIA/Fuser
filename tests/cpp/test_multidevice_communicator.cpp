@@ -14,10 +14,12 @@
 
 namespace nvfuser {
 
-using CommunicatorTest = MultiDeviceTest;
+class CommunicatorTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<CommunicatorBackend> {};
 
 // A regression test for #2499.
-TEST_F(CommunicatorTest, Barrier) {
+TEST_P(CommunicatorTest, Barrier) {
   using clock = std::chrono::high_resolution_clock;
 
   const auto rank = communicator_->deviceId();
@@ -42,5 +44,11 @@ TEST_F(CommunicatorTest, Barrier) {
     EXPECT_GE(duration, expected_duration - kUnitDuration / 2);
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    CommunicatorTest,
+    testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc),
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser
