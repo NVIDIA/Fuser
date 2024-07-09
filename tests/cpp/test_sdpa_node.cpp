@@ -76,8 +76,6 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
   // philox_offset, debug_attn_mask} Since, dropout_p = 0.0 to validate outputs,
   // philox_seed and philox_offset are uninitialized empty tensors with garbage
   // values for this case, so we skip validating those values.
-  // TODO: Validate query_seq_len/key_seq_len once scalar fusion outputs are
-  // supported.
   EXPECT_TRUE(at::allclose(nvf_out[0], attn));
   EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
   EXPECT_FALSE(nvf_out[2].defined());
