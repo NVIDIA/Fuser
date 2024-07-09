@@ -1,4 +1,9 @@
-# Schedule layer-norm fusion with nvfuser scheduling primitives
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+# Owner(s): ["module: nvfuser"]
+
+# Description: Schedule layer-norm fusion with nvfuser scheduling primitives
 
 import torch
 from nvfuser import (
