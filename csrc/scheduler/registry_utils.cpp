@@ -401,22 +401,22 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   // the same logical domain as T1, don't need to check `T1 = view(T0)`.
   // However, T4 is not used by T3, so need to check `T4 = view(Tx)`. See test
   // GpuViewTest.ReshapeReductionSilbingReshape.
-  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  std::vector<ViewOp*> view_ops_not_used_by_reduction;
-  for (auto view : ir_utils::getViewOps(fusion)) {
-    auto view_tv = view->out();
-    if (!std::any_of(
-            reduction_tvs.begin(),
-            reduction_tvs.end(),
-            [&view_tv](TensorView* red_tv) {
-              return DependencyCheck::isDependencyOf(view_tv, red_tv);
-            })) {
-      view_ops_not_used_by_reduction.push_back(view);
-    }
-  }
-  if (view_ops_not_used_by_reduction.empty()) {
-    return false;
-  }
+  // const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  // std::vector<ViewOp*> view_ops_not_used_by_reduction;
+  // for (auto view : ir_utils::getViewOps(fusion)) {
+  //   auto view_tv = view->out();
+  //   if (!std::any_of(
+  //           reduction_tvs.begin(),
+  //           reduction_tvs.end(),
+  //           [&view_tv](TensorView* red_tv) {
+  //             return DependencyCheck::isDependencyOf(view_tv, red_tv);
+  //           })) {
+  //     view_ops_not_used_by_reduction.push_back(view);
+  //   }
+  // }
+  // if (view_ops_not_used_by_reduction.empty()) {
+  //   return false;
+  // }
 
   // Utility to take dimensions out of the vector that we've already
   // processed or don't want to process.
@@ -475,68 +475,47 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   // (1) Build the exact graph
   IdModel id_model(fusion, false, false, false);
   id_model.buildExactGraph();
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  // (2) For each ID in vect_of_coalesced_ids, find its corresponding ValGroup
-  // and save the mapping info. ValGroup is a set of equivalent IDs.
-  // Map through: ID --> ValGroup --> coalesced_ids (index in the vector)
-  std::unordered_map<ValGroup, int> vg_to_coalesced_ids;
-  for (auto index : c10::irange(vect_of_coalesced_ids.size())) {
-    for (auto id : vect_of_coalesced_ids.at(index)) {
-      const auto& vg = exact_graph.toGroup(id);
-      vg_to_coalesced_ids[vg] = (int)index;
-    }
-  }
-
-  // (3) Loop through all view ops and check if they merge IDs in different
-  // coalesced_ids. If happens, return true.
-  for (auto view : view_ops_not_used_by_reduction) {
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+  auto disjoint_sets = graph.disjointValSets();
+  for (auto view : ir_utils::getViewOps(fusion)) {
     auto tv = view->out();
-    // visit exprs between root and logical domains in topologically sorted
-    // order. add the newly created IDs to the same coalesced_ids as the input
-    // IDs.
+    std::vector<IterDomain*> ids_to_merge;
     for (auto expr : StmtSort::getExprsTo(
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       if (auto merge = dynamic_cast<Merge*>(expr)) {
-        const auto& vg0 = exact_graph.toGroup(merge->inner());
-        const auto& vg1 = exact_graph.toGroup(merge->outer());
-        auto it0 = vg_to_coalesced_ids.find(vg0);
-        auto it1 = vg_to_coalesced_ids.find(vg1);
-        // reshape is after reduction, its `root domain` is same to reduction
-        // tv's logical domain, so all the IDs constructed from root exists in
-        // `vg_to_coalesced_ids`
-        NVF_ERROR(
-            it0 != vg_to_coalesced_ids.end() &&
-                it1 != vg_to_coalesced_ids.end(),
-            "At least one of the merged IDs doesn't exist in the map: ",
-            merge->toString());
-        // merge of IDs in different coalesced_ids breaks the reduction
-        // scheduler
-        if (it0->second != it1->second) {
-          return true;
-        } else {
-          // add the newly created ID to the same coalesced_ids as the input
-          const auto& vg = exact_graph.toGroup(merge->out());
-          vg_to_coalesced_ids[vg] = it0->second;
+        disjoint_sets.mapEntries(merge->inner(), merge->outer());
+        disjoint_sets.mapEntries(merge->inner(), merge->out());
+        // process staged split IDs, remove after mapped.
+        for (auto id : ids_to_merge) {
+          disjoint_sets.mapEntries(merge->out(), id);
         }
-      } else if (auto split = dynamic_cast<Split*>(expr)) {
-        const auto& vg0 = exact_graph.toGroup(split->in());
-        const auto& vg1 = exact_graph.toGroup(split->outer());
-        const auto& vg2 = exact_graph.toGroup(split->inner());
-        auto it = vg_to_coalesced_ids.find(vg0);
-        NVF_ERROR(
-            it != vg_to_coalesced_ids.end(),
-            "Input to split doesn't exist in the map: ",
-            split->toString());
-        // add the newly created ID to the same coalesced_ids as the input
-        vg_to_coalesced_ids[vg1] = it->second;
-        vg_to_coalesced_ids[vg2] = it->second;
-      } else {
-        // Shouldn't have any other exprs between root and logical domains
-        NVF_ERROR(
-            false,
-            "Expression type: ",
-            expr ? expr->toString() : "nullptr",
-            " not supported.");
+        ids_to_merge.clear();
+      }
+      // For split, directly map the inner and outer IDs leads to false
+      // positive e.g. the frist reshape in group norm, since only merge op can
+      // cause the merge of IDs in different coalesced_ids. However, we need to
+      // keep track of the split IDs and map them with merged IDs when a merge
+      // op is found. Otherwise, we may miss a case like: reshape: [I2, I3] ->
+      // [8, I2/8, I3] -> [8, I2/8*I3], reduction: [I2, rI3]. This view +
+      // reduction is not supported since I2/8*I3 includes both iter and redu
+      // dims. If we don't process split, I2/8 is not mapped with I3.
+      else if (auto split = dynamic_cast<Split*>(expr)) {
+        ids_to_merge.push_back(split->inner());
+        ids_to_merge.push_back(split->outer());
+        ids_to_merge.push_back(split->in());
+      }
+    }
+  }
+
+  // check if there are any mapped IDs in different coalesced_ids
+  for (auto index : c10::irange(vect_of_coalesced_ids.size() - 1)) {
+    const auto& coalesced_ids_1 = vect_of_coalesced_ids.at(index);
+    const auto& coalesced_ids_2 = vect_of_coalesced_ids.at(index + 1);
+    for (auto id_1 : coalesced_ids_1) {
+      for (auto id_2 : coalesced_ids_2) {
+        if (disjoint_sets.strictAreMapped(id_1, id_2)) {
+          return true;
+        }
       }
     }
   }
