@@ -2527,4 +2527,64 @@ TEST_F(GpuViewTest, ReductionReshapeReshape) {
       executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
+TEST_F(GpuViewTest, ReshapeReductionSilbingReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 128;
+  const std::vector<int64_t> input_shape = {N};
+  DataType dtype = DataType::Float;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, {N}, {16, 8});
+  auto tv3 = reshape(tv2, {16, 8}, {16, 4, 2});
+  auto tv4 = sum(tv3, {-1});
+  // This reshape merges an Iter dim and a reduction dim
+  auto tv5 = reshape(tv3, {16, 4, 2}, {N});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have 2 segmented groups
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 2);
+}
+
+TEST_F(GpuViewTest, ReshapeReductionForwardViewReplay) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 128;
+  const std::vector<int64_t> input_shape = {N};
+  DataType dtype = DataType::Float;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, {N}, {16, 8});
+  auto tv3 = reshape(tv2, {16, 8}, {16, 4, 2});
+  auto tv4 = sum(tv3, {-1});
+  // ID {8} was used in split, {8} --> {4, 2}
+  // Now it is used again in merge, {16} * {8} --> {N}
+  // requiresForwardViewReplay() captures this non-consistant uses.
+  auto tv5 = reshape(tv2, {16, 8}, {N});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have 2 segmented groups
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 2);
+}
+
 } // namespace nvfuser

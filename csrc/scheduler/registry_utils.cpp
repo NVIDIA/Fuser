@@ -396,23 +396,25 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.
 
-  // don't need to check view ops before reduction, e.g. T1 = view(T0),
-  // Tx = SomeOps(T1), T3 = reduction(Tx). In this case, T3 has the same
-  // logical domain as T1.
+  // Only needs to check tvs not used by reduction, e.g. T1 = view(T0),
+  // Tx = SomeOps(T1), T3 = reduction(Tx), T4 = view(Tx). In this case, T3 has
+  // the same logical domain as T1, don't need to check `T1 = view(T0)`.
+  // However, T4 is not used by T3, so need to check `T4 = view(Tx)`. See test
+  // GpuViewTest.ReshapeReductionSilbingReshape.
   const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  std::vector<ViewOp*> view_ops_after_reduction;
+  std::vector<ViewOp*> view_ops_not_used_by_reduction;
   for (auto view : ir_utils::getViewOps(fusion)) {
     auto view_tv = view->out();
-    if (std::any_of(
+    if (!std::any_of(
             reduction_tvs.begin(),
             reduction_tvs.end(),
             [&view_tv](TensorView* red_tv) {
-              return DependencyCheck::isDependencyOf(red_tv, view_tv);
+              return DependencyCheck::isDependencyOf(view_tv, red_tv);
             })) {
-      view_ops_after_reduction.push_back(view);
+      view_ops_not_used_by_reduction.push_back(view);
     }
   }
-  if (view_ops_after_reduction.empty()) {
+  if (view_ops_not_used_by_reduction.empty()) {
     return false;
   }
 
@@ -487,8 +489,9 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
 
   // (3) Loop through all view ops and check if they merge IDs in different
   // coalesced_ids. If happens, return true.
-  for (auto view : view_ops_after_reduction) {
+  for (auto view : view_ops_not_used_by_reduction) {
     auto tv = view->out();
+    std::cout << "View op: " << view->toString() << std::endl;
     // visit exprs between root and logical domains in topologically sorted
     // order (can't use id_model.idUses() since it is not sorted). This ensures
     // the exprs are visited in the order they are defined, e.g. when we have
@@ -514,6 +517,7 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
         // merge of IDs in different coalesced_ids breaks the reduction
         // scheduler
         if (it0->second != it1->second) {
+          std::cout << "illegal merge: " << merge->toString() << std::endl;
           return true;
         } else {
           // add the newly created ID to the same coalesced_ids as the input
