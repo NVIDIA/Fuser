@@ -273,14 +273,18 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
       // Mapping exists from root domain to producer.
       auto consumer_root = consumer_tv->getMaybeRootDomain();
       for (auto idx : c10::irange(consumer_tv->nDims())) {
-        // Mapping for N, H, E exists from Q/K/V to any output.
-        if (idx != 2) {
+        // Mapping for N, H exists from Q/K/V to any output.
+        if (idx < 2) {
           EXPECT_TRUE(
               mappingExists(producer_tv->axis(idx), consumer_root.at(idx)));
         }
         // Mapping for L exists between Q and output, log_sumexp.
-        else if (role == AttnRole::Q) {
+        if (idx == 2 && role == AttnRole::Q) {
           EXPECT_TRUE(mappingExists(producer_tv->axis(2), consumer_root.at(2)));
+        }
+        // Mapping for Ev exists between V and output.
+        if (idx == 3 && role == AttnRole::V) {
+          EXPECT_TRUE(mappingExists(producer_tv->axis(3), consumer_root.at(3)));
         }
       }
     }

@@ -230,23 +230,27 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // Producers:
     //   query = [N, H, L, E]
     //   key = [N, H, S, E]
-    //   value = [N, H, S, E]
+    //   value = [N, H, S, Ev]
     // Consumers:
-    //   output = [N, H, L, E]
+    //   output = [N, H, L, Ev]
     //   logsumexp = [N, H, L]
     //   cum_seq_q/k = [N + 1]
 
-    // Map N, H, E from any input (query/key/value)
+    // Map N, H from any input (query/key/value)
     for (auto idx : c10::irange(consumer_root.size())) {
-      // Map N, H, E from any input to output
-      if (idx != 2) {
+      if (idx < 2) {
         updatePairwiseRootDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
-      // Map L from query to output.
-      else if (producer_tv_->sameAs(op->query())) {
+      // Map L, E from query and value respectively
+      if (idx == 2 && producer_tv_->sameAs(op->query())) {
         updatePairwiseRootDomainMap(
             producer_logical.at(2), consumer_root.at(2));
+      }
+      // Map Ev from value to output
+      if (idx == 3 && producer_tv_->sameAs(op->value())) {
+        updatePairwiseRootDomainMap(
+            producer_logical.at(3), consumer_root.at(3));
       }
     }
     return dom_map;

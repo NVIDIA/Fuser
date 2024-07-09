@@ -434,22 +434,22 @@ SdpfaFwdResult sdpfa_fwd(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
 
   // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
-  // For Flash attention, E=Ev.
-  // N, H, E are mapped for all inputs to outputs. L is mapped from query to
-  // output. Note: There is no mapping for S. This may change in the future if
-  // we add additional reduction ids to the output.
+  // N, H are mapped for all inputs to outputs. L is mapped from query to
+  // output. Ev is mapped from value to output. Note: There is no mapping for S,
+  // E. This may change in the future if we add additional reduction ids to the
+  // output.
   auto ndims_out = query_domain.size();
 
   // TensorView for attention output
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
-  for (auto idx : c10::irange(ndims_out)) {
-    if (idx != 2) {
-      out_domain[idx] = ops::newOutputIterDomain(
-          {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
-    } else {
-      out_domain[idx] = ops::newOutputIterDomain({query_domain.at(idx)});
-    }
+  for (auto idx : c10::irange(ndims_out - 2)) {
+    out_domain[idx] = ops::newOutputIterDomain(
+        {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
+  out_domain[ndims_out - 2] =
+      ops::newOutputIterDomain({query_domain.at(ndims_out - 2)});
+  out_domain[ndims_out - 1] =
+      ops::newOutputIterDomain({value_domain.at(ndims_out - 1)});
 
   TensorDomain* attn_td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
@@ -590,7 +590,7 @@ SdpfaBwdResult sdpfa_bwd(
   NVF_CHECK(
       !scale || scale->isScalar(), "Expected scale to be a scalar double.");
 
-  // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,E] Output: [N,H,L,E]
+  // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
   TensorView* grad_query = ops::newOutputTV({query}, query->dtype());
   TensorView* grad_key = ops::newOutputTV({key}, key->dtype());
   TensorView* grad_value = ops::newOutputTV({value}, value->dtype());
