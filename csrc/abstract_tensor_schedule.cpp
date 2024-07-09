@@ -87,7 +87,7 @@ class AbstractTensorSchedule {
         continue;
       }
       for (const ExprGroup& eg : graph_->getDefinitions(vg)) {
-        for (ValGroup vg_inp : graph_->inputGroups(eg)) {
+        for (const ValGroup& vg_inp : graph_->inputGroups(eg)) {
           vg_stack.push(vg_inp);
         }
       }
