@@ -48,6 +48,11 @@ Val* addExpr(Args&&... args) {
 }
 
 template <typename... Args>
+Val* subExpr(Args&&... args) {
+  return SimplifyingIrBuilder::subExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
 Val* mulExpr(Args&&... args) {
   return SimplifyingIrBuilder::mulExpr(std::forward<Args>(args)...);
 }
@@ -65,6 +70,10 @@ Val* modExpr(Args&&... args) {
 template <typename... Args>
 Val* xorExpr(Args&&... args) {
   return IrBuilder::bitwiseXorExpr(std::forward<Args>(args)...);
+}
+
+Val* createInt(int64_t i) {
+  return IrBuilder::create<Val>(i, DataType::Index);
 }
 
 // AbstractGetReference and IndexValidator are used to validate
@@ -91,15 +100,24 @@ class AbstractGetReference {
     return std::string();
   }
 
+  void clearCircularBufferInfo() {
+    circular_buffer_loop_stage_ = CircularBufferLoopStage::NotApplicable;
+  }
+
+  void setCircularBufferInfo(CircularBufferLoopStage loop_stage) {
+    circular_buffer_loop_stage_ = loop_stage;
+  }
+
  protected:
   const TensorIndexer& indexer_;
+  CircularBufferLoopStage circular_buffer_loop_stage_;
 };
 
 template <typename GetReference>
 class IndexValidator : public kir::IrVisitor {
  public:
   IndexValidator(const GpuLower& lower, GetReference&& get_ref)
-      : get_ref_(std::move(get_ref)) {}
+      : lower_(lower), get_ref_(std::move(get_ref)) {}
 
   using kir::IrVisitor::dispatch;
   using kir::IrVisitor::handle;
@@ -108,6 +126,18 @@ class IndexValidator : public kir::IrVisitor {
     if (!ir_utils::isTvOp(expr)) {
       kir::IrVisitor::dispatch(expr);
       return;
+    }
+
+    auto loop_it =
+        std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
+          return fl->circularBufferLoopStage() !=
+              CircularBufferLoopStage::NotApplicable;
+        });
+    if (loop_it == for_loops_.end()) {
+      get_ref_.clearCircularBufferInfo();
+    } else {
+      auto loop = *loop_it;
+      get_ref_.setCircularBufferInfo(loop->circularBufferLoopStage());
     }
 
     auto out_ti = expr->output(0)->as<kir::TensorIndex>();
@@ -194,6 +224,7 @@ class IndexValidator : public kir::IrVisitor {
   }
 
  private:
+  const GpuLower& lower_;
   GetReference get_ref_;
 };
 
@@ -1619,6 +1650,213 @@ TEST_F(IndexingTest, ResizePath) {
               mulExpr(
                   loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
               addExpr(loop_indices.at(1), IrBuilder::create<Val>(15)));
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Same fusion as DoubleBufferingTest.DoubleBuffering1
+TEST_F(IndexingTest, DoubleBuffering1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 32);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv1->inlineAt(-2);
+  tv2->inlineAt(-2);
+
+  tv3->axis(-2)->parallelize(ParallelType::BIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv1->circularBuffer(/*number_of_stages=*/2);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      std::cerr << "Validating " << tv->toString() << std::endl;
+      std::cerr << "Loop stage: " << circular_buffer_loop_stage_ << std::endl;
+
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      switch (tv->name()) {
+        case 0: {
+          if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
+            return addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2));
+          } else if (
+              circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+            return addExpr(
+                mulExpr(
+                    addExpr(loop_indices.at(0), createInt(1)), createInt(128)),
+                addExpr(
+                    mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                    loop_indices.at(2)));
+          } else {
+            NVF_ERROR(
+                false,
+                "Unexpected circular buffer stage: ",
+                circular_buffer_loop_stage_);
+          }
+        }
+        case 1: {
+          if (as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              return loop_indices.at(2);
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return addExpr(
+                  loop_indices.at(2),
+                  mulExpr(
+                      modExpr(
+                          addExpr(loop_indices.at(0), createInt(1)),
+                          createInt(2)),
+                      tv->axis(2)->extent()));
+            }
+          } else {
+            NVF_ERROR(
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+            // There should be no read-ahead offset
+            return addExpr(
+                loop_indices.at(2),
+                mulExpr(
+                    modExpr(loop_indices.at(0), createInt(2)),
+                    tv->axis(2)->extent()));
+          }
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Same fusion as DoubleBufferingTest.DoubleBuffering4
+TEST_F(IndexingTest, DoubleBuffering4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = set(tv1);
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 32);
+  tv3->split(-1, 8);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv0->computeAt(tv3, 2);
+  tv2->computeAt(tv3, -1);
+
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  tv3->axis(1)->parallelize(ParallelType::Unswitch);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv2->circularBuffer(/*number_of_stages=*/2);
+
+  // Check indices of:
+  // - Producer of the producer of the circular buffered tensor
+  // - Circular buffered tensor itself
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      switch (tv->name()) {
+        case 1: {
+          if (!as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              return loop_indices.at(3);
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return addExpr(
+                  mulExpr(
+                      addExpr(loop_indices.at(2), createInt(1)),
+                      tv->axis(3)->extent()),
+                  loop_indices.at(3));
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          } else {
+            return nullptr;
+          }
+        }
+        case 2: {
+          if (as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              return tv->fusion()->zeroVal();
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return modExpr(
+                  addExpr(loop_indices.at(2), createInt(1)), createInt(2));
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          } else {
+            if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return modExpr(loop_indices.at(2), createInt(2));
+            } else if (
+                circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Epilog) {
+              return modExpr(
+                  subExpr(tv->axis(2)->extent(), createInt(1)), createInt(2));
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          }
         }
         default:
           return nullptr;
