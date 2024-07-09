@@ -1395,4 +1395,28 @@ TEST_F(AliasTest, SegmentMetaOps) {
   }
 }
 
+TEST_F(AliasTest, Issue2552) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigConcreteTensor({1, 3});
+  TensorView* y = makeContigConcreteTensor({1, 3});
+  fusion->addInput(x);
+  fusion->addInput(y);
+  x = expand(x, {IrBuilder::create<Val>(2), x->axis(1)->extent()});
+  x = slice(x, /*starts=*/{0, 0}, /*stops=*/{1, 3});
+  fusion->addOutput(x);
+  TensorView* z = add(x, y);
+  fusion->addOutput(z);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor x_tensor = at::randn({1, 3}, options);
+  at::Tensor y_tensor = at::randn({1, 3}, options);
+  std::vector<at::Tensor> out_tensors =
+      fec.runFusionWithInputs({x_tensor, y_tensor});
+  testValidate(
+      fec.fusion(), out_tensors, {x_tensor, y_tensor}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
