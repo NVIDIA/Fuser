@@ -701,6 +701,81 @@ TEST_F(NVFuserTest, FusionFactorAmax_CUDA) {
       preseg_fusion, outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, FusionIssue2258_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(fusion_ptr.get());
+
+  TensorView* x = makeContigTensor(2, DataType::BFloat16);
+  TensorView* bias = makeContigTensor(1, DataType::BFloat16);
+  TensorView* residual = makeContigTensor(2, DataType::BFloat16);
+  TensorView* ln_weight = makeContigTensor(1, DataType::BFloat16);
+  TensorView* ln_bias = makeContigTensor(1, DataType::BFloat16);
+  TensorView* fp8_scale = makeContigTensor(0, DataType::Float);
+  TensorView* fp8_amax = makeContigTensor(0, DataType::Float);
+  Val* scalar_eps = IrBuilder::create<Val>(DataType::Double);
+
+  fusion.addInput(x);
+  fusion.addInput(bias);
+  fusion.addInput(residual);
+  fusion.addInput(ln_weight);
+  fusion.addInput(ln_bias);
+  fusion.addInput(fp8_scale);
+  fusion.addInput(fp8_amax);
+  fusion.addInput(scalar_eps);
+
+  TensorView* x_cast = castOp(DataType::Float, x);
+  TensorView* bias_cast = castOp(DataType::Float, bias);
+  TensorView* residual_cast = castOp(DataType::Float, residual);
+  TensorView* ln_weight_cast = castOp(DataType::Float, ln_weight);
+  TensorView* ln_bias_cast = castOp(DataType::Float, ln_bias);
+
+  TensorView* t0 = broadcast(bias_cast, {true, false});
+  TensorView* t1 = add(x_cast, t0);
+  TensorView* t2 = add(t1, residual_cast);
+  fusion.addOutput(t2);
+
+  TensorView* gamma_centered_ln_weight = add(ln_weight_cast, IrBuilder::create<Val>(1.0f, DataType::Float));
+
+  ForwardNormResult t3 = layer_norm(t2, /*kNormShapeNumDims=*/1, gamma_centered_ln_weight, ln_bias_cast, scalar_eps);
+  TensorView* t4 = mul(t3.output, fp8_scale);
+  TensorView* t5 = castOp(DataType::BFloat16, t4);
+  fusion.addOutput(t5);
+
+  // Full Amax Reduction
+  TensorView* t6 = abs(t3.output);
+  TensorView* t7 = max(t6, {0, 1}, /*keepdim=*/false);
+
+  // Amax Aliased Output
+  fusion.aliasOutputToInput(t7, fp8_amax, AllocationType::ReuseBuffer);
+
+  const float eps = 1e-5;
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn({32, 1228}, options);
+  at::Tensor at_bias = at::randn({1228}, options);
+  at::Tensor at_residual = at::randn({32, 1228}, options);
+  at::Tensor at_ln_weight = at::randn({1228}, options);
+  at::Tensor at_ln_bias = at::randn({1228}, options);
+
+  auto fp32_options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_fp8_scale = at::randn({}, fp32_options);
+  at::Tensor at_fp8_amax = at::zeros({}, fp32_options);
+  std::vector<c10::IValue> aten_inputs = {at_x, at_bias, at_residual, 
+	  at_ln_weight, at_ln_bias, at_fp8_scale, at_fp8_amax, eps};
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion_ptr), args);
+  runtime.compileFusionParallel(args);
+  auto outputs = runtime.runWithInputs(args);
+
+  /*
+  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
+  testValidate(
+      preseg_fusion, outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
+  */
+}
+
+
 TEST_F(NVFuserTest, FusionFactorAmaxHorizontalMultiplePartial_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
