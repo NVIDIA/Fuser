@@ -531,6 +531,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "input_bytes", [](KernelProfile& self) { return self.input_bytes; });
   kernel_prof.def_property_readonly(
       "output_bytes", [](KernelProfile& self) { return self.output_bytes; });
+  kernel_prof.def_property_readonly(
+      "scheduler", [](KernelProfile& self) { return self.scheduler; });
 
   //! A fusion profile is generated for FusionDefinition.
   py::class_<FusionProfile> fusion_prof(nvfuser, "FusionProfile");
