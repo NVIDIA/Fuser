@@ -509,8 +509,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // memory tensor transpose. Pattern matching conditions include:
     //
     // - Shared memory tensor
-    // - Ignore if swizzle is used as it should have the correct
-    //   allocation domain
     // - BID/DID should not be used with allocation domains
     // - Consumer tensor must be a global memory tensor with vectorization
     // - There must be a merge op whose two outputs are the dominating
@@ -523,17 +521,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     if (tv->getMemoryType() != MemoryType::Shared) {
-      return std::nullopt;
-    }
-
-    // If swizzle is used, it's likely the allocation domain is
-    // already set correctly.
-    auto exprs = DependencyCheck::getAllExprsBetween(
-        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
-        {allocation_domains.begin(), allocation_domains.end()});
-    if (std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
-          return expr->isA<Swizzle>();
-        })) {
       return std::nullopt;
     }
 
