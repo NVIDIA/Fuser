@@ -350,11 +350,14 @@ IterDomain* newOutputIterDomain(
             .iter_type(iter_type.value())
             .build();
   } else {
+    if (!iter_type.has_value()){
+      iter_type = IterType::Broadcast;
+    }
     out_domain = IterDomainBuilder(
                      FusionGuard::getCurFusion()->zeroVal(),
                      FusionGuard::getCurFusion()->oneVal())
                      .expanded_extent(expanded_extent_val)
-                     .iter_type(IterType::Broadcast)
+                     .iter_type(iter_type.value())
                      .build();
   }
   return out_domain;
