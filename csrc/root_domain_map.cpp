@@ -228,7 +228,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
   if (SdpaFwdOp* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())) {
     // Note: Explicit handling of DIDx(D) until
-    // https://github.com/NVIDIA/Fuser/issues/2563 is resolved. Producers:
+    // https://github.com/NVIDIA/Fuser/issues/2563 is resolved. 
+    // Producers:
     //   query = [DIDx(D)?, N, H, L, E]
     //   key = [DIDx(D)?, N, H, S, E]
     //   value = [DIDx(D)?, N, H, S, Ev]
