@@ -44,6 +44,10 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
       // find the const extent, if already seen, check if they are the same
       if (id->getMaybeExpandedExtent()->isConstScalar()) {
         if (const_extent) {
+          if (!const_extent->sameAs(id->getMaybeExpandedExtent())) {
+            std::cout << id->toString() << std::endl;
+            std::cout << const_extent->toString() << " " << id->getMaybeExpandedExtent()->toString() << std::endl;
+          }
           NVF_CHECK(
               const_extent->sameAs(id->getMaybeExpandedExtent()),
               "Found two different const extents in the same set: ",

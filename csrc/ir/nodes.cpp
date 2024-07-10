@@ -4351,6 +4351,16 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     return padded_inp;
   };
 
+  // Temporary hack to handle sharding the head dimension
+  // on the logical domain.
+  bool handle_device_dim = false;
+  if (query.dim() == 5) {
+    handle_device_dim = true;
+    query = query.squeeze(0);
+    key = key.squeeze(0);
+    value = value.squeeze(0);
+  }
+
   query = pad_last_dim(query, 8);
   key = pad_last_dim(key, 8);
   value = pad_last_dim(value, 8);
@@ -4379,6 +4389,12 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
               is_causal,
               /*return_debug_mask=*/false,
               scale);
+
+  // Add back the device dim axis for outputs with a head dimension.
+  if (handle_device_dim) {
+    output = output.unsqueeze(0);
+    log_sumexp = log_sumexp.unsqueeze(0);
+  }
 
   // If the inputs were padded, slice the output to restore the original size
   if (output.sizes()[3] != last_dim_size) {

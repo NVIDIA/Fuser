@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
+#include <multidevice/device_mesh.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <preseg_passes/allocation_order_inference.h>
@@ -711,4 +712,71 @@ TEST_F(SDPATest, AttnFwdBwd) {
       __LINE__,
       __FILE__);
 }
+
+// TODO: Update/remove test when DID parallelization
+// allowed on loop domain.
+TEST_F(SDPATest, Sharded_SdpaFwd) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  constexpr int64_t d = 4;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  std::vector<int64_t> q_shape({d, n, h/d, l, e});
+  std::vector<int64_t> kv_shape({d, n, h/d, s, e});
+
+  auto tvq = makeConcreteTensor(q_shape, DataType::Half);
+  auto tvk = makeConcreteTensor(kv_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
+
+  fusion->addInput(tvq);
+  fusion->addInput(tvk);
+  fusion->addInput(tvv);
+
+  for (TensorView* tv : {tvq, tvk, tvv}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  auto output = sdpfa_fwd(
+      tvq,
+      tvk,
+      tvv,
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(false),
+      /*scale=*/nullptr);
+  
+  addSdpaFwdOutputs(fusion.get(), output);
+  for (TensorView* tv : {output.output, output.log_sumexp}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor q = at::randn({n, h/d, l, e}, options);
+  at::Tensor k = at::randn({n, h/d, s, e}, options);
+  at::Tensor v = at::randn({n, h/d, s, e}, options);
+
+  double scale = 1.0 / std::sqrt(e);
+  auto aten_out = at::_scaled_dot_product_flash_attention(
+      q,
+      k,
+      v,
+      /*dropout_p=*/0.0,
+      /*is_causal=*/false,
+      /*return_debug_mask=*/false,
+      scale);
+  std::cout << "aten" << std::endl;
+  std::cout << std::get<0>(aten_out).sizes() << std::endl;
+  std::cout << std::get<1>(aten_out).sizes() << std::endl;
+
+  std::cout << "nvfuser" << std::endl;
+  
+  FusionExecutorCache fec(std::move(fusion));
+  auto nvf_out = fec.runFusionWithInputs({q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
+  std::cout << "nvfuser size " << nvf_out[8].sizes() << std::endl;
+  nvf_out[0].squeeze(0); // attn
+  nvf_out[1].squeeze(1); // log_sumexp
+  validateSdpaFwdOutputs(nvf_out, aten_out);
+}
+
 } // namespace nvfuser
