@@ -4351,10 +4351,11 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     return padded_inp;
   };
 
-  // Temporary hack to handle sharding the head dimension
-  // on the logical domain.
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
   bool handle_device_dim = false;
   if (query.dim() == 5) {
+    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
     handle_device_dim = true;
     query = query.squeeze(0);
     key = key.squeeze(0);

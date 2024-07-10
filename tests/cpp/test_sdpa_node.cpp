@@ -713,16 +713,16 @@ TEST_F(SDPATest, AttnFwdBwd) {
       __FILE__);
 }
 
-// TODO: Update/remove test when DID parallelization
-// allowed on loop domain.
+// TODO: Remove/update when https://github.com/NVIDIA/Fuser/issues/2563 is
+// resolved.
 TEST_F(SDPATest, Sharded_SdpaFwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   constexpr int64_t d = 4;
   auto mesh = DeviceMesh::createForNumDevices(d);
-  std::vector<int64_t> q_shape({d, n, h/d, l, e});
-  std::vector<int64_t> kv_shape({d, n, h/d, s, e});
+  std::vector<int64_t> q_shape({d, n, h / d, l, e});
+  std::vector<int64_t> kv_shape({d, n, h / d, s, e});
 
   auto tvq = makeConcreteTensor(q_shape, DataType::Half);
   auto tvk = makeConcreteTensor(kv_shape, DataType::Half);
@@ -744,7 +744,7 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
-  
+
   addSdpaFwdOutputs(fusion.get(), output);
   for (TensorView* tv : {output.output, output.log_sumexp}) {
     tv->setDeviceMesh(mesh);
@@ -752,9 +752,9 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
   }
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor q = at::randn({n, h/d, l, e}, options);
-  at::Tensor k = at::randn({n, h/d, s, e}, options);
-  at::Tensor v = at::randn({n, h/d, s, e}, options);
+  at::Tensor q = at::randn({n, h / d, l, e}, options);
+  at::Tensor k = at::randn({n, h / d, s, e}, options);
+  at::Tensor v = at::randn({n, h / d, s, e}, options);
 
   double scale = 1.0 / std::sqrt(e);
   auto aten_out = at::_scaled_dot_product_flash_attention(
@@ -765,18 +765,10 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       /*is_causal=*/false,
       /*return_debug_mask=*/false,
       scale);
-  std::cout << "aten" << std::endl;
-  std::cout << std::get<0>(aten_out).sizes() << std::endl;
-  std::cout << std::get<1>(aten_out).sizes() << std::endl;
 
-  std::cout << "nvfuser" << std::endl;
-  
   FusionExecutorCache fec(std::move(fusion));
-  auto nvf_out = fec.runFusionWithInputs({q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
-  std::cout << "nvfuser size " << nvf_out[8].sizes() << std::endl;
-  nvf_out[0].squeeze(0); // attn
-  nvf_out[1].squeeze(1); // log_sumexp
+  auto nvf_out =
+      fec.runFusionWithInputs({q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
-
 } // namespace nvfuser
