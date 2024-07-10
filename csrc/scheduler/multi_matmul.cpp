@@ -553,6 +553,27 @@ class MultipleMatmulScheduler {
   }
 
   void doSplitKRFactor() {
+    // Find Ko dimension in at_tiled_ by looking at tags
+    int64_t Ko_dim = -1;
+    int64_t Ki_dim = -1;
+    for (size_t dim : c10::irange(at_tiled_.size())) {
+      if (at_tiled_.getTag((int64_t)dim) == MatmulDimRole::K) {
+        if (Ko_dim == -1) {
+          Ko_dim = (int64_t)dim;
+        } else {
+          NVF_ERROR(Ki_dim == -1, "Expected exactly two K dimensions");
+          Ki_dim = (int64_t)dim;
+        }
+      }
+    }
+    NVF_ERROR(Ko_dim != -1, "Could not find outer K dimension");
+
+    // Split Ko -> [rKf, rKg]
+    at_tiled_.split(Ko_dim, params_.splitk_factor, /*inner*/ false);
+    // After splitting Ko we have Kf_dim = Ko_dim and Kg_dim = Kf_dim + 1
+    int64_t Kf_dim = Ko_dim;
+    Ki_dim++;
+
     // We need to apply the transforms here so that we can perform rFactor
     if (params_.splitk_factor != 1) {
       applyAbstractTransforms(at_tiled_, mma_results_);
@@ -569,7 +590,7 @@ class MultipleMatmulScheduler {
         // the actual MmaOp output, so here we reassign that to the
         // intermediate.
         TensorView* splitk_sum = mma_result;
-        mma_result = splitk_sum->rFactor({-4, -1});
+        mma_result = splitk_sum->rFactor({Kf_dim, Ki_dim});
         splitk_sums_.push_back(splitk_sum);
       }
 
