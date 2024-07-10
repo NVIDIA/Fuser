@@ -300,7 +300,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   encodeBuffer(device, encoding_);
   for (const auto i : c10::irange(inputs.size())) {
     auto input = inputs[i];
-    if (input.isTensor()) {
+    if (input.isTensor() && input.toTensor().defined()) {
       auto& input_tensor = input.toTensor();
 
       for (auto size : input_tensor.sizes()) {
