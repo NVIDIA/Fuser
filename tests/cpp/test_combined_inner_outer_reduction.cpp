@@ -38,9 +38,8 @@ using namespace at::indexing;
 using CombinedSchedulerParams = std::tuple<DataType, int64_t, int64_t>;
 using CombinedSchedulerTest = NVFuserFixtureParamTest<CombinedSchedulerParams>;
 TEST_P(CombinedSchedulerTest, LayerNormBackward) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
   auto [dtype, batch_size, hidden_size] = GetParam();
 
   std::vector<int64_t> norm_shape{hidden_size};
