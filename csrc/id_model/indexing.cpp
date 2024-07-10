@@ -274,10 +274,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
       }
 
       // WAR for transpose
-      if (auto transposed_smem_alloc_dom = patchAllocationOfTransposedSmemTensor(
-              tv,
-              allocation_domains,
-              GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
+      if (auto transposed_smem_alloc_dom =
+              patchAllocationOfTransposedSmemTensor(
+                  tv,
+                  allocation_domains,
+                  GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
           transposed_smem_alloc_dom.has_value()) {
         allocation_domains = transposed_smem_alloc_dom.value();
         // Make sure the original allocation domains are fully contiguous
