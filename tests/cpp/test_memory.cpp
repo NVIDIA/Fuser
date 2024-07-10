@@ -1017,7 +1017,7 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain2) {
   tv0->setAllocationDomain(tv0->getLoopDomain(), true);
 
   for (auto tv : {tv1, tv2}) {
-    tv->reorder({{2, -2}});
+    tv->reorder({{1, -2}});
     tv->merge(-2);
     tv->flatten(0, -2);
     tv->axis(0)->parallelize(ParallelType::BIDx);
@@ -1031,7 +1031,7 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain2) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
-  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 3);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0});
