@@ -90,7 +90,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   fusion.addOutput(layer_norm_results.grad_weight);
   fusion.addOutput(layer_norm_results.grad_bias);
 
-  auto maybe_fp16_options =
+  auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
 
   at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
