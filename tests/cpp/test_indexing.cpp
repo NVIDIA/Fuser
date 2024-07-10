@@ -1545,8 +1545,6 @@ TEST_F(IndexingTest, ResizePath) {
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
 
-  fusion.print();
-
   // TransformPrinter :
   // T0_g[ iS0{11}, iS1{30} ]
   //  logical domain : (iS0{11}, iS1{30})
