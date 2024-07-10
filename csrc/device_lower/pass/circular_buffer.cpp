@@ -705,8 +705,7 @@ void CircularBufferInfo::setCircularBufferAxis(
   if (tv->isCircularBuffered()) {
     stage_depth = tv->circularBufferDepth();
   } else {
-    // Double buffer is essentially
-    //  circular buffer with depth 2.
+    // Double buffer is a circular buffer with depth 2.
     stage_depth = 2;
   }
 

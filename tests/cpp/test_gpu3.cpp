@@ -8270,6 +8270,55 @@ TEST_F(NVFuserTest, DecoupledDomains) {
   EXPECT_EQ(tv_all, all_ids);
 }
 
+// https://github.com/NVIDIA/Fuser/issues/2488
+TEST_F(NVFuserTest, ReplayRFactorMergeBcast) {
+  const std::vector<int64_t> input_shape = {256, 1, 1, 4};
+  // test rFactor, merge of two bcast IDs generate a bcast ID
+  {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+    TensorView* tv0 = makeConcreteTensor(input_shape);
+    fusion.addInput(tv0);
+    auto tv1 = sum(tv0, {-1});
+    fusion.addOutput(tv1);
+    // {256, 1, 1, 4}
+    tv1->merge(1, 2);
+    // {256, 1*1, 4}
+    tv1->merge(0, 1);
+    // {256*1*1, 4}
+    tv1->split(-1, 2);
+    // {256*1*1, 4/2, 2}
+    auto tv2 = tv1->rFactor({-2});
+    for (auto expr : StmtSort::getExprsTo(
+             {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()})) {
+      if (auto merge = dynamic_cast<Merge*>(expr)) {
+        if (merge->outer()->isBroadcast() && merge->inner()->isBroadcast()) {
+          EXPECT_TRUE(merge->out()->isBroadcast())
+              << "Merge of two broadcast IDs should generate a new broadcast ID: "
+              << merge->toString();
+        }
+      }
+    }
+  }
+  // end-to-end validation
+  {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+    TensorView* tv0 = makeConcreteTensor(input_shape);
+    fusion.addInput(tv0);
+    auto tv1 = sum(tv0, {-1});
+    fusion.addOutput(tv1);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor at_x = at::ones(input_shape, options);
+    std::vector<c10::IValue> aten_inputs = {at_x};
+    FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+    auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
