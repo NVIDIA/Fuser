@@ -4844,7 +4844,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
-  // cum_seq_q/k
+  // cum_seq_q/k, max_q/k
   std::vector<at::Tensor> bwd_inputs;
   for (auto idx : c10::irange(10)) {
     bwd_inputs.emplace_back(inputs.at(idx).as<at::Tensor>());
