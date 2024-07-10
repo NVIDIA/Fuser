@@ -4352,6 +4352,14 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   double scale = inputs.size() > 5 ? inputs.back().as<double>()
                                    : 1.0 / std::sqrt(last_dim_size);
 
+  bool handle_device_dim = false;
+  if (query.dim() == 5) {
+    std::cout << "Squeezing the device dim" << std::endl;
+    handle_device_dim = true;
+    query = query.squeeze(0);
+    key = key.squeeze(0);
+    value = value.squeeze(0);
+  }
   // ATen reference:
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
   auto
@@ -4376,6 +4384,10 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   // If the inputs were padded, slice the output to restore the original size
   if (output.sizes()[3] != last_dim_size) {
     output = output.slice(-1, 0, last_dim_size);
+  }
+  if (handle_device_dim) {
+    output = output.unsqueeze(0);
+    std::cout << "Unsqueezed device dim " << output.sizes() << std::endl;
   }
 
   // Query and key seq len are of type c10::SymInt -> convert them to int for

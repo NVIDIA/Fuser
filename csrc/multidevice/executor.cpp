@@ -56,8 +56,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
   propagateShardings(complete_fusion_.get());
-  insertReshardings(complete_fusion_.get());
-  insertShardedAxisReordering(complete_fusion_.get());
+  // insertReshardings(complete_fusion_.get());
+  // insertShardedAxisReordering(complete_fusion_.get());
   setShardedAllocationDomain(complete_fusion_.get());
 
   // Performs segmentation at the inter-device communications
@@ -110,6 +110,11 @@ MultiDeviceExecutor::MultiDeviceExecutor(
           host_unit, clone(group->inputs()), clone(group->outputs()));
       hic->pushBackTopLevelExprs(post_on_stream);
     } else {
+      if (group->exprs().size() > 1) {
+        for (auto expr : group->exprs()) {
+          std::cout << "Comm group: " << expr->toString() << std::endl;
+        }
+      }
       NVF_ERROR(
           group->exprs().size() == 1,
           "Communication segments must contain only one Expr");

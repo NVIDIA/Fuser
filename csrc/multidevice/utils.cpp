@@ -178,16 +178,15 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
 bool isResharding(Expr* expr) {
   // we don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
-  if (expr->isA<SdpaFwdOp>()) {
-    std::cout << "Have to manually shard SDPA " << std::endl;
+  // Note: this is a temp hack
+  if (expr->isA<SdpaFwdOp>() || !ir_utils::isTvOp(expr)) {
     return false;
   }
+
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
-      if (haveDifferentShardings(input, output)) {
-        return true;
-      }
+      return haveDifferentShardings(input, output);
     }
   }
   return false;
@@ -224,11 +223,20 @@ namespace {
 void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
-  }
-  if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(
-        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
-  }
+    // HACK: MLP ATtention test only shards the outermost logical
+    // axis is DID parallelized.
+    // TODO: why is there an empty tv?
+    if (tv->getLogicalDomain().size() == 0) {
+      std::cout << "Empty tv? " << tv->toString() << std::endl;
+    }
+    if (tv->getLogicalDomain().size() > 0 && ref->axis(0)->isDeviceDim()) {
+      tv->axis(0)->parallelize(ParallelType::DIDx);
+    }
+}
+  // if (!tvs.empty()) {
+  //   scheduler_utils::parallelizeAllLike(
+  //       ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
+  // }
 }
 
 // TODO: We can either reshard the inputs of a resharding expression or

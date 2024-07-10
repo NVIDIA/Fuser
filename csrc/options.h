@@ -42,6 +42,8 @@ enum class DebugDumpOption {
             //!< to `FusionExecutor::compileFusion`.
   FusionIrMath, //!< Dump just the compute (math) part of the above `FusionIr`
                 //!< for conciseness
+  // FusionIrSharded, //!< Dump the Fusion IR after sharding propagation
+  // FusionIr
   KernelIr, //!< Dump the compiler Kernel IR
   ComputeAtMap, //!< Dump the computeAt map
   CudaKernel, //!< Dump the generated CUDA C++ kernel code
