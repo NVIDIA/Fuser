@@ -18,7 +18,7 @@ namespace nvfuser {
 // there's only one correct path. Specifically, any resize expr group
 // node must appear in the root-logical path of the consumer
 // tensor. Otherwise, resize nodes should be ignored. See
-// IndexingTest.ResizePath for a concret example.
+// IndexingTest.ResizePath for a concrete example.
 class IndexingTraversal : public ValGraphBFS {
  public:
   IndexingTraversal(
@@ -31,7 +31,7 @@ class IndexingTraversal : public ValGraphBFS {
     NVF_ERROR(consumer_tv != nullptr);
     if (consumer_tv->hasRoot()) {
       // Remember the resize exprs appearing in the consumer
-      // tensro. These resize exprs are the only ones that should be
+      // tensor. These resize exprs are the only ones that should be
       // valid to visit when indexing the inputs and outputs of the expr
       auto root_to_logical_exprs = StmtSort::getExprsBetween(
           {consumer_tv->getRootDomain().begin(),
