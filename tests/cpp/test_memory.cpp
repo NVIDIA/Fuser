@@ -1722,9 +1722,10 @@ TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
 }
 
 // Tests for the examples in doc/dev/tma.md
+
 class TMADocTest : public TMATest {};
 
-TEST_F(TMADocTest, Figure8a) {
+TEST_F(TMADocTest, Figure13a) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1764,7 +1765,7 @@ TEST_F(TMADocTest, Figure8a) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9a) {
+TEST_F(TMADocTest, Figure14a) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1805,7 +1806,7 @@ TEST_F(TMADocTest, Figure9a) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8b) {
+TEST_F(TMADocTest, Figure13b) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1843,7 +1844,7 @@ TEST_F(TMADocTest, Figure8b) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9b) {
+TEST_F(TMADocTest, Figure14b) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1881,7 +1882,7 @@ TEST_F(TMADocTest, Figure9b) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8c) {
+TEST_F(TMADocTest, Figure13c) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1920,7 +1921,7 @@ TEST_F(TMADocTest, Figure8c) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9c) {
+TEST_F(TMADocTest, Figure14c) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1959,7 +1960,7 @@ TEST_F(TMADocTest, Figure9c) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8d) {
+TEST_F(TMADocTest, Figure13d) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1995,7 +1996,7 @@ TEST_F(TMADocTest, Figure8d) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9d) {
+TEST_F(TMADocTest, Figure14d) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2030,7 +2031,7 @@ TEST_F(TMADocTest, Figure9d) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8e) {
+TEST_F(TMADocTest, Figure13e) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2070,7 +2071,7 @@ TEST_F(TMADocTest, Figure8e) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9e) {
+TEST_F(TMADocTest, Figure14e) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2110,7 +2111,7 @@ TEST_F(TMADocTest, Figure9e) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure10a) {
+TEST_F(TMADocTest, Figure15a) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2155,7 +2156,7 @@ TEST_F(TMADocTest, Figure10a) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure10b) {
+TEST_F(TMADocTest, Figure15b) {
   GTEST_SKIP() << "TODO: requires IdModel based indexing.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2197,7 +2198,7 @@ TEST_F(TMADocTest, Figure10b) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure10c) {
+TEST_F(TMADocTest, Figure15c) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2242,7 +2243,7 @@ TEST_F(TMADocTest, Figure10c) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure10d) {
+TEST_F(TMADocTest, Figure15d) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2289,7 +2290,7 @@ TEST_F(TMADocTest, Figure10d) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure10e) {
+TEST_F(TMADocTest, Figure15e) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);

@@ -151,7 +151,12 @@ class AllocationDomainSetup : private kir::IrVisitor {
         // Note that since we are dealing with a Kernel IR, a single
         // tensor may show up as consumers multiple times, e.g.,
         // zero initialization and actual definition. Using the last
-        // expr should give us correct allocation info.
+        // expr should give us correct allocation info. See
+        // IndexingTest.InlinedUnroll for a concrete
+        // example. Specifically, the initization expression of t2
+        // doesn't have an unrolling loop, so the allocation info
+        // obtained from that expression would fail to give the
+        // correct allocation domains.
         auto [alloc_domains, contiguity] =
             getAllocationDomainsAndContiguity(out_tv, for_loops_);
         auto alloc_info =
@@ -267,22 +272,22 @@ class AllocationDomainSetup : private kir::IrVisitor {
                 [](auto b) { return b.has_value() && b.value(); }),
             tv->toString());
       }
-    }
 
-    // WAR for transpose
-    if (auto transposed_smem_alloc_dom = patchAllocationOfTransposedSmemTensor(
-            tv,
-            allocation_domains,
-            GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
-        transposed_smem_alloc_dom.has_value()) {
-      allocation_domains = transposed_smem_alloc_dom.value();
-      // Make sure the original allocation domains are fully contiguous
-      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
-        return b.has_value() && b.value();
-      }));
-      // Set the new allocation domains fully contiguous
-      contiguity =
-          std::vector<std::optional<bool>>(allocation_domains.size(), true);
+      // WAR for transpose
+      if (auto transposed_smem_alloc_dom = patchAllocationOfTransposedSmemTensor(
+              tv,
+              allocation_domains,
+              GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
+          transposed_smem_alloc_dom.has_value()) {
+        allocation_domains = transposed_smem_alloc_dom.value();
+        // Make sure the original allocation domains are fully contiguous
+        NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+          return b.has_value() && b.value();
+        }));
+        // Set the new allocation domains fully contiguous
+        contiguity =
+            std::vector<std::optional<bool>>(allocation_domains.size(), true);
+      }
     }
 
     return {allocation_domains, contiguity};

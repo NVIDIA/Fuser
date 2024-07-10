@@ -773,12 +773,13 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
 
   bool needs_real_slicing = false;
   for (const auto idx : c10::irange(ndims)) {
-    auto inp_root_id = inp_dom[idx];
-    auto range = normalize_slice_range(ranges.at(idx), inp_root_id->extent());
+    IterDomain* inp_root_id = inp_dom[idx];
+    Val* inp_root_size = inp_root_id->getMaybeExpandedExtent();
+    Slice range = normalize_slice_range(ranges.at(idx), inp_root_size);
     normalized_ranges.at(idx) = range;
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
-    if (range.start->isZeroInt() && range.stop->sameAs(inp_root_id->extent()) &&
+    if (range.start->isZeroInt() && range.stop->sameAs(inp_root_size) &&
         range.step->isOneInt()) {
       // This dim doesn't need slicing
       out_root_id = inp_root_id->cloneWithoutRFactor();
@@ -790,7 +791,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       out_rf_id = IterDomain::resize(
           out_root_id,
           SimplifyingIrBuilder::negExpr(range.start),
-          SimplifyingIrBuilder::subExpr(range.stop, inp_root_id->extent()),
+          SimplifyingIrBuilder::subExpr(range.stop, inp_root_size),
           true);
       needs_real_slicing = true;
     }

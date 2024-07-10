@@ -83,10 +83,6 @@ class TensorIndexer {
   const IndexingAllocationInfo& getIndexingAllocationInfo(
       TensorView* tv) const {
     auto it = alloc_info_.find(tv);
-    if (it == alloc_info_.find(tv)) {
-      std::cerr << "GetIndexAllocInfo of " << tv->toString() << std::endl;
-      std::cerr << "Not found\n";
-    }
     NVF_ERROR(
         it != alloc_info_.end(),
         "No allocation info found for ",
