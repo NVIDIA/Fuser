@@ -951,7 +951,7 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
+TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -989,6 +989,50 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
   EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
   ASSERT_TRUE(XorFinder::findXor(fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(6, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv0->merge(1);
+  tv0->merge(0);
+  tv0->merge(-2);
+  tv0->merge(0);
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->reorder({{2, -2}});
+    tv->merge(-2);
+    tv->flatten(0, -2);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3, 5, 7, 11, 32}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
+  TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
