@@ -19,6 +19,20 @@
 
 namespace nvfuser {
 
+std::ostream& operator<<(std::ostream& os, const TMADim& d) {
+  os << "TMADim{"
+     << "partitioned="
+     << (d.partitioned ? d.partitioned->toString() : "nullptr")
+     << ", box=" << (d.box ? d.box->toString() : "nullptr")
+     << ", tile=" << (d.tile ? d.tile->toString() : "nullptr")
+     << ", stride=" << (d.stride ? d.stride->toString() : "nullptr")
+     << ", gmem_stride_bytes="
+     << (d.gmem_stride_bytes ? d.gmem_stride_bytes->toInlineString()
+                             : "nullptr")
+     << "}";
+  return os;
+}
+
 namespace {
 
 int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {

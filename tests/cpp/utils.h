@@ -460,6 +460,10 @@ class NVFuserTest : public ::testing::Test {
 
     // Make sure capturing of stdout is stopped
     ensureStopCaptureStdout();
+
+    // Make sure profiler is unset in case it was set during test
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
   }
 
   // Start capturing of stdout if not already started
