@@ -10,6 +10,7 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model_index_compute.h>
 #include <id_model/indexing.h>
 #include <id_model/to_string.h>
 #include <index_compute.h>
@@ -695,167 +696,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::unordered_set<TensorView*> used_as_producer;
 };
 
-// Similar to IndexCompute but adapted for the graph-based indexing
-class IdGraphIndexCompute : public OptOutDispatch {
- public:
-  IdGraphIndexCompute(
-      const ValGraph& traversal_graph,
-      std::unordered_map<ValGroup, Val*> initial_index_map)
-      : traversal_graph_(traversal_graph),
-        index_map_(std::move(initial_index_map)) {}
-
-  // Propagate the index map through a given expr of a specified
-  // direction.
-  void propagate(const ExprGroup& expr_group, Direction direction) {
-    NVF_ERROR(!expr_group->empty());
-    // This looks a little ugly but the dispatch interface doesn't
-    // have a way to pass arguments
-    current_direction_ = direction;
-    dispatch(expr_group->front());
-    current_direction_ = Direction::Undefined;
-  }
-
-  const std::unordered_map<ValGroup, Val*> indexMap() const {
-    return index_map_;
-  }
-
- private:
-  using OptOutDispatch::handle;
-
-  void handle(Split* split) override;
-
-  void handle(Merge* merge) override;
-
-  void handle(Swizzle* swizzle) override;
-
-  void handle(Resize* resize) override;
-
-  bool isForward(Expr* expr) const;
-
-  bool hasIndex(IterDomain* id) const {
-    return indexMap().find(toGroup(id)) != indexMap().end();
-  }
-
-  Val* getIndex(IterDomain* id) const {
-    auto it = index_map_.find(toGroup(id));
-    NVF_ERROR(it != index_map_.end(), "Index not found: ", id->toString());
-    return it->second;
-  }
-
-  void setIndex(IterDomain* id, Val* idx) {
-    index_map_.emplace(toGroup(id), idx);
-  }
-
-  const ValGroup& toGroup(IterDomain* id) const {
-    return traversal_graph_.toGroup(id);
-  }
-
- private:
-  const ValGraph& traversal_graph_;
-  std::unordered_map<ValGroup, Val*> index_map_;
-  Direction current_direction_ = Direction::Undefined;
-};
-
-bool IdGraphIndexCompute::isForward(Expr* expr) const {
-  return current_direction_ == Direction::Forward;
-}
-
-void IdGraphIndexCompute::handle(Split* split) {
-  const bool is_forward = isForward(split);
-
-  auto inner_extent = split->inner()->extent();
-
-  if (is_forward) {
-    auto in_idx = getIndex(split->in());
-    auto outer_idx = SimplifyingIrBuilder::divExpr(in_idx, inner_extent);
-    Val* inner_idx = SimplifyingIrBuilder::modExpr(in_idx, inner_extent);
-    setIndex(split->outer(), outer_idx);
-    setIndex(split->inner(), inner_idx);
-  } else {
-    auto outer_idx = getIndex(split->outer());
-    auto inner_idx = getIndex(split->inner());
-    auto in_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(outer_idx, inner_extent), inner_idx);
-    setIndex(split->in(), in_idx);
-  }
-}
-
-void IdGraphIndexCompute::handle(Merge* merge) {
-  const bool is_forward = isForward(merge);
-
-  auto inner_ext = merge->inner()->extent();
-
-  if (is_forward) {
-    auto outer_idx = getIndex(merge->outer());
-    auto inner_idx = getIndex(merge->inner());
-    auto out_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(inner_ext, outer_idx), inner_idx);
-    setIndex(merge->out(), out_idx);
-  } else {
-    auto out_idx = getIndex(merge->out());
-    auto outer_idx = SimplifyingIrBuilder::divExpr(out_idx, inner_ext);
-    setIndex(merge->outer(), outer_idx);
-    Val* inner_idx = SimplifyingIrBuilder::modExpr(out_idx, inner_ext);
-    setIndex(merge->inner(), inner_idx);
-  }
-}
-
-void IdGraphIndexCompute::handle(Swizzle* swizzle) {
-  const bool is_forward = isForward(swizzle);
-
-  auto x_ext = swizzle->inX()->extent();
-  auto y_ext = swizzle->inY()->extent();
-
-  if (is_forward) {
-    auto x_idx = getIndex(swizzle->inX());
-    auto y_idx = getIndex(swizzle->inY());
-    auto [result_x, result_y] =
-        dispatchUnSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
-    setIndex(swizzle->outX(), result_x);
-    setIndex(swizzle->outY(), result_y);
-  } else {
-    auto x_idx = getIndex(swizzle->outX());
-    auto y_idx = getIndex(swizzle->outY());
-    auto [result_x, result_y] =
-        dispatchSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
-    setIndex(swizzle->inX(), result_x);
-    setIndex(swizzle->inY(), result_y);
-  }
-}
-
-void IdGraphIndexCompute::handle(Resize* resize) {
-  const bool is_forward = isForward(resize);
-
-  auto left_expand = resize->leftExpand();
-
-  auto in_id = is_forward ? resize->in() : resize->out();
-  auto out_id = is_forward ? resize->out() : resize->in();
-
-  if (left_expand->isZeroInt()) {
-    // Just forward as is
-    setIndex(out_id, getIndex(in_id));
-    return;
-  }
-
-  auto in_idx = getIndex(in_id);
-  Val* out_idx = nullptr;
-
-  if (is_forward) {
-    out_idx = SimplifyingIrBuilder::addExpr(in_idx, left_expand);
-  } else {
-    out_idx = SimplifyingIrBuilder::subExpr(in_idx, left_expand);
-  }
-
-  setIndex(out_id, out_idx);
-}
-
-} // namespace
-
-TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
-  buildLoopIndexMap();
-}
-
-namespace {
 ParallelType getParallelType(const ValGroup& loop_group) {
   ParallelType common_pt = ParallelType::Serial;
   for (const auto val : *loop_group) {
@@ -878,7 +718,12 @@ ParallelType getParallelType(const ValGroup& loop_group) {
 
   return common_pt;
 }
+
 } // namespace
+
+TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
+  buildLoopIndexMap();
+}
 
 void TensorIndexer::buildLoopIndexMap() {
   if (id_model_.empty()) {
