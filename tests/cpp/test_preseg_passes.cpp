@@ -633,12 +633,13 @@ TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
 
 namespace {
 
-void checkAmaxSegmentation(FusionKernelRuntime& runtime,
-	                   int64_t number_of_segments,
-	                   int64_t fusion_index,
-	                   int64_t number_of_outputs_in_fusion,
-	                   int64_t number_of_iterdomains,
-	                   int64_t expected_number_of_reduction_axes) {
+void checkAmaxSegmentation(
+    FusionKernelRuntime& runtime,
+    int64_t number_of_segments,
+    int64_t fusion_index,
+    int64_t number_of_outputs_in_fusion,
+    int64_t number_of_iterdomains,
+    int64_t expected_number_of_reduction_axes) {
   // Two segments are created because a partial reduction and a full reduction
   // cannot be in the same fusion.
   std::vector<std::unique_ptr<Fusion>> segments = runtime.getFusionSegments();
@@ -710,12 +711,13 @@ TEST_F(NVFuserTest, FusionFactorAmax_CUDA) {
   // * Expect partial reduction for amax to be saved as last output of first
   // fusion
   // The partial amax reduction has a single reduction axis.
-  checkAmaxSegmentation(runtime,
-	                /*number_of_segments=*/2,
-	                /*fusion_index=*/0,
-	                /*number_of_outputs_in_fusion=*/2,
-	                /*number_of_iterdomains=*/2,
-	                /*expected_number_of_reduction_axes=*/1);
+  checkAmaxSegmentation(
+      runtime,
+      /*number_of_segments=*/2,
+      /*fusion_index=*/0,
+      /*number_of_outputs_in_fusion=*/2,
+      /*number_of_iterdomains=*/2,
+      /*expected_number_of_reduction_axes=*/1);
 
   // Aten reference
   at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
@@ -815,12 +817,13 @@ TEST_F(NVFuserTest, FusionIssue2258_CUDA) {
   // * Expect partial reduction for amax to be saved as last output of first
   // fusion
   // The partial amax reduction has a single reduction axis.
-  checkAmaxSegmentation(runtime,
-	                /*number_of_segments=*/2,
-	                /*fusion_index=*/0,
-	                /*number_of_outputs_in_fusion=*/3,
-	                /*number_of_iterdomains=*/2,
-	                /*expected_number_of_reduction_axes=*/1);
+  checkAmaxSegmentation(
+      runtime,
+      /*number_of_segments=*/2,
+      /*fusion_index=*/0,
+      /*number_of_outputs_in_fusion=*/3,
+      /*number_of_iterdomains=*/2,
+      /*expected_number_of_reduction_axes=*/1);
 
   // Aten reference
   at::Tensor at_x_cast = at_x.to(at::kFloat);
@@ -882,21 +885,23 @@ TEST_F(NVFuserTest, FusionFactorAmaxHorizontalMultiplePartial_CUDA) {
   auto outputs = runtime.runWithInputs(args);
 
   // Expected result of factorAmaxReduction pass:
-  // * Four segments are created because a partial reduction and a full reduction
-  // cannot be in the same fusion.
+  // * Four segments are created because a partial reduction and a full
+  // reduction cannot be in the same fusion.
   // * The first two reductions cannot be fused together because they do not
   // share a common reduction axis.
   // * Neither of the first two reduction segments can be fused with the third
-  // segment because the reduction scheduler does not support the pointwise epilogue.
+  // segment because the reduction scheduler does not support the pointwise
+  // epilogue.
   // * Expect partial reduction for amax to be saved as last output of third
   // fusion
   // The partial amax reduction has a single reduction axis.
-  checkAmaxSegmentation(runtime,
-	                /*number_of_segments=*/4,
-	                /*fusion_index=*/2,
-	                /*number_of_outputs_in_fusion=*/2,
-	                /*number_of_iterdomains=*/2,
-	                /*expected_number_of_reduction_axes=*/1);
+  checkAmaxSegmentation(
+      runtime,
+      /*number_of_segments=*/4,
+      /*fusion_index=*/2,
+      /*number_of_outputs_in_fusion=*/2,
+      /*number_of_iterdomains=*/2,
+      /*expected_number_of_reduction_axes=*/1);
 
   // Aten reference
   at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
@@ -905,7 +910,13 @@ TEST_F(NVFuserTest, FusionFactorAmaxHorizontalMultiplePartial_CUDA) {
   at::Tensor at_t4 = at::abs(at_t3);
   at::Tensor at_t5 = at::max(at_t4);
 
-  testValidate(runtime.fusionSegments()->completeFusion(), outputs, aten_inputs, {at_t3, at_t5}, __LINE__, __FILE__);
+  testValidate(
+      runtime.fusionSegments()->completeFusion(),
+      outputs,
+      aten_inputs,
+      {at_t3, at_t5},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionFactorAmaxBroadcast_CUDA) {
@@ -947,12 +958,13 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcast_CUDA) {
   // * Expect partial reduction for amax to be saved as last output of first
   // fusion
   // The partial amax reduction has a single reduction axis.
-  checkAmaxSegmentation(runtime,
-	                /*number_of_segments=*/2,
-	                /*fusion_index=*/0,
-	                /*number_of_outputs_in_fusion=*/2,
-	                /*number_of_iterdomains=*/2,
-	                /*expected_number_of_reduction_axes=*/1);
+  checkAmaxSegmentation(
+      runtime,
+      /*number_of_segments=*/2,
+      /*fusion_index=*/0,
+      /*number_of_outputs_in_fusion=*/2,
+      /*number_of_iterdomains=*/2,
+      /*expected_number_of_reduction_axes=*/1);
 
   // Aten reference
   at::Tensor at_t1 = at::sum(x, {1}, /*keepdim=*/true);
@@ -960,7 +972,13 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcast_CUDA) {
   at::Tensor at_t3 = at::abs(at_t2);
   at::Tensor at_t4 = at::max(at_t3);
 
-  testValidate(runtime.fusionSegments()->completeFusion(), outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
+  testValidate(
+      runtime.fusionSegments()->completeFusion(),
+      outputs,
+      aten_inputs,
+      {at_t2, at_t4},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionFactorAmaxCast_CUDA) {
@@ -1005,12 +1023,13 @@ TEST_F(NVFuserTest, FusionFactorAmaxCast_CUDA) {
   // * Expect partial reduction for amax to be saved as last output of first
   // fusion
   // The partial amax reduction has a single reduction axis.
-  checkAmaxSegmentation(runtime,
-	                /*number_of_segments=*/2,
-	                /*fusion_index=*/0,
-	                /*number_of_outputs_in_fusion=*/2,
-	                /*number_of_iterdomains=*/2,
-	                /*expected_number_of_reduction_axes=*/1);
+  checkAmaxSegmentation(
+      runtime,
+      /*number_of_segments=*/2,
+      /*fusion_index=*/0,
+      /*number_of_outputs_in_fusion=*/2,
+      /*number_of_iterdomains=*/2,
+      /*expected_number_of_reduction_axes=*/1);
 
   // Aten reference
   at::Tensor x_cast = x.to(at::kFloat);
@@ -1072,12 +1091,13 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcastCast_CUDA) {
   // * Expect partial reduction for amax to be saved as last output of first
   // fusion
   // The partial amax reduction has a single reduction axis.
-  checkAmaxSegmentation(runtime,
-	                /*number_of_segments=*/2,
-	                /*fusion_index=*/0,
-	                /*number_of_outputs_in_fusion=*/2,
-	                /*number_of_iterdomains=*/2,
-	                /*expected_number_of_reduction_axes=*/1);
+  checkAmaxSegmentation(
+      runtime,
+      /*number_of_segments=*/2,
+      /*fusion_index=*/0,
+      /*number_of_outputs_in_fusion=*/2,
+      /*number_of_iterdomains=*/2,
+      /*expected_number_of_reduction_axes=*/1);
 
   // Aten reference
   at::Tensor x_cast = x.to(at::kFloat);
