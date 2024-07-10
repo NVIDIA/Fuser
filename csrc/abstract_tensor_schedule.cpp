@@ -120,11 +120,11 @@ class AbstractTensorSchedule {
   }
 
   IterDomain* replayAbstractId(AbstractId abs_id, GroupIdMap& tv_ids) {
-    ValGroup g = abstractIdToValGroup(abs_id);
+    const ValGroup& g = abstractIdToValGroup(abs_id);
 
-    // This holds ValGroups that we cannot compute from tv's root. When
-    // we detect that any inputs of an ExprGroup are in these groups, we know
-    // that we cannot compute that ExprGroup so we should skip it.
+    // This holds ValGroups that we cannot compute from tv's root. When we
+    // detect that any inputs of an ExprGroup are in these groups, we know that
+    // we cannot compute that ExprGroup so we should skip it.
     //
     // For example, suppose we had
     //   tv:
@@ -146,17 +146,29 @@ class AbstractTensorSchedule {
     //     ExprGroup 2:
     //       iS8 = merge(iS6, iS7)
     //
-    //   abstract_tensor_.domain:
-    //     ValGroup 4, ValGroup 5, ValGroup 7
+    //   abstract_tensor_.domain: ValGroup 4, ValGroup 5, ValGroup 7
     //
-    // In this case, ValGroups 4 and 5 are computable since those ValGroups are
-    // produced by ExprGroup 1 which itself produced by ExprGroup 0, and
-    // tv includes iS0 and iS1.
+    //      VG0   VG1
+    //        \   /
+    //         EG0
+    //          |
+    //         VG3       VG2   VG6
+    //          |          \   /
+    //         EG1          EG2
+    //        /   \          |
+    //      VG4   VG5       VG7
+    //
+    // In this case, tv has loop domains in ValGroups 0, 1, and 2. IterDomains
+    // iS6, iS7, and iS8 might be associated to another tensor in the fusion.
+    //
+    // ValGroups 4 and 5 are computable since those ValGroups are produced by
+    // ExprGroup 1 which itself produced by ExprGroup 0, and tv includes iS0 and
+    // iS1.
     //
     // However, ValGroup 7 is not computable. It is produced by ExprGroup 2
-    // whose producer ValGroups are 2 and 6. ValGroup 2 is computable since iS0
-    // is in tv, however there is no IterDomain in tv that can be
-    // used to represent ValGroup 6 which also has no producer ValGroups.
+    // whose input ValGroups are 2 and 6. ValGroup 2 is computable since iS2 is
+    // in tv, however there is no IterDomain in tv that can be used to represent
+    // ValGroup 6 which also has no producer ValGroups.
     std::unordered_set<ValGroup> uncomputable_groups;
 
     std::stack<ValGroup> vg_stack({g});
