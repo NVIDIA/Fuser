@@ -395,15 +395,9 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       philox_seed,
       philox_offset};
-  FusionExecutor fe;
-  std::for_each(
-      fusion->outputs().begin(), fusion->outputs().end(), [&](Val* out) {
-        fusion->aliasOutputToInput(
-            out, /*input=*/nullptr, AllocationType::Evaluate);
-      });
 
-  fe.compileFusion(fusion.get(), sdpa_bwd_inputs);
-  auto out = fe.runFusion(sdpa_bwd_inputs);
+  FusionExecutorCache fec(std::move(fusion));
+  auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);
 
   auto [ref_grad_query, ref_grad_key, ref_grad_value] =
       at::_scaled_dot_product_flash_attention_backward(
@@ -537,15 +531,9 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
       at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       philox_seed,
       philox_offset};
-  FusionExecutor fe;
-  std::for_each(
-      fusion->outputs().begin(), fusion->outputs().end(), [&](Val* out) {
-        fusion->aliasOutputToInput(
-            out, /*input=*/nullptr, AllocationType::Evaluate);
-      });
 
-  fe.compileFusion(fusion.get(), sdpa_bwd_inputs);
-  auto out = fe.runFusion(sdpa_bwd_inputs);
+  FusionExecutorCache fec(std::move(fusion));
+  auto out = fec.runFusionWithInputs(sdpa_bwd_inputs);
 
   auto [ref_grad_query, ref_grad_key, ref_grad_value] =
       at::_scaled_dot_product_flash_attention_backward(
@@ -682,14 +670,8 @@ TEST_F(SDPATest, AttnFwdBwd) {
   at::Tensor v = at::randn(v_shape, options).set_requires_grad(true);
   at::Tensor grad_out = at::randn(attn_shape, options);
 
-  FusionExecutor fe;
-  std::for_each(
-      fusion->outputs().begin(), fusion->outputs().end(), [&](Val* out) {
-        fusion->aliasOutputToInput(
-            out, /*input=*/nullptr, AllocationType::Evaluate);
-      });
-  fe.compileFusion(fusion.get(), {q, k, v, grad_out});
-  auto nvf_out = fe.runFusion({q, k, v, grad_out});
+  FusionExecutorCache fec(std::move(fusion));
+  auto nvf_out = fec.runFusionWithInputs({q, k, v, grad_out});
 
   auto attn = at::scaled_dot_product_attention(
       q,

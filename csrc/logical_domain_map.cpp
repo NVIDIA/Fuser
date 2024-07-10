@@ -263,6 +263,44 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     return dom_map;
   }
 
+  if (SdpaBwdOp* op = dynamic_cast<SdpaBwdOp*>(consumer_tv_->definition())) {
+    // Producers:
+    //   grad_attn = [N, H, L, Ev]
+    //   query = [N, H, L, E]
+    //   key = [N, H, S, E]
+    //   value = [N, H, S, Ev]
+    //   attn_out = [N, H, L, Ev]
+    //   logsumexp = [N, H, L]
+    //   cum_seq_q/k = [N + 1]
+    // Consumers:
+    //   grad_query = [N, H, L, E]
+    //   grad_key = [N, H, S, E]
+    //   grad_value = [N, H, S, Ev]
+
+    bool producer_has_s = producer_tv_->sameAs(op->key()) || producer_tv_->sameAs(op->value());
+    bool consumer_has_s = consumer_tv_->sameAs(op->grad_key()) || consumer_tv_->sameAs(op->grad_value());
+
+    bool producer_has_e = producer_tv_->sameAs(op->query()) || producer_tv_->sameAs(op->key());
+    bool consumer_has_e = consumer_tv_->sameAs(op->grad_query()) || consumer_tv_->sameAs(op->grad_key());
+
+    for (auto idx : c10::irange(producer_logical.size())) {
+      if (idx < 2) {
+        // Map N, H from all producers to consumers
+        updatePairwiseRootDomainMap(
+            producer_logical.at(idx), consumer_root.at(idx));
+      } else if (idx == 2 && (producer_has_s == consumer_has_s)) {
+        // producer/consumer[2] = L/S
+          updatePairwiseRootDomainMap(
+          producer_logical.at(2), consumer_root.at(2));
+      } else if (idx == 3 && (producer_has_e == consumer_has_e)) {
+        // producer/consumer[3] = E/Ev
+          updatePairwiseRootDomainMap(
+          producer_logical.at(3), consumer_root.at(3));
+      }
+    }
+    return dom_map;
+  }
+
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_logical.size()) {
     IterDomain* producer_id = producer_logical.at(itp);
