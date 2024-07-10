@@ -98,7 +98,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
   at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
 
-  const float kEps = 1e-5;
+  constexpr float kEps = 1e-5;
   auto aten_results = at::native_layer_norm(
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
   auto aten_output = std::get<0>(aten_results);
