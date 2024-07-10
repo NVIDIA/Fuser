@@ -54,12 +54,12 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
       makeConcreteTensor(outer_shape, fp16_or_bf16 ? DataType::Float : dtype);
   auto weight = makeContigTensor(norm_shape.size(), dtype);
   auto bias = makeContigTensor(norm_shape.size(), dtype);
-  fusion.addInput(grad_out);
-  fusion.addInput(input);
-  fusion.addInput(mean);
-  fusion.addInput(rstd);
-  fusion.addInput(weight);
-  fusion.addInput(bias);
+  fusion->addInput(grad_out);
+  fusion->addInput(input);
+  fusion->addInput(mean);
+  fusion->addInput(rstd);
+  fusion->addInput(weight);
+  fusion->addInput(bias);
 
   if (fp16_or_bf16) {
     grad_out = castOp(DataType::Float, grad_out);
@@ -85,17 +85,17 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
         castOp(dtype, layer_norm_results.grad_weight);
   }
 
-  fusion.addOutput(layer_norm_results.grad_input);
-  fusion.addOutput(layer_norm_results.grad_weight);
-  fusion.addOutput(layer_norm_results.grad_bias);
+  fusion->addOutput(layer_norm_results.grad_input);
+  fusion->addOutput(layer_norm_results.grad_weight);
+  fusion->addOutput(layer_norm_results.grad_bias);
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
 
-  at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
-  at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
-  at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
-  at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
+  at::Tensor aten_grad_out = at::randn(input_shape, options);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  at::Tensor aten_weight = at::randn(norm_shape, options);
+  at::Tensor aten_bias = at::randn(norm_shape, options);
 
   constexpr float kEps = 1e-5;
   auto aten_results = at::native_layer_norm(
@@ -104,7 +104,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   auto aten_mean = std::get<1>(aten_results);
   auto aten_rstd = std::get<2>(aten_results);
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
+  FusionExecutorCache fec(std::move(fusion));
   std::vector<c10::IValue> aten_inputs = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
   auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
@@ -120,7 +120,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
       {true, true, true});
 
   testValidate(
-      &fusion,
+      fec.fusion(),
       {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
       aten_inputs,
       {std::get<0>(aten_gradients),
