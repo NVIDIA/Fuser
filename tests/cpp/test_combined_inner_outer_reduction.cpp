@@ -34,10 +34,7 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-// This case is to test the correctness of the combined inner and outer
-// scheduler used in layer norm backward. It can also be configured to test the
-// performance using different data types.
-// tuple of data type, batch shape, hidden shape
+// tuple of data type, batch size (outer dim), hidden size (inner dim)
 using CombinedSchedulerParams = std::tuple<DataType, int64_t, int64_t>;
 using CombinedSchedulerTest = NVFuserFixtureParamTest<CombinedSchedulerParams>;
 TEST_P(CombinedSchedulerTest, LayerNormBackward) {
@@ -49,17 +46,13 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   std::vector<int64_t> norm_shape{hidden_size};
   std::vector<int64_t> input_shape{batch_size, hidden_size};
   std::vector<int64_t> outer_shape{batch_size, 1};
-
+  bool fp16_or_bf16 = dtype == DataType::Half || dtype == DataType::BFloat16;
   auto grad_out = makeContigTensor(input_shape.size(), dtype);
   auto input = makeContigTensor(input_shape.size(), dtype);
-  auto mean = makeConcreteTensor(
-      outer_shape,
-      (dtype == DataType::Half || dtype == DataType::BFloat16) ? DataType::Float
-                                                               : dtype);
-  auto rstd = makeConcreteTensor(
-      outer_shape,
-      (dtype == DataType::Half || dtype == DataType::BFloat16) ? DataType::Float
-                                                               : dtype);
+  auto mean =
+      makeConcreteTensor(outer_shape, fp16_or_bf16 ? DataType::Float : dtype);
+  auto rstd =
+      makeConcreteTensor(outer_shape, fp16_or_bf16 ? DataType::Float : dtype);
   auto weight = makeContigTensor(norm_shape.size(), dtype);
   auto bias = makeContigTensor(norm_shape.size(), dtype);
   fusion.addInput(grad_out);
@@ -69,7 +62,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   fusion.addInput(weight);
   fusion.addInput(bias);
 
-  if (dtype == DataType::Half || dtype == DataType::BFloat16) {
+  if (fp16_or_bf16) {
     grad_out = castOp(DataType::Float, grad_out);
     input = castOp(DataType::Float, input);
     weight = castOp(DataType::Float, weight);
@@ -85,7 +78,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
       bias,
       {true, true, true});
 
-  if (dtype == DataType::Half || dtype == DataType::BFloat16) {
+  if (fp16_or_bf16) {
     layer_norm_results.grad_input =
         castOp(dtype, layer_norm_results.grad_input);
     layer_norm_results.grad_bias = castOp(dtype, layer_norm_results.grad_bias);
@@ -102,15 +95,12 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
 
   at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
   at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
-  at::Tensor aten_weight = at::ones(norm_shape, maybe_fp16_options);
-  at::Tensor aten_bias = at::zeros(norm_shape, maybe_fp16_options);
-
-  auto at_weight = c10::optional<at::Tensor>(aten_weight);
-  auto at_bias = c10::optional<at::Tensor>(aten_bias);
+  at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
+  at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
 
   const float kEps = 1e-5;
-  auto aten_results =
-      at::native_layer_norm(aten_input, norm_shape, at_weight, at_bias, kEps);
+  auto aten_results = at::native_layer_norm(
+      aten_input, norm_shape, aten_weight, aten_bias, kEps);
   auto aten_output = std::get<0>(aten_results);
   auto aten_mean = std::get<1>(aten_results);
   auto aten_rstd = std::get<2>(aten_results);
@@ -126,12 +116,9 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
       norm_shape,
       aten_mean,
       aten_rstd,
-      c10::optional<at::Tensor>(aten_weight),
-      c10::optional<at::Tensor>(aten_bias),
+      aten_weight,
+      aten_bias,
       {true, true, true});
-
-  // auto diff = std::get<0>(aten_gradients).sub(cg_outputs[0]).abs();
-  // std::cout << "diff: " << diff << std::endl;
 
   testValidate(
       &fusion,
@@ -148,8 +135,7 @@ INSTANTIATE_TEST_SUITE_P(
     CombinedSchedulerTest,
     ::testing::Combine(
         // aten doesn't support complex data types
-        testing::ValuesIn(
-            getFloatingDataTypes(false)), // data type without complex
+        testing::ValuesIn(getFloatingDataTypes(/*with complex type ?*/ false)),
         testing::Values(216), // batch size
         testing::Values(
             3,
