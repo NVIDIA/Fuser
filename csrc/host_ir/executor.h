@@ -77,8 +77,6 @@ class HostIrExecutor final : public OptInDispatch {
   void handle(ForLoop* for_loop) override;
   void handle(SliceOp* slice_op) override;
 
-  void handleWithExpressionEvaluator(Expr* expr);
-
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
   HostIrExecutorParams params_;

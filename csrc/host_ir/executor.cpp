@@ -202,14 +202,14 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
   }
 }
 
-void HostIrExecutor::handle(SliceOp* slice_op) {
-  return handleWithExpressionEvaluator(slice_op);
-}
+namespace {
 
-void HostIrExecutor::handleWithExpressionEvaluator(Expr* expr) {
+void handleWithExpressionEvaluator(
+    Expr* expr,
+    ExpressionEvaluator& expr_evaluator) {
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     NVF_ERROR(
-        expr_evaluator_.isKnown(input),
+        expr_evaluator.isKnown(input),
         "input ",
         input->toString(),
         " of the expression ",
@@ -217,8 +217,14 @@ void HostIrExecutor::handleWithExpressionEvaluator(Expr* expr) {
         "must be precomputed before being retrieved");
   }
   for (auto output : expr->outputs()) {
-    expr_evaluator_.bind(output, expr_evaluator_.evaluate(output), true);
+    expr_evaluator.bind(output, expr_evaluator.evaluate(output), true);
   }
+}
+
+} // namespace
+
+void HostIrExecutor::handle(SliceOp* slice_op) {
+  return handleWithExpressionEvaluator(slice_op, expr_evaluator_);
 }
 
 } // namespace hir
