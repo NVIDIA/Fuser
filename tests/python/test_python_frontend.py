@@ -4073,10 +4073,7 @@ class TestNvFuserFrontend(TestCase):
 
         # Testing that the profile returns 2 segments
         try:
-            fn = partial(fd.execute, profile=True)
-            breakpoint()
-            fn(inputs)
-            # fd.execute(inputs, profile=True)
+            fd.execute(inputs, profile=True)
             prof = fd.profile()
             self.assertEqual(prof.segments, 2)
             self.assertEqual(len(prof.kernel_profiles), 2)

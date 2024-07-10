@@ -1,16 +1,13 @@
 import pytest
-from nvfuser import FusionDefinition, DataType, FusionCache
+from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import PROMOTE_DTYPES
 from functools import partial
 
-def pointwise_ops_fusion(
-    fd: FusionDefinition,
-    dtype: DataType,
-    num_iters: int
-):
+
+def pointwise_ops_fusion(fd: FusionDefinition, dtype: DataType, num_iters: int):
     x = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
     y = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
 
@@ -28,14 +25,15 @@ def pointwise_ops_fusion(
         a = fd.ops.cast(a, dtype=dtype)
     fd.add_output(a)
 
-#NOTE: num_iters restricted due to issue #1234.
+
+# NOTE: num_iters restricted due to issue #1234.
 @pytest.mark.parametrize("num_iters", [2, 4, 8, 16])
 def test_pointwise_ops_benchmark(
     benchmark,
     num_iters: int,
     disable_validation: bool,
     disable_benchmarking: bool,
-):  
+):
     clear_cuda_cache()
     inputs = [torch.randn(13, device="cuda", dtype=torch.float16) for _ in range(2)]
     with FusionDefinition() as fd:
@@ -50,4 +48,14 @@ def test_pointwise_ops_benchmark(
         fd.validate(inputs, [eager_output])
 
     if not disable_benchmarking:
-        run_benchmark(benchmark, None, inputs, device="host", fusion_fn = partial(pointwise_ops_fusion, dtype = torch_dtype_to_nvfuser_dtype(torch.float16), num_iters = num_iters))
+        run_benchmark(
+            benchmark,
+            None,
+            inputs,
+            device="host",
+            fusion_fn=partial(
+                pointwise_ops_fusion,
+                dtype=torch_dtype_to_nvfuser_dtype(torch.float16),
+                num_iters=num_iters,
+            ),
+        )

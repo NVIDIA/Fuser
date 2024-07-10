@@ -357,7 +357,7 @@ def run_benchmark(
         benchmark_fn: Target function
         inputs: Inputs to the target function
         iobytes (Optional): When given, IO bytes computation is skipped
-                and this is used to compute the metrics.
+                and this is used to compute SOL and bandwidth.
         device (Optional): Default: CUDA, Possible values: ["cuda", "host"].
             Using device="host" is only allowed with nvFuser FusionDefinition.
         fusion_fn (Optional): Must be provided if device = "host".
