@@ -410,12 +410,18 @@ SdpfaFwdResult sdpfa_fwd(
       " ,and ",
       value->dtype());
 
-  // TODO: noDevices filter is temporary until we support DID on loop domain.
   auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
 
-  // TODO: This is temporary until device dims are allowed on the loop domain.
+  // Temporary handling of DID parallelization see https://github.com/NVIDIA/Fuser/issues/2563
+  bool has_device_dim = (query_domain.size() == 5);
+  if (has_device_dim) {
+    NVF_CHECK(query_domain[0]->isDeviceDim(), "Only suport DID parallelization on outermost axis");
+    NVF_CHECK(key_domain[0]->isDeviceDim(), "Only suport DID parallelization on outermost axis");
+    NVF_CHECK(value_domain[0]->isDeviceDim(), "Only suport DID parallelization on outermost axis");
+  }
+  
   auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
   auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
   auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
@@ -476,9 +482,10 @@ SdpfaFwdResult sdpfa_fwd(
       IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
   // Create a new Tensorview for cum_seq_q, cum_seq_k of shape (N + 1)
+  auto batch_idx = has_device_dim ? 1 : 0;
   auto newForCumulativeSeq = [&]() -> TensorView* {
     IterDomain* batch_id = ops::newOutputIterDomain(
-        {query_domain.front(), key_domain.front(), value_domain.front()});
+        {query_domain.at(batch_idx), key_domain.at(batch_idx), value_domain.at(batch_idx)});
     IterDomain* resized_batch_id = IterDomain::resize(
         batch_id,
         IrBuilder::create<Val>(0, DataType::Index),
