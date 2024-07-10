@@ -404,7 +404,7 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
       "scattered_axis is expected to be non-negative: ",
       scattered_axis);
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
-  if (scattered_axis == 0 && dynamic_cast<c10d::ProcessGroupNCCL*>(backend)) {
+  if (scattered_axis == 0 && backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
     return backend->_reduce_scatter_base(
         output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
   }
