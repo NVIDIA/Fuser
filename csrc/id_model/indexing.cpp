@@ -1066,7 +1066,7 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
 
   // Mostly just copied from getNonGlobalConsumerStridedIndices
 
-  bool is_epilogue =
+  bool is_prolog =
       db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
 
   auto loop_index = db_loop->indexOrStartIfTrivial();
@@ -1076,15 +1076,15 @@ Val* TensorIndexer::adjustIndexToSwitchBuffer(
           db_loop->iter_domain());
 
   auto db_index_offset = loop_index;
-  if (as_consumer && !is_epilogue) {
+  if (as_consumer && !is_prolog) {
     // Read-ahead offset for consumer indexing
     db_index_offset = SimplifyingIrBuilder::addExpr(
         db_index_offset,
         SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
   }
 
-  // % `num_stages` not necessary in epilogue
-  if (!is_epilogue) {
+  // % `num_stages` not necessary in prologue
+  if (!is_prolog) {
     db_index_offset = SimplifyingIrBuilder::modExpr(
         db_index_offset,
         SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
@@ -1396,8 +1396,12 @@ class AllocationDomainSetup : private kir::IrVisitor {
         int64_t allocation_pos =
             lower_utils::getAllocInformation(tv, for_loops).alloc_pos;
 
-        if (tv->isCircularBuffered()) {
-          allocation_pos = getCircularBufferAxisPosition(tv) + 1;
+        // TODO: Why the allocation position is the same as the computeAt
+        // position even for circular buffers?
+        if (getenv("ADJUST_POS")) {
+          if (tv->isCircularBuffered()) {
+            allocation_pos = getCircularBufferAxisPosition(tv) + 1;
+          }
         }
 
         for (const auto i : c10::irange(tv->nDims())) {
