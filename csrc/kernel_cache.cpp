@@ -1242,7 +1242,6 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   return outputs;
 }
 
-// passing args by value because we will be modify this
 std::vector<std::unique_ptr<Fusion>> FusionKernelRuntime::getFusionSegments() {
   std::vector<std::unique_ptr<Fusion>> fusion_segments;
   fusion_segments.reserve(runtime_workspace_.group_run_order.size());

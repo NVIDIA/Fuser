@@ -633,24 +633,24 @@ TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
 
 namespace {
 
-void checkAmaxSegmentation(
-    FusionKernelRuntime& runtime,
-    int64_t number_of_segments,
-    int64_t fusion_index,
-    int64_t number_of_outputs_in_fusion,
-    int64_t number_of_iterdomains,
-    int64_t expected_number_of_reduction_axes) {
-  // Two segments are created because a partial reduction and a full reduction
-  // cannot be in the same fusion.
+/
+    void checkAmaxSegmentation(
+        FusionKernelRuntime& runtime,
+        int64_t number_of_segments,
+        int64_t fusion_index,
+        int64_t number_of_outputs_in_fusion,
+        int64_t number_of_iterdomains,
+        int64_t expected_number_of_reduction_axes) {
+  // Check number of fusion segments
   std::vector<std::unique_ptr<Fusion>> segments = runtime.getFusionSegments();
   EXPECT_EQ(segments.size(), number_of_segments);
 
-  // Expect partial reduction for amax to be saved as output of first fusion
+  // Check number of outputs in selected segment
   Fusion* selected_fusion = segments.at(fusion_index).get();
-
   EXPECT_EQ(selected_fusion->outputs().size(), number_of_outputs_in_fusion);
   Val* last_output = selected_fusion->outputs().back();
 
+  // Check that last output is amax reduction
   EXPECT_TRUE(last_output->isA<TensorView>());
   TensorView* partial_amax = last_output->as<TensorView>();
 
@@ -659,7 +659,7 @@ void checkAmaxSegmentation(
       partial_amax->definition()->as<ReductionOp>()->getReductionOpType() ==
           BinaryOpType::Max);
 
-  // Check that there is a single reduction axis
+  // Check number of reduction axes in amax reduction
   std::vector<IterDomain*> logical_domain = partial_amax->getLogicalDomain();
   EXPECT_EQ(partial_amax->getLogicalDomain().size(), number_of_iterdomains);
 
@@ -725,9 +725,13 @@ TEST_F(NVFuserTest, FusionFactorAmax_CUDA) {
   at::Tensor at_t3 = at::abs(at_t2);
   at::Tensor at_t4 = at::max(at_t3);
 
-  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
-      preseg_fusion, outputs, aten_inputs, {at_t2, at_t4}, __LINE__, __FILE__);
+      runtime.fusionSegments()->completeFusion(),
+      outputs,
+      aten_inputs,
+      {at_t2, at_t4},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionIssue2258_CUDA) {
@@ -841,9 +845,8 @@ TEST_F(NVFuserTest, FusionIssue2258_CUDA) {
   at::Tensor at_t6 = at::abs(at_t3);
   at::Tensor at_t7 = at::max(at_t6);
 
-  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
-      preseg_fusion,
+      runtime.fusionSegments()->completeFusion(),
       outputs,
       aten_inputs,
       {at_t2, at_t5, at_t7},
