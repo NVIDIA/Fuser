@@ -464,6 +464,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Sin:
       return {in.as<at::Tensor>().sin()};
       break;
+    case UnaryOpType::Signbit:
+      return {signbit(in)};
+      break;
     case UnaryOpType::Cos:
       return {in.as<at::Tensor>().cos()};
       break;
@@ -595,6 +598,10 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Mod:
       NVF_CHECK(rhs != 0);
       return {lhs % rhs};
+      break;
+    case BinaryOpType::Fmod:
+      NVF_CHECK(rhs != 0);
+      return {fmod(lhs, rhs)};
       break;
     case BinaryOpType::CeilDiv:
       NVF_CHECK(rhs != 0);
@@ -4837,7 +4844,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
-  // cum_seq_q/k
+  // cum_seq_q/k, max_q/k
   std::vector<at::Tensor> bwd_inputs;
   for (auto idx : c10::irange(10)) {
     bwd_inputs.emplace_back(inputs.at(idx).as<at::Tensor>());
