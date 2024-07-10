@@ -9,6 +9,7 @@
 #include <device_lower/analysis/tma.h>
 #include <device_lower/lower2device.h>
 #include <id_model/id_model.h>
+#include <id_model/schedule.h>
 #include <ir/utils.h>
 #include <val_graph.h>
 #include <val_graph_visitor.h>
@@ -239,6 +240,9 @@ class AnalyzeBoxingSplit : public Pass {
   std::list<TMADim>& inferred_dims_;
 
   bool condition(ExprGroup expr, Direction direction) override {
+    if (!expr->front()->isOneOf<Split, Merge>()) {
+      return false;
+    }
     auto from = this->from(expr, direction);
     auto to = this->to(expr, direction);
     return from.size() == 2 && to.size() == 1 &&
@@ -283,6 +287,284 @@ class AnalyzeBoxingSplit : public Pass {
         inferred_dims_(inferred_dims) {}
 };
 
+// Find the following pattern:
+
+//                to
+//               /  \.
+// from0[non-bulk]  from1[partitioned]
+//                    \.
+//                    ...
+//                      \.
+//                      box
+
+// If the extent of box divide the extent of from1, then move the partitioned
+// flag up to get:
+
+//                to[partitioned]
+//               /  \.
+// from0[non-bulk]  from1
+//                    \.
+//                    ...
+//                      \.
+//                      box
+
+// Why does this work? Because, before running this pass, box is always an inner
+// child of partitioned. So, the first time this pass runs, it will find the
+// following pattern:
+
+//                to
+//               /  \.
+// from0[non-bulk]  from1[partitioned]
+//                  / \.
+//        X[non-bulk]  box
+
+// According to Theorem 2.1 (Equivalence of Split-Split) in the document
+// doc/reading/iterdomain.md, the above pattern is equivalent to the following
+// pattern if from1 is divisible by box:
+
+//                to[partitioned]
+//               /  \.
+//      Y[non-bulk]  box
+//         /       \.
+// from0[non-bulk]  X[non-bulk]
+
+// Here, instead of actually materializing the entire pattern above, we choose
+// to preserve the original pattern and just move the partitioned flag up.
+// That is, we get:
+
+//                to[partitioned]
+//               /  \.
+// from0[non-bulk]  from1
+//                  / \.
+//        X[non-bulk]  box
+
+// Although after transformation, box is no longer guaranteed to be a child of
+// partitioned, it is still guaranteed that, there exists a mathematically
+// equivalent pattern that has box as a child of partitioned. This property of
+// the existence of an equivalent pattern will be maintained as we continue
+// applying this pass over and over again.
+//
+// Why are we interested in moving the partitioned flag up? There are two
+// reasons:
+// - We want to consume as much expressions as possible in the infer_roles
+//   stage. Any unconsumed expression will be treated as a view of the gmem
+//   tensor's allocation domain. If there is a split not consumed, it will be
+//   treated as a view which adds an extra requirement that the extent of the
+//   that dimension must be a multiple of the split factor. This requirement is
+//   not always satisfied, and is making our system overly restrictive.
+// - Moving the partitioned flag up makes other mathematical equivalences more
+//   likely to be discovered by other passes. For example, although it is
+//   possible to prove that, mathematically, the following two patterns are
+//   equivalent:
+//                    A                                  A
+//                   / \                                / \.
+//                  B   C         ===========         ...  IC
+//                 / \                                    /  \.
+//                D   E           ===========            I    C
+//                   / \.
+//                  F   G
+//                     / \.
+//                    H   I
+//   It is very unlikely we will prove such a theorem in our document because it
+//   is just too specific and tedious. It is also very difficult to find this
+//   pattern in code. Thanks to the transitivity of the equivalence relation, in
+//   order to prove x = y, we can find a z such that both x = z and z = y are
+//   easy to prove. The pattern we get after moving the partitioned flag up is
+//   the z we are looking for. In the above example, with the partitioned flag
+//   moved up, we can easily see that:
+//            A                            A                        A
+//           / \                          / \                      / \.
+//          B   C      ===========       B   C    ===========    ...  IC
+//         / \                          / \.                         /  \.
+//        D   E        ===========    ...  I      ===========       I    C
+//           / \.
+//          F   G
+//             / \.
+//            H   I
+//
+// Why do we just move the partitioned flag up, but not materialize the entire
+// equivalent pattern? Because: First, implementing the entire pattern needs
+// work. Second, we can consider a group of ValGroup transformations as a black
+// box. During indexing, index will be fed into the box from one side, and the
+// box will output indices on the other side. The internal structure of this
+// black box is less important in the sense that, if we replace the internal
+// structure of the box with a mathematically equivalent one, the generated
+// indices will also be mathematically equivalent. So materializing the entire
+// pattern provides no value for us in indexing. The value we are looking for is
+// to consume more expressions in the infer_roles stage, and to make other
+// mathematical equivalences more likely to be discovered by other passes. Just
+// moving the partitioned flag up is sufficient to achieve these goals.
+class MovePartitionedGroupUpByRotation : public Pass {
+  const std::unordered_set<ValGroup>& bulk_groups_;
+  const std::unordered_set<ValGroup>& non_bulk_groups_;
+  std::list<TMADim>& inferred_dims_;
+
+  bool condition(ExprGroup expr, Direction direction) override {
+    if (!expr->front()->isOneOf<Split, Merge>()) {
+      return false;
+    }
+    auto from_ = from(expr, direction);
+    auto to_ = to(expr, direction);
+    if (from_.size() != 2 || to_.size() != 1) {
+      return false;
+    }
+    if (non_bulk_groups_.count(from_.at(0)) == 0) {
+      return false;
+    }
+    auto dim_it = std::find_if(
+        inferred_dims_.begin(), inferred_dims_.end(), [&](const TMADim& dim) {
+          return dim.partitioned == from_.at(1);
+        });
+    if (dim_it == inferred_dims_.end()) {
+      return false;
+    }
+    bool is_divisible =
+        simplifyExpr(
+            SimplifyingIrBuilder::eqExpr(
+                SimplifyingIrBuilder::modExpr(
+                    dim_it->partitioned->front()->as<IterDomain>()->extent(),
+                    dim_it->box->front()->as<IterDomain>()->extent()),
+                expr->front()->fusion()->zeroVal()))
+            ->isTrue();
+    return is_divisible;
+  }
+
+  void action(ExprGroup expr, Direction direction) override {
+    auto from_ = from(expr, direction);
+    auto to_ = to(expr, direction);
+    std::find_if(inferred_dims_.begin(), inferred_dims_.end(), [&](auto& dim) {
+      return dim.partitioned == from_.at(1);
+    })->partitioned = to_.at(0);
+  }
+
+ public:
+  MovePartitionedGroupUpByRotation(
+      const std::unordered_set<ValGroup>& bulk_groups,
+      const std::unordered_set<ValGroup>& non_bulk_groups,
+      std::list<TMADim>& inferred_dims)
+      : bulk_groups_(bulk_groups),
+        non_bulk_groups_(non_bulk_groups),
+        inferred_dims_(inferred_dims) {}
+};
+
+// Find the following pattern:
+
+//                      to
+//                     /  \.
+//    from0[partitioned]  from1[bulk]
+//    /               |
+//  ...              ...
+//                    |
+//                   box[bulk]
+
+// transform it to:
+
+//                to[partitioned]
+//                  /         \.
+//               from0     from1[bulk]
+//               /   \         |
+//             ...   ...       |
+//                     \       |
+//                  box[bulk]  |
+//                       \     |
+//                    new_box[bulk]
+
+// Why does this work? Because, as described in the comment of
+// MovePartitionedGroupUpByRotation, a pattern like below:
+
+//    from0[partitioned]
+//    /                \.
+//  ...                ...
+//                      |
+//                   box[bulk]
+
+// is mathematically equivalent to:
+
+//    from0[partitioned]
+//    /                \.
+//  ...              box[bulk]
+
+// Therefore, the pattern we are looking for is mathematically equivalent to:
+
+//                      to
+//                     /  \.
+//    from0[partitioned]  from1[bulk]
+//    /               |
+//  ...            box[bulk]
+
+// According to Theorem 2.1 (Equivalence of Split-Split) in the document
+// doc/reading/iterdomain.md, the above pattern is equivalent to the following
+// pattern:
+
+//                to[partitioned]
+//                  /         \.
+//                ...     new_box[bulk]
+//                         /         \.
+//                       box     from1[bulk]
+
+// Similar to MovePartitionedGroupUpByRotation, instead of actually
+// materializing the entire pattern above, we choose to preserve the original
+// pattern and just move the partitioned flag up and create the new_box group on
+// top of the original pattern.
+class MergeTileGroupsByRotation : public Pass {
+  std::unordered_set<ValGroup>& bulk_groups_;
+  const std::unordered_set<ValGroup>& non_bulk_groups_;
+  std::list<TMADim>& inferred_dims_;
+
+  bool condition(ExprGroup expr, Direction direction) override {
+    if (!expr->front()->isOneOf<Split, Merge>()) {
+      return false;
+    }
+    auto from_ = from(expr, direction);
+    auto to_ = to(expr, direction);
+    if (from_.size() != 2 || to_.size() != 1) {
+      return false;
+    }
+    auto partitioned_dim = std::find_if(
+        inferred_dims_.begin(), inferred_dims_.end(), [&](const auto& dim) {
+          return dim.partitioned == from_.at(0);
+        });
+    if (partitioned_dim == inferred_dims_.end()) {
+      return false;
+    }
+    if (bulk_groups_.count(partitioned_dim->box) == 0 ||
+        bulk_groups_.count(from_.at(1)) == 0) {
+      return false;
+    }
+    NVF_ERROR(
+        partitioned_dim->tile == partitioned_dim->box &&
+        partitioned_dim->stride == nullptr);
+    return true;
+  }
+
+  void action(ExprGroup expr, Direction direction) override {
+    ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+    auto from_ = from(expr, direction);
+    auto to_ = to(expr, direction);
+    auto partitioned_dim = std::find_if(
+        inferred_dims_.begin(), inferred_dims_.end(), [&](const auto& dim) {
+          return dim.partitioned == from_.at(0);
+        });
+    auto new_box = merge(&id_graph, partitioned_dim->tile, from_.at(1));
+    bulk_groups_.insert(new_box);
+    inferred_dims_.emplace_back();
+    inferred_dims_.back().partitioned = to_.at(0);
+    inferred_dims_.back().box = new_box;
+    inferred_dims_.back().tile = new_box;
+    inferred_dims_.back().stride = nullptr;
+    inferred_dims_.erase(partitioned_dim);
+  }
+
+ public:
+  MergeTileGroupsByRotation(
+      std::unordered_set<ValGroup>& bulk_groups,
+      const std::unordered_set<ValGroup>& non_bulk_groups,
+      std::list<TMADim>& inferred_dims)
+      : bulk_groups_(bulk_groups),
+        non_bulk_groups_(non_bulk_groups),
+        inferred_dims_(inferred_dims) {}
+};
+
 std::tuple<
     std::unordered_set<ValGroup>, // bulk groups, see the comment of
                                   // InferBulkGroups for its definition
@@ -315,6 +597,10 @@ run(
       bulk_groups, nonbulk_groups, inferred_dims);
   AnalyzeBoxingSplit boxing_split_pass(
       bulk_groups, nonbulk_groups, inferred_dims);
+  MovePartitionedGroupUpByRotation move_partitioned_pass(
+      bulk_groups, nonbulk_groups, inferred_dims);
+  MergeTileGroupsByRotation merge_tile_pass(
+      bulk_groups, nonbulk_groups, inferred_dims);
 
   bool changed = true;
   while (changed) {
@@ -323,6 +609,8 @@ run(
     changed = changed || nonbulk_pass.run(exprs);
     changed = changed || striding_split_pass.run(exprs);
     changed = changed || boxing_split_pass.run(exprs);
+    changed = changed || move_partitioned_pass.run(exprs);
+    changed = changed || merge_tile_pass.run(exprs);
   }
   return {bulk_groups, nonbulk_groups, inferred_dims};
 }
@@ -407,9 +695,9 @@ class HandleExpr {
       GpuLower::current()->validate(
           is_divisible,
           "Invalid view in TMA: the extent of ",
-          from[0],
+          from[0]->toString(),
           " must be divisible by ",
-          split->factor());
+          split->factor()->toInlineString());
     }
     frontier_.insert(
         from_it,
