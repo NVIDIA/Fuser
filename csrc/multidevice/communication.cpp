@@ -398,12 +398,18 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  std::vector<std::vector<at::Tensor>> input_tensors(1);
   const auto scattered_axis = communication->scatteredAxis();
   NVF_ERROR(
       scattered_axis >= 0,
       "scattered_axis is expected to be non-negative: ",
-      scattered_axis)
+      scattered_axis);
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
+  if (scattered_axis == 0 && dynamic_cast<c10d::ProcessGroupNCCL*>(backend)) {
+    return backend->_reduce_scatter_base(
+        output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
+  }
+#endif
+  std::vector<std::vector<at::Tensor>> input_tensors(1);
   input_tensors[0] = at::split(input_tensor, /*split_size=*/1, scattered_axis);
 
   std::vector<at::Tensor> output_tensors({output_tensor});
