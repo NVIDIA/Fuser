@@ -1061,6 +1061,42 @@ TEST_F(NVFuserTest, FusionFactorAmaxCast_CUDA) {
       __FILE__);
 }
 
+void checkAmaxSegmentation(FusionKernelRuntime& runtime,
+	                   int64_t number_of_segments,
+	                   int64_t fusion_index,
+	                   int64_t number_of_outputs_in_fusion,
+	                   int64_t number_of_iterdomains,
+	                   int64_t expected_number_of_reduction_axes) {
+  // Two segments are created because a partial reduction and a full reduction
+  // cannot be in the same fusion.
+  std::vector<std::unique_ptr<Fusion>> segments = runtime.getFusionSegments();
+  EXPECT_EQ(segments.size(), number_of_segments);
+
+  // Expect partial reduction for amax to be saved as output of first fusion
+  Fusion* selected_fusion = segments.at(fusion_index).get();
+
+  EXPECT_EQ(selected_fusion->outputs().size(), number_of_outputs_in_fusion);
+  Val* last_output = selected_fusion->outputs().back();
+
+  EXPECT_TRUE(last_output->isA<TensorView>());
+  TensorView* partial_amax = last_output->as<TensorView>();
+
+  EXPECT_TRUE(
+      partial_amax->definition()->isA<ReductionOp>() &&
+      partial_amax->definition()->as<ReductionOp>()->getReductionOpType() ==
+          BinaryOpType::Max);
+
+  // Check that there is a single reduction axis
+  std::vector<IterDomain*> logical_domain = partial_amax->getLogicalDomain();
+  EXPECT_EQ(partial_amax->getLogicalDomain().size(), number_of_iterdomains);
+
+  int64_t num_reduction_axes = std::count_if(
+      partial_amax->getLogicalDomain().begin(),
+      partial_amax->getLogicalDomain().end(),
+      [](IterDomain* id) { return id->isReduction(); });
+  EXPECT_EQ(num_reduction_axes, expected_number_of_reduction_axes);
+}
+
 TEST_F(NVFuserTest, FusionFactorAmaxBroadcastCast_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -1097,33 +1133,18 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcastCast_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  // Two segments are created because a partial reduction and a full reduction
+  // Expected result of factorAmaxReduction pass:
+  // * Two segments are created because a partial reduction and a full reduction
   // cannot be in the same fusion.
-  std::vector<std::unique_ptr<Fusion>> segments = runtime.getFusionSegments();
-  EXPECT_EQ(segments.size(), 2);
-
-  // Expect partial reduction for amax to be saved as output of first fusion
-  Fusion* first_fusion = segments.front().get();
-
-  EXPECT_EQ(first_fusion->outputs().size(), 2);
-  Val* last_output = first_fusion->outputs().back();
-
-  EXPECT_TRUE(last_output->isA<TensorView>());
-  TensorView* partial_amax = last_output->as<TensorView>();
-
-  EXPECT_TRUE(
-      partial_amax->definition()->isA<ReductionOp>() &&
-      partial_amax->definition()->as<ReductionOp>()->getReductionOpType() ==
-          BinaryOpType::Max);
-
-  // Check that there is a single reduction axis
-  std::vector<IterDomain*> logical_domain = partial_amax->getLogicalDomain();
-  int64_t num_reduction_axes = std::count_if(
-      partial_amax->getLogicalDomain().begin(),
-      partial_amax->getLogicalDomain().end(),
-      [](IterDomain* id) { return id->isReduction(); });
-  EXPECT_EQ(num_reduction_axes, 1);
-  EXPECT_EQ(partial_amax->getLogicalDomain().size(), 2);
+  // * Expect partial reduction for amax to be saved as last output of first
+  // fusion
+  // The partial amax reduction has a single reduction axis.
+  checkAmaxSegmentation(runtime,
+	                /*number_of_segments=*/2,
+	                /*fusion_index=*/0,
+	                /*number_of_outputs_in_fusion=*/2,
+	                /*number_of_iterdomains=*/2,
+	                /*expected_number_of_reduction_axes=*/1);
 
   // Aten reference
   at::Tensor x_cast = x.to(at::kFloat);
@@ -1134,9 +1155,8 @@ TEST_F(NVFuserTest, FusionFactorAmaxBroadcastCast_CUDA) {
   at::Tensor at_t2_cast = at_t2.to(at::kHalf);
   at::Tensor at_t4_cast = at_t4.to(at::kHalf);
 
-  auto preseg_fusion = runtime.fusionSegments()->completeFusion();
   testValidate(
-      preseg_fusion,
+      runtime.fusionSegments()->completeFusion(),
       outputs,
       aten_inputs,
       {at_t2_cast, at_t4_cast},
