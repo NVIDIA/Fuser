@@ -34,7 +34,7 @@ void MultiDeviceTestEnvironment::TearDown() {
   delete communicator_;
 }
 
-/*static=*/Communicator* MultiDeviceTestEnvironment::communicator_ = nullptr;
+/*static*/ Communicator* MultiDeviceTestEnvironment::communicator_ = nullptr;
 
 MultiDeviceTest::MultiDeviceTest() {
   // Enable logging in c10d so debug messages can be printed out via
@@ -208,12 +208,12 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   }
 
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::move(fusion), *communicator_, multi_device_executor_params);
+      std::move(fusion), *communicator_, host_ir_executor_params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
   }
-  outputs = runtime->runWithInput(inputs, l_params);
+  outputs = runtime->runWithInput(inputs);
 
   if (debug_print) {
     if (!communicator_->deviceId()) {

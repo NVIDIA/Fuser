@@ -464,6 +464,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Sin:
       return {in.as<at::Tensor>().sin()};
       break;
+    case UnaryOpType::Signbit:
+      return {signbit(in)};
+      break;
     case UnaryOpType::Cos:
       return {in.as<at::Tensor>().cos()};
       break;
@@ -595,6 +598,10 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Mod:
       NVF_CHECK(rhs != 0);
       return {lhs % rhs};
+      break;
+    case BinaryOpType::Fmod:
+      NVF_CHECK(rhs != 0);
+      return {fmod(lhs, rhs)};
       break;
     case BinaryOpType::CeilDiv:
       NVF_CHECK(rhs != 0);
@@ -3959,7 +3966,6 @@ std::vector<PolymorphicValue> PadOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
-  double value = (double)inputs.at(1);
 
   std::vector<int64_t> pad_widths;
   auto pad_width_offset = getPadWidthInputOffset();
@@ -3972,7 +3978,18 @@ std::vector<PolymorphicValue> PadOp::evaluate(
     pad_widths.push_back(right_pad);
   }
 
-  return {at::pad(in, pad_widths, "constant", value)};
+  if (isComplexType(*out()->getDataType())) {
+    std::complex<double> value =
+        static_cast<std::complex<double>>(inputs.at(1));
+    auto real = at::real(in);
+    auto imag = at::imag(in);
+    auto padded_real = at::pad(real, pad_widths, "constant", value.real());
+    auto padded_imag = at::pad(imag, pad_widths, "constant", value.imag());
+    return {at::complex(padded_real, padded_imag)};
+  } else {
+    double value = static_cast<double>(inputs.at(1));
+    return {at::pad(in, pad_widths, "constant", value)};
+  }
 }
 
 SliceOp::SliceOp(
@@ -4255,8 +4272,8 @@ SdpaFwdOp::SdpaFwdOp(
     TensorView* log_sumexp,
     TensorView* cum_seq_q,
     TensorView* cum_seq_k,
-    Val* query_seq_len,
-    Val* key_seq_len,
+    TensorView* query_seq_len,
+    TensorView* key_seq_len,
     TensorView* philox_seed,
     TensorView* philox_offset,
     TensorView* debug_attn_mask,
@@ -4368,15 +4385,15 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     output = output.slice(-1, 0, last_dim_size);
   }
 
-  // Query and key seq len are of type c10::SymInt -> convert them to int for
-  // Polymorphic Value
+  // Query and key seq len are of type c10::SymInt -> convert them to CPU scalar
+  // tensors to support adding them as fusion outputs.
   return {
       output,
       log_sumexp,
       cum_seq_q,
       cum_seq_k,
-      *query_seq_len.maybe_as_int(),
-      *key_seq_len.maybe_as_int(),
+      at::scalar_tensor(*query_seq_len.maybe_as_int(), at::dtype(at::kLong)),
+      at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
       philox_seed,
       philox_offset,
       debug_attn_mask};
@@ -4749,8 +4766,8 @@ SdpaBwdOp::SdpaBwdOp(
     TensorView* log_sumexp,
     TensorView* cum_seq_q,
     TensorView* cum_seq_k,
-    Val* max_q,
-    Val* max_k,
+    TensorView* max_q,
+    TensorView* max_k,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
@@ -4827,13 +4844,11 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
-  // cum_seq_q/k
+  // cum_seq_q/k, max_q/k
   std::vector<at::Tensor> bwd_inputs;
-  for (auto idx : c10::irange(8)) {
+  for (auto idx : c10::irange(10)) {
     bwd_inputs.emplace_back(inputs.at(idx).as<at::Tensor>());
   }
-  const auto max_q = inputs.at(8).as<int64_t>();
-  const auto max_k = inputs.at(9).as<int64_t>();
   const auto dropout_p = inputs.at(10).as<double>();
   const auto is_causal = inputs.at(11).as<bool>();
   const auto philox_seed = inputs.at(12).as<at::Tensor>();
@@ -4868,8 +4883,9 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
           /*logsumexp=*/bwd_inputs[5],
           /*cum_seq_q=*/bwd_inputs[6],
           /*cum_seq_k=*/bwd_inputs[7],
-          /*max_q=*/max_q,
-          /*max_k=*/max_k,
+          // Note: ATen implementation expects max_q/max_k as scalars.
+          /*max_q=*/bwd_inputs[8].item<int64_t>(),
+          /*max_k=*/bwd_inputs[9].item<int64_t>(),
           /*dropout_p=*/dropout_p,
           /*is_causal=*/is_causal,
           /*philox_seed=*/philox_seed,

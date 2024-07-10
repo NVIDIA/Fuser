@@ -121,6 +121,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
+      {"host_ir", DebugDumpOption::HostIr},
       {"index_type", DebugDumpOption::IndexType},
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
@@ -291,10 +292,12 @@ bool hasDisableOptionArguments(DisableOption option, const std::string& arg) {
 bool isProfilerEnabled() {
   return ProfilerOptionsGuard::getCurOptions().hasAny();
 }
-bool isProfilerEnabledWithoutCupti() {
-  return ProfilerOptionsGuard::getCurOptions().has(
-             ProfilerOption::EnableNocupti) ||
-      ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::PrintNocupti);
+bool isProfilerEnabledWithCupti() {
+  return ProfilerOptionsGuard::getCurOptions().hasAny() &&
+      !(ProfilerOptionsGuard::getCurOptions().has(
+            ProfilerOption::EnableNocupti) ||
+        ProfilerOptionsGuard::getCurOptions().has(
+            ProfilerOption::PrintNocupti));
 }
 bool isProfilerPrintingEnabled() {
   return ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::Print) ||

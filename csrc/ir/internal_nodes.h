@@ -2241,8 +2241,8 @@ class SdpaFwdOp : public Expr {
       TensorView* log_sumexp,
       TensorView* cum_seq_q,
       TensorView* cum_seq_k,
-      Val* query_seq_len,
-      Val* key_seq_len,
+      TensorView* query_seq_len,
+      TensorView* key_seq_len,
       TensorView* philox_seed,
       TensorView* philox_offset,
       TensorView* debug_attn_mask,
@@ -2492,7 +2492,7 @@ class ForLoop final : public Expr {
   //! True if loop is grouped reduction/welford
   bool isGroup() const;
 
-  //! Returns the stage of a double buffered iterdomain
+  //! Returns the stage of a circular buffered iterdomain
   //!  that this for loop materializes.
   auto circularBufferLoopStage() const {
     return attribute<CircularBufferLoopStage>(6);
@@ -2558,8 +2558,8 @@ class SdpaBwdOp : public Expr {
       TensorView* log_sumexp,
       TensorView* cum_seq_q,
       TensorView* cum_seq_k,
-      Val* query_seq_len,
-      Val* key_seq_len,
+      TensorView* query_seq_len,
+      TensorView* key_seq_len,
       Val* dropout_p,
       Val* is_causal,
       TensorView* philox_seed,
