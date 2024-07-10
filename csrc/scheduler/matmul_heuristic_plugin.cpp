@@ -73,8 +73,8 @@ thread_local bool config_factory_modified = false;
 //!   TN: 2
 //!   TT: 3
 uint8_t innerDimsToByte(const mma_utils::MatmulOperandInnerDims& inner_dims) {
-  bool A_K_inner = inner_dims.empty() || inner_dims.front() == MatmulDomain::K;
-  bool B_K_inner = inner_dims.empty() || inner_dims.back() == MatmulDomain::K;
+  bool A_K_inner = inner_dims.empty() || inner_dims.front() == MatmulDimRole::K;
+  bool B_K_inner = inner_dims.empty() || inner_dims.back() == MatmulDimRole::K;
   if (A_K_inner && B_K_inner) {
     return 0;
   } else if (A_K_inner && !B_K_inner) {
@@ -90,18 +90,18 @@ std::string rolesToPrecisionString(
     const mma_utils::TensorRolesMap& tensor_roles) {
   std::string precision = "   ";
   const std::vector<TensorView*>& a_operands =
-      tensor_roles.at(MatmulRole::OPERAND_A);
+      tensor_roles.at(MatmulTensorRole::OPERAND_A);
   NVF_ERROR(
       a_operands.size() == 1, "We currently require exactly one A operand");
   const std::vector<TensorView*>& b_operands =
-      tensor_roles.at(MatmulRole::OPERAND_B);
+      tensor_roles.at(MatmulTensorRole::OPERAND_B);
   NVF_ERROR(
       b_operands.size() == 1, "We currently require exactly one B operand");
   TensorView* a = a_operands.front();
   TensorView* b = b_operands.front();
   NVF_CHECK(
       a->dtype() == b->dtype(), "Differing A and B dtypes not yet supported");
-  TensorView* d = tensor_roles.at(MatmulRole::OUTPUT).front();
+  TensorView* d = tensor_roles.at(MatmulTensorRole::OUTPUT).front();
   precision[0] = mma_utils::dtypeToChar(a->dtype());
   // NOTE: this assumes compute type is Float
   precision[1] = 'S';
