@@ -147,7 +147,7 @@ class NVF_API Fusion : public IrContainer {
   void addInput(Val* input);
 
   //! Register output as an output of the fusion
-  void addOutput(Val* output);
+  void addOutput(Val* output, bool hide_output = false);
 
   //! Deregister input as an input of the fusion
   void removeInput(Val* input);

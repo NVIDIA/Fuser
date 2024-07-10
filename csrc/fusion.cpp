@@ -259,25 +259,27 @@ void Fusion::addInput(Val* input) {
   all_tv_uses_valid_ = false;
 }
 
-void Fusion::addOutput(Val* output) {
-  // We currently don't support explicitly outputing aliased inputs. This is
-  // because they are already marked as output for in-place update. It's tricky
-  // to allow marking them explicitly as real output, since that requires us to
-  // register/identify output not only by `Val*` pointer, but also by indices;
-  // it also requires us to magically arrange `outputs_` entries in proper order
-  // ^^^ this doesn't look intuitive on `outputs_` in fusion.
-  // I think we can solve this by marking addOutput on io_alias_ keys after
-  // fusion is fully defined. Tracking this in #1488
-  // Apparently we can't do this neither at the time. I think segmentation
-  // unfortunately would call addOutput after we marked io_alias_ map.
-  // NVF_CHECK(io_alias_.count(output) == 0,
-  //     "can't register aliased output as real output");
+void Fusion::addOutput(Val* output, bool hide_output) {
   assertInContainer(output, "Cannot register output ");
   NVF_CHECK(
       output->isA<TensorView>(),
       "Non-TensorView outputs are not supported at this point: ",
       output->toString());
   output->as<TensorView>()->setMemoryType(MemoryType::Global);
+
+  // special handling for returning aliased output. We just need to remove its
+  // existing entry in the outputs_ used for inplace update
+  if (!hide_output) {
+    if (io_alias_.count(output) != 0) {
+      // if previous output is only added for aliasing purpose, we should remove
+      // the previous entry and add a new one
+      if (io_alias_[output].hide_output) {
+        removeOutput(output);
+      }
+      // output shouldn't be hidden any more
+      io_alias_[output].hide_output = false;
+    }
+  }
 
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
@@ -826,7 +828,7 @@ void Fusion::aliasOutputToInput(
 
   // TODO: output should be marked at the end of fusion definition #1488
   if (!output->isFusionOutput()) {
-    addOutput(output);
+    addOutput(output, true);
   }
 }
 
