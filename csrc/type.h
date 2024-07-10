@@ -36,6 +36,7 @@ enum class ValType {
   NamedScalar,
   Predicate,
   TensorIndex,
+  Stream,
   Others
 };
 
@@ -43,8 +44,6 @@ enum class ValType {
 // Inline corresponds with PredicateCompute::getInlinePredicate
 // Unswitch corresponds with UnswitchPredicate::get
 // Misaligned - PredicateCompute::getInlinePredicate + Misaligned flag
-// Shift - ShiftPredicateInserter::getShiftPredicate
-// Padding - ShiftPredicateInserter::getPaddingPredicate
 // ReductionWrite - Same as Inline but without reduction axes
 // LoopRotation - Predicate added by loop rotation, currently always true.
 enum class PredicateType {
@@ -53,8 +52,6 @@ enum class PredicateType {
   Unswitch,
   Vectorize,
   Misaligned,
-  Shift,
-  Padding,
   ReductionWrite,
   LoopRotation
 };
@@ -710,7 +707,6 @@ enum class IterType {
   Iteration,
   Reduction,
   Broadcast,
-  Gather,
   Stride,
   GatherScatter,
   VectorComponent,
@@ -756,14 +752,13 @@ enum class LoadStoreOpType {
   Set,
   SegmenterSet,
   LdMatrix,
-  LdMatrixTranspose,
   CpAsync,
   CpAsyncBulkTensorTile
 };
 
-// Used to label what part of the double buffered iterdomain
+// Used to label what part of the circular buffered iterdomain
 //  a for loop is materializing.
-enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
+enum class CircularBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
 
 //! Supported swizzle types,
 //!  corresponds to swizzles functions on the runtime cuda
@@ -771,7 +766,7 @@ enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
 //!
 //!  TODO: unify with existing swizzle logic, currently
 //!    doesn't have the same type.
-enum class SwizzleType { NoSwizzle = 0, XOR };
+enum class SwizzleType { NoSwizzle = 0, XOR, CyclicShift };
 enum class Swizzle2DType { NoSwizzle = 0, ZShape, XOR, CyclicShift };
 
 //! Modes of swizzle, see [Note on swizzle mode].
@@ -905,7 +900,7 @@ NVF_API std::ostream& operator<<(std::ostream&, const MemoryType);
 NVF_API std::ostream& operator<<(std::ostream&, const IterType);
 std::ostream& operator<<(std::ostream&, const IdMappingMode);
 NVF_API std::ostream& operator<<(std::ostream&, const LoadStoreOpType);
-std::ostream& operator<<(std::ostream&, const DoubleBufferLoopStage);
+std::ostream& operator<<(std::ostream&, const CircularBufferLoopStage);
 std::ostream& operator<<(std::ostream&, const SwizzleType&);
 std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 std::ostream& operator<<(std::ostream&, const SwizzleMode&);

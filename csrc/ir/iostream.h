@@ -19,10 +19,14 @@
 namespace nvfuser {
 
 class Fusion;
+class Scope;
 namespace kir {
 class Kernel;
-class Scope;
 } // namespace kir
+
+namespace hir {
+class HostIrContainer;
+} // namespace hir
 
 void checkInlineable(const Expr* expr);
 static constexpr char const* kTab = "  ";
@@ -71,6 +75,9 @@ class IrPrinter {
 
   virtual void handle(const kir::Kernel* kernel);
   virtual void handle(kir::Kernel& kernel);
+
+  virtual void handle(const hir::HostIrContainer* host_ir_container);
+  virtual void handle(hir::HostIrContainer& host_ir_container);
 
  protected:
   std::ostream& os() {

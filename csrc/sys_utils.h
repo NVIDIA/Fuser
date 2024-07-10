@@ -34,4 +34,7 @@ class LibraryLoader : public NonCopyable {
   void* handle_ = nullptr;
 };
 
+// Return true if compute-sanitizer is attached
+bool detectComputeSanitizer();
+
 } // namespace nvfuser

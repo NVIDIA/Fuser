@@ -292,7 +292,7 @@ SPECIALIZE_PRINTER(UnaryOpType);
 SPECIALIZE_PRINTER(BinaryOpType);
 SPECIALIZE_PRINTER(TernaryOpType);
 SPECIALIZE_PRINTER(LoadStoreOpType);
-SPECIALIZE_PRINTER(DoubleBufferLoopStage);
+SPECIALIZE_PRINTER(CircularBufferLoopStage);
 SPECIALIZE_PRINTER(tma::TensorMapInterleave);
 SPECIALIZE_PRINTER(tma::TensorMapL2Promotion);
 SPECIALIZE_PRINTER(tma::TensorMapFloatOOBFill);
@@ -549,6 +549,21 @@ template <typename K, typename V>
 V getOrDefault(const std::unordered_map<K, V>& map, const K& key) {
   const auto i = map.find(key);
   return i == map.end() ? V() : i->second;
+}
+
+size_t deviceAvailableSharedMemoryBytes();
+
+inline int64_t wrapDim(int64_t dim, int64_t ndim) {
+  if (dim < 0) {
+    dim += ndim;
+  }
+  NVF_CHECK(
+      dim >= 0 && dim < ndim,
+      "Tried to access out of boundary index ",
+      dim,
+      ". total index: ",
+      ndim);
+  return dim;
 }
 
 } // namespace nvfuser

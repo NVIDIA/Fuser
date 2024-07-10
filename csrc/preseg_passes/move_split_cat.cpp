@@ -76,7 +76,7 @@ class CancelSplitCat {
   //
   // Before calling this function, we already checked the chains contain the
   // same sequence of op type and attributes and transform IterDomains in the
-  // same way. So this function takes the rfactor domain of any one of the
+  // same way. So this function takes the logical domain of any one of the
   // slices and the catted IterDomain at the end of that chain.
   //
   // Example 1:
@@ -99,16 +99,30 @@ class CancelSplitCat {
   // Returns 0 because `slice`'s dimension 0 is the outer dimension.
 
   // Example 4:
-  //   t = reshape(slice, {6}, {2, 3})
+  //   t = reshape(slice, {6}, {2, 3})  // inner split by 3
   //   out = cat({t, ...}, 0}
   //
-  // Returns 0 because `out`'s dimension 0 is the outer dimension.
+  // Returns 0 because `t` is an inner split and `out`'s dimension 0 is the
+  // outer dimension. See #2142 for why checking the split is inner/outer.
   //
   // Example 5:
+  //   t = reshape(slice, {6}, {2, 3})  // outer split by 2
+  //   out = cat({t, ...}, 0}
+  //
+  // Returns -1 because `t` is an outer split. See #2142 for why checking the
+  // split is inner/outer.
+  //
+  // Example 6:
   //   t = reshape(slice, {6}, {2, 3})
   //   out = cat({t, ...}, 1}
   //
-  // Returns -1 because `out`'s dimension 1 is the inner dimension.
+  // Returns -1 because `out`'s dimension 1 is the inner dimension. Consider
+  //   in = arange(12)  # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  //   x, y = in.split([6, 6]) # [0, 1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11]
+  //   x = x.view([2, 3])  # [[0, 1, 2], [3, 4, 5]]
+  //   y = y.view([2, 3])  # [[6, 7, 8], [9, 10, 11]]
+  //   out = cat([x, y], axis=1)  # [[0, 1, 2, 6, 7, 8], [3, 4, 5, 9, 10, 11]]
+  // It's impossible to set strides to make `out` a view of `in`.
   int64_t computeCatAxisAfterZipping(
       const std::vector<IterDomain*>& slice_rfactor,
       IterDomain* cat_id);
@@ -166,10 +180,10 @@ bool CancelSplitCat::sameIterDomainTransforms(
     // Map pads[i0].root[cat_axis] and pads[i1].root[cat_axis]. Other axes were
     // already mapped due to the `cat` when the IdModel was built.
     const std::vector<IterDomain*>& first_root =
-        pads[0]->out()->as<TensorView>()->getRootDomain();
+        pads[0]->out()->as<TensorView>()->getMaybeRootDomain();
     for (size_t i = 1; i < pads.size(); i++) {
       const std::vector<IterDomain*>& other_root =
-          pads[i]->out()->as<TensorView>()->getRootDomain();
+          pads[i]->out()->as<TensorView>()->getMaybeRootDomain();
       NVF_ERROR(first_root.size() == other_root.size());
       exact_graph.mapVals(first_root[cat_axis], other_root[cat_axis]);
     }
@@ -187,18 +201,18 @@ bool CancelSplitCat::sameIterDomainTransforms(
 
   {
     // Check slices[i0][j] and slices[i1][j] are mapped.
-    const std::vector<IterDomain*>& first_rfactor =
-        slices[0]->out()->getMaybeRFactorDomain();
-    size_t num_dims = first_rfactor.size();
+    const std::vector<IterDomain*>& first_ligical =
+        slices[0]->out()->getLogicalDomain();
+    size_t num_dims = first_ligical.size();
     for (size_t i = 1; i < slices.size(); i++) {
-      const std::vector<IterDomain*>& other_rfactor =
-          slices[i]->out()->getMaybeRFactorDomain();
-      if (other_rfactor.size() != num_dims) {
+      const std::vector<IterDomain*>& other_logical =
+          slices[i]->out()->getLogicalDomain();
+      if (other_logical.size() != num_dims) {
         return false;
       }
       for (size_t j = 0; j < num_dims; j++) {
         if (!exact_graph.disjointValSets().strictAreMapped(
-                first_rfactor[j], other_rfactor[j])) {
+                first_ligical[j], other_logical[j])) {
           return false;
         }
       }
@@ -244,10 +258,10 @@ TensorView* slicesFormSplit(
 
     // Check only the split axis is sliced.
     for (auto j : c10::irange(
-             static_cast<int64_t>(slice->out()->getRootDomain().size()))) {
+             static_cast<int64_t>(slice->out()->getMaybeRootDomain().size()))) {
       const bool sliced =
-          (slice->out()->getRootDomain()[j] !=
-           slice->out()->getMaybeRFactorDomain()[j]);
+          (slice->out()->getMaybeRootDomain()[j] !=
+           slice->out()->getLogicalDomain()[j]);
       if ((j == split_axis) != sliced) {
         return nullptr;
       }
@@ -265,7 +279,7 @@ TensorView* slicesFormSplit(
   // slightly lengthy workaround.
   if (!slices.back()
            ->out()
-           ->getMaybeRFactorDomain()[split_axis]
+           ->getLogicalDomain()[split_axis]
            ->definition()
            ->as<Resize>()
            ->rightExpand()
@@ -307,7 +321,13 @@ int64_t CancelSplitCat::computeCatAxisAfterZipping(
       Expr* def = defining_group->front();
 
       if (Split* split = dynamic_cast<Split*>(def)) {
-        if (exact_graph.toGroup(split->outer()) == cat_group) {
+        // Check `split` is an inner split to avoid #2142. If we allow an outer
+        // split, `replayExprWithNewInputs` will incorrectly use the same split
+        // factor as the extent of the horizontally merged dimension. We could
+        // instead make `replayExprWithNewInputs` smarter, but I haven't given
+        // that alternative enough thought.
+        if (exact_graph.toGroup(split->outer()) == cat_group &&
+            split->innerSplit()) {
           return exact_graph.toGroup(split->in());
         }
         return nullptr;
@@ -418,8 +438,8 @@ TensorView* CancelSplitCat::findCancelingSplit(
   }
 
   cat_axis = computeCatAxisAfterZipping(
-      slices[0]->out()->getMaybeRFactorDomain(),
-      pads[0]->out()->as<TensorView>()->getRootDomain()[cat_axis]);
+      slices[0]->out()->getLogicalDomain(),
+      pads[0]->out()->as<TensorView>()->getMaybeRootDomain()[cat_axis]);
   if (cat_axis == -1) {
     return nullptr;
   }

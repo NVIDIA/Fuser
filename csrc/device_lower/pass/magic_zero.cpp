@@ -27,8 +27,8 @@ class MagicZeroInserter : public kir::ExprMutator {
 
  private:
   struct InsertionInfo {
-    kir::Scope* scope = nullptr;
-    kir::ForLoop* fl = nullptr;
+    Scope* scope = nullptr;
+    ForLoop* fl = nullptr;
   };
 
   MagicZeroInserter(const std::vector<Expr*>& exprs) {
@@ -38,7 +38,7 @@ class MagicZeroInserter : public kir::ExprMutator {
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
-  void handle(kir::ForLoop* fl) final {
+  void handle(ForLoop* fl) final {
     if (fl->isUnrolled()) {
       if (scope_.empty()) {
         kir::ExprMutator::registerInsertAfter(
@@ -105,10 +105,7 @@ Val* maybeUnwrapMagicZero(Val* val) {
   }
 }
 
-bool needsMagicZero(
-    kir::ForLoop* loop,
-    IterDomain* reference_domain,
-    Val* ind) {
+bool needsMagicZero(ForLoop* loop, IterDomain* reference_domain, Val* ind) {
   if (ind->isConstScalar()) {
     return false;
   }
@@ -125,7 +122,7 @@ bool needsMagicZero(
 }
 
 void protectNonPredicateIndexWithMagicZero(
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     const std::vector<IterDomain*>& loop_domains,
     std::unordered_map<IterDomain*, Val*>& concrete_loop_idx_map) {
   // Find magic zero insertion point
@@ -184,7 +181,7 @@ IndexMagicZeroInfo protectIndexByReplacingLoopIndex(
 IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
     Val* index,
     const IndexFromIdGraph& id_graph,
-    const std::vector<kir::ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops) {
   // Gather the loop indices
   std::unordered_set<Val*> loop_indices;
   for (auto loop_id : id_graph.resolved_loop_domains) {
@@ -204,7 +201,7 @@ IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
 
   // Traverser from the inner-most loop and apply the magic-zero
   // prorection if needed
-  for (int i = static_cast<int>(loops.size()) - 1; i >= 0; --i) {
+  for (int64_t i = static_cast<int64_t>(loops.size()) - 1; i >= 0; --i) {
     auto loop = loops.at(i);
     auto loop_id = id_graph.resolved_loop_domains.at(i);
     NVF_ERROR(GpuLower::current()->caMap()->areMapped(

@@ -30,12 +30,13 @@ Conceptually, we can consider TMA as a function:
 In the parameter list of the above function signature,
 we intentionally used `;` instead of `,` to separate $sa$ with $ga$.
 we call everything before `;` "inputs", and everything after `;` except $op$ "parameters".
+Also note that, we use column-major when talking about TMA.
 
 The meanings of inputs, parameters, and $op$ are:
 
 - $op$ defines the direction of transfer, it can be either "load" (global -> shared) or "store" (shared -> global).
 - $\vec{x}$ is the N-dimensional coordinate of the starting of the box in tensor.
-  In the example in Figure 1, it is $(9, 1)$.
+  In the example in Figure 1, it is $(8, 4)$.
 - $sa$ stands for "Shared memory base Address".
   In the example in Figure 1, it is the address of the purple item on the top left cornor of the box in shared memory.
 - $ga$ stands for "Global memory base Address".
@@ -43,7 +44,7 @@ The meanings of inputs, parameters, and $op$ are:
 - $\vec{gs}$ stands for "Global Size". It is a vector of the same dimensionality as $\vec{x}$.
   In the example in Figure 1, it is $(12, 16)$.
 - $\vec{bs}$ stands for "Box Size". It is a vector of the same dimensionality as $\vec{x}$.
-  In the example in Figure 1, it is $(6, 4)$.
+  In the example in Figure 1, it is $(8, 4)$.
 - $\vec{gr}$ stands for "Global stRide". It is a vector of the same dimensionality as $\vec{x}$.
   In the example in Figure 1, it is $(1, 14)$.
 - $\vec{er}$ stands for "Element stRide". It is a vector of the same dimensionality as $\vec{x}$.

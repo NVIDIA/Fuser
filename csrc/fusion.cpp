@@ -13,6 +13,7 @@
 #include <executor_params.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
+#include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
@@ -319,7 +320,11 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
     }
     if (output->getValType().value() == ValType::TensorView) {
       output->setIsFusionOutput(false);
-      output->as<TensorView>()->setMemoryType(MemoryType::Local);
+      // If `output` is both an input and an output before the replacement,
+      // don't localize it.
+      if (!output->isFusionInput()) {
+        output->as<TensorView>()->setMemoryType(MemoryType::Local);
+      }
     }
     // Mark uses invalid so that they will be reset next time uses() is called
     invalidateTvUses();
@@ -344,11 +349,12 @@ bool Fusion::isNoOp() {
   }
 
   for (auto out_tv : ir_utils::filterByType<TensorView>(outputs())) {
-    const std::vector<IterDomain*>& root_dom =
-        TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
+    const std::vector<IterDomain*>& logical_dom =
+        TensorDomain::noReductions(out_tv->getLogicalDomain());
     const bool size_zero =
-        std::any_of(root_dom.begin(), root_dom.end(), [](IterDomain* id) {
-          return id->extent()->isConstScalar() && id->extent()->evaluate() == 0;
+        std::any_of(logical_dom.begin(), logical_dom.end(), [](IterDomain* id) {
+          return id->extent()->isConstScalar() &&
+              id->extent()->evaluate().as<int64_t>() == 0;
         });
     if (!size_zero) {
       return false;
@@ -373,7 +379,7 @@ void Fusion::validateInputs() {
   std::unordered_set<Val*> input_dims;
   auto inp_tvs = ir_utils::filterByType<TensorView>(inputs());
   for (auto tv : inp_tvs) {
-    for (auto id : tv->getMaybeRFactorDomain()) {
+    for (auto id : tv->getLogicalDomain()) {
       input_dims.emplace(id->extent());
     }
   }
@@ -403,7 +409,7 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     IrTransformPrinter t_exprs(os);
     t_exprs.handle(this);
   }
-  os << "}\n";
+  os << "} // %kernel\n";
 
   return os;
 }
@@ -419,7 +425,9 @@ void Fusion::printKernel(const CompileParams& compile_params) {
   debug() << codegen::generateCudaKernel(lower.kernel());
 }
 
-std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
+std::unordered_map<
+    TensorView*,
+    std::pair<std::vector<int64_t>, std::vector<int64_t>>>
 Fusion::bankConflictInfo(const CompileParams& compile_params) {
   std::vector<TensorView*> smem_tvs;
   for (auto v : usedMathVals()) {
@@ -460,7 +468,9 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
     return smem_tvs.at(index);
   };
 
-  std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
+  std::unordered_map<
+      TensorView*,
+      std::pair<std::vector<int64_t>, std::vector<int64_t>>>
       result;
   result.reserve(info.size());
   for (auto i : info) {
@@ -519,7 +529,7 @@ void Fusion::printMath(bool from_outputs_only) {
   for (auto expr : exprs_for_print) {
     debug() << expr;
   }
-  debug() << "}\n\n";
+  debug() << "} // %kernel_math \n\n";
 }
 
 std::vector<Val*> Fusion::inputsAndCreated() {
@@ -579,17 +589,17 @@ void Fusion::registerExpr(Expr* expr) {
     }
   }
 
-  // Kernel is the only container type that is non-ssa. This is mainly (maybe
-  // only) because of initialization expressions which would overwrite tensor
-  // view definitions.
-  bool is_ssa = !this->isA<kir::Kernel>();
+  // Kernel and host are non-ssa. This is mainly (maybe only) because of
+  // initialization expressions which would overwrite tensor view definitions.
+  const bool is_ssa =
+      !this->isA<kir::Kernel>() && !this->isA<hir::HostIrContainer>();
 
   for (Val* output : expr->outputs()) {
     assertInContainer(output, "Output to expr is invalid, ");
     if (output->definition() != nullptr && is_ssa) {
       removeExpr(output->definition());
     }
-    if (is_ssa || (!is_ssa && output->definition() == nullptr)) {
+    if (is_ssa || output->definition() == nullptr) {
       output->setDefinition(expr);
       if (output->isA<TensorView>()) {
         // Updating the definition might change the path to output TVs.
@@ -831,6 +841,13 @@ const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
 
 bool Fusion::hasDynamicTransform() {
   return !ir_utils::getTVsWithDynamicTransform(this).empty();
+}
+
+bool isExpressionEvaluated(Fusion* fusion) {
+  return std::all_of(
+      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
+        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
+      });
 }
 
 } // namespace nvfuser

@@ -260,7 +260,7 @@ class NVF_API Val : public Statement {
       : Statement(src, ir_cloner),
         vtype_(src->vtype_),
         dtype_(src->dtype_),
-        value_(src->value_){};
+        value_(src->value_) {}
 
   std::string toString(int indent_size = 0) const override;
 
@@ -490,7 +490,7 @@ using newObjectFuncType = Expr*(
 //!      - Constructors need to register with the Fusion after inputs/outputs
 //!         are defined
 //!      - Implementation of bool sameAs(...)
-//!  2) dispatch.h/.cpp must be updated to include dispatch of the new Val
+//!  2) dispatch.h/.cpp must be updated to include dispatch of the new Expr
 //!  3) Default mutator function should be added to mutator.h/.cpp
 //!  4) Printing functions should be added to ir/iostream.h/.cpp
 //!  5) Lower case convenience functions should be added to arith.h/.cpp (If
@@ -682,7 +682,7 @@ bool Val::isDefinitionType() const {
       std::vector<Val*> inputs,                            \
       std::vector<Val*> outputs,                           \
       std::vector<Statement*> attributes) {                \
-    return IrBuilder::create<ClassName>(                   \
+    return IrBuilder::createInContainer<ClassName>(        \
         container, inputs, outputs, attributes);           \
   }
 

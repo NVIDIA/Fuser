@@ -11,7 +11,7 @@ from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definit
 from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
-from pytest_utils import ArgumentType, is_tensor
+from pytest_utils import ArgumentType, is_tensor, requiresJAX
 from typing import Callable
 
 from nvfuser import FusionDefinition
@@ -26,12 +26,16 @@ def parse_args_fusion_execution(opinfo: OpInfo, *args):
     if len(args) == 0:
         return []
 
-    if opinfo.symbolic_parameter_list is None:
-        opinfo.symbolic_parameter_list = [ArgumentType.Symbolic] * len(args)
-    assert len(opinfo.symbolic_parameter_list) == len(args)
+    symbolic_parameter_list = (
+        opinfo.symbolic_parameter_list
+        if opinfo.symbolic_parameter_list is not None
+        else [ArgumentType.Symbolic] * len(args)
+    )
+
+    assert len(symbolic_parameter_list) == len(args)
 
     result = []
-    for arg_type, a in zip(opinfo.symbolic_parameter_list, args):
+    for arg_type, a in zip(symbolic_parameter_list, args):
         if arg_type == ArgumentType.Symbolic:
             if isinstance(a, list) and all(map(is_tensor, a)):
                 result.extend(a)
@@ -62,6 +66,7 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     )
 
 
+@requiresJAX
 def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
         fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
@@ -142,11 +147,13 @@ def correctness_test_fn(
         return jax_correctness_test_fn(_fd_fn, nvf_op, sample)
     elif reference_type == ReferenceType.Python:
         return python_correctness_test_fn(_fd_fn, nvf_op, sample)
+    elif reference_type == ReferenceType.Numpy:
+        pytest.xfail("Numpy feference functions are not supported.")
     else:
-        return None
+        pytest.xfail("Reference function is not defined for this correctness test.")
 
 
-@create_op_test(tuple(op for op in opinfos if op.reference is not None))
+@create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, dtype):
         result = correctness_test_fn(op.reference_type, op, sample)
@@ -205,11 +212,11 @@ def errors_test_fn(
     fd.execute(parse_args_fusion_execution(nvf_op, *sample.args))
 
 
-# A pair of parentheses () represents a capture group in regex.
+# A pair of parentheses ()/[] represents a capture group in regex.
 # Escape parenthesis in regex string to match raw characters.
 def _regex_escape_parenthesis(a: str) -> str:
-    b = a.replace(r"(", r"\(")
-    return b.replace(r")", r"\)")
+    b = a.replace(r"[", r"\[").replace(r"]", r"\]")
+    return b.replace(r"(", r"\(").replace(r")", r"\)")
 
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))

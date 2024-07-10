@@ -59,6 +59,13 @@ struct KernelConfig {
     //!  Z = complex<double>
     //! Note that some of these are not currently supported by nvFuser.
     const char* precision = "SSS";
+
+    //! Supported vectorization of operands and epilogue inputs (bias)
+    struct SupportedVectorization {
+      uint8_t a = 16;
+      uint8_t b = 16;
+      uint8_t epilogue = 16;
+    } supported_vec_size;
   } problem;
 
   using Tile = std::array<uint16_t, 3>;
@@ -69,7 +76,7 @@ struct KernelConfig {
   uint8_t load_stages = 2;
   uint8_t grid_swizzle_factor = 0;
   uint8_t cta_order = 0;
-  bool double_buffer_smem_read = true;
+  bool circular_buffer_smem_read = true;
   bool rotate_ldmatrix_out_of_main_loop = true;
   bool async_gmem_load_operands = true;
 

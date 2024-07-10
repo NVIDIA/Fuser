@@ -8,6 +8,7 @@
 #include <tests/cpp/utils.h>
 
 #include <ops/all_ops.h>
+#include <scheduler/mma_utils.h>
 
 #include <regex>
 #include <sstream>
@@ -88,8 +89,8 @@ namespace {
 // implementation borrowed from https://stackoverflow.com/a/17976541
 inline std::string_view trim(const std::string_view& s) {
   auto wsfront = std::find_if_not(
-      s.begin(), s.end(), [](int c) { return std::isspace(c); });
-  auto wsback = std::find_if_not(s.rbegin(), s.rend(), [](int c) {
+      s.begin(), s.end(), [](int64_t c) { return std::isspace(c); });
+  auto wsback = std::find_if_not(s.rbegin(), s.rend(), [](int64_t c) {
                   return std::isspace(c);
                 }).base();
   return (
@@ -322,9 +323,9 @@ at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout) {
 }
 
 std::pair<at::Tensor, at::Tensor> matmulAtInput2D(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout,
     c10::ScalarType dtype) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
@@ -349,9 +350,9 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput2D(
 }
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DTuring(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout) {
   switch (layout) {
     case MmaLayout::TT:
@@ -368,9 +369,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DTuring
 }
 
 std::pair<at::Tensor, at::Tensor> matmulAtInput3DTuring(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout,
     c10::ScalarType dtype) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
@@ -383,11 +384,11 @@ at::Tensor matmulAtInput2D(
     const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
-    const int M,
-    const int N,
-    const int K,
-    const int B,
-    const int device) {
+    const int64_t M,
+    const int64_t N,
+    const int64_t K,
+    const int64_t B,
+    const int64_t device) {
   const auto options =
       at::TensorOptions().dtype(dtype).device(at::kCUDA, device);
   const auto is_batch = B != 0;
@@ -471,12 +472,12 @@ TensorView* canonicalizeInputToBMNK(
     TensorView* tv,
     MmaLayout layout,
     MmaOperand operand) {
-  auto rfnob = TensorDomain::noBroadcasts(tv->getMaybeRFactorDomain());
+  auto lgnob = TensorDomain::noBroadcasts(tv->getLogicalDomain());
   NVF_ERROR(
-      rfnob.size() == 2 || rfnob.size() == 3,
+      lgnob.size() == 2 || lgnob.size() == 3,
       "Expected 2 or 3 domains, got ",
-      rfnob.size());
-  bool has_batch = rfnob.size() == 3;
+      lgnob.size());
+  bool has_batch = lgnob.size() == 3;
   bool already_broadcasted = tv->hasBroadcast();
 
   // Step 1: insert permute as needed.
@@ -484,7 +485,7 @@ TensorView* canonicalizeInputToBMNK(
     if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
       // [M, (N,) B, K] -> [B, M, (N,) K]
       if (has_batch) {
-        // Using reorder + commitLeafToRFactor instead of permute here because
+        // Using reorder + commitLeafToLogical instead of permute here because
         // the former's API is more convenient here
         tv = permute(tv, {{-2, 0}});
       }
@@ -495,7 +496,7 @@ TensorView* canonicalizeInputToBMNK(
   } else { // B
     if (layout == MmaLayout::TT || layout == MmaLayout::NT) {
       // [(M,) B, K, N] -> [B, (M,) N, K]
-      std::unordered_map<int, int> old2new = {{-1, -2}};
+      std::unordered_map<int64_t, int64_t> old2new = {{-1, -2}};
       if (has_batch && already_broadcasted) {
         old2new[0] = 1;
       }
@@ -527,7 +528,7 @@ TensorView* canonicalizeInputToBMNK(
 }
 
 bool isSchedulerInUse(
-    nvfuser::FusionKernelRuntime* kernel_rt,
+    const nvfuser::FusionKernelRuntime* kernel_rt,
     const ScheduleHeuristic& scheduler) {
   if (nullptr == kernel_rt) {
     return false;
@@ -564,7 +565,7 @@ void validateSegmentation(
       segment_groups.size() <= 2, "True segment order analysis is required");
 
   for (auto& group : segment_groups) {
-    int segment_order = group->producer_edges.empty() ? 0 : 1;
+    int64_t segment_order = group->producer_edges.empty() ? 0 : 1;
     NVF_CHECK(
         group->heuristic() == expected_heuristics.at(segment_order),
         "Expected to use the ",
@@ -588,7 +589,7 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       tensor->nDims());
 
   const auto concrete = TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tensor->getLeafDomain()));
+      TensorDomain::noBroadcasts(tensor->getLoopDomain()));
 
   TensorView *biasb = nullptr, *biased = nullptr;
 
@@ -730,14 +731,14 @@ size_t getATenRandomSeed() {
   return seed;
 }
 
-int getNumSMs() {
+int64_t getNumSMs() {
   // Since cudaGetDeviceProperties can be slow, we memoize the value in num_SMs
-  static std::vector<int> num_SMs;
+  static std::vector<int64_t> num_SMs;
 
   int dev_idx = 0;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&dev_idx));
 
-  if (num_SMs.size() <= (size_t)dev_idx) {
+  if ((int64_t)num_SMs.size() <= dev_idx) {
     num_SMs.resize(dev_idx + 1, -1);
   }
 
@@ -748,6 +749,63 @@ int getNumSMs() {
     num_SMs[dev_idx] = prop.multiProcessorCount;
   }
   return num_SMs[dev_idx];
+}
+
+bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y) {
+  if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
+    return false;
+  }
+  const ValGroup& gx = vg.toGroup(x);
+  const ValGroup& gy = vg.toGroup(y);
+  return gx.get() == gy.get();
+};
+
+MmaLayout getMatmulProblemLayout(Fusion* fusion) {
+  const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
+      mma_utils::getOperandInnerDims(fusion);
+
+  NVF_ERROR(
+      inner_dims_opt.isValid(),
+      "Could not get operand inner dims: ",
+      inner_dims_opt.getErrorMsg());
+
+  const mma_utils::MatmulOperandInnerDims inner_dims = inner_dims_opt.getData();
+
+  NVF_ERROR(inner_dims.size() == 2, "Found other than two operands");
+
+  const bool A_K_inner = inner_dims.front() == MatmulDimRole::K;
+  const bool B_K_inner = inner_dims.back() == MatmulDimRole::K;
+
+  if (A_K_inner && B_K_inner) {
+    return MmaLayout::TN;
+  } else if (A_K_inner && !B_K_inner) {
+    return MmaLayout::TT;
+  } else if (!A_K_inner && B_K_inner) {
+    return MmaLayout::NN;
+  } else {
+    return MmaLayout::NT;
+  }
+}
+
+// get supported floating data types
+std::vector<DataType> getFloatingDataTypes() {
+  std::vector<DataType> dtypes = {
+      DataType::Double,
+      DataType::Float,
+      DataType::Half,
+      DataType::ComplexFloat,
+      DataType::ComplexDouble};
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
+  if (at::cuda::getDeviceProperties(0)->major >= 8) {
+    dtypes.push_back(DataType::BFloat16);
+  }
+#endif
+  return dtypes;
+}
+
+std::string sanitizeTestName(const std::string& name) {
+  // Replace all non-alphanumeric characters with underscores
+  return std::regex_replace(name, std::regex("[^a-zA-Z0-9]"), "_");
 }
 
 } // namespace nvfuser

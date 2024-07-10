@@ -81,7 +81,7 @@ void collectBufferSizes(
   for (auto expr : exprs) {
     if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
       into.push_back(allocate->size());
-    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
       collectBufferSizes(into, for_loop->body().exprs());
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       collectBufferSizes(into, ite->thenBody().exprs());
@@ -95,10 +95,10 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
   auto all_tvs = ir_utils::allTvs(fusion);
   // Collect extent and inputs
   for (auto tv : all_tvs) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       ret.push_back(id->extent());
     }
-    for (auto id : tv->getMaybeRFactorDomain()) {
+    for (auto id : tv->getLogicalDomain()) {
       if (id->hasExpandedExtent()) {
         ret.push_back(id->expandedExtent());
       }
@@ -327,21 +327,21 @@ void PrecomputedValues::validate() {
 void PrecomputedValues::bindTensorMetaData(
     TensorView* tv,
     const at::Tensor& tensor) {
-  const auto root_domain =
-      TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  const auto logical_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_ERROR(
-      tensor.dim() == static_cast<int64_t>(root_domain.size()),
+      tensor.dim() == static_cast<int64_t>(logical_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
-  for (const auto dim : c10::irange(root_domain.size())) {
+  for (const auto dim : c10::irange(logical_domain.size())) {
     auto value = tensor.size((int64_t)dim);
-    if (root_domain[dim]->hasExpandedExtent()) {
-      auto extent = root_domain[dim]->extent();
-      auto expanded_extent = root_domain[dim]->expandedExtent();
+    if (logical_domain[dim]->hasExpandedExtent()) {
+      auto extent = logical_domain[dim]->extent();
+      auto expanded_extent = logical_domain[dim]->expandedExtent();
       bindValue(extent->evaluatorIndex(), 1L);
       bindValue(expanded_extent->evaluatorIndex(), value);
     } else {
-      auto extent = root_domain[dim]->extent();
+      auto extent = logical_domain[dim]->extent();
       bindValue(extent->evaluatorIndex(), value);
     }
   }
@@ -359,7 +359,7 @@ void PrecomputedValues::bindTensorMetaData(
   auto metadata_val = IrBuilder::metadataExpr(tv);
   auto metadata = ee.evaluate(metadata_val);
   // NOTE: In some cases we may not be able to evaluate metadata. For example,
-  // if there exists a split expression between the root and rfactor domains
+  // if there exists a split expression between the root and logical domains
   // of tv whose split factor is not able to be evaluated. For that reason,
   // calling code should ensure that all inputs required to propagate strides
   // from root to allocation domains are already bound to "this" before binding
@@ -557,6 +557,9 @@ void NaiveValueMachine::runUnaryOp(int index) {
     case UnaryOpType::BitwiseNot:
       dest = ~src;
       break;
+    case UnaryOpType::Signbit:
+      dest = signbit(src);
+      break;
     default:
       NVF_CHECK(!"Unexpected operator type ", uop_type_[index]);
   }
@@ -647,6 +650,9 @@ void NaiveValueMachine::runBinaryOp(int index) {
       break;
     case BinaryOpType::GT:
       dest = lhs > rhs;
+      break;
+    case BinaryOpType::Fmod:
+      dest = fmod(lhs, rhs);
       break;
     default:
       NVF_CHECK(false, "Unexpected operator type ", bop_type_[index]);

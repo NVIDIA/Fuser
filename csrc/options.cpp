@@ -8,8 +8,6 @@
 #include <options.h>
 #include <utils.h>
 
-#include <algorithm>
-
 namespace nvfuser {
 
 namespace {
@@ -123,7 +121,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir", DebugDumpOption::FusionIr},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
-      {"halo", DebugDumpOption::Halo},
+      {"host_ir", DebugDumpOption::HostIr},
       {"index_type", DebugDumpOption::IndexType},
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
@@ -154,6 +152,7 @@ template <>
 std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
+      {"fuse_matmul", EnableOption::FuseMatmul},
       {"id_model", EnableOption::IdModel},
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
@@ -261,12 +260,20 @@ const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option) {
   return DebugDumpOptionsGuard::getCurOptions().getArgs(option);
 }
 
+bool hasDebugDumpArgument(DebugDumpOption option, const std::string& arg) {
+  return DebugDumpOptionsGuard::getCurOptions().hasArg(option, arg);
+}
+
 bool isOptionEnabled(EnableOption option) {
   return EnableOptionsGuard::getCurOptions().has(option);
 }
 
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option) {
   return EnableOptionsGuard::getCurOptions().getArgs(option);
+}
+
+bool hasEnableOptionArgument(EnableOption option, const std::string& arg) {
+  return EnableOptionsGuard::getCurOptions().hasArg(option, arg);
 }
 
 bool isOptionDisabled(DisableOption option) {
@@ -278,13 +285,19 @@ const std::vector<std::string>& getDisableOptionArguments(
   return DisableOptionsGuard::getCurOptions().getArgs(option);
 }
 
+bool hasDisableOptionArguments(DisableOption option, const std::string& arg) {
+  return DisableOptionsGuard::getCurOptions().hasArg(option, arg);
+}
+
 bool isProfilerEnabled() {
   return ProfilerOptionsGuard::getCurOptions().hasAny();
 }
-bool isProfilerEnabledWithoutCupti() {
-  return ProfilerOptionsGuard::getCurOptions().has(
-             ProfilerOption::EnableNocupti) ||
-      ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::PrintNocupti);
+bool isProfilerEnabledWithCupti() {
+  return ProfilerOptionsGuard::getCurOptions().hasAny() &&
+      !(ProfilerOptionsGuard::getCurOptions().has(
+            ProfilerOption::EnableNocupti) ||
+        ProfilerOptionsGuard::getCurOptions().has(
+            ProfilerOption::PrintNocupti));
 }
 bool isProfilerPrintingEnabled() {
   return ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::Print) ||
@@ -294,11 +307,6 @@ bool isProfilerPrintingEnabled() {
 bool isProfilerPrintingVerbose() {
   return ProfilerOptionsGuard::getCurOptions().has(
       ProfilerOption::PrintVerbose);
-}
-
-const std::vector<std::string>& getDisableOptionArguments(
-    ProfilerOption option) {
-  return ProfilerOptionsGuard::getCurOptions().getArgs(option);
 }
 
 } // namespace nvfuser

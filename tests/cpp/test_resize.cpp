@@ -15,6 +15,8 @@
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1676,7 +1678,7 @@ TEST_F(ResizeTest, PadToEmptyTensor) {
           IrBuilder::create<Val>(2.0));
   fusion->addOutput(tv1);
   // set allocation domain to trigger validation check on size/stride
-  tv1->setAllocationDomain(tv1->getMaybeRFactorDomain(), true);
+  tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1900,6 +1902,11 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
 
 // C++ version of TestNvFuserFrontend.test_nanogpt_split_mha_linears
 TEST_F(ResizeTest, FusionSliceForNanoGPT3) {
+  // To verify input caching condition in this test, disable aliasing as that
+  // will skip compilation and no kernel will exist.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -2302,7 +2309,7 @@ TEST_F(ResizeTest, SliceVectorization) {
 
   // check that we vectorize 4
   bool found_vectorize = false;
-  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
+  for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
       EXPECT_EQ(id->extent()->evaluate(), 4);
       found_vectorize = true;
@@ -3350,17 +3357,17 @@ TEST_F(ResizeTest, AvoidVectorization) {
 
   schedulePointwise(&fusion, *params);
 
-  // Make sure tv1 is not vectorized, i.e., no leaf IterDomains are vectorized.
+  // Make sure tv1 is not vectorized, i.e., no loop IterDomains are vectorized.
   EXPECT_THAT(
-      tv1->getLeafDomain(),
+      tv1->getLoopDomain(),
       Each(
           Property(&IterDomain::getParallelType, Not(ParallelType::Vectorize))))
       << "Unexpected vectorization: " << tv1;
 
-  // Make sure tv2 should be vectorized, i.e., at least one leaf IterDomain is
+  // Make sure tv2 should be vectorized, i.e., at least one loop IterDomain is
   // vectorized.
   EXPECT_THAT(
-      tv2->getLeafDomain(),
+      tv2->getLoopDomain(),
       Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
       << "Failed to vectorize: " << tv2;
 
@@ -3368,6 +3375,139 @@ TEST_F(ResizeTest, AvoidVectorization) {
   fe.compileFusion(&fusion, inputs, params->lparams);
   auto outputs = fe.runFusion(inputs, params->lparams);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// MemoryPromotion generates code with volatile T. This test ensures that our
+// reduced precision types in runtime file have volatile methods defined
+TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
+  std::vector<DataType> dtype_variants({DataType::Half});
+
+  if (deviceMajorMinorCheck(8)) {
+    dtype_variants.push_back(DataType::BFloat16);
+  }
+  if (deviceMajorMinorCheck(9)) {
+    dtype_variants.push_back(DataType::Float8_e4m3fn);
+    // We cannot set nan to e5m2.
+    setFillAllocationWithNan(false);
+    dtype_variants.push_back(DataType::Float8_e5m2);
+  }
+
+  for (auto dtype : dtype_variants) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    FusionGuard fg(fusion_ptr.get());
+
+    TensorView* tv0 = makeSymbolicTensor(2, dtype);
+    fusion_ptr->addInput(tv0);
+    TensorView* tv1 = makeSymbolicTensor(2, dtype);
+    fusion_ptr->addInput(tv1);
+
+    TensorView* tv2 = castOp(DataType::Float, tv0);
+    TensorView* tv3 = neg(tv2);
+    TensorView* tv4 = castOp(dtype, tv3);
+
+    TensorView* tv5 = cat({tv4, tv1}, -1);
+    fusion_ptr->addOutput(tv5);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+    // note randn doesn't support fp8 types. so we cast after initialize
+    at::Tensor t0 = at::randn({4, 8}, options).to(data_type_to_aten(dtype));
+    at::Tensor t1 = at::randn({4, 12}, options).to(data_type_to_aten(dtype));
+
+    std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+    EXPECT_EQ(cg_outputs.size(), 1);
+    EXPECT_EQ(cg_outputs[0].dtype(), data_type_to_aten(dtype));
+
+    // note cat doesn't support fp8 types, running reference with floating point
+    // instead.
+    auto t0_fp32 = t0.to(at::kFloat);
+    auto t1_fp32 = t1.to(at::kFloat);
+    auto ref = at::cat({-t0_fp32, t1_fp32}, -1);
+
+    testValidate(
+        executor_cache.fusion(),
+        {cg_outputs[0].to(at::kFloat)},
+        aten_inputs,
+        {ref},
+        __LINE__,
+        __FILE__,
+        "");
+  }
+}
+
+TEST_F(ResizeTest, PadDtypes) {
+  auto sizes = {0, 10};
+  auto dtypes = {
+      at::kBool,
+      at::kFloat,
+      at::kLong,
+      at::kDouble,
+      at::kHalf,
+      at::kBFloat16,
+      at::kInt,
+      at::kComplexFloat,
+      at::kComplexDouble};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* size = IrBuilder::create<Val>(DataType::Int);
+  Val* fill_val = IrBuilder::create<Val>(DataType::Int);
+  fusion->addInput(size);
+  fusion->addInput(fill_val);
+  for (auto dtype : dtypes) {
+    if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
+      continue;
+    }
+    auto full_tv = full({size}, fill_val, aten_to_data_type(dtype));
+    auto out_tv =
+        pad(full_tv, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
+    fusion->addOutput(out_tv);
+
+    auto* pad_value = out_tv->definition()->as<PadOp>()->value();
+    EXPECT_TRUE(pad_value->isZero());
+    EXPECT_FALSE(pad_value->isOne());
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  for (auto size : sizes) {
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, 8});
+
+    testValidate(
+        executor_cache.fusion(), cg_outputs, {size, 8}, __LINE__, __FILE__);
+  }
+}
+
+TEST_F(ResizeTest, Issue2552) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigConcreteTensor({1, 3});
+  TensorView* y = makeContigConcreteTensor({1, 3});
+  fusion->addInput(x);
+  fusion->addInput(y);
+  x = expand(x, {IrBuilder::create<Val>(2), x->axis(1)->extent()});
+  x = slice(x, /*starts=*/{0, 0}, /*stops=*/{1, 3});
+  fusion->addOutput(x);
+  TensorView* z = add(x, y);
+  fusion->addOutput(z);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor x_tensor = at::randn({1, 3}, options);
+  at::Tensor y_tensor = at::randn({1, 3}, options);
+  std::vector<at::Tensor> out_tensors =
+      fec.runFusionWithInputs({x_tensor, y_tensor});
+  testValidate(
+      fec.fusion(), out_tensors, {x_tensor, y_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

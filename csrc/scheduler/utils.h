@@ -32,6 +32,7 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
@@ -42,12 +43,24 @@ constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
 constexpr int64_t z_block_limit = 64;
 
+// Find largest power of 2 that is a factor of n. If n==0, return largest power
+// of 2 representable by int64_t
 constexpr int64_t maxVectorizationWidth(int64_t n) {
-  int64_t next_vector_size = 2;
-  while (next_vector_size <= n && n % next_vector_size == 0) {
-    next_vector_size <<= 1;
+  if (n == 0) {
+    // Max representable int has null sign bit then all ones. Shift right then
+    // xor to preserve only the most significant bit.
+    int64_t m = std::numeric_limits<int64_t>::max();
+    return m ^ (m >> 1);
   }
-  return next_vector_size >> 1;
+  // For example
+  //   n               = b101101000
+  //           n - 1   = b101100111
+  //        ~ (n - 1)  = b010011000
+  //   n & (~ (n - 1)) = b000001000
+  // The key is that subtracting one flips all trailing 0s as well as the least
+  // significant 1, so all of the other bits will fail the &, leaving
+  // only that 1.
+  return n & (~(n - 1));
 }
 
 // Largest Power of 2 less-than n
@@ -96,13 +109,13 @@ inline int64_t safeDiv(const int64_t x, const int64_t y) {
 // `to_split` matters. All given dimensions are numbers before any split.
 NVF_API void splitDims(
     TensorView* tv,
-    std::vector<std::pair<size_t, size_t>> to_split, // (dim, size)
-    std::vector<size_t>& to_update);
+    std::vector<std::pair<int64_t, int64_t>> to_split, // (dim, size)
+    std::vector<int64_t>& to_update);
 
 NVF_API inline void splitDims(
     TensorView* tv,
-    std::vector<std::pair<size_t, size_t>> to_split) { // (dim, size)
-  std::vector<size_t> unused;
+    std::vector<std::pair<int64_t, int64_t>> to_split) { // (dim, size)
+  std::vector<int64_t> unused;
   splitDims(tv, std::move(to_split), unused);
 }
 
@@ -112,25 +125,25 @@ NVF_API inline void splitDims(
 // merge.
 // NOTE: merged is done as the entries in the order of `to_merge`, assuming an
 // order from inner to outer
-NVF_API std::optional<size_t> mergeDims(
+NVF_API std::optional<int64_t> mergeDims(
     TensorView* tv,
-    std::vector<size_t> to_merge,
-    std::vector<size_t>& to_update);
+    std::vector<int64_t> to_merge,
+    std::vector<int64_t>& to_update);
 
-inline std::optional<size_t> mergeDims(
+inline std::optional<int64_t> mergeDims(
     TensorView* tv,
-    std::vector<size_t> to_merge) {
-  std::vector<size_t> unused;
+    std::vector<int64_t> to_merge) {
+  std::vector<int64_t> unused;
   return mergeDims(tv, std::move(to_merge), unused);
 }
 
 // Merge all reduction to the right side and returns total number of
 // reduction axes.
-size_t mergeReduction(TensorView* tv);
+int64_t mergeReduction(TensorView* tv);
 
 // merge all non-reduction axes to the left side and returns total number of
 // iteration axes.
-size_t mergeNonReduction(TensorView* tv);
+int64_t mergeNonReduction(TensorView* tv);
 
 // Propagate the parallelization from the selected dimensions of the reference
 // tensor to their corresponding dimensions in all selected tensors in the DAG.
@@ -278,7 +291,7 @@ NVF_API std::vector<TensorView*> getReductionTvs(Fusion* fusion);
 // Returns a list of TensorViews that are the consumer tv for a view operation.
 std::vector<TensorView*> getViewTVs(Fusion* fusion);
 
-// Returns a list of non-reduction TensorViews that have a rfactor domain
+// Returns a list of non-reduction TensorViews that have a root domain
 std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 
 // Reset inputs and outputs to global memory, everything else to local.
@@ -312,7 +325,7 @@ IterDomain* innerMostAllocDim(TensorView* tv);
 // case.
 class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
   std::unordered_map<TensorView*, IterDomain*> mapped_root_ids_;
-  std::unordered_map<TensorView*, IterDomain*> mapped_rfactor_ids_;
+  std::unordered_map<TensorView*, IterDomain*> mapped_logical_ids_;
   TensorView* starting_tv_ = nullptr;
   IterDomain* starting_id_ = nullptr;
   bool inner_only_;
@@ -351,20 +364,20 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     bool vectorize_pass);
 
 // Holder return struct for the below function.
-struct DisjointRFactorSetInfo {
+struct DisjointLogicalSetInfo {
   // const* to the disjoint set in disjoint_rfactor_set passed in to
-  // getDisjointRFactorSetsOf each iterdomain in the rfactor of ref is mapped
+  // getDisjointLogicalSetsOf each iterdomain in the rfactor of ref is mapped
   // to.
   //
   // WARNING: these pointers are relative to the disjoint_rfactor_set reference
-  // passed into getDisjointRFactorSetsOf it's the user's responsibility to
+  // passed into getDisjointLogicalSetsOf it's the user's responsibility to
   // maintain the lifetime of that reference to match this vector.
   std::vector<const VectorOfUniqueEntries<IterDomain*>*> disjoint_sets_of_ref;
 
-  // Unique ID associated to the disjoint view group the rfactor id belongs to
+  // Unique ID associated to the disjoint view group the logical id belongs to
   // in disjoint_sets_of_ref. It's straight forward to map from
   // disjoint_sets_of_ref to the vector, but not the other way around.
-  std::vector<int> disjoint_set_ids;
+  std::vector<int64_t> disjoint_set_ids;
 
   // TensorView reference the above vectors are relative to.
   TensorView* ref;
@@ -374,7 +387,7 @@ struct DisjointRFactorSetInfo {
 // of vectors of size rfactorDomain of reference. Vector of
 // VectorOfUniqueEntries returns a const* to the disjoint set in
 // disjoint_rfactor_set the iterdomain is mapped to. Integer vector represents
-// which disjoint rfactor group the rfactor id belongs to. It's straightforward
+// which disjoint rfactor group the logical id belongs to. It's straightforward
 // to map from the former to the latter, but not the latter to former.
 //
 // Since we return a const* to entries in disjoint_rfactor_set, it must be
@@ -382,13 +395,13 @@ struct DisjointRFactorSetInfo {
 // reference, but generating the disjoint rfactor set is likely the limiter on
 // perf of this function.
 //
-// rfactor_reorder_map is provided to assume TensorView `of` will be reordered
+// logical_reorder_map is provided to assume TensorView `of` will be reordered
 // per the map
-DisjointRFactorSetInfo getDisjointRFactorSetsOf(
+DisjointLogicalSetInfo getDisjointLogicalSetsOf(
     Fusion* fusion,
     TensorView* of,
     DisjointSets<IterDomain*>& disjoint_rfactor_set,
-    const std::unordered_map<int, int>& rfactor_reorder_map = {});
+    const std::unordered_map<int64_t, int64_t>& logical_reorder_map = {});
 
 // Structure to hold byte multiples for break points. I.e. if we have the
 // tensors:
@@ -405,15 +418,15 @@ struct BroadcastMultiple {
 };
 
 struct BroadcastMultipleInformation {
-  std::vector<int> view_disjoint_set_ids;
+  std::vector<int64_t> view_disjoint_set_ids;
   std::vector<BroadcastMultiple> broadcast_multiples;
 };
 
-// Returns a vector of size reference_tv->getMaybeRFactorDomain().size() which
+// Returns a vector of size reference_tv->getLogicalDomain().size() which
 // is a view disjoint set id of each of those iter domains. If entries share the
 // same value, they undergo view transformations in the fusion together.
 // Broadcast multiples are also of size
-// reference_tv->getMaybeRFactorDomain().size(), each entry [i] is the number of
+// reference_tv->getLogicalDomain().size(), each entry [i] is the number of
 // inputs/outputs that have a non-broadcast dimension mapped to the
 // corresponding dimension in reference_tv. Broadcast multiples includes
 // reference_tv if reference_tv is an input or output. Broadcast multiples is
@@ -423,17 +436,17 @@ struct BroadcastMultipleInformation {
 // dimensions are broadcast that input/output will not contribute to the
 // multiple.
 //
-// rfactor_reorder_map is provided to assume reference_tv will be reordered per
+// logical_reorder_map is provided to assume reference_tv will be reordered per
 // the map
 NVF_API BroadcastMultipleInformation getBroadcastMultiples(
     TensorView* reference_tv,
     DataType index_type,
-    const std::unordered_map<int, int>& rfactor_reorder_map = {});
+    const std::unordered_map<int64_t, int64_t>& logical_reorder_map = {});
 
 //! Propagate current transformations on from_tv up to the given
 //!  position, to all tensorviews on the owning fusion that has
 //!  a connection with `from_tv` on the fusion graph.
-void transformPropagateToAllFrom(TensorView* from_tv, int pos);
+void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos);
 
 //! A type of custom transform propagator that propagates iterdomain
 //!  transforms from a source tv to all tvs that are selected
@@ -469,7 +482,7 @@ struct BoundedDirectionalTransformPropagator {
     //!  type propagation, see comment on
     //!  scheduler_utils::parallelizeAllLike.
     //! Only used if propagate_parallel_type==true.
-    int parallel_propagation_pos = -1;
+    int64_t parallel_propagation_pos = -1;
 
     //! Setter for enabling parallel type
     //!  propagation. see comment on the variable.
@@ -477,7 +490,7 @@ struct BoundedDirectionalTransformPropagator {
     //! \param up_to_pos, sets the parallel type
     //!  propagation boundary. see comment on
     //!  scheduler_utils::parallelizeAllLike.
-    Options propagateParallelType(int up_to_pos = -1) {
+    Options propagateParallelType(int64_t up_to_pos = -1) {
       propagate_parallel_type = true;
       parallel_propagation_pos = up_to_pos;
       return *this;
@@ -496,7 +509,7 @@ struct BoundedDirectionalTransformPropagator {
   //!  of boundary tensorviews in `to` and producers of `from`.
   NVF_API static void backward(
       TensorView* from,
-      int pos,
+      int64_t pos,
       std::vector<TensorView*> to,
       std::optional<Options> options = std::nullopt);
 
@@ -505,7 +518,7 @@ struct BoundedDirectionalTransformPropagator {
   //!  of boundary tensorviews in `to` and consumers of `from`.
   static void forward(
       TensorView* from,
-      int pos,
+      int64_t pos,
       std::vector<TensorView*> to,
       std::optional<Options> options = std::nullopt);
 
@@ -516,7 +529,7 @@ struct BoundedDirectionalTransformPropagator {
   //!  either a producer or a consumer of tensorview `from`.
   static void bothWays(
       TensorView* from,
-      int pos,
+      int64_t pos,
       std::vector<TensorView*> backward_to,
       std::vector<TensorView*> forward_to,
       std::optional<Options> options = std::nullopt);
@@ -529,7 +542,7 @@ struct BoundedDirectionalTransformPropagator {
   //! a producer or a consumer of from_tv.
   static void propagate(
       TensorView* from_tv,
-      int pos,
+      int64_t pos,
       std::unordered_set<TensorView*> included_tvs,
       Options options);
 };
@@ -553,26 +566,28 @@ struct BoundedDirectionalTransformPropagator {
 // If IterDomains are disjoint in the returned set, then they are considered
 // "separable".
 // Warning: This pass generates the IdGraphs, not intended for use at runtime.
-NVF_API DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion);
+NVF_API DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion);
 
 // Makes sure that there are no group id's left of pos that match right of pos.
 // e.g.
 // [1, 0, 0] pos 2 would return false
 // [1, 0, 0] pos 1 would return true
-NVF_API bool breakIsDisjoint(std::vector<int> group_ids, int pos);
+NVF_API bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 
-// Generates an old to new map to reorder tv's domain as the rfactor order.
+// Generates an old to new map to reorder tv's domain as the logical order.
 // Priority is given to inner most dimensions for example:
-// rfactor [i0, i1, i2]
+// logical [i0, i1, i2]
 // domain [i0*i2, i1]
 // will produce the map {{0, 1}, {1, 0}}
 // This is somewhat similar to orderTiledConcreteIdAsRoot
-NVF_API std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv);
+NVF_API std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(
+    TensorView* tv);
 
-// Generates an old to new map to reorder tv's domain as the rfactor order.
+// Generates an old to new map to reorder tv's domain as the logical order.
 // This only handles the simple case where allocation is a permutation of
-// rfactor domain, otherwise, the function returns an empty container.
-std::unordered_map<int, int> maybeRfactorReorderAsAllocationMap(TensorView* tv);
+// logical domain, otherwise, the function returns an empty container.
+std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
+    TensorView* tv);
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false
@@ -643,6 +658,19 @@ int64_t getPersistentBufferSizeOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info);
+
+//! The required shared memory size for a block inclues two parts: (1) smem
+//! for persistent buffers and (2) overhead. The overhead includes space
+//! reserved by the CUDA driver and reduction workspace which depends on the
+//! number of threads per block specified by the parameter threads_per_block.
+//! By default, the function uses the maximum allowed number of threads per
+//! block (threads_per_block = -1) to calculate the overhead. The caller can
+//! specify a different value if they are sure about the max value used at
+//! runtime.
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    int64_t threads_per_block = -1);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

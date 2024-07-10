@@ -4,6 +4,7 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 #include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -125,24 +126,10 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
                                   .dtype(data_type_to_aten(dtype))
                                   .device(at::kCUDA, 0);
 
-    // Reduce the scale to avoid fp16 overflow. In segmented scenarios,
-    // intermediates across different segments are saved in fp16. Input down
-    // scaling is essential to avert fp16 overflow. Refer to:
-    // https://github.com/NVIDIA/Fuser/issues/704
-    constexpr float scale_down_factor = 0.01;
-    constexpr float scale_back_factor = 1.0 / scale_down_factor;
-    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options)
-                                   .mul(scale_down_factor)
-                                   .to(data_type_to_aten(dtype));
-    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options)
-                                .mul(scale_down_factor)
-                                .to(data_type_to_aten(dtype));
-    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options)
-                                 .mul(scale_down_factor)
-                                 .to(data_type_to_aten(dtype));
-    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options)
-                               .mul(scale_down_factor)
-                               .to(data_type_to_aten(dtype));
+    at::Tensor aten_grad_out = at::randn(input_shape, maybe_fp16_options);
+    at::Tensor aten_input = at::randn(input_shape, maybe_fp16_options);
+    at::Tensor aten_weight = at::randn(norm_shape, maybe_fp16_options);
+    at::Tensor aten_bias = at::randn(norm_shape, maybe_fp16_options);
 
     auto at_weight = c10::optional<at::Tensor>(aten_weight);
     auto at_bias = c10::optional<at::Tensor>(aten_bias);
@@ -176,13 +163,11 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
 
     testValidate(
         &fusion,
-        {cg_outputs[0].mul(scale_back_factor),
-         cg_outputs[1].mul(scale_back_factor),
-         cg_outputs[2].mul(scale_back_factor)},
+        {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
         aten_inputs,
-        {std::get<0>(aten_gradients).mul(scale_back_factor),
-         std::get<1>(aten_gradients).mul(scale_back_factor),
-         std::get<2>(aten_gradients).mul(scale_back_factor)},
+        {std::get<0>(aten_gradients),
+         std::get<1>(aten_gradients),
+         std::get<2>(aten_gradients)},
         __LINE__,
         __FILE__);
     if (isBenchmark) {
@@ -1015,7 +1000,7 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
 // Reproduce of issue 1023, where iteration axis in inner reduction tv doesn't
 // match to reduction axis in outer reduction tv.
 TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
-  auto test = [](const std::vector<int>& outer_reduction_axis) {
+  auto test = [](const std::vector<int64_t>& outer_reduction_axis) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -1044,12 +1029,10 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
       NVF_ERROR(is_segmented, "Fusion should be segmented!");
     }
 
-    std::vector<int64_t> vec64(
-        outer_reduction_axis.begin(), outer_reduction_axis.end());
     auto t1 = t0.sum({-1});
     auto t2 = t1.unsqueeze(-1);
     auto t3 = t0 + t2;
-    auto t4 = t0.sum(vec64);
+    auto t4 = t0.sum(outer_reduction_axis);
     testValidate(
         &fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
   };
@@ -1067,4 +1050,54 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
   test({0});
 }
 
+// innerOuter scheduler projects buffer to inputs when there is one or more
+// outer broadcast tvs, e.g. in layer norm backward and RMS norm backward.
+// This test covers the branch where the outer broadcast tensor is not exist
+// and data type is fp32, so the buffer is not projected to inputs.
+TEST_F(NVFuserTest, CombinedSchedulerInnerOuterNoOuterBroadcastTv) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  const int dim0 = 1024, dim1 = 2048;
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv2, tv0);
+  auto tv4 = sum(tv0, {0});
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  auto heuristic =
+      getInnerOuterPersistentHeuristics(fusion_ptr.get(), aten_inputs);
+  NVF_CHECK(heuristic, "InnerOuterPersistentHeuristics was not generated!");
+  NVF_CHECK(
+      !heuristic->project_persistent_buffers,
+      "Shouldn't project persistent buffers to inputs!");
+
+  scheduleInnerOuterPersistentKernel(fusion_ptr.get(), *heuristic);
+  auto lparams = heuristic->lparams;
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs, lparams);
+  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+
+  auto t1 = t0.sum({1});
+  auto t2 = t1.unsqueeze(-1);
+  auto t3 = t0 + t2;
+  auto t4 = t0.sum({0});
+  testValidate(
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      {t3, t4},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
 } // namespace nvfuser

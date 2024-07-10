@@ -5,7 +5,6 @@
 
 import math
 import torch
-import jax
 from pytest_core import OpInfo, ReferenceType, Domain
 from pytest_fusion_definitions import (
     api_test_fd_fn,
@@ -19,7 +18,7 @@ from pytest_input_generators import (
     broadcast_in_dim_error_generator,
     cat_generator,
     cat_error_generator,
-    define_tensor_generator,
+    div_input_generator,
     define_tensor_error_generator,
     define_vector_constant_error_generator,
     elementwise_binary_generator,
@@ -49,6 +48,8 @@ from pytest_input_generators import (
     vector_at_error_generator,
     where_error_generator,
     matmul_input_generator,
+    linear_input_generator,
+    linear_error_generator,
 )
 from pytest_utils import (
     bool_int_dtypes,
@@ -61,6 +62,12 @@ from pytest_utils import (
 )
 from functools import partial
 
+from pytest_utils import JAX_AVAILABLE
+
+if JAX_AVAILABLE:
+    import jax
+
+
 eps = 1e-2
 
 opinfos = []
@@ -71,9 +78,7 @@ fusion_input_ops = []
 define_tensor_opinfo = OpInfo(
     lambda fd: fd.define_tensor,
     "define_tensor",
-    sample_input_generator=define_tensor_generator,
     error_input_generator=define_tensor_error_generator,
-    fd_correctness_fn=tensor_input_fd_fn,
     fd_error_input_fn=tensor_input_fd_fn,
 )
 fusion_input_ops.append(define_tensor_opinfo)
@@ -84,7 +89,6 @@ fusion_input_ops.append(define_tensor_opinfo)
 define_vector_constant_opinfo = OpInfo(
     lambda fd: fd.define_vector,
     "define_vector_constant",
-    sample_input_generator=None,
     error_input_generator=define_vector_constant_error_generator,
     fd_error_input_fn=api_test_fd_fn,
 )
@@ -581,12 +585,7 @@ div_opinfo = OpInfo(
     lambda fd: fd.ops.div,
     "div",
     dtypes=float_complex_dtypes,
-    sample_input_generator=partial(
-        elementwise_binary_generator,
-        enable_small_value_testing=False,
-        enable_extremal_value_testing=False,
-        exclude_zero=True,
-    ),
+    sample_input_generator=div_input_generator,
     reference=_elementwise_binary_torch(torch.div),
 )
 binary_ops.append(div_opinfo)
@@ -648,7 +647,7 @@ logical_right_shift_opinfo = OpInfo(
         enable_large_value_testing=False,
         enable_small_value_testing=False,
     ),
-    reference=jax.lax.shift_right_logical,
+    reference=jax.lax.shift_right_logical if JAX_AVAILABLE else None,
     reference_type=ReferenceType.Jax,
 )
 binary_ops.append(logical_right_shift_opinfo)
@@ -739,12 +738,7 @@ binary_ops.append(sub_opinfo)
 truediv_opinfo = OpInfo(
     lambda fd: fd.ops.truediv,
     "truediv",
-    sample_input_generator=partial(
-        elementwise_binary_generator,
-        enable_small_value_testing=False,
-        enable_extremal_value_testing=False,
-        exclude_zero=True,
-    ),
+    sample_input_generator=div_input_generator,
     reference=_elementwise_binary_torch(torch.true_divide),
 )
 binary_ops.append(truediv_opinfo)
@@ -869,7 +863,7 @@ broadcast_in_dim_constant_opinfo = OpInfo(
     "broadcast_in_dim_constant",
     sample_input_generator=broadcast_in_dim_generator,
     error_input_generator=broadcast_in_dim_error_generator,
-    reference=jax.lax.broadcast_in_dim,
+    reference=jax.lax.broadcast_in_dim if JAX_AVAILABLE else None,
     reference_type=ReferenceType.Jax,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
@@ -897,7 +891,7 @@ broadcast_in_dim_symbolic_opinfo = OpInfo(
     "broadcast_in_dim_symbolic",
     sample_input_generator=broadcast_in_dim_generator,
     error_input_generator=broadcast_in_dim_error_generator,
-    reference=jax_broadcast_in_dim_fn,
+    reference=jax_broadcast_in_dim_fn if JAX_AVAILABLE else None,
     reference_type=ReferenceType.Jax,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
@@ -1008,7 +1002,7 @@ slice_opinfo = OpInfo(
     "slice",
     sample_input_generator=slice_generator,
     error_input_generator=slice_error_generator,
-    reference=jax.lax.slice,
+    reference=jax.lax.slice if JAX_AVAILABLE else None,
     reference_type=ReferenceType.Jax,
 )
 shape_ops.append(slice_opinfo)
@@ -1120,6 +1114,22 @@ matmul_opinfo = OpInfo(
 )
 matmul_ops.append(matmul_opinfo)
 
+linear_ops = []
+
+linear_opinfo = OpInfo(
+    lambda fd: fd.ops.linear,
+    "linear",
+    # bf16 needs Ampere or newer.
+    dtypes=(
+        (torch.float16, torch.bfloat16)
+        if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 8
+        else (torch.float16,)
+    ),
+    sample_input_generator=linear_input_generator,
+    error_input_generator=linear_error_generator,
+    reference=torch.nn.functional.linear,
+)
+linear_ops.append(linear_opinfo)
 
 """ End Tensor Creation """
 
@@ -1133,3 +1143,4 @@ opinfos.extend(normalization_ops)
 opinfos.extend(shape_ops)
 opinfos.extend(tensor_creation_ops)
 opinfos.extend(matmul_ops)
+opinfos.extend(linear_ops)

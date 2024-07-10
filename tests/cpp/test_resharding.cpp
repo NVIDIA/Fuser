@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <executor_kernel_arg.h>
@@ -12,6 +13,7 @@
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
@@ -69,10 +71,9 @@ TEST_F(ReshardingTest, Detection) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  DeviceMesh mesh0, mesh1, mesh2;
-  mesh0 = {0, 1};
-  mesh1 = {0, 2};
-  mesh2 = {0, 1, 2};
+  DeviceMesh mesh0 = {0, 1};
+  DeviceMesh mesh1 = {0, 2};
+  DeviceMesh mesh2 = {0, 1, 2};
 
   TensorView* tv0 = makeContigTensor(3);
   fusion->addInput(tv0);
@@ -222,6 +223,100 @@ TEST_F(ReshardingTest, Detection) {
   EXPECT_FALSE(isResharding(tv24->definition()));
   EXPECT_FALSE(isResharding(tv25->definition()));
   EXPECT_TRUE(isResharding(tv26->definition()));
+}
+
+TEST_F(ReshardingTest, InsertResharding_Before) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(3);
+  TensorView* b = makeSymbolicTensor(3);
+  TensorView* c = add(a, b);
+  fusion.addInput(a);
+  fusion.addInput(b);
+  fusion.addOutput(c);
+
+  DeviceMesh mesh0({0, 1});
+  DeviceMesh mesh1({2});
+  a->setDeviceMesh(mesh0);
+  b->setDeviceMesh(mesh0);
+  c->setDeviceMesh(mesh1);
+
+  a->axis(0)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+
+  insertReshardings(&fusion);
+  std::vector<Val*> outputs = fusion.outputs();
+
+  c = outputs[0]->as<TensorView>();
+  std::vector<TensorView*> inputs(c->definition()->inputs().size());
+  for (auto i : c10::irange(c->definition()->inputs().size())) {
+    inputs[i] = c->definition()->input(i)->as<TensorView>();
+  }
+  EXPECT_TRUE(getTvsWithDifferentSharding(c, inputs).empty());
+}
+
+TEST_F(ReshardingTest, InsertResharding_After) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(3);
+  TensorView* b = relu(a);
+  fusion.addInput(a);
+  fusion.addOutput(b);
+
+  DeviceMesh mesh0({0, 1});
+  DeviceMesh mesh1({2});
+  a->setDeviceMesh(mesh0);
+  b->setDeviceMesh(mesh1);
+
+  a->axis(0)->parallelize(ParallelType::DIDx);
+  b->axis(1)->parallelize(ParallelType::DIDx);
+
+  insertReshardings(&fusion);
+  std::vector<Val*> outputs = fusion.outputs();
+
+  b = outputs[0]->as<TensorView>();
+  Expr* expr = b->definition();
+  EXPECT_TRUE(expr->isA<LoadStoreOp>());
+  EXPECT_EQ(expr->as<LoadStoreOp>()->opType(), LoadStoreOpType::Set);
+  std::vector<TensorView*> tvs = {expr->inputs()[0]->as<TensorView>()};
+  EXPECT_THAT(getTvsWithDifferentSharding(a, tvs), ::testing::IsEmpty());
+}
+
+TEST_F(ReshardingTest, InsertShardedAxisReordering) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(3);
+  TensorView* b = relu(a);
+  TensorView* c = add(a, b);
+  fusion.addInput(a);
+  fusion.addOutput(c);
+
+  DeviceMesh mesh({0, 1});
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
+  c->setDeviceMesh(mesh);
+
+  b->axis(1)->parallelize(ParallelType::DIDx);
+  c->axis(1)->parallelize(ParallelType::DIDx);
+
+  insertReshardings(&fusion);
+  int num_inner_reshardings = 0;
+  for (auto expr : fusion.exprs()) {
+    if (isResharding(expr) && isInnerResharding(expr)) {
+      num_inner_reshardings++;
+    }
+  }
+  EXPECT_GT(num_inner_reshardings, 0);
+
+  insertShardedAxisReordering(&fusion);
+  for (auto expr : fusion.exprs()) {
+    if (isResharding(expr)) {
+      EXPECT_FALSE(isInnerResharding(expr));
+    }
+  }
 }
 
 TEST_P(ReshardingTest, Insert) {

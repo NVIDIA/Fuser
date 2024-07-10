@@ -194,12 +194,12 @@ class NVF_API TransformReplay {
   // should preserve producer's current allocation domain, and if that
   // allocation domain is inconsistent with the replay, an error will be raised.
   // This option is used in cacheBefore, cacheAfter, and cacheFork
-  static std::pair<TensorDomain*, size_t> replayPasC(
+  static std::pair<TensorDomain*, int64_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
       TransformReplayOptions opt = {});
-  static std::pair<TensorDomain*, size_t> replayPasC(
+  static std::pair<TensorDomain*, int64_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
@@ -210,12 +210,12 @@ class NVF_API TransformReplay {
   // consumer_compute_at_axis}.
   //
   // Unlike replayPasC, it always ignores resize.
-  static std::pair<TensorDomain*, size_t> replayCasP(
+  static std::pair<TensorDomain*, int64_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
       TransformReplayOptions opt = {});
-  static std::pair<TensorDomain*, size_t> replayCasP(
+  static std::pair<TensorDomain*, int64_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
@@ -227,7 +227,7 @@ class NVF_API TransformReplay {
       const TensorDomain* new_self_root,
       const TensorDomain* self);
 
-  // Returns the leaf position in producer that matches with `consumer_pos` in
+  // Returns the loop position in producer that matches with `consumer_pos` in
   // consumer. Returns -1 if matching is impossible. This function can be used
   // to test if replay is needed for getting matching outer dims. This function
   // should be consistent with `replayPasC`: if you pass the tensors just
@@ -247,7 +247,7 @@ class NVF_API TransformReplay {
       int64_t consumer_pos,
       bool skip_resize = false);
 
-  // Returns the leaf position in consumer that matches with `producer_pos` in
+  // Returns the loop position in consumer that matches with `producer_pos` in
   // producer. Behavior similar to getMatchedLeafPosWithoutReplayPasC, except
   // that we are also ignoring reductions in the producer.
   //
@@ -289,9 +289,8 @@ struct MostInlinedTransformPropagator
 
 // Replays an `Expr` with the new input, `new_in`. This function currently has
 // the following limitations:
-// 1. It doesn't set isRFactorProduct correctly (#1857).
-// 2. It requires `e` to be a unary op, and therefore takes a single new input.
-// 3. It requires `e` to be a TensorView op, which takes and produces only
+// 1. It requires `e` to be a unary op, and therefore takes a single new input.
+// 2. It requires `e` to be a TensorView op, which takes and produces only
 // TensorViews.
 Expr* replayExprWithNewInput(Expr* e, Val* new_in);
 

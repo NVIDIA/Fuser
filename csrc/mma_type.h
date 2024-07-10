@@ -26,29 +26,30 @@ namespace nvfuser {
 constexpr std::string_view MATMUL_LOG_PREFIX = "[MATMUL DEBUG] ";
 
 //! Named descriptors of domains in matmul
-enum class MatmulDomain { M = 0, N, K };
+enum class MatmulDimRole { M = 0, N, K, Batch };
 
 //! Named descriptors of TensorView roles in fusion
-//!  INPUT_A - a producer of MMA input A
-//!  INPUT_B - a producer of MMA input B
-//!  INPUT_C - a producer of a tensor used in fusion epilogue,
-//!            for example tensor used in beta scaling fusion
-//!  OUTPUT_D - the main consumer of MMA op results
-//!  OUTPUT_AUX - fusion outputs that are consumers of OUTPUT_D
+//!  OPERAND_A - an input to the fusion that is a producer of a matmul "A" input
+//!  OPERAND_B - an input to the fusion that is a producer of a matmul "B" input
+//!  OUTPUT - fusion outputs that have the matmul as a dependency
+//!  EPILOGUE_INPUT - an input to the fusion that is a producer of an
+//!    OUTPUT, but not of an MMA input
 //!
-//! Naming convention is based on the following formula:
-//!    D = alpha * A x B + beta * C
-//!    AUX = relu(D)
-//!  Note: bias vector tensors will be assigned to INPUT_C role.
-enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C, OUTPUT_AUX };
+//!  Note: bias vector tensors will be assigned to the EPILOGUE_INPUT role.
+enum class MatmulTensorRole {
+  OPERAND_A = 0,
+  OPERAND_B,
+  OUTPUT,
+  EPILOGUE_INPUT
+};
 
 //! The expected number of occurances of core TensorView roles in fusion
 static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;
 
 //! Utility data structure for recording gemm tiles
 struct GemmTile {
-  int m, n, k;
-  GemmTile(int m_, int n_, int k_) : m(m_), n(n_), k(k_) {}
+  int64_t m, n, k;
+  GemmTile(int64_t m_, int64_t n_, int64_t k_) : m(m_), n(n_), k(k_) {}
 
   bool operator==(const GemmTile& other) const {
     return m == other.m && n == other.n && k == other.k;
@@ -58,7 +59,7 @@ struct GemmTile {
     return GemmTile(m / other.m, n / other.n, k / other.k);
   }
 
-  std::vector<int> toVector() const {
+  std::vector<int64_t> toVector() const {
     return {m, n, k};
   }
 };
@@ -204,6 +205,10 @@ constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro)
 //! NN : K,M X N,K -> M,N
 enum class MmaLayout { NT = 0, TT, TN, NN };
 
+//! Indicates which dimension is innermost in the allocation domain of an
+//! operand
+enum class UnitDim { K, M_or_N };
+
 //! Utility to annotate which input of mma this option struct describes
 enum class MmaOperand { Accumulator = 0, A, B };
 
@@ -278,4 +283,5 @@ NVF_API size_t hash(MmaMacro macro);
 size_t hash(MmaLayout input_layout);
 size_t hash(const GemmTile& tile);
 NVF_API size_t hash(const MatMulTileOptions& opts);
+
 } // namespace nvfuser

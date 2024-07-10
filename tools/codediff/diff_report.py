@@ -16,7 +16,7 @@ Example usage:
 
 from dataclasses import asdict, dataclass, field, InitVar
 import difflib
-from enum import auto, Enum
+from enum import Enum
 import os
 import re
 import subprocess
@@ -205,13 +205,13 @@ class CompiledTest:
     benchmark_result: BenchmarkResult | None = None
 
 
-class CommandType(Enum):
+class CommandType(str, Enum):
     """Denotes what type of command was run"""
 
-    UNKNOWN = auto()
-    GOOGLETEST = auto()
-    GOOGLEBENCH = auto()
-    PYTEST = auto()
+    UNKNOWN = "UNKNOWN"
+    GOOGLETEST = "GOOGLETEST"
+    GOOGLEBENCH = "GOOGLEBENCH"
+    PYTEST = "PYTEST"
 
     def __str__(self):
         return self.name
@@ -354,7 +354,7 @@ class LogParserGBench(LogParser):
         #   benchmark_name   34.0 us      1.53 ms   2007  /Launch_Parameters[block(2/2/32)/grid(32/2/2)/49664]
         # This is the only kind of line we match for benchmarks. Note that this is printed at the end of each benchmark
         self.result_re = re.compile(
-            r"^(\S+)\s+([-+\.\d]+)\s+(\S+)\s+([-+\.\d]+)\s+(\S+)\s+(\d+).*$"
+            r"^(?P<testname>\S+)\s+(?P<gputime>[-+\.\d]+)\s+(?P<gputimeunit>\S+)\s+(?P<cputime>[-+\.\d]+)\s+(?P<cputimeunit>\S+)\s+(?P<iterations>\d+).*$"
         )
 
     def parse_line(self, line):
@@ -362,8 +362,14 @@ class LogParserGBench(LogParser):
             return True
 
         m = re.match(self.result_re, line)
-        if m is not None and self.current_file is not None:
-            self.current_test, time, time_unit, cpu, cpu_unit, iterations = m.groups()
+        if m is not None:
+            d = m.groupdict()
+            self.current_test = d["testname"]
+            time = d["gputime"]
+            time_unit = d["gputimeunit"]
+            cpu = d["cputime"]
+            cpu_unit = d["cputimeunit"]
+            iterations = d["iterations"]
             # Skip metadata which for nvfuser_bench sometimes includes LaunchParams
             # meta = m.groups()[6]
             new_test = self.finalize_test(True)

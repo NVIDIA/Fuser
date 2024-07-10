@@ -40,6 +40,7 @@
 #include <tests/cpp/validator.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
+#include <utils.h>
 
 // fuser and IR parser
 #include <ATen/cuda/CUDAContext.h>
@@ -52,21 +53,21 @@
 #include "c10/core/ScalarType.h"
 
 namespace nvfuser {
-namespace {
-class GPUTTensorCoreTest : public NVFuserTest {
- protected:
-  GPUTTensorCoreTest() {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
 
- private:
-  // RAII style options guard. This is used to disable
-  // (via set) options in the constructor.
-  DisableOptionsGuard opt_guard_;
-};
-} // namespace
+using GPUTTensorCoreTest = NVFuserTest;
 
 using namespace at::indexing;
+
+#define SKIP_IF_INSUFFICIENT_SMEM(params, data_types)                     \
+  {                                                                       \
+    int64_t estim = mma_utils::computeExpectedSharedMemoryUsage(          \
+        params, data_types, true, true);                                  \
+    int64_t avail = (int64_t)deviceAvailableSharedMemoryBytes();          \
+    if (avail < estim) {                                                  \
+      GTEST_SKIP() << "Insufficient shared memory to run test (" << estim \
+                   << "B required but only " << avail << "B available)."; \
+    }                                                                     \
+  }
 
 // Matmul test for Ampere MMA: across supported layouts
 TEST_F(GPUTTensorCoreTest, FusionAmpereMatmul_CUDA) {
@@ -97,12 +98,13 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
@@ -149,12 +151,13 @@ TEST_F(GPUTTensorCoreTest, FusionAmperePrologueFusionBroadcast_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
     auto inputs = matmulAtInput2D(M, N, K, layout);
@@ -206,12 +209,13 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereProloguePointwise_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
@@ -263,12 +267,13 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBFloat16_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout, at::kBFloat16);
@@ -322,12 +327,13 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams params;
+      params.supported_vec_size = {8, 8, 4};
       params.mma_macro = MmaMacro::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
-      params.double_buffer_options.double_buffer_smem_write = true;
-      params.double_buffer_options.smem_double_buffer_stage = stage;
+      params.circular_buffer_options.circular_buffer_smem_write = true;
+      params.circular_buffer_options.smem_circular_buffer_stage = stage;
       scheduleMatmul(&fusion, params);
 
       auto inputs = matmulAtInput3DTuring(M, N, K, layout);
@@ -391,12 +397,13 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereSwizzle_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 3;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 3;
 
     params.cta_order = order;
     params.grid_swizzle_factor = swizzle;
@@ -482,7 +489,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereSwizzle_CUDA) {
   }
 }
 
-TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
+TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulRegCircularBuffer_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   REQUIRE_DEVICE_SMEM_SIZE(70 << 10, 0);
@@ -513,12 +520,13 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams params;
+      params.supported_vec_size = {8, 8, 4};
       params.mma_macro = MmaMacro::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
-      params.double_buffer_options.double_buffer_smem_write = true;
-      params.double_buffer_options.smem_double_buffer_stage = stage;
-      params.double_buffer_options.double_buffer_smem_read = true;
+      params.circular_buffer_options.circular_buffer_smem_write = true;
+      params.circular_buffer_options.smem_circular_buffer_stage = stage;
+      params.circular_buffer_options.circular_buffer_smem_read = true;
       scheduleMatmul(&fusion, params);
 
       auto inputs = matmulAtInput3DTuring(M, N, K, layout);
@@ -1194,6 +1202,7 @@ TEST_F(GPUTTensorCoreTest, FusionTuringMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Turing_16_8_16;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
@@ -1824,10 +1833,10 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   tv2->axis(2)->parallelize(ParallelType::TIDz);
   tv2->axis(3)->parallelize(ParallelType::TIDy);
 
-  tv0cw->doubleBuffer();
-  tv1cw->doubleBuffer();
-  tv0cr->doubleBuffer();
-  tv1cr->doubleBuffer();
+  tv0cw->circularBuffer(/*number_of_stages=*/2);
+  tv1cw->circularBuffer(/*number_of_stages=*/2);
+  tv0cr->circularBuffer(/*number_of_stages=*/2);
+  tv1cr->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({M, K}, options);
@@ -1870,12 +1879,13 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulLargeLoad_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 64);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 3;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
@@ -1926,6 +1936,7 @@ TEST_F(GPUTTensorCoreTest, FusionTuringMatmulLargeLoad_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Turing_16_16_16;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
@@ -1983,16 +1994,17 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
         MatmulParams params;
+        params.supported_vec_size = {8, 8, 4};
         params.mma_macro = MmaMacro::Ampere_16_16_16;
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
-        params.double_buffer_options.double_buffer_smem_write = true;
+        params.circular_buffer_options.circular_buffer_smem_write = true;
         mma_utils::MmaDataTypes data_types = {
             DataType::Half, DataType::Half, DataType::Float};
         std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
             mma_utils::generateSharedMemoryEpilogueHeuristics(
                 gemm_tile,
-                params.double_buffer_options.smem_double_buffer_stage,
+                params.circular_buffer_options.smem_circular_buffer_stage,
                 data_types,
                 true,
                 true);
@@ -2058,19 +2070,20 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
           MatmulParams params;
+          params.supported_vec_size = {8, 8, 4};
           params.mma_macro = MmaMacro::Ampere_16_16_16;
           params.tile_sizes = gemm_tile;
           params.async_gmem_load_operands = true;
-          params.double_buffer_options.double_buffer_smem_write = true;
-          params.double_buffer_options.double_buffer_smem_read = true;
-          params.double_buffer_options.smem_double_buffer_stage = 2;
+          params.circular_buffer_options.circular_buffer_smem_write = true;
+          params.circular_buffer_options.circular_buffer_smem_read = true;
+          params.circular_buffer_options.smem_circular_buffer_stage = 2;
           mma_utils::MmaDataTypes data_types = {
               DataType::Half, DataType::Half, DataType::Float};
           std::tie(
               params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
               mma_utils::generateSharedMemoryEpilogueHeuristics(
                   gemm_tile,
-                  params.double_buffer_options.smem_double_buffer_stage,
+                  params.circular_buffer_options.smem_circular_buffer_stage,
                   data_types);
 
           scheduleMatmul(&fusion, params);
@@ -2129,18 +2142,19 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
       MatmulParams params;
+      params.supported_vec_size = {8, 8, 4};
       params.mma_macro = MmaMacro::Ampere_16_16_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
-      params.double_buffer_options.double_buffer_smem_write = true;
-      params.double_buffer_options.double_buffer_smem_read = true;
-      params.double_buffer_options.smem_double_buffer_stage = 2;
+      params.circular_buffer_options.circular_buffer_smem_write = true;
+      params.circular_buffer_options.circular_buffer_smem_read = true;
+      params.circular_buffer_options.smem_circular_buffer_stage = 2;
       mma_utils::MmaDataTypes data_types = {
           DataType::Half, DataType::Half, DataType::Float};
       std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
           mma_utils::generateSharedMemoryEpilogueHeuristics(
               gemm_tile,
-              params.double_buffer_options.smem_double_buffer_stage,
+              params.circular_buffer_options.smem_circular_buffer_stage,
               data_types);
       scheduleMatmul(&fusion, params);
 
@@ -2192,12 +2206,13 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 3;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 3;
     scheduleMatmul(&fusion, params);
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
@@ -2245,12 +2260,13 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
     auto t0 =
@@ -2299,9 +2315,9 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
 
       fusion.addOutput(tv2);
 
-      // The settings of cta_tile, warp_tile, and smem_double_buffer_stage have
-      // been purposefully selected to produce a constant occupancy of 25%. This
-      // allows us to effectively evaluate the influence of the
+      // The settings of cta_tile, warp_tile, and smem_circular_buffer_stage
+      // have been purposefully selected to produce a constant occupancy of 25%.
+      // This allows us to effectively evaluate the influence of the
       // use_smem_epilogue parameter on performance, since changing its value to
       // either true or false will not affect the occupancy rate.
       MatMulTileOptions gemm_tile;
@@ -2310,18 +2326,20 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams params;
+      params.supported_vec_size = {8, 8, 4};
       params.mma_macro = MmaMacro::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
-      params.double_buffer_options.double_buffer_smem_write = num_stages > 1;
-      params.double_buffer_options.double_buffer_smem_read = num_stages > 1;
-      params.double_buffer_options.smem_double_buffer_stage = num_stages;
+      params.circular_buffer_options.circular_buffer_smem_write =
+          num_stages > 1;
+      params.circular_buffer_options.circular_buffer_smem_read = num_stages > 1;
+      params.circular_buffer_options.smem_circular_buffer_stage = num_stages;
       mma_utils::MmaDataTypes data_types = {
           DataType::Half, DataType::Half, DataType::Float};
       std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
           mma_utils::generateSharedMemoryEpilogueHeuristics(
               gemm_tile,
-              params.double_buffer_options.smem_double_buffer_stage,
+              params.circular_buffer_options.smem_circular_buffer_stage,
               data_types,
               ignore_occupancy_drop);
       scheduleMatmul(&fusion, params);
@@ -2445,7 +2463,7 @@ TEST_F(
 
   fusion.addOutput(tv2);
 
-  // The settings of cta_tile, warp_tile, and smem_double_buffer_stage have
+  // The settings of cta_tile, warp_tile, and smem_circular_buffer_stage have
   // been purposefully selected to produce a constant occupancy of 25%. This
   // allows us to effectively evaluate the influence of the use_smem_epilogue
   // parameter on performance, since changing its value to either true or
@@ -2456,21 +2474,32 @@ TEST_F(
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams params;
+  params.supported_vec_size = {8, 8, 4};
   params.mma_macro = MmaMacro::Ampere_16_8_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = 6;
+  params.circular_buffer_options.circular_buffer_smem_write = true;
+  params.circular_buffer_options.circular_buffer_smem_read = true;
+  params.circular_buffer_options.smem_circular_buffer_stage = 6;
   mma_utils::MmaDataTypes data_types = {
       DataType::Half, DataType::Half, DataType::Float};
   std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           gemm_tile,
-          params.double_buffer_options.smem_double_buffer_stage,
+          params.circular_buffer_options.smem_circular_buffer_stage,
           data_types,
           /*ignore_occupancy_drop=*/false);
+
+  if (deviceMajorMinorCheck(8, 0)) {
+    // Test that we promote smem reuse on A100. This might differ on devices
+    // with different amounts of smem.
+    ASSERT_TRUE(params.promote_prologue_smem_reuse);
+  }
+
   scheduleMatmul(&fusion, params);
+
+  // FusionExecutor::compileFusion would fail otherwise.
+  SKIP_IF_INSUFFICIENT_SMEM(params, data_types);
 
   at::manual_seed(0);
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
@@ -2499,6 +2528,10 @@ TEST_F(
   if (!params.use_smem_epilogue) {
     GTEST_SKIP()
         << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+  }
+  if (!params.promote_prologue_smem_reuse) {
+    GTEST_SKIP()
+        << "Test conducted with shared memory epilogue but without promoting prologue smem re-use.";
   }
 }
 
@@ -2532,18 +2565,19 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 8};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
     mma_utils::MmaDataTypes data_types = {
         DataType::Half, DataType::Half, DataType::Float};
     std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
         mma_utils::generateSharedMemoryEpilogueHeuristics(
             gemm_tile,
-            params.double_buffer_options.smem_double_buffer_stage,
+            params.circular_buffer_options.smem_circular_buffer_stage,
             data_types,
             ignore_occupancy_drop);
     scheduleMatmul(&fusion, params);
@@ -2626,18 +2660,19 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
+    params.supported_vec_size = {8, 8, 4};
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
     mma_utils::MmaDataTypes data_types = {
         DataType::Half, DataType::Half, DataType::Float};
     std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
         mma_utils::generateSharedMemoryEpilogueHeuristics(
             gemm_tile,
-            params.double_buffer_options.smem_double_buffer_stage,
+            params.circular_buffer_options.smem_circular_buffer_stage,
             data_types,
             ignore_occupancy_drop);
     scheduleMatmul(&fusion, params);
@@ -2726,6 +2761,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSplitK_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
         MatmulParams params;
+        params.supported_vec_size = {8, 8, 4};
         params.mma_macro = MmaMacro::Ampere_16_8_16;
         params.tile_sizes = gemm_tile;
         params.splitk_factor = splitk_factor;
@@ -2806,6 +2842,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulSplitKBias_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
         MatmulParams params;
+        params.supported_vec_size = {8, 8, 4};
         params.mma_macro = MmaMacro::Ampere_16_8_16;
         params.tile_sizes = gemm_tile;
         params.splitk_factor = splitk_factor;
@@ -2867,6 +2904,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBatchSplitK_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
         MatmulParams params;
+        params.supported_vec_size = {8, 8, 4};
         params.mma_macro = MmaMacro::Ampere_16_8_16;
         params.tile_sizes = gemm_tile;
         params.splitk_factor = splitk_factor;
@@ -2934,6 +2972,7 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
         MatmulParams params;
+        params.supported_vec_size = {8, 8, 4};
         params.mma_macro = MmaMacro::Ampere_16_8_16;
         params.tile_sizes = gemm_tile;
         params.splitk_factor = splitk_factor;
@@ -2996,12 +3035,13 @@ TEST_F(GPUTTensorCoreTest, ReproIssue1808) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams params;
+  params.supported_vec_size = {8, 8, 4};
   params.mma_macro = MmaMacro::Ampere_16_8_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = 4;
+  params.circular_buffer_options.circular_buffer_smem_write = true;
+  params.circular_buffer_options.circular_buffer_smem_read = true;
+  params.circular_buffer_options.smem_circular_buffer_stage = 4;
   scheduleMatmul(&fusion, params);
 
   auto inputs = matmulAtInput3DTuring(M, N, K, layout);
@@ -3019,6 +3059,397 @@ TEST_F(GPUTTensorCoreTest, ReproIssue1808) {
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+// Test matmul with sizes that are not divisible by 8 and with misaligned inputs
+TEST_F(GPUTTensorCoreTest, MisalignedVectorization) {
+  for (auto layout : kAllSupportedMmaLayout) {
+    for (bool add_2d_bias : {false, true}) {
+      for (bool downcast_output : {false, true}) {
+        for (const auto& [M, N, K, alignA, alignB, alignBias] :
+             std::vector<std::tuple<
+                 int64_t,
+                 int64_t,
+                 int64_t,
+                 int64_t,
+                 int64_t,
+                 int64_t>>{
+                 {504, 136, 248, 8, 8, 8}, // all fully vectorizable in all
+                                           // layouts
+                 {504, 136, 249, 8, 8, 8}, // odd K, operands not vectorizable
+                                           // in TN. output fully vectorizable
+                 {504, 137, 248, 8, 8, 8}, // A fully vectorizable, B fully
+                                           // vectorizable unless transposed,
+                                           // output not vectorizable
+                 {505, 136, 248, 8, 8, 8}, // B fully vectorizable, A
+                                           // vectorizable unless transposed,
+                                           // output fully vectorizable
+                 {505, 137, 248, 8, 8, 8}, // none vectorizable
+
+                 // Cases with vectorizable strides but misaligned base pointers
+                 {504, 136, 248, 2, 8, 8}, // A not vectorizable due to offset
+                 {504, 136, 248, 8, 2, 8}, // B not vectorizable due to offset
+                 {504, 136, 248, 8, 8, 2}, // epilogue not vectorizable due to
+                 // offset
+             }) {
+          const auto maybeUnalign = [](const at::Tensor& t, int64_t offset) {
+            if (offset == 16 / t.element_size()) {
+              // Already fully aligned
+              return t;
+            }
+            return at::pad(t.ravel(), {{0, offset}})
+                .index({at::indexing::Slice(offset, t.numel() + offset, 1)})
+                .view({t.size(0), t.size(1)});
+          };
+
+          auto t0 = maybeUnalign(
+              matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K),
+              alignA);
+          auto t1 = maybeUnalign(
+              matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K),
+              alignB);
+
+          auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+
+          std::vector<c10::IValue> inputs = {t0, t1};
+
+          if (add_2d_bias) {
+            const auto options =
+                at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+            auto bias = maybeUnalign(at::randn({M, N}, options), alignBias);
+            tref = tref + bias;
+            inputs.push_back(bias);
+          }
+
+          if (downcast_output) {
+            tref = tref.to(at::kHalf);
+          }
+
+          auto fusion = std::make_unique<Fusion>();
+          FusionGuard fg(fusion.get());
+
+          auto tv0 = makeContigTensor(2, DataType::Half);
+          auto tv1 = makeContigTensor(2, DataType::Half);
+          fusion->addInput(tv0);
+          fusion->addInput(tv1);
+
+          tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+          tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+          auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+          if (add_2d_bias) {
+            auto bias = makeContigTensor(2, DataType::Half);
+            fusion->addInput(bias);
+            tv2 = add(tv2, bias);
+          }
+
+          if (downcast_output) {
+            tv2 = castOp(DataType::Half, tv2);
+          }
+
+          fusion->addOutput(tv2);
+
+          const MmaLayout fusion_layout = getMatmulProblemLayout(fusion.get());
+          NVF_CHECK(
+              fusion_layout == layout,
+              "mismatch between test layout (",
+              toString(layout),
+              ") and layout inferred from fusion definition (",
+              toString(fusion_layout),
+              ")");
+
+          // determine supported vectorization of an ATen tensor that will be
+          // loaded along its innermost dimension
+          const auto atenSupportedVectorization =
+              [](const at::Tensor& tens) -> int64_t {
+            auto data_ptr_int = static_cast<int64_t>(
+                reinterpret_cast<std::uintptr_t>(tens.data_ptr()));
+            int64_t vec_size =
+                scheduler_utils::maxVectorizationWidth(data_ptr_int) /
+                tens.element_size();
+            std::vector<int64_t> strides = tens.strides().vec();
+            std::sort(strides.begin(), strides.end());
+            if (strides.front() > 1) {
+              // Discontiguous input
+              return 1;
+            }
+            strides.erase(strides.begin());
+            NVF_ERROR(!strides.empty());
+            // Next smallest stride determines supported vectorization
+            vec_size = std::min(
+                vec_size,
+                scheduler_utils::maxVectorizationWidth(strides.front()));
+            return std::min(vec_size, (int64_t)(16 / tens.element_size()));
+          };
+
+          MatmulParams params;
+          params.mma_macro = MmaMacro::Ampere_16_8_16;
+          params.supported_vec_size = {
+              .a = atenSupportedVectorization(t0),
+              .b = atenSupportedVectorization(t1),
+              .epilogue = std::min(
+                  alignBias,
+                  std::min(
+                      scheduler_utils::maxVectorizationWidth(N),
+                      (int64_t)(16 / (downcast_output ? 2 : 4))))};
+          // Supported vectorization determines whether we are able to do async
+          // gmem->smem loads.
+          params.async_gmem_load_operands = params.supported_vec_size.a >= 4 &&
+              params.supported_vec_size.b >= 4;
+          params.circular_buffer_options.circular_buffer_smem_write = true;
+          // If we cannot use cp.async, it means we cannot do circular buffering
+          params.circular_buffer_options.smem_circular_buffer_stage =
+              params.async_gmem_load_operands ? 4 : 2;
+
+          scheduleMatmul(fusion.get(), params);
+
+          FusionExecutor fe;
+          NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+              8,
+              0,
+              fe.compileFusion(
+                  fusion.get(), inputs, LaunchParams(), matmul_cparams));
+          ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+          auto outputs = fe.runFusion(inputs);
+
+          EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
+        }
+      }
+    }
+  }
+}
+
+// Matmul test with multiple M and N dimensions that are consecutive
+TEST_F(GPUTTensorCoreTest, MultipleConsecutiveDims) {
+  int M1 = 126, M2 = 4, N1 = 68, N2 = 2, K = 248;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(3, DataType::Half); // M1, M2, K
+  auto tv1 = makeContigTensor(3, DataType::Half); // N1, N2, K
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // M1, M2, N1, N2, K
+  tv0 = broadcast(tv0, {false, false, true, true, false});
+  tv1 = broadcast(tv1, {true, true, false, false, false});
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  // Supported vec size is based on inner dim
+  params.supported_vec_size = {4, 8, 4};
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.circular_buffer_options.circular_buffer_smem_write = true;
+  params.circular_buffer_options.circular_buffer_smem_read = true;
+  params.circular_buffer_options.smem_circular_buffer_stage = 4;
+  scheduleMatmul(&fusion, params);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor A = at::randn({M1, M2, K}, options);
+  at::Tensor B = at::randn({N1, N2, K}, options);
+  std::vector<c10::IValue> inputs{A, B};
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  auto cg_outputs = fe.runFusion(inputs);
+  auto tref = at::reshape(
+      at::linear(
+          at::reshape(A.to(at::kFloat), {M1 * M2, K}),
+          at::reshape(B.to(at::kFloat), {N1 * N2, K})),
+      {M1, M2, N1, N2});
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+// Matmul test with multiple M dimensions that are non-consecutive
+// TODO: This test currently fails, but it can be run using
+//   build/test_matmul --gtest_also_run_disabled_tests
+//
+// This case fails because the allocation domain of the A smem cached tensor is
+// [M1, K, M2], which is incompatible with ldMatrix. We need to gather the
+// allocation domains for the smem tensors by role instead, so that this
+// becomes [K, M1, M2].
+TEST_F(GPUTTensorCoreTest, DISABLED_MultipleNonConsecutiveMDims) {
+  int M1 = 126, N = 136, M2 = 4, K = 248;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Note that M2 is inside K, so this is an NN layout
+  auto tv0 = makeContigTensor(3, DataType::Half); // M1, K, M2
+  auto tv1 = makeContigTensor(2, DataType::Half); // N, K
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // M1, N, K, M2
+  tv0 = broadcast(tv0, {false, true, false, false});
+  tv1 = broadcast(tv1, {true, false, false, true});
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-2});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  // Supported vec size is based on inner dim
+  params.supported_vec_size = {4, 8, 4};
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.circular_buffer_options.circular_buffer_smem_write = true;
+  params.circular_buffer_options.circular_buffer_smem_read = true;
+  params.circular_buffer_options.smem_circular_buffer_stage = 4;
+  scheduleMatmul(&fusion, params);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor A = at::randn({M1, K, M2}, options);
+  at::Tensor B = at::randn({N, K}, options);
+  std::vector<c10::IValue> inputs{A, B};
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  auto cg_outputs = fe.runFusion(inputs);
+  auto Apermuted = A.permute({{1, 2}}).reshape({M1 * M2, K});
+  auto tref = at::linear(Apermuted.to(at::kFloat), B.to(at::kFloat))
+                  .reshape({M1, M2, N})
+                  .permute({{1, 2}});
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+// Matmul test with multiple N dimensions that are non-consecutive
+// TODO: This test currently fails, but it can be run using
+//   build/test_matmul --gtest_also_run_disabled_tests
+//
+// This case fails because the allocation domain of the B smem cached tensor is
+// [N1, K, N2], which is incompatible with ldMatrix. We need to gather the
+// allocation domains for the smem tensors by role instead, so that this
+// becomes [K, N1, N2].
+TEST_F(GPUTTensorCoreTest, DISABLED_MultipleNonConsecutiveNDims) {
+  int M = 504, N1 = 68, N2 = 2, K = 248;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Note that N2 is inside K, so this is a TT layout
+  auto tv0 = makeContigTensor(2, DataType::Half); // M, K
+  auto tv1 = makeContigTensor(3, DataType::Half); // N1, K, N2
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // M, N1, K, N2
+  tv0 = broadcast(tv0, {false, true, false, true});
+  tv1 = broadcast(tv1, {true, false, false, false});
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-2});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  // Output is M, N1, N2, contiguous so fully vectorizable despite size N2=2 in
+  // inner dim.
+  params.supported_vec_size = {8, 2, 4};
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.circular_buffer_options.circular_buffer_smem_write = true;
+  params.circular_buffer_options.circular_buffer_smem_read = true;
+  params.circular_buffer_options.smem_circular_buffer_stage = 4;
+  scheduleMatmul(&fusion, params);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor A = at::randn({M, K}, options);
+  at::Tensor B = at::randn({N1, K, N2}, options);
+  std::vector<c10::IValue> inputs{A, B};
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  auto cg_outputs = fe.runFusion(inputs);
+  auto Bpermuted = B.permute({{1, 2}}).reshape({N1 * N2, K});
+  auto tref = at::linear(A.to(at::kFloat), Bpermuted.to(at::kFloat))
+                  .reshape({M, N1, N2});
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+// This is a tougher test where we insert a batch dim between the M dims
+// The batch dim is parallelized, so M1 and M2 are consecutive in shared
+// memory.
+TEST_F(GPUTTensorCoreTest, MultipleMDimsBatch) {
+  int Batch = 2, M1 = 126, N = 136, M2 = 4, K = 248;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Note that M2 is inside K, so this is an NN layout
+  auto tv0 = makeContigTensor(4, DataType::Half); // M1, Batch, M2, K
+  auto tv1 = makeContigTensor(3, DataType::Half); // Batch, N, K
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  tv0 = broadcast(tv0, {false, false, false, true, false});
+  tv1 = broadcast(tv1, {true, false, true, false, false});
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+  fusion.addOutput(tv2);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 32);
+  gemm_tile.warp_tile = GemmTile(64, 64, 32);
+  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+  MatmulParams params;
+  // Supported vec size is based on inner dim
+  params.supported_vec_size = {4, 8, 4};
+  params.mma_macro = MmaMacro::Ampere_16_8_16;
+  params.tile_sizes = gemm_tile;
+  params.async_gmem_load_operands = true;
+  params.circular_buffer_options.circular_buffer_smem_write = true;
+  params.circular_buffer_options.circular_buffer_smem_read = true;
+  params.circular_buffer_options.smem_circular_buffer_stage = 4;
+  scheduleMatmul(&fusion, params);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor A = at::randn({M1, Batch, M2, K}, options);
+  at::Tensor B = at::randn({Batch, N, K}, options);
+  std::vector<c10::IValue> inputs{A, B};
+
+  FusionExecutor fe;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8, 0, fe.compileFusion(&fusion, inputs, LaunchParams(), matmul_cparams));
+  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+  auto cg_outputs = fe.runFusion(inputs);
+  auto tref =
+      at::matmul(A.to(at::kFloat), at::permute(B.to(at::kFloat), {0, 2, 1}));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 

@@ -36,29 +36,8 @@ LoopNestGenerator::LoopNestGenerator(const std::vector<Expr*>& exprs) {
 
 namespace {
 
-kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
-  auto extent_with_halo = GpuLower::current()->haloInfo()->getExtent(id);
-  kir::ForLoop* new_scope = nullptr;
-  if (extent_with_halo) {
-    // When an axis is extended with halo, unrolling and vectorization
-    // are assumed to not be used for now.
-    NVF_ERROR(
-        id->getParallelType() != ParallelType::Unroll &&
-        !isParallelTypeVectorize(id->getParallelType()));
-    // Use the extent that's extended by halo
-    new_scope = IrBuilder::create<kir::ForLoop>(
-        id,
-        GpuLower::current()->caMap()->getIndexVariable(id),
-        nullptr,
-        extent_with_halo,
-        nullptr,
-        false,
-        nullptr,
-        false,
-        DoubleBufferLoopStage::NotApplicable);
-  } else {
-    new_scope = IrBuilder::create<kir::ForLoop>(id);
-  }
+ForLoop* openForHelper(ForLoop* scope, IterDomain* id) {
+  ForLoop* new_scope = IrBuilder::create<ForLoop>(id);
   if (scope != nullptr) {
     scope->body().insert(0, new_scope);
   }
@@ -139,8 +118,8 @@ void LoopNestGenerator::handle(Expr* expr) {
   }
 
   for (auto loop : loop_structure) {
-    auto find_it = std::find_if(
-        for_loops_.begin(), for_loops_.end(), [loop](kir::ForLoop* fl) {
+    auto find_it =
+        std::find_if(for_loops_.begin(), for_loops_.end(), [loop](ForLoop* fl) {
           return fl->iter_domain() == loop;
         });
     if (find_it == for_loops_.end()) {
@@ -169,7 +148,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
   for (auto tv : ir_utils::allTvs(FusionGuard::getCurFusion())) {
     std::unordered_set<IterDomain*> dependencies;
 
-    for (auto tv_id : tv->getLeafDomain()) {
+    for (auto tv_id : tv->getLoopDomain()) {
       auto concrete_id =
           ca_map->getConcreteMappedID(tv_id, IdMappingMode::LOOP);
 
@@ -241,7 +220,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
     }
 
     auto last_id_concrete = ca_map->getConcreteMappedID(
-        tv->axis((int)(tv->nDims() - 1)), IdMappingMode::LOOP);
+        tv->axis(tv->nDims() - 1), IdMappingMode::LOOP);
     auto all_loops_it = concrete_id_dependencies.find(last_id_concrete);
     NVF_ERROR(
         all_loops_it != concrete_id_dependencies.end(),

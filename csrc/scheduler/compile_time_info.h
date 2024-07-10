@@ -45,7 +45,7 @@ enum class CompileTimeEntryType {
   INNER_MOST_DIMS_INFO,
   CAN_SCHEDULE_TRANSPOSE,
   CAN_SCHEDULE_MUL_SUM_AS_MMA,
-  RFACTOR_REORDER_MAP,
+  LOGICAL_REORDER_MAP,
 };
 
 //! Entry type definition class for `DOMAIN_MAP`,
@@ -186,13 +186,13 @@ class CanScheduleTranspose {
       CompileTimeEntryType::CAN_SCHEDULE_TRANSPOSE;
 };
 
-//! Entry type definition class for `RFACTOR_REORDER_MAP`,
+//! Entry type definition class for `LOGICAL_REORDER_MAP`,
 //!  stores the domain map of a fusion.
-class RfactorReorderMap {
+class LogicalReorderMap {
  public:
-  using DataType = std::unordered_map<int, int>;
+  using DataType = std::unordered_map<int64_t, int64_t>;
   static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::RFACTOR_REORDER_MAP;
+      CompileTimeEntryType::LOGICAL_REORDER_MAP;
 };
 
 //! Base abstract class for unified storage in `HeuristicSummary`,

@@ -392,6 +392,8 @@ def main():
             "include/nvfuser/scheduler/*.h",
             "include/nvfuser/serde/*.h",
             "include/nvfuser/flatbuffers/*.h",
+            "include/nvfuser/host_ir/*.h",
+            "include/nvfuser/id_model/*.h",
             "share/cmake/nvfuser/NvfuserConfig*",
             "contrib/*",
             "contrib/nn/*",

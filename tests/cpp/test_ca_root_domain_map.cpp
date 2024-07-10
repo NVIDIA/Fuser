@@ -4,6 +4,7 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -109,42 +110,42 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingBasic_CUDA) {
 
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true, true},
       tv4,
-      tv4->getRootDomain(),
+      tv4->getLogicalDomain(),
       {false, true, true});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, true},
       tv4,
-      tv4->getRootDomain(),
+      tv4->getLogicalDomain(),
       {true, false, true});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {false, true},
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {false, true});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true, true},
       tv5,
-      tv5->getRootDomain(),
+      tv5->getLogicalDomain(),
       {false, true, true});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, true},
       tv5,
-      tv5->getRootDomain(),
+      tv5->getLogicalDomain(),
       {true, false, true});
-  checkIdMapped(tv3, tv3->getRootDomain(), tv4, tv4->getRootDomain());
-  checkIdMapped(tv3, tv3->getRootDomain(), tv5, tv5->getRootDomain());
-  checkIdMapped(tv4, tv4->getRootDomain(), tv5, tv5->getRootDomain());
+  checkIdMapped(tv3, tv3->getLogicalDomain(), tv4, tv4->getLogicalDomain());
+  checkIdMapped(tv3, tv3->getLogicalDomain(), tv5, tv5->getLogicalDomain());
+  checkIdMapped(tv4, tv4->getLogicalDomain(), tv5, tv5->getLogicalDomain());
 }
 
 TEST_F(CaRootDomainMapTest, FusionRootMappingRfactor_CUDA) {
@@ -171,63 +172,63 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingRfactor_CUDA) {
   // root=[B,I,Irf], rfactor=[B,I,Irf,Rrf]
   auto tv4 = tv2->rFactor({3});
 
-  checkIdMapped(tv1, tv1->getRootDomain(), tv4, tv4->getRootDomain());
+  checkIdMapped(tv1, tv1->getMaybeRootDomain(), tv4, tv4->getMaybeRootDomain());
   checkIdMapped(
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, true, true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getMaybeRootDomain(),
       {true, true, true});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getMaybeRootDomain(),
       {true, true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getMaybeRootDomain(),
       {true, true, false});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getMaybeRootDomain(),
       {true, true, false},
       tv3,
-      tv3->getRootDomain(),
+      tv3->getMaybeRootDomain(),
       {true, true});
   checkIdMapped(
       tv2,
-      tv2->getRootDomain(),
+      tv2->getMaybeRootDomain(),
       {true, true, false},
       tv3,
-      tv3->getRootDomain(),
+      tv3->getMaybeRootDomain(),
       {true, true});
-  checkIdMapped(tv0, tv0->getRootDomain(), tv3, tv3->getRootDomain());
+  checkIdMapped(tv0, tv0->getMaybeRootDomain(), tv3, tv3->getMaybeRootDomain());
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getMaybeRootDomain(),
       {true, true},
       tv1,
-      tv1->getRootDomain(),
+      tv1->getMaybeRootDomain(),
       {true, true, false});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getMaybeRootDomain(),
       {true, true},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getMaybeRootDomain(),
       {true, true, false});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getMaybeRootDomain(),
       {true, true},
       tv4,
-      tv4->getRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, true, false, false});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getMaybeRootDomain(),
       {true, true},
       tv4,
-      tv4->getRootDomain(),
+      tv4->getMaybeRootDomain(),
       {true, true, false});
 }
 
@@ -241,20 +242,20 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency1_CUDA) {
   fusion.addOutput(tv2);
 
   // The second dimension cannot be mapped as it would require recomputation.
-  checkIdMapped(tv0, tv0->getRootDomain(), tv1, tv1->getRootDomain());
+  checkIdMapped(tv0, tv0->getLogicalDomain(), tv1, tv1->getLogicalDomain());
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
 }
 
@@ -270,26 +271,26 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency2_CUDA) {
 
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true, false},
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true, false},
       tv3,
-      tv3->getRootDomain(),
+      tv3->getLogicalDomain(),
       {true, false});
-  checkIdMapped(tv2, tv2->getRootDomain(), tv3, tv3->getRootDomain());
+  checkIdMapped(tv2, tv2->getLogicalDomain(), tv3, tv3->getLogicalDomain());
 }
 
 TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency3_CUDA) {
@@ -304,20 +305,20 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency3_CUDA) {
   tv1->split(-1, 4);
   auto tv3 = tv1->rFactor({-2});
 
-  checkIdMapped(tv0, tv0->getRootDomain(), tv3, tv3->getRootDomain());
+  checkIdMapped(tv0, tv0->getMaybeRootDomain(), tv3, tv3->getMaybeRootDomain());
   checkIdMapped(
       tv3,
-      tv3->getMaybeRFactorDomain(),
+      tv3->getLogicalDomain(),
       {true, false, true},
       tv1,
-      tv1->getRootDomain(),
+      tv1->getMaybeRootDomain(),
       {true, true});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getMaybeRootDomain(),
       {true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getMaybeRootDomain(),
       {true, false});
 }
 
@@ -336,32 +337,32 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency4_CUDA) {
 
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getMaybeRootDomain(),
       {true, false},
       tv4,
-      tv4->getRootDomain(),
+      tv4->getMaybeRootDomain(),
       {true, false});
   checkIdMapped(
       tv4,
-      tv4->getMaybeRFactorDomain(),
+      tv4->getLogicalDomain(),
       {true, false, true},
       tv1,
-      tv1->getRootDomain(),
+      tv1->getMaybeRootDomain(),
       {true, true});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getMaybeRootDomain(),
       {true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getMaybeRootDomain(),
       {true, false});
-  checkIdMapped(tv2, tv2->getRootDomain(), tv3, tv3->getRootDomain());
+  checkIdMapped(tv2, tv2->getMaybeRootDomain(), tv3, tv3->getMaybeRootDomain());
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getMaybeRootDomain(),
       {true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getMaybeRootDomain(),
       {true, false});
 }
 
@@ -381,45 +382,45 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency5_CUDA_CUDA) {
 
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true, false},
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {true, false},
       tv3,
-      tv3->getRootDomain(),
+      tv3->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv3,
-      tv3->getRootDomain(),
+      tv3->getLogicalDomain(),
       {true, true},
       tv4,
-      tv4->getRootDomain(),
+      tv4->getLogicalDomain(),
       {true, true});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true, false},
       tv4,
-      tv4->getRootDomain(),
+      tv4->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv4,
-      tv4->getRootDomain(),
+      tv4->getLogicalDomain(),
       {true, true},
       tv5,
-      tv5->getRootDomain(),
+      tv5->getLogicalDomain(),
       {true, true});
 }
 
@@ -442,59 +443,59 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency6_CUDA_CUDA) {
 
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getMaybeRootDomain(),
       {true, false},
       tv1,
-      tv1->getRootDomain(),
+      tv1->getMaybeRootDomain(),
       {true, false});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getMaybeRootDomain(),
       {true, false},
       tv6,
-      tv6->getRootDomain(),
+      tv6->getMaybeRootDomain(),
       {true, false});
   checkIdMapped(
       tv6,
-      tv6->getMaybeRFactorDomain(),
+      tv6->getLogicalDomain(),
       {true, true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getMaybeRootDomain(),
       {true, true});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getMaybeRootDomain(),
       {true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getMaybeRootDomain(),
       {true, false});
   checkIdMapped(
       tv2,
-      tv2->getRootDomain(),
+      tv2->getMaybeRootDomain(),
       {true, false},
       tv3,
-      tv3->getRootDomain(),
+      tv3->getMaybeRootDomain(),
       {true, false});
   checkIdMapped(
       tv3,
-      tv3->getRootDomain(),
+      tv3->getMaybeRootDomain(),
       {true, true},
       tv4,
-      tv4->getRootDomain(),
+      tv4->getMaybeRootDomain(),
       {true, true});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getMaybeRootDomain(),
       {true, false},
       tv4,
-      tv4->getRootDomain(),
+      tv4->getMaybeRootDomain(),
       {true, false});
   checkIdMapped(
       tv4,
-      tv4->getRootDomain(),
+      tv4->getMaybeRootDomain(),
       {true, true},
       tv5,
-      tv5->getRootDomain(),
+      tv5->getMaybeRootDomain(),
       {true, true});
 }
 
@@ -513,24 +514,24 @@ TEST_F(
   // If there is no common consumer, there is no recomputation constraint.
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {false, true});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {false, true});
 }
 
@@ -558,66 +559,66 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingBroadcastNonUniqueSize_CUDA) {
   // to map those domains.
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv3,
-      tv3->getRootDomain(),
+      tv3->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, false},
       tv3,
-      tv3->getRootDomain(),
+      tv3->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {true, false},
       tv3,
-      tv3->getRootDomain(),
+      tv3->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv3,
-      tv3->getRootDomain(),
+      tv3->getLogicalDomain(),
       {true, false},
       tv4,
-      tv4->getRootDomain(),
+      tv4->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv3,
-      tv3->getRootDomain(),
+      tv3->getLogicalDomain(),
       {true, false},
       tv5,
-      tv5->getRootDomain(),
+      tv5->getLogicalDomain(),
       {true, false});
   checkIdMapped(
       tv4,
-      tv4->getRootDomain(),
+      tv4->getLogicalDomain(),
       {true, false},
       tv5,
-      tv5->getRootDomain(),
+      tv5->getLogicalDomain(),
       {true, false});
 }
 
@@ -639,24 +640,24 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingBroadcast_CUDA) {
   // the broadcast of tv1.
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {false, true});
   checkIdMapped(
       tv1,
-      tv1->getRootDomain(),
+      tv1->getLogicalDomain(),
       {true, true},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {false, true, true}); // Not {true, false, true}
   checkIdMapped(
       tv0,
-      tv0->getRootDomain(),
+      tv0->getLogicalDomain(),
       {true},
       tv2,
-      tv2->getRootDomain(),
+      tv2->getLogicalDomain(),
       {false, false, true});
 }
 

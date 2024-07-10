@@ -174,7 +174,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
 }
 
 // Grid reduction with serial non-reduction axis. The global work
-// buffer is double buffered.
+// buffer is circular buffered.
 TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
   const int nx = 100;
   const int ny = 5000;
@@ -428,7 +428,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
 }
 
 // Grid welford reduction with serial non-reduction axis. The global
-// work buffer is double buffered.
+// work buffer is circular buffered.
 TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
   const int nx = 100;
   const int ny = 5000;
@@ -560,7 +560,7 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
   TransformPropagator propagator(tv0);
   MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
 
-  ir_utils::rfactorHelper(tvs.avg, {-5, -4, -3, -2, -1});
+  ir_utils::rFactorHelper(tvs.avg, {-5, -4, -3, -2, -1});
 
   tv0->computeAt(tv29, 2);
   tv1->computeAt(tv29, 2);
@@ -867,8 +867,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor1_CUDA) {
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
 
-  const size_t gdimx = 10;
-  const size_t bdimx = 128;
+  const int64_t gdimx = 10;
+  const int64_t bdimx = 128;
 
   tv1->split(0, gdimx, false);
   tv1->split(1, bdimx);
@@ -916,8 +916,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor2_CUDA) {
 
   groupReductions({tv1, tv2});
 
-  const size_t gdimx = 10;
-  const size_t bdimx = 128;
+  const int64_t gdimx = 10;
+  const int64_t bdimx = 128;
 
   tv1->split(0, gdimx, false);
   tv1->split(1, bdimx);
@@ -959,7 +959,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionAfterComputeAt_CUDA) {
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
-  const size_t bdimx = 128;
+  const int64_t bdimx = 128;
 
   tv2->split(1, bdimx);
   auto tv2_rf = tv2->rFactor({1});
@@ -1299,11 +1299,11 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   const bool kTraining = true;
   const bool channels_last = false;
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(input->getMaybeRFactorDomain()).size();
-  size_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
+  const int64_t kNumberOfDims =
+      TensorDomain::noReductions(input->getLogicalDomain()).size();
+  int64_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
 
-  std::vector<int> reduction_axes;
+  std::vector<int64_t> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
   for (const auto axis : c10::irange(kNumberOfDims)) {
@@ -1312,10 +1312,10 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
       broadcast_mask[axis] = true;
       if (num_features == nullptr) {
         num_features =
-            castOp(DataType::Double, input->getLeafDomain()[axis]->extent());
+            castOp(DataType::Double, input->getLoopDomain()[axis]->extent());
       } else {
         num_features =
-            mul(num_features, input->getLeafDomain()[axis]->extent());
+            mul(num_features, input->getLoopDomain()[axis]->extent());
       }
     }
   }
@@ -1340,7 +1340,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Val>(input->container(), 1.0));
+            IrBuilder::createInContainer<Val>(input->container(), 1.0));
   } else {
     grad_scale = mul(
         broadcast(invstd, broadcast_mask), broadcast(weight, broadcast_mask));
@@ -1560,7 +1560,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
   auto tv2 = makeContigTensor(1);
   fusion.addInput(tv2);
 
-  std::vector<int> reduction_axes({0, 1, 2});
+  std::vector<int64_t> reduction_axes({0, 1, 2});
   std::vector<bool> broadcast_mask({true, true, true, false});
 
   auto tv3 = castOp(DataType::Float, tv0);
@@ -1684,7 +1684,7 @@ TEST_F(
   auto tv2 = makeContigTensor(1);
   fusion.addInput(tv2);
 
-  std::vector<int> reduction_axes({0, 1, 2});
+  std::vector<int64_t> reduction_axes({0, 1, 2});
   std::vector<bool> broadcast_mask({true, true, true, false});
 
   auto tv3 = castOp(DataType::Float, tv0);
@@ -1849,7 +1849,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->getLeafDomain()) {
+    for (auto out_axis : out->getLoopDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -1929,7 +1929,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->getLeafDomain()) {
+    for (auto out_axis : out->getLoopDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2011,7 +2011,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->getLeafDomain()) {
+    for (auto out_axis : out->getLoopDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2103,7 +2103,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->getLeafDomain()) {
+    for (auto out_axis : out->getLoopDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2278,7 +2278,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     FusionGuard fg(&fusion);
 
     std::vector<bool> bcast_pattern{true, true, true, false};
-    std::vector<int> reduction_dims{2, 1, 0};
+    std::vector<int64_t> reduction_dims{2, 1, 0};
 
     auto tv0 = makeContigTensor(4);
     fusion.addInput(tv0);
@@ -2337,20 +2337,20 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     MaxRootDomainInfoSpanningTree(transform_ref_rf).traverse(&propagator);
 
     int vec_id = std::distance(
-        transform_ref_rf->getLeafDomain().begin(),
+        transform_ref_rf->getLoopDomain().begin(),
         std::find_if(
-            transform_ref_rf->getLeafDomain().begin(),
-            transform_ref_rf->getLeafDomain().end(),
+            transform_ref_rf->getLoopDomain().begin(),
+            transform_ref_rf->getLoopDomain().end(),
             [](auto id) {
               return id->getParallelType() == ParallelType::Vectorize;
             }));
     transform_ref_rf->axis(vec_id)->parallelize(ParallelType::Serial);
 
     int unswitch_id = std::distance(
-        transform_ref_rf->getLeafDomain().begin(),
+        transform_ref_rf->getLoopDomain().begin(),
         std::find_if(
-            transform_ref_rf->getLeafDomain().begin(),
-            transform_ref_rf->getLeafDomain().end(),
+            transform_ref_rf->getLoopDomain().begin(),
+            transform_ref_rf->getLoopDomain().end(),
             [](auto id) {
               return id->getParallelType() == ParallelType::Unswitch;
             }));

@@ -96,7 +96,7 @@ enum class AllocationType : int {
   // pointer arithmetic of the input.  In this case, aliased_io is a non-null
   // tensor.
   // 2. To evaluate output tensors which are not aliases. For example, default
-  // scheduling in matmul when DisableOption::MatmulExprEval is not set.
+  // scheduling for MatmulOp/LinearOp in ExprEval scheduler.
   Evaluate,
 };
 
@@ -188,7 +188,9 @@ class NVF_API Fusion : public IrContainer {
   //! Returns (tensor, read conflict ways, write conflict ways)
   //! Each tensor can be read/write by multiple expressions, so the ways are
   //! vectors.
-  std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
+  std::unordered_map<
+      TensorView*,
+      std::pair<std::vector<int64_t>, std::vector<int64_t>>>
   bankConflictInfo(const CompileParams& compile_params = CompileParams());
 
   //! Return a list of topologically sorted expressions. This only includes
@@ -509,5 +511,8 @@ class NVF_API Fusion : public IrContainer {
   // the executor.
   int64_t expected_dynamic_smem_bytes_ = -1LL;
 };
+
+// Returns true if all fusion outputs are expression evaluated.
+bool isExpressionEvaluated(Fusion* fusion);
 
 } // namespace nvfuser

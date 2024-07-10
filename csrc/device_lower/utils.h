@@ -30,7 +30,7 @@ using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
 namespace scope_utils {
 
 //! Create an **empty** Forloop and copy the metadata.
-kir::ForLoop* cloneForLoop(kir::ForLoop* for_loop);
+ForLoop* cloneForLoop(ForLoop* for_loop);
 
 //! Create an **empty** IfThenElse and copy the metadata.
 kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite);
@@ -71,9 +71,9 @@ NVF_API ir_utils::TVDomainGuard overrideContiguityGuard(
     bool contiguity);
 
 // Create a TVDomainGuard that temporarily setting allocation domain as
-// getMaybeRFactorDomain() from a TensorView, contiguity are filled all true or
+// getLogicalDomain() from a TensorView, contiguity are filled all true or
 // all false
-ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
+ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
     TensorView* tv,
     bool contiguity);
 
@@ -263,7 +263,7 @@ kir::Allocate* allocGlobalBufferForGridComm(
 struct BasicAllocInfo {
   // The for loop that the initialization of this allocation must be
   // placed in, nullptr if not within a loop
-  kir::ForLoop* init_for_loop = nullptr;
+  ForLoop* init_for_loop = nullptr;
 
   // Keep track of the actual allocation loop. This can be different
   // from init_for_loop only with unswitched shared memory allocations,
@@ -272,19 +272,19 @@ struct BasicAllocInfo {
   // outside lower_allocation is likely looking for init_for_loop which is
   // more directly related to how large an allocation is and how it's used.
   // (see issue #1133).
-  kir::ForLoop* alloc_for_loop = nullptr;
+  ForLoop* alloc_for_loop = nullptr;
 
   // The allocation position relative to buffer IDs, it could be outside the
   // compute at position if it's shared memory with a compute at inside an
   // unswitch
-  size_t alloc_pos = 0;
+  int64_t alloc_pos = 0;
 };
 
 // Fill the above allocation struct based on provided information. id_map is
 // used if we're looking at a producer tensor but loops on a consumer tensor.
 BasicAllocInfo getAllocInformation(
     const TensorView* tv,
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {},
     bool use_id_map = false);
 
@@ -318,6 +318,9 @@ std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion);
 //! That is, for example, if the tensor view is [TIDx{3}], but the entire
 //! fusion has blockDim.x = 128, this function will return 3 instead of 128.
 Val* getNumThreadsInTensorView(TensorView* tv);
+
+//! Get the unit dimensions of A and B for the given MmaOp.
+std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr);
 
 } // namespace lower_utils
 

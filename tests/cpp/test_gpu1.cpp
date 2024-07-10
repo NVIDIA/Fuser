@@ -427,21 +427,11 @@ TEST_F(NVFuserTest, FusionComplexAbsTypes_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
-  auto tensor_cf = at::randn({4, 4, 4}, options.dtype(at::kComplexFloat));
-  auto tensor_cd = at::randn({4, 4, 4}, options.dtype(at::kComplexDouble));
+  auto tv_cf = makeContigTensor(3, DataType::ComplexFloat);
+  auto tv_cd = makeContigTensor(3, DataType::ComplexDouble);
 
-  auto type_cf = at::TensorType::create(tensor_cf);
-  auto tv_cf = IrBuilder::create<TensorView>(type_cf);
-  auto type_cd = at::TensorType::create(tensor_cd);
-  auto tv_cd = IrBuilder::create<TensorView>(type_cd);
-
-  NVF_CHECK(
-      tensor_cf.abs().scalar_type() ==
-      data_type_to_aten(abs(tv_cf)->getDataType().value()));
-  NVF_CHECK(
-      tensor_cd.abs().scalar_type() ==
-      data_type_to_aten(abs(tv_cd)->getDataType().value()));
+  EXPECT_EQ(DataType::Float, abs(tv_cf)->getDataType());
+  EXPECT_EQ(DataType::Double, abs(tv_cd)->getDataType());
 }
 
 TEST_F(NVFuserTest, FusionRegister_CUDA) {
@@ -547,70 +537,6 @@ TEST_F(NVFuserTest, FusionTopoSort_CUDA) {
   NVF_CHECK(v6->definition()->name() == 3);
 }
 
-TEST_F(NVFuserTest, FusionTensor_CUDA) {
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  {
-    auto tensor = at::randn({2, 3, 4, 5}, options);
-    auto tensor_type = at::TensorType::create(tensor);
-    auto fuser_tensor = IrBuilder::create<TensorView>(tensor_type);
-    NVF_CHECK((int64_t)fuser_tensor->nDims() == tensor.dim());
-    NVF_CHECK(fuser_tensor->getDataType().value() == DataType::Float);
-    NVF_CHECK(fuser_tensor->domain() != nullptr);
-    for (const auto i : c10::irange(fuser_tensor->nDims())) {
-      // size 1 dimension are makred as broadcast
-      NVF_CHECK(
-          fuser_tensor->axis(i)->isBroadcast() == (tensor.sizes()[i] == 1));
-      // check contiguity information;
-      NVF_CHECK(fuser_tensor->domain()->contiguity()[i]);
-    }
-  }
-
-  // TensorType::create fills stride_properties, which helps us to mark
-  // IterDomain properly
-  // Note: implementation could change, depending on how much we want to invest
-  // in our home-brew contiguity coalescing. For now let's make sure that we
-  // properly test what we are using.
-  {
-    auto tensor = at::randn({4, 4, 4}, options);
-    auto sliced_tensor = tensor.slice(1, 0, -1, 2);
-
-    auto tensor_type = at::TensorType::create(sliced_tensor);
-    auto fuser_tensor = IrBuilder::create<TensorView>(tensor_type);
-    NVF_CHECK((int64_t)fuser_tensor->nDims() == tensor.dim());
-    NVF_CHECK(fuser_tensor->getDataType().value() == DataType::Float);
-    NVF_CHECK(fuser_tensor->domain() != nullptr);
-    for (const auto i : c10::irange(fuser_tensor->nDims())) {
-      // size 1 dimension are makred as broadcast
-      NVF_CHECK(fuser_tensor->axis(i)->isBroadcast() == false);
-    }
-    NVF_CHECK(*fuser_tensor->domain()->contiguity()[0]);
-    NVF_CHECK(!*fuser_tensor->domain()->contiguity()[1]);
-    NVF_CHECK(*fuser_tensor->domain()->contiguity()[2]);
-  }
-
-  {
-    auto tensor = at::randn({2, 3, 4, 5}, options);
-    auto permuted_tensor = tensor.permute({0, 3, 1, 2});
-    auto tensor_type = at::TensorType::create(permuted_tensor);
-    auto fuser_tensor = IrBuilder::create<TensorView>(tensor_type);
-    NVF_CHECK((int64_t)fuser_tensor->nDims() == tensor.dim());
-    NVF_CHECK(fuser_tensor->getDataType().value() == DataType::Float);
-    NVF_CHECK(fuser_tensor->domain() != nullptr);
-    for (const auto i : c10::irange(fuser_tensor->nDims())) {
-      // size 1 dimension are makred as broadcast
-      NVF_CHECK(fuser_tensor->axis(i)->isBroadcast() == false);
-    }
-    NVF_CHECK(!*fuser_tensor->domain()->contiguity()[0]);
-    NVF_CHECK(!*fuser_tensor->domain()->contiguity()[1]);
-    NVF_CHECK(*fuser_tensor->domain()->contiguity()[2]);
-    NVF_CHECK(!*fuser_tensor->domain()->contiguity()[3]);
-  }
-}
-
 TEST_F(NVFuserTest, FusionFilterVals_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -653,7 +579,7 @@ TEST_F(NVFuserTest, FusionTVSplit_CUDA) {
   ASSERT_TRUE(outer->isA<BinaryOp>());
   auto bop = outer->as<BinaryOp>();
   EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::CeilDiv);
-  ASSERT_TRUE(bop->lhs()->sameAs(tv->getRootDomain()[2]->extent()));
+  ASSERT_TRUE(bop->lhs()->sameAs(tv->getLogicalDomain()[2]->extent()));
   ASSERT_TRUE(bop->rhs()->sameAs(IrBuilder::create<Val>(2L, DataType::Index)));
 
   IterDomain* inner = static_cast<IterDomain*>(tv->axis(3));
@@ -675,27 +601,27 @@ TEST_F(NVFuserTest, FusionTVMerge_CUDA) {
       tv->nDims() == 2 && axisOp->isA<BinaryOp>() &&
       static_cast<BinaryOp*>(axisOp)->getBinaryOpType() == BinaryOpType::Mul &&
       static_cast<BinaryOp*>(axisOp)->lhs() ==
-          tv->getRootDomain()[1]->extent() &&
+          tv->getLogicalDomain()[1]->extent() &&
       static_cast<BinaryOp*>(axisOp)->rhs() ==
-          tv->getRootDomain()[2]->extent());
+          tv->getLogicalDomain()[2]->extent());
 }
 
 TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  std::unordered_map<int, int> shift_right{{-1, 0}};
+  std::unordered_map<int64_t, int64_t> shift_right{{-1, 0}};
 
-  std::unordered_map<int, int> shift_left{{0, -1}};
+  std::unordered_map<int64_t, int64_t> shift_left{{0, -1}};
 
-  std::unordered_map<int, int> shift_left_2{{0, -1}, {1, 0}, {2, 1}};
+  std::unordered_map<int64_t, int64_t> shift_left_2{{0, -1}, {1, 0}, {2, 1}};
 
-  std::unordered_map<int, int> swap{{0, 2}, {2, 0}};
+  std::unordered_map<int64_t, int64_t> swap{{0, 2}, {2, 0}};
 
   auto tv = makeSymbolicTensor(3);
   std::vector<IterDomain*> ref;
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -704,7 +630,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
   for (const auto i : c10::irange(tv->nDims())) {
@@ -713,7 +639,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_right);
   NVF_CHECK(ref[ref.size() - 1]->sameAs(tv->axis(0)));
@@ -723,7 +649,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv = makeSymbolicTensor(3);
   ref = std::vector<IterDomain*>(
-      tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      tv->getLoopDomain().begin(), tv->getLoopDomain().end());
   tv->reorder(swap);
   NVF_CHECK(ref[0]->sameAs(tv->axis(2)));
   NVF_CHECK(ref[2]->sameAs(tv->axis(0)));
@@ -1504,13 +1430,13 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt7_CUDA) {
   tv7->axis(1)->parallelize(ParallelType::TIDx);
 
   tv0->computeAt(tv7, 1);
-  auto tv5_domain = tv5->getLeafDomain();
+  auto tv5_domain = tv5->getLoopDomain();
 
   // These computeAt transformations should not affect the TV5 domain
   tv0->computeAt(tv4, -1);
   tv2->computeAt(tv4, -1);
 
-  auto tv5_domain_current = tv5->getLeafDomain();
+  auto tv5_domain_current = tv5->getLoopDomain();
   NVF_CHECK(tv5_domain == tv5_domain_current, "Invalid TV5 domain");
 
   const int numel_x = 100;
@@ -2397,7 +2323,8 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
     }
     std::for_each(ops.begin(), ops.end(), [&](OpTuple& op) {
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ std::get<2>(op),
           /*Aten Func   */
@@ -2415,7 +2342,8 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
   dtypes = {DataType::Int, DataType::Int32};
   for (auto dtype : dtypes) {
     test_op(
-        /*blocks*/ 128,
+        /*blocks*/
+        128,
         /*threads*/ 64,
         /*name*/ "bitwise_not",
         /*Aten Func   */
@@ -2431,7 +2359,8 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
   dtypes = {DataType::Bool};
   for (auto dtype : dtypes) {
     test_op(
-        /*blocks*/ 128,
+        /*blocks*/
+        128,
         /*threads*/ 64,
         /*name*/ "logical_not",
         /*Aten Func   */
@@ -2510,7 +2439,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
     }
     std::for_each(logic_ops.begin(), logic_ops.end(), [&](OpTuple& op) {
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ std::get<2>(op),
           /*Aten Func   */
@@ -2555,7 +2485,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
             return;
           }
           test_op(
-              /*blocks*/ 640,
+              /*blocks*/
+              640,
               /*threads*/ 64,
               /*name*/ std::get<2>(op),
               /*Aten Func   */
@@ -2574,7 +2505,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
         });
 
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "add_alpha",
         /*Aten Func   */
@@ -2591,7 +2523,8 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
             std::make_pair(ValType::Others, dtype)));
 
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "sub_alpha",
         /*Aten Func   */
@@ -2620,7 +2553,8 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
     // clamp and threshold are not supported for complex on eager mode
     if (dtype != DataType::ComplexFloat && dtype != DataType::ComplexDouble) {
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ "clamp",
           /*Aten Func   */
@@ -2645,7 +2579,8 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
           /*Inputs Tuple*/
           std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
       test_op(
-          /*blocks*/ 640,
+          /*blocks*/
+          640,
           /*threads*/ 64,
           /*name*/ "threshold",
           /*Aten Func   */
@@ -2671,7 +2606,8 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
           std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
     }
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "where",
         /*Aten Func   */
@@ -2698,7 +2634,8 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
 
   for (auto dtype : dtypes) {
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "lerp",
         /*Aten Func   */
@@ -2714,7 +2651,8 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
             std::make_pair(ValType::TensorView, dtype),
             std::make_pair(ValType::TensorView, dtype)));
     test_op(
-        /*blocks*/ 640,
+        /*blocks*/
+        640,
         /*threads*/ 64,
         /*name*/ "addcmul",
         /*Aten Func   */
@@ -5276,7 +5214,7 @@ TEST_F(NVFuserTest, FusionReductionWithTrivialReduction_CUDA) {
     fusion.addInput(tv0);
 
     for (auto rdims : reduction_dims) {
-      std::vector<int> rdims_(rdims.begin(), rdims.end());
+      std::vector<int64_t> rdims_(rdims.begin(), rdims.end());
       auto tv = sum(tv0, rdims_);
       fusion.addOutput(tv);
     }
@@ -5362,7 +5300,7 @@ TEST_F(NVFuserTest, FusionSymbolicReduction_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
-  const std::vector<int> red_dims = {0, 2};
+  const std::vector<int64_t> red_dims = {0, 2};
   // Copy is because CodeGen requires int and Pytorch requires int64_t
   // for a vector of reduction dimensions
   const std::vector<int64_t> red_dims64 = {0, 2};
@@ -5408,7 +5346,7 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimNonFastest_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
-  const std::vector<int> red_dims = {1, 3};
+  const std::vector<int64_t> red_dims = {1, 3};
   // Copy is because CodeGen requires int and Pytorch requires int64_t
   // for a vector of reduction dimensions
   const std::vector<int64_t> red_dims64 = {1, 3};
@@ -5450,179 +5388,168 @@ TEST_F(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
       lparams);
 }
 
-TEST_F(NVFuserTest, FusionReductionSchedulerNoODimShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::Double,
-      DataType::Float,
-      DataType::Half,
-      DataType::ComplexFloat,
-      DataType::ComplexDouble};
+// data type and reduction dimension size
+using ReductionNoODimParams = std::tuple<DataType, int64_t>;
+using ReductionNoODim = NVFuserFixtureParamTest<ReductionNoODimParams>;
+TEST_P(ReductionNoODim, Test) {
+  auto [dtype, rdim] = GetParam();
 
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
-  if (at::cuda::getDeviceProperties(0)->major >= 8) {
-    dtypes.insert(dtypes.end(), DataType::BFloat16);
+  at::ScalarType aten_dtype = data_type_to_aten(dtype);
+
+  // Shmoo tests can occupy a lot of memory due to allocating many
+  // different tensor sizes. So in order to avoid an OOM during this
+  // test, we manually clear the allocator after it's reached a certain
+  // threshold.
+  maybeClearAllocator();
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  bool is_fp16 = dtype == DataType::Half;
+  bool is_bf16 = dtype == DataType::BFloat16;
+
+  TensorView* tv0 = makeSymbolicTensor(1, dtype);
+  fusion.addInput(tv0);
+
+  TensorView* tv0_cast = tv0;
+  if (is_fp16 || is_bf16) {
+    tv0_cast = castOp(DataType::Float, tv0);
   }
-#endif
 
-  std::vector<int> red_dims;
+  TensorView* tv1 = sum(tv0_cast, {0});
 
-  // Tried to cut down the number iterations with just
-  // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
-    red_dims.push_back(i);
+  TensorView* tv1_cast = tv1;
+  if (is_fp16) {
+    tv1_cast = castOp(DataType::Half, tv1);
+  }
+  if (is_bf16) {
+    tv1_cast = castOp(DataType::BFloat16, tv1);
   }
 
-  for (auto dtype : dtypes) {
-    at::ScalarType aten_dtype = data_type_to_aten(dtype);
-    for (auto& rdim : red_dims) {
-      // Shmoo tests can occupy a lot of memory due to allocating many
-      // different tensor sizes. So in order to avoid an OOM during this
-      // test, we manually clear the allocator after it's reached a certain
-      // threshold.
-      maybeClearAllocator();
+  fusion.addOutput(tv1_cast);
 
-      Fusion fusion;
-      FusionGuard fg(&fusion);
+  auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
 
-      bool is_fp16 = dtype == DataType::Half;
-      bool is_bf16 = dtype == DataType::BFloat16;
+  at::Tensor aten_input = at::randn({rdim}, options);
+  auto aten_output = aten_input.to(at::kDouble).sum({0});
 
-      TensorView* tv0 = makeSymbolicTensor(1, dtype);
-      fusion.addInput(tv0);
+  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
+  NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
+  scheduleReduction(&fusion, *reduction_params);
+  auto lparams = reduction_params->lparams;
 
-      TensorView* tv0_cast = tv0;
-      if (is_fp16 || is_bf16) {
-        tv0_cast = castOp(DataType::Float, tv0);
-      }
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
-      TensorView* tv1 = sum(tv0_cast, {0});
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_output},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ReductionNoODim,
+    ::testing::Combine(
+        testing::ValuesIn(getFloatingDataTypes()), // data type
+        testing::ValuesIn(Pow2Vals1to1Million)), // reduction dimension size
+    [](const testing::TestParamInfo<ReductionNoODimParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param);
+      ss << "_rsize_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
-      TensorView* tv1_cast = tv1;
-      if (is_fp16) {
-        tv1_cast = castOp(DataType::Half, tv1);
-      }
-      if (is_bf16) {
-        tv1_cast = castOp(DataType::BFloat16, tv1);
-      }
+// data type, reduction dim size, iteration dim size, reduction axis
+using ReductionWithIterDimParams =
+    std::tuple<DataType, int64_t, int64_t, int64_t>;
+using ReductionWithIterDim =
+    NVFuserFixtureParamTest<ReductionWithIterDimParams>;
+TEST_P(ReductionWithIterDim, Test) {
+  auto [dtype, rdim, odim, axis] = GetParam();
 
-      fusion.addOutput(tv1_cast);
+  at::ScalarType aten_dtype = data_type_to_aten(dtype);
 
-      auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+  // Shmoo tests can occupy a lot of memory due to allocating many
+  // different tensor sizes. So in order to avoid an OOM during this
+  // test, we manually clear the allocator after it's reached a certain
+  // threshold.
+  maybeClearAllocator();
 
-      at::Tensor aten_input = at::randn({rdim}, options);
-      auto aten_output = aten_input.to(at::kDouble).sum({0});
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-      auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-      NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
-      scheduleReduction(&fusion, *reduction_params);
-      auto lparams = reduction_params->lparams;
+  bool is_fp16 = dtype == DataType::Half;
+  bool is_bf16 = dtype == DataType::BFloat16;
 
-      FusionExecutor fe;
-      fe.compileFusion(&fusion, {aten_input}, lparams);
-      auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  TensorView* tv0 = makeSymbolicTensor(2, dtype);
+  fusion.addInput(tv0);
 
-      testValidate(
-          &fusion,
-          cg_outputs,
-          {aten_input},
-          {aten_output},
-          __LINE__,
-          __FILE__,
-          "",
-          lparams);
-    }
+  TensorView* tv0_cast = tv0;
+  if (is_fp16 || is_bf16) {
+    tv0_cast = castOp(DataType::Float, tv0);
   }
+
+  TensorView* tv1 = sum(tv0_cast, {axis});
+
+  TensorView* tv1_cast = tv1;
+  if (is_fp16) {
+    tv1_cast = castOp(DataType::Half, tv1);
+  }
+  if (is_bf16) {
+    tv1_cast = castOp(DataType::BFloat16, tv1);
+  }
+  fusion.addOutput(tv1_cast);
+
+  auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+
+  at::Tensor aten_input =
+      (axis ? at::randn({odim, rdim}, options)
+            : at::randn({rdim, odim}, options));
+
+  auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
+  NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
+  scheduleReduction(&fusion, *reduction_params);
+  auto lparams = reduction_params->lparams;
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {aten_input}, lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  auto aten_output = aten_input.to(at::kDouble).sum({axis});
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_output},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
 }
 
-TEST_F(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::Double,
-      DataType::Float,
-      DataType::Half,
-      DataType::ComplexFloat,
-      DataType::ComplexDouble};
-#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
-  if (at::cuda::getDeviceProperties(0)->major >= 8) {
-    dtypes.insert(dtypes.end(), DataType::BFloat16);
-  }
-#endif
-
-  std::vector<int> red_axis = {1, 0};
-  std::vector<int> output_dims = {160, 320};
-  std::vector<int> red_dims;
-
-  // Tried to cut down the number iterations with just
-  // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
-    red_dims.push_back(i);
-  }
-
-  for (auto dtype : dtypes) {
-    at::ScalarType aten_dtype = data_type_to_aten(dtype);
-    for (auto& axis : red_axis) {
-      for (auto& odim : output_dims) {
-        for (auto& rdim : red_dims) {
-          // Shmoo tests can occupy a lot of memory due to allocating many
-          // different tensor sizes. So in order to avoid an OOM during this
-          // test, we manually clear the allocator after it's reached a certain
-          // threshold.
-          maybeClearAllocator();
-
-          Fusion fusion;
-          FusionGuard fg(&fusion);
-
-          bool is_fp16 = dtype == DataType::Half;
-          bool is_bf16 = dtype == DataType::BFloat16;
-
-          TensorView* tv0 = makeSymbolicTensor(2, dtype);
-          fusion.addInput(tv0);
-
-          TensorView* tv0_cast = tv0;
-          if (is_fp16 || is_bf16) {
-            tv0_cast = castOp(DataType::Float, tv0);
-          }
-
-          TensorView* tv1 = sum(tv0_cast, {axis});
-
-          TensorView* tv1_cast = tv1;
-          if (is_fp16) {
-            tv1_cast = castOp(DataType::Half, tv1);
-          }
-          if (is_bf16) {
-            tv1_cast = castOp(DataType::BFloat16, tv1);
-          }
-          fusion.addOutput(tv1_cast);
-
-          auto options =
-              at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
-
-          at::Tensor aten_input =
-              (axis ? at::randn({odim, rdim}, options)
-                    : at::randn({rdim, odim}, options));
-
-          auto reduction_params = getReductionHeuristics(&fusion, {aten_input});
-          NVF_CHECK(reduction_params != nullptr, "Reduction is not found!");
-          scheduleReduction(&fusion, *reduction_params);
-          auto lparams = reduction_params->lparams;
-
-          FusionExecutor fe;
-          fe.compileFusion(&fusion, {aten_input}, lparams);
-          auto cg_outputs = fe.runFusion({aten_input}, lparams);
-          auto aten_output = aten_input.to(at::kDouble).sum({axis});
-          testValidate(
-              &fusion,
-              cg_outputs,
-              {aten_input},
-              {aten_output},
-              __LINE__,
-              __FILE__,
-              "",
-              lparams);
-        }
-      }
-    }
-  }
-}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ReductionWithIterDim,
+    ::testing::Combine(
+        testing::ValuesIn(getFloatingDataTypes()), // data type
+        testing::ValuesIn(Pow2Vals1to1Million), // reduction dimension size
+        testing::Values(160, 320), // iteration dimension size
+        testing::Values(0, 1)), // reduction axis
+    [](const testing::TestParamInfo<ReductionWithIterDimParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param);
+      ss << "_rsize_" << std::get<1>(info.param);
+      ss << "_isize_" << std::get<2>(info.param);
+      ss << "_raxis_" << std::get<3>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
 TEST_F(NVFuserTest, FusionCacheBefore_CUDA) {
   // TVM Cache Write
@@ -6039,7 +5966,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
   at::Tensor t1 = at::randn({K, N}, options);
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
-  at::Tensor aten_output = matmul(t0.to(at::kDouble), t1.to(at::kDouble));
+  at::Tensor aten_output = at::matmul(t0.to(at::kDouble), t1.to(at::kDouble));
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0, t1});
@@ -6126,7 +6053,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemmCache_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({M, K}, options);
   at::Tensor t1 = at::randn({K, N}, options);
-  at::Tensor aten_output = matmul(t0.to(at::kDouble), t1.to(at::kDouble));
+  at::Tensor aten_output = at::matmul(t0.to(at::kDouble), t1.to(at::kDouble));
 
   std::vector<c10::IValue> aten_inputs = {t0, t1};
 

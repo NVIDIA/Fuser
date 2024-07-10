@@ -26,7 +26,7 @@ class PointwiseParams : public HeuristicParams {
   // split from left side of the domain to right. i.e. 0 means problem is
   // treated as 1-D, 1 of 3 would mean we treat the first dimension as the outer
   // dimension, and all the others as an inner dimension.
-  int break_point = 0;
+  int64_t break_point = 0;
 
   // Split block across left and right dimension
   bool split_block = false;
@@ -41,7 +41,7 @@ class PointwiseParams : public HeuristicParams {
   bool flip_grid_binding = false;
 
   // Unroll or vectorization factor
-  size_t unroll_factor = 1;
+  int64_t unroll_factor = 1;
 
   using HeuristicParams::HeuristicParams;
 

@@ -4,6 +4,7 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 

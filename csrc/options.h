@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <visibility.h>
 
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -53,6 +54,7 @@ enum class DebugDumpOption {
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
   GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
+  HostIr, //!< Dump the Host IR program
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   EffectiveBandwidth, //! Measure kernel performance and print effective
                       //! bandwidth
@@ -62,7 +64,6 @@ enum class DebugDumpOption {
   SchedulerDebug, //! Dump scheduler heuristic parameters
   SchedulerVerbose, //! Dump detailed scheduler logging
   ParallelDimensions, //!< Dump known parallel dimensions
-  Halo, //! Halo information of tensors
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
@@ -91,6 +92,7 @@ enum class DebugDumpOption {
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
+  FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   IdModel, //! Enable IdModel
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
@@ -172,6 +174,14 @@ class Options {
     return options_.at(option);
   }
 
+  bool hasArg(OptionEnum option, const std::string& arg) const {
+    if (!has(option)) {
+      return false;
+    }
+    const auto& args = getArgs(option);
+    return std::find(args.begin(), args.end(), arg) != args.end();
+  }
+
   void set(OptionEnum option_type, std::vector<std::string> option = {}) {
     options_[option_type] = option;
   }
@@ -221,6 +231,8 @@ NVF_API bool isDebugDumpEnabled(DebugDumpOption option);
 
 const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option);
 
+bool hasDebugDumpArgument(DebugDumpOption option, const std::string& arg);
+
 // Enable options
 template <>
 NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
@@ -231,6 +243,8 @@ using EnableOptions = Options<EnableOption>;
 bool isOptionEnabled(EnableOption option);
 
 const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
+
+bool hasEnableOptionArgument(EnableOption option, const std::string& arg);
 
 template <>
 NVF_API Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
@@ -248,6 +262,8 @@ NVF_API bool isOptionDisabled(DisableOption option);
 
 const std::vector<std::string>& getDisableOptionArguments(DisableOption option);
 
+bool hasDisableOptionArgument(DisableOption option, const std::string& arg);
+
 template <>
 NVF_API Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
 
@@ -263,7 +279,7 @@ using ProfilerOptions = Options<ProfilerOption>;
 
 // Specific queries for the Profiler Options
 bool isProfilerEnabled();
-bool isProfilerEnabledWithoutCupti();
+bool isProfilerEnabledWithCupti();
 bool isProfilerPrintingEnabled();
 bool isProfilerPrintingVerbose();
 

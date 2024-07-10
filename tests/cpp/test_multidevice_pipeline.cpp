@@ -23,7 +23,6 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
-#include <mma_type.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -42,13 +41,11 @@ namespace nvfuser {
 using namespace torch::jit::fuser::cuda;
 using namespace at::indexing;
 
-/* To run the following tests on several devices, pytorch must be installed
-   with the flag NVFUSER_DISTRIBUTED=1 and nccl support.
-   Then simply run the tests on several processes, for example using mpirun
-   on a node having at least 6 GPUs,
-   e.g.: mpirun -np 6 build/nvfuser_tests
-   --gtest_filter=PipelineTest.Pipeline
-*/
+// To run the following tests on several devices, pytorch must be installed with
+// the flag USE_DISTRIBUTED=1 and nccl support. With that, nvFuser is built by
+// default with NVFUSER_DISTRIBUTED defined. Then, on a node with at least 6
+// GPUs, run the test using mpirun: `mpirun -np 6 build/test_multidevice
+// --gtest_filter=PipelineTestTwoStages*`.
 
 TEST_F(PipelineTest, Pipeline) {
   const std::vector<int64_t> input_shape1 = {6, 7};
@@ -155,10 +152,10 @@ TEST_P(PipelineTestTwoStages, Communication) {
        do_reduction,
        sharded_dim,
        use_fusion_executor_cache] = GetParam();
-  if (!disable_skip && !communicator->isBackendAvailable(backend)) {
+  if (!disable_skip && !communicator_->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }
-  communicator->setDefaultBackend(backend);
+  communicator_->setDefaultBackend(backend);
 
   if (mesh1.vector().empty()) {
     mesh1 = mesh0;
@@ -166,13 +163,13 @@ TEST_P(PipelineTestTwoStages, Communication) {
 
   std::vector<int64_t> unsharded_input_sizes = {3, 2, 3, 5};
   if (is_stage0_sharded) {
-    unsharded_input_sizes[sharded_dim] = mesh0.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh0.size();
   }
   if (is_stage1_sharded) {
-    unsharded_input_sizes[sharded_dim] = mesh1.vector().size();
+    unsharded_input_sizes[sharded_dim] = mesh1.size();
     if (do_reduction) {
-      ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
-      unsharded_input_sizes[sharded_dim + 1] = mesh1.vector().size();
+      ASSERT_EQ(mesh0.size(), mesh1.size());
+      unsharded_input_sizes[sharded_dim + 1] = mesh1.size();
     }
   }
 
@@ -203,8 +200,8 @@ TEST_P(PipelineTestTwoStages, Communication) {
   unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
 
   if (use_fusion_executor_cache) {
-    multi_device_executor_params.use_fusion_executor_cache = true;
-    multi_device_executor_params.skip_auto_scheduling = true;
+    host_ir_executor_params.use_fusion_executor_cache = true;
+    host_ir_executor_params.skip_auto_scheduling = true;
   }
 
   executeAndValidate();
@@ -220,8 +217,9 @@ DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
 DeviceMesh mesh4({1, 0, 2});
-auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
-auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4);
+DeviceMesh mesh5({1, 0});
+auto all_meshes = testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4, mesh5);
+auto all_nontrivial_meshes = testing::Values(mesh2, mesh3, mesh4, mesh5);
 
 } // namespace
 
@@ -444,9 +442,6 @@ enum class SchedulingMode {
   InterDeviceOnly,
   // Manual inter-/intra-device scheduling
   Manual,
-  // Manual inter-device scheduling, composed with ReductionOnly
-  // intra-device schedule
-  ReductionOnly,
   // Manual inter-device scheduling, composed with fully automated intra-device
   // scheduling (through FusionExecutorCache)
   Automatic,
@@ -459,9 +454,6 @@ std::ostream& operator<<(std::ostream& out, const SchedulingMode& mode) {
       break;
     case SchedulingMode::Manual:
       out << "Manual";
-      break;
-    case SchedulingMode::ReductionOnly:
-      out << "ReductionOnly";
       break;
     case SchedulingMode::Automatic:
       out << "Automatic";
@@ -479,7 +471,7 @@ class PipelineTestStagedReduction
 TEST_P(PipelineTestStagedReduction, StagedReduction) {
   auto scheduling_mode = GetParam();
 
-  int num_devices = communicator->size();
+  int num_devices = communicator_->size();
   int A = num_devices;
   int B = 8;
   int C = 64;
@@ -495,9 +487,7 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
   fusion->addOutput(tv_out);
 
   // multi device scheduling:
-  std::vector<int64_t> devices(num_devices);
-  std::iota(devices.begin(), devices.end(), 0);
-  DeviceMesh mesh(devices);
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
   for (auto tv : {tv0, tv1, tv_out}) {
     tv->setDeviceMesh(mesh);
   }
@@ -550,16 +540,8 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
       tv3->axis(-1)->parallelize(ParallelType::TIDx);
       break;
     }
-    case SchedulingMode::ReductionOnly: {
-      auto reduction_params = getReductionHeuristics(
-          fusion.get(), {at::empty(input_sizes, tensor_options)});
-      NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-      l_params = reduction_params->lparams;
-      scheduleReduction(fusion.get(), *reduction_params);
-      break;
-    }
     case SchedulingMode::Automatic:
-      multi_device_executor_params.use_fusion_executor_cache = true;
+      host_ir_executor_params.use_fusion_executor_cache = true;
       break;
   }
 
@@ -576,7 +558,6 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(
         SchedulingMode::InterDeviceOnly,
         SchedulingMode::Manual,
-        SchedulingMode::ReductionOnly,
         SchedulingMode::Automatic),
     testing::PrintToStringParamName());
 

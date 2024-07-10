@@ -78,16 +78,6 @@ struct MatmulInputs {
   std::vector<bool> bias_bcast_flags = {};
 };
 
-//! Matches the following matmul patterns.
-//! Matmul: A x B, alpha * A x B
-//! Matmul + Bias (addmm): A x B + C,  alpha * A x B + C, A x B + beta * C,
-//!   alpha * A x B  + beta * C
-//! Linear: A x B / A x B + C
-//! Assumptions:
-//! 1. For simplicity, we assume the MmaOp to be in the first operand.
-//! 2. For linear ([M, K], [N, K]), alpha, beta parameters are nullptr.
-bool matchMatmulPatterns(const UnaryOp* cast_op, MatmulInputs* matmul_inp);
-
 } // namespace nvfuser::MmaOpUtils
 
 namespace nvfuser::ir_utils {
@@ -221,7 +211,7 @@ auto filterByType(const ContainerType& inputs) {
 //! dimension are mapped to the same new dimension.
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
-    size_t ndims);
+    int64_t ndims);
 
 //! Returns a list of new-to-old mappings.
 //!
@@ -236,9 +226,9 @@ std::vector<int64_t> normalizeNew2Old(
 //!
 //!   {{0, -1}} -> [N-1, ...., 0]
 //!   Swaps the first and last axes.
-std::vector<int> normalizeOld2New(
-    const std::unordered_map<int, int>& old2new_in,
-    size_t ndims);
+std::vector<int64_t> normalizeOld2New(
+    const std::unordered_map<int64_t, int64_t>& old2new_in,
+    int64_t ndims);
 
 //! Replaces reference Val with substitute in all Expr inputs and attributes.
 //! Warning: Invalidates provided Expr.
@@ -277,9 +267,9 @@ Val* replaceValRecursively(
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
-NVF_API TensorView* rfactorHelper(
+NVF_API TensorView* rFactorHelper(
     TensorView* red_tv,
-    const std::vector<int>& axes);
+    const std::vector<int64_t>& axes);
 
 // Return immediate producers of val, this function can be used on any Val and
 // will return producers through Exprs.
@@ -426,7 +416,7 @@ std::vector<ViewOp*> getViewOps(Fusion*);
 template <typename T>
 std::string toString(const T& nodes) {
   std::stringstream ss;
-  for (const Statement* stmt : nodes) {
+  for (auto stmt : nodes) {
     if (ss.tellp() != 0) {
       ss << ", ";
     }
@@ -438,7 +428,7 @@ std::string toString(const T& nodes) {
 template <typename T>
 std::string toInlineString(const T& nodes) {
   std::stringstream ss;
-  for (const Statement* stmt : nodes) {
+  for (auto stmt : nodes) {
     if (ss.tellp() != 0) {
       ss << ", ";
     }
@@ -487,29 +477,46 @@ bool isTorchGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 
-// Check if a tensor is resized as part of  its root to rfactor transformations
+// Check if a tensor is resized as part of its root to logical transformations
 bool hasResizedRfactor(const TensorView* tv);
 
 // Returns tvs that have symbolic axes
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 
-//! Validate derived_domain completely covers initial_domain with no
-//! redundancy. Consider derived_domains as a different view of the
-//! same logical domain as initial_domain with affine
-//! transformations. This validation makes sure both sets
-//! of domains represent the same logical space.
+//! Validate dom0 and dom1 completely covers each other with no
+//! redundancy. When they are equivalent, we can consider them as a different
+//! view of the each other with affine transformations.
 //!
-//! It is intended to be used to validate rfactor and leaf domains
-//! of a tensor root domain.
+//! For example, if we have
+//!  I0  I1  I2  I3
+//!   \  /    \  /
+//!    I4      I5
+//! then [I0, I1, I2, I3] is equivalent to [I4, I5], but [I1, I2, I3] is not
+//! equivalent to [I4, I5].
 //!
-//! For example, it's an error if a initial ID is split and
-//! only one of the outputs is included in the ids vector. It is
-//! also an error if both a producer and consumer ID are included in
-//! ids as they partially have the same dependency with the initial
-//! domain.
+//! Another example, if we have
+//!  I0  I1  I2  I3
+//!   \  /    \  /
+//!    I4      I5
+//!   /  \    /  \.
+//!  I6  I7  I8  I9
+//! Then [I0, I1, I8, I9] is equivalent to [I6, I7, I2, I3]. [I0, I1, I2, I3] is
+//! equivalent to [I6, I7, I8, I9]. But [I0, I1, I8, I3] is NOT equivalent to
+//! [I6, I7, I2, I9]
+//!
+//! Please note that there are still limitations in validateDomainEquivalence
+//! that there are valid cases that will be rejected by this function. For
+//! example, if we have the following structure:
+//!    I0.........I0
+//!   /  \       /  \.
+//! I0/4  4    I0/5  5
+//! then [I0/4, 4] and [I0/5, 5] are equivalent, but validateDomainEquivalence
+//! will reject this case. This is because our IR visitor is only capable of
+//! traversing the IR in a single direction. We should lift this limitation in
+//! the future.
 NVF_API void validateDomainEquivalence(
-    const std::vector<IterDomain*>& initial_domain,
-    const std::vector<IterDomain*>& derived_domain);
+    const std::vector<IterDomain*>& dom0,
+    const std::vector<IterDomain*>& dom1);
 
 //! Check if all the inputs required to compute needed_val are known
 template <
@@ -647,6 +654,50 @@ std::optional<std::vector<int64_t>> computePermutation(
         in.begin(), std::find(in.begin(), in.end(), out_element)));
   }
   return permutation;
+}
+
+bool hasTrivialAllocationDomain(const TensorView* tv);
+
+// Returns true if memory_type is partitioned in parallel_type. See
+// also isMemorySharedAcross. Specifically, isMemorySharedAcross == true does
+// not imply isMemoryPartitionedAcross == false. For example, Local with no
+// parallelization is not partitioned nor shared.
+inline bool isMemoryPartitionedAcross(
+    MemoryType memory_type,
+    ParallelType parallel_type) {
+  switch (memory_type) {
+    case MemoryType::Local:
+      return isParallelTypeThread(parallel_type) ||
+          isParallelTypeDeviceDim(parallel_type);
+    case MemoryType::Shared:
+      return isParallelTypeBlockDim(parallel_type) ||
+          isParallelTypeDeviceDim(parallel_type);
+    case MemoryType::Global:
+      return isParallelTypeDeviceDim(parallel_type);
+    default:
+      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+  }
+}
+
+// Returns true if memory_type is shared in parallel_type. See also
+// isPartitionedMemory.
+inline bool isMemorySharedAcross(
+    MemoryType memory_type,
+    ParallelType parallel_type) {
+  switch (memory_type) {
+    case MemoryType::Local:
+      // Nothing is shared if it's Local
+      return false;
+    case MemoryType::Shared:
+      // Only TID parallelized domains are shared if it's Shared
+      return isParallelTypeThreadDim(parallel_type);
+    case MemoryType::Global:
+      // Only TID and BID parallelized domains are shared if it's Global
+      return isParallelTypeThreadDim(parallel_type) ||
+          isParallelTypeBlockDim(parallel_type);
+    default:
+      NVF_ERROR(false, "Unknown MemoryType: ", memory_type);
+  }
 }
 
 } // namespace nvfuser::ir_utils

@@ -27,18 +27,13 @@ namespace nvfuser {
 namespace {
 class MatmulSchedulerTest : public NVFuserTest {
  protected:
-  MatmulSchedulerTest() : optimization_guard_(false) {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
+  MatmulSchedulerTest() : optimization_guard_(false) {}
 
  private:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
-  // RAII style options guard. This is used to disable
-  // (via set) options in the constructor.
-  DisableOptionsGuard option_guard_;
 };
 
 using PrecisionsDesc = std::tuple<PrimDataType, PrimDataType, PrimDataType>;
@@ -52,15 +47,11 @@ class PrecisionParametrizedTest
  protected:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
-  PrecisionParametrizedTest() : optimization_guard_(false) {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
+  PrecisionParametrizedTest() : optimization_guard_(false) {}
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
-
-  DisableOptionsGuard option_guard_;
 };
 
 [[nodiscard]] auto get_type_letter(const PrimDataType& type) {
@@ -94,6 +85,30 @@ static const PrecisionsDesc TSS = std::make_tuple(
     PrimDataType::BFloat16,
     PrimDataType::Float,
     PrimDataType::Float);
+
+void checkUnsegmentedVectorization(
+    const FusionExecutorCache& executor_cache,
+    int64_t expected_vec_A,
+    int64_t expected_vec_B,
+    int64_t expected_vec_epilogue) {
+  const FusionKernelRuntime* runtime =
+      executor_cache.getMostRecentKernelRuntime();
+
+  ASSERT_NE(runtime, nullptr);
+
+  // expected to match whole fusion with single segment
+  EXPECT_FALSE(runtime->isSegmented());
+
+  ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
+
+  // Check that supported_vec_size matches expected.
+  const MatmulParams& params =
+      runtime->schedulerHeuristics()->heuristicsList().front()->matmulParams();
+
+  EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
+  EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
+  EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
+}
 
 // Matmul test that uses segmenter for fusion:
 //   D = (A x B) + bias
@@ -156,24 +171,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -194,9 +199,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -255,24 +262,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -288,9 +285,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   NVF_CHECK(outputs[0].allclose(t4, abs_err_thr, rel_err_thr));
 }
@@ -360,24 +359,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -398,9 +387,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -461,24 +452,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -495,9 +476,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // D tensor results
   NVF_CHECK(outputs[0].allclose(t3, abs_err_thr, rel_err_thr));
@@ -574,24 +557,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -613,9 +586,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -675,24 +650,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -708,9 +673,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   NVF_CHECK(outputs[0].allclose(t4, abs_err_thr, rel_err_thr));
 }
@@ -769,24 +736,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -803,9 +760,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // D tensor results
   NVF_CHECK(outputs[0].allclose(t3, abs_err_thr, rel_err_thr));
@@ -876,24 +835,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -914,9 +863,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -991,24 +942,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1030,9 +971,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(
+      executor_cache,
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(in_type),
+      16l / dataTypeSize(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -1054,6 +997,41 @@ INSTANTIATE_TEST_SUITE_P(
       os << get_type_letter(std::get<2>(info.param));
       return os.str();
     });
+
+TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t M = 128, N = 256, K = 512;
+  TensorView* x = makeContigConcreteTensor({M, 1, K}, DataType::Half);
+  TensorView* y = makeContigConcreteTensor({1, N, K}, DataType::Half);
+  TensorView* z = fusedMultiplySum(x, y, {-1});
+
+  fusion->addInput(x);
+  fusion->addInput(y);
+  fusion->addOutput(z);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto x_ref = at::randn({M, 1, K}, options);
+  auto y_ref = at::randn({1, N, K}, options);
+  auto z_ref = atMatmul(x_ref, y_ref, MmaLayout::TN);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto out_tensors = executor_cache.runFusionWithInputs({x_ref, y_ref});
+
+  checkUnsegmentedVectorization(executor_cache, 8l, 8l, 4l);
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {x_ref, y_ref},
+      {z_ref},
+      __LINE__,
+      __FILE__);
+}
 
 // Matmul test that uses segmenter for 'C = A x B' fusion,
 //   for Ampere with strict ref check, hence single layout check
@@ -1078,24 +1056,14 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must be always TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
@@ -1106,15 +1074,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "fusion got segmented, expected to match whole fusion with single segment");
-
-  NVF_CHECK(
-      isSchedulerInUse(
-          executor_cache.getMostRecentKernelRuntime(),
-          ScheduleHeuristic::Matmul),
-      "matmul scheduler was not used to handle prepared fusion");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
@@ -1143,30 +1103,14 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must be always TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
@@ -1177,15 +1121,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "fusion got segmented, expected to match whole fusion with single segment");
-
-    NVF_CHECK(
-        isSchedulerInUse(
-            executor_cache.getMostRecentKernelRuntime(),
-            ScheduleHeuristic::Matmul),
-        "matmul scheduler was not used to handle prepared fusion");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
   }
@@ -1216,24 +1152,14 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must be always TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   auto t0 = matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
@@ -1244,15 +1170,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
 
   auto outputs = executor_cache.runFusionWithInputs({t1, t0});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "fusion got segmented, expected to match whole fusion with single segment");
-
-  NVF_CHECK(
-      isSchedulerInUse(
-          executor_cache.getMostRecentKernelRuntime(),
-          ScheduleHeuristic::Matmul),
-      "matmul scheduler was not used to handle prepared fusion");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1281,24 +1199,14 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1313,9 +1221,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1346,24 +1252,14 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1379,9 +1275,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1413,24 +1307,14 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1447,9 +1331,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, alpha});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -1489,24 +1371,14 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1526,9 +1398,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, beta});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1573,24 +1443,14 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1612,9 +1472,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1663,24 +1521,14 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1705,9 +1553,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1757,24 +1603,14 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
       "matmul fusion must have at least one MmaOp");
-  NVF_CHECK(
-      ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
-      "input layout has not be set for MmaOp");
-  NVF_CHECK(
-      MmaLayout::TN ==
-          ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
-      "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+  const auto fusion_layout = getMatmulProblemLayout(fusion.get());
   NVF_CHECK(
-      fusion_layout.isValid(),
-      "failed to get decide matmul layout through fusion definition");
-  NVF_CHECK(
-      fusion_layout.getData() == layout,
+      fusion_layout == layout,
       "mismatch between test layout (",
       toString(layout),
       ") and layout inferred from fusion definition (",
-      toString(fusion_layout.getData()),
+      toString(fusion_layout),
       ")");
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1802,9 +1638,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   auto outputs =
       executor_cache.runFusionWithInputs({t0, t1, t2, t3, alpha, beta});
 
-  NVF_CHECK(
-      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-      "segmentation did happen");
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1836,30 +1670,14 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -1873,9 +1691,7 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "segmentation did happen");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     // verification
@@ -1924,30 +1740,14 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -1971,9 +1771,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
     auto outputs =
         executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "segmentation did happen");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -2025,30 +1823,14 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -2074,9 +1856,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
     auto outputs =
         executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "segmentation did happen");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -2114,30 +1894,14 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -2155,9 +1919,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "segmentation did happen");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
@@ -2196,30 +1958,14 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
     NVF_CHECK(
         1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
         "matmul fusion must have at least one MmaOp");
-    NVF_CHECK(
-        ir_utils::getOpsOfType<MmaOp>(fusion.get())
-            .front()
-            ->layout()
-            .has_value(),
-        "input layout has not be set for MmaOp");
-    NVF_CHECK(
-        MmaLayout::TN ==
-            ir_utils::getOpsOfType<MmaOp>(fusion.get())
-                .front()
-                ->layout()
-                .value(),
-        "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
+    const auto fusion_layout = getMatmulProblemLayout(fusion.get());
     NVF_CHECK(
-        fusion_layout.isValid(),
-        "failed to get decide matmul layout through fusion definition");
-    NVF_CHECK(
-        fusion_layout.getData() == layout,
+        fusion_layout == layout,
         "mismatch between test layout (",
         toString(layout),
         ") and layout inferred from fusion definition (",
-        toString(fusion_layout.getData()),
+        toString(fusion_layout),
         ")");
 
     FusionExecutorCache executor_cache(std::move(fusion));
@@ -2238,13 +1984,466 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
 
     auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-    NVF_CHECK(
-        !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
-        "segmentation did happen");
+    checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
     // NOTE: increasted absolute tolerance to silence false negative
     //  verification caused by different way of calculating reference
     NVF_CHECK(outputs[0].allclose(t4, 0.0001, 0.0001));
+  }
+}
+
+// Test matmul with contiguous inputs but sizes that are not divisible by 8 and
+// with misaligned input pointers
+TEST_F(MatmulSchedulerTest, MisalignedVectorization) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  // TODO: parametrized test instead of nested loops (still use a loop over
+  // sizes and re-use FusionExecutorCache)
+  for (auto layout : kAllSupportedMmaLayout) {
+    for (bool add_2d_bias : {false, true}) {
+      for (bool downcast_output : {false, true}) {
+        auto fusion = std::make_unique<Fusion>();
+        FusionGuard fg(fusion.get());
+
+        auto tv0 = makeContigTensor(2, DataType::Half);
+        auto tv1 = makeContigTensor(2, DataType::Half);
+        fusion->addInput(tv0);
+        fusion->addInput(tv1);
+
+        tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+        tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+        auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+        if (add_2d_bias) {
+          auto bias = makeContigTensor(2, DataType::Half);
+          fusion->addInput(bias);
+          tv2 = add(tv2, bias);
+        }
+
+        if (downcast_output) {
+          tv2 = castOp(DataType::Half, tv2);
+        }
+
+        fusion->addOutput(tv2);
+
+        const auto fusion_layout = getMatmulProblemLayout(fusion.get());
+        NVF_CHECK(
+            fusion_layout == layout,
+            "mismatch between test layout (",
+            toString(layout),
+            ") and layout inferred from fusion definition (",
+            toString(fusion_layout),
+            ")");
+
+        FusionExecutorCache executor_cache(std::move(fusion));
+
+        auto run = [&](int M,
+                       int N,
+                       int K,
+                       // Pointer alignment
+                       int align_A,
+                       int align_B,
+                       int align_bias,
+                       int expected_vec_A,
+                       int expected_vec_B,
+                       int expected_vec_epilogue) {
+          const auto maybeUnalign = [](const at::Tensor& t, int offset) {
+            if (offset == 16 / t.element_size()) {
+              // Already fully aligned
+              return t;
+            }
+            return at::pad(t.ravel(), {{0, offset}})
+                .index({at::indexing::Slice(offset, t.numel() + offset, 1)})
+                .view({t.size(0), t.size(1)});
+          };
+
+          auto t0 = maybeUnalign(
+              matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K),
+              align_A);
+          auto t1 = maybeUnalign(
+              matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K),
+              align_B);
+
+          auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+
+          std::vector<c10::IValue> inputs = {t0, t1};
+
+          if (add_2d_bias) {
+            const auto options =
+                at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+            auto bias = maybeUnalign(at::randn({M, N}, options), align_bias);
+            tref = tref + bias;
+            inputs.emplace_back(bias);
+          }
+
+          if (downcast_output) {
+            tref = tref.to(at::kHalf);
+          }
+
+          auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+          FusionKernelRuntime* runtime =
+              executor_cache.getMostRecentKernelRuntime();
+
+          ASSERT_NE(runtime, nullptr);
+
+          // expected to match whole fusion with single segment
+          EXPECT_FALSE(runtime->isSegmented());
+
+          ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
+
+          // Check that supported_vec_size matches expected.
+          const MatmulParams& params = runtime->schedulerHeuristics()
+                                           ->heuristicsList()
+                                           .front()
+                                           ->matmulParams();
+
+          EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
+          EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
+          EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
+
+          EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
+        };
+
+        [[maybe_unused]] bool contig_K_A =
+            layout == MmaLayout::TT || layout == MmaLayout::TN;
+        [[maybe_unused]] bool contig_K_B =
+            layout == MmaLayout::TN || layout == MmaLayout::NN;
+
+        // When not downcasting, outputs are Float
+        [[maybe_unused]] int max_vec_epi = downcast_output ? 8 : 4;
+
+        // all fully vectorizable in all layouts
+        run(504, 136, 248, 8, 8, 8, 8, 8, max_vec_epi);
+        // odd K. Operands vectorizable when K is not the contiguous axis.
+        // Output always fully vectorizable
+        run(504,
+            136,
+            249,
+            8,
+            8,
+            8,
+            contig_K_A ? 1 : 8,
+            contig_K_B ? 1 : 8,
+            max_vec_epi);
+        // Odd N. Output not vectorizable. A fully vectorizable. B fully
+        // vectorizable unless N is the contiguous dim.
+        run(504, 137, 248, 8, 8, 8, 8, contig_K_B ? 8 : 1, 1);
+        // Odd M. Output fully vectorizable. B fully vectorizable. A fully
+        // vectorizable unless M is the contiguous dim.
+        run(505, 136, 248, 8, 8, 8, contig_K_A ? 8 : 1, 8, max_vec_epi);
+        // Odd M and N. Output not vectorizable. A and B fully vectorizable
+        // unless K is not the contiguous dim.
+        run(505, 137, 248, 8, 8, 8, contig_K_A ? 8 : 1, contig_K_B ? 8 : 1, 1);
+        // Odd M, N, K. None vectorizable.
+        run(505, 137, 249, 8, 8, 8, 1, 1, 1);
+        // Cases with vectorizable strides but misaligned base pointers
+        // A not vectorizable due to pointer offset
+        run(504, 136, 248, 2, 8, 8, 2, 8, max_vec_epi);
+        // B not vectorizable due to pointer offset
+        run(504, 136, 248, 8, 2, 8, 8, 2, max_vec_epi);
+        run(504, 136, 248, 8, 8, 2, 8, 8, add_2d_bias ? 2 : max_vec_epi);
+      }
+    }
+  }
+}
+
+// Test matmul with strided inputs. This tests that vectorization is properly
+// computed.
+TEST_F(MatmulSchedulerTest, StridedInputs) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  for (auto layout : kAllSupportedMmaLayout) {
+    for (bool add_2d_bias : {false, true}) {
+      for (bool downcast_output : {false, true}) {
+        auto run = [&](int M,
+                       int N,
+                       int K,
+                       // Pointer alignment
+                       int align_A,
+                       int align_B,
+                       int align_bias,
+                       // Whether to mark the TensorViews as contiguous
+                       bool contiguous_inner_dim_A,
+                       bool contiguous_inner_dim_B,
+                       bool contiguous_inner_dim_bias,
+                       // Padding
+                       int pad_A,
+                       int pad_B,
+                       int pad_bias,
+                       int expected_vec_A,
+                       int expected_vec_B,
+                       int expected_vec_epilogue) {
+          auto fusion = std::make_unique<Fusion>();
+          FusionGuard fg(fusion.get());
+
+          // Inputs are contiguous in their inner dimension but discontiguous
+          // in the outer dim.
+          auto tv0 = TensorViewBuilder()
+                         .ndims(2)
+                         .contiguity({false, contiguous_inner_dim_A})
+                         .dtype(DataType::Half)
+                         .build();
+          auto tv1 = TensorViewBuilder()
+                         .ndims(2)
+                         .contiguity({false, contiguous_inner_dim_B})
+                         .dtype(DataType::Half)
+                         .build();
+
+          fusion->addInput(tv0);
+          fusion->addInput(tv1);
+
+          tv0 = canonicalizeInputToBMNK(tv0, layout, MmaOperand::A);
+          tv1 = canonicalizeInputToBMNK(tv1, layout, MmaOperand::B);
+          auto tv2 = fusedMultiplySum(tv0, tv1, {-1});
+
+          if (add_2d_bias) {
+            auto bias = TensorViewBuilder()
+                            .ndims(2)
+                            .contiguity({false, contiguous_inner_dim_bias})
+                            .dtype(DataType::Half)
+                            .build();
+            fusion->addInput(bias);
+            tv2 = add(tv2, bias);
+          }
+
+          if (downcast_output) {
+            tv2 = castOp(DataType::Half, tv2);
+          }
+
+          fusion->addOutput(tv2);
+
+          const auto fusion_layout = getMatmulProblemLayout(fusion.get());
+          NVF_CHECK(
+              fusion_layout == layout,
+              "mismatch between test layout (",
+              toString(layout),
+              ") and layout inferred from fusion definition (",
+              toString(fusion_layout),
+              ")");
+
+          FusionExecutorCache executor_cache(std::move(fusion));
+
+          // stride to introduce pad in the inner-most dimension, and shift
+          // data pointer by offset
+          const auto padAndUnalign2D =
+              [](const at::Tensor& t, int pad_to, int offset) {
+                // Determine new strides. We pad the contiguous axis by
+                // increasing the other stride to the next highest multiple of 8
+                std::vector<int64_t> new_strides(t.ndimension(), 0);
+                int64_t linear_size = 1;
+                for (size_t i : c10::irange(t.ndimension())) {
+                  new_strides[i] = t.stride((int64_t)i);
+                  if (new_strides[i] != 1) {
+                    // Pad contiguous dimension by modifying other stride. This
+                    // only works for 2D tensors.
+                    new_strides[i] += pad_to;
+                  }
+                  // Use strides to determine space needed for padded tensor
+                  linear_size += t.size((int64_t)i) * new_strides[i];
+                }
+
+                at::Tensor out = at::as_strided(
+                    at::empty({linear_size}, t.options())
+                        .index({at::indexing::Slice(
+                            offset, linear_size + offset, 1)}),
+                    t.sizes(),
+                    new_strides);
+                out.copy_(t);
+                return out;
+              };
+
+          auto t0 = padAndUnalign2D(
+              matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K),
+              pad_A,
+              align_A);
+          auto t1 = padAndUnalign2D(
+              matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K),
+              pad_B,
+              align_B);
+
+          auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
+
+          std::vector<c10::IValue> inputs = {t0, t1};
+
+          if (add_2d_bias) {
+            const auto options =
+                at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+            auto bias = padAndUnalign2D(
+                at::randn({M, N}, options), pad_bias, align_bias);
+            tref = tref + bias;
+            inputs.emplace_back(bias);
+          }
+
+          if (downcast_output) {
+            tref = tref.to(at::kHalf);
+          }
+
+          auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+          FusionKernelRuntime* runtime =
+              executor_cache.getMostRecentKernelRuntime();
+
+          ASSERT_NE(runtime, nullptr);
+
+          // expected to match whole fusion with single segment
+          EXPECT_FALSE(runtime->isSegmented());
+
+          ASSERT_TRUE(isSchedulerInUse(runtime, ScheduleHeuristic::Matmul));
+
+          // Check that supported_vec_size matches expected.
+          const MatmulParams& params = runtime->schedulerHeuristics()
+                                           ->heuristicsList()
+                                           .front()
+                                           ->matmulParams();
+
+          EXPECT_EQ(params.supported_vec_size.a, expected_vec_A);
+          EXPECT_EQ(params.supported_vec_size.b, expected_vec_B);
+          EXPECT_EQ(params.supported_vec_size.epilogue, expected_vec_epilogue);
+
+          EXPECT_TRUE(outputs[0].allclose(tref, 0.001, 0.001));
+        };
+
+        [[maybe_unused]] bool contig_K_A =
+            layout == MmaLayout::TT || layout == MmaLayout::TN;
+        [[maybe_unused]] bool contig_K_B =
+            layout == MmaLayout::TN || layout == MmaLayout::NN;
+
+        // When not downcasting, outputs are Float
+        [[maybe_unused]] int max_vec_epi = downcast_output ? 8 : 4;
+
+        // Pad outer stride of A by 1. M and K are even, so no vectorization of
+        // A is possible despite compatible sizes.
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            true,
+            true,
+            1,
+            0,
+            0,
+            1,
+            8,
+            max_vec_epi);
+        // Pad outer stride of B by 1. N and K are even, so no vectorization of
+        // B is possible despite compatible sizes.
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            true,
+            true,
+            0,
+            1,
+            0,
+            8,
+            1,
+            max_vec_epi);
+        // Padding by 2 from a multiple of 8 means we can only vectorize at
+        // width 2
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            true,
+            true,
+            2,
+            2,
+            2,
+            2,
+            2,
+            add_2d_bias ? 2 : max_vec_epi);
+        // Incompatible sizes are not vectorized despite padding to compatible
+        // strides
+        run(505,
+            136,
+            249,
+            8,
+            8,
+            8,
+            true,
+            true,
+            true,
+            1,
+            0,
+            0,
+            1,
+            contig_K_B ? 1 : 8,
+            max_vec_epi);
+        run(504,
+            137,
+            249,
+            8,
+            8,
+            8,
+            true,
+            true,
+            true,
+            0,
+            1,
+            0,
+            contig_K_A ? 1 : 8,
+            1,
+            1);
+
+        // Test that declaring a tensor's inner dimension discontiguous in the
+        // Fusion means we don't hit an error even if the inputs would support
+        // vectorization.
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            false,
+            true,
+            true,
+            0,
+            0,
+            0,
+            1,
+            8,
+            max_vec_epi);
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            false,
+            true,
+            0,
+            0,
+            0,
+            8,
+            1,
+            max_vec_epi);
+        run(504,
+            136,
+            248,
+            8,
+            8,
+            8,
+            true,
+            true,
+            false,
+            0,
+            0,
+            0,
+            8,
+            8,
+            add_2d_bias ? 1 : max_vec_epi);
+      }
+    }
   }
 }
 
@@ -2265,9 +2464,7 @@ std::unique_ptr<matmul_heuristic_plugin::KernelConfig> testConfigFactory() {
 class MatmulSchedulerPluginTest : public NVFuserTest {
  protected:
   MatmulSchedulerPluginTest()
-      : optimization_guard_(false), factory_guard_(testConfigFactory) {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
+      : optimization_guard_(false), factory_guard_(testConfigFactory) {}
 
  private:
   // Allocation order set by the pass breaks matmul tests
@@ -2311,6 +2508,8 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
+  checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
+
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
 
   ASSERT_NE(runtime, nullptr);
@@ -2327,12 +2526,584 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
   ASSERT_NE(heur, nullptr);
   ASSERT_TRUE(heur->isA<MatmulParams>());
   MatmulParams* mmheur = heur->as<MatmulParams>();
-  EXPECT_EQ(mmheur->double_buffer_options.smem_double_buffer_stage, 0);
+  EXPECT_EQ(mmheur->circular_buffer_options.smem_circular_buffer_stage, 0);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
+// Test that we can segment a fusion that has a MatmulOp with epilogue
+// TODO: Once we can control the ExprEval and Matmul schedulers via options, run
+// this test with all three combinations (with and without each scheduler, but
+// at least one enabled).
+TEST_F(MatmulSchedulerTest, SegmentMatmulOpPrologue) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Prologue prevents ExprEval scheduler from accepting. If Matmul scheduler
+  // rejects, then Pointwise must not accept this unsegmented fusion.
+  tv1 = castOp(DataType::Half, sin(tv1));
+
+  auto tv2 = matmul(tv0, tv1);
+
+  fusion->addOutput(tv2);
+
+  NVF_CHECK(
+      ir_utils::getOpsOfType<MatmulOp>(fusion.get()).size() == 1,
+      "matmul fusion must have at least one MatmulOp");
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  // TODO: check vectorization if fusion is enabled
+  // checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
+
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// This is just like the above test but with LinearOp instead of MatmulOp
+TEST_F(MatmulSchedulerTest, SegmentLinearOpPrologue) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Prologue prevents ExprEval scheduler from accepting. If Matmul scheduler
+  // rejects, then Pointwise must not accept this unsegmented fusion.
+  tv1 = castOp(DataType::Half, sin(tv1));
+
+  auto tv2 = linear(tv0, tv1);
+
+  fusion->addOutput(tv2);
+
+  NVF_CHECK(
+      ir_utils::getOpsOfType<LinearOp>(fusion.get()).size() == 1,
+      "matmul fusion must have at least one MmaOp");
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  // TODO: check vectorization if fusion is enabled
+  // checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
+
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Test that the matmul scheduler refuses to translate a matmul that is not
+// Half or BFloat16
+TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Float);
+  auto tv1 = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // Prologue prevents ExprEval scheduler from accepting. If Matmul scheduler
+  // rejects, then Pointwise must not accept this unsegmented fusion.
+  tv1 = castOp(DataType::Float, sin(tv1));
+
+  auto tv2 = matmul(tv0, tv1);
+
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options);
+
+  // Enable MatmulOp fusion, which should reject because float operands are not
+  // supported.
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  const FusionKernelRuntime* runtime =
+      executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_TRUE(runtime->isSegmented());
+
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+class MatmulFusionTest : public MatmulSchedulerTest,
+                         public ::testing::WithParamInterface<bool> {
+ protected:
+  void SetUp() override {
+    if (fusion_enabled) {
+      EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+    }
+  }
+
+  EnableOptionsGuard eog_;
+  bool fusion_enabled = GetParam();
+};
+
+// Test that we can segment a Fusion containing two matmuls
+TEST_P(MatmulFusionTest, Llama2FFN) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+  auto tv2 = makeContigTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = matmul(tv0, tv1);
+  auto tv4 = matmul(tv0, tv2);
+
+  // silu
+  auto tv5 = mul(sigmoid(tv3), tv3);
+
+  auto tv6 = mul(tv5, tv4);
+
+  fusion->addOutput(tv6);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  const int M = 504, N = 136, K = 248;
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options);
+  auto t2 = at::randn({K, N}, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2};
+
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+
+  at::Tensor t3, t4;
+  if (fusion_enabled) {
+    // More accurate reference, which is what nvfuser computes
+    t3 = at::matmul(t0.to(at::kFloat), t1.to(at::kFloat));
+    t4 = at::matmul(t0.to(at::kFloat), t2.to(at::kFloat));
+  } else {
+    // at::matmul downcasts to half-precision, and we cast back up, which loses
+    // precision. Computing a reference as above leads to allclose failure, so
+    // we use the less accurate reference in this case.
+    t3 = at::matmul(t0, t1).to(at::kFloat);
+    t4 = at::matmul(t0, t2).to(at::kFloat);
+  }
+  at::Tensor tref = ((at::sigmoid(t3) * t3) * t4);
+
+  NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
+
+  const FusionKernelRuntime* runtime =
+      executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_TRUE(runtime->isSegmented());
+
+  if (fusion_enabled) {
+    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
+  } else {
+    EXPECT_EQ(runtime->fusionSegments()->groups().size(), 3);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    MatmulFusionTest,
+    ::testing::Bool(),
+    [](const testing::TestParamInfo<bool>& info) {
+      return info.param ? "fuse" : "dontfuse";
+    });
+
+// This test can be used to check that an external plugin has been loaded. It
+// is DISABLED_ so that the test suite will pass even if the user has not
+// provided a plugin via NVFUSER_MATMUL_HEURISTIC_PLUGIN. To check that a
+// plugin can be loaded properly, invoke the test suite like so:
+//
+//   export NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/plugin.so
+//   build/test_matmul --gtest_also_run_disabled_tests
+//
+TEST_F(MatmulSchedulerTest, DISABLED_RequireExternalPlugin) {
+  EXPECT_TRUE(matmul_heuristic_plugin::hasPlugin());
+
+  MatmulParams params;
+}
+
+class AllocationDomainTest
+    : public NVFuserFixtureParamTest<std::tuple<bool, bool>> {
+ protected:
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  AllocationDomainTest() : optimization_guard_(false) {
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
+    params.supported_vec_size = {8, 8, 4};
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
+  }
+
+  std::pair<TensorView*, TensorView*> getInputTVs(
+      int M,
+      int N,
+      int K,
+      bool a_m_inner,
+      bool b_k_inner) {
+    auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
+    auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
+
+    if (a_m_inner) {
+      tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+    }
+
+    if (b_k_inner) {
+      tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+    }
+    return {tv0, tv1};
+  }
+
+  std::pair<at::Tensor, at::Tensor> getInputTensors(
+      int M,
+      int N,
+      int K,
+      bool a_m_inner,
+      bool b_k_inner) {
+    const auto options =
+        at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
+    auto t0 = a_m_inner ? at::randn({M, K}, options).as_strided({M, K}, {1, M})
+                        : at::randn({M, K}, options);
+    auto t1 = b_k_inner ? at::randn({K, N}, options).as_strided({K, N}, {1, K})
+                        : at::randn({K, N}, options);
+    return {t0, t1};
+  }
+
+  MatmulParams params;
+
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
+
+  DisableOptionsGuard option_guard_;
+};
+
+// This tests fusions where inputs to a Matmul will have the root domains
+// [M, K] and [K, N], and all possible combinations of allocation domains.
+// Please note that inpout in B is transposed prior to creating a Mma op.
+TEST_P(AllocationDomainTest, BasicMatmul) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 512, N = 128, K = 256;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  // This has rfactor: {N, K}
+  auto tv1t = transpose(tv1);
+  // [M, N, K]
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1t, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+// Same as above but without the the input tv1 being transposed.
+TEST_P(AllocationDomainTest, BasicMatmulNoTranspose) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 512, N = 128, K = 256;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  // [M, K, N]
+  auto tv0b = broadcast(tv0, {false, false, true});
+  auto tv1b = broadcast(tv1, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSet) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 128, N = 256, K = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tvSet = set(tv1);
+  // K, N -> N, K
+  auto tv1t = transpose(tvSet);
+
+  // M, N, K
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1t, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSin) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 128, N = 256, K = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tvSet = set(tv1);
+  // K, N -> N, K
+  auto tv1t = transpose(tvSet);
+  auto tv1tc = castOp(DataType::Half, sin(tv1t));
+
+  // M, N, K
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1tc, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+// Matmul test for Ampere MMA: across supported layouts
+TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinNoTranspose) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 128, N = 256, K = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tvSet = set(tv1);
+  auto tv1tc = castOp(DataType::Half, sin(tvSet));
+
+  // M, K, N
+  auto tv0b = broadcast(tv0, {false, false, true});
+  auto tv1b = broadcast(tv1tc, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+TEST_P(AllocationDomainTest, BasicMatmulWithPrologueSetCastSinSetNoTranspose) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 128, N = 256, K = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tvSet = set(tv1);
+  auto tv1tc = castOp(DataType::Half, sin(tvSet));
+  auto tv1tcs = set(tv1tc);
+
+  // M, K, N
+  auto tv0b = broadcast(tv0, {false, false, true});
+  auto tv1b = broadcast(tv1tcs, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {1});
+
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+TEST_P(AllocationDomainTest, MatmulWithPrologueSetCastSinTranspose) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  bool a_m_inner = std::get<0>(GetParam());
+  bool b_k_inner = std::get<1>(GetParam());
+
+  const int M = 128, N = 256, K = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tvSet = set(tv1);
+  auto tv1tc = castOp(DataType::Half, sin(tvSet));
+  auto tv1tct = transpose(tv1tc);
+
+  // M, N, K
+  auto tv0b = broadcast(tv0, {false, true, false});
+  auto tv1b = broadcast(tv1tct, {true, false, false});
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+
+  fusion->addOutput(tv2);
+
+  scheduleMatmul(fusion.get(), params);
+
+  auto [t0, t1] = getInputTensors(M, N, K, a_m_inner, b_k_inner);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({t0, t1});
+  auto tref = t0.to(at::kFloat).matmul(t1.sin().to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    MatmulSchedulerTest,
+    AllocationDomainTest,
+    testing::Combine(testing::Bool(), testing::Bool()));
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
+
+TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
+  int M = 32, N = 64, K = 128;
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* b = makeContigConcreteTensor({N, K}, DataType::BFloat16);
+  TensorView* a = makeContigConcreteTensor({M, K}, DataType::BFloat16);
+
+  TensorView* bbcast = broadcast(b, {true, false, false});
+  TensorView* abcast = broadcast(a, {false, true, false});
+  TensorView* ab = mul(abcast, bbcast);
+  TensorView* mm = sum(ab, {-1});
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(mm);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto x_ref = at::randn({M, K}, options);
+  auto y_ref = at::randn({N, K}, options);
+  std::vector<c10::IValue> inputs{x_ref, y_ref};
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  auto tref = at::linear(x_ref.to(at::kFloat), y_ref.to(at::kFloat));
+  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+}
 
 } // namespace nvfuser
