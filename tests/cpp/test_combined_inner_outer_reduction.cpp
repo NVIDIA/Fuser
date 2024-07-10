@@ -135,7 +135,7 @@ INSTANTIATE_TEST_SUITE_P(
     CombinedSchedulerTest,
     ::testing::Combine(
         // aten doesn't support complex data types
-        testing::ValuesIn(getFloatingDataTypes(/*with complex type ?*/ false)),
+        testing::ValuesIn(getFloatingDataTypes(/*include_complex=*/false)),
         testing::Values(216), // batch size
         testing::Values(
             3,
