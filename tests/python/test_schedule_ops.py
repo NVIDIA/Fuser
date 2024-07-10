@@ -867,6 +867,39 @@ class TestScheduleOps(TestCase):
             eager_out = torch.matmul(inputs[0], inputs[1])
             self.assertEqual(eager_out, nvf_out[0])
 
+    def test_concretize_reshape_pointwise(self):
+        input0_shape = [5, 10, 12]
+        input1_shape = [2, 25, 3, 4]
+        inputs = [
+            torch.randn(input0_shape, device="cuda"),
+            torch.randn(input1_shape, device="cuda"),
+            *input1_shape,
+        ]
+
+        class Reshape(FusionDefinition):
+            def definition(self):
+                x = fd.from_pytorch(inputs[0])
+                bias = fd.from_pytorch(inputs[1])
+                S0 = fd.define_scalar(dtype=DataType.Int)
+                S1 = fd.define_scalar(dtype=DataType.Int)
+                S2 = fd.define_scalar(dtype=DataType.Int)
+                S3 = fd.define_scalar(dtype=DataType.Int)
+                bias_shape = fd.define_vector([S0, S1, S2, S3], dtype=DataType.Int)
+
+                tv1 = fd.ops.abs(x)
+                x_reshape = fd.ops.reshape(tv1, new_shape=bias_shape)
+                y = fd.ops.add(x_reshape, bias)
+                fd.add_output(y)
+
+            def schedule(self):
+                # Apply selected scheduler
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.pointwise)
+
+        fd = Reshape()
+        nvf_out = fd.execute(inputs)
+        torch_ref = torch.abs(inputs[0]).reshape(inputs[1].shape) + inputs[1]
+        self.assertEqual(nvf_out[0], torch_ref)
+
 
 if __name__ == "__main__":
     run_tests()
