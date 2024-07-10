@@ -396,28 +396,6 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.
 
-  // Only needs to check tvs not used by reduction, e.g. T1 = view(T0),
-  // Tx = SomeOps(T1), T3 = reduction(Tx), T4 = view(Tx). In this case, T3 has
-  // the same logical domain as T1, don't need to check `T1 = view(T0)`.
-  // However, T4 is not used by T3, so need to check `T4 = view(Tx)`. See test
-  // GpuViewTest.ReshapeReductionSilbingReshape.
-  // const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  // std::vector<ViewOp*> view_ops_not_used_by_reduction;
-  // for (auto view : ir_utils::getViewOps(fusion)) {
-  //   auto view_tv = view->out();
-  //   if (!std::any_of(
-  //           reduction_tvs.begin(),
-  //           reduction_tvs.end(),
-  //           [&view_tv](TensorView* red_tv) {
-  //             return DependencyCheck::isDependencyOf(view_tv, red_tv);
-  //           })) {
-  //     view_ops_not_used_by_reduction.push_back(view);
-  //   }
-  // }
-  // if (view_ops_not_used_by_reduction.empty()) {
-  //   return false;
-  // }
-
   // Utility to take dimensions out of the vector that we've already
   // processed or don't want to process.
   auto remove_dims = [](const std::vector<IterDomain*>& dims,
@@ -508,13 +486,20 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   }
 
   // check if there are any mapped IDs in different coalesced_ids
-  for (auto index : c10::irange(vect_of_coalesced_ids.size() - 1)) {
-    const auto& coalesced_ids_1 = vect_of_coalesced_ids.at(index);
-    const auto& coalesced_ids_2 = vect_of_coalesced_ids.at(index + 1);
-    for (auto id_1 : coalesced_ids_1) {
-      for (auto id_2 : coalesced_ids_2) {
-        if (disjoint_sets.strictAreMapped(id_1, id_2)) {
-          return true;
+  // For each group of coalesced_ids, check with other groups
+  for (auto index_i : c10::irange(vect_of_coalesced_ids.size())) {
+    for (auto index_j : c10::irange(vect_of_coalesced_ids.size())) {
+      if (index_i == index_j) {
+        continue;
+      }
+      const auto& coalesced_ids_1 = vect_of_coalesced_ids.at(index_i);
+      const auto& coalesced_ids_2 = vect_of_coalesced_ids.at(index_j);
+      // For each id in group_1, check with other ids in group_2
+      for (auto id_1 : coalesced_ids_1) {
+        for (auto id_2 : coalesced_ids_2) {
+          if (disjoint_sets.strictAreMapped(id_1, id_2)) {
+            return true;
+          }
         }
       }
     }
