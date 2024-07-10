@@ -2770,6 +2770,7 @@ TEST_F(MatmulSchedulerTest, Llama2FFNNoSegmentation) {
   auto t2 = at::randn({K, N}, options);
   std::vector<c10::IValue> inputs{t0, t1, t2};
 
+  // These params are meant to exercise most of the available options
   MatmulParams params;
   params.supported_vec_size = {8, 8, 4};
   params.mma_macro = MmaMacro::Ampere_16_8_16;
@@ -2778,10 +2779,13 @@ TEST_F(MatmulSchedulerTest, Llama2FFNNoSegmentation) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
   params.tile_sizes = gemm_tile;
+  params.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  params.grid_swizzle_factor = 2;
   params.async_gmem_load_operands = true;
   params.circular_buffer_options.circular_buffer_smem_write = true;
   params.circular_buffer_options.circular_buffer_smem_read = true;
   params.circular_buffer_options.smem_circular_buffer_stage = 2;
+  params.splitk_factor = 2;
   scheduleMultipleMatmuls(fusion, params);
 
   FusionExecutor fe;
