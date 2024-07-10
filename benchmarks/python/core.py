@@ -171,7 +171,9 @@ class NVFBenchmark:
     torchprofiler-based timer and metric computation.
     """
 
-    def __init__(self, benchmark_fixture, device: str ="cuda", precision: float = 1e-6):
+    def __init__(
+        self, benchmark_fixture, device: str = "cuda", precision: float = 1e-6
+    ):
         """
         Arguments:
             benchmark_fixture: pytest-benchmark fixture passed to every
@@ -185,13 +187,15 @@ class NVFBenchmark:
             self.current_time: Global montonic clock incremented based on elapsed CUDA time
         """
 
-        self.device = device 
-        self.fd = None # Set through setup() for host benchmarking.
+        self.device = device
+        self.fd = None  # Set through setup() for host benchmarking.
         self.benchmark = benchmark_fixture
 
-        if (device == "cuda"):
+        if device == "cuda":
             # Initialize a Torch Profiler object
-            self.prof = profile(activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU])
+            self.prof = profile(
+                activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU]
+            )
             # Modify the default timer.
             benchmark_fixture._timer = self.torchprofile_timer
         else:
@@ -202,7 +206,7 @@ class NVFBenchmark:
         benchmark_fixture._precisions[benchmark_fixture._timer] = precision
 
         self.benchmark = benchmark_fixture
-        
+
         # Global montonic clock
         self.current_time = 0.0
 
@@ -239,13 +243,13 @@ class NVFBenchmark:
         except AssertionError:
             self.prof.start()
         return self.current_time
-    
+
     def fusionprofile_timer(self) -> float:
-        if (not self.execution_start):
+        if not self.execution_start:
             profile = self.fd.profile()
             elapsed_host_time = profile.host_time_ms / 1e3
             self._increment_global_time(elapsed_host_time)
-        self.execution_start =  not self.execution_start
+        self.execution_start = not self.execution_start
         return self.current_time
 
     def _get_kernel_time(
@@ -356,15 +360,21 @@ def run_benchmark(
                 and this is used to compute the metrics.
         device (Optional): Default: CUDA, Possible values: ["cuda", "host"].
             Using device="host" is only allowed with nvFuser FusionDefinition.
-        fusion_fn (Optional): Must be provided is device = "host"
+        fusion_fn (Optional): Must be provided if device = "host".
+            fusion_fn should only require FusionDefinition() as the input.
+            Use functools.partial if fusion_fn accepts additional arguments.
+            See test_many_pointwise_ops.py for example.
 
     Returns:
         outputs: Output of the target function
     """
 
-    assert device in ["cuda", "host"], f"Unsupported device type: {device}. Use one of cuda/host."
-    
-    if (device == "host"):
+    assert device in [
+        "cuda",
+        "host",
+    ], f"Unsupported device type: {device}. Use one of cuda/host."
+
+    if device == "host":
         assert fusion_fn is not None and benchmark_fn is None
 
     nvf_benchmark = NVFBenchmark(benchmark, device=device)
@@ -376,15 +386,15 @@ def run_benchmark(
 
     def setup():
         clear_l2_cache()
-        
-        if (device == "host"):
+
+        if device == "host":
             # Reset the FusionCache to measure host overhead correctly.
             FusionCache.reset()
             with FusionDefinition() as fd:
                 fusion_fn(fd)
             # The benchmark_fn used is host_benchmark_fn above.
             return [inputs], {"fd": fd}
-        
+
         return [inputs], {}
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
@@ -395,7 +405,7 @@ def run_benchmark(
         warmup_rounds=BENCHMARK_CONFIG["warmup_rounds"],
     )
 
-    if (device == "cuda"):
+    if device == "cuda":
         # Record additional metrics (IOBytes, Bandwidth)
         nvf_benchmark.set_metrics(inputs, outputs, iobytes)
         # Stop torch.profiler instance
