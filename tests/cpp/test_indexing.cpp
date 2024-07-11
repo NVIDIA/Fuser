@@ -204,7 +204,8 @@ class IndexValidator : public kir::IrVisitor {
     std::string ref_str = get_ref_.getLinearIndexString(tv, maybe_consumer);
     if (!ref_str.empty()) {
       EXPECT_EQ(actual->toInlineString(), ref_str)
-          << "Validation failure of " << ti->view()->toString()
+          << "Validation failure of " << ti->view()->toString() << " as "
+          << (out_ti != nullptr ? "producer" : "consumer")
           << "\nRef: " << ref_str << "\nActual: " << actual->toInlineString();
       return;
     }
