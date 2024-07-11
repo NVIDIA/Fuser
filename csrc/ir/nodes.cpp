@@ -4351,7 +4351,8 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     return padded_inp;
   };
 
-  // Temporary handling of DID parallelization see https://github.com/NVIDIA/Fuser/issues/2563
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
   bool handle_device_dim = false;
   if (query.dim() == 5) {
     NVF_CHECK(key.dim() == 5 && value.dim() == 5);
@@ -4390,15 +4391,14 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
               /*return_debug_mask=*/false,
               scale);
 
-  // Add back the device dim axis for outputs with a head dimension.
-  if (handle_device_dim) {
-    output = output.unsqueeze(0);
-    log_sumexp = log_sumexp.unsqueeze(0);
-  }
-
   // If the inputs were padded, slice the output to restore the original size
   if (output.sizes()[3] != last_dim_size) {
     output = output.slice(-1, 0, last_dim_size);
+  }
+
+  // Add back the device dim axis for output.
+  if (handle_device_dim) {
+    output = output.unsqueeze(0);
   }
 
   // Query and key seq len are of type c10::SymInt -> convert them to CPU scalar
