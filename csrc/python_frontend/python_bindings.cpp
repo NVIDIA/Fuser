@@ -3318,31 +3318,34 @@ void initNvFuserPythonBindings(PyObject* module) {
         return canSchedule(self.fusion_definition->userSchedule(), heuristic);
       },
       py::arg("heuristic"));
-  nvf_sched.def("which_schedulers", [](FusionDefinition::SchedOperators& self) {
-    NVF_CHECK(
-        self.validUse(),
-        "Attempting to use a SchedOperators Op prior to definition!");
+  nvf_sched.def(
+      "find_compatible_schedulers", [](FusionDefinition::SchedOperators& self) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
 
-    Fusion* fusion = self.fusion_definition->userSchedule()->schedule.get();
-    NVF_ERROR(fusion != nullptr, "Requires Fusion to use heuristic schedulers");
+        Fusion* fusion = self.fusion_definition->userSchedule()->schedule.get();
+        NVF_ERROR(
+            fusion != nullptr, "Requires Fusion to use heuristic schedulers");
 
-    SchedulerRuntimeInfo* runtime_info =
-        self.fusion_definition->userSchedule()->runtime_info.get();
-    NVF_ERROR(
-        runtime_info != nullptr,
-        "Requires SchedulerRuntimeInfo to use heuristic schedulers");
+        SchedulerRuntimeInfo* runtime_info =
+            self.fusion_definition->userSchedule()->runtime_info.get();
+        NVF_ERROR(
+            runtime_info != nullptr,
+            "Requires SchedulerRuntimeInfo to use heuristic schedulers");
 
-    std::vector<ScheduleHeuristic> valid_heuristics;
-    valid_heuristics.reserve(all_heuristics_in_priority_order.size());
-    std::copy_if(
-        all_heuristics_in_priority_order.begin(),
-        all_heuristics_in_priority_order.end(),
-        std::back_inserter(valid_heuristics),
-        [fusion, runtime_info](ScheduleHeuristic heuristic) {
-          return SchedulerEntry::canSchedule(heuristic, fusion, *runtime_info);
-        });
-    return valid_heuristics;
-  });
+        std::vector<ScheduleHeuristic> valid_heuristics;
+        valid_heuristics.reserve(all_heuristics_in_priority_order.size());
+        std::copy_if(
+            all_heuristics_in_priority_order.begin(),
+            all_heuristics_in_priority_order.end(),
+            std::back_inserter(valid_heuristics),
+            [fusion, runtime_info](ScheduleHeuristic heuristic) {
+              return SchedulerEntry::canSchedule(
+                  heuristic, fusion, *runtime_info);
+            });
+        return valid_heuristics;
+      });
   nvf_sched.def(
       "schedule",
       [](FusionDefinition::SchedOperators& self,

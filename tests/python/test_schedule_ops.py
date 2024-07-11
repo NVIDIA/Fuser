@@ -20,7 +20,9 @@ from nvfuser import (
 
 # NOTE We cannot iterate pybind11 enum directly, so we extract the entries here.
 all_scheduler_heuristics = [
-    heuristic for heuristic, _ in SchedulerHeuristic.__entries.values() if not SchedulerHeuristic.none
+    heuristic
+    for heuristic, _ in SchedulerHeuristic.__entries.values()
+    if not SchedulerHeuristic.none
 ]
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
@@ -36,7 +38,7 @@ def is_pre_volta():
 # A helper function to test heuristic schedulers with user schedules
 def _apply_scheduler_helper(schedule, selected_heuristic):
     # Check that only selected heuristic is available as a scheduler
-    available_heuristics = schedule.which_schedulers()
+    available_heuristics = schedule.find_compatible_schedulers()
     assert available_heuristics == [selected_heuristic]
 
     # Double-check with can_schedule
