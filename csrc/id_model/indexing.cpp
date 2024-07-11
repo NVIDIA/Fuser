@@ -762,6 +762,23 @@ ParallelType getParallelType(const ValGroup& loop_group) {
   return common_pt;
 }
 
+ForLoop* getForLoop(
+    IterDomain* loop_id,
+    const std::vector<ForLoop*>& for_loops,
+    const ValGraph& loop_graph) {
+  auto it = std::find_if(
+      for_loops.begin(), for_loops.end(), [&](ForLoop* for_loop) -> bool {
+        IterDomain* for_loop_id = for_loop->iter_domain();
+        return loop_graph.disjointValSets().strictAreMapped(
+            loop_id, for_loop_id);
+      });
+  if (it != for_loops.end()) {
+    return *it;
+  } else {
+    return nullptr;
+  }
+}
+
 } // namespace
 
 TensorIndexer::TensorIndexer(IdModel& id_model)
@@ -787,27 +804,6 @@ TensorIndexer::TensorIndexer(IdModel& id_model)
     }
   }
 }
-
-namespace {
-
-ForLoop* getForLoop(
-    IterDomain* loop_id,
-    const std::vector<ForLoop*>& for_loops,
-    const ValGraph& loop_graph) {
-  auto it = std::find_if(
-      for_loops.begin(), for_loops.end(), [&](ForLoop* for_loop) -> bool {
-        IterDomain* for_loop_id = for_loop->iter_domain();
-        return loop_graph.disjointValSets().strictAreMapped(
-            loop_id, for_loop_id);
-      });
-  if (it != for_loops.end()) {
-    return *it;
-  } else {
-    return nullptr;
-  }
-}
-
-} // namespace
 
 void TensorIndexer::buildLoopIndexMap() {
   if (id_model_.empty()) {
