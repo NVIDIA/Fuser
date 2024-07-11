@@ -558,10 +558,6 @@ class FusionExecutor : public NonCopyable {
  private:
   CompileOptions options_;
 
-  //! Force index_type to int and disable magic zero if we detect that the
-  //! kernel contains any TMA memory operations.
-  bool has_cp_async_bulk_ = false;
-
   //! Absolute limit of all available shared mem space from cudaDeviceProp
   int64_t device_smem_limit_ = 0;
 

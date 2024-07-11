@@ -286,10 +286,6 @@ void FusionExecutor::compileFusion(
     return;
   }
 
-  has_cp_async_bulk_ = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
-    return ir_utils::isCpAsyncBulk(e);
-  });
-
   // NOTE: Profiling needs to be started below the isExpressionEvaluated query
   // given the conditional can exit early from compilation.
   if (isProfilerEnabled()) {
@@ -336,8 +332,14 @@ void FusionExecutor::compileFusion(
     fusion->printMath();
   }
 
+  //! Force index_type to int and disable magic zero if we detect that the
+  //! kernel contains any TMA memory operations.
+  bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
+    return ir_utils::isCpAsyncBulk(e);
+  });
+
   // Disable magic zero if there are any TMA operations in Fusion
-  if (has_cp_async_bulk_) {
+  if (has_cp_async_bulk) {
     compile_params.enable_magic_zero = false;
   }
 
@@ -353,7 +355,7 @@ void FusionExecutor::compileFusion(
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
     NVF_ERROR(
-        !has_cp_async_bulk_ ||
+        !has_cp_async_bulk ||
             (compile_params.index_type.value() == PrimDataType::Int32),
         "Compilation with int64 is requested but int32 is required because of TMA operations");
 
@@ -364,7 +366,7 @@ void FusionExecutor::compileFusion(
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
-  } else if (has_cp_async_bulk_) {
+  } else if (has_cp_async_bulk) {
     // TMA operations require 32-bit indexing.
     compile_params.index_type = PrimDataType::Int32;
   }
