@@ -457,30 +457,56 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   auto disjoint_sets = graph.disjointValSets();
   for (auto view : ir_utils::getViewOps(fusion)) {
     auto tv = view->out();
-    std::vector<IterDomain*> ids_to_merge;
+    // keep track of split IDs, each unordered_set in the vector stores
+    // connected split IDs. For example, if we have:
+    // I0 -> I1, I2
+    // I3 -> I4, I5
+    // I5 -> I6, I7
+    // There are 2 groups: [I0, I1, I2] and [I3, I4, I5, I6, I7]
+    // when a merge op is found, e.g. I9 = I8 * I7, we need to map
+    // I9 with I8 and all the IDs in [I3, I4, I5, I6, I7].
+    std::vector<std::unordered_set<IterDomain*>> ids_in_connected_splits;
     for (auto expr : StmtSort::getExprsTo(
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       if (auto merge = dynamic_cast<Merge*>(expr)) {
-        disjoint_sets.mapEntries(merge->inner(), merge->outer());
-        disjoint_sets.mapEntries(merge->inner(), merge->out());
-        // process staged split IDs, remove after mapped.
-        for (auto id : ids_to_merge) {
-          disjoint_sets.mapEntries(merge->out(), id);
+        auto id1 = merge->inner();
+        auto id2 = merge->outer();
+        disjoint_sets.mapEntries(id1, merge->out());
+        disjoint_sets.mapEntries(id2, merge->out());
+        // if merged id comes from a set of connected splits, map it with all
+        // other IDs in the set
+        for (auto merged_id : {id1, id2}) {
+          auto it = std::find_if(
+              ids_in_connected_splits.begin(),
+              ids_in_connected_splits.end(),
+              [&merged_id](const auto& id_set) {
+                return id_set.count(merged_id);
+              });
+          if (it != ids_in_connected_splits.end()) {
+            for (auto id : *it) {
+              disjoint_sets.mapEntries(id, merge->out());
+            }
+          }
         }
-        ids_to_merge.clear();
       }
       // For split, directly map the inner and outer IDs leads to false
       // positive e.g. the frist reshape in group norm, since only merge op can
-      // cause the merge of IDs in different coalesced_ids. However, we need to
-      // keep track of the split IDs and map them with merged IDs when a merge
-      // op is found. Otherwise, we may miss a case like: reshape: [I2, I3] ->
-      // [8, I2/8, I3] -> [8, I2/8*I3], reduction: [I2, rI3]. This view +
-      // reduction is not supported since I2/8*I3 includes both iter and redu
-      // dims. If we don't process split, I2/8 is not mapped with I3.
+      // cause the merge of IDs in different coalesced_ids.
+      // If the split ID is in a set of connected splits, map all other IDs to
+      // the same set, otherwise create a new set.
       else if (auto split = dynamic_cast<Split*>(expr)) {
-        ids_to_merge.push_back(split->inner());
-        ids_to_merge.push_back(split->outer());
-        ids_to_merge.push_back(split->in());
+        auto split_id = split->in();
+        auto it = std::find_if(
+            ids_in_connected_splits.begin(),
+            ids_in_connected_splits.end(),
+            [&split_id](const auto& id_set) { return id_set.count(split_id); });
+        if (it != ids_in_connected_splits.end()) {
+          it->insert(split->inner());
+          it->insert(split->outer());
+        } else {
+          ids_in_connected_splits.push_back(
+              {split_id, split->inner(), split->outer()});
+        }
       }
     }
   }
