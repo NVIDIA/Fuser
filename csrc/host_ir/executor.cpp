@@ -217,7 +217,8 @@ void handleWithExpressionEvaluator(
         "must be precomputed before being retrieved");
   }
   for (auto output : expr->outputs()) {
-    expr_evaluator.bind(output, expr_evaluator.evaluate(output), true);
+    expr_evaluator.bind(
+        output, expr_evaluator.evaluate(output), /*evaluate_validate=*/true);
   }
 }
 
