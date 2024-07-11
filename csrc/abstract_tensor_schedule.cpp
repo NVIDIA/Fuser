@@ -225,12 +225,10 @@ class AbstractTensorSchedule {
         // guaranteed to have the same type and identical attributes.
         Expr* expr = eg->front();
 
-        std::vector<ValGroup> vg_inps;
         std::vector<IterDomain*> id_inps;
         bool all_inputs_computed = true;
         for (Val* inp : expr->inputs()) {
           ValGroup vg_inp = graph_->toGroup(inp);
-          vg_inps.push_back(vg_inp);
           auto inp_it = computed_ids.find(vg_inp);
           if (inp_it != computed_ids.end()) {
             id_inps.push_back(inp_it->second);
