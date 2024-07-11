@@ -9,6 +9,7 @@
 
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <id_model/id_model.h>
+#include <id_model/indexing_traversal.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <type.h>
