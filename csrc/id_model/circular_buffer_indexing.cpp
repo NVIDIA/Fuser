@@ -6,8 +6,33 @@
  */
 // clang-format on
 #include <id_model/circular_buffer_indexing.h>
+#include <id_model/indexing_utils.h>
 
 namespace nvfuser {
+
+Val* getLoopIndexOfCircularBufferLoop(
+    IterDomain* loop_id,
+    const std::vector<ForLoop*>& for_loops,
+    const IdModel& id_model) {
+  ForLoop* fl = indexing_utils::getForLoop(
+      loop_id, for_loops, id_model.idGraph(IdMappingMode::LOOP));
+
+  // It's possible that there's no corresponding ForLoop, i.e,
+  // when this loop ID corresponds to a reduction
+  // domain and we are building a map for the expression to
+  // initialize the reduction buffer. For such a case, this WAR is
+  // irrelevant.
+  if (fl == nullptr) {
+    return nullptr;
+  }
+
+  if (fl->circularBufferLoopStage() != CircularBufferLoopStage::NotApplicable &&
+      fl->isTrivial()) {
+    return fl->start();
+  } else {
+    return nullptr;
+  }
+}
 
 Val* getLoopIndexOffsetForProducerOfCircularBuffer(
     const Expr* expr,

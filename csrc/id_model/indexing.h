@@ -67,8 +67,7 @@ class TensorIndexer {
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
   //
-  // The actual ForLoop's are required as they may have unrolled loops
-  // that tv may not have.
+  // The actual for-loops are required for handling circular buffering
   Val* getLinearIndex(
       TensorView* tv,
       const Expr* expr,
@@ -130,8 +129,8 @@ class TensorIndexer {
   // getIndexFor.
   IndexingInfo computeIndex(
       const Expr* expr,
-      const std::vector<ForLoop*>& for_loops,
       const ValGroups& index_domains,
+      const std::vector<ForLoop*>& for_loops,
       bool is_predicate,
       bool is_unswitch) const;
 

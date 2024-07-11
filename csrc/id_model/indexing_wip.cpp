@@ -287,8 +287,8 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
 
   const auto& index_info = computeIndex(
       expr,
-      for_loops,
       traversalGraph().toGroups(predicate_domains),
+      for_loops,
       true,
       is_unswitch);
   const auto& index_map = index_info.index_map;
@@ -456,7 +456,7 @@ std::vector<Val*> TensorIndexer::getPerDimIndex(
             << " in " << expr->toString() << std::endl;
 
   const auto& index_info = computeIndex(
-      expr, for_loops, traversalGraph().toGroups(index_domains), false, false);
+      expr, traversalGraph().toGroups(index_domains), for_loops, false, false);
 
   const auto& index_map = index_info.index_map;
 

@@ -912,33 +912,10 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
       continue;
     }
 
-    // This is a WAR for circular buffering. The loop graph is
-    // designed to represent each loop and each loop group is supposed
-    // to have a one-to-one relationship with each loop. However, for
-    // circular buffering, this assumption is broken as we are using
-    // the same iter domain for the prologue, main and epilogue
-    // loops. Those loops should have distinctive loop groups, but for
-    // now, here's a workaround to assign a correct loop index
-    {
-      const IdModel& id_model = GpuLower::current()->idModel();
-      const ValGroup& loop_group =
-          id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
-      auto loop_it =
-          std::find_if(for_loops.begin(), for_loops.end(), [&](auto fl) {
-            return loop_group->has(fl->iter_domain());
-          });
-      // It's possible that there's no corresponding ForLoop, i.e,
-      // when this loop ID corresponds to a reduction
-      // domain and we are building a map for the expression to
-      // initialize the reduction buffer. For such a case, this WAR is
-      // irrelevant.
-      if (loop_it != for_loops.end()) {
-        ForLoop* fl = *loop_it;
-        if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog ||
-            fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
-          loop_index = fl->indexOrStartIfTrivial();
-        }
-      }
+    // War for circular buffering
+    if (auto circular_buffer_loop_index =
+            getLoopIndexOfCircularBufferLoop(loop_id, for_loops, id_model_)) {
+      loop_index = circular_buffer_loop_index;
     }
 
     initial_index_map.emplace(almost_exact_group, loop_index);
@@ -953,7 +930,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     const std::vector<ForLoop*>& for_loops,
     const ValGroups& index_groups) const {
   const IndexingInfo info =
-      computeIndex(expr, for_loops, index_groups, false, false);
+      computeIndex(expr, index_groups, for_loops, false, false);
   const std::unordered_map<Val*, Val*> replacement_map = getIndexReplacementMap(
       expr, as_consumer, info.loop_domains, for_loops, info.index_map);
 
@@ -985,7 +962,7 @@ Val* TensorIndexer::getLinearIndex(
       " not found in ",
       expr->toString());
 
-  bool as_consumer =
+  const bool as_consumer =
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
@@ -1000,8 +977,8 @@ Val* TensorIndexer::getLinearIndex(
 
   const auto& index_info = computeIndex(
       expr,
-      for_loops,
       traversalGraph().toGroups(alloc_info.domains),
+      for_loops,
       false,
       false);
   const auto& index_map = index_info.index_map;
@@ -1095,8 +1072,8 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
-    const std::vector<ForLoop*>& for_loops,
     const ValGroups& index_groups,
+    const std::vector<ForLoop*>& for_loops,
     bool is_predicate,
     bool is_unswitch) const {
   VERBOSE() << "computeIndex of " << expr->toString() << std::endl;
@@ -1151,6 +1128,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     auto index_it = index_map.find(loop_group);
     NVF_ERROR(index_it != index_map.end());
     Val* cur_index = index_it->second;
+    NVF_ERROR(cur_index != nullptr);
 
     Val* replacement_index = nullptr;
     // Replace the index of a vectorized/bulk domain with zero. Note that
@@ -1171,10 +1149,12 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         // Even when the iter-domain is not size-1, the actual for-loop
         // can be (e.g., for double buffering).
         if (for_loop->isTrivial()) {
-          VERBOSE() << "Replacing a loop index with a loop start val: "
-                    << for_loop->start()->toInlineString()
-                    << ", loop_id: " << loop_id->toString() << std::endl;
-          replacement_index = for_loop->start();
+          if (getenv("START")) {
+            VERBOSE() << "Replacing a loop index with a loop start val: "
+                      << for_loop->start()->toInlineString()
+                      << ", loop_id: " << loop_id->toString() << std::endl;
+            replacement_index = for_loop->start();
+          }
         }
 
         if (!as_consumer) {
@@ -1189,7 +1169,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
       }
     }
 
-    if (replacement_index == nullptr || cur_index == nullptr) {
+    if (replacement_index == nullptr || replacement_index == cur_index) {
       continue;
     }
 
