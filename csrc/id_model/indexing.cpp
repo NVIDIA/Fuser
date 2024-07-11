@@ -1179,7 +1179,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
 
         if (!as_consumer) {
           if (auto circular_buffer_offset =
-                  getOffsetForProducerOfCircularBuffer(
+                  getLoopIndexOffsetForProducerOfCircularBuffer(
                       expr, for_loop, id_model_)) {
             replacement_index = SimplifyingIrBuilder::addExpr(
                 replacement_index != nullptr ? replacement_index : cur_index,

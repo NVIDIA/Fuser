@@ -9,11 +9,22 @@
 
 namespace nvfuser {
 
-Val* getOffsetForProducerOfCircularBuffer(
+Val* getLoopIndexOffsetForProducerOfCircularBuffer(
     const Expr* expr,
     const ForLoop* for_loop,
     const IdModel& id_model) {
   NVF_ERROR(for_loop != nullptr);
+
+  if (for_loop->circularBufferLoopStage() ==
+      CircularBufferLoopStage::NotApplicable) {
+    return nullptr;
+  }
+
+  NVF_ERROR(
+      GpuLower::hasCurrent(),
+      "Circular buffering info of GpuLower is required but GpuLower is missing");
+
+  CircularBufferInfo& info = GpuLower::current()->circularBufferInfo();
 
   auto consumer_tv = ir_utils::getTvOutput(expr);
 
@@ -21,24 +32,11 @@ Val* getOffsetForProducerOfCircularBuffer(
     return nullptr;
   }
 
-  if (for_loop->circularBufferLoopStage() ==
-      CircularBufferLoopStage::NotApplicable) {
-    return nullptr;
-  }
-
-  NVF_ERROR(expr->inputs().size() == 1);
-
-  auto producer_tv = expr->input(0)->as<TensorView>();
-
-  // If the producer is also circular buffered, it does not need this
-  // adjustment.
-  // TODO: Why?
-  if (producer_tv->isCircularBuffered() &&
-      id_model.idGraph(IdMappingMode::LOOP)
-          .disjointValSets()
-          .strictAreMapped(
-              getCircularBufferAxis(producer_tv), for_loop->iter_domain())) {
-    NVF_ERROR(false, expr->toString());
+  auto circular_buffer_axis = info.getCircularBufferAxis(consumer_tv);
+  if (!id_model.idGraph(IdMappingMode::LOOP)
+           .disjointValSets()
+           .strictAreMapped(for_loop->iter_domain(), circular_buffer_axis)) {
+    // This loop is not the circular buffer loop for this tensor
     return nullptr;
   }
 
@@ -56,13 +54,7 @@ Val* getOffsetForProducerOfCircularBuffer(
     return nullptr;
   }
 
-  NVF_ERROR(
-      GpuLower::hasCurrent(),
-      "Circular buffering info of GpuLower is required but GpuLower is missing");
-
-  auto stage_depth =
-      (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
-          for_loop->iter_domain());
+  auto stage_depth = (int64_t)info.getStageDepthFor(for_loop->iter_domain());
 
   return IrBuilder::create<Val>(stage_depth - 1L, DataType::Index);
 }
@@ -130,10 +122,7 @@ Val* getCircularBufferOffset(
   auto original_alloc_size =
       gpu_lower->circularBufferInfo().getOriginalAllocSize(circular_buffer_tv);
 
-  auto strided_offset =
-      SimplifyingIrBuilder::mulExpr(offset, original_alloc_size);
-
-  return strided_offset;
+  return SimplifyingIrBuilder::mulExpr(offset, original_alloc_size);
 }
 
 std::optional<CircularBufferLoopStage> getCircularBufferLoopStage(

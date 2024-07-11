@@ -689,7 +689,7 @@ bool CircularBufferInfo::isCircularBufferedIterDomain(IterDomain* id) {
 CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
     const TensorView* tv) {
   NVF_ERROR(
-      tv->isCircularBuffered() || tv->isCircularBuffered(),
+      tv->isCircularBuffered(),
       "Not a circular-buffered tensor: ",
       tv->toString());
   return map_[tv];
@@ -737,7 +737,7 @@ void CircularBufferInfo::setStageDepth(
 }
 
 IterDomain* CircularBufferInfo::getCircularBufferAxis(const TensorView* tv) {
-  if (!(tv->isCircularBuffered() || tv->isCircularBuffered())) {
+  if (!tv->isCircularBuffered()) {
     return nullptr;
   }
 
