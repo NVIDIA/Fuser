@@ -270,7 +270,7 @@ void FusionExecutor::compileFusion(
     return;
   }
 
-  const auto& exprs = fusion->exprs();
+  const std::vector<Expr*>& exprs = fusion->exprs();
   if (std::all_of(exprs.begin(), exprs.end(), [](Expr* e) {
         return isResharding(e) && isLowerableToCommunication(e);
       })) {
@@ -285,6 +285,10 @@ void FusionExecutor::compileFusion(
     }
     return;
   }
+
+  has_cp_async_bulk_ = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
+    return ir_utils::isCpAsyncBulk(e);
+  });
 
   // NOTE: Profiling needs to be started below the isExpressionEvaluated query
   // given the conditional can exit early from compilation.
@@ -332,10 +336,6 @@ void FusionExecutor::compileFusion(
     fusion->printMath();
   }
 
-  has_cp_async_bulk_ =
-      std::any_of(fusion->exprs().begin(), fusion->exprs().end(), [](Expr* e) {
-        return ir_utils::isCpAsyncBulk(e);
-      });
   // Disable magic zero if there are any TMA operations in Fusion
   if (has_cp_async_bulk_) {
     compile_params.enable_magic_zero = false;
