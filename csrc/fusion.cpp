@@ -259,7 +259,7 @@ void Fusion::addInput(Val* input) {
   all_tv_uses_valid_ = false;
 }
 
-void Fusion::addOutput(Val* output, bool hide_output) {
+void Fusion::addOutputHelper(Val* output) {
   assertInContainer(output, "Cannot register output ");
   NVF_CHECK(
       output->isA<TensorView>(),
@@ -267,24 +267,26 @@ void Fusion::addOutput(Val* output, bool hide_output) {
       output->toString());
   output->as<TensorView>()->setMemoryType(MemoryType::Global);
 
-  // special handling for returning aliased output. We just need to remove its
-  // existing entry in the outputs_ used for inplace update
-  if (!hide_output) {
-    if (io_alias_.count(output) != 0) {
-      // if previous output is only added for aliasing purpose, we should remove
-      // the previous entry and add a new one
-      if (io_alias_[output].hide_output) {
-        removeOutput(output);
-      }
-      // output shouldn't be hidden any more
-      io_alias_[output].hide_output = false;
-    }
-  }
-
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
 
   all_tv_uses_valid_ = false;
+}
+
+void Fusion::addOutput(Val* output) {
+  // special handling for returning aliased output. We just need to remove its
+  // existing entry in the outputs_ used for inplace update
+  if (io_alias_.count(output) != 0) {
+    // if previous output is only added for aliasing purpose, we should remove
+    // the previous entry and add a new one
+    if (io_alias_[output].hide_output) {
+      removeOutput(output);
+    }
+    // output shouldn't be hidden any more
+    io_alias_[output].hide_output = false;
+  }
+
+  addOutputHelper(output);
 }
 
 void Fusion::removeInput(Val* input) {
@@ -826,9 +828,9 @@ void Fusion::aliasOutputToInput(
       .aliased_io = input,
       .hide_output = !output->isFusionOutput()};
 
-  // TODO: output should be marked at the end of fusion definition #1488
+  // only add output when it's not in outputs_
   if (!output->isFusionOutput()) {
-    addOutput(output, true);
+    addOutputHelper(output);
   }
 }
 

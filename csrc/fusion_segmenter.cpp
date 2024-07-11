@@ -2495,7 +2495,7 @@ class FusionSegmentGuard : public NonCopyable {
     }
 
     for (auto new_out : new_outputs) {
-      fusion_->addOutput(new_out, fusion_->getOutputAlias(new_out).hide_output);
+      fusion_->addOutputHelper(new_out);
     }
   }
 
@@ -2523,7 +2523,7 @@ class FusionSegmentGuard : public NonCopyable {
     }
 
     for (auto old_out : old_outputs_) {
-      fusion_->addOutput(old_out, fusion_->getOutputAlias(old_out).hide_output);
+      fusion_->addOutputHelper(old_out);
     }
   }
 
