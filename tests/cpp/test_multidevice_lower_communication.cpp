@@ -6,24 +6,30 @@
  */
 // clang-format on
 
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
 
 namespace nvfuser {
-
 namespace {
+
 using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
+using testing::SizeIs;
 
 static constexpr int kTensorSize = 4;
 
-void assertIsCompiledToHostIrContainer(const FusionExecutor& fusion_executor) {
-  ASSERT_TRUE(fusion_executor.fusion()->isA<hir::HostIrContainer>())
-      << "failed to compile to a HostIrContainer with Communications";
+void assertIsCompiledToHostIrContainer(const FusionExecutorCache& fec) {
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  const std::vector<FusionExecutor>& executors = runtime->executors();
+  EXPECT_THAT(executors, SizeIs(1));
+  for (const auto& executor : executors) {
+    EXPECT_TRUE(executor.fusion()->isA<hir::HostIrContainer>())
+        << "failed to compile to a HostIrContainer with Communications";
+  }
 }
-
-} // namespace
 
 // This is made a macro instead of a function, because GTEST_SKIP can only be
 // used in individual test cases or `SetUp` methods.
@@ -47,13 +53,13 @@ TEST_P(LowerGatherTest, ) {
   const auto& [in_mesh, out_mesh] = GetParam();
   SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigTensor(2);
   TensorView* out = set(in);
-  fusion.addInput(in);
-  fusion.addOutput(out);
+  fusion->addInput(in);
+  fusion->addOutput(out);
 
   in->setDeviceMesh(in_mesh);
   out->setDeviceMesh(out_mesh);
@@ -64,10 +70,9 @@ TEST_P(LowerGatherTest, ) {
       at::randn({in_mesh.size(), kTensorSize}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in, device_id);
 
-  FusionExecutor fe(communicator_);
-  fe.compileFusion(&fusion, {in_tensor});
-  assertIsCompiledToHostIrContainer(fe);
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  FusionExecutorCache fec(std::move(fusion), communicator_);
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  assertIsCompiledToHostIrContainer(fec);
 
   if (out_mesh.has(device_id)) {
     EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor));
@@ -90,13 +95,13 @@ TEST_P(LowerScatterTest, ) {
   const auto& [in_mesh, out_mesh] = GetParam();
   SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigTensor(2);
   TensorView* out = set(in);
-  fusion.addInput(in);
-  fusion.addOutput(out);
+  fusion->addInput(in);
+  fusion->addOutput(out);
 
   in->setDeviceMesh(in_mesh);
   out->setDeviceMesh(out_mesh);
@@ -106,10 +111,9 @@ TEST_P(LowerScatterTest, ) {
   at::Tensor unsharded_tensor =
       at::randn({out_mesh.size(), kTensorSize}, tensor_options);
 
-  FusionExecutor fe(communicator_);
-  fe.compileFusion(&fusion, {unsharded_tensor});
-  assertIsCompiledToHostIrContainer(fe);
-  at::Tensor out_tensor = fe.runFusion({unsharded_tensor})[0];
+  FusionExecutorCache fec(std::move(fusion), communicator_);
+  at::Tensor out_tensor = fec.runFusionWithInputs({unsharded_tensor})[0];
+  assertIsCompiledToHostIrContainer(fec);
 
   if (out_mesh.has(device_id)) {
     EXPECT_TRUE(
@@ -132,13 +136,13 @@ TEST_P(LowerSendRecvTest, ) {
   const auto& [in_mesh, out_mesh] = GetParam();
   SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigTensor(2);
   TensorView* out = set(in);
-  fusion.addInput(in);
-  fusion.addOutput(out);
+  fusion->addInput(in);
+  fusion->addOutput(out);
 
   ASSERT_EQ(in_mesh.size(), out_mesh.size());
   in->setDeviceMesh(in_mesh);
@@ -151,10 +155,9 @@ TEST_P(LowerSendRecvTest, ) {
       at::randn({in_mesh.size(), kTensorSize}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in, device_id);
 
-  FusionExecutor fe(communicator_);
-  fe.compileFusion(&fusion, {in_tensor});
-  assertIsCompiledToHostIrContainer(fe);
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  FusionExecutorCache fec(std::move(fusion), communicator_);
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  assertIsCompiledToHostIrContainer(fec);
 
   if (out_mesh.has(device_id)) {
     EXPECT_TRUE(
@@ -171,37 +174,9 @@ INSTANTIATE_TEST_SUITE_P(
          {{1, 2}, {0, 1}}, //
          {{1, 2}, {1, 0}}})));
 
-enum class ExecutionMode {
-  kFusionExecutor,
-  kFusionExecutorCache,
-};
+using LowerCollectiveTest = MultiDeviceTest;
 
-std::ostream& operator<<(std::ostream& os, const ExecutionMode mode) {
-  switch (mode) {
-    case ExecutionMode::kFusionExecutor:
-      os << "FusionExecutor";
-      break;
-    case ExecutionMode::kFusionExecutorCache:
-      os << "FusionExecutorCache";
-      break;
-    default:
-      os << "<undefined>";
-  }
-  return os;
-}
-
-class LowerCollectiveTest : public MultiDeviceTest,
-                            public testing::WithParamInterface<ExecutionMode> {
-};
-
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    LowerCollectiveTest,
-    testing::Values(
-        ExecutionMode::kFusionExecutor,
-        ExecutionMode::kFusionExecutorCache));
-
-TEST_P(LowerCollectiveTest, Allgather) {
+TEST_F(LowerCollectiveTest, Allgather) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -221,35 +196,22 @@ TEST_P(LowerCollectiveTest, Allgather) {
   at::Tensor in_tensor =
       shardTensor(unsharded_tensor, in, communicator_->deviceId());
 
-  at::Tensor out_tensor;
-  ExecutionMode mode = GetParam();
-  switch (mode) {
-    case ExecutionMode::kFusionExecutor: {
-      FusionExecutor fe(communicator_);
-      fe.compileFusion(fusion.get(), {in_tensor});
-      assertIsCompiledToHostIrContainer(fe);
-      out_tensor = fe.runFusion({in_tensor})[0];
-    } break;
-    case ExecutionMode::kFusionExecutorCache: {
-      FusionExecutorCache fec(std::move(fusion), communicator_);
-      out_tensor = fec.runFusionWithInputs({in_tensor})[0];
-    } break;
-    default:
-      NVF_ERROR(false, "Undefined ExecutionMode: ", mode);
-  }
+  FusionExecutorCache fec(std::move(fusion), communicator_);
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  assertIsCompiledToHostIrContainer(fec);
 
   EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor));
 }
 
 TEST_F(LowerCollectiveTest, Broadcast) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   const auto num_devices = communicator_->size();
   TensorView* in = makeContigTensor(2);
   TensorView* out = set(in);
-  fusion.addInput(in);
-  fusion.addOutput(out);
+  fusion->addInput(in);
+  fusion->addOutput(out);
 
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
   constexpr DeviceIdxType kRoot = 0;
@@ -261,24 +223,23 @@ TEST_F(LowerCollectiveTest, Broadcast) {
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
 
-  FusionExecutor fe(communicator_);
-  fe.compileFusion(&fusion, {in_tensor});
-  assertIsCompiledToHostIrContainer(fe);
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  FusionExecutorCache fec(std::move(fusion), communicator_);
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  assertIsCompiledToHostIrContainer(fec);
 
   EXPECT_TRUE(
       at::equal(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
 }
 
 TEST_F(LowerCollectiveTest, Reduce) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   const auto num_devices = communicator_->size();
   TensorView* in = makeContigTensor(2);
   TensorView* out = sum(in, {0});
-  fusion.addInput(in);
-  fusion.addOutput(out);
+  fusion->addInput(in);
+  fusion->addOutput(out);
 
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
   constexpr DeviceIdxType kRoot = 0;
@@ -291,10 +252,9 @@ TEST_F(LowerCollectiveTest, Reduce) {
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in, device_id);
 
-  FusionExecutor fe(communicator_);
-  fe.compileFusion(&fusion, {in_tensor});
-  assertIsCompiledToHostIrContainer(fe);
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  FusionExecutorCache fec(std::move(fusion), communicator_);
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  assertIsCompiledToHostIrContainer(fec);
 
   if (device_id == kRoot) {
     // at::allclose instead of at::equal because addition is involved.
@@ -303,14 +263,14 @@ TEST_F(LowerCollectiveTest, Reduce) {
 }
 
 TEST_F(LowerCollectiveTest, Allreduce) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   const auto num_devices = communicator_->size();
   TensorView* in = makeContigTensor(2);
   TensorView* out = sum(in, {0});
-  fusion.addInput(in);
-  fusion.addOutput(out);
+  fusion->addInput(in);
+  fusion->addOutput(out);
 
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
   in->setDeviceMesh(mesh);
@@ -322,23 +282,22 @@ TEST_F(LowerCollectiveTest, Allreduce) {
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in, device_id);
 
-  FusionExecutor fe(communicator_);
-  fe.compileFusion(&fusion, {in_tensor});
-  assertIsCompiledToHostIrContainer(fe);
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  FusionExecutorCache fec(std::move(fusion), communicator_);
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  assertIsCompiledToHostIrContainer(fec);
 
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
 TEST_F(LowerCollectiveTest, ReduceScatter) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   const auto num_devices = communicator_->size();
   TensorView* in = makeContigTensor(3);
   TensorView* out = sum(in, {0});
-  fusion.addInput(in);
-  fusion.addOutput(out);
+  fusion->addInput(in);
+  fusion->addOutput(out);
 
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
   in->setDeviceMesh(mesh);
@@ -351,14 +310,14 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in, device_id);
 
-  FusionExecutor fe(communicator_);
-  fe.compileFusion(&fusion, {in_tensor});
-  assertIsCompiledToHostIrContainer(fe);
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  FusionExecutorCache fec(std::move(fusion), communicator_);
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  assertIsCompiledToHostIrContainer(fec);
 
   at::Tensor unsharded_out_tensor = unsharded_in_tensor.sum(0);
   EXPECT_TRUE(at::allclose(
       out_tensor, shardTensor(unsharded_out_tensor, out, device_id)));
 }
 
+} // namespace
 } // namespace nvfuser
