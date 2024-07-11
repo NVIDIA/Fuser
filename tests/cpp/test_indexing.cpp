@@ -1220,9 +1220,6 @@ TEST_F(IndexingTest, NonInnermostVectorize) {
   tv1->axis(2)->parallelize(ParallelType::Vectorize);
   tv3->axis(2)->parallelize(ParallelType::Vectorize);
 
-  fusion.printMath();
-  fusion.printKernel();
-
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
@@ -1527,9 +1524,6 @@ TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
 
   // tv1->axis(-1)->parallelize(ParallelType::Vectorize);
   tv4->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  fusion.print();
-  // fusion.printKernel();
 
   // Validate the smem tensor index. Its allocation domain should be
   // [32, 32], where each "32" comes from I1 and I0, respectively.

@@ -9,121 +9,145 @@
 
 namespace nvfuser {
 
-// If the for-loop is double-buffered and not prologue, the loop
-// index should be advanced by one except for the double-buffered
-// tensor itself
-Val* adjustProducerLoopIndexForCircularBuffering(
+Val* getOffsetForProducerOfCircularBuffer(
     const Expr* expr,
     const ForLoop* for_loop,
-    const IdModel& id_model,
-    Val* loop_index) {
+    const IdModel& id_model) {
   NVF_ERROR(for_loop != nullptr);
 
   auto consumer_tv = ir_utils::getTvOutput(expr);
 
   if (!consumer_tv->isCircularBuffered()) {
-    return loop_index;
+    return nullptr;
+  }
+
+  if (for_loop->circularBufferLoopStage() ==
+      CircularBufferLoopStage::NotApplicable) {
+    return nullptr;
   }
 
   NVF_ERROR(expr->inputs().size() == 1);
 
   auto producer_tv = expr->input(0)->as<TensorView>();
 
-  // Double-buffered tensor itself does not need this adjustment
+  // If the producer is also circular buffered, it does not need this
+  // adjustment.
+  // TODO: Why?
   if (producer_tv->isCircularBuffered() &&
       id_model.idGraph(IdMappingMode::LOOP)
           .disjointValSets()
           .strictAreMapped(
               getCircularBufferAxis(producer_tv), for_loop->iter_domain())) {
-    return loop_index;
+    NVF_ERROR(false, expr->toString());
+    return nullptr;
   }
 
-  if (for_loop->circularBufferLoopStage() != CircularBufferLoopStage::Main &&
-      for_loop->circularBufferLoopStage() != CircularBufferLoopStage::Epilog) {
-    return loop_index;
-  }
-
-  const auto gpu_lower = GpuLower::current();
+  // This loop should be either prologue or main
   NVF_ERROR(
-      gpu_lower != nullptr,
-      "Double buffering info of GpuLower is required but GpuLower is missing");
+      for_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog ||
+          for_loop->circularBufferLoopStage() == CircularBufferLoopStage::Main,
+      "Unexpected loop stage: ",
+      for_loop->circularBufferLoopStage(),
+      ". ",
+      expr->toString());
+
+  // This offsetting is only necessary in the main loop
+  if (for_loop->circularBufferLoopStage() != CircularBufferLoopStage::Main) {
+    return nullptr;
+  }
+
+  NVF_ERROR(
+      GpuLower::hasCurrent(),
+      "Circular buffering info of GpuLower is required but GpuLower is missing");
 
   auto stage_depth =
       (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
           for_loop->iter_domain());
 
-  auto adjusted_loop_index = SimplifyingIrBuilder::addExpr(
-      loop_index,
-      SimplifyingIrBuilder::create<Val>(stage_depth - 1L, DataType::Index));
-
-  VERBOSE() << "Adjusted initial producer index: "
-            << adjusted_loop_index->toInlineString() << std::endl;
-  VERBOSE() << expr->toString();
-
-  return adjusted_loop_index;
+  return IrBuilder::create<Val>(stage_depth - 1L, DataType::Index);
 }
 
-Val* adjustIndexToSwitchBuffer(
-    TensorView* tv,
+Val* getCircularBufferOffset(
+    TensorView* circular_buffer_tv,
     bool as_consumer,
-    const std::vector<ForLoop*>& for_loops,
-    Val* idx) {
-  if (!tv->isCircularBuffered()) {
-    return idx;
-  }
+    const std::vector<ForLoop*>& for_loops) {
+  NVF_ERROR(circular_buffer_tv->isCircularBuffered());
 
   const auto gpu_lower = GpuLower::current();
   NVF_ERROR(
       gpu_lower != nullptr,
       "Double buffering info of GpuLower is required but GpuLower is missing");
 
-  auto db_loop =
-      gpu_lower->circularBufferInfo().getCircularBufferLoop(tv, for_loops);
+  auto circular_buffer_loop =
+      gpu_lower->circularBufferInfo().getCircularBufferLoop(
+          circular_buffer_tv, for_loops);
 
-  NVF_ERROR(db_loop != nullptr);
+  NVF_ERROR(circular_buffer_loop != nullptr);
 
   // Mostly just copied from getNonGlobalConsumerStridedIndices
 
-  bool is_prolog =
-      db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
+  const CircularBufferLoopStage stage =
+      circular_buffer_loop->circularBufferLoopStage();
+  const bool is_prolog = stage == CircularBufferLoopStage::Prolog;
+  const bool is_main = stage == CircularBufferLoopStage::Main;
+  const bool is_epilog = stage == CircularBufferLoopStage::Epilog;
 
-  auto loop_index = db_loop->indexOrStartIfTrivial();
+  auto loop_index = circular_buffer_loop->indexOrStartIfTrivial();
 
   const auto stage_depth =
       (int64_t)gpu_lower->circularBufferInfo().getStageDepthFor(
-          db_loop->iter_domain());
+          circular_buffer_loop->iter_domain());
 
-  auto db_index_offset = loop_index;
-  if (as_consumer && !is_prolog) {
-    // Read-ahead offset for consumer indexing
-    db_index_offset = SimplifyingIrBuilder::addExpr(
-        db_index_offset,
+  // If this appears as a consumer, it should be either prologue or
+  // main. If it's producer, it should be main or epilogue
+  NVF_ERROR(
+      (as_consumer && (is_prolog || is_main)) ||
+          (!as_consumer && (is_main || is_epilog)),
+      "Unexpected circular buffer stage: ",
+      stage,
+      " for using ",
+      circular_buffer_tv->toString(),
+      " as ",
+      (as_consumer ? "consumer" : "producer"));
+
+  auto offset = loop_index;
+
+  // If this is a consumer and in the main loop, advance the offset
+  // for read-ahead
+  if (as_consumer && is_main) {
+    offset = SimplifyingIrBuilder::addExpr(
+        offset,
         SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
   }
 
-  // % `num_stages` not necessary in prologue
+  // Add "offset % num_stages", except when it's in prologue
   if (!is_prolog) {
-    db_index_offset = SimplifyingIrBuilder::modExpr(
-        db_index_offset,
+    offset = SimplifyingIrBuilder::modExpr(
+        offset,
         SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
   }
 
   auto original_alloc_size =
-      gpu_lower->circularBufferInfo().getOriginalAllocSize(tv);
+      gpu_lower->circularBufferInfo().getOriginalAllocSize(circular_buffer_tv);
 
-  auto db_strided_index =
-      SimplifyingIrBuilder::mulExpr(db_index_offset, original_alloc_size);
+  auto strided_offset =
+      SimplifyingIrBuilder::mulExpr(offset, original_alloc_size);
 
-  auto updated_idx = SimplifyingIrBuilder::addExpr(idx, db_strided_index);
-  return updated_idx;
+  return strided_offset;
 }
 
 std::optional<CircularBufferLoopStage> getCircularBufferLoopStage(
-    TensorView* tv,
+    const TensorView* circular_buffer_tv,
     const std::vector<ForLoop*>& for_loops,
     const ValGraph& loop_graph) {
+  NVF_ERROR(
+      GpuLower::hasCurrent(),
+      "Circular buffering info of GpuLower is required but GpuLower is missing");
+
   auto db_axis =
-      GpuLower::current()->circularBufferInfo().getCircularBufferAxis(tv);
+      GpuLower::current()->circularBufferInfo().getCircularBufferAxis(
+          circular_buffer_tv);
+
   if (db_axis == nullptr) {
     return std::nullopt;
   }
@@ -135,7 +159,10 @@ std::optional<CircularBufferLoopStage> getCircularBufferLoopStage(
     }
   }
 
-  NVF_ERROR(false, "Double-buffered loop not found for ", tv->toString());
+  NVF_ERROR(
+      false,
+      "Circular buffer loop not found for ",
+      circular_buffer_tv->toString());
 }
 
 } // namespace nvfuser

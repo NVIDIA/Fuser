@@ -17,9 +17,9 @@
 
 namespace nvfuser {
 
-namespace {
+using namespace indexing_utils;
 
-// This is a temporary duplicate
+// This is a temporary copy.
 // Get the promotion domain of a given loop domain.
 IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
@@ -35,8 +35,6 @@ IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
       nvfuser::toString(loop_group));
 
   return loop_promotion_map_it->second;
-}
-
 }
 
 std::pair<std::deque<ValGroup>, std::deque<Val*>> TensorIndexer::

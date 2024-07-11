@@ -763,23 +763,6 @@ ParallelType getParallelType(const ValGroup& loop_group) {
   return common_pt;
 }
 
-ForLoop* getForLoop(
-    IterDomain* loop_id,
-    const std::vector<ForLoop*>& for_loops,
-    const ValGraph& loop_graph) {
-  auto it = std::find_if(
-      for_loops.begin(), for_loops.end(), [&](ForLoop* for_loop) -> bool {
-        IterDomain* for_loop_id = for_loop->iter_domain();
-        return loop_graph.disjointValSets().strictAreMapped(
-            loop_id, for_loop_id);
-      });
-  if (it != for_loops.end()) {
-    return *it;
-  } else {
-    return nullptr;
-  }
-}
-
 } // namespace
 
 TensorIndexer::TensorIndexer(IdModel& id_model)
@@ -1075,9 +1058,10 @@ Val* TensorIndexer::getLinearIndex(
   // If a tensor is circular buffered, it also requires indexing of
   // the circular buffer itself
   if (tv->isCircularBuffered()) {
-    auto adjusted_index =
-        adjustIndexToSwitchBuffer(tv, as_consumer, for_loops, linear_index);
-    linear_index = adjusted_index;
+    auto circular_buffer_offset =
+        getCircularBufferOffset(tv, as_consumer, for_loops);
+    linear_index =
+        SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
   VERBOSE() << "Final index: " << linear_index->toInlineString() << std::endl;
@@ -1136,7 +1120,7 @@ IndexingInfo TensorIndexer::computeIndex(
       getInitialIndexMap(loop_domains, for_loops);
 
   const std::unordered_set<ValGroup> max_path_loop_domains = is_unswitch
-      ? getMaxPathLoopDomains(
+      ? indexing_utils::getMaxPathLoopDomains(
             ir_utils::getTvOutput(expr),
             for_loops,
             id_model_.idGraph(IdMappingMode::LOOP),
@@ -1177,12 +1161,15 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         loop_id->getParallelType() == ParallelType::Bulk) {
       replacement_index = loop_id->fusion()->zeroVal();
     } else {
-      ForLoop* for_loop = getForLoop(
+      ForLoop* for_loop = indexing_utils::getForLoop(
           loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
-      // Even when the iter-domain is not size-1, the actual for-loop
-      // can be (e.g., for double buffering).
+      // for_loop is nullptr if no matching loop is found, which
+      // happens when loop_id is a reduction domain and this loop-nest
+      // is for initializing the reduction buffer.
       if (for_loop != nullptr) {
+        // Even when the iter-domain is not size-1, the actual for-loop
+        // can be (e.g., for double buffering).
         if (for_loop->isTrivial()) {
           VERBOSE() << "Replacing a loop index with a loop start val: "
                     << for_loop->start()->toInlineString()
@@ -1191,11 +1178,13 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         }
 
         if (!as_consumer) {
-          replacement_index = adjustProducerLoopIndexForCircularBuffering(
-              expr,
-              for_loop,
-              id_model_,
-              replacement_index != nullptr ? replacement_index : cur_index);
+          if (auto circular_buffer_offset =
+                  getOffsetForProducerOfCircularBuffer(
+                      expr, for_loop, id_model_)) {
+            replacement_index = SimplifyingIrBuilder::addExpr(
+                replacement_index != nullptr ? replacement_index : cur_index,
+                circular_buffer_offset);
+          }
         }
       }
     }

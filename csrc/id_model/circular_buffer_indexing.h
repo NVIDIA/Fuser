@@ -14,24 +14,25 @@
 
 namespace nvfuser {
 
-// If the for-loop is double-buffered and not prologue, the loop
-// index should be advanced by one except for the double-buffered
-// tensor itself
-Val* adjustProducerLoopIndexForCircularBuffering(
+// For a circur-buffering expr, the producer loop index needs to be
+// advanced by (#stages - 1) if it's the main loop. Return the offset
+// if it's applicable. Otherwise, nullptr is returned.
+Val* getOffsetForProducerOfCircularBuffer(
     const Expr* expr,
     const ForLoop* for_loop,
-    const IdModel& id_model,
-    Val* loop_index);
+    const IdModel& id_model);
 
-Val* adjustIndexToSwitchBuffer(
-    TensorView* tv,
+// Get the additional offset for a circular buffer. This offset will
+// be added to the normal liner offset.
+Val* getCircularBufferOffset(
+    TensorView* circular_buffer_tv,
     bool as_consumer,
-    const std::vector<ForLoop*>& for_loops,
-    Val* idx);
+    const std::vector<ForLoop*>& for_loops);
 
+// Find the circular buffering stage of a given circular buffered tensor
 std::optional<CircularBufferLoopStage> getCircularBufferLoopStage(
-    TensorView* tv,
+    const TensorView* circular_buffer_tv,
     const std::vector<ForLoop*>& for_loops,
     const ValGraph& loop_graph);
 
-} // nvfuser nvfuser
+} // namespace nvfuser
