@@ -10,6 +10,7 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model_index_compute.h>
 #include <id_model/indexing.h>
 #include <id_model/to_string.h>
 #include <index_compute.h>
@@ -46,7 +47,7 @@ IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
 
 // True if a given domain is a loop domain of a given tensor and its
 // loop is partitioned with respect to the memory type of the tensor
-bool isPartitionedLoop(TensorView* tv, IterDomain* id) {
+bool isPartitionedLoop(const TensorView* tv, IterDomain* id) {
   // False if id is not a loop ID
   if (std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id) ==
       tv->getLoopDomain().end()) {
@@ -64,7 +65,7 @@ bool isSizeOneDomain(IterDomain* id) {
 }
 
 // True if a given domain of a tensor *may* require allocation
-bool mayRequireAllocation(TensorView* tv, IterDomain* id) {
+bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
   // Conditions to consider:
   // - Fully partitioned
   // - Size one: Allocation is done based on the promotion ID, but as
@@ -272,6 +273,23 @@ class AllocationDomainSetup : private kir::IrVisitor {
                 [](auto b) { return b.has_value() && b.value(); }),
             tv->toString());
       }
+
+      // WAR for transpose
+      if (auto transposed_smem_alloc_dom =
+              patchAllocationOfTransposedSmemTensor(
+                  tv,
+                  allocation_domains,
+                  GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
+          transposed_smem_alloc_dom.has_value()) {
+        allocation_domains = transposed_smem_alloc_dom.value();
+        // Make sure the original allocation domains are fully contiguous
+        NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+          return b.has_value() && b.value();
+        }));
+        // Set the new allocation domains fully contiguous
+        contiguity =
+            std::vector<std::optional<bool>>(allocation_domains.size(), true);
+      }
     }
 
     return {allocation_domains, contiguity};
@@ -454,143 +472,230 @@ class AllocationDomainSetup : private kir::IrVisitor {
     return reordered_allocation_domains;
   }
 
+  // Transpose with shared memory may need to change the ordering of
+  // allocation domains when shared memory is used as an input to
+  // vectorized stores. The transpose scheduler stages data to shared
+  // memory for vectorized stores to global memory. The layout of the
+  // shared memory staging buffer needs to be compatible with the
+  // vectorized stores. More specifically, here's a typical pattern of
+  // the transpose scheduler:
+  //
+  // t0_g: [I0, I1]
+  // t1_l = transpose(0, 1); // [I1, I0]
+  // t2_s = t1_l; // [I1, I0]
+  // t3_g = t2_s; // [I1, I0]
+  //
+  // t0, t1, t2:
+  //   split I0 by 32 -> I/32a, 32a
+  //   split I1 by 32 -> I/32b, 32b
+  //   merge 32a and 32b -> 32a*32b
+  //   split 32a*32b by 4 -> 32a*32b/4, 4
+  //  -> loop domain: [I0/32a, I1/32b, 32a*32b/4, 4]
+  // t3:
+  //   split I0 by 32 -> I/32a, 32a
+  //   split I1 by 32 -> I/32b, 32b
+  //   merge 32b and 32a -> 32b*32a
+  //   split 32*32 by 4 -> 32b*32a/4, 4
+  //  -> loop domain: [I0/32a, I1/32b, 32b*32a/4, 4]
+  //
+  // Notice that t2 has 32a*32b, whereas t3 has 32b*32a. When the innermost
+  // domain of t3 is vectorized, this means that 32a must be the
+  // innermost in the allocation domain of t2. However, the inferred
+  // allocation domain has [..., 32a*32b/4, 4], so 32a is not the
+  // innermost.
+  //
+  // When a given tensor is found to have this pattern, allocation
+  // domains as ordered in the same way as the vectorized global
+  // memory tensor are returned. In the case of the above example,
+  // [32b, 32a] is returned.
+  std::optional<std::vector<IterDomain*>> patchAllocationOfTransposedSmemTensor(
+      const TensorView* tv,
+      const std::vector<IterDomain*>& allocation_domains,
+      const ValGraph& exact_graph) const {
+    // First, do pattern matching to see if this tensor is a shared
+    // memory tensor transpose. Pattern matching conditions include:
+    //
+    // - Shared memory tensor
+    // - BID/DID should not be used with allocation domains
+    // - Consumer tensor must be a global memory tensor with vectorization
+    // - There must be a merge op whose two outputs are the dominating
+    //   domains of the allocation domains
+    // - The consumer tensor also has a merge but with the inner and
+    //   outer reversed
+
+    if (allocation_domains.empty()) {
+      return std::nullopt;
+    }
+
+    if (tv->getMemoryType() != MemoryType::Shared) {
+      return std::nullopt;
+    }
+
+    // No BID/DID parallel type should be used
+    if (std::any_of(
+            allocation_domains.begin(),
+            allocation_domains.end(),
+            [](IterDomain* id) -> bool {
+              return isParallelTypeDeviceDim(id->getParallelType()) ||
+                  isParallelTypeBlockDim(id->getParallelType());
+            })) {
+      return std::nullopt;
+    }
+
+    // Can there be multiple stores with a single smem buffer?
+    if (tv->uses().size() != 1) {
+      return std::nullopt;
+    }
+
+    auto ls_op = dynamic_cast<LoadStoreOp*>(tv->uses().front());
+    if (ls_op == nullptr) {
+      return std::nullopt;
+    }
+
+    auto consumer = ls_op->out()->as<TensorView>();
+
+    if (consumer->getMemoryType() != MemoryType::Global) {
+      return std::nullopt;
+    }
+
+    IterDomain* consumer_vectorized_domain = nullptr;
+    if (auto it = std::find_if(
+            consumer->getLoopDomain().begin(),
+            consumer->getLoopDomain().end(),
+            [](IterDomain* loop_id) {
+              return loop_id->getParallelType() == ParallelType::Vectorize;
+            });
+        it != consumer->getLoopDomain().end()) {
+      consumer_vectorized_domain = *it;
+    } else {
+      return std::nullopt;
+    }
+
+    // May be naive, but assume a simple pattern that all allocation
+    // domains are derived from a merge.
+
+    // First, find the closest merge
+    auto getOriginatingMerge = [](IterDomain* id) -> Merge* {
+      while (id != nullptr) {
+        auto def = id->definition();
+        if (auto merge = dynamic_cast<Merge*>(def)) {
+          return merge;
+        } else if (auto split = dynamic_cast<Split*>(def)) {
+          id = split->in();
+        } else {
+          // Unsupported op
+          return nullptr;
+        }
+      }
+      return nullptr;
+    };
+
+    Merge* producer_common_merge =
+        getOriginatingMerge(allocation_domains.front());
+    if (producer_common_merge == nullptr) {
+      return std::nullopt;
+    }
+
+    // Test if all allocation domains and the merge output are
+    // equivalent
+    auto producer_merge_dep_exprs = DependencyCheck::getAllExprsBetween(
+        {producer_common_merge->out()},
+        {allocation_domains.begin(), allocation_domains.end()});
+
+    std::unordered_set<IterDomain*> equiv_domain_set(
+        allocation_domains.begin(), allocation_domains.end());
+
+    // Traverse back from the allocation domains to the merge output
+    // and see if they are equivalent
+    for (auto it = producer_merge_dep_exprs.rbegin();
+         it != producer_merge_dep_exprs.rend();
+         ++it) {
+      Expr* expr = *it;
+      for (auto out : expr->outputs()) {
+        auto it = equiv_domain_set.find(out->as<IterDomain>());
+        if (it == equiv_domain_set.end() &&
+            mayRequireAllocation(tv, out->as<IterDomain>())) {
+          // missing dependency
+          return std::nullopt;
+        }
+        if (it != equiv_domain_set.end()) {
+          equiv_domain_set.erase(it);
+        }
+      }
+      for (auto input : expr->inputs()) {
+        equiv_domain_set.insert(input->as<IterDomain>());
+      }
+    }
+
+    // If they are equivalent, the merge output should be the only
+    // remaining domain
+    if (!(equiv_domain_set.size() == 1 &&
+          *(equiv_domain_set.begin()) == producer_common_merge->out())) {
+      // Not all allocation domains are used, meaning the merge output
+      // is not equivalent to the allocation domains
+      return std::nullopt;
+    }
+
+    // Look for a reverse merge in the consumer that uses the same
+    // inputs but outer and inner are reversed
+
+    IterDomain* merge_outer = producer_common_merge->outer();
+    const ValGroup& merge_outer_group = exact_graph.toGroup(merge_outer);
+    IterDomain* merge_inner = producer_common_merge->inner();
+    const ValGroup& merge_inner_group = exact_graph.toGroup(merge_inner);
+
+    const ExprGroups& merge_outer_uses = exact_graph.getUses(merge_outer_group);
+    ExprGroup reverse_merge;
+    for (const auto& merge_outer_use : merge_outer_uses) {
+      Merge* merge = dynamic_cast<Merge*>(merge_outer_use->front());
+      if (merge == nullptr) {
+        continue;
+      }
+      if (exact_graph.toGroup(merge->outer()) == merge_inner_group &&
+          exact_graph.toGroup(merge->inner()) == merge_outer_group) {
+        reverse_merge = merge_outer_use;
+        break;
+      }
+    }
+
+    if (reverse_merge.get() == nullptr) {
+      return std::nullopt;
+    }
+
+    ValGroup reverse_merge_output =
+        exact_graph.outputGroups(reverse_merge).at(0);
+    // Look for a matching merge in the consumer
+    const auto consumer_all_ids = ir_utils::allIDsOf(consumer);
+    IterDomain* consumer_merge_out = nullptr;
+    for (auto consumer_id : consumer_all_ids) {
+      if (reverse_merge_output->has(consumer_id)) {
+        consumer_merge_out = consumer_id;
+        break;
+      }
+    }
+
+    if (consumer_merge_out == nullptr) {
+      return std::nullopt;
+    }
+
+    // If there's a loop id that depends on consumer_merge_output, the
+    // producer tensor needs to use the memory layout that works for
+    // the vectorized store of the consumer tensor.
+    if (!DependencyCheck::isDependencyOf(
+            consumer_merge_out, consumer_vectorized_domain)) {
+      return std::nullopt;
+    }
+
+    std::vector<IterDomain*> patched_allocation_domains{
+        merge_inner, merge_outer};
+
+    return patched_allocation_domains;
+  }
+
   std::unordered_map<TensorView*, IndexingAllocationInfo> tv_alloc_info_map;
   std::unordered_set<TensorView*> used_as_producer;
 };
 
-// Similar to IndexCompute but adapted for the graph-based indexing
-class IdGraphIndexCompute : public OptOutDispatch {
- public:
-  IdGraphIndexCompute(
-      const ValGraph& traversal_graph,
-      std::unordered_map<ValGroup, Val*> initial_index_map)
-      : traversal_graph_(traversal_graph),
-        index_map_(std::move(initial_index_map)) {}
-
-  // Propagate the index map through a given expr of a specified
-  // direction.
-  void propagate(const ExprGroup& expr_group, Direction direction) {
-    NVF_ERROR(!expr_group->empty());
-    // This looks a little ugly but the dispatch interface doesn't
-    // have a way to pass arguments
-    current_direction_ = direction;
-    dispatch(expr_group->front());
-    current_direction_ = Direction::Undefined;
-  }
-
-  const std::unordered_map<ValGroup, Val*> indexMap() const {
-    return index_map_;
-  }
-
- private:
-  using OptOutDispatch::handle;
-
-  void handle(Split* split) override;
-
-  void handle(Merge* merge) override;
-
-  void handle(Swizzle* swizzle) override;
-
-  bool isForward(Expr* expr) const;
-
-  bool hasIndex(IterDomain* id) const {
-    return indexMap().find(toGroup(id)) != indexMap().end();
-  }
-
-  Val* getIndex(IterDomain* id) const {
-    auto it = index_map_.find(toGroup(id));
-    NVF_ERROR(it != index_map_.end(), "Index not found: ", id->toString());
-    return it->second;
-  }
-
-  void setIndex(IterDomain* id, Val* idx) {
-    index_map_.emplace(toGroup(id), idx);
-  }
-
-  const ValGroup& toGroup(IterDomain* id) const {
-    return traversal_graph_.toGroup(id);
-  }
-
- private:
-  const ValGraph& traversal_graph_;
-  std::unordered_map<ValGroup, Val*> index_map_;
-  Direction current_direction_ = Direction::Undefined;
-};
-
-bool IdGraphIndexCompute::isForward(Expr* expr) const {
-  return current_direction_ == Direction::Forward;
-}
-
-void IdGraphIndexCompute::handle(Split* split) {
-  const bool is_forward = isForward(split);
-
-  auto inner_extent = split->inner()->extent();
-
-  if (is_forward) {
-    auto in_idx = getIndex(split->in());
-    auto outer_idx = SimplifyingIrBuilder::divExpr(in_idx, inner_extent);
-    Val* inner_idx = SimplifyingIrBuilder::modExpr(in_idx, inner_extent);
-    setIndex(split->outer(), outer_idx);
-    setIndex(split->inner(), inner_idx);
-  } else {
-    auto outer_idx = getIndex(split->outer());
-    auto inner_idx = getIndex(split->inner());
-    auto in_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(outer_idx, inner_extent), inner_idx);
-    setIndex(split->in(), in_idx);
-  }
-}
-
-void IdGraphIndexCompute::handle(Merge* merge) {
-  const bool is_forward = isForward(merge);
-
-  auto inner_ext = merge->inner()->extent();
-
-  if (is_forward) {
-    auto outer_idx = getIndex(merge->outer());
-    auto inner_idx = getIndex(merge->inner());
-    auto out_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(inner_ext, outer_idx), inner_idx);
-    setIndex(merge->out(), out_idx);
-  } else {
-    auto out_idx = getIndex(merge->out());
-    auto outer_idx = SimplifyingIrBuilder::divExpr(out_idx, inner_ext);
-    setIndex(merge->outer(), outer_idx);
-    Val* inner_idx = SimplifyingIrBuilder::modExpr(out_idx, inner_ext);
-    setIndex(merge->inner(), inner_idx);
-  }
-}
-
-void IdGraphIndexCompute::handle(Swizzle* swizzle) {
-  const bool is_forward = isForward(swizzle);
-
-  auto x_ext = swizzle->inX()->extent();
-  auto y_ext = swizzle->inY()->extent();
-
-  if (is_forward) {
-    auto x_idx = getIndex(swizzle->inX());
-    auto y_idx = getIndex(swizzle->inY());
-    auto [result_x, result_y] =
-        dispatchUnSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
-    setIndex(swizzle->outX(), result_x);
-    setIndex(swizzle->outY(), result_y);
-  } else {
-    auto x_idx = getIndex(swizzle->outX());
-    auto y_idx = getIndex(swizzle->outY());
-    auto [result_x, result_y] =
-        dispatchSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
-    setIndex(swizzle->inX(), result_x);
-    setIndex(swizzle->inY(), result_y);
-  }
-}
-
-} // namespace
-
-TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
-  buildLoopIndexMap();
-}
-
-namespace {
 ParallelType getParallelType(const ValGroup& loop_group) {
   ParallelType common_pt = ParallelType::Serial;
   for (const auto val : *loop_group) {
@@ -613,7 +718,12 @@ ParallelType getParallelType(const ValGroup& loop_group) {
 
   return common_pt;
 }
+
 } // namespace
+
+TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
+  buildLoopIndexMap();
+}
 
 void TensorIndexer::buildLoopIndexMap() {
   if (id_model_.empty()) {
@@ -779,7 +889,7 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
   for (const auto i : c10::irange(alloc_info.domains.size())) {
     Val* stride = alloc_info.strides.at(i);
     index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(stride, indices.at(i)));
+        index, SimplifyingIrBuilder::mulExpr(indices.at(i), stride));
   }
 
   return index;
@@ -805,8 +915,8 @@ IndexingInfo TensorIndexer::computeIndex(
   const auto loop_domains = getLoopDomains(expr);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
-  const ExprPath traversal_path =
-      ValGraphBFS::getExprsBetween(traversalGraph(), loop_groups, index_groups);
+  const ExprPath traversal_path = IndexingTraversal::getExprsBetween(
+      expr, traversalGraph(), loop_groups, index_groups);
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_domains);
