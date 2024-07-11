@@ -59,7 +59,7 @@ class BenchmarkRunner:
         # instead of `check_call` to continue with other settings and report only
         # benchmarks that succeeded.
         subprocess.run(
-            f"pytest thunder/benchmarks/targets.py --color=no -k '{self._benchmark_filter}' --benchmark-storage={self._storage} --benchmark-save {out_stem}",
+            f"pytest thunder/benchmarks/targets.py --color=no -k '{self._benchmark_filter}' --benchmark-storage={self._storage} --benchmark-save={out_stem}",
             shell=True,
         )
 
