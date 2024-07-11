@@ -20,7 +20,7 @@ from nvfuser import (
 
 # NOTE We cannot iterate pybind11 enum directly, so we extract the entries here.
 all_scheduler_heuristics = [
-    heuristic for heuristic, _ in SchedulerHeuristic.__entries.values()
+    heuristic for heuristic, _ in SchedulerHeuristic.__entries.values() if not SchedulerHeuristic.none
 ]
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
