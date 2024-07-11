@@ -439,6 +439,12 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("streaming", CacheOp::Streaming)
       .value("global", CacheOp::Global);
 
+  //! SwizzleType used for scheduling
+  py::enum_<SwizzleType>(nvfuser, "SwizzleType")
+      .value("none", SwizzleType::NoSwizzle)
+      .value("xor", SwizzleType::XOR)
+      .value("CyclicShift", SwizzleType::CyclicShift);
+
   //! MemoryType used for scheduling
   py::enum_<MemoryType>(nvfuser, "MemoryType")
       .value("local", MemoryType::Local)
@@ -3068,6 +3074,41 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("tensor"),
       py::arg("op_type") = LoadStoreOpType::Set);
+  nvf_sched.def(
+      "swizzle",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         const SwizzleType& swizzle_type,
+         int64_t x,
+         int64_t y) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->swizzle(swizzle_type, x, y);
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"),
+      py::arg("swizzle_type"),
+      py::arg("x"),
+      py::arg("y"));
+  nvf_sched.def(
+      "circularBuffer",
+      [](FusionDefinition::SchedOperators& self,
+         Tensor tensor,
+         int64_t number_of_stages) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        input_tv->circularBuffer(number_of_stages);
+      },
+      py::arg("tensor"),
+      py::arg("number_of_stages"));
   nvf_sched.def(
       "set_memory_type",
       [](FusionDefinition::SchedOperators& self,
