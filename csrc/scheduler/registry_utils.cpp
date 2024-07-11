@@ -659,7 +659,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
           auto tmp_producer = forward_running_consumer;
           auto tmp_consumer = forward_tv_dep_chain.front();
 
-          // Don't move forward if the consumer is has a broadcast id.
+          // Don't move forward if the consumer has a broadcast id.
           // It may be resolved and requires a new check.
           // see FusionReshapePersistentShmoo and issue-2576
           if (tmp_consumer->hasBroadcast()) {
