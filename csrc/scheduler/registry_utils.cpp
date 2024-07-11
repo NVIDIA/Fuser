@@ -457,6 +457,7 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   auto disjoint_sets = graph.disjointValSets();
   for (auto view : ir_utils::getViewOps(fusion)) {
     auto tv = view->out();
+    tv->printTransforms();
     // keep track of split IDs, each unordered_set in the vector stores
     // connected split IDs. For example, if we have:
     // I0 -> I1, I2
@@ -469,6 +470,7 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
     for (auto expr : StmtSort::getExprsTo(
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       if (auto merge = dynamic_cast<Merge*>(expr)) {
+        std::cout << "merge: " << merge->toString() << std::endl;
         auto id1 = merge->inner();
         auto id2 = merge->outer();
         disjoint_sets.mapEntries(id1, merge->out());
@@ -486,7 +488,16 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
             for (auto id : *it) {
               disjoint_sets.mapEntries(id, merge->out());
             }
+            std::cout << "found merged_id: " << merged_id->toString() << std::endl;
           }
+        }
+        // print out ids_in_connected_splits
+        for(auto id_set : ids_in_connected_splits) {
+          std::cout << "ids_in_connected_splits: ";
+          for(auto id : id_set) {
+            std::cout << id->toString() << " ";
+          }
+          std::cout << std::endl;
         }
       }
       // For split, directly map the inner and outer IDs leads to false
@@ -504,6 +515,7 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
           it->insert(split->inner());
           it->insert(split->outer());
         } else {
+          std::cout << "new split_id: " << split_id->toString() << std::endl;
           ids_in_connected_splits.push_back(
               {split_id, split->inner(), split->outer()});
         }
@@ -524,6 +536,7 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
       for (auto id_1 : coalesced_ids_1) {
         for (auto id_2 : coalesced_ids_2) {
           if (disjoint_sets.strictAreMapped(id_1, id_2)) {
+            std::cout << "strictAreMapped id_1: " << id_1->toString() << " id_2: " << id_2->toString() << std::endl;
             return true;
           }
         }
