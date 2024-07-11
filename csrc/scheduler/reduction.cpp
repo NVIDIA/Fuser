@@ -549,27 +549,45 @@ struct outerReduHeuristicParas {
     return ss.str();
   }
   // compare block reduction with grid reduction
-  bool isBetterThan(const outerReduHeuristicParas& grid_hp, int sm_count) const {
-    // std::cout << "block: \n " << toString() << std::endl;
-    // std::cout << "gridd: \n " << grid_hp.toString() << std::endl;
+  bool isBetterThan(const outerReduHeuristicParas& grid_hp, int sm_count)
+      const {
     NVF_ERROR(
         grdim == 1,
         "Only support compare block reduction heuristic with grid not vice versa");
+    // const float min_sm_efficiency = 0.9f;
+    auto getSmEfficiency = [&sm_count](int blocks) {
+      float f_wave = (float)blocks / (float)sm_count;
+      return f_wave / std::ceil(f_wave);
+    };
+
+    float sm_efficiency = getSmEfficiency(gidim * grdim);
+    if (std::getenv("VERB") != nullptr) {
+      std::cout << "block: \n " << toString() << std::endl;
+      std::cout << "gridd: \n " << grid_hp.toString() << std::endl;
+      std::cout << "sm_efficiency: \n " << sm_efficiency << std::endl;
+    }
+
     // use block reduction if its SM usage >= 90%
-    const float min_sm_efficiency = 0.9f;
-    float f_wave = (float)gidim / (float)sm_count;
-    float sm_efficiency = f_wave / std::ceil(f_wave);
-    if (sm_efficiency >= min_sm_efficiency) {
+    // if (sm_efficiency >= min_sm_efficiency) {
+    //   return true;
+    // }
+    if (sm_efficiency > getSmEfficiency(grid_hp.gidim * grid_hp.grdim)) {
       return true;
     }
-    // prefer block reduction if it has more unroll factor
-    if(iter_unroll_factor != grid_hp.iter_unroll_factor) {
-      return iter_unroll_factor > grid_hp.iter_unroll_factor;
-    }
-    // if grid reduction can't use all SMs
-    if (grid_hp.gidim * grid_hp.grdim < sm_count) {
-      return gidim * grdim >= grid_hp.gidim * grid_hp.grdim;
-    }
+    // if (grid_hp.gidim * grid_hp.grdim < sm_count) {
+    //   return true;
+    // }
+
+    // return gidim * grdim >= grid_hp.gidim * grid_hp.grdim;
+
+    // // prefer block reduction if it has more unroll factor
+    // if(iter_unroll_factor != grid_hp.iter_unroll_factor) {
+    //   return iter_unroll_factor > grid_hp.iter_unroll_factor;
+    // }
+    // // if grid reduction can't use all SMs
+    // if (grid_hp.gidim * grid_hp.grdim < sm_count) {
+    //   return gidim * grdim >= grid_hp.gidim * grid_hp.grdim;
+    // }
     return false;
   }
 };
@@ -658,6 +676,7 @@ outerReduHeuristicParas getBlockOuterReduction(
     int64_t total_reduction_numel) {
   outerReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
 
+  int64_t sm_count_pow2 = scheduler_utils::lastPow2(sm_count);
   // Step-1, set iteration dim
   // (1) start with bdimx = 8, gidim = 1, iter_unroll = 1
   hp.bdimx = std::min(8L, hp.iDimAvail());
@@ -671,18 +690,18 @@ outerReduHeuristicParas getBlockOuterReduction(
   // 4800, which corresponds to 75 or 56.8 % of SMs. Here 50% is used.
   // bool small_reduction = false && total_reduction_numel <= 1024;
   int64_t max_iter_unroll = vectorize_factor;
-  // const int64_t min_blocks_fully_vectorize = sm_count / 2;
-  // // only allow this adjustment when there is only one output tensor
-  // // or it's a small reduction where block reduction is enforced.
-  // // When has multiple outputs, reduce vectorization leads to regression,
-  // // see cpp benchmark of gelu backward which has 2 outputs ( does't seem
+  const int64_t min_blocks_fully_vectorize = sm_count_pow2;
+  // only allow this adjustment when there is only one output tensor
+  // or it's a small reduction where block reduction is enforced.
+  // When has multiple outputs, reduce vectorization leads to regression,
+  // see cpp benchmark of gelu backward which has 2 outputs ( does't seem
   // like a
-  // // common usage since thunder.jit generated fusion has only 1).
+  // common usage since thunder.jit generated fusion has only 1).
   // if (n_tensor_outputs == 1 || small_reduction) {
-  //   max_iter_unroll = std::min(
-  //       max_iter_unroll,
-  //       scheduler_utils::lastPow2(scheduler_utils::safeDiv(
-  //           total_iteration_numel, hp.bdimx * min_blocks_fully_vectorize)));
+  max_iter_unroll = std::min(
+      max_iter_unroll,
+      scheduler_utils::lastPow2(scheduler_utils::safeDiv(
+          total_iteration_numel, hp.bdimx * min_blocks_fully_vectorize)));
   // }
   while (hp.iDimAvail() > 1 && hp.iDimAvail() % 2 == 0 &&
          hp.iter_unroll_factor * 2 <= max_iter_unroll) {
@@ -697,7 +716,9 @@ outerReduHeuristicParas getBlockOuterReduction(
 
   // (4) increase bdimx to its maximum
   hp.bdimx = ceilDiv(total_iteration_numel, hp.gidim * hp.iter_unroll_factor);
-  hp.bdimx = scheduler_utils::roundUpPow2(hp.bdimx);
+  hp.bdimx = std::min(
+      scheduler_utils::roundUpPow2(hp.bdimx),
+      scheduler_utils::roundUpToN(hp.bdimx, 32));
   hp.bdimx = std::min(hp.bdimx, max_threads_per_block);
 
   // (5) re-calculate gidim after bdimx to fix round up differences. Also
@@ -716,7 +737,6 @@ outerReduHeuristicParas getBlockOuterReduction(
 
   // Step-3, final check
   // (1) revisit bdimx just in case bdimy doesn't take all the left threads
-  int64_t sm_count_pow2 = scheduler_utils::lastPow2(sm_count);
   while (hp.bdimy * hp.bdimx * 2 <= max_threads_per_block &&
          hp.gidim / 2 >= sm_count_pow2) {
     hp.bdimx *= 2;
