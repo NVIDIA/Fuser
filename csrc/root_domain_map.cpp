@@ -228,17 +228,16 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
   if (SdpaFwdOp* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())) {
     // Note: Explicit handling of DIDx(D) until
-    // https://github.com/NVIDIA/Fuser/issues/2563 is resolved. 
-    // Producers:
+    // https://github.com/NVIDIA/Fuser/issues/2563 is resolved. Producers:
     //   query = [DIDx(D)?, N, H, L, E]
     //   key = [DIDx(D)?, N, H, S, E]
     //   value = [DIDx(D)?, N, H, S, Ev]
     // Consumers:
     //   output = [DIDx(D)?, N, H, L, Ev]
-    //   logsumexp = [DIDx(D)?, N, H, L]
+    //   logsumexp = [N, H, L]
     //   cum_seq_q/k = [N + 1]
 
-    unsigned int num_device_dim = producer_logical.at(0)->isDeviceDim() ? 1 : 0;
+    size_t num_device_dim = producer_logical.at(0)->isDeviceDim() ? 1 : 0;
     // Map N, H from any input (query/key/value)
     for (auto idx : c10::irange(consumer_root.size())) {
       if (idx >= num_device_dim && idx < (2 + num_device_dim)) {
@@ -248,16 +247,16 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       // Map L, E from query and value respectively
       if (idx == (2 + num_device_dim) && producer_tv_->sameAs(op->query())) {
         updatePairwiseRootDomainMap(
-            producer_logical.at(3), consumer_root.at(3));
+            producer_logical.at(idx), consumer_root.at(idx));
       }
       // Map Ev from value to output
       if (idx == (3 + num_device_dim) && producer_tv_->sameAs(op->value())) {
         updatePairwiseRootDomainMap(
-            producer_logical.at(4), consumer_root.at(4));
+            producer_logical.at(idx), consumer_root.at(idx));
       }
     }
-    // Map D from any input (query/key/value) to output, logsumexp only.
-    if (num_device_dim == 1 && consumer_root.size() > 1) {
+    // Map D from any input (query/key/value) to output only.
+    if (num_device_dim == 1 && consumer_root.size() > 3) {
       updatePairwiseRootDomainMap(producer_logical.at(0), consumer_root.at(0));
     }
     return dom_map;
