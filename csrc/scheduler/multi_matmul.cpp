@@ -67,7 +67,12 @@ class MultipleMatmulScheduler {
 
     swizzleBlockTiles();
 
-    doSplitKRFactor();
+    // doSplitKRFactor();
+
+    for (TensorView* tv : ir_utils::allTvs(fusion_)) {
+      AbstractTensor local_abten = forwardAroundMissingAxes(at_tiled_, tv);
+      applyAbstractTransforms(local_abten, tv);
+    }
 
     // swizzleSharedMemory(mma_result)
 
