@@ -13,6 +13,7 @@
 #include <executor_params.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
+#include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
@@ -319,7 +320,11 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
     }
     if (output->getValType().value() == ValType::TensorView) {
       output->setIsFusionOutput(false);
-      output->as<TensorView>()->setMemoryType(MemoryType::Local);
+      // If `output` is both an input and an output before the replacement,
+      // don't localize it.
+      if (!output->isFusionInput()) {
+        output->as<TensorView>()->setMemoryType(MemoryType::Local);
+      }
     }
     // Mark uses invalid so that they will be reset next time uses() is called
     invalidateTvUses();
@@ -404,7 +409,7 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     IrTransformPrinter t_exprs(os);
     t_exprs.handle(this);
   }
-  os << "}\n";
+  os << "} // %kernel\n";
 
   return os;
 }
@@ -524,7 +529,7 @@ void Fusion::printMath(bool from_outputs_only) {
   for (auto expr : exprs_for_print) {
     debug() << expr;
   }
-  debug() << "}\n\n";
+  debug() << "} // %kernel_math \n\n";
 }
 
 std::vector<Val*> Fusion::inputsAndCreated() {
@@ -584,17 +589,17 @@ void Fusion::registerExpr(Expr* expr) {
     }
   }
 
-  // Kernel is the only container type that is non-ssa. This is mainly (maybe
-  // only) because of initialization expressions which would overwrite tensor
-  // view definitions.
-  bool is_ssa = !this->isA<kir::Kernel>();
+  // Kernel and host are non-ssa. This is mainly (maybe only) because of
+  // initialization expressions which would overwrite tensor view definitions.
+  const bool is_ssa =
+      !this->isA<kir::Kernel>() && !this->isA<hir::HostIrContainer>();
 
   for (Val* output : expr->outputs()) {
     assertInContainer(output, "Output to expr is invalid, ");
     if (output->definition() != nullptr && is_ssa) {
       removeExpr(output->definition());
     }
-    if (is_ssa || (!is_ssa && output->definition() == nullptr)) {
+    if (is_ssa || output->definition() == nullptr) {
       output->setDefinition(expr);
       if (output->isA<TensorView>()) {
         // Updating the definition might change the path to output TVs.

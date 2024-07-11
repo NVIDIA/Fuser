@@ -112,6 +112,21 @@ using AbstractId = dynamic_type::DynamicType<
 //   AbstractTensor v({ValGroupAndItsGraph{g0, &g}, id1});
 //   v.merge(0);
 // This is also equivalent to Example 5. You will get [g01].
+//
+// You can always unzip an AbstractTensor to get a vector of AbstractTensors.
+// For example:
+//
+// Example 8:
+//   IterDomain *id0, *id1, *id2, *id3;
+//   AbstractTensor v({{id0, id1}, {id2, id3}});
+//   auto ub = v.unzip();
+// Then ub will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}
+//
+// Example 9:
+//   IterDomain *id0, *id1, *id2;
+//   AbstractTensor v({{id0, id1}, id2});
+//   auto ub = v.unzip();
+// Then ub will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id2}}
 
 struct AbstractTensor {
   std::vector<AbstractId> domain;
@@ -133,10 +148,12 @@ struct AbstractTensor {
   }
 
   decltype(auto) operator[](int64_t i) {
+    i = wrapDim(i, (int64_t)domain.size());
     return domain[i];
   }
 
   decltype(auto) operator[](int64_t i) const {
+    i = wrapDim(i, (int64_t)domain.size());
     return domain[i];
   }
 
@@ -146,7 +163,11 @@ struct AbstractTensor {
 
   template <typename T>
   bool operator==(T&& t) const {
-    return domain == std::forward<T>(t);
+    if constexpr (std::is_same_v<AbstractTensor, std::decay_t<T>>) {
+      return domain == t.domain;
+    } else {
+      return domain == std::forward<T>(t);
+    }
   }
 
   template <typename T>
@@ -177,6 +198,15 @@ struct AbstractTensor {
   void flatten(int64_t from = 0, int64_t to = -1);
 
   void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
+
+  // Temporary helper for legacy swizzle, should be removed eventually.
+  // This is a copy-paste of AbstractTensor::swizzle(SwizzleType
+  void swizzle(Swizzle2DType swizzle_type, int64_t x, int64_t y);
+
+  // Unzip the AbstractTensor to separate tensors. For example, if this
+  // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], then the return value
+  // will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}.
+  std::vector<AbstractTensor> unzip() const;
 };
 
 } // namespace nvfuser

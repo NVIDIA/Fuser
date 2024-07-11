@@ -703,7 +703,8 @@ getOptionalInnerOuterPersistentBufferBatches(
   // time to tune as these un-vectorized small cases should be rare in real
   // world.
   if (inner_dim_numel <= 1024l) {
-    const int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    batch = std::min(batch, inner_dim_numel);
     return std::make_pair(
         batch, ceilDiv(inner_dim_numel, batch * vectorize_factor));
   }
@@ -1097,13 +1098,6 @@ bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
           fusion, schedule_heuristic)) {
-    return false;
-  }
-
-  // Fusions handled by persistent schedulers cannot have matmul ops.
-  if (ir_utils::hasAnyMatmulOps(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "no support for matmul ops.");
     return false;
   }
 
