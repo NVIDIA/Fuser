@@ -455,22 +455,37 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   id_model.buildExactGraph();
   const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
   auto disjoint_sets = graph.disjointValSets();
+  // keep track of split IDs, each unordered_set in the vector stores
+  // connected split IDs. For example, if we have:
+  // I0 -> I1, I2
+  // I3 -> I4, I5
+  // I5 -> I6, I7
+  // There are 2 groups: [I0, I1, I2] and [I3, I4, I5, I6, I7]
+  // when a merge op is found, e.g. I9 = I8 * I7, we need to map
+  // I9 with I8 and all the IDs in [I3, I4, I5, I6, I7].
+  std::vector<std::unordered_set<IterDomain*>> ids_in_connected_splits;
+
+  // Here we can't directly find IterDomain since they may be in different
+  // reshape ops. ValGroup groups IDs in different tvs.
+  auto findIdSet = [&](IterDomain* id) {
+    auto id_vgroup = graph.toGroup(id);
+    return std::find_if(
+        ids_in_connected_splits.begin(),
+        ids_in_connected_splits.end(),
+        [&](const std::unordered_set<IterDomain*>& id_set) {
+          return std::any_of(
+              id_set.begin(), id_set.end(), [&](IterDomain* set_id) {
+                return graph.toGroup(set_id) == id_vgroup;
+              });
+        });
+  };
+
+  // Loop over each view and process the IDs
   for (auto view : ir_utils::getViewOps(fusion)) {
     auto tv = view->out();
-    tv->printTransforms();
-    // keep track of split IDs, each unordered_set in the vector stores
-    // connected split IDs. For example, if we have:
-    // I0 -> I1, I2
-    // I3 -> I4, I5
-    // I5 -> I6, I7
-    // There are 2 groups: [I0, I1, I2] and [I3, I4, I5, I6, I7]
-    // when a merge op is found, e.g. I9 = I8 * I7, we need to map
-    // I9 with I8 and all the IDs in [I3, I4, I5, I6, I7].
-    std::vector<std::unordered_set<IterDomain*>> ids_in_connected_splits;
     for (auto expr : StmtSort::getExprsTo(
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       if (auto merge = dynamic_cast<Merge*>(expr)) {
-        std::cout << "merge: " << merge->toString() << std::endl;
         auto id1 = merge->inner();
         auto id2 = merge->outer();
         disjoint_sets.mapEntries(id1, merge->out());
@@ -478,26 +493,12 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
         // if merged id comes from a set of connected splits, map it with all
         // other IDs in the set
         for (auto merged_id : {id1, id2}) {
-          auto it = std::find_if(
-              ids_in_connected_splits.begin(),
-              ids_in_connected_splits.end(),
-              [&merged_id](const auto& id_set) {
-                return id_set.count(merged_id);
-              });
+          auto it = findIdSet(merged_id);
           if (it != ids_in_connected_splits.end()) {
             for (auto id : *it) {
               disjoint_sets.mapEntries(id, merge->out());
             }
-            std::cout << "found merged_id: " << merged_id->toString() << std::endl;
           }
-        }
-        // print out ids_in_connected_splits
-        for(auto id_set : ids_in_connected_splits) {
-          std::cout << "ids_in_connected_splits: ";
-          for(auto id : id_set) {
-            std::cout << id->toString() << " ";
-          }
-          std::cout << std::endl;
         }
       }
       // For split, directly map the inner and outer IDs leads to false
@@ -507,15 +508,11 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
       // the same set, otherwise create a new set.
       else if (auto split = dynamic_cast<Split*>(expr)) {
         auto split_id = split->in();
-        auto it = std::find_if(
-            ids_in_connected_splits.begin(),
-            ids_in_connected_splits.end(),
-            [&split_id](const auto& id_set) { return id_set.count(split_id); });
+        auto it = findIdSet(split_id);
         if (it != ids_in_connected_splits.end()) {
           it->insert(split->inner());
           it->insert(split->outer());
         } else {
-          std::cout << "new split_id: " << split_id->toString() << std::endl;
           ids_in_connected_splits.push_back(
               {split_id, split->inner(), split->outer()});
         }
@@ -536,7 +533,6 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
       for (auto id_1 : coalesced_ids_1) {
         for (auto id_2 : coalesced_ids_2) {
           if (disjoint_sets.strictAreMapped(id_1, id_2)) {
-            std::cout << "strictAreMapped id_1: " << id_1->toString() << " id_2: " << id_2->toString() << std::endl;
             return true;
           }
         }

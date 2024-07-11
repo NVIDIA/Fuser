@@ -2587,16 +2587,15 @@ TEST_F(GpuViewTest, ReshapeReductionForwardViewReplay) {
   EXPECT_EQ(seg_groups.size(), 2);
 }
 
-
-TEST_F(GpuViewTest, TMP) {
+TEST_F(GpuViewTest, SplitMergeInSameReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  const std::vector<int64_t> input_shape = {12, 20 ,3};
+  const std::vector<int64_t> input_shape = {12, 20, 3};
   DataType dtype = DataType::Float;
   auto tv0 = makeContigTensor(input_shape.size(), dtype);
   fusion->addInput(tv0);
   auto tv1 = castOp(DataType::Float, tv0);
-  auto tv2 = reshape(tv1, {12, 20 ,3}, {3, 4, 5, 2, 6});
+  auto tv2 = reshape(tv1, {12, 20, 3}, {3, 4, 5, 2, 6});
   auto tv3 = sum(tv1, {-1});
   fusion->addOutput(tv2);
   fusion->addOutput(tv3);
@@ -2607,6 +2606,61 @@ TEST_F(GpuViewTest, TMP) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have 2 segmented groups
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 2);
+}
 
+TEST_F(GpuViewTest, TvSplitTvMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {12, 20, 3};
+  DataType dtype = DataType::Float;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, {12, 20, 3}, {3, 4, 5, 4, 3});
+  auto tv3 = reshape(tv2, {3, 4, 5, 4, 3}, {3, 4, 5, 12});
+  auto tv4 = sum(tv1, {-1});
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv4);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have 2 segmented groups
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 2);
+}
+
+TEST_F(GpuViewTest, TvSplitTvSplitMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {12, 20, 3};
+  DataType dtype = DataType::Float;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, {12, 20, 3}, {3, 4, 5, 4, 3});
+  auto tv3 = reshape(tv2, {3, 4, 5, 4, 3}, {3, 4, 5, 2, 6});
+  auto tv4 = sum(tv1, {-1});
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv4);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have 2 segmented groups
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 2);
 }
 } // namespace nvfuser
