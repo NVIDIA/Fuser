@@ -226,9 +226,6 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
     // HACK: MLP ATtention test only shards the outermost logical
     // axis is DID parallelized.
     // TODO: why is there an empty tv?
-    if (tv->getLogicalDomain().size() == 0) {
-      std::cout << "Empty tv? " << tv->toString() << std::endl;
-    }
     if (tv->getLogicalDomain().size() > 0 && ref->axis(0)->isDeviceDim()) {
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
