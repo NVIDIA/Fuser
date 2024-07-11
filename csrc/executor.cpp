@@ -357,7 +357,8 @@ void FusionExecutor::compileFusion(
     NVF_ERROR(
         !has_cp_async_bulk ||
             (compile_params.index_type.value() == PrimDataType::Int32),
-        "Compilation with int64 is requested but int32 is required because of TMA operations");
+        "Compilation with int64 is requested but int32 is required because ",
+        "of TMA operations.");
 
   } else if (arg_index_type == PrimDataType::Int) {
     // If the given compile option doesn't specify the index type, and
@@ -366,6 +367,10 @@ void FusionExecutor::compileFusion(
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
+    NVF_ERROR(
+        !has_cp_async_bulk,
+        "Compilation with int64 is required based on input arguments, but ",
+        "int32 is required because of TMA operations.");
   } else if (has_cp_async_bulk) {
     // TMA operations require 32-bit indexing.
     compile_params.index_type = PrimDataType::Int32;
