@@ -135,17 +135,6 @@ class TensorIndexer {
       bool is_predicate,
       bool is_unswitch) const;
 
-  Val* adjustProducerLoopIndexForCircularBuffering(
-      const Expr* expr,
-      const ForLoop* for_loop,
-      Val* loop_index) const;
-
-  Val* adjustIndexToSwitchBuffer(
-      TensorView* tv,
-      bool as_consumer,
-      const std::vector<ForLoop*>& for_loops,
-      Val* idx) const;
-
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
   // index map, which is built for the Loop graph.

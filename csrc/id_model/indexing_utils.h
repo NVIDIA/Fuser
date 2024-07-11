@@ -7,7 +7,10 @@
 // clang-format on
 #pragma once
 
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <id_model/id_model.h>
+#include <id_model/utils.h>
 
 namespace nvfuser {
 
@@ -64,9 +67,29 @@ inline std::unordered_set<ValGroup> getMaxPathLoopDomains(
 
 // Currently it's only Shared or Local but Global can be the case
 // too.
-bool isAllocationBasedOnLeaf(TensorView* tv) {
+inline bool isAllocationBasedOnLeaf(TensorView* tv) {
   return tv->getMemoryType() == MemoryType::Shared ||
       tv->getMemoryType() == MemoryType::Local;
+}
+
+inline bool isNonDivisibleSplit(const ExprGroup& expr_group) {
+  const auto& non_divisible_split_info =
+      GpuLower::current()->nonDivisibleSplitInfo();
+
+  std::vector<PredicateDomainInfo> pred_info_vec;
+
+  // non_divisible_split_info should just have a set of all
+  // non-divisible splits
+  for (const auto& [tv, splits] :
+       non_divisible_split_info.splitsToPredicate()) {
+    if (std::find_if(splits.begin(), splits.end(), [&](Split* split) {
+          return expr_group->has(split);
+        }) != splits.end()) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 } // nvfuser nvfuser
