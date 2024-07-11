@@ -128,15 +128,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
   // Concretize fusion
-  DynamicTransformInitialInfo initial_info =
-      DynamicTransform::getInitialInfo(user_sched_->schedule.get());
-  ExpressionEvaluator expr_eval =
-      executor_utils::bindInputs(args, user_sched_->schedule.get());
-  std::unique_ptr<DynamicTransformConcretizationInfo> conc_info =
-      std::make_unique<DynamicTransformConcretizationInfo>(
-          &initial_info, &expr_eval);
-  DynamicTransform::concretizeFusion(
-      user_sched_->schedule.get(), conc_info.get());
+  DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
 
   // Create runtime info for schedulers
   Fusion* user_schedule_fusion = user_sched_->schedule.get();
