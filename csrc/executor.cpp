@@ -332,6 +332,16 @@ void FusionExecutor::compileFusion(
     fusion->printMath();
   }
 
+  has_cp_async_bulk_ = std::any_of(fusion->exprs().begin(),
+	                               fusion->exprs().end(),
+	                               [](Expr* e) {
+	                                 return ir_utils::isCpAsyncBulk(e);
+	                               });
+  // Disable magic zero if there are any TMA operations in Fusion
+  if (has_cp_async_bulk_) {
+    compile_params.enable_magic_zero = false;
+  }
+
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
   // arguments.
@@ -343,6 +353,9 @@ void FusionExecutor::compileFusion(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
+    NVF_ERROR(!has_cp_async_bulk_ || (compile_params.index_type.value() == PrimDataType::Int32),
+        "Compilation with int64 is requested but int32 is required because of TMA operations");
+
   } else if (arg_index_type == PrimDataType::Int) {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
@@ -350,6 +363,9 @@ void FusionExecutor::compileFusion(
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
+  } else if (has_cp_async_bulk_) {
+    // TMA operations require 32-bit indexing.
+    compile_params.index_type = PrimDataType::Int32;
   }
 
   c10::DeviceGuard dg(options_.device);
