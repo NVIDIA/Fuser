@@ -58,10 +58,10 @@ class BenchmarkRunner:
         # Benchmarks fail occasionally for various reasons, e.g. OOM. Use `run`
         # instead of `check_call` to continue with other settings and report only
         # benchmarks that succeeded.
-        subprocess.run(
-            f"pytest thunder/benchmarks/targets.py --color=no -k '{self._benchmark_filter}' --benchmark-storage={self._storage} --benchmark-save={out_stem}",
-            shell=True,
-        )
+        command = f"pytest thunder/benchmarks/targets.py --color=no -k '{self._benchmark_filter}' --benchmark-save={out_stem}"
+        if self._storage:
+            command += f" --benchmark-storage={self._storage}"
+        subprocess.run(command, shell=True)
 
     def run_settings(self, settings: Iterable[str]) -> None:
         for setting in settings:
@@ -81,7 +81,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--storage",
         type=str,
-        default=None,
+        default="",
         help="the path to give to `pytest --benchmark-storage`. If not specified, `pytest` will use its default storage path. This flag is useful to save benchmark results out of a transient Docker container.",
     )
     parser.add_argument(
