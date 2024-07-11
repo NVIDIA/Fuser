@@ -10,7 +10,13 @@ import torch
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
-from nvfuser import FusionDefinition, DataType, ParallelType, MemoryType, LoadStoreOpType
+from nvfuser import (
+    FusionDefinition,
+    DataType,
+    ParallelType,
+    MemoryType,
+    LoadStoreOpType,
+)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -20,6 +26,7 @@ def is_pre_volta():
         return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 7
+
 
 def is_pre_hopper():
     if not RUN_NVFUSER:
@@ -776,9 +783,7 @@ class TestScheduleOps(TestCase):
                 fd.sched.transform_like(reference_tv, all_tvs_except_tma)
 
                 # rfactor reduction tensors
-                reduction_tvs = list(
-                    filter(fd.sched.is_reduction, fd.sched.tensors())
-                )
+                reduction_tvs = list(filter(fd.sched.is_reduction, fd.sched.tensors()))
                 rfactor_tvs = [
                     fd.sched.rfactor(tv, dims=[-3, -2, -1]) for tv in reduction_tvs
                 ]
@@ -817,6 +822,7 @@ class TestScheduleOps(TestCase):
         var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
         eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
         self.assertTrue(torch.allclose(eager_out, nvf_out[0], atol=1e-1))
+
 
 if __name__ == "__main__":
     run_tests()

@@ -332,11 +332,10 @@ void FusionExecutor::compileFusion(
     fusion->printMath();
   }
 
-  has_cp_async_bulk_ = std::any_of(fusion->exprs().begin(),
-	                               fusion->exprs().end(),
-	                               [](Expr* e) {
-	                                 return ir_utils::isCpAsyncBulk(e);
-	                               });
+  has_cp_async_bulk_ =
+      std::any_of(fusion->exprs().begin(), fusion->exprs().end(), [](Expr* e) {
+        return ir_utils::isCpAsyncBulk(e);
+      });
   // Disable magic zero if there are any TMA operations in Fusion
   if (has_cp_async_bulk_) {
     compile_params.enable_magic_zero = false;
@@ -353,7 +352,9 @@ void FusionExecutor::compileFusion(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
-    NVF_ERROR(!has_cp_async_bulk_ || (compile_params.index_type.value() == PrimDataType::Int32),
+    NVF_ERROR(
+        !has_cp_async_bulk_ ||
+            (compile_params.index_type.value() == PrimDataType::Int32),
         "Compilation with int64 is requested but int32 is required because of TMA operations");
 
   } else if (arg_index_type == PrimDataType::Int) {
