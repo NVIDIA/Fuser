@@ -543,7 +543,7 @@ void propagatePad(Fusion* fusion) {
       filtered_pads.begin(),
       filtered_pads.end(),
       std::back_inserter(frontier),
-      [](PadOp* pad) { return pad->value()->isZero(); });
+      [](PadOp* pad) { return simplifyExpr(pad->value())->isZero(); });
 
   std::unordered_set<PadOp*> merged_pad;
   while (!frontier.empty()) {
