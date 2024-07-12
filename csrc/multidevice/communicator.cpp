@@ -162,7 +162,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
         store, static_cast<int>(rank), static_cast<int>(size), timeout);
   }
 #endif
-  NVF_ERROR(false, "no distributed backend available");
+  return nullptr;
 }
 #endif
 } // namespace
@@ -253,7 +253,7 @@ c10d::Backend* Communicator::getBackendForTeam(
           static_cast<int64_t>(team.size()));
     }();
 #else
-    backends_[team_key] = c10::make_intrusive<c10d::Backend>();
+    backends_[team_key] = nullptr;
 #endif
   }
   return backends_.at(team_key).get();

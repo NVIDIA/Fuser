@@ -37,7 +37,7 @@ class CommunicationTest
       c10d::ReduceOp::RedOpType::SUM;
   const DeviceMesh full_mesh_;
   const Team all_ranks_;
-  c10d::Backend* backend_;
+  c10d::Backend* const backend_;
 };
 
 CommunicationTest::CommunicationTest()
@@ -48,8 +48,9 @@ CommunicationTest::CommunicationTest()
 void CommunicationTest::SetUp() {
   MultiDeviceTest::SetUp();
 
-  if (!communicator_->isBackendAvailable(GetParam())) {
-    GTEST_SKIP() << "Backend not available";
+  const CommunicatorBackend backend_type = GetParam();
+  if (!communicator_->isBackendAvailable(backend_type)) {
+    GTEST_SKIP() << "Backend not available: " << backend_type;
   }
 }
 
