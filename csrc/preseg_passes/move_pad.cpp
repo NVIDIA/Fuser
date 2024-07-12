@@ -33,7 +33,7 @@ struct Edge {
 };
 
 bool isSamePadOp(Val* use, PadOp* p) {
-  if (!use->is<PadOp>()) {
+  if (!use->isA<PadOp>()) {
     return false;
   }
 
@@ -632,8 +632,7 @@ void propagatePad(Fusion* fusion) {
 
           new_out =
               ops::newValLike(new_pad_out, uop->out()->getDataType().value());
-      Expr* new_uop = IrBuilder::create<UnaryOp>(
-          uop->getUnaryOpType(), new_out, new_pad_out);
+      IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), new_out, new_pad_out);
       // insert new PadOp(s) to frontier;
       frontier.push_back(new_pad_out->definition()->as<PadOp>());
     } else if (def->isA<BinaryOp>()) {
@@ -682,7 +681,6 @@ void propagatePad(Fusion* fusion) {
               {p->getPadWidths()},
               TensorDomain::noReductions(
                   p->out()->as<TensorView>()->getLogicalDomain())),
-          ,
           replayConcretePad(
               bop->rhs()->as<TensorView>(),
               p->value(),
@@ -691,7 +689,7 @@ void propagatePad(Fusion* fusion) {
                   p->out()->as<TensorView>()->getLogicalDomain()))};
 
       new_out = ops::newOutputTV(vals, bop->out()->getDataType().value());
-      Expr* new_bop = IrBuilder::create<BinaryOp>(
+      IrBuilder::create<BinaryOp>(
           bop->getBinaryOpType(), new_out, vals[0], vals[1]);
       // insert new PadOp(s) to frontier;
       frontier.push_back(vals[0]->definition()->as<PadOp>());
@@ -740,7 +738,7 @@ void replaceCat(Fusion* fusion) {
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
     std::cout << "try to replay here" << std::endl;
     if (std::any_of(cat->inputs().begin(), cat->inputs().end(), [](Val* val) {
-          return !val->definition()->is<PadOp>();
+          return !val->definition()->isA<PadOp>();
         })) {
       // replay `CatOp` with series of BinaryOp instead, since we might have
       // pushed `PadOp` out and breaking the codegen if `CatOp` remains.
@@ -749,14 +747,12 @@ void replaceCat(Fusion* fusion) {
       bool is_boolean = isBooleanType(cat_out_tv->getDataType().value());
       for (Val* inp : cat->inputs()) {
         if (res == nullptr) {
-          res = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
+          res = inp;
         } else {
-          Val* rhs =
-              replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
           if (is_boolean) {
-            res = bitwise_or(res, rhs);
+            res = bitwise_or(res, inp);
           } else {
-            res = add(res, rhs);
+            res = add(res, inp);
           }
         }
       }
@@ -771,6 +767,7 @@ void replaceCat(Fusion* fusion) {
       }
     }
   }
+}
 
 } // namespace
 
