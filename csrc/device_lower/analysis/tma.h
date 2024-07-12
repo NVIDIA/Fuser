@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <ostream>
 #include <unordered_map>
 #include <variant>
 #include <vector>
