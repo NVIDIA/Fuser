@@ -861,7 +861,7 @@ void WarpMmaSwizzler::scheduleTMALoadForMma(
   // In the comments below I have kept K as the outer dimension. That is
   // just to have a concrete running example - it can be inner or outer.
 
-  auto num_ids_to_skip = tv->getLoopDomain().size() - 2;
+  int64_t num_ids_to_skip = tv->getLoopDomain().size() - 2;
   NVF_ERROR(num_ids_to_skip >= 0);
   if (swizzle == MmaInputSmemSwizzle::None) {
     // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
