@@ -259,7 +259,7 @@ void Fusion::addInput(Val* input) {
   all_tv_uses_valid_ = false;
 }
 
-void Fusion::addOutputHelper(Val* output) {
+void Fusion::addOutputInternal(Val* output) {
   assertInContainer(output, "Cannot register output ");
   NVF_CHECK(
       output->isA<TensorView>(),
@@ -286,7 +286,7 @@ void Fusion::addOutput(Val* output) {
     io_alias_[output].hide_output = false;
   }
 
-  addOutputHelper(output);
+  addOutputInternal(output);
 }
 
 void Fusion::removeInput(Val* input) {
@@ -830,7 +830,7 @@ void Fusion::aliasOutputToInput(
 
   // only add output when it's not in outputs_
   if (!output->isFusionOutput()) {
-    addOutputHelper(output);
+    addOutputInternal(output);
   }
 }
 
