@@ -619,6 +619,8 @@ TEST_F(SDPATest, AttnFwdBwd) {
   // Set query_seq_len, key_seq_len as CPU scalars
   sdpa_fwd_out.query_seq_len->setCpuScalar(true);
   sdpa_fwd_out.key_seq_len->setCpuScalar(true);
+  sdpa_fwd_out.philox_seed->setCpuScalar(true);
+  sdpa_fwd_out.philox_offset->setCpuScalar(true);
 
   auto tv_grad_output = makeConcreteTensor(attn_shape, DataType::Half);
   fusion->addInput(tv_grad_output);

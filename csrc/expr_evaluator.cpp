@@ -55,7 +55,7 @@ void validateValWithConcreteValue(
         actual_dtype);
     if (tv->isCpuScalar()) {
       NVF_CHECK(
-          is_cpu_scalar(t),
+          t.is_meta() || is_cpu_scalar(t),
           "Expected ",
           tv->toString(),
           " to be bound to a CPU scalar tensor "
