@@ -859,7 +859,7 @@ void WarpMmaSwizzler::swizzleTMABox(
   // [...., K (assume is 16), NI (16 .. say dtype is half and swizzle
   // size is 32B, N could have already been split to create the TMA box)].
   // Here the TMA box is [16,16]. If the outer dim was split then the above
-  // input would be [KO(2), KI(8), NI(16)] with the box being [8, 16] 
+  // input would be [KO(2), KI(8), NI(16)] with the box being [8, 16]
 
   // Split outer Dim:
   // [..., KO(2), KI(8), NI (16)] ->
