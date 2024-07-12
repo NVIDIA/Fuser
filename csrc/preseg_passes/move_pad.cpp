@@ -557,7 +557,7 @@ void propagatePad(Fusion* fusion) {
     }
 
     // unify all consumer pad of tv;
-    TensorView* tv = p->in()->as<TensorView*>();
+    TensorView* tv = p->in()->as<TensorView>();
     for (Expr* use : tv->uses()) {
       if (use == p) {
         continue;
@@ -623,15 +623,14 @@ void propagatePad(Fusion* fusion) {
       }
 
       // replay pad on input(s)
-      Val *new_pad_out = replayConcretePad(
-              uop->in()->as<TensorView>(),
-              p->value(),
-              {p->getPadWidths()},
-              TensorDomain::noReductions(
-                  p->out()->as<TensorView>()->getLogicalDomain())),
+      Val* new_pad_out = replayConcretePad(
+          uop->in()->as<TensorView>(),
+          p->value(),
+          {p->getPadWidths()},
+          TensorDomain::noReductions(
+              p->out()->as<TensorView>()->getLogicalDomain()));
 
-          new_out =
-              ops::newValLike(new_pad_out, uop->out()->getDataType().value());
+      new_out = ops::newValLike(new_pad_out, uop->out()->getDataType().value());
       IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), new_out, new_pad_out);
       // insert new PadOp(s) to frontier;
       frontier.push_back(new_pad_out->definition()->as<PadOp>());
