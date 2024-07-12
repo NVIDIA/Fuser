@@ -554,7 +554,7 @@ struct outerReduHeuristicParas {
     NVF_ERROR(
         grdim == 1,
         "Only support compare block reduction heuristic with grid not vice versa");
-    // const float min_sm_efficiency = 0.9f;
+    const float min_sm_efficiency = 0.9f;
     auto getSmEfficiency = [&sm_count](int blocks) {
       float f_wave = (float)blocks / (float)sm_count;
       return f_wave / std::ceil(f_wave);
@@ -567,26 +567,30 @@ struct outerReduHeuristicParas {
       std::cout << "sm_efficiency: \n " << sm_efficiency << std::endl;
     }
 
-    // use block reduction if its SM usage >= 90%
-    // if (sm_efficiency >= min_sm_efficiency) {
-    //   return true;
-    // }
-    if (sm_efficiency > getSmEfficiency(grid_hp.gidim * grid_hp.grdim)) {
+    // use block reduction if its SM usage >= 90%.
+    // block reduction avoids the overhead of inter-block data exchange through
+    // global memory. it is faster than grid reduction even not all SMs are
+    // used. However, when reduction size is very large (>=16K) and fused ops
+    // have high computation cost (tanh in gelu bwd), it may be slower than grid
+    // reduction where all SMs are used except the last wave.
+    if (sm_efficiency >= min_sm_efficiency) {
       return true;
     }
-    // if (grid_hp.gidim * grid_hp.grdim < sm_count) {
+
+    // if (sm_efficiency > getSmEfficiency(grid_hp.gidim * grid_hp.grdim)) {
     //   return true;
     // }
 
-    // return gidim * grdim >= grid_hp.gidim * grid_hp.grdim;
+    // prefer block reduction if it uses same or more blocks then grid reduction
+    if (gidim * grdim >= grid_hp.gidim * grid_hp.grdim) {
+      return true;
+    }
+    //  has more unroll factor
 
-    // // prefer block reduction if it has more unroll factor
-    // if(iter_unroll_factor != grid_hp.iter_unroll_factor) {
-    //   return iter_unroll_factor > grid_hp.iter_unroll_factor;
-    // }
-    // // if grid reduction can't use all SMs
-    // if (grid_hp.gidim * grid_hp.grdim < sm_count) {
-    //   return gidim * grdim >= grid_hp.gidim * grid_hp.grdim;
+    // if grid reduction can't use all SMs but block reduction can use half
+    // if (grid_hp.gidim * grid_hp.grdim < sm_count && gidim >=
+    // scheduler_utils::lastPow2(sm_count) / 2) {
+    //   return true;
     // }
     return false;
   }
@@ -678,9 +682,13 @@ outerReduHeuristicParas getBlockOuterReduction(
 
   int64_t sm_count_pow2 = scheduler_utils::lastPow2(sm_count);
   // Step-1, set iteration dim
-  // (1) start with bdimx = 8, gidim = 1, iter_unroll = 1
+  // (1) start with bdimx = 8, gidim = 32, iter_unroll = 1.
+  // bdimx = 8, ensures each warp spans at most into 4 different rows.
+  // when each thread reads 16 bytes, each warp do 4 transactions each
+  // with 128 bytes. This is the maximum global memory transaction size
+  // for each warp.
   hp.bdimx = std::min(8L, hp.iDimAvail());
-  hp.gidim = 1;
+  hp.gidim = std::min(std::min(32L, sm_count_pow2), hp.iDimAvail());
   hp.iter_unroll_factor = 1;
 
   // (2) increase iter_unroll to its maximum following two rules:
@@ -690,22 +698,38 @@ outerReduHeuristicParas getBlockOuterReduction(
   // 4800, which corresponds to 75 or 56.8 % of SMs. Here 50% is used.
   // bool small_reduction = false && total_reduction_numel <= 1024;
   int64_t max_iter_unroll = vectorize_factor;
-  const int64_t min_blocks_fully_vectorize = sm_count_pow2;
-  // only allow this adjustment when there is only one output tensor
-  // or it's a small reduction where block reduction is enforced.
-  // When has multiple outputs, reduce vectorization leads to regression,
-  // see cpp benchmark of gelu backward which has 2 outputs ( does't seem
-  // like a
-  // common usage since thunder.jit generated fusion has only 1).
-  // if (n_tensor_outputs == 1 || small_reduction) {
-  max_iter_unroll = std::min(
-      max_iter_unroll,
-      scheduler_utils::lastPow2(scheduler_utils::safeDiv(
-          total_iteration_numel, hp.bdimx * min_blocks_fully_vectorize)));
-  // }
-  while (hp.iDimAvail() > 1 && hp.iDimAvail() % 2 == 0 &&
-         hp.iter_unroll_factor * 2 <= max_iter_unroll) {
-    hp.iter_unroll_factor *= 2;
+  // // int64_t min_iter_unroll = 2;
+  // // const int64_t min_blocks_fully_vectorize = sm_count_pow2;
+  // // // only allow this adjustment when there is only one output tensor
+  // // // or it's a small reduction where block reduction is enforced.
+  // // // When has multiple outputs, reduce vectorization leads to regression,
+  // // // see cpp benchmark of gelu backward which has 2 outputs ( does't seem
+  // // // like a
+  // // // common usage since thunder.jit generated fusion has only 1).
+  // // // if (n_tensor_outputs == 1 || small_reduction) {
+  // max_iter_unroll = std::min(
+  //     max_iter_unroll,
+  //         scheduler_utils::lastPow2(scheduler_utils::safeDiv(
+  //             total_iteration_numel, hp.bdimx * sm_count_pow2)));
+  // // // }
+  // For example on any GPU with more than 32 SMs
+  // bdimx-vect-gidim = 8-1-32  = 256
+  // bdimx-vect-gidim = 8-2-32  = 512
+  // bdimx-vect-gidim = 8-2-64  = 1024
+  // bdimx-vect-gidim = 8-4-64  = 2048
+  // bdimx-vect-gidim = 8-4-128 = 4096
+  // bdimx-vect-gidim = 8-8-128 = 8192
+  while (hp.iDimAvail() > 1) {
+    if (hp.iDimAvail() % 2 == 0 &&
+        hp.iter_unroll_factor * 2 <= max_iter_unroll) {
+      hp.iter_unroll_factor *= 2;
+    }
+    if (hp.iDimAvail() > 1) {
+      hp.gidim *= 2;
+    }
+    if (hp.iter_unroll_factor == max_iter_unroll) {
+      break;
+    }
   }
 
   // (3) increase gidim to SM count, ensures enough blocks to saturate the
@@ -745,7 +769,7 @@ outerReduHeuristicParas getBlockOuterReduction(
   return hp;
 }
 
-outerReduHeuristicParas getBlockGridOuterReduction(
+outerReduHeuristicParas getGridOuterReduction(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
@@ -1023,6 +1047,24 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       scheduler_utils::lastPow2(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
 
+  // block or grid reduction heuristic
+  auto grid_hp = getGridOuterReduction(
+      total_reduction_numel,
+      total_iteration_numel,
+      n_tensor_inputs,
+      n_tensor_outputs,
+      max_input_dtype_size,
+      max_unroll,
+      vectorize_factor);
+
+  // if reduction size is large, block reduction leads to high workload per
+  // thread espacially when computation cost is high. The theroshold depends on
+  // fused ops, current value is based on gelu backward.
+  const int64_t thereshold_to_avoid_block_reduction = 16384;
+  if (total_reduction_numel >= thereshold_to_avoid_block_reduction) {
+    return heuristicParaToSchedulerPara(grid_hp);
+  }
+
   // block reduction heuristic
   const int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
   auto block_hp = getBlockOuterReduction(
@@ -1034,15 +1076,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       total_iteration_numel,
       total_reduction_numel);
 
-  // block or grid reduction heuristic
-  auto grid_hp = getBlockGridOuterReduction(
-      total_reduction_numel,
-      total_iteration_numel,
-      n_tensor_inputs,
-      n_tensor_outputs,
-      max_input_dtype_size,
-      max_unroll,
-      vectorize_factor);
   // If a valid block reduction heuristic is returned and it is better than grid
   // reduction heuristics, use it. otherwise, use the default heuristic which
   // usually generates grid reduction but may also generate block reduction.
