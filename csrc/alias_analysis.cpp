@@ -426,6 +426,13 @@ bool okToRelayout(
                                             : tv->getMaybeAllocationDomain());
   return new_layout.isCompliantWith({allocation, tv->getContiguity()});
 }
+
+bool isGlobalTensor(const TensorView* tv) {
+  return tv->isFusionInput() || tv->isFusionOutput() || std::any_of(tv->uses().begin() , tv->uses().end(), [](Expr* expr) {
+  return expr->isA<PadOp>() || expr->isA<SliceOp>() || (expr->isA<LoadStoreOp>() && expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet);
+});
+
+}
 } // namespace
 
 void AliasAnalysisResult::finalize(
@@ -433,8 +440,9 @@ void AliasAnalysisResult::finalize(
   for (auto [alias, root_and_layout] : alias_to_source_) {
     auto [root, preferred_layout] = root_and_layout;
     // Walks up the `alias_to_source_` chain.
-    while (root != nullptr && !root->isFusionInput() &&
-           !root->isFusionOutput()) {
+    // while (root != nullptr && !root->isFusionInput() &&
+    //     !root->isFusionOutput()) {
+    while (root != nullptr && !isGlobalTensor(root)) {
       const auto i = alias_to_source_.find(root);
       root = (i == alias_to_source_.end() ? nullptr : i->second.first);
     }
