@@ -162,6 +162,7 @@ class AbstractTensorSchedule {
     //     ValGroup 5: iS5
     //     ValGroup 6: iS7
     //     ValGroup 7: iS8
+    //     ValGroup 8: iS9
     //     ExprGroup 0:
     //       iS3 = merge(iS0, iS1)
     //     ExprGroup 1:
@@ -169,7 +170,36 @@ class AbstractTensorSchedule {
     //     ExprGroup 2:
     //       iS8 = merge(iS6, iS7)
     //
-    //   abstract_tensor_.domain: ValGroup 4, ValGroup 5, ValGroup 7
+    //   Note that IterDomains iS6, iS7, iS8, and iS9 might be associated to
+    //   other tensors in the fusion besides tv. Consider the following
+    //   abstract tensor:
+    //
+    //     abstract_tensor_.domain: ValGroup 4, ValGroup 5, ValGroup 2
+    //
+    //   The following diagrams show the transformations that are embedded in
+    //   the abstract tensor in this case:
+    //
+    //      VG0   VG1
+    //        \   /
+    //         EG0
+    //          |
+    //         VG3
+    //          |
+    //         EG1
+    //        /   \
+    //      VG4   VG5       VG2
+    //
+    //   In this case the schedule is computable since VG4, VG5, and VG2 are
+    //   all computable (since producer groups VG0, VG1, and VG2 are occupied
+    //   by tv).
+    //
+    //   Now consider a case where we replace VG2 with {VG5, VG7} in the
+    //   abstract domain and we add VG8:
+    //
+    //     abstract_tensor_.domain: ValGroup 4, ValGroup 5, ValGroup 7, ValGroup 8
+    //
+    //   The following diagrams show the transformations that are embedded in
+    //   the abstract tensor in this case:
     //
     //      VG0   VG1
     //        \   /
@@ -179,22 +209,27 @@ class AbstractTensorSchedule {
     //          |          \   /
     //         EG1          EG2
     //        /   \          |
-    //      VG4   VG5       VG7
+    //      VG4   VG5       VG7      VG8
     //
-    // In this case, tv has loop domains in ValGroups 0, 1, and 2. IterDomains
-    // iS6, iS7, and iS8 might be associated to another tensor in the fusion.
+    //   Again ValGroups 4 and 5 are computable since those ValGroups are
+    //   produced by ExprGroup 1 which itself produced by ExprGroup 0, and tv
+    //   includes iS0 and iS1. VG8 is not computable, but it has no computable
+    //   producers either, so we simply ignore it when scheduling tv.
     //
-    // ValGroups 4 and 5 are computable since those ValGroups are produced by
-    // ExprGroup 1 which itself produced by ExprGroup 0, and tv includes iS0 and
-    // iS1.
-    //
-    // However, ValGroup 7 is not computable. It is produced by ExprGroup 2
-    // whose input ValGroups are 2 and 6. ValGroup 2 is computable since iS2 is
-    // in tv, however there is no IterDomain in tv that can be used to represent
-    // ValGroup 6 which also has no producer ValGroups.
+    //   However, ValGroup 7 is not computable. It is produced by ExprGroup 2
+    //   whose input ValGroups are 2 and 6. ValGroup 2 is computable since iS2
+    //   is in tv, however there is no IterDomain in tv that can be used to
+    //   represent ValGroup 6 which also has no producer ValGroups. In this
+    //   case we will throw an error instead of ignoring VG7; the reason we
+    //   cannot ignore it in this case like we did with VG8 is that if we did
+    //   then we would leave VG2 out of the loop domain, which would validate
+    //   the consistency of the logical->loop mapping.
 
     // Any computable ValGroup should have an entry in computed_ids. If we prove
     // that the ValGroup is not computable, we insert it here.
+    // In the case of the above example this would include VG6 since it cannot
+    // be computed. VG7 is not included since it can be computed despite VG6
+    // being uncomputable:
     std::unordered_set<ValGroup> uncomputable_groups;
 
     // We are trying to evaluate the ValGroup g which acts like a symbolic
@@ -260,7 +295,9 @@ class AbstractTensorSchedule {
           // Some input is not yet computed
           if (uncomputed_producer_groups.empty() && !id_inps.empty()) {
             // The only uncomputed producer groups are uncomputable, but some
-            // are computed. Just pass those computed inputs through.
+            // are computed. Just pass those computed inputs through. Note that
+            // in this case, id_inps.front() will be the representative of vg
+            // even though it is _not_ actually mapped into that ValGroup.
             NVF_ERROR(id_inps.size() == 1);
             computed_ids.emplace(vg, id_inps.front());
             break;
