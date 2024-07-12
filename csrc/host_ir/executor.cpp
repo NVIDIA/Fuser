@@ -14,6 +14,32 @@ namespace nvfuser {
 
 namespace hir {
 
+namespace {
+
+at::Tensor getKnownTensorOrUndefined(
+    Val* val,
+    const ExpressionEvaluator& expr_evaluator) {
+  return expr_evaluator.isKnown(val)
+      ? expr_evaluator.evaluate(val).as<at::Tensor>()
+      : at::Tensor();
+}
+
+std::vector<at::Tensor> getKnownTensorOrUndefined(
+    const std::vector<Val*>& vals,
+    const ExpressionEvaluator& expr_evaluator) {
+  std::vector<at::Tensor> tensors(vals.size());
+  std::transform(
+      vals.begin(),
+      vals.end(),
+      tensors.begin(),
+      [&expr_evaluator](Val* val) -> at::Tensor {
+        return getKnownTensorOrUndefined(val, expr_evaluator);
+      });
+  return tensors;
+}
+
+} // namespace
+
 HostIrExecutor::HostIrExecutor(
     std::unique_ptr<HostIrContainer> container,
     Communicator* communicator,
@@ -37,7 +63,9 @@ HostIrExecutor::HostIrExecutor(
 std::vector<at::Tensor> HostIrExecutor::runWithInput(
     std::unordered_map<Val*, c10::IValue> val_to_IValue) {
   // process input values
-  val_to_IValue_ = std::move(val_to_IValue);
+  for (const auto& [val, ivalue] : val_to_IValue) {
+    expr_evaluator_.bind(val, ivalue.toTensor());
+  }
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
@@ -46,15 +74,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   }
 
   // Collect global outputs
-  std::vector<at::Tensor> outputs;
-  for (auto output_val : container_->outputs()) {
-    auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
-        ? val_to_IValue_.at(output_val).toTensor()
-        : at::Tensor();
-    outputs.push_back(output);
-  }
-
-  return outputs;
+  return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
 }
 
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
@@ -75,12 +95,26 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
   std::vector<c10::IValue> input_IValues;
   for (auto& input : post_ir->inputs()) {
     NVF_ERROR(
-        val_to_IValue_.find(input) != val_to_IValue_.end(),
+        expr_evaluator_.isKnown(input),
         "No buffer associated with Val ",
         input,
         " for handling ",
         post_ir->toString());
-    input_IValues.push_back(val_to_IValue_.at(input));
+    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
+    c10::IValue value;
+    if (input_evaluation.is<at::Tensor>()) {
+      value = input_evaluation.as<at::Tensor>();
+    } else if (input_evaluation.is<int64_t>()) {
+      value = at::Scalar(input_evaluation.as<int64_t>());
+    } else {
+      NVF_ERROR(
+          "Wrong type ",
+          input_evaluation.type().name(),
+          " for the PolymorphicValue ",
+          input_evaluation,
+          ", must be at::Tensor or int64_t");
+    }
+    input_IValues.push_back(value);
   }
 
   // placeholder for storing the outputs
@@ -117,7 +151,8 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
-    val_to_IValue_[post_ir->outputs().at(output_idx)] = outputs.at(output_idx);
+    expr_evaluator_.bind(
+        post_ir->outputs().at(output_idx), outputs.at(output_idx));
   }
 }
 
@@ -126,16 +161,10 @@ void HostIrExecutor::handle(Communication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
-  Val* input_val = communication->input(0);
-  Val* output_val = communication->output(0);
-  at::Tensor input_tensor;
-  if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
-    input_tensor = val_to_IValue_.at(input_val).toTensor();
-  }
-  at::Tensor output_tensor;
-  if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
-    output_tensor = val_to_IValue_.at(output_val).toTensor();
-  }
+  at::Tensor input_tensor =
+      getKnownTensorOrUndefined(communication->input(0), expr_evaluator_);
+  at::Tensor output_tensor =
+      getKnownTensorOrUndefined(communication->output(0), expr_evaluator_);
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), std::nullopt);
@@ -167,7 +196,7 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
 
   for (auto i = start; i < stop; i += step) {
     for (Expr* expr : for_loop->body().exprs()) {
-      val_to_IValue_[for_loop->index()] = at::Scalar(i);
+      expr_evaluator_.bind(for_loop->index(), i);
       dispatch(expr);
     }
   }

@@ -76,8 +76,6 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
   // philox_offset, debug_attn_mask} Since, dropout_p = 0.0 to validate outputs,
   // philox_seed and philox_offset are uninitialized empty tensors with garbage
   // values for this case, so we skip validating those values.
-  // TODO: Validate query_seq_len/key_seq_len once scalar fusion outputs are
-  // supported.
   EXPECT_TRUE(at::allclose(nvf_out[0], attn));
   EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
   EXPECT_FALSE(nvf_out[2].defined());
@@ -93,12 +91,11 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
-  std::vector<int64_t> k_shape({n, h, s, e});
-  std::vector<int64_t> v_shape({n, h, s, e});
+  std::vector<int64_t> kv_shape({n, h, s, e});
 
   auto tvq = makeConcreteTensor(q_shape, DataType::Half);
-  auto tvk = makeConcreteTensor(k_shape, DataType::Half);
-  auto tvv = makeConcreteTensor(v_shape, DataType::Half);
+  auto tvk = makeConcreteTensor(kv_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
 
   fusion->addInput(tvq);
   fusion->addInput(tvk);
@@ -115,8 +112,8 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
-  at::Tensor k = at::randn(k_shape, options);
-  at::Tensor v = at::randn(v_shape, options);
+  at::Tensor k = at::randn(kv_shape, options);
+  at::Tensor v = at::randn(kv_shape, options);
 
   double scale = 1.0 / std::sqrt(e);
   auto aten_out = at::_scaled_dot_product_flash_attention(
@@ -139,12 +136,11 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
-  std::vector<int64_t> k_shape({n, h, s, e});
-  std::vector<int64_t> v_shape({n, h, s, e});
+  std::vector<int64_t> kv_shape({n, h, s, e});
 
   auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
-  auto tvk = makeSymbolicTensor(k_shape, DataType::Half);
-  auto tvv = makeSymbolicTensor(k_shape, DataType::Half);
+  auto tvk = makeSymbolicTensor(kv_shape, DataType::Half);
+  auto tvv = makeSymbolicTensor(kv_shape, DataType::Half);
 
   fusion->addInput(tvq);
   fusion->addInput(tvk);
@@ -161,8 +157,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
-  at::Tensor k = at::randn(k_shape, options);
-  at::Tensor v = at::randn(v_shape, options);
+  at::Tensor k = at::randn(kv_shape, options);
+  at::Tensor v = at::randn(kv_shape, options);
 
   double scale = 1.0 / std::sqrt(e);
   auto aten_out = at::_scaled_dot_product_flash_attention(
@@ -185,12 +181,11 @@ TEST_F(SDPATest, CausalAttn) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
-  std::vector<int64_t> k_shape({n, h, s, e});
-  std::vector<int64_t> v_shape({n, h, s, e});
+  std::vector<int64_t> kv_shape({n, h, s, e});
 
   auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
-  auto tvk = makeSymbolicTensor(k_shape, DataType::Half);
-  auto tvv = makeSymbolicTensor(k_shape, DataType::Half);
+  auto tvk = makeSymbolicTensor(kv_shape, DataType::Half);
+  auto tvv = makeSymbolicTensor(kv_shape, DataType::Half);
 
   fusion->addInput(tvq);
   fusion->addInput(tvk);
@@ -207,8 +202,8 @@ TEST_F(SDPATest, CausalAttn) {
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
-  at::Tensor k = at::randn(k_shape, options);
-  at::Tensor v = at::randn(v_shape, options);
+  at::Tensor k = at::randn(kv_shape, options);
+  at::Tensor v = at::randn(kv_shape, options);
 
   auto aten_out = at::_scaled_dot_product_flash_attention(
       q,
@@ -230,12 +225,11 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
-  std::vector<int64_t> k_shape({n, h, s, e});
-  std::vector<int64_t> v_shape({n, h, s, e});
+  std::vector<int64_t> kv_shape({n, h, s, e});
 
   auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
-  auto tvk = makeSymbolicTensor(k_shape, DataType::Half);
-  auto tvv = makeSymbolicTensor(k_shape, DataType::Half);
+  auto tvk = makeSymbolicTensor(kv_shape, DataType::Half);
+  auto tvv = makeSymbolicTensor(kv_shape, DataType::Half);
 
   fusion->addInput(tvq);
   fusion->addInput(tvk);
@@ -301,14 +295,13 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
-  std::vector<int64_t> k_shape({n, h, s, e});
-  std::vector<int64_t> v_shape({n, h, s, e});
+  std::vector<int64_t> kv_shape({n, h, s, e});
   std::vector<int64_t> attn_shape({n, h, l, e});
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
-  at::Tensor k = at::randn(k_shape, options);
-  at::Tensor v = at::randn(v_shape, options);
+  at::Tensor k = at::randn(kv_shape, options);
+  at::Tensor v = at::randn(kv_shape, options);
 
   double dropout_p = 0.2;
   bool is_causal = false;
@@ -335,8 +328,8 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
 
   auto tv_grad_output = makeConcreteTensor(attn_shape, DataType::Half);
   auto tvq = makeConcreteTensor(q_shape, DataType::Half);
-  auto tvk = makeConcreteTensor(k_shape, DataType::Half);
-  auto tvv = makeConcreteTensor(k_shape, DataType::Half);
+  auto tvk = makeConcreteTensor(kv_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
   auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeConcreteTensor({n, h, l}, DataType::Float);
   auto tv_cumq = makeConcreteTensor({0}, DataType::Null);
@@ -444,14 +437,13 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
-  std::vector<int64_t> k_shape({n, h, s, e});
-  std::vector<int64_t> v_shape({n, h, s, e});
+  std::vector<int64_t> kv_shape({n, h, s, e});
   std::vector<int64_t> attn_shape({n, h, l, e});
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
-  at::Tensor k = at::randn(k_shape, options);
-  at::Tensor v = at::randn(v_shape, options);
+  at::Tensor k = at::randn(kv_shape, options);
+  at::Tensor v = at::randn(kv_shape, options);
 
   double dropout_p = 0.2;
   bool is_causal = false;
@@ -478,8 +470,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
 
   auto tv_grad_output = makeSymbolicTensor(attn_shape, DataType::Half);
   auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
-  auto tvk = makeSymbolicTensor(k_shape, DataType::Half);
-  auto tvv = makeSymbolicTensor(k_shape, DataType::Half);
+  auto tvk = makeSymbolicTensor(kv_shape, DataType::Half);
+  auto tvv = makeSymbolicTensor(kv_shape, DataType::Half);
   auto tv_output = makeSymbolicTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
   auto tv_cumq = makeSymbolicTensor(1, DataType::Null);
@@ -588,12 +580,11 @@ TEST_F(SDPATest, AttnProgram) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> q_shape({n, h, l, e});
-  std::vector<int64_t> k_shape({n, h, s, e});
-  std::vector<int64_t> v_shape({n, h, s, e});
+  std::vector<int64_t> kv_shape({n, h, s, e});
 
   auto tvq = makeConcreteTensor(q_shape, DataType::Half);
-  auto tvk = makeConcreteTensor(k_shape, DataType::Half);
-  auto tvv = makeConcreteTensor(v_shape, DataType::Half);
+  auto tvk = makeConcreteTensor(kv_shape, DataType::Half);
+  auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
 
   fusion->addInput(tvq);
   fusion->addInput(tvk);
@@ -608,15 +599,14 @@ TEST_F(SDPATest, AttnProgram) {
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
-  TensorView* tvsdpa = segment_set(tvattn.output);
 
-  TensorView* tvout = add(tvsdpa, tvsdpa);
+  TensorView* tvout = add(tvattn.output, tvattn.output);
   fusion->addOutput(tvout);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
-  at::Tensor k = at::randn(k_shape, options);
-  at::Tensor v = at::randn(v_shape, options);
+  at::Tensor k = at::randn(kv_shape, options);
+  at::Tensor v = at::randn(kv_shape, options);
 
   double scale = 1.0 / std::sqrt(e);
   auto aten_outputs = at::_scaled_dot_product_flash_attention(

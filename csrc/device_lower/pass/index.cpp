@@ -21,6 +21,19 @@
 
 namespace nvfuser {
 
+std::vector<Expr*> IndexLowering::getIndexedExprs(
+    std::vector<Expr*> incoming_exprs) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::IndexLowering::getIndexedExprs");
+  // Traverse the exprs and setup allocation domains before
+  // generating indices.
+  if (GpuLower::current()->isTensorIndexerEnabled()) {
+    GpuLower::current()->tensorIndexer().setupAllocationDomains(incoming_exprs);
+  }
+  IndexLowering il;
+  il.generate(incoming_exprs);
+  return il.lowered_exprs_;
+}
+
 Val* IndexLowering::lowerSrcIndex(
     Val* src,
     Val* dst,

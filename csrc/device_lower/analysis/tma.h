@@ -44,6 +44,8 @@ struct TMADim {
   }
 };
 
+std::ostream& operator<<(std::ostream& os, const TMADim& d);
+
 class TMAInfo {
   std::vector<TMADim> dims_;
   MmaInputSmemSwizzle swizzle_;
