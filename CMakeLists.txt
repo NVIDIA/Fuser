@@ -136,6 +136,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/executor.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/id_model_index_compute.cpp
   ${NVFUSER_SRCS_DIR}/id_model/indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/loop_promotion.cpp
   ${NVFUSER_SRCS_DIR}/id_model/schedule.cpp
@@ -603,6 +604,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communicator.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp

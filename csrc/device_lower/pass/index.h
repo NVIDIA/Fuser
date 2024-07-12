@@ -23,12 +23,7 @@ namespace nvfuser {
 // versions that are doing indexing
 class IndexLowering : private OptOutConstDispatch {
  public:
-  static std::vector<Expr*> getIndexedExprs(std::vector<Expr*> incoming_exprs) {
-    FUSER_PERF_SCOPE("GpuLower::Lower::IndexLowering::getIndexedExprs");
-    IndexLowering il;
-    il.generate(incoming_exprs);
-    return il.lowered_exprs_;
-  }
+  static std::vector<Expr*> getIndexedExprs(std::vector<Expr*> incoming_exprs);
 
  private:
   IndexLowering() = default;

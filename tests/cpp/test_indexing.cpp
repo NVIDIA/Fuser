@@ -167,7 +167,8 @@ class IndexValidator : public kir::IrVisitor {
     // If no ref is obtained, skip validation
   }
 
-  static void validate(Fusion* fusion) {
+  template <typename... Args>
+  static void validate(Fusion* fusion, Args... args) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"consumer_index", "producer_index"});
@@ -188,7 +189,7 @@ class IndexValidator : public kir::IrVisitor {
     testing::internal::GetCapturedStderr();
 
     IndexValidator<GetReference> validator(
-        lower, GetReference(lower.tensorIndexer()));
+        lower, GetReference(lower.tensorIndexer(), args...));
 
     FusionGuard fg(kernel);
     validator.handle(kernel->topLevelExprs());
@@ -234,29 +235,29 @@ TEST_F(IndexingTest, SimplePointwise1) {
           NVF_ERROR(!as_consumer);
           return addExpr(
               mulExpr(
-                  IrBuilder::getItemExpr(
-                      IrBuilder::getAttrExpr(
-                          IrBuilder::metadataExpr(tv), "alloc_stride"),
-                      IrBuilder::create<Val>(0)),
                   divExpr(
                       addExpr(
                           mulExpr(
                               consumer_tv->axis(1)->extent(),
                               loop_indices.at(0)),
                           loop_indices.at(1)),
-                      tv->getLogicalDomain().at(1)->extent())),
-              mulExpr(
+                      tv->getLogicalDomain().at(1)->extent()),
                   IrBuilder::getItemExpr(
                       IrBuilder::getAttrExpr(
                           IrBuilder::metadataExpr(tv), "alloc_stride"),
-                      IrBuilder::create<Val>(1)),
+                      IrBuilder::create<Val>(0))),
+              mulExpr(
                   modExpr(
                       addExpr(
                           mulExpr(
                               consumer_tv->axis(1)->extent(),
                               loop_indices.at(0)),
                           loop_indices.at(1)),
-                      tv->getLogicalDomain().at(1)->extent())));
+                      tv->getLogicalDomain().at(1)->extent()),
+                  IrBuilder::getItemExpr(
+                      IrBuilder::getAttrExpr(
+                          IrBuilder::metadataExpr(tv), "alloc_stride"),
+                      IrBuilder::create<Val>(1))));
         }
         case 1: {
           return loop_indices.at(1);
@@ -265,12 +266,12 @@ TEST_F(IndexingTest, SimplePointwise1) {
           NVF_ERROR(as_consumer);
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(),
                   divExpr(
                       addExpr(
                           mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
                           loop_indices.at(1)),
-                      tv->getLogicalDomain().at(1)->extent())),
+                      tv->getLogicalDomain().at(1)->extent()),
+                  tv->getLogicalDomain().at(1)->extent()),
               modExpr(
                   addExpr(
                       mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
@@ -342,9 +343,9 @@ TEST_F(IndexingTest, SimplePointwise2) {
 
       auto global_ref = SimplifyingIrBuilder::addExpr(
           SimplifyingIrBuilder::mulExpr(
-              tv->getLogicalDomain().at(1)->extent(),
               SimplifyingIrBuilder::divExpr(
-                  contig_idx, tv->getLogicalDomain().at(1)->extent())),
+                  contig_idx, tv->getLogicalDomain().at(1)->extent()),
+              tv->getLogicalDomain().at(1)->extent()),
           SimplifyingIrBuilder::modExpr(
               contig_idx, tv->getLogicalDomain().at(1)->extent()));
 
@@ -402,7 +403,7 @@ TEST_F(IndexingTest, SimpleReduction) {
           NVF_ERROR(!as_consumer);
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(0)),
+                  loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
               loop_indices.at(1));
         }
         case 1: {
@@ -748,10 +749,10 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
         case 3: {
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(),
                   divExpr(
                       loop_indices.at(0),
-                      tv->getLogicalDomain().at(1)->extent())),
+                      tv->getLogicalDomain().at(1)->extent()),
+                  tv->getLogicalDomain().at(1)->extent()),
               modExpr(
                   loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()));
         }
@@ -924,7 +925,7 @@ TEST_F(IndexingTest, MultiDevice2D) {
       // next test for a loop allocation example
       auto inner_dim = tv->getLogicalDomain().at(1)->extent();
       return addExpr(
-          mulExpr(inner_dim, divExpr(loop_indices.at(1), inner_dim)),
+          mulExpr(divExpr(loop_indices.at(1), inner_dim), inner_dim),
           modExpr(loop_indices.at(1), inner_dim));
     }
   };
@@ -1006,13 +1007,13 @@ TEST_F(IndexingTest, MultiDevice2DTranspose) {
         case 0: {
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(2)),
+                  loop_indices.at(2), tv->getLogicalDomain().at(1)->extent()),
               loop_indices.at(1));
         }
         case 1: {
           return addExpr(
               mulExpr(
-                  tv->getLogicalDomain().at(1)->extent(), loop_indices.at(1)),
+                  loop_indices.at(1), tv->getLogicalDomain().at(1)->extent()),
               loop_indices.at(2));
         }
         default:
@@ -1130,6 +1131,77 @@ TEST_F(IndexingTest, SimpleVectorize) {
   IndexValidator<GetReference>::validate(&fusion);
 }
 
+// Test for reorderAllocationDomains. The vectorized
+// domain must be at the innermost position in the allocation domain
+// but that's not always the case within the loop domain. We might
+// want to consider if we should just change the scheduler such that
+// vectorized domains always be placed at the innermost position, but
+// this test is to make sure the new indexer can reproduce what the
+// old indexing does.
+TEST_F(IndexingTest, NonInnermostVectorize) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  // For vectorized store
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Vectorize
+  tv3->split(0, 4);
+  // Serial
+  tv3->split(0, 2);
+  // TIDx
+  tv3->split(0, 128);
+
+  tv3->reorder({{-1, -2}});
+
+  TransformPropagator propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3, ir_utils::allTvs(&fusion));
+
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+  tv3->axis(2)->parallelize(ParallelType::Vectorize);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      bool vec_load_or_store =
+          ((tv->name() == 1 && as_consumer) ||
+           (tv->name() == 2 && !as_consumer));
+
+      // Validate tv1 as vector load output and tv2 as vector store input
+      switch (tv->name()) {
+        case 1:
+        case 2:
+          if (vec_load_or_store) {
+            return mulExpr(loop_indices.at(3), tv->axis(2)->extent());
+          } else {
+            return addExpr(
+                mulExpr(loop_indices.at(3), tv->axis(2)->extent()),
+                loop_indices.at(2));
+          }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
 // Indexing traversal failure repro due to non-size-one broadcast
 // domains. See issue #2393 as well.
 TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
@@ -1232,6 +1304,318 @@ TEST_F(IndexingTest, Swizzle) {
         }
         default:
           // Only validates tv1
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
+// Simple Unroll test. Unlike Unswitch, Unroll moves up allocation
+// points and thus index needs to be adjusted
+TEST_F(IndexingTest, SimpleUnroll) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  auto tv0_cache = tv0->cacheAfter();
+  auto tv1_cache = tv1->cacheAfter();
+
+  tv2->flatten();
+  // For TIDx
+  tv2->split(0, 128);
+  // For unroll
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unroll);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  // Use these names in GetReference.
+  NVF_ERROR(tv0_cache->name() == 3);
+  NVF_ERROR(tv1_cache->name() == 4);
+
+  // While the CA position of the cache tensors is -1, its allocation
+  // isn't a scalar but has the unroll domain. Make sure the domain is
+  // indeed indexed.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      // Only check tv0_cache and tv1_cache
+      if (tv->name() != 3 && tv->name() != 4) {
+        return nullptr;
+      }
+
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      NVF_ERROR(loop_indices.size() == 3);
+      // Each of three domains corresponds to BIDx, Unroll and
+      // TIDx. Only the Unroll domain is allocated.
+      return loop_indices.at(1);
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
+// Unrolling with no unrolled loop domain
+TEST_F(IndexingTest, InlinedUnroll) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({4});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({3, 4});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  tv4->split(0, 1);
+
+  TransformPropagator propagator(tv4);
+  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  inlineMost();
+
+  tv4->axis(1)->parallelize(ParallelType::Unroll);
+
+  scheduler_utils::parallelizeAllLike(tv4, ir_utils::allTvs(&fusion));
+
+  // The CA position of tv2 is 1 as shown below:
+  //
+  // T2_l[ iS3{4} ] ca_pos( 1 )
+  //
+  // However, this doesn't mean the allocation domain of tv2 is a
+  // scalar since it's inlined into tv4 that has an unrolled domain,
+  // which effectively unrolls tv2 as well. Remember that unrolling of
+  // a domain means the allocation of the domain is not inlined.
+  //
+  // The objective of the validation below is to make sure that tv2
+  // indexing is done properly.
+
+  // Make sure tv2 is indexed with the innermost loop domain
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      // Only check tv2
+      if (tv->name() != 2) {
+        return nullptr;
+      }
+
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+      return loop_indices.back();
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
+TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = transpose(tv1, 0, 1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  // Reproduce the transpose scheduler manually
+  tv3->setMemoryType(MemoryType::Shared);
+
+  for (auto tv : {tv2, tv3}) {
+    tv->reorder({{0, 1}});
+  }
+
+  // [I0, I1] -> [(I0/32 * I1/32), (32 * 32) / 4, 4]
+  for (auto tv : ir_utils::allTvs(&fusion)) {
+    tv->split(0, 32);
+    tv->split(2, 32);
+    tv->reorder({{1, 2}});
+    tv->merge(2, 3);
+    if (tv == tv4) {
+      tv->merge(1, 0);
+    } else {
+      tv->merge(0, 1);
+    }
+    tv->split(-1, 4);
+
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  // tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv4->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // Validate the smem tensor index. Its allocation domain should be
+  // [32, 32], where each "32" comes from I1 and I0, respectively.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, StmtNameType smem_tv_name)
+        : AbstractGetReference(indexer), smem_tv_name(smem_tv_name) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      if (tv->name() != smem_tv_name) {
+        return nullptr;
+      }
+
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      auto merge_output_idx = IrBuilder::addExpr(
+          mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+          (as_consumer ? loop_indices.at(2) : tv->fusion()->zeroVal()));
+
+      auto val32 = tv->axis(-1)
+                       ->definition()
+                       ->input(0)
+                       ->definition()
+                       ->input(0)
+                       ->as<IterDomain>()
+                       ->extent();
+      auto merge_outer_idx = divExpr(merge_output_idx, val32);
+      auto merge_inner_idx = modExpr(merge_output_idx, val32);
+
+      if (as_consumer) {
+        return addExpr(mulExpr(merge_inner_idx, val32), merge_outer_idx);
+      } else {
+        return addExpr(mulExpr(merge_outer_idx, val32), merge_inner_idx);
+      }
+    }
+
+    StmtNameType smem_tv_name;
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, tv3->name());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input0 = at::randn({256, 256}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {input0});
+  auto outputs = fe.runFusion({input0});
+
+  testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
+}
+
+// Same fusion as ResizeTest.Slice2. There exist two paths from
+// loop domains to allocation domains, and indexing needs to select
+// the right one.
+TEST_F(IndexingTest, ResizePath) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({11, 30});
+
+  NVF_CHECK(shape[1] % 2 == 0);
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(tv0, {0, 0}, {shape[0], shape[1] / 2});
+  auto tv2 = slice(tv0, {0, shape[1] / 2}, {shape[0], shape[1]});
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  // TransformPrinter :
+  // T0_g[ iS0{11}, iS1{30} ]
+  //  logical domain : (iS0{11}, iS1{30})
+  //  contiguity: f f
+  //  loop domain : (iS0{11}, iS1{30})
+  // T1_l[ iS2{11}rf, iS4{15}rf ]
+  //  root domain : (iS2{11}rf, iS3{30}rf)
+  //   Resize: iS3{30}rf by 0 and -15 -> iS4{15}rf
+  //  logical domain : (iS2{11}rf, iS4{15}rf)
+  //  contiguity: t t
+  //  loop domain : (iS2{11}rf, iS4{15}rf)
+  // T2_l[ iS5{11}rf, iS7{15}rf ]
+  //  root domain : (iS5{11}rf, iS6{30}rf)
+  //   Resize: iS6{30}rf by -15 and 0 -> iS7{15}rf
+  //  logical domain : (iS5{11}rf, iS7{15}rf)
+  //  contiguity: t t
+  //  loop domain : (iS5{11}rf, iS7{15}rf)
+  // T3_g[ iS8{11}, iS9{15} ]
+  //  logical domain : (iS8{11}, iS9{15})
+  //  contiguity: t t
+  //  loop domain : (iS8{11}, iS9{15})
+  // }
+
+  // Notice that due to `add(tv1, tv2)`, the inner domains of tv1, tv2
+  // and tv3 are all mapped, and that all of them are derived from
+  // iS1. This means that when indexing tv0 as the consumer of tv1,
+  // for example, there're two paths from the inner domain of tv1
+  // (i.e., iS4) to the inner allocation domain of tv0 (i.e.,
+  // iS1). One is through the resize of tv1 itself, but the resize for
+  // tv2 can also allow traversal reaching iS1 from iS4 since iS7 is
+  // mapped with iS7. In this case, indexng tv0 for tv1 needs to use
+  // the resize for tv1 and ignore the other resize. Similarly when
+  // indexing tv0 as the producer of tv2, the resize of tv2 needs to
+  // be used.
+
+  // Validate the smem tensor index. Its allocation domain should be
+  // [32, 32], where each "32" comes from I1 and I0, respectively.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      // We are only interested in producer indexing of tv0
+      if (tv->name() != 0) {
+        return nullptr;
+      }
+
+      NVF_ERROR(maybe_consumer != nullptr);
+      auto consumer_tv = maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      switch (consumer_tv->name()) {
+        case 1: {
+          // Slice takes the first half, so the producer index should
+          // be as the consumer index.
+          return addExpr(
+              mulExpr(
+                  loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
+              loop_indices.at(1));
+        }
+        case 2: {
+          // Slice takes the second half, so the producer index should
+          // have an offset of the slice.
+          return addExpr(
+              mulExpr(
+                  loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
+              addExpr(loop_indices.at(1), IrBuilder::create<Val>(15)));
+        }
+        default:
           return nullptr;
       }
     }

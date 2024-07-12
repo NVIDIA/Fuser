@@ -703,7 +703,8 @@ getOptionalInnerOuterPersistentBufferBatches(
   // time to tune as these un-vectorized small cases should be rare in real
   // world.
   if (inner_dim_numel <= 1024l) {
-    const int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    batch = std::min(batch, inner_dim_numel);
     return std::make_pair(
         batch, ceilDiv(inner_dim_numel, batch * vectorize_factor));
   }
