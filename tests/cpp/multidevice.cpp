@@ -27,12 +27,10 @@
 namespace nvfuser {
 
 void MultiDeviceTestEnvironment::SetUp() {
-  communicator_ = new Communicator();
+  communicator_ = &Communicator::getInstance();
 }
 
-void MultiDeviceTestEnvironment::TearDown() {
-  delete communicator_;
-}
+void MultiDeviceTestEnvironment::TearDown() {}
 
 /*static*/ Communicator* MultiDeviceTestEnvironment::communicator_ = nullptr;
 

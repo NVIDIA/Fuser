@@ -24,18 +24,15 @@
 
 namespace nvfuser {
 
-/*
-   This file implements the class Communicator which sets up the inter-process
-   Backend. This class contains inter-process information, such as the rank, the
-   world size, as well as the Process Group that can be called to perform
-   inter-process communications.
-
-   Each process is associated with a unique deviceId and device. The actual MPI
-   rank remains private to the class and should not be used by the user. The
-   communicator class holds privately the mappings ranks <-> device IDs <->
-   device.
-
-*/
+// This file implements the class Communicator which sets up the inter-process
+// Backend. This class contains inter-process information, such as the rank, the
+// world size, as well as the Process Group that can be called to perform
+// inter-process communications.
+//
+// Each process is associated with a unique deviceId and device. The actual MPI
+// rank remains private to the class and should not be used by the user. The
+// communicator class holds privately the mappings ranks <-> device IDs <->
+// device.
 
 using RankType = DeviceIdxType;
 
@@ -53,10 +50,10 @@ constexpr int comm_server_local_rank_default = 0;
 
 class Communicator {
  public:
-  Communicator(
-      CommunicatorBackend backend = comm_backend_default,
-      RankType server_local_rank = comm_server_local_rank_default);
-  ~Communicator();
+  static Communicator& getInstance() {
+    static Communicator communicator;
+    return communicator;
+  }
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;
@@ -126,6 +123,11 @@ class Communicator {
   }
 
  private:
+  Communicator(
+      CommunicatorBackend backend = comm_backend_default,
+      RankType server_local_rank = comm_server_local_rank_default);
+  ~Communicator();
+
   // returns the rank corresponding to a device index
   RankType dIdToRank(DeviceIdxType d_id) const {
     return static_cast<RankType>(d_id);
