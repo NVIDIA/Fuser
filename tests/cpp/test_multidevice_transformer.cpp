@@ -51,10 +51,10 @@ class DistributedTransformerTest
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
   const int D;
-  const int B = 4;
-  const int E = 128;
+  const int B = 2;
+  const int E = 32;
   const int H = 4;
-  const int S = 32;
+  const int S = 4;
 
   // Temporary until https://github.com/NVIDIA/Fuser/issues/2563
   at::Tensor shardTensor(at::Tensor tensor, int64_t axis, DeviceMesh& mesh) {
@@ -279,12 +279,13 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   // linear #1 weight/bias is sharded along the heads, which is concatenated
   // into the column dimension (3*E). Non-reduction axis.
   // linear #2 is also sharded along the heads which is the row (reduction E). 
-  // Self attention linear
+  // Self-attention linear
   TensorView* mm = matmul(x, w0);
   TensorView* proj_bias_bcast = broadcast(b0, {false, true, false});
   TensorView* qkv1 = add(mm, proj_bias_bcast);
   // Forming the q,k,v vectors:
   TensorView* qkv = reshape(qkv1, {D, B * S, 3 * E/D}, {D, B, S, 3 * E/D});
+  std::vector<TensorView*> qkv_slice = {};
   std::vector<TensorView*> qkv_reshaped = {};
   for (auto i : c10::irange(3)) {
     TensorView* tv_slice = slice(qkv, {0, 0, 0, E/D * i}, {D, B, S, E/D * (i + 1)});
@@ -292,19 +293,17 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
     TensorView* tv_reshape = reshape(tv_slice, {D, B, S, E/D}, {D, B, S, H/D, E/H});
     TensorView* tv_trans = transpose(tv_reshape, 2, 3); // D, B, H/D, S, E/H
     TensorView* tv_cast = castOp(dtype, tv_trans);
+    qkv_slice.push_back(tv_slice);
     qkv_reshaped.push_back(tv_cast);
     // Explicitly shard qkv before calling SDPA node
-    // so that we can filter out the device dimensions logical domain when
-    // checking sizes. This is temporary until we allow DID parallelization on the loop domain.
     for (auto tv : {tv_slice, tv_reshape, tv_trans, tv_cast}) {
       tv->setDeviceMesh(mesh);
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
   }
-
   // SDPA
-  constexpr double kProb = 0.0;
-  constexpr double kScale = 1.0 / (1.0 - kProb);
+  constexpr double kProb = 0.1;
+  constexpr double kScale = 1e-3;
   SdpfaFwdResult sdpa = sdpfa_fwd(
       qkv_reshaped[0],
       qkv_reshaped[1],
@@ -313,17 +312,15 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
       IrBuilder::create<Val>(true),
       IrBuilder::create<Val>(kScale));
   TensorView* sdpa_output = sdpa.output; // D, B, H/D, S, E/H
-
   // Linear projection
   TensorView* sdpa_transpose = transpose(sdpa_output, 2, 3); // D, B, S, H/D, E/H
   // Note: We have to reshape into a 2D tensor instead of 3D
   TensorView* sdpa_reshape =
       reshape(sdpa_transpose, {D, B, S, H/D, E/H}, {D, B * S, E/D});
-  TensorView* mm2 = matmul(sdpa_reshape, w1); // D, B*S, E
-  TensorView* mm2_ar = sum(mm2, {0}); // allreduce B*S, E
+  TensorView* mm2 = matmul(sdpa_reshape, w1); // D, B*S, E/D * D, E/D, E
+  TensorView* mm2_ar = sum(mm2, {0}); // allreduce rD, B*S, E
   TensorView* b1_bcast = broadcast(b1, {true, false});
   TensorView* linear2 = add(mm2_ar, b1_bcast);
-
   // // Dropout
   const double kDropoutProb = 0.1;
   TensorView* dropout =
@@ -341,28 +338,26 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
     tv->setDeviceMesh(mesh);
   }
 
-  for (auto tv : {w0, b0, w1, mm, mm2, proj_bias_bcast, qkv, sdpa_output}) {
+  for (auto tv : {w0, b0, w1, proj_bias_bcast, mm, mm2, qkv, sdpa_output}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
   const auto options = at::TensorOptions().dtype(at_dtype).device(
       at::kCUDA, communicator_->local_rank());
-  at::manual_seed(0);
-  // auto x_ = at::arange(0, B*S*E, 1, options).view({B * S, E}) / 100;
   auto x_ = at::randn({B*S, E}, options);
-  auto w0_ = at::randn({E, 3 * E}, options) / 10.0;
-  auto b0_ = at::randn({3 * E}, options) / 10.0;
+  auto w0_ = at::randn({E, 3 * E}, options);
+  auto b0_ = at::randn({3 * E}, options);
   auto w1_ = at::randn({E, E}, options);
   auto b1_ = at::randn({E}, options);
+
   auto m_ = at::matmul(x_, w0_).add(b0_).view({B, S, 3 * E});
   auto qkv_vec = m_.split(E, 2);
-  // move vectors from (B, S, E) to (B, S, H, E/H) to (B, H, S, E/H)
   for (auto i = 0; i < 3; i++) {
     qkv_vec[i] =
         qkv_vec[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
   }
-
+  at::manual_seed(0);
   auto sdpa_out = at::_scaled_dot_product_flash_attention(
       qkv_vec[0], qkv_vec[1], qkv_vec[2], kProb, true, false, kScale);
   auto sdpa_ = std::get<0>(sdpa_out);
@@ -372,13 +367,14 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   at::manual_seed(0);
   auto y_dropout = at::dropout(y_proj.to(at::kFloat), kDropoutProb, true);
 
-  std::vector<c10::IValue> inputs = {x_, 
-    shardTensor(w0_, 1, mesh),
-    shardTensor(b0_, 0, mesh),
+  std::vector<c10::IValue> inputs = 
+    {x_, 
+    shardTensor(w0_.view({E, 3, E}), 2, mesh).view({1, E, 3*E/D}).contiguous(),
+    shardTensor(b0_.view({3, E}), 1, mesh).view({1, 3*E/D}).contiguous(),
     shardTensor(w1_, 0, mesh),
     b1_};
   std::vector<at::Tensor> expected_outputs = {
-    shardTensor(m_, 2, mesh),
+    shardTensor(m_.view({B, S, 3, E}), 3, mesh).view({1, B, S, 3*E/D}).contiguous(),
     shardTensor(qkv_vec[0], 1, mesh),
     shardTensor(qkv_vec[1], 1, mesh),
     shardTensor(qkv_vec[2], 1, mesh),

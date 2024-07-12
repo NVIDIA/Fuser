@@ -4338,6 +4338,17 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   const auto dropout_p = inputs.at(3).as<double>();
   const auto is_causal = inputs.at(4).as<bool>();
 
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool handle_device_dim = false;
+  if (query.dim() == 5) {
+    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
+    handle_device_dim = true;
+    query = query.squeeze(0);
+    key = key.squeeze(0);
+    value = value.squeeze(0);
+  }
+
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
   const auto last_dim_size = query.sizes()[3];
@@ -4350,17 +4361,6 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     auto padded_inp = at::pad(inp, {0, pad_count});
     return padded_inp;
   };
-
-  // Temporary handling of DID parallelization see
-  // https://github.com/NVIDIA/Fuser/issues/2563
-  bool handle_device_dim = false;
-  if (query.dim() == 5) {
-    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
-    handle_device_dim = true;
-    query = query.squeeze(0);
-    key = key.squeeze(0);
-    value = value.squeeze(0);
-  }
 
   query = pad_last_dim(query, 8);
   key = pad_last_dim(key, 8);
@@ -4390,6 +4390,9 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
               is_causal,
               /*return_debug_mask=*/false,
               scale);
+  // TEMP HACK: Need to make certain the seed is replicated across devices
+  // before dropout is called.
+  at::manual_seed(0);
 
   // If the inputs were padded, slice the output to restore the original size
   if (output.sizes()[3] != last_dim_size) {
