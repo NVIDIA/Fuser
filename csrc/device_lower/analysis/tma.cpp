@@ -52,9 +52,10 @@ int64_t getCpAsyncBulkTensorSwizzleSize(TensorView* smem_tv) {
 
 // Infer roles (bulk, non-bulk, partitioned, box, tile, and stride) of ValGroups
 // by traversing along the traversal graph of the tensor indexer from the
-// consumer's loop domain to the gmem tensor's allocation domain. The end result
-// of the traversal are two sets of ValGroups: bulk and non-bulk, and a list of
-// TMADim objects describing the roles (partitioned, box, tile, and stride) of
+// consumer(the smem tensor for TMA load, the gmem tensor fo TMA store)'s loop
+// domain to the gmem tensor's allocation domain. The end result of the
+// traversal are two sets of ValGroups: bulk and non-bulk, and a list of TMADim
+// objects describing the roles (partitioned, box, tile, and stride) of
 // ValGroups in a TMA dimension. Note that the returned list of TMADim objects
 // are not the final TMA dimensions, because: first, its order is not
 // determined; second, some dimensions may be collapsed according to the "define
@@ -124,17 +125,16 @@ class InferBulkGroups : public Pass {
   std::unordered_set<ValGroup>& bulk_groups_;
 
   bool condition(ExprGroup expr, Direction direction) override {
-    auto from_ = from(expr, direction);
-    auto to_ = to(expr, direction);
-    return std::all_of(from_.begin(), from_.end(), [&](const ValGroup& g) {
+    auto from = this->from(expr, direction);
+    return std::all_of(from.begin(), from.end(), [&](const ValGroup& g) {
       return bulk_groups_.count(g) > 0;
     });
   }
 
   void action(ExprGroup expr, Direction direction) override {
-    auto from_ = from(expr, direction);
-    auto to_ = to(expr, direction);
-    for (auto& g : to_) {
+    auto from = this->from(expr, direction);
+    auto to = this->to(expr, direction);
+    for (auto& g : to) {
       bulk_groups_.insert(std::move(g));
     }
   }
@@ -157,17 +157,16 @@ class InferNonBulkGroups : public Pass {
   std::unordered_set<ValGroup>& non_bulk_groups_;
 
   bool condition(ExprGroup expr, Direction direction) override {
-    auto from_ = from(expr, direction);
-    auto to_ = to(expr, direction);
-    return std::all_of(from_.begin(), from_.end(), [&](const ValGroup& g) {
+    auto from = this->from(expr, direction);
+    return std::all_of(from.begin(), from.end(), [&](const ValGroup& g) {
       return non_bulk_groups_.count(g) > 0;
     });
   }
 
   void action(ExprGroup expr, Direction direction) override {
-    auto from_ = from(expr, direction);
-    auto to_ = to(expr, direction);
-    for (auto& g : to_) {
+    auto from = this->from(expr, direction);
+    auto to = this->to(expr, direction);
+    for (auto& g : to) {
       non_bulk_groups_.insert(std::move(g));
     }
   }
@@ -197,25 +196,25 @@ class AnalyzeStridingSplit : public Pass {
     if (!expr->front()->isOneOf<Split, Merge>()) {
       return false;
     }
-    auto from_ = from(expr, direction);
-    auto to_ = to(expr, direction);
-    return from_.size() == 2 && to_.size() == 1 &&
-        bulk_groups_.count(from_.at(0)) > 0 &&
-        non_bulk_groups_.count(from_.at(1)) > 0;
+    auto from = this->from(expr, direction);
+    auto to = this->to(expr, direction);
+    return from.size() == 2 && to.size() == 1 &&
+        bulk_groups_.count(from.at(0)) > 0 &&
+        non_bulk_groups_.count(from.at(1)) > 0;
   }
 
   void action(ExprGroup expr, Direction direction) override {
-    auto from_ = from(expr, direction);
-    auto to_ = to(expr, direction);
+    auto from = this->from(expr, direction);
+    auto to = this->to(expr, direction);
     inferred_dims_.emplace_back();
-    inferred_dims_.back().box = to_.at(0);
-    inferred_dims_.back().tile = from_.at(0);
-    inferred_dims_.back().stride = from_.at(1);
+    inferred_dims_.back().box = to.at(0);
+    inferred_dims_.back().tile = from.at(0);
+    inferred_dims_.back().stride = from.at(1);
     // The partitioned group may or may not be the same as the box group,
     // depending on if there is a boxing split in the traversal path. Set
     // partitioned group to the box group for now, and it may be updated by
     // AnalyzeBoxingSplit later.
-    inferred_dims_.back().partitioned = to_.at(0);
+    inferred_dims_.back().partitioned = to.at(0);
   }
 
  public:
@@ -240,36 +239,36 @@ class AnalyzeBoxingSplit : public Pass {
   std::list<TMADim>& inferred_dims_;
 
   bool condition(ExprGroup expr, Direction direction) override {
-    auto from_ = from(expr, direction);
-    auto to_ = to(expr, direction);
-    return from_.size() == 2 && to_.size() == 1 &&
-        non_bulk_groups_.count(from_.at(0)) > 0 &&
-        (bulk_groups_.count(from_.at(1)) > 0 ||
+    auto from = this->from(expr, direction);
+    auto to = this->to(expr, direction);
+    return from.size() == 2 && to.size() == 1 &&
+        non_bulk_groups_.count(from.at(0)) > 0 &&
+        (bulk_groups_.count(from.at(1)) > 0 ||
          std::any_of(
              inferred_dims_.begin(),
              inferred_dims_.end(),
-             [&](const TMADim& dim) { return dim.box == from_.at(1); }));
+             [&](const TMADim& dim) { return dim.box == from.at(1); }));
   }
 
   void action(ExprGroup expr, Direction direction) override {
-    auto from_ = from(expr, direction);
-    auto to_ = to(expr, direction);
+    auto from = this->from(expr, direction);
+    auto to = this->to(expr, direction);
     auto dim_it = std::find_if(
         inferred_dims_.begin(), inferred_dims_.end(), [&](const TMADim& dim) {
-          return dim.box == from_.at(1);
+          return dim.box == from.at(1);
         });
     if (dim_it != inferred_dims_.end()) {
       // If the box group has been inferred as a box group by previous passes,
       // then there is no need to create a new entry in inferred_dims_. We just
       // update the existing entry.
-      dim_it->partitioned = to_.at(0);
+      dim_it->partitioned = to.at(0);
     } else {
       // There is no box group discovered by previous passes. This means that
       // the box group is a bulk group. Create a new entry in inferred_dims_.
       inferred_dims_.emplace_back();
-      inferred_dims_.back().partitioned = to_.at(0);
-      inferred_dims_.back().box = from_.at(1);
-      inferred_dims_.back().tile = from_.at(1);
+      inferred_dims_.back().partitioned = to.at(0);
+      inferred_dims_.back().box = from.at(1);
+      inferred_dims_.back().tile = from.at(1);
       inferred_dims_.back().stride = nullptr;
     }
   }
