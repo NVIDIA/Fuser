@@ -221,32 +221,6 @@ struct DimInfo {
   }
 };
 
-// Return if we can schedule FusionDefinition with heuristic along with any
-// debug messages from canScheduleRejectReason.
-std::tuple<bool, std::string> canSchedule(
-    UserSchedule* sched,
-    const ScheduleHeuristic& heuristic) {
-  NVF_ERROR(
-      sched->schedule != nullptr,
-      "Requires Fusion to use heuristic schedulers");
-  NVF_ERROR(
-      sched->runtime_info != nullptr,
-      "Requires SchedulerRuntimeInfo to use heuristic schedulers");
-
-  // Enable collection of messages from canScheduleRejectReason
-  DebugDumpOptionsGuard debug_dump_options_guard;
-  DebugDumpOptionsGuard::getCurOptions().set(
-      DebugDumpOption::FusionSegmenterLog);
-
-  // Send debug messages to stringstream
-  std::stringstream ss;
-  DebugStreamGuard dsg(ss);
-
-  bool can_schedule = SchedulerEntry::canSchedule(
-      heuristic, sched->schedule.get(), *sched->runtime_info);
-  return std::make_tuple(can_schedule, ss.str());
-}
-
 } // namespace
 
 std::vector<std::optional<bool>> computeContiguity(
@@ -3315,7 +3289,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
-        return canSchedule(self.fusion_definition->userSchedule(), heuristic);
+        return self.fusion_definition->userSchedule()->canScheduleDebug(
+            heuristic);
       },
       py::arg("heuristic"));
   nvf_sched.def(
@@ -3324,25 +3299,15 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
 
-        Fusion* fusion = self.fusion_definition->userSchedule()->schedule.get();
-        NVF_ERROR(
-            fusion != nullptr, "Requires Fusion to use heuristic schedulers");
-
-        SchedulerRuntimeInfo* runtime_info =
-            self.fusion_definition->userSchedule()->runtime_info.get();
-        NVF_ERROR(
-            runtime_info != nullptr,
-            "Requires SchedulerRuntimeInfo to use heuristic schedulers");
-
         std::vector<ScheduleHeuristic> valid_heuristics;
         valid_heuristics.reserve(all_heuristics_in_priority_order.size());
         std::copy_if(
             all_heuristics_in_priority_order.begin(),
             all_heuristics_in_priority_order.end(),
             std::back_inserter(valid_heuristics),
-            [fusion, runtime_info](ScheduleHeuristic heuristic) {
-              return SchedulerEntry::canSchedule(
-                  heuristic, fusion, *runtime_info);
+            [sched = self.fusion_definition->userSchedule()](
+                ScheduleHeuristic heuristic) {
+              return sched->canSchedule(heuristic);
             });
         return valid_heuristics;
       });
@@ -3354,16 +3319,9 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
         UserSchedule* sched = self.fusion_definition->userSchedule();
-        NVF_CHECK(
-            sched->heuristic_scheduler == nullptr,
-            "Heuristic Scheduler is already defined for this UserSchedule");
-
-        auto&& [can_schedule, error_msg] = canSchedule(sched, heuristic);
+        auto&& [can_schedule, error_msg] = sched->canScheduleDebug(heuristic);
         NVF_CHECK(can_schedule, error_msg);
-
-        sched->heuristic_scheduler = SchedulerEntry::makeEntry(
-            heuristic, sched->schedule.get(), *sched->runtime_info);
-        sched->heuristic_scheduler->schedule(sched->schedule.get());
+        sched->scheduleWithHeuristic(heuristic);
       },
       py::arg("heuristic"));
 }
