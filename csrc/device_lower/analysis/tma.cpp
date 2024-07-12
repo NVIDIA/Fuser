@@ -285,10 +285,16 @@ class AnalyzeBoxingSplit : public Pass {
 };
 
 std::tuple<
-    std::unordered_set<ValGroup>,
-    std::unordered_set<ValGroup>,
-    std::list<TMADim>>
-run(std::list<std::pair<ExprGroup, Direction>>& exprs,
+    std::unordered_set<ValGroup>, // bulk groups, see the comment of
+                                  // InferBulkGroups for its definition
+    std::unordered_set<ValGroup>, // non-bulk groups, see the comment of
+                                  // InferNonBulkGroups for its definition
+    std::list<TMADim>> // inferred dimension information
+run(
+    // The whole path from consumer's loop domain to gmem tensor's allocation
+    // domain. Passed in as a non-const reference because passes will remove
+    // expressions from it when it has extracted information from them.
+    std::list<std::pair<ExprGroup, Direction>>& exprs,
     TensorView* consumer_tv) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
 
