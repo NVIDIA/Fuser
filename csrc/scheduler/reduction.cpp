@@ -507,8 +507,8 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   return rparams;
 }
 
-struct outerReduHeuristicParas {
-  outerReduHeuristicParas(
+struct OuterReduHeuristicParas {
+  OuterReduHeuristicParas(
       int64_t total_iteration_numel,
       int64_t total_reduction_numel)
       : total_iteration_numel(total_iteration_numel),
@@ -550,7 +550,7 @@ struct outerReduHeuristicParas {
   }
 
   // compare block reduction with grid reduction
-  bool isBetterThan(const outerReduHeuristicParas& grid_hp, int sm_count)
+  bool isBetterThan(const OuterReduHeuristicParas& grid_hp, int sm_count)
       const {
     NVF_ERROR(
         grdim == 1,
@@ -581,7 +581,7 @@ struct outerReduHeuristicParas {
 };
 
 std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
-    const outerReduHeuristicParas& hp) {
+    const OuterReduHeuristicParas& hp) {
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
 
@@ -654,7 +654,7 @@ std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
   return rparams;
 }
 
-outerReduHeuristicParas getBlockOuterReduction(
+OuterReduHeuristicParas getBlockOuterReduction(
     int64_t vectorize_factor,
     int64_t sm_count,
     int64_t max_unroll,
@@ -662,7 +662,7 @@ outerReduHeuristicParas getBlockOuterReduction(
     int64_t n_tensor_outputs,
     int64_t total_iteration_numel,
     int64_t total_reduction_numel) {
-  outerReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
+  OuterReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
 
   int64_t sm_count_pow2 = scheduler_utils::lastPow2(sm_count);
   // Step-1, set iteration dim
@@ -738,7 +738,7 @@ outerReduHeuristicParas getBlockOuterReduction(
   return hp;
 }
 
-outerReduHeuristicParas getGridOuterReduction(
+OuterReduHeuristicParas getGridOuterReduction(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
@@ -923,7 +923,7 @@ outerReduHeuristicParas getGridOuterReduction(
     // sure we have 2 reductions per thread beyond what's already set as we
     // consider expanding to target block
     grdim = std::min(
-        // At least 2 iterations of the reduction per thread ontop of unroll
+        // At least 2 iterations of the reduction per thread on top of unroll
         ceilDiv(rDimAvail() * grdim, 2),
         // Expand to target blocks
         ceilDiv(target_blocks, gidim));
@@ -974,7 +974,7 @@ outerReduHeuristicParas getGridOuterReduction(
     }
   }
 
-  outerReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
+  OuterReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
   hp.bdimx = bdimx;
   hp.bdimy = bdimy;
   hp.grdim = grdim;
@@ -1026,9 +1026,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       max_unroll,
       vectorize_factor);
 
-  // if reduction size is large, block reduction leads to high workload per
-  // thread espacially when computation cost is high. The theroshold depends on
-  // fused ops, current value is based on gelu backward.
+  // Block reduction rarelly uses all SMs due to the SM count is not pow2 but
+  // most popular inner dim sizes are pow2. Trading SMs for lower communication
+  // cost doesn't work well when reduction size is large and the fused ops are
+  // computationaly expensive. For these cases, we should avoid using block
+  // reduction. Here 16K is used based on the test of gelu backward.
   const int64_t thereshold_to_avoid_block_reduction = 16384;
   if (total_reduction_numel >= thereshold_to_avoid_block_reduction) {
     return heuristicParaToSchedulerPara(grid_hp);
@@ -1045,9 +1047,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       total_iteration_numel,
       total_reduction_numel);
 
-  // If a valid block reduction heuristic is returned and it is better than grid
-  // reduction heuristics, use it. otherwise, use the default heuristic which
-  // usually generates grid reduction but may also generate block reduction.
+  // pick the better heuristic
   if (block_hp.isBetterThan(grid_hp, device_multiprocessor_count)) {
     return heuristicParaToSchedulerPara(block_hp);
   } else {
