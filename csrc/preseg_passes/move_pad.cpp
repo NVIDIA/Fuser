@@ -32,6 +32,42 @@ struct Edge {
   }
 };
 
+bool isSamePadOp(Val* use, PadOp* p) {
+  if (!use->is<PadOp>()) {
+    return false;
+  }
+
+  auto* use_pad = def->as<PadOp>();
+  if (simplifyExpr(SimplifyingIrBuilder::eqExpr(use_pad->value(), p->value()))
+          ->isFalse()) {
+    return false;
+  }
+
+  if (use_pad->getPadWidths().size() != p->getPadWidths().size()) {
+    return false;
+  }
+
+  std::vector<int64_t> padded_axes = p->getPaddedAxes();
+  if (use_pad->getPaddedAxes() != padde_axes) {
+    return false;
+  }
+
+  for (auto idx : padded_axes) {
+    if (simplifyExpr(
+            SimplifyingIrBuilder::eqExpr(
+                use_pad->getPadWidths(idx).first, p->getPadWidths(idx).first))
+            ->isFalse() ||
+        simplifyExpr(
+            SimplifyingIrBuilder::eqExpr(
+                use_pad->getPadWidths(idx).second, p->getPadWidths(idx).second))
+            ->isFalse()) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 // The pass assumes propagating PadOp with zero pad. The criteria here for
 // return true is that `unaryOp(0) == 0`
 bool padCompatibleUnaryOp(UnaryOpType t) {
@@ -496,11 +532,206 @@ void mergeNeighboringPad(Fusion* fusion) {
   }
 }
 
+void propagatePad(Fusion* fusion) {
+  // propagating PadOp
+  auto exprs = fusion->exprs();
+  auto filtered_pads = ir_utils::filterByType<PadOp>(exprs);
+  std::vector<PadOp*> frontier;
+  frontier.reserve(filtered_pads.size());
+  // NOTE: we only consider zero pad as propagation frontier.
+  std::copy_if(
+      filtered_pads.begin(),
+      filtered_pads.end(),
+      std::back_inserter(frontier),
+      [](PadOp* pad) { return pad->value()->isZero() });
+
+  std::unordered_set<PadOp*> merged_pad;
+  while (!frontier.empty()) {
+    PadOp* p = frontier.back();
+    frontier.pop_back();
+
+    // TODO: should I check for if uses lead to output instead?
+    // if no uses, this has already been short-wired.
+    if (p.uses().empty()) {
+      continue;
+    }
+
+    // unify all consumer pad of tv;
+    TensorView* tv = p->in()->as<TensorView*>();
+    for (Expr* use : tv->uses()) {
+      if (use == p) {
+        continue;
+      }
+      // check if use is the same pad operation (same pad value / width e.t.c.)
+      if (isSamePadOp(use, p)) {
+        // replace consumer of use->out() with p->out()
+        ir_utils::replaceValue(fusion, {{use->output(0), p->out()}});
+        if (use->output(0)->isFusionOutput()) {
+          fusion->replaceOutput(use->output(0), p->out());
+        }
+        NVF_ERROR(tv->removeUse(use), "remove uses failed");
+      }
+    }
+
+    // check for pad_dependencies to verify that 'p' can be moved before 'def'.
+    std::vector<Val*> pad_dependencies;
+    for (Val* val : p->inputs()) {
+      if (val == p->in() || val->isConst()) {
+        continue;
+      }
+      pad_dependencies.push_back(val);
+    }
+    auto pad_replay_check = [&pad_dependencies](Expr* expr) {
+      return std::if_all(expr->inputs().begin(), expr->inputs().end(), [&pad_dependencies = std::as_const(pad_dependencies)](Val* val) {
+        if (!val->isA<TensorView>()) {
+          return false;
+        }
+        if (std::any_of(
+                pad_dependencies.begin(),
+                pad_dependencies.end(),
+                [val](Val* pad_dependency) {
+                  return DependencyCheck::isDependencyOf(pad_dependency, val);
+                })) {
+          return false;
+        }
+        return true;
+    }
+    };
+
+    Expr* def = pad.in()->definition();
+    Val* new_out = nullptr;
+
+    if (def->isA<UnaryOp>()) {
+      // stop propagation:
+      //   1. if current PadOp p isn't the only use of tv; or
+      //   2. if tv is an output.
+      // since both case requires tv to be live in the fusion.
+      if (tv->uses() != 1 || tv->isFusionOutput()) {
+        continue;
+      }
+      NVF_ERROR(
+          tv->uses()[0] == p,
+          "expect existing PadOp to be the only use of its input");
+      auto* uop = def->as<UnaryOp>();
+      // check if unary op type is compatible for zero pad propagation.
+      if (!padCompatibleUnaryOp(uop->getUnaryOpType())) {
+        continue;
+      }
+      // check if PadOp can be replayed on input(s)
+      if (!pad_replay_check(uop)) {
+        continue;
+      }
+
+      // replay pad on input(s)
+      Expr* pad_before_def = replay(p, uop->in());
+      new_out = ops::newValLike(
+          pad_before_def->output(0), uop->out()->getDataType().value());
+      Expr* new_uop = IrBuilder::create<UnaryOp>(
+          uop->getUnaryOpType(), new_out, pad_before_def->output(0));
+      // insert new PadOp(s) to frontier;
+      frontier.push_back(pad_before_def);
+    } else if (def->isA<BinaryOp>()) {
+      // stop propagation:
+      //   1. if current PadOp p isn't the only use of tv; or
+      //   2. if tv is an output.
+      // since both case requires tv to be live in the fusion.
+      if (tv->uses() != 1 || tv->isFusionOutput()) {
+        continue;
+      }
+      NVF_ERROR(
+          tv->uses()[0] == p,
+          "expect existing PadOp to be the only use of its input");
+      auto* bop = def->as<BinaryOp>();
+
+      // check if unary op type is compatible for zero pad propagation.
+      if (!padCompatibleBinaryOp(bop->getBinaryOpType())) {
+        continue;
+      }
+      // check if PadOp can be replayed on input(s)
+      if (!pad_replay_check(bop)) {
+        continue;
+      }
+
+      // check for broadcast on padded axis.
+      auto* lhs = bop->lhs()->as<TensorView>();
+      auto* rhs = bop->rhs()->as<TensorView>();
+      bool pad_on_broadcast = false;
+      for (auto i : p->getPaddedAxes()) {
+        if (lhs->getLogicalDomain()[i]->isBroadcast() ||
+            rhs->getLogicalDomain()[i]->isBroadcast()) {
+          pad_on_broadcast = true;
+          break;
+        }
+      }
+      // padding on broadcast dimensions is not supported in propagation yet.
+      if (pad_on_broadcast) {
+        continue;
+      }
+
+      // replay pad on input(s)
+      Expr* pad_lhs_before_def = replay(p, bop->lhs());
+      Expr* pad_rhs_before_def = replay(p, bop->rhs());
+      std::vector<Val*> vals = {
+          pad_lhs_before_def->out(), pad_rhs_before_def->out()};
+      new_out = ops::newOutputTV(vals, bop->out()->getDataType().value());
+      Expr* new_bop = IrBuilder::create<BinaryOp>(
+          bop->getBinaryOpType(), new_out, vals[0], vals[1]);
+      // insert new PadOp(s) to frontier;
+      frontier.push_back(pad_lhs_before_def);
+      frontier.push_back(pad_rhs_before_def);
+    } else if (def->isA<PadOp>()) {
+      auto* pop = def->as<PadOp>();
+      // only allow merge pad when pad value is the same.
+      if (simplifyExpr(SimplifyingIrBuilder::eqExpr(p->value(), pop->value()))
+              ->isFalse()) {
+        continue;
+      }
+      const std::vector<Val*> p_pad_widths = pop->getPadWidths();
+      const std::vector<Val*> c_pad_widths = p->getPadWidths();
+      // I think this should always hold, otherwise we can relax it and continue
+      // instead.
+      NVF_ERROR(
+          p_pad_widths.size() == c_pad_widths.size(),
+          "expect consecutive PadOp to have the same length of pad widths");
+
+      // replay merged pad on pop->in()
+      new_out = replayConcretePad(
+          pop->in()->as<TensorView>(),
+          pop->value(),
+          {pop->getPadWidths(), p->getPadWidths()},
+          TensorDomain::noReductions(
+              p->out()->as<TensorView>()->getLogicalDomain()));
+
+      // insert new PadOp(s) to frontier;
+      frontier.push_back(new_out->definition());
+    }
+    // replace old (->pad->) with (->pads_before_new_def->new_def->)
+    if (new_out != nullptr) {
+      ir_utils::replaceValue(fusion, {{p->out(), new_out}});
+      if (p->out()->isFusionOutput()) {
+        fusion->replaceOutput(p->out(), new_out);
+      }
+    }
+  }
+}
+
+void replaceCat(Fusion* fusion) {
+  // updating CatOp
+  std::vector<Expr*> exprs = fusion->exprs();
+  // sanitizing CatOp with series of binary add;
+  for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
+    std::cout << "try to replay here" << std::endl;
+  }
+}
+
 } // namespace
 
 void MovePadPass::runPass(Fusion* fusion) {
-  decomposeCatOp(fusion);
-  mergeNeighboringPad(fusion);
+  // decomposeCatOp(fusion);
+  // mergeNeighboringPad(fusion);
+
+  propagatePad(fusion);
+  replaceCat(fusion);
 }
 
 } // namespace nvfuser::preseg_passes
