@@ -50,7 +50,8 @@ struct RecordFunctor {
         arg_names_(args_.size()),
         outputs_(std::move(_outputs)),
         name_(std::move(_name)),
-        record_type_(_record_type) {}
+        record_type_(_record_type),
+        inline_def_(false) {}
   virtual ~RecordFunctor() = default;
   //! Allows for copying of Child Class objects with RecordFunctor pointers.
   virtual RecordFunctor* clone() = 0;
@@ -192,6 +193,10 @@ struct RecordFunctor {
     return record_type_;
   }
 
+  bool inlineDef() const {
+    return inline_def_;
+  }
+
   //! Set the name of an argument. If given, it will be listed as a keyword
   //! argument during printing using the given name as the key. Unnamed
   //! arguments are the default, and are listed as positional arguments before
@@ -212,6 +217,8 @@ struct RecordFunctor {
   //! Record Type of child class used for hashing
   //! enum class RecordType is defined in flatbuffer schema
   serde::RecordType record_type_;
+  //! Indicates if a record was defined inline with another record for printing
+  bool inline_def_ = false;
   //! Whether this record type returns a tuple of unknown length. This is only
   //! used for TensorSizesRecord.
   bool always_returns_tuple_ = false;

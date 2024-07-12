@@ -14,18 +14,26 @@
 namespace nvfuser::python_frontend {
 
 struct RecordFunctor;
+class FusionState;
 
 struct State {
-  State(size_t _index, serde::StateType _stype)
-      : index(_index), stype(_stype) {}
+  State(size_t _index, serde::StateType _stype, FusionState* fs)
+      : index(_index), stype(_stype), fusion_state_(fs) {}
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
+
+  RecordFunctor* parent() const;
 
   //! A unique index to identifiy each recorded state item.
   size_t index;
   //! StateType is either: Tensor, Scalar, or Vector
   serde::StateType stype;
+
+ private:
+  //! The fusion state is associated with the individual state in order to
+  //! find the State Object's parent record.
+  const FusionState* fusion_state_;
 };
 
 NVF_API std::ostream& operator<<(std::ostream& os, const State& state);
@@ -72,8 +80,8 @@ class FusionState {
   //! Alias an Output to Input in the Fusion object
   NVF_API void aliasOutputToInput(Val* output, Val* input);
 
-  //! Add a Record
   void addRecord(RecordFunctor* record);
+  RecordFunctor* getRecord(size_t index) const;
   //! Builds an nvFuser Fusion IR object
   void buildFusionIr(Fusion* fusion);
 
