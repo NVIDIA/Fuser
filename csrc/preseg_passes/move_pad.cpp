@@ -644,7 +644,7 @@ void propagatePad(Fusion* fusion) {
       //   1. if current PadOp p isn't the only use of tv; or
       //   2. if tv is an output.
       // since both case requires tv to be live in the fusion.
-      if (tv->uses() != 1 || tv->isFusionOutput()) {
+      if (tv->uses().size() != 1 || tv->isFusionOutput()) {
         continue;
       }
       NVF_ERROR(
