@@ -37,13 +37,12 @@ class CommunicationTest
       c10d::ReduceOp::RedOpType::SUM;
   const DeviceMesh full_mesh_;
   const Team all_ranks_;
-  c10d::Backend* const backend_;
+  c10d::Backend* backend_ = nullptr;
 };
 
 CommunicationTest::CommunicationTest()
     : full_mesh_(DeviceMesh::createForNumDevices(communicator_->size())),
-      all_ranks_(full_mesh_.vector()),
-      backend_(communicator_->getBackendForTeam(all_ranks_, GetParam())) {}
+      all_ranks_(full_mesh_.vector()) {}
 
 void CommunicationTest::SetUp() {
   MultiDeviceTest::SetUp();
@@ -52,6 +51,9 @@ void CommunicationTest::SetUp() {
   if (!communicator_->isBackendAvailable(backend_type)) {
     GTEST_SKIP() << "Backend not available: " << backend_type;
   }
+  // getBackendForTeam throws an error if the requested backend type isn't
+  // available. Therefore, we call it after the isBackendAvailable check.
+  backend_ = communicator_->getBackendForTeam(all_ranks_, backend_type);
 }
 
 void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
