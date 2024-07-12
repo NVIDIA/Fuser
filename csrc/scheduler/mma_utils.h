@@ -196,16 +196,32 @@ class WarpMmaSwizzler {
   //! called before this function.
   static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
 
+  //! Function to schedule the swizzled TMA box.
+  //! This functions works on the assumption that the TMA box is 2D
+  //! and the inner-dimension is less or equal to the swizzle size.
+  //! This doesn't work for the swizzle none mode. For more details
+  //! refer to the figure doc/dev/tma/swizzle.svg
+  static void swizzleTMABox(
+      TensorView* tv,
+      MmaInputSmemSwizzle swizzle,
+      bool split_outer_dim = true);
+
+  //! Function to schedule the load of the input operands of a
+  //! Mma op. This internally calls swizzleTMABox. This function
+  //! splits/tiles the inputs to correct 2D TMA boxes and calls the function
+  //! above. Please note that we currently do not fully support not splitting
+  //! the outer dimension. This only works when the inner-dimension is not
+  //! split, that is the inner dim is less or equal to the swizzle size (in
+  //! bytes). The outer dim here refers to the second ID from the end, so for
+  //! the input [B, N, K], N would be outer. Broadcast is always moved
+  //! outermost.
   static void scheduleTMALoadForMma(
       TensorView* tv,
       MmaInputSmemSwizzle swizzle,
       bool split_outer_dim = true);
 
-  static void scheduleTMABox(
-      TensorView* tv,
-      MmaInputSmemSwizzle swizzle,
-      bool split_outer_dim = true);
-
+  //! Parallelize all dims as bulk expect the first dims mentioned in the second
+  //! param.
   static void parallelizeAsBulkSkippingFirstIDs(
       TensorView* tv,
       size_t first_ids_to_skip);

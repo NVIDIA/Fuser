@@ -850,14 +850,16 @@ void WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
   }
 }
 
-void WarpMmaSwizzler::scheduleTMABox(
+void WarpMmaSwizzler::swizzleTMABox(
     TensorView* tv,
     MmaInputSmemSwizzle swizzle,
     bool split_outer_dim) {
   auto dtype = tv->getDataType().value();
   // Input is on the form:
-  // {...., K (assume is 16), NI (16 .. say dtype is half and swizzle
-  // size is 32B, N could have already been split to create the TMA box)}
+  // [...., K (assume is 16), NI (16 .. say dtype is half and swizzle
+  // size is 32B, N could have already been split to create the TMA box)].
+  // Here the TMA box is [16,16]. If the outer dim was split then the above
+  // input would be [KO(2), KI(8), NI(16)] with the box being [8, 16] 
 
   // Split outer Dim:
   // [..., KO(2), KI(8), NI (16)] ->
@@ -935,7 +937,7 @@ void WarpMmaSwizzler::scheduleTMALoadForMma(
     // Outer Dim split,box is: [KI(8), NI(16)]
     // Outer Dim is not split,box is [K(16), NI(16)]
     // Everything inside a box should be marked parallel bulk
-    WarpMmaSwizzler::scheduleTMABox(tv, swizzle, split_outer_dim);
+    WarpMmaSwizzler::swizzleTMABox(tv, swizzle, split_outer_dim);
   }
 
   parallelizeAsBulkSkippingFirstIDs(tv, num_ids_to_skip);
