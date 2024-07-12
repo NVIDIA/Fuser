@@ -162,8 +162,8 @@ class FusionDefinition(_C._FusionDefinition):
             msg += (
                 f"# torch version: {torch.__version__}\n"
                 f"# cuda version: {torch.version.cuda}\n"
-                "import torch\n"
                 f"# nvfuser version: {version()}\n"
+                "import torch\n"
                 "from nvfuser import FusionDefinition, DataType\n"
                 f"{self}"
                 "with FusionDefinition() as fd:\n"
