@@ -67,7 +67,7 @@ class MultipleMatmulScheduler {
 
     swizzleBlockTiles();
 
-    // doSplitKRFactor();
+    doSplitKRFactor();
 
     for (TensorView* tv : ir_utils::allTvs(fusion_)) {
       AbstractTensor local_abten = forwardAroundMissingAxes(at_tiled_, tv);
@@ -413,7 +413,7 @@ class MultipleMatmulScheduler {
         // then A will be cached to smem then it might be loaded into two
         // separate register buffers, one for each mma. Instead, we will load it
         // once into registers then re-use the register buffer for both mmas.
-        acw_smems_[i]->cacheAfter();
+        cacheAfter(acw_smems_[i]);
       }
       NVF_ERROR(acw_smems_[i]->uses().size() == 1);
     }
@@ -424,7 +424,7 @@ class MultipleMatmulScheduler {
       bcw_smems_[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
       bcw_smems_[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op_b);
       if (bcw_smems_[i]->uses().size() > 1) {
-        bcw_smems_[i]->cacheAfter();
+        cacheAfter(bcw_smems_[i]);
       }
       NVF_ERROR(bcw_smems_[i]->uses().size() == 1);
     }
@@ -435,12 +435,13 @@ class MultipleMatmulScheduler {
     // existing LoadStoreOp present. Please note that for the second LoadStore
     // we don't propagte the allocation domain, since the scheduler sets the
     // allocation domain in the registers.
-    auto addSetForCacheRead = [](TensorView* tv_smem, TensorView** tv_r) {
+    auto addSetForCacheRead = [&](TensorView* tv_smem, TensorView** tv_r) {
       if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_smem->uses().at(0))) {
         *tv_r = ldst->out()->as<TensorView>();
         ldst->setOpType(LoadStoreOpType::LdMatrix);
       } else {
-        *tv_r = tv_smem->cacheAfter(
+        *tv_r = cacheAfter(
+            tv_smem,
             LoadStoreOpType::LdMatrix,
             CacheOp::Unspecified,
             /*propagate_allocation_domain=*/false);
@@ -453,9 +454,6 @@ class MultipleMatmulScheduler {
     for (size_t i : c10::irange(bs_.size())) {
       addSetForCacheRead(bcw_smems_[i], &bcrs_[i]);
     }
-
-    // Build a new IdModel since we used cacheAfter
-    updateIdModel();
   }
 
   //! Rebuilds IdModel, then updates all ValGroups in abstract tensors to refer
@@ -472,7 +470,23 @@ class MultipleMatmulScheduler {
     for (mma_utils::AbstractMatmulTensor& abten : {std::ref(at_tiled_)}) {
       for (AbstractId& abs_id : abten.domain) {
         ValGroupAndItsGraph& vgg = abs_id.as<ValGroupAndItsGraph>();
-        vgg.group = new_graph.toGroup(vgg.group->front());
+        bool replaced_group = false;
+        for (Val* v : *vgg.group) {
+          try {
+            vgg.group = new_graph.toGroup(v);
+          } catch (...) {
+            // new_graph.toGroup() might not be able to find v. This happens
+            // when we replace a domain using rFactor for example. In such
+            // cases, we move on and try other IDs in the group.
+            continue;
+          }
+          replaced_group = true;
+          break;
+        }
+        NVF_ERROR(
+            replaced_group,
+            "Failed to replace group used in AbstractTensor containing ",
+            vgg.group->front()->toString());
         vgg.graph = &new_graph;
       }
     }
@@ -485,6 +499,8 @@ class MultipleMatmulScheduler {
     }
     id_roles_ = new_id_roles;
 
+    graph_ = &new_id_model.idGraph(IdMappingMode::PERMISSIVE);
+
     // Set id_model_ after we are done using the old one
     id_model_ = std::move(new_id_model);
   }
@@ -492,13 +508,12 @@ class MultipleMatmulScheduler {
   // Gets canonical dim ordering then uses it to canonicalize each tensor in the
   // fusion, then create tiles and swizzle their ordering.
   void makeAllTiles() {
-    ValGraph& graph = id_model_.idGraph(IdMappingMode::PERMISSIVE);
     std::vector<ValGroup> canonical_dim_ordering =
-        mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, graph);
+        mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, *graph_);
 
     at_tiled_.domain.reserve(canonical_dim_ordering.size());
     for (const ValGroup& vg : canonical_dim_ordering) {
-      at_tiled_.domain.push_back(ValGroupAndItsGraph{vg, &graph});
+      at_tiled_.domain.push_back(ValGroupAndItsGraph{vg, graph_});
       // Tag each dimension with a MatmulDimRole
       auto it = id_roles_.find(vg);
       NVF_ERROR(it != id_roles_.end());
@@ -595,7 +610,7 @@ class MultipleMatmulScheduler {
         // the actual MmaOp output, so here we reassign that to the
         // intermediate.
         TensorView* splitk_sum = mma_result;
-        mma_result = splitk_sum->rFactor({Kf_dim, Ki_dim});
+        mma_result = rFactor(splitk_sum, {Kf_dim, Ki_dim});
         splitk_sums_.push_back(splitk_sum);
       }
 
@@ -612,16 +627,107 @@ class MultipleMatmulScheduler {
         // becomes
         //   smem_epilogue = set(mma_result)
         //   splitk_sum = sum(smem_epilogue)
-        smem_epilogues_.push_back(mma_result->cacheAfter());
+        smem_epilogues_.push_back(cacheAfter(mma_result));
         // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
       }
     }
+  }
+
+  //! This calls orig->rFactor(axes) and also updates the permissive graph to
+  //! reflect the new IterDomain mappings
+  TensorView* rFactor(TensorView* orig, const std::vector<int64_t>& axes) {
+    const std::vector<IterDomain*> orig_loop = orig->getLoopDomain();
+
+    TensorView* partial = orig->rFactor(axes);
+
+    // rFactor does a replay of the loop domain in orig and changes the
+    // IterType of the reduction domains that are not in "axes". All the
+    // domains in partial_loop should map to orig_loop. All the domains in
+    // full_loop map to those in noReductions(partial_loop);
+    const std::vector<IterDomain*> full_loop = orig->getLoopDomain();
+    const std::vector<IterDomain*> partial_loop = partial->getLoopDomain();
+    const std::vector<IterDomain*> nored_partial_loop =
+        TensorDomain::noReductions(partial->getLoopDomain());
+
+    NVF_ERROR(partial_loop.size() == orig_loop.size());
+    NVF_ERROR(full_loop.size() == nored_partial_loop.size());
+
+    /*
+    // initialize IDs in new domains with histories
+    std::vector<Val*> new_loop_vals;
+    for (IterDomain* id : partial_loop) {
+      new_loop_vals.push_back(id);
+    }
+    for (IterDomain* id : full_loop) {
+      new_loop_vals.push_back(id);
+    }
+    for (Statement* stmt : StmtSort::getStmtsTo(new_loop_vals)) {
+      if (Val* v = dynamic_cast<Val*>(stmt)) {
+        if (!graph->hasGroup(v)) {
+          graph->initializeVal(v);
+        }
+      }
+    }
+    */
+
+    for (size_t i : c10::irange(orig_loop.size())) {
+      ValGroup vg = graph_->toGroup(orig_loop[i]);
+      graph_->initializeVal(partial_loop[i], vg);
+    }
+    for (size_t i : c10::irange(full_loop.size())) {
+      ValGroup vg = graph_->toGroup(nored_partial_loop[i]);
+      graph_->initializeVal(full_loop[i], vg);
+    }
+
+    return partial;
+  }
+
+  //! This calls orig->cacheAfter() and also updates the permissive graph to
+  //! reflect the new IterDomain mappings
+  TensorView* cacheAfter(
+      TensorView* orig,
+      LoadStoreOpType op_type = LoadStoreOpType::Set,
+      CacheOp cache_op = CacheOp::AllLevels,
+      bool propagate_allocation_domain = false) {
+    const std::vector<IterDomain*> orig_alloc =
+        orig->getMaybeAllocationDomain();
+
+    TensorView* c =
+        orig->cacheAfter(op_type, cache_op, propagate_allocation_domain);
+
+    if (propagate_allocation_domain) {
+      const std::vector<IterDomain*> cache_alloc =
+          c->getMaybeAllocationDomain();
+      NVF_ERROR(orig_alloc.size() == cache_alloc.size());
+      for (size_t i : c10::irange(orig_alloc.size())) {
+        ValGroup vg = graph_->toGroup(orig_alloc[i]);
+        graph_->initializeVal(cache_alloc[i], vg);
+      }
+    }
+
+    // cacheAfter replays loop transforms, so we need to map thsoe replayed
+    // transforms.
+    // TODO: this currently just maps loop domains instead of intermediate
+    // IDs. Update this to map through the replay
+    const std::vector<IterDomain*> orig_loop = orig->getLoopDomain();
+    const std::vector<IterDomain*> cache_loop =
+        TensorDomain::noReductions(c->getLoopDomain());
+    NVF_ERROR(orig_loop.size() == cache_loop.size());
+    for (size_t i : c10::irange(orig_loop.size())) {
+      ValGroup vg = graph_->toGroup(orig_loop[i]);
+      graph_->initializeVal(cache_loop[i], vg);
+    }
+
+    return c;
   }
 
  private:
   Fusion* fusion_;
   const MatmulParams& params_;
   IdModel id_model_;
+  // Permissive graph of id_model_, which we modify at times using e.g.
+  // AbstractTensor.split or by mapping vals in cacheAfter and rFactor
+  ValGraph* graph_;
   std::vector<mma_utils::MatmulPattern> patterns_;
   std::vector<MmaOp*> mma_ops_;
   mma_utils::DimRolesMap id_roles_;
