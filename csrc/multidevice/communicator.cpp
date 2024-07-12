@@ -159,7 +159,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
   if (backend == CommunicatorBackend::ucc) {
     constexpr auto timeout = std::chrono::milliseconds(30 * 60 * 1000);
     return c10d::ProcessGroupUCC::createProcessGroupUCC(
-        store, rank, size, timeout);
+        store, static_cast<int>(rank), static_cast<int>(size), timeout);
   }
 #endif
   NVF_ERROR(false, "no distributed backend available");
@@ -214,30 +214,44 @@ Communicator::Communicator(
 #endif
 }
 
+Communicator::~Communicator() {
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
+  for (auto& [key, backend] : backends_) {
+    // Call shutdown before destructing a ProcessGroupNCCL as instructed by
+    // https://github.com/pytorch/pytorch/blob/e62073d7997c9e63896cb5289ffd0874a8cc1838/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L1164-L1170.
+    if (auto* pg_nccl = dynamic_cast<c10d::ProcessGroupNCCL*>(backend.get())) {
+      pg_nccl->shutdown();
+    }
+  }
+#endif
+}
+
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
     const std::string& prefix) {
   CommunicatorBackend b = getBackend(backend);
+  // generate a string key which is unique to the team
+  // create the team and cache it
   std::string team_key = prefix + getTeamKey(team, b);
   // check if backend associated with the team is present in the cache
   if (backends_.find(team_key) ==
       backends_.end()) { // create the backend and cache it
 #ifdef NVFUSER_DISTRIBUTED
-    // check that the caller's rank belongs to the requested team
-    auto rank_it = std::find(team.begin(), team.end(), deviceId());
-    NVF_ERROR(
-        rank_it != team.end(),
-        "only devices in the team should participate to its initialization");
-    // retrieve the caller's rank index/position in the team
-    RankType team_rank = std::distance(team.begin(), rank_it);
-    // generate a string key which is unique to the team
-    // create the team and cache it
-    backends_[team_key] = createBackend(
-        b,
-        c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
-        team_rank,
-        static_cast<int64_t>(team.size()));
+    backends_[team_key] = [&]() -> c10::intrusive_ptr<c10d::Backend> {
+      // check that the caller's rank belongs to the requested team
+      auto rank_it = std::find(team.begin(), team.end(), deviceId());
+      if (rank_it == team.end()) {
+        return nullptr;
+      }
+      // retrieve the caller's rank index/position in the team
+      RankType team_rank = std::distance(team.begin(), rank_it);
+      return createBackend(
+          b,
+          c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
+          team_rank,
+          static_cast<int64_t>(team.size()));
+    }();
 #else
     backends_[team_key] = c10::make_intrusive<c10d::Backend>();
 #endif
@@ -251,6 +265,15 @@ c10d::Backend* Communicator::getWorld(
   std::iota(all_ranks.begin(), all_ranks.end(), 0);
 
   return getBackendForTeam(all_ranks, backend);
+}
+
+void Communicator::barrier(std::optional<CommunicatorBackend> backend) {
+  // Explicitly specify the (local) device ID to avoid a warning. Without this,
+  // ProcessGroupNCCL::barrier may guess the wrong mapping and failed to block
+  // CPU properly:
+  // https://github.com/pytorch/pytorch/blob/7e4329c258306cc14303895e5f1e6036b009e74f/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp#L3905-L3912.
+  c10d::BarrierOptions options{.device_ids = {local_rank()}};
+  getWorld(backend)->barrier(options)->wait();
 }
 
 } // namespace nvfuser

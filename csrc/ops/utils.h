@@ -68,8 +68,8 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 // 1. input_domain: root/logical domain without reductions for any input to
 // LinearOp
 // 2. input_position: Specifies if the input is A / B / Bias (0, 1, or 2)
-// (MatmulRole::Input_A/Input_B/Input_C) 3: out_size: LinearOp output dimension
-// (input and output may not be the same size).
+// (MatmulTensorRole::Input_A/Input_B/Input_C) 3: out_size: LinearOp output
+// dimension (input and output may not be the same size).
 std::vector<IterDomain*> mapLinearOpIterDomains(
     const std::vector<IterDomain*>& input_domain,
     int64_t input_position,

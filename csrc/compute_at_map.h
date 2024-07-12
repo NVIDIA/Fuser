@@ -177,7 +177,7 @@ class IterDomainGraph {
   friend class IdModelValidator;
 };
 
-using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
+using CircularBufferIndices = std::unordered_map<CircularBufferLoopStage, Val*>;
 
 class ComputeAtMap {
  public:
@@ -274,14 +274,14 @@ class ComputeAtMap {
   bool idExistsInMap(IterDomain* id) const;
 
   //! Returns the pre-allocated index variable integer used in
-  //!  the kir::ForLoop corresponding to the given IterDomain.
+  //!  the ForLoop corresponding to the given IterDomain.
   //!  this interface is only valid if the ID has a loop mapping,
   //!  ca_map will throw exceptions if given iterdomain doesn't
   //!  have a loop map entry.
   Val* getIndexVariable(
       IterDomain* id,
-      DoubleBufferLoopStage double_buffer_loop_stage =
-          DoubleBufferLoopStage::NotApplicable) const;
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable) const;
 
   // Returns if expr_1 and expr_2 have exact mapped IterDomains in
   // inputs/outputs (order matters) and if the expressions have matching
@@ -373,14 +373,14 @@ class ComputeAtMap {
   std::unordered_map<const VectorOfUniqueEntries<IterDomain*>*, Val*>
       loop_index_variable_map_;
 
-  //! Allocated loop indices for double buffer loop.
+  //! Allocated loop indices for circular buffer loop.
   //!  only valid for disjoint sets on the loop ca map
-  //!  that have double buffer-ed iterdomains.
-  using DoubleBufferIndicesPtr = std::unique_ptr<DoubleBufferIndices>;
+  //!  that have circular buffer-ed iterdomains.
+  using CircularBufferIndicesPtr = std::unique_ptr<CircularBufferIndices>;
   std::unordered_map<
       const VectorOfUniqueEntries<IterDomain*>*,
-      DoubleBufferIndicesPtr>
-      double_buffered_loop_index_variable_map_;
+      CircularBufferIndicesPtr>
+      circular_buffered_loop_index_variable_map_;
 
   // Shortcut to access the fusion this computeAt map was
   //  built from.

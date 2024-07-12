@@ -9,6 +9,7 @@
 
 #include <dispatch.h>
 #include <executor.h>
+#include <expr_evaluator.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <kernel_cache.h>
@@ -55,18 +56,31 @@ class HostIrExecutor final : public OptInDispatch {
   std::vector<at::Tensor> runWithInput(
       std::unordered_map<Val*, c10::IValue> val_to_IValue);
 
+  const std::vector<Val*>& inputs() {
+    return container_->inputs();
+  }
+
+  std::ostream& print(std::ostream& os) const {
+    return container_->print(os);
+  };
+
+  const auto& getFusionExecutorCaches() {
+    return fec_;
+  };
+
  private:
   using OptInDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
   void handle(PostOnStream* post_ir) override;
   void handle(Communication* communication) override;
   void handle(Wait* wait) override;
+  void handle(ForLoop* for_loop) override;
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
   HostIrExecutorParams params_;
   // Stores concrete computed values
-  std::unordered_map<Val*, c10::IValue> val_to_IValue_;
+  ExpressionEvaluator expr_evaluator_;
   // Cache Fusions, FusionExecutors
   std::unordered_map<HostUnit*, FusionExecutor> fe_;
   std::unordered_map<HostUnit*, FusionExecutorCache> fec_;

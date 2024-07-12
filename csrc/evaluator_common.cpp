@@ -81,7 +81,7 @@ void collectBufferSizes(
   for (auto expr : exprs) {
     if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
       into.push_back(allocate->size());
-    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
       collectBufferSizes(into, for_loop->body().exprs());
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       collectBufferSizes(into, ite->thenBody().exprs());
@@ -557,6 +557,9 @@ void NaiveValueMachine::runUnaryOp(int index) {
     case UnaryOpType::BitwiseNot:
       dest = ~src;
       break;
+    case UnaryOpType::Signbit:
+      dest = signbit(src);
+      break;
     default:
       NVF_CHECK(!"Unexpected operator type ", uop_type_[index]);
   }
@@ -647,6 +650,9 @@ void NaiveValueMachine::runBinaryOp(int index) {
       break;
     case BinaryOpType::GT:
       dest = lhs > rhs;
+      break;
+    case BinaryOpType::Fmod:
+      dest = fmod(lhs, rhs);
       break;
     default:
       NVF_CHECK(false, "Unexpected operator type ", bop_type_[index]);

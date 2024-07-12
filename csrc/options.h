@@ -54,6 +54,7 @@ enum class DebugDumpOption {
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
   GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
+  HostIr, //!< Dump the Host IR program
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   EffectiveBandwidth, //! Measure kernel performance and print effective
                       //! bandwidth
@@ -278,7 +279,7 @@ using ProfilerOptions = Options<ProfilerOption>;
 
 // Specific queries for the Profiler Options
 bool isProfilerEnabled();
-bool isProfilerEnabledWithoutCupti();
+bool isProfilerEnabledWithCupti();
 bool isProfilerPrintingEnabled();
 bool isProfilerPrintingVerbose();
 

@@ -9,6 +9,7 @@
 
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <id_model/id_model.h>
+#include <id_model/indexing_traversal.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <type.h>
@@ -29,6 +30,11 @@ struct IndexingInfo {
   std::unordered_map<ValGroup, Val*> index_map;
 };
 
+struct IndexingAllocationInfo {
+  std::vector<IterDomain*> domains;
+  std::vector<Val*> strides;
+};
+
 // The basic algorithm of indexing is:
 //
 // 1. Find the loop domains
@@ -43,7 +49,9 @@ struct IndexingInfo {
 // domains may be promoted.
 class TensorIndexer {
  public:
-  TensorIndexer(const IdModel& id_model);
+  // Using non-const references of IdModel because traversalGraph() returns a
+  // non-const reference
+  TensorIndexer(IdModel& id_model);
 
   // Get a linear index of a given tensor appearing in a given expr, either
   // as a consumer or a producer. The predicate indexing will have a
@@ -53,25 +61,41 @@ class TensorIndexer {
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
 
-  // Returns the index map as well as its traversal path of given
-  // index domains appearing in a given expr. Used by
-  // getLinearIndex.
-  IndexingInfo computeIndex(const Expr* expr, const ValGroups& index_groups)
+  // Get the index of the given ID groups
+  std::vector<Val*> getIndexFor(const Expr* expr, const ValGroups& index_groups)
       const;
-  IndexingInfo computeIndex(
-      const Expr* expr,
-      const std::vector<IterDomain*>& index_domains) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
-  const ValGraph& traversalGraph() const {
+  // Returns non-const reference because indexing may create new domains and
+  // need to update the graph.
+  ValGraph& traversalGraph() const {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
+
+  // Traverse exprs and set allocation info for each tensor
+  void setupAllocationDomains(const std::vector<Expr*>& exprs);
 
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
   void buildLoopIndexMap();
+
+  const IndexingAllocationInfo& getIndexingAllocationInfo(
+      TensorView* tv) const {
+    auto it = alloc_info_.find(tv);
+    NVF_ERROR(
+        it != alloc_info_.end(),
+        "No allocation info found for ",
+        tv->toString());
+    return it->second;
+  }
+
+  // Returns the index map as well as its traversal path of given
+  // index domains appearing in a given expr. Used by
+  // getIndexFor.
+  IndexingInfo computeIndex(const Expr* expr, const ValGroups& index_groups)
+      const;
 
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
@@ -108,13 +132,19 @@ class TensorIndexer {
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
  private:
-  const IdModel& id_model_;
+  // Using non-const references of IdModel because traversalGraph() returns a
+  // non-const reference
+  IdModel& id_model_;
 
   // Mappings from loop groups to their indices. Serial loops will
   // be mapped a unique loop index Val. Parallel loops will be mapped
   // to NamedScalar such as "threadIdx.x". This map needs to be built
   // once and can be reused for different tensors.
   std::unordered_map<ValGroup, Val*> loop_index_map_;
+
+  // Allocation info for each tensor. Must be filled before computing
+  // the index of each tensor
+  std::unordered_map<TensorView*, IndexingAllocationInfo> alloc_info_;
 };
 
 } // namespace nvfuser
