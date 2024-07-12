@@ -278,7 +278,8 @@ void Fusion::addOutput(Val* output) {
   // existing entry in the outputs_ used for inplace update
   if (io_alias_.count(output) != 0) {
     // if previous output is only added for aliasing purpose, we should remove
-    // the previous entry and add a new one. Otherwise, it may be positioned wrong in the output list. 
+    // the previous entry and add a new one. Otherwise, it may be positioned
+    // wrong in the output list.
     if (io_alias_[output].hide_output) {
       removeOutput(output);
     }
