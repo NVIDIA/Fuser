@@ -69,10 +69,11 @@ class MultipleMatmulScheduler {
 
     doSplitKRFactor();
 
-    for (TensorView* tv : ir_utils::allTvs(fusion_)) {
-      AbstractTensor local_abten = forwardAroundMissingAxes(at_tiled_, tv);
-      applyAbstractTransforms(local_abten, tv);
-    }
+    // Creates at_acw_smem_, at_bcw_smem_, and at_smem_epilogue_ all of which
+    // swizzle the shared memory writes
+    swizzleAllSharedMemory();
+
+    applyFinalTransforms();
 
     // swizzleSharedMemory(mma_result)
 
@@ -627,7 +628,9 @@ class MultipleMatmulScheduler {
         // becomes
         //   smem_epilogue = set(mma_result)
         //   splitk_sum = sum(smem_epilogue)
-        smem_epilogues_.push_back(cacheAfter(mma_result));
+        TensorView* smem_epilogue = cacheAfter(mma_result);
+        smem_epilogue->setMemoryType(MemoryType::Shared);
+        smem_epilogues_.push_back(smem_epilogue);
         // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
       }
     }
@@ -636,6 +639,7 @@ class MultipleMatmulScheduler {
   //! This calls orig->rFactor(axes) and also updates the permissive graph to
   //! reflect the new IterDomain mappings
   TensorView* rFactor(TensorView* orig, const std::vector<int64_t>& axes) {
+    const std::vector<IterDomain*> orig_logical = orig->getLogicalDomain();
     const std::vector<IterDomain*> orig_loop = orig->getLoopDomain();
 
     TensorView* partial = orig->rFactor(axes);
@@ -645,13 +649,19 @@ class MultipleMatmulScheduler {
     // domains in partial_loop should map to orig_loop. All the domains in
     // full_loop map to those in noReductions(partial_loop);
     const std::vector<IterDomain*> full_loop = orig->getLoopDomain();
+    const std::vector<IterDomain*> partial_root = partial->getMaybeRootDomain();
     const std::vector<IterDomain*> partial_loop = partial->getLoopDomain();
     const std::vector<IterDomain*> nored_partial_loop =
         TensorDomain::noReductions(partial->getLoopDomain());
 
+    NVF_ERROR(partial_root.size() == orig_logical.size());
     NVF_ERROR(partial_loop.size() == orig_loop.size());
     NVF_ERROR(full_loop.size() == nored_partial_loop.size());
 
+    for (size_t i : c10::irange(orig_logical.size())) {
+      ValGroup vg = graph_->toGroup(orig_logical[i]);
+      graph_->initializeVal(partial_root[i], vg);
+    }
     for (size_t i : c10::irange(orig_loop.size())) {
       ValGroup vg = graph_->toGroup(orig_loop[i]);
       graph_->initializeVal(partial_loop[i], vg);
@@ -689,18 +699,104 @@ class MultipleMatmulScheduler {
 
     // cacheAfter replays loop transforms, so we need to map thsoe replayed
     // transforms.
-    // TODO: this currently just maps loop domains instead of intermediate
-    // IDs. Update this to map through the replay
-    const std::vector<IterDomain*> orig_loop = orig->getLoopDomain();
-    const std::vector<IterDomain*> cache_loop =
-        TensorDomain::noReductions(c->getLoopDomain());
-    NVF_ERROR(orig_loop.size() == cache_loop.size());
-    for (size_t i : c10::irange(orig_loop.size())) {
-      ValGroup vg = graph_->toGroup(orig_loop[i]);
-      graph_->initializeVal(cache_loop[i], vg);
+    const std::vector<IterDomain*> orig_logical =
+        TensorDomain::noReductions(orig->getLogicalDomain());
+    const std::vector<IterDomain*> cache_logical = c->getLogicalDomain();
+    // in split-K we do rFactor which gives us a full = sum(partial)
+    // where partial has root domain that matches the logical domain of the
+    // original tensor. The logical domain contains Iteration transforms of the
+    // Reduction axis in the original mma output.
+    NVF_ERROR(orig_logical.size() == cache_logical.size());
+    for (size_t i : c10::irange(orig_logical.size())) {
+      ValGroup vg = graph_->toGroup(orig_logical[i]);
+      graph_->initializeVal(cache_logical[i], vg);
     }
 
     return c;
+  }
+
+  //! Given a base AbstractMatmulTensor, perform a shared memory swizzle on it.
+  //!
+  //! Since some tensors might be missing in the actual tensors we plan to
+  //! apply this schedule to, we cannot just look at the two innermost
+  //! dimensions. Instead, the roles of those two inner dimensions should be
+  //! provided, and we will find the two inner-most dimensions with those roles.
+  //!
+  //! apply_swizzle indicates whether we should apply AbstractTensor::swizzle.
+  //! This should only be done when the tensors we will apply this schedule to
+  //! reside in shared memory.
+  mma_utils::AbstractMatmulTensor swizzleSharedMemory(
+      const mma_utils::AbstractMatmulTensor& abten,
+      const std::vector<MatmulDimRole>& inner_dim_roles,
+      int64_t data_type_size,
+      bool apply_swizzle) {
+    // Find x and y dimensions
+    int64_t x_dim = -1, y_dim = -1;
+    for (int64_t pos = (int64_t)abten.size() - 1; pos >= 0; --pos) {
+      if (std::find_if(
+              inner_dim_roles.begin(),
+              inner_dim_roles.end(),
+              [pos, &abten](MatmulDimRole role) {
+                return abten.hasTag(pos, role);
+              }) != inner_dim_roles.end()) {
+        if (y_dim == -1) {
+          y_dim = pos;
+        } else if (x_dim == -1) {
+          x_dim = pos;
+          break;
+        }
+      }
+    }
+    NVF_ERROR(
+        x_dim != -1 && y_dim != -1,
+        "Could not find inner dims with provided roles");
+
+    mma_utils::AbstractMatmulTensor swizzle_domain = abten;
+
+    return swizzle_domain;
+  }
+
+  // Creates at_acw_swmem_ and at_bcw_smem_ which are used to schedule
+  // acw_smems_ and bcw_smems_
+  void swizzleAllSharedMemory() {
+    if (params_.use_smem_epilogue) {
+      // Transform mma_result through the epilogue swizzle without actually
+      // swizzling the axes. This is done to enable the domains
+      // are mapped between mma_result and smem_epilogue.
+      at_mma_result_ = swizzleSharedMemory(
+          at_tiled_,
+          {MatmulDimRole::M, MatmulDimRole::N},
+          dataTypeSize(mma_results_.front()->dtype()),
+          /*apply_swizzle=*/false);
+      // Also apply to smem_epilogue, and now apply the swizzle
+      at_smem_epilogue_ = swizzleSharedMemory(
+          at_tiled_,
+          {MatmulDimRole::M, MatmulDimRole::N},
+          dataTypeSize(smem_epilogues_.front()->dtype()),
+          /*apply_swizzle=*/false);
+    } else {
+      at_mma_result_ = at_tiled_;
+    }
+
+    // TODO: swizzle operand smem
+  }
+
+  void applyFinalTransforms() const {
+    auto forwardAndApply = [](const mma_utils::AbstractMatmulTensor& abten,
+                              TensorView* tv) {
+      AbstractTensor local_abten = forwardAroundMissingAxes(abten, tv);
+      applyAbstractTransforms(local_abten, tv);
+    };
+
+    for (TensorView* tv : mma_results_) {
+      forwardAndApply(at_mma_result_, tv);
+    }
+
+    for (TensorView* tv : smem_epilogues_) {
+      forwardAndApply(at_smem_epilogue_, tv);
+    }
+
+    // TODO: all tensors
   }
 
  private:
@@ -722,7 +818,8 @@ class MultipleMatmulScheduler {
   // Track the role of each axis for each tensor in the Fusion
   std::unordered_map<TensorView*, std::vector<MatmulDimRole>> all_tv_dims_;
 
-  mma_utils::AbstractMatmulTensor at_tiled_;
+  mma_utils::AbstractMatmulTensor at_tiled_, at_acw_smem_, at_bcw_smem_,
+      at_mma_result_, at_smem_epilogue_;
 };
 
 } // namespace

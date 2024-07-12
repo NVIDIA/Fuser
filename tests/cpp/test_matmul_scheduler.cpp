@@ -2790,6 +2790,7 @@ TEST_F(MatmulSchedulerTest, Llama2FFNNoSegmentation) {
   params.circular_buffer_options.circular_buffer_smem_read = true;
   params.circular_buffer_options.smem_circular_buffer_stage = 2;
   params.splitk_factor = 2;
+  params.use_smem_epilogue = true;
   scheduleMultipleMatmuls(fusion, params);
 
   FusionExecutor fe;
