@@ -87,7 +87,7 @@ Val* replayCatOpWithBinaryOp(
     }
   }
   // restore data type if it's promoted by BinaryOp.
-  res = maybeCastOp(data_type, res);
+  return maybeCastOp(data_type, res);
 }
 
 // The pass assumes propagating PadOp with zero pad. The criteria here for
@@ -756,7 +756,7 @@ void propagatePad(Fusion* fusion) {
           cat->inputs().begin(),
           cat->inputs().end(),
           std::back_inserter(vals),
-          [&pop, &frontier](Val* val) {
+          [&p, &frontier](Val* val) {
             Val* pad_out = replayConcretePad(
                 val->as<TensorView>(),
                 p->value(),
@@ -767,8 +767,8 @@ void propagatePad(Fusion* fusion) {
             return pad_out;
           });
 
-      Val* new_out =
-          replayCatOpWithBinaryOp(vals, cat->out_tv->getDataType().value());
+      new_out =
+          replayCatOpWithBinaryOp(vals, cat->output(0)->getDataType().value());
     }
     // replace old (->pad->) with (->pads_before_new_def->new_def->)
     if (new_out != nullptr) {
@@ -790,7 +790,7 @@ void replaceCat(Fusion* fusion) {
           return !val->definition()->isA<PadOp>();
         })) {
       Val* res = replayCatOpWithBinaryOp(
-          cat->inputs(), cat->out_tv->getDataType().value());
+          cat->inputs(), cat->output(0)->getDataType().value());
 
       // replace `CatOp` with the replay result.
       ir_utils::replaceValue(fusion, {{cat->output(0), res}});
