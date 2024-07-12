@@ -68,6 +68,28 @@ bool isSamePadOp(Expr* use, PadOp* p) {
   return true;
 }
 
+Val* replayCatOpWithBinaryOp(
+    const std::vector<Val*>& inputs,
+    DataType data_type) {
+  // replay `CatOp` with series of BinaryOp instead, since we might have
+  // pushed `PadOp` out and breaking the codegen if `CatOp` remains.
+  Val* res = nullptr;
+  bool is_boolean = isBooleanType(data_type);
+  for (Val* inp : inputs) {
+    if (res == nullptr) {
+      res = inp;
+    } else {
+      if (is_boolean) {
+        res = bitwise_or(res, inp);
+      } else {
+        res = add(res, inp);
+      }
+    }
+  }
+  // restore data type if it's promoted by BinaryOp.
+  res = maybeCastOp(data_type, res);
+}
+
 // The pass assumes propagating PadOp with zero pad. The criteria here for
 // return true is that `unaryOp(0) == 0`
 bool padCompatibleUnaryOp(UnaryOpType t) {
@@ -723,6 +745,30 @@ void propagatePad(Fusion* fusion) {
 
       // insert new PadOp(s) to frontier;
       frontier.push_back(new_out->definition()->as<PadOp>());
+    } else if (def->isA<CatOp>()) {
+      auto* cat = def->as<PadOp>();
+
+      // TODO: can cat support broadcast on any non-cat dimensions? Otherwise we
+      // need to ensure that we are not padding on broadcast dimensions like
+      // binary op
+      std::vector<Val*> vals;
+      std::transform(
+          cat->inputs().begin(),
+          cat->inputs().end(),
+          std::back_inserter(vals),
+          [&pop, &frontier](Val* val) {
+            Val* pad_out = replayConcretePad(
+                val->as<TensorView>(),
+                p->value(),
+                {p->getPadWidths()},
+                TensorDomain::noReductions(
+                    p->out()->as<TensorView>()->getLogicalDomain()));
+            frontier.push_back(pad_out->definition()->as<PadOp>());
+            return pad_out;
+          });
+
+      Val* new_out =
+          replayCatOpWithBinaryOp(vals, cat->out_tv->getDataType().value());
     }
     // replace old (->pad->) with (->pads_before_new_def->new_def->)
     if (new_out != nullptr) {
@@ -740,29 +786,11 @@ void replaceCat(Fusion* fusion) {
 
   // sanitizing CatOp with series of binary add;
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
-    std::cout << "try to replay here" << std::endl;
     if (std::any_of(cat->inputs().begin(), cat->inputs().end(), [](Val* val) {
           return !val->definition()->isA<PadOp>();
         })) {
-      // replay `CatOp` with series of BinaryOp instead, since we might have
-      // pushed `PadOp` out and breaking the codegen if `CatOp` remains.
-      Val* res = nullptr;
-      TensorView* cat_out_tv = cat->output(0)->as<TensorView>();
-      bool is_boolean = isBooleanType(cat_out_tv->getDataType().value());
-      for (Val* inp : cat->inputs()) {
-        if (res == nullptr) {
-          res = inp;
-        } else {
-          if (is_boolean) {
-            res = bitwise_or(res, inp);
-          } else {
-            res = add(res, inp);
-          }
-        }
-      }
-
-      // restore data type if it's promoted by BinaryOp.
-      res = maybeCastOp(cat_out_tv->getDataType().value(), res);
+      Val* res = replayCatOpWithBinaryOp(
+          cat->inputs(), cat->out_tv->getDataType().value());
 
       // replace `CatOp` with the replay result.
       ir_utils::replaceValue(fusion, {{cat->output(0), res}});
