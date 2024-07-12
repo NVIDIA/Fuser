@@ -356,36 +356,21 @@ void scheduleContiguousVectorLoad(
   tv->axis(-4)->parallelize(ParallelType::TIDz);
 }
 
-void makeTile(
-    TensorView* tv,
-    const std::vector<int64_t>& tile_sizes,
-    int64_t m_pos,
-    int64_t n_pos,
-    int64_t k_pos) {
+void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes) {
   NVF_CHECK(
       tv->getLoopDomain().size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
 
-  // Split the inner dimensions
-  int64_t num_split_axes = 0;
-  if (m_pos != -1) {
-    tv->split(m_pos, tile_sizes.at(0));
-    num_split_axes++;
-    if (n_pos > m_pos) {
-      n_pos++;
-    }
-    if (k_pos > m_pos) {
-      k_pos++;
-    }
-  }
-  if (n_pos != -1) {
-    tv->split(n_pos, tile_sizes.at(1));
-    if (k_pos > n_pos) {
-      k_pos++;
-    }
-  }
-  if (k_pos != -1) {
-    tv->split(k_pos, tile_sizes.at(2));
+  // Number of inner dimensions we are tiling.
+  const int64_t tile_dimension_size = (int64_t)tile_sizes.size();
+
+  // Split the inner dimensions:
+  for (int64_t idx : c10::irange(tile_dimension_size)) {
+    // Using negative indexing to accomodate potential batching
+    //  dimensions on the further left. Eg.:
+    //  0, 1, 2   ->         -3,-2,-1
+    // [M, N, K]  -> [B0, B1, M, N, K]
+    tv->split(idx - tile_dimension_size, tile_sizes.at(idx));
   }
 
   // The transformation happened should look like:
@@ -397,7 +382,7 @@ void makeTile(
   std::unordered_map<int64_t, int64_t> reorder_map_old_to_new;
 
   // Number of tiled inner dimensions after we split.
-  const auto split_tile_dimension_size = 2 * num_split_axes;
+  const auto split_tile_dimension_size = 2 * tile_dimension_size;
   for (auto idx : c10::irange(split_tile_dimension_size)) {
     // We want to reorder as follows:
     //           Before
@@ -417,7 +402,7 @@ void makeTile(
 
     // Calculate the actual index after reordering
     auto index_after_reorder =
-        group_index * num_split_axes + index_within_group;
+        group_index * tile_dimension_size + index_within_group;
 
     // Add pair {idx_before, idx_after} to re-order map.
     reorder_map_old_to_new.insert(std::make_pair(

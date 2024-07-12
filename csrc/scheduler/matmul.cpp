@@ -33,11 +33,7 @@ MatmulScheduler::MatmulScheduler(
 
 void MatmulScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule Matmul Fusion");
-  if (isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
-    scheduleMultipleMatmuls(fusion, matmulParams());
-  } else {
-    scheduleMatmul(fusion, matmulParams());
-  }
+  scheduleMatmul(fusion, matmulParams());
 }
 
 bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -756,6 +752,10 @@ void scheduleSplitKSum(
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
+  if (isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
+    scheduleMultipleMatmuls(fusion, params);
+    return;
+  }
   FusionGuard fg(fusion);
 
   // Make sure we don't have global memory set on intermediate tensors from
@@ -952,7 +952,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       num_device_dims + num_local_batch_dims;
 
   // [... M,N,K]
-  mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector(), -3, -2, -1);
+  mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
   // [..., Mo, No, Ko, Mi, Ni, Ki]
 
   // Unswizzle mma result in shared memory
