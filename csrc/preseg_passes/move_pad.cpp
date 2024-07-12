@@ -746,7 +746,7 @@ void propagatePad(Fusion* fusion) {
       // insert new PadOp(s) to frontier;
       frontier.push_back(new_out->definition()->as<PadOp>());
     } else if (def->isA<CatOp>()) {
-      auto* cat = def->as<PadOp>();
+      auto* cat = def->as<CatOp>();
 
       // TODO: can cat support broadcast on any non-cat dimensions? Otherwise we
       // need to ensure that we are not padding on broadcast dimensions like
