@@ -195,8 +195,13 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
   auto stop = for_loop->stop()->value().as<int64_t>();
 
   for (auto i = start; i < stop; i += step) {
+    // invalidate i and its consumers before binding
+    expr_evaluator_.invalidate(for_loop->index());
+    for (auto consumer : ir_utils::consumerValsOf(for_loop->index())) {
+      invalidate(consumer);
+    }
+    expr_evaluator_.bind(for_loop->index(), i);
     for (Expr* expr : for_loop->body().exprs()) {
-      expr_evaluator_.bind(for_loop->index(), i);
       dispatch(expr);
     }
   }
