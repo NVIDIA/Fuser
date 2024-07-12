@@ -561,7 +561,7 @@ struct OuterReduHeuristicParas {
     // used. However, when reduction size is very large (>=16K) and fused ops
     // have high computation cost (tanh in gelu bwd), it may be slower than grid
     // reduction where all SMs are used except the last wave.
-    float f_wave = (float)blocks / (float)sm_count;
+    float f_wave = (float)gidim / (float)sm_count;
     float sm_efficiency = f_wave / std::ceil(f_wave);
     if (sm_efficiency >= 0.9f) {
       return true;
@@ -659,7 +659,6 @@ OuterReduHeuristicParas getBlockOuterReduction(
     int64_t sm_count,
     int64_t max_unroll,
     int64_t max_threads_per_block,
-    int64_t n_tensor_outputs,
     int64_t total_iteration_numel,
     int64_t total_reduction_numel) {
   OuterReduHeuristicParas hp(total_iteration_numel, total_reduction_numel);
@@ -742,7 +741,6 @@ OuterReduHeuristicParas getGridOuterReduction(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
-    const int64_t n_tensor_outputs,
     const int64_t max_input_dtype_size,
     const int64_t max_unroll,
     const size_t vectorize_factor) {
@@ -988,7 +986,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
-    const int64_t n_tensor_outputs,
     const int64_t max_input_dtype_size,
     const size_t vectorize_factor) {
   // WARNING: Current device for codegen may not be the target device
@@ -1021,7 +1018,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       total_reduction_numel,
       total_iteration_numel,
       n_tensor_inputs,
-      n_tensor_outputs,
       max_input_dtype_size,
       max_unroll,
       vectorize_factor);
@@ -1043,7 +1039,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       device_multiprocessor_count,
       max_unroll,
       max_threads_per_block,
-      n_tensor_outputs,
       total_iteration_numel,
       total_reduction_numel);
 
@@ -1226,7 +1221,6 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
     const int64_t inner_most_dimension_numel,
     const bool fastest_dim_reduction,
     const int64_t n_tensor_inputs,
-    const int64_t n_tensor_outputs,
     const int64_t max_input_dtype_size,
     const size_t vectorize_factor) {
   if (fastest_dim_reduction) {
@@ -1243,7 +1237,6 @@ std::shared_ptr<ReductionParams> reductionHeuristic(
         total_reduction_numel,
         total_iteration_numel,
         (int64_t)n_tensor_inputs,
-        (int64_t)n_tensor_outputs,
         (int64_t)max_input_dtype_size,
         vectorize_factor);
   }
@@ -1325,10 +1318,8 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
   // be even better if we had better analysis as not all unrolled elements have
   // to be alive at the same time.
   int64_t n_tensor_inputs = 0;
-  int64_t n_tensor_outputs = 0;
   for (auto tv : unrollable_inputs_outputs) {
     if (!tv->isFusionInput()) {
-      n_tensor_outputs++;
       continue;
     }
     max_dtype_size = std::max(
@@ -1347,7 +1338,6 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       properties.inner_most_dimension_numel,
       properties.fastest_dim_reduction,
       n_tensor_inputs,
-      n_tensor_outputs,
       max_dtype_size,
       vectorize_factor);
   heuristic->cparams.index_type = runtime_info.getIndexType();
