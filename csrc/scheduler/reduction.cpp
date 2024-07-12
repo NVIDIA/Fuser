@@ -544,7 +544,8 @@ struct OuterReduHeuristicParas {
        << "total_iteration_numel: " << total_iteration_numel << "\n"
        << "vectorize_factor: " << iter_unroll_factor << "\n"
        << "redu_unroll_factor: " << redu_unroll_factor << "\n"
-       << "grid(" << gidim << ", " << grdim << ", 1)" << "\n"
+       << "grid(" << gidim << ", " << grdim << ", 1)"
+       << "\n"
        << "block(" << bdimx << ", " << bdimy << ", 1)" << std::endl;
     return ss.str();
   }
