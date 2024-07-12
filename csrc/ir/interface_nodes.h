@@ -409,8 +409,15 @@ class NVF_API TensorView : public Val {
   void applyMmaSwizzle(MmaOperand operand);
   void applyMmaSwizzle(MmaInputSmemSwizzle swizzle);
 
+  //! Function to schedule the swizzled TMA box.
+  //! This functions works on the assumption that the TMA box is 2D
+  //! and the inner-dimension is less or equal to the swizzle size.
+  //! This doesn't work for the swizzle none mode. For more details
+  //! refer to the figure doc/dev/tma/swizzle.svg
+  void swizzleTMABox(MmaInputSmemSwizzle swizzle, bool split_outer_dim = true);
+
   //! Transforms the innermost iterdomains according to the given mma swizzle,
-  //!  this should be used on the tvs that are inputs of a MmaOp and are loaded
+  //!  this should be used on the tvs that are inputs of a MmaOp or are loaded
   //!  using TMA.
   void applyMmaSwizzleForTMALoad(
       MmaInputSmemSwizzle swizzle,

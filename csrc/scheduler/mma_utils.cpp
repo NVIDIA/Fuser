@@ -839,8 +839,8 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
 
 void WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
     TensorView* tv,
-    size_t first_ids_to_skip) {
-  size_t skip = 0;
+    int64_t first_ids_to_skip) {
+  auto skip = 0;
   for (auto id : tv->getLoopDomain()) {
     if (skip < first_ids_to_skip) {
       skip++;
@@ -848,42 +848,6 @@ void WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
     }
     id->parallelize(ParallelType::Bulk);
   }
-}
-
-void WarpMmaSwizzler::swizzleTMABox(
-    TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    bool split_outer_dim) {
-  auto dtype = tv->getDataType().value();
-  // Input is on the form:
-  // [...., K (assume is 16), NI (16 .. say dtype is half and swizzle
-  // size is 32B, N could have already been split to create the TMA box)].
-  // Here the TMA box is [16,16]. If the outer dim was split then the above
-  // input would be [KO(2), KI(8), NI(16)] with the box being [8, 16]
-
-  // Split outer Dim:
-  // [..., KO(2), KI(8), NI (16)] ->
-  // [..., KO(2), KI0(2), KII(4), NI (16)]
-  // Not Split:
-  // [..., K(16),  NI(16)] ->
-  // [..., KO(4), KI(4), NI(16)]
-  tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
-
-  // Split outer Dim:
-  // [..., KO(2), KI0(2), KII(4), NI (16)] ->
-  // [..., KO(2), KI0(2), KII(4), NIO(2) ,NII(8)]
-  // Not Split:
-  // [..., KO(4), KI(4), NI(16)] ->
-  // [..., KO(4), KI(4), NIO(2), NII(8)]
-  tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
-
-  if (!split_outer_dim) {
-    // [..., KO(4), KI(4), NIO(2), NII(8)] -> [..., KOO(2), KOI(2) KI(4),
-    // NIO(2), NII(8)]
-    tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
-  }
-
-  tv->swizzle(SwizzleType::XOR, -4, -2);
 }
 
 // Please note that we currently do not fully support
@@ -937,7 +901,7 @@ void WarpMmaSwizzler::scheduleTMALoadForMma(
     // Outer Dim split,box is: [KI(8), NI(16)]
     // Outer Dim is not split,box is [K(16), NI(16)]
     // Everything inside a box should be marked parallel bulk
-    WarpMmaSwizzler::swizzleTMABox(tv, swizzle, split_outer_dim);
+    tv->swizzleTMABox(swizzle, split_outer_dim);
   }
 
   parallelizeAsBulkSkippingFirstIDs(tv, num_ids_to_skip);

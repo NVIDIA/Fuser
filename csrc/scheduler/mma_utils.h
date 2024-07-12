@@ -224,7 +224,7 @@ class WarpMmaSwizzler {
   //! param.
   static void parallelizeAsBulkSkippingFirstIDs(
       TensorView* tv,
-      size_t first_ids_to_skip);
+      int64_t first_ids_to_skip);
 };
 
 void checkDimSize(

@@ -435,7 +435,7 @@ void scheduleTile(
       // In our implementation of swizzling, we work on 2D box where the
       // inner-dim is the size of the swizzle in Bytes (at most).
       tv->split(-1, tile_sizes[dim - 1]);
-      mma_utils::WarpMmaSwizzler::swizzleTMABox(tv, swizzle, false);
+      tv->swizzleTMABox(swizzle, false);
     }
   }
 }
@@ -524,8 +524,8 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
   tv1->reorder({{-2, -3}});
   tv2->reorder({{-2, -3}});
   if (swizzle != MmaInputSmemSwizzle::None) {
-    mma_utils::WarpMmaSwizzler::swizzleTMABox(tv1, swizzle, false);
-    mma_utils::WarpMmaSwizzler::swizzleTMABox(tv2, swizzle, false);
+    tv1->swizzleTMABox(swizzle, false);
+    tv2->swizzleTMABox(swizzle, false);
   }
   mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
       tv1, 3 /* skip the first three IDs*/);
