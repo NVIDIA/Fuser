@@ -409,7 +409,6 @@ void scheduleTile(
     std::vector<int64_t> tile_sizes,
     MmaInputSmemSwizzle swizzle) {
   const int64_t dim = tile_sizes.size();
-  // const int64_t swizzle_size = getBytesFromSwizzle(swizzle) / 16;
 
   for (auto tv : tvs) {
     NVF_ERROR(
@@ -467,7 +466,7 @@ TEST_P(TMASimpleLdstTest, Load) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
 
-  // EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), dim);
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), dim);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
   ASSERT_EQ(
       XorFinder::findXor(fe.kernel()), (swizzle != MmaInputSmemSwizzle::None));
