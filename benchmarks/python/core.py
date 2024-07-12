@@ -116,6 +116,11 @@ def get_device_properties() -> Tuple[int, float]:
     return device_properties
 
 
+# These variables can be overwritten through CLI commands
+# --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
+# --benchmark-num-inputs=num_inputs
+BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1, "num_inputs": None}
+
 DEVICE_PROPERTIES = get_device_properties()
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
@@ -310,11 +315,6 @@ class NVFBenchmark:
         self.benchmark.extra_info["% Peak Bandwidth (SOL)"] = (
             100 * (bandwidth_bps / 1024**3) / PEAK_BANDWIDTH_GBPS
         )
-
-
-# These variables can be overwritten through CLI commands
-# --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
-BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1}
 
 
 def run_benchmark(
