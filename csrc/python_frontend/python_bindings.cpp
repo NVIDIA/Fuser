@@ -3069,6 +3069,19 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("tensor"),
       py::arg("op_type") = LoadStoreOpType::Set);
   nvf_sched.def(
+      "cache_fork",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->cacheFork();
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"));
+  nvf_sched.def(
       "set_memory_type",
       [](FusionDefinition::SchedOperators& self,
          Tensor tensor,
