@@ -324,14 +324,16 @@ run(std::list<std::pair<ExprGroup, Direction>>& exprs,
 
 } // namespace infer_roles
 
-// View the allocation domain of the gmem tensor with given exprs, and compute
-// the contiguity and stride of each dimension in the view. Note that, usually,
-// the given exprs does not contain the full path from the consumer tensor's
-// loop domain to the gmem tensor's allocation domain, because many of the
-// expressions are removed by the infer_roles::run function before sending to
-// this function. Therefore, usually we are not viewing the gmem tensor's
-// allocation domain as the consumer tensor's loop domain, but as something in
-// the middle. We sometimes call this domain-in-the-middle the "raw TMA domain".
+// Passes in namespace infer_roles traverse the list of expressions on the path
+// from consumer's loop domain to gmem tensor's allocation domain and remove
+// expressions if they are used to specify roles of a TMA schedule. The
+// remaining expressions after these passes will be sent to this namespace.
+// These remaining expression will be treated as view operations that view the
+// allocation domain of the gmem tensor as a domain in the middle between the
+// loop domain in the consumer and the the allocation domain of the gmem tensor.
+// Code in this namespace is responsible for processing these expressions to
+// compute the view and the contiguity and stride of each dimension in the view.
+// We sometimes call this domain-in-the-middle the "raw TMA domain".
 namespace view_gmem_alloc_domain_with_exprs {
 
 // Get the allocation domain of the gmem tensor as ValGroups, and the contiguity
@@ -478,12 +480,13 @@ std::list<std::tuple<ValGroup, /*contiguity*/ bool, /*stride*/ Val*>> run(
   // Propagate from the gmem allocation domain towards the consumer tensor's
   // loop domain with the given exprs. Because the given exprs often do not
   // contain the full path from the consumer tensor's loop domain to the gmem
-  // tensor's allocation domain, we will stop the propagation in the middle.
-  // This propagation must consume all expressions in the given list. If there
-  // is any unrecognized expression, this means there is an error in the
-  // schedule. The exprs are in the topology order from the consumer tensor's
-  // loop domain to the gmem tensor's allocation domain, so we need to use the
-  // reverse iterator to traverse.
+  // tensor's allocation domain, the propagation will automatically stop in the
+  // middle after all given expressions have been exhausted.. This propagation
+  // must consume all expressions in the given list. If there is any
+  // unrecognized expression, this means there is an error in the schedule. The
+  // exprs are in the topology order from the consumer tensor's loop domain to
+  // the gmem tensor's allocation domain, so we need to use the reverse iterator
+  // to traverse.
   HandleExpr handle_expr(frontier);
   for (auto it = exprs.rbegin(); it != exprs.rend(); it++) {
     auto [expr, direction] = *it;
