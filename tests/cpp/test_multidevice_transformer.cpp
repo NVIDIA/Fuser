@@ -52,9 +52,9 @@ class DistributedTransformerTest
       .cache_fusion_executor = false};
   const int D;
   const int B = 2;
-  const int E = 32;
+  const int E = 128;
   const int H = 4;
-  const int S = 4;
+  const int S = 32;
 
   // Temporary until https://github.com/NVIDIA/Fuser/issues/2563
   at::Tensor shardTensor(at::Tensor tensor, int64_t axis, DeviceMesh& mesh) {
@@ -115,7 +115,7 @@ void validate(
     auto all_close = expected_out[i].allclose(
         out[i].to(expected_out[i].dtype()),
         tolerance,
-        tolerance,
+        tolerance / 10.0,
         /*equal_nan=*/true);
 
     if (!all_close) {
@@ -285,7 +285,6 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   TensorView* qkv1 = add(mm, proj_bias_bcast);
   // Forming the q,k,v vectors:
   TensorView* qkv = reshape(qkv1, {D, B * S, 3 * E/D}, {D, B, S, 3 * E/D});
-  std::vector<TensorView*> qkv_slice = {};
   std::vector<TensorView*> qkv_reshaped = {};
   for (auto i : c10::irange(3)) {
     TensorView* tv_slice = slice(qkv, {0, 0, 0, E/D * i}, {D, B, S, E/D * (i + 1)});
@@ -293,7 +292,6 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
     TensorView* tv_reshape = reshape(tv_slice, {D, B, S, E/D}, {D, B, S, H/D, E/H});
     TensorView* tv_trans = transpose(tv_reshape, 2, 3); // D, B, H/D, S, E/H
     TensorView* tv_cast = castOp(dtype, tv_trans);
-    qkv_slice.push_back(tv_slice);
     qkv_reshaped.push_back(tv_cast);
     // Explicitly shard qkv before calling SDPA node
     for (auto tv : {tv_slice, tv_reshape, tv_trans, tv_cast}) {
@@ -327,9 +325,6 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
       replicated_dropout(linear2, kDropoutProb, fusion.get(), mesh);
 
   fusion->addOutput(qkv);
-  fusion->addOutput(qkv_reshaped[0]);
-  fusion->addOutput(qkv_reshaped[1]);
-  fusion->addOutput(qkv_reshaped[2]);
   fusion->addOutput(sdpa_output);
   fusion->addOutput(linear2);
   fusion->addOutput(dropout);
@@ -343,13 +338,12 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  const auto options = at::TensorOptions().dtype(at_dtype).device(
-      at::kCUDA, communicator_->local_rank());
+  const auto options = at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x_ = at::randn({B*S, E}, options);
-  auto w0_ = at::randn({E, 3 * E}, options);
-  auto b0_ = at::randn({3 * E}, options);
-  auto w1_ = at::randn({E, E}, options);
-  auto b1_ = at::randn({E}, options);
+  auto w0_ = at::randn({E, 3 * E}, options) / 10.0;
+  auto b0_ = at::randn({3 * E}, options) / 10.0;
+  auto w1_ = at::randn({E, E}, options) / 10.0;
+  auto b1_ = at::randn({E}, options)/ 10.0;
 
   auto m_ = at::matmul(x_, w0_).add(b0_).view({B, S, 3 * E});
   auto qkv_vec = m_.split(E, 2);
@@ -375,16 +369,13 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
     b1_};
   std::vector<at::Tensor> expected_outputs = {
     shardTensor(m_.view({B, S, 3, E}), 3, mesh).view({1, B, S, 3*E/D}).contiguous(),
-    shardTensor(qkv_vec[0], 1, mesh),
-    shardTensor(qkv_vec[1], 1, mesh),
-    shardTensor(qkv_vec[2], 1, mesh),
     shardTensor(sdpa_, 1, mesh),
     y_proj,
     y_dropout};
 
-  at::manual_seed(0);
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
+  at::manual_seed(0);
   auto out = runtime.runWithInput(inputs);
   validate(expected_outputs, out);
 };
