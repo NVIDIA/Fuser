@@ -1010,6 +1010,16 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain2) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
+  // Schedule like this:
+  // 0   1   2   3   4   5
+  //  \   \ /   /     \ /
+  //   \   6   /       7
+  //    \ /   /
+  //     8   /
+  //      \ /
+  //       9
+  // where 1 and 5 are bulk IDs. This way, [merge 1, 2 -> 6] is a "striding
+  // split", and [merge 0, 6 -> 8] and [merge 4, 5 -> 7] are "boxing splits".
   tv0->merge(1);
   tv0->merge(0);
   tv0->merge(-2);
