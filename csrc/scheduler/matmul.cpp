@@ -33,7 +33,11 @@ MatmulScheduler::MatmulScheduler(
 
 void MatmulScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule Matmul Fusion");
-  scheduleMatmul(fusion, matmulParams());
+  if (isOptionEnabled(EnableOption::FuseMultipleMatmuls)) {
+    scheduleMultipleMatmuls(fusion, matmulParams());
+  } else {
+    scheduleMatmul(fusion, matmulParams());
+  }
 }
 
 bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -752,9 +756,6 @@ void scheduleSplitKSum(
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
-  // TODO: hide behind an option
-  scheduleMultipleMatmuls(fusion, params);
-
   FusionGuard fg(fusion);
 
   // Make sure we don't have global memory set on intermediate tensors from

@@ -652,24 +652,6 @@ class MultipleMatmulScheduler {
     NVF_ERROR(partial_loop.size() == orig_loop.size());
     NVF_ERROR(full_loop.size() == nored_partial_loop.size());
 
-    /*
-    // initialize IDs in new domains with histories
-    std::vector<Val*> new_loop_vals;
-    for (IterDomain* id : partial_loop) {
-      new_loop_vals.push_back(id);
-    }
-    for (IterDomain* id : full_loop) {
-      new_loop_vals.push_back(id);
-    }
-    for (Statement* stmt : StmtSort::getStmtsTo(new_loop_vals)) {
-      if (Val* v = dynamic_cast<Val*>(stmt)) {
-        if (!graph->hasGroup(v)) {
-          graph->initializeVal(v);
-        }
-      }
-    }
-    */
-
     for (size_t i : c10::irange(orig_loop.size())) {
       ValGroup vg = graph_->toGroup(orig_loop[i]);
       graph_->initializeVal(partial_loop[i], vg);
