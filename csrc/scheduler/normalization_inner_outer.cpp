@@ -326,31 +326,25 @@ std::vector<TensorView*> sortProjectableBufferInputs(
     const std::vector<TensorView*>& projectable_buffer_inputs,
     const std::vector<TensorView*>& outer_broadcast_tvs) {
   // mark whether the buffer is used by outer broadcast tensors
-  const int64_t n_buffer_inputs = (int64_t)projectable_buffer_inputs.size();
-  std::vector<bool> is_used_by_outer_bcast(n_buffer_inputs, false);
-  for (auto idx = 0; idx < n_buffer_inputs; idx++) {
-    auto input_buffer = projectable_buffer_inputs.at(idx);
-    is_used_by_outer_bcast[idx] = std::any_of(
+  std::unordered_map<TensorView*, bool> is_used_by_outer_bcast;
+  for (auto buffer : projectable_buffer_inputs) {
+    is_used_by_outer_bcast[buffer] = std::any_of(
         outer_broadcast_tvs.begin(),
         outer_broadcast_tvs.end(),
-        [&input_buffer](TensorView* tv) {
-          return DependencyCheck::isDependencyOf(input_buffer, tv);
+        [&buffer](TensorView* tv) {
+          return DependencyCheck::isDependencyOf(buffer, tv);
         });
   }
 
   // sort based on [is_used_by_outer_bcast]
-  std::vector<int> idxs(n_buffer_inputs);
-  std::iota(idxs.begin(), idxs.end(), 0);
-  std::stable_sort(
-      idxs.begin(), idxs.end(), [&is_used_by_outer_bcast](int i, int j) {
-        return is_used_by_outer_bcast[i] && !is_used_by_outer_bcast[j];
+  std::vector<TensorView*> sorted_buffer = projectable_buffer_inputs;
+  std::sort(
+      sorted_buffer.begin(),
+      sorted_buffer.end(),
+      [&](TensorView* a, TensorView* b) {
+        return is_used_by_outer_bcast[a] && !is_used_by_outer_bcast[b];
       });
-  std::vector<TensorView*> sorted_candidate_tvs;
-  sorted_candidate_tvs.reserve(n_buffer_inputs);
-  for (auto idx : idxs) {
-    sorted_candidate_tvs.emplace_back(projectable_buffer_inputs.at(idx));
-  }
-  return sorted_candidate_tvs;
+  return sorted_buffer;
 }
 
 PersistentBufferStorageParams getPersistentBufferStorageParams(
