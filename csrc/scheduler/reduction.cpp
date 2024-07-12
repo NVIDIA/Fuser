@@ -551,7 +551,7 @@ struct OuterReduHeuristicParas {
   }
 
   // compare block reduction with grid reduction
-  bool isBetterThan(const OuterReduHeuristicParas& grid_hp, int sm_count)
+  bool isBetterThan(const OuterReduHeuristicParas& grid_hp, int64_t sm_count)
       const {
     NVF_ERROR(
         grdim == 1,
