@@ -389,12 +389,58 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   return false;
 }
 
+namespace {
+
+bool isSplitOnly(ViewOp* view_op) {
+  for (auto expr : StmtSort::getExprsTo(
+           {view_op->out()->getLogicalDomain().begin(),
+            view_op->out()->getLogicalDomain().end()})) {
+    if (!expr->isA<Split>()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace
+
 // Returns if view interferes with how we want to treat the reference, being at
 // least a 2D reduction schedule but maybe a 3D reduction schedule.
 bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   // Make sure the view doesn't interfere with how we'll want to schedule
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.
+
+  // Only needs to check tvs not used by reduction, e.g. T1 = view(T0),
+  // Tx = SomeOps(T1), T3 = reduction(Tx), T4 = view(Tx). In this case, T3 has
+  // the same logical domain as T1, don't need to check `T1 = view(T0)`.
+  // However, T4 is not used by T3, so need to check `T4 = view(Tx)`. See test
+  // GpuViewTest.ReshapeReductionSilbingReshape.
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  std::vector<ViewOp*> view_ops_not_used_by_reduction;
+  bool all_views_are_split_only = true;
+  for (auto view : ir_utils::getViewOps(fusion)) {
+    auto view_tv = view->out();
+    // Task 1: Record views not used by reduction
+    if (!std::any_of(
+            reduction_tvs.begin(),
+            reduction_tvs.end(),
+            [&view_tv](TensorView* red_tv) {
+              return DependencyCheck::isDependencyOf(view_tv, red_tv);
+            })) {
+      view_ops_not_used_by_reduction.push_back(view);
+    }
+    // Task 2: Check if all view ops are split only
+    if (!isSplitOnly(view)) {
+      all_views_are_split_only = false;
+    }
+  }
+  // If all view ops are used by reduction or all view ops are split only, no
+  // need to check. They won't lead to the merge of reduction Id with iteration
+  // Id.
+  if (view_ops_not_used_by_reduction.empty() || all_views_are_split_only) {
+    return false;
+  }
 
   // Utility to take dimensions out of the vector that we've already
   // processed or don't want to process.
@@ -481,7 +527,7 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   };
 
   // Loop over each view and process the IDs
-  for (auto view : ir_utils::getViewOps(fusion)) {
+  for (auto view : view_ops_not_used_by_reduction) {
     auto tv = view->out();
     for (auto expr : StmtSort::getExprsTo(
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
