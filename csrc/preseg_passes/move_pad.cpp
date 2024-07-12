@@ -623,13 +623,19 @@ void propagatePad(Fusion* fusion) {
       }
 
       // replay pad on input(s)
-      Expr* pad_before_def = replay(p, uop->in());
-      new_out = ops::newValLike(
-          pad_before_def->output(0), uop->out()->getDataType().value());
+      Val *new_pad_out = replayConcretePad(
+              uop->in()->as<TensorView>(),
+              p->value(),
+              {p->getPadWidths()},
+              TensorDomain::noReductions(
+                  p->out()->as<TensorView>()->getLogicalDomain())),
+
+          new_out =
+              ops::newValLike(new_pad_out, uop->out()->getDataType().value());
       Expr* new_uop = IrBuilder::create<UnaryOp>(
-          uop->getUnaryOpType(), new_out, pad_before_def->output(0));
+          uop->getUnaryOpType(), new_out, new_pad_out);
       // insert new PadOp(s) to frontier;
-      frontier.push_back(pad_before_def);
+      frontier.push_back(new_pad_out->definition()->as<PadOp>());
     } else if (def->isA<BinaryOp>()) {
       // stop propagation:
       //   1. if current PadOp p isn't the only use of tv; or
@@ -669,16 +675,27 @@ void propagatePad(Fusion* fusion) {
       }
 
       // replay pad on input(s)
-      Expr* pad_lhs_before_def = replay(p, bop->lhs());
-      Expr* pad_rhs_before_def = replay(p, bop->rhs());
       std::vector<Val*> vals = {
-          pad_lhs_before_def->out(), pad_rhs_before_def->out()};
+          replayConcretePad(
+              bop->lhs()->as<TensorView>(),
+              p->value(),
+              {p->getPadWidths()},
+              TensorDomain::noReductions(
+                  p->out()->as<TensorView>()->getLogicalDomain())),
+          ,
+          replayConcretePad(
+              bop->rhs()->as<TensorView>(),
+              p->value(),
+              {p->getPadWidths()},
+              TensorDomain::noReductions(
+                  p->out()->as<TensorView>()->getLogicalDomain()))};
+
       new_out = ops::newOutputTV(vals, bop->out()->getDataType().value());
       Expr* new_bop = IrBuilder::create<BinaryOp>(
           bop->getBinaryOpType(), new_out, vals[0], vals[1]);
       // insert new PadOp(s) to frontier;
-      frontier.push_back(pad_lhs_before_def);
-      frontier.push_back(pad_rhs_before_def);
+      frontier.push_back(vals[0]->definition()->as<PadOp>());
+      frontier.push_back(vals[1]->definition()->as<PadOp>());
     } else if (def->isA<PadOp>()) {
       auto* pop = def->as<PadOp>();
       // only allow merge pad when pad value is the same.
@@ -703,7 +720,7 @@ void propagatePad(Fusion* fusion) {
               p->out()->as<TensorView>()->getLogicalDomain()));
 
       // insert new PadOp(s) to frontier;
-      frontier.push_back(new_out->definition());
+      frontier.push_back(new_out->definition()->as<PadOp>());
     }
     // replace old (->pad->) with (->pads_before_new_def->new_def->)
     if (new_out != nullptr) {
@@ -718,11 +735,42 @@ void propagatePad(Fusion* fusion) {
 void replaceCat(Fusion* fusion) {
   // updating CatOp
   std::vector<Expr*> exprs = fusion->exprs();
+
   // sanitizing CatOp with series of binary add;
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
     std::cout << "try to replay here" << std::endl;
+    if (std::any_of(cat->inputs().begin(), cat->inputs().end(), [](Val* val) {
+          return !val->definition()->is<PadOp>();
+        })) {
+      // replay `CatOp` with series of BinaryOp instead, since we might have
+      // pushed `PadOp` out and breaking the codegen if `CatOp` remains.
+      Val* res = nullptr;
+      TensorView* cat_out_tv = cat->output(0)->as<TensorView>();
+      bool is_boolean = isBooleanType(cat_out_tv->getDataType().value());
+      for (Val* inp : cat->inputs()) {
+        if (res == nullptr) {
+          res = replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
+        } else {
+          Val* rhs =
+              replacement_map.count(inp) == 0 ? inp : replacement_map.at(inp);
+          if (is_boolean) {
+            res = bitwise_or(res, rhs);
+          } else {
+            res = add(res, rhs);
+          }
+        }
+      }
+
+      // restore data type if it's promoted by BinaryOp.
+      res = maybeCastOp(cat_out_tv->getDataType().value(), res);
+
+      // replace `CatOp` with the replay result.
+      ir_utils::replaceValue(fusion, {{cat->output(0), res}});
+      if (cat->output(0)->isFusionOutput()) {
+        fusion->replaceOutput(cat->output(0), res);
+      }
+    }
   }
-}
 
 } // namespace
 
