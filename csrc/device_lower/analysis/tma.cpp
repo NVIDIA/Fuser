@@ -395,7 +395,6 @@ class AnalyzeBoxingSplit : public Pass {
 // mathematical equivalences more likely to be discovered by other passes. Just
 // moving the partitioned flag up is sufficient to achieve these goals.
 class MovePartitionedGroupUpByRotation : public Pass {
-  const std::unordered_set<ValGroup>& bulk_groups_;
   const std::unordered_set<ValGroup>& non_bulk_groups_;
   std::list<TMADim>& inferred_dims_;
 
@@ -439,7 +438,6 @@ class MovePartitionedGroupUpByRotation : public Pass {
 
  public:
   MovePartitionedGroupUpByRotation(
-      const std::unordered_set<ValGroup>& bulk_groups,
       const std::unordered_set<ValGroup>& non_bulk_groups,
       std::list<TMADim>& inferred_dims)
       : bulk_groups_(bulk_groups),
@@ -508,7 +506,6 @@ class MovePartitionedGroupUpByRotation : public Pass {
 // top of the original pattern.
 class MergeTileGroupsByRotation : public Pass {
   std::unordered_set<ValGroup>& bulk_groups_;
-  const std::unordered_set<ValGroup>& non_bulk_groups_;
   std::list<TMADim>& inferred_dims_;
 
   bool condition(ExprGroup expr, Direction direction) override {
@@ -558,7 +555,6 @@ class MergeTileGroupsByRotation : public Pass {
  public:
   MergeTileGroupsByRotation(
       std::unordered_set<ValGroup>& bulk_groups,
-      const std::unordered_set<ValGroup>& non_bulk_groups,
       std::list<TMADim>& inferred_dims)
       : bulk_groups_(bulk_groups),
         non_bulk_groups_(non_bulk_groups),
@@ -598,9 +594,8 @@ run(
   AnalyzeBoxingSplit boxing_split_pass(
       bulk_groups, nonbulk_groups, inferred_dims);
   MovePartitionedGroupUpByRotation move_partitioned_pass(
-      bulk_groups, nonbulk_groups, inferred_dims);
-  MergeTileGroupsByRotation merge_tile_pass(
-      bulk_groups, nonbulk_groups, inferred_dims);
+      nonbulk_groups, inferred_dims);
+  MergeTileGroupsByRotation merge_tile_pass(bulk_groups, inferred_dims);
 
   bool changed = true;
   while (changed) {
