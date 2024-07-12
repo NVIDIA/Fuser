@@ -134,11 +134,29 @@ void MultiDeviceTest::SetUp() {
   if (!isSharded(tv)) {
     return tensor;
   }
-  auto sharded_dim = getShardedAxis(tv);
-  auto i = tv->getDeviceMesh().idxOf(deviceId);
+  return shardTensor(tensor, getShardedAxis(tv), tv->getDeviceMesh(), deviceId);
+}
+
+/*static*/ at::Tensor MultiDeviceTest::shardTensor(
+    at::Tensor tensor,
+    int64_t axis,
+    const DeviceMesh& mesh,
+    DeviceIdxType deviceId) {
+  auto i = mesh.idxOf(deviceId);
+  auto extent = tensor.size(axis);
+  auto nslices = mesh.size();
+  NVF_CHECK(
+      extent % nslices == 0, "Sharded axis must be evenly divisble by mesh");
+  auto stride = extent / nslices;
   // TODO: returning slice 0 temporarily when device is not in the mesh.
   i = (i < 0) ? 0 : i;
-  return tensor.slice(sharded_dim, i, i + 1).contiguous();
+  auto slice = tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
+  // Temporary until https://github.com/NVIDIA/Fuser/issues/2563. Adds DIDx
+  // axis in front representing the sharded extent of the tensor.
+  if (stride > 1) {
+    slice = slice.unsqueeze(0);
+  }
+  return slice;
 }
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {

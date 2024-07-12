@@ -51,26 +51,10 @@ class DistributedTransformerTest
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
   const int D;
-  const int B = 4;
-  const int E = 128;
-  const int H = 4;
-  const int S = 32;
-
-  // Temporary until https://github.com/NVIDIA/Fuser/issues/2563
-  at::Tensor shardTensor(at::Tensor tensor, int64_t axis, DeviceMesh& mesh) {
-    auto i = mesh.idxOf(communicator_->deviceId());
-    auto extent = tensor.size(axis);
-    auto nslices = mesh.size();
-    NVF_CHECK(
-        extent % nslices == 0,
-        "Sharded axis must be evenly divisble by mesh");
-    auto stride = extent / nslices;
-    // TODO: returning slice 0 temporarily when device is not in the mesh.
-    i = (i < 0) ? 0 : i;
-    return tensor.slice(axis, i * stride, (i + 1) * stride)
-                 .contiguous()
-                 .unsqueeze(0);
-  }
+  static constexpr int B = 4;
+  static constexpr int E = 128;
+  static constexpr int H = 4;
+  static constexpr int S = 32;
 
  private:
   // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
@@ -110,25 +94,32 @@ void validate(
     std::vector<at::Tensor> out) {
   EXPECT_EQ(expected_out.size(), out.size());
   for (auto i : c10::irange(out.size())) {
-    // Note: Scale the tolerance up since the error accumulates across ops
-    double tolerance = 0.5 * (i + 1);
-    auto all_close = expected_out[i].allclose(
-        out[i].to(expected_out[i].dtype()),
-        tolerance,
-        tolerance,
-        /*equal_nan=*/true);
+    // Note: Scaling tolerance up since the error accumulates across ops
+    // BFloat16 error is quite high, but the program has been verified with
+    // double precision to be logically correct.
+    double atol = 3.0 * (i + 1);
+    double rtol = 1e-5;
+    auto all_close = out[i]
+                         .to(expected_out[i].dtype())
+                         .allclose(
+                             expected_out[i],
+                             rtol,
+                             atol,
+                             /*equal_nan=*/true);
 
     if (!all_close) {
-      auto max_error =
-          (expected_out[i].sub(out[i])).abs().max().item().to<double>();
-      auto max_relative_error = (max_error / expected_out[i].abs().max()).item();
+      auto error = (out[i].to(expected_out[i].dtype()) - expected_out[i]).abs();
+      auto max_error = error.max().item().to<double>();
+      auto max_relative_error =
+          (max_error / expected_out[i].abs().max()).item();
       auto error_count =
-          at::sum((expected_out[i].sub(out[i])).abs() > tolerance).item();
+          at::sum(error >= (atol + expected_out[i].abs() * rtol)).item();
       std::cout << "output[" << i << "] max error: " << max_error << std::endl;
       std::cout << "          max relative error: " << max_relative_error
                 << std::endl;
-       std::cout << error_count << " elements failing "
-                << error_count.to<float>() / at::numel(out[i]) * 100.0 << "\% of tensor" << std::endl;
+      std::cout << "          failing elements: " << error_count << ", "
+                << error_count.to<float>() / at::numel(out[i]) * 100.0
+                << "\% of tensor" << std::endl;
     }
     EXPECT_TRUE(all_close);
   }
@@ -224,9 +215,9 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  const auto options = at::TensorOptions().dtype(at_dtype).device(
-      at::kCUDA, communicator_->local_rank());
-  auto x_ = at::randn({B * S, E}, options) / 10.0;
+  const auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto x_ = at::randn({B * S, E}, options);
   auto w0_ = at::randn({4 * E, E}, options);
   auto b0_ = at::randn({4 * E}, options);
   auto w1_ = at::randn({E, 4 * E}, options);
@@ -234,19 +225,21 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 
   std::vector<c10::IValue> inputs = {
       x_,
-      shardTensor(w0_, 0, mesh),
-      shardTensor(b0_, 0, mesh),
-      shardTensor(w1_, 1, mesh),
+      shardTensor(w0_, 0, mesh, communicator_->deviceId()),
+      shardTensor(b0_, 0, mesh, communicator_->deviceId()),
+      shardTensor(w1_, 1, mesh, communicator_->deviceId()),
       b1_};
   at::manual_seed(0);
-  auto linear1_aten = at::matmul(x_, w0_.transpose(1, 0)).add(b0_).to(at::kFloat);
+  auto linear1_aten =
+      at::matmul(x_, w0_.transpose(1, 0)).add(b0_).to(at::kFloat);
   auto gelu_aten = at::gelu(linear1_aten, "tanh");
-  auto linear2_aten =
-      at::matmul(gelu_aten.to(at_dtype), w1_.transpose(1, 0)).add(b1_).to(at::kFloat);
+  auto linear2_aten = at::matmul(gelu_aten.to(at_dtype), w1_.transpose(1, 0))
+                          .add(b1_)
+                          .to(at::kFloat);
   auto dropout_aten = at::dropout(linear2_aten, kProb, true);
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(linear1_aten, 1, mesh),
-      shardTensor(gelu_aten, 1, mesh),
+      shardTensor(linear1_aten, 1, mesh, communicator_->deviceId()),
+      shardTensor(gelu_aten, 1, mesh, communicator_->deviceId()),
       linear2_aten,
       dropout_aten};
 
