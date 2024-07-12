@@ -552,7 +552,7 @@ void propagatePad(Fusion* fusion) {
 
     // TODO: should I check for if uses lead to output instead?
     // if no uses, this has already been short-wired.
-    if (p->out()->uses().empty()) {
+    if (p->out()->uses().empty() && !p->out()->isFusionOutput()) {
       continue;
     }
 
