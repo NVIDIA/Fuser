@@ -44,7 +44,8 @@ std::string getSerdeTmpFile() {
 
 std::string getSerdeFile(std::optional<int64_t> device_id) {
   auto device_prop = (device_id.has_value())
-      ? at::cuda::getDeviceProperties(device_id.value())
+      ? at::cuda::getDeviceProperties(
+            static_cast<c10::DeviceIndex>(device_id.value()))
       : at::cuda::getCurrentDeviceProperties();
   int cuda_major = 0;
   int cuda_minor = 0;
@@ -114,7 +115,8 @@ const serde::FusionCache* verifyFusionCache(
 
   // Check device major and minor versions
   auto device_prop = (device_id.has_value())
-      ? at::cuda::getDeviceProperties(device_id.value())
+      ? at::cuda::getDeviceProperties(
+            static_cast<c10::DeviceIndex>(device_id.value()))
       : at::cuda::getCurrentDeviceProperties();
   NVF_CHECK(
       device_prop->major == fusion_cache_buffer->device_major() &&
