@@ -440,8 +440,7 @@ class MovePartitionedGroupUpByRotation : public Pass {
   MovePartitionedGroupUpByRotation(
       const std::unordered_set<ValGroup>& non_bulk_groups,
       std::list<TMADim>& inferred_dims)
-      : bulk_groups_(bulk_groups),
-        non_bulk_groups_(non_bulk_groups),
+      : non_bulk_groups_(non_bulk_groups),
         inferred_dims_(inferred_dims) {}
 };
 
@@ -557,7 +556,6 @@ class MergeTileGroupsByRotation : public Pass {
       std::unordered_set<ValGroup>& bulk_groups,
       std::list<TMADim>& inferred_dims)
       : bulk_groups_(bulk_groups),
-        non_bulk_groups_(non_bulk_groups),
         inferred_dims_(inferred_dims) {}
 };
 
