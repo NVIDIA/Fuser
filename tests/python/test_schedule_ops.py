@@ -37,9 +37,13 @@ def is_pre_volta():
 
 # A helper function to test heuristic schedulers with user schedules
 def _apply_scheduler_helper(schedule, selected_heuristic):
-    # Check that only selected heuristic is available as a scheduler
     available_heuristics = schedule.find_compatible_schedulers()
-    assert available_heuristics == [selected_heuristic]
+
+    # Assume that only a single heuristic is available for fusion
+    assert len(available_heuristics) == 1
+
+    # Check that only selected heuristic is available as a scheduler
+    assert set(available_heuristics) == set([selected_heuristic])
 
     # Double-check with can_schedule
     status, _ = schedule.can_schedule(selected_heuristic)
