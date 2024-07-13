@@ -1146,17 +1146,6 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
       // happens when loop_id is a reduction domain and this loop-nest
       // is for initializing the reduction buffer.
       if (for_loop != nullptr) {
-        // Even when the iter-domain is not size-1, the actual for-loop
-        // can be (e.g., for double buffering).
-        if (for_loop->isTrivial()) {
-          if (getenv("START")) {
-            VERBOSE() << "Replacing a loop index with a loop start val: "
-                      << for_loop->start()->toInlineString()
-                      << ", loop_id: " << loop_id->toString() << std::endl;
-            replacement_index = for_loop->start();
-          }
-        }
-
         if (!as_consumer) {
           if (auto circular_buffer_offset =
                   getLoopIndexOffsetForProducerOfCircularBuffer(
