@@ -44,12 +44,15 @@ class MultiDeviceTest : public NVFuserTest {
       at::Tensor tensor,
       TensorView* tv,
       DeviceIdxType deviceId);
-
   static at::Tensor shardTensor(
       at::Tensor tensor,
       int64_t axis,
       const DeviceMesh& mesh,
       DeviceIdxType deviceId);
+  at::Tensor shardTensor(
+      at::Tensor tensor,
+      int64_t axis,
+      const DeviceMesh& mesh);
 
   Communicator* communicator_;
   c10::TensorOptions tensor_options;

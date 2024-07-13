@@ -159,6 +159,13 @@ void MultiDeviceTest::SetUp() {
   return slice;
 }
 
+at::Tensor MultiDeviceTest::shardTensor(
+    at::Tensor tensor,
+    int64_t axis,
+    const DeviceMesh& mesh) {
+  return shardTensor(tensor, axis, mesh, communicator_->deviceId());
+}
+
 void PipelineTest::validate(bool validate_with_prescribed_values) {
   if (!validate_with_prescribed_values) {
     // execute the fusion on one device without pipeline scheduling

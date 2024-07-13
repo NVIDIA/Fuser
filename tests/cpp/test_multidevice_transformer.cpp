@@ -225,9 +225,9 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 
   std::vector<c10::IValue> inputs = {
       x_,
-      shardTensor(w0_, 0, mesh, communicator_->deviceId()),
-      shardTensor(b0_, 0, mesh, communicator_->deviceId()),
-      shardTensor(w1_, 1, mesh, communicator_->deviceId()),
+      shardTensor(w0_, 0, mesh),
+      shardTensor(b0_, 0, mesh),
+      shardTensor(w1_, 1, mesh),
       b1_};
   at::manual_seed(0);
   auto linear1_aten =
@@ -238,8 +238,8 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
                           .to(at::kFloat);
   auto dropout_aten = at::dropout(linear2_aten, kProb, true);
   std::vector<at::Tensor> expected_outputs = {
-      shardTensor(linear1_aten, 1, mesh, communicator_->deviceId()),
-      shardTensor(gelu_aten, 1, mesh, communicator_->deviceId()),
+      shardTensor(linear1_aten, 1, mesh),
+      shardTensor(gelu_aten, 1, mesh),
       linear2_aten,
       dropout_aten};
 
