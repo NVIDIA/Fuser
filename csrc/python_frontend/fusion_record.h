@@ -45,13 +45,14 @@ struct RecordFunctor {
       std::vector<State> _args,
       std::vector<State> _outputs,
       std::string _name,
-      serde::RecordType _record_type)
+      serde::RecordType _record_type,
+      bool inline_def = false)
       : args_(std::move(_args)),
         arg_names_(args_.size()),
         outputs_(std::move(_outputs)),
         name_(std::move(_name)),
         record_type_(_record_type),
-        inline_def_(false) {}
+        inline_def_(inline_def && !isOptionDisabled(DisableOption::PythonInlineDefinitions)) {}
   virtual ~RecordFunctor() = default;
   //! Allows for copying of Child Class objects with RecordFunctor pointers.
   virtual RecordFunctor* clone() = 0;
@@ -68,7 +69,8 @@ struct RecordFunctor {
     for (auto output : outputs_) {
       output_hash ^= ((output.index << 1) ^ static_cast<size_t>(output.stype));
     }
-    return ((static_cast<size_t>(record_type_) & 0xff) << 56) |
+    return (static_cast<size_t>(inline_def_) << 63) |
+        ((static_cast<size_t>(record_type_) & 0x7f) << 56) |
         ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
   }
 
@@ -79,6 +81,7 @@ struct RecordFunctor {
     result = result && (args_.size() == other.args_.size()) &&
         (outputs_.size() == other.outputs_.size());
     result = result && (arg_names_ == other.arg_names_);
+    result = result && (inline_def_ == other.inline_def_);
     if (result) {
       for (size_t i = 0; i < args_.size(); ++i) {
         if ((args_[i].index != other.args_[i].index) ||
@@ -148,6 +151,8 @@ struct RecordFunctor {
   //! The base print function when printing Record for a given FusionState
   //! in python formated code.
   virtual void print(std::ostream& os, bool close_function = true) const {
+    NVF_ERROR(!inline_def_,
+        "This print method does not generate an inline definition!");
     bool first_output = true;
     for (auto& output : outputs_) {
       if (first_output) {
@@ -2689,12 +2694,14 @@ struct VectorRecord : RecordFunctor {
   VectorRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      PrimDataType dtype)
+      PrimDataType dtype,
+      bool inline_def)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "define_vector",
-            serde::RecordType::Vector),
+            serde::RecordType::Vector,
+            inline_def),
         dtype_(dtype) {}
   ~VectorRecord() override = default;
   RecordFunctor* clone() final {
