@@ -14,22 +14,18 @@
 #include <tests/cpp/multidevice.h>
 
 namespace nvfuser {
+
 namespace {
-
-using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
-using testing::SizeIs;
-
-static constexpr int kTensorSize = 4;
-
 void assertIsCompiledToHostIrContainer(const FusionExecutorCache& fec) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   const std::vector<FusionExecutor>& executors = runtime->executors();
-  EXPECT_THAT(executors, SizeIs(1));
+  EXPECT_THAT(executors, testing::SizeIs(1));
   for (const auto& executor : executors) {
     EXPECT_TRUE(executor.fusion()->isA<hir::HostIrContainer>())
         << "failed to compile to a HostIrContainer with Communications";
   }
 }
+} // namespace
 
 // This is made a macro instead of a function, because GTEST_SKIP can only be
 // used in individual test cases or `SetUp` methods.
@@ -45,6 +41,10 @@ void assertIsCompiledToHostIrContainer(const FusionExecutorCache& fec) {
       }                                                               \
     }                                                                 \
   } while (0)
+
+using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
+
+static constexpr int kTensorSize = 4;
 
 class LowerGatherTest : public MultiDeviceTest,
                         public testing::WithParamInterface<InOutMesh> {};
@@ -319,5 +319,4 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
       out_tensor, shardTensor(unsharded_out_tensor, out, device_id)));
 }
 
-} // namespace
 } // namespace nvfuser

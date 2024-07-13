@@ -110,7 +110,7 @@ bool NoOpScheduler::canScheduleRunTime(
 }
 
 void NoOpScheduler::schedule(Fusion* fusion) {
-  if (scheduler_utils::reshards(fusion)) {
+  if (scheduler_utils::isResharding(fusion)) {
     return;
   }
 
