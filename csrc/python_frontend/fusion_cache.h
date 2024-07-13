@@ -36,6 +36,32 @@ struct UserSchedule {
   int64_t fusion_id_ = -1;
   //! device ID for this user schedule
   int64_t device_id_ = -1;
+
+  //! Get scheduler runtime info for UserSchedule
+  SchedulerRuntimeInfo* runtimeInfo() {
+    NVF_ERROR(
+        runtime_info != nullptr,
+        "Requires SchedulerRuntimeInfo to use heuristic schedulers");
+    return runtime_info.get();
+  }
+
+  //! Get Fusion for UserSchedule
+  Fusion* fusion() {
+    NVF_ERROR(
+        schedule != nullptr, "Requires Fusion to use heuristic schedulers");
+    return schedule.get();
+  }
+
+  //! Return if we can schedule FusionDefinition with heuristic.
+  bool canSchedule(const ScheduleHeuristic& heuristic);
+
+  //! Return if we can schedule FusionDefinition with heuristic along with any
+  //! debug messages from canScheduleRejectReason.
+  std::tuple<bool, std::string> canScheduleDebug(
+      const ScheduleHeuristic& heuristic);
+
+  //! Schedule fusion with heuristic
+  void scheduleWithHeuristic(const ScheduleHeuristic& heuristic);
 };
 
 //! \struct FusionSchedules

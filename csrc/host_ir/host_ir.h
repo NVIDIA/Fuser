@@ -124,12 +124,6 @@ class Stream : public Val {
   NVFUSER_DECLARE_CLONE
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
-
- private:
-  // the class contains a unique ID counter accross instances that is mainly
-  // useful for debug print
-  const int64_t idx_;
-  static std::atomic<int64_t> running_counter_;
 };
 
 class SetCurrentStream : public Expr {

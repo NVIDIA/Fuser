@@ -174,7 +174,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
 }
 
 // Grid reduction with serial non-reduction axis. The global work
-// buffer is double buffered.
+// buffer is circular buffered.
 TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
   const int nx = 100;
   const int ny = 5000;
@@ -428,7 +428,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
 }
 
 // Grid welford reduction with serial non-reduction axis. The global
-// work buffer is double buffered.
+// work buffer is circular buffered.
 TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
   const int nx = 100;
   const int ny = 5000;
