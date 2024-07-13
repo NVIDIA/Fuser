@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <ostream>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -43,6 +44,8 @@ struct TMADim {
                   : gmem_stride_bytes->fusion()->oneVal();
   }
 };
+
+std::ostream& operator<<(std::ostream& os, const TMADim& d);
 
 class TMAInfo {
   std::vector<TMADim> dims_;

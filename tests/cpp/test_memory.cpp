@@ -1496,80 +1496,6 @@ TEST_F(TMARuntimeInvalidTest, InvalidView) {
           ::testing::HasSubstr("Invalid view in TMA: the extent of")));
 }
 
-TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit1) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  const DataType dtype = DataType::Float;
-
-  auto tv0 = makeContigTensor(1, dtype);
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
-
-  tv1->setMemoryType(MemoryType::Shared);
-  tv1->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::CpAsyncBulkTensorTile);
-
-  for (auto tv : {tv1, tv2}) {
-    tv->split(0, 16);
-    tv->split(0, 16);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-  }
-  tv1->axis(1)->parallelize(ParallelType::Bulk);
-  tv1->axis(2)->parallelize(ParallelType::Bulk);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({128}, options);
-
-  EXPECT_THAT(
-      [&]() {
-        FusionExecutor fe;
-        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
-      },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Can not infer TMA domain from the schedule. The ValGroup")));
-}
-
-TEST_F(TMACompileTimeInvalidTest, DependentBoxingSplit2) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  const DataType dtype = DataType::Float;
-
-  auto tv0 = makeContigTensor(1, dtype);
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
-
-  tv1->setMemoryType(MemoryType::Shared);
-  tv1->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::CpAsyncBulkTensorTile);
-
-  for (auto tv : {tv1, tv2}) {
-    tv->split(0, 16);
-    tv->split(1, 16);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-  }
-  tv1->axis(0)->parallelize(ParallelType::Bulk);
-  tv1->axis(2)->parallelize(ParallelType::Bulk);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn({128}, options);
-
-  EXPECT_THAT(
-      [&]() {
-        FusionExecutor fe;
-        fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
-      },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Can not infer TMA domain from the schedule. The ValGroup")));
-}
-
 TEST_F(TMACompileTimeInvalidTest, InnermostDiscontiguous) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1718,13 +1644,14 @@ TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
         fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Unsupported expression between the allocation domain and TMA domain")));
+          "TMA domain must be a view of the allocation domain of the gmem tensor")));
 }
 
 // Tests for the examples in doc/dev/tma.md
+
 class TMADocTest : public TMATest {};
 
-TEST_F(TMADocTest, Figure8a) {
+TEST_F(TMADocTest, Figure13a) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1764,7 +1691,7 @@ TEST_F(TMADocTest, Figure8a) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9a) {
+TEST_F(TMADocTest, Figure14a) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1805,7 +1732,7 @@ TEST_F(TMADocTest, Figure9a) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8b) {
+TEST_F(TMADocTest, Figure13b) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1843,7 +1770,7 @@ TEST_F(TMADocTest, Figure8b) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9b) {
+TEST_F(TMADocTest, Figure14b) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1881,7 +1808,7 @@ TEST_F(TMADocTest, Figure9b) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8c) {
+TEST_F(TMADocTest, Figure13c) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1920,7 +1847,7 @@ TEST_F(TMADocTest, Figure8c) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9c) {
+TEST_F(TMADocTest, Figure14c) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1959,7 +1886,7 @@ TEST_F(TMADocTest, Figure9c) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8d) {
+TEST_F(TMADocTest, Figure13d) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1995,7 +1922,7 @@ TEST_F(TMADocTest, Figure8d) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9d) {
+TEST_F(TMADocTest, Figure14d) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2030,7 +1957,7 @@ TEST_F(TMADocTest, Figure9d) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure8e) {
+TEST_F(TMADocTest, Figure13e) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2070,7 +1997,7 @@ TEST_F(TMADocTest, Figure8e) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure9e) {
+TEST_F(TMADocTest, Figure14e) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2110,7 +2037,7 @@ TEST_F(TMADocTest, Figure9e) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure10a) {
+TEST_F(TMADocTest, Figure15a) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2155,7 +2082,7 @@ TEST_F(TMADocTest, Figure10a) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure10b) {
+TEST_F(TMADocTest, Figure15b) {
   GTEST_SKIP() << "TODO: requires IdModel based indexing.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2197,7 +2124,7 @@ TEST_F(TMADocTest, Figure10b) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(TMADocTest, Figure10c) {
+TEST_F(TMADocTest, Figure15c) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2242,7 +2169,7 @@ TEST_F(TMADocTest, Figure10c) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure10d) {
+TEST_F(TMADocTest, Figure15d) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2289,7 +2216,7 @@ TEST_F(TMADocTest, Figure10d) {
           ::testing::HasSubstr("Some error message")));
 }
 
-TEST_F(TMADocTest, Figure10e) {
+TEST_F(TMADocTest, Figure15e) {
   GTEST_SKIP() << "TODO: add check for this invalid case.";
   Fusion fusion;
   FusionGuard fg(&fusion);

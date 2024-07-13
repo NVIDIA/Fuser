@@ -285,7 +285,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   }
 }
 
-TEST_F(LoopRotationTest, DoubleBuffered) {
+TEST_F(LoopRotationTest, CircularBuffered) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -396,7 +396,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   }
 }
 
-TEST_F(LoopRotationTest, SelectDoubleBufferLoad) {
+TEST_F(LoopRotationTest, SelectCircularBufferLoad) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -536,8 +536,8 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 // This is a case similar to matmul, where we have
 // tv4 = set(tv0) // cp.async for matmul
 // tv1 = set(tv4) // ld.matrix for matmul
-// and both are double buffered
-TEST_F(LoopRotationTest, MultipleDoubleBuffer) {
+// and both are circular buffered
+TEST_F(LoopRotationTest, MultipleCircularBuffer) {
   if (!deviceMajorMinorCheck(8)) {
     GTEST_SKIP() << "skipping tests on pre-Ampere GPUs";
     return;

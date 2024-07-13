@@ -648,7 +648,8 @@ class TestScheduleOps(TestCase):
         """
         Implement a simple normalization kernel with a user defined schedule
          * Uses the following schedule operations:
-         * merge, split, parallelize, cache_after, cache_before, set_memory_type
+         * merge, split, parallelize
+         * cache_after, cache_before, cache_fork, set_memory_type
          * transform_like, parallelize_like
          * inline_like
          * predicates: is_reduction, equality operator
@@ -666,6 +667,7 @@ class TestScheduleOps(TestCase):
                 # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
                 self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
                 self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
+                self.add_output(self.mean)
 
                 self.diff = fd.ops.sub(self.t0, self.mean)
                 self.diff_sq = fd.ops.mul(self.diff, self.diff)
@@ -675,8 +677,10 @@ class TestScheduleOps(TestCase):
                 self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
 
                 self.t0_diff = fd.ops.sub(self.t0, self.mean)
-                self.var_eps = fd.ops.sqrt(fd.ops.add(self.var, self.s0))
-                self.t0_norm = fd.ops.div(self.t0_diff, self.var_eps)
+                self.invstd = fd.ops.rsqrt(fd.ops.add(self.var, self.s0))
+                self.add_output(self.invstd)
+
+                self.t0_norm = fd.ops.mul(self.t0_diff, self.invstd)
                 self.add_output(self.t0_norm)
 
             def schedule(self):
@@ -684,7 +688,14 @@ class TestScheduleOps(TestCase):
                 fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
 
                 cache_before_t0_norm = fd.sched.cache_before(self.t0_norm)
-                cache_tensors = [cache_after_t0, cache_before_t0_norm]
+                cache_fork_mean = fd.sched.cache_fork(self.mean)
+                cache_fork_invstd = fd.sched.cache_fork(self.invstd)
+                cache_tensors = [
+                    cache_after_t0,
+                    cache_before_t0_norm,
+                    cache_fork_mean,
+                    cache_fork_invstd,
+                ]
 
                 reference_tensor = self.mean
 
@@ -715,10 +726,13 @@ class TestScheduleOps(TestCase):
                 fd.sched.inline_most()
 
         fd = VarMean()
-        nvf_out = fd.execute(inputs)
+        nvf_mean, nvf_invstd, nvf_out = fd.execute(inputs)
         var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
-        eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
-        self.assertEqual(eager_out, nvf_out[0])
+        invstd = torch.rsqrt(var + 1e-6)
+        eager_out = (inputs[0] - mean) * invstd
+        self.assertEqual(mean, nvf_mean)
+        self.assertEqual(invstd, nvf_invstd)
+        self.assertEqual(eager_out, nvf_out)
 
     def test_pointwise_auto_scheduler(self):
         """
