@@ -882,6 +882,19 @@ void IdModel::validateAndPropagatePType() {
        idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
     ParallelType common_ptype = ParallelType::Serial;
     for (Val* id : *loop_group) {
+      auto id_ptype = id->as<IterDomain>()->getParallelType();
+      NVF_ERROR(
+          id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
+              common_ptype == ParallelType::Serial,
+          "Issue validating parallel type disjoint ptype is, ",
+          common_ptype,
+          " but found in the set the id: ",
+          id->toString());
+      common_ptype =
+          common_ptype == ParallelType::Serial ? id_ptype : common_ptype;
+    }
+
+    for (auto id : *loop_group) {
       // Due to the broadcast forwarding, not all IDs in a loop group
       // are indeed loop domains. For example, an ID may be used in a
       // merge whose output is also in this loop group.
@@ -903,19 +916,6 @@ void IdModel::validateAndPropagatePType() {
       if (not_a_loop_domain) {
         continue;
       }
-      auto id_ptype = id->as<IterDomain>()->getParallelType();
-      NVF_ERROR(
-          id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
-              common_ptype == ParallelType::Serial,
-          "Issue validating parallel type disjoint ptype is, ",
-          common_ptype,
-          " but found in the set the id: ",
-          id->toString());
-      common_ptype =
-          common_ptype == ParallelType::Serial ? id_ptype : common_ptype;
-    }
-
-    for (auto id : *loop_group) {
       id->as<IterDomain>()->parallelize(common_ptype);
     }
   }
