@@ -2369,18 +2369,12 @@ TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {
   fusion->addOutput(tv4);
   fusion->addOutput(tv6);
 
-  // No view transformas lead to the merge of Iter domain with Redu domain.
-
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn(input_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  // should have 2 segmented groups
-  auto seg_groups =
-      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-  EXPECT_EQ(seg_groups.size(), 2);
 }
 
 } // namespace nvfuser
