@@ -225,6 +225,9 @@ class NVF_API FusionDefinition : public FusionState {
     return id().has_value();
   }
 
+  //! Return UserSchedule struct if it exists
+  UserSchedule* userSchedule();
+
   //! These methods are used to record the FusionDefinition for cache lookup
 
   //! Defines a Tensor State Record
