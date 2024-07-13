@@ -2218,6 +2218,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     // Propagate the view transformations
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
+    std::cout << "Propagating transformations from " << tv->toString() << std::endl;
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
   }
 }

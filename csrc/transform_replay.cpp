@@ -594,6 +594,12 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   for (auto p_id : target_producer_ids) {
     auto it = replay_CasP.getReplay().find(p_id);
     if (it == replay_CasP.getReplay().end()) {
+      if(!maybe_unmapped_ids.count(p_id)){
+        std::cout << "Error in replayCasP consumer " << consumer->toString() << std::endl;
+        consumer->printTransforms();
+        std::cout << "\nError in replayCasP consumer " << producer->toString() << std::endl;
+        producer->printTransforms();
+      }
       NVF_ERROR(
           maybe_unmapped_ids.count(p_id),
           "Could not find axis, ",
