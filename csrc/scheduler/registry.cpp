@@ -225,7 +225,7 @@ bool checkCanSchedule(
     ScheduleHeuristic sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {  
+    HeuristicSummary* data_cache) {
   switch (sh) {
     case ScheduleHeuristic::NoOp:
       return checkCanSchedule<NoOpScheduler>(fusion, runtime_info, data_cache);
