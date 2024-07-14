@@ -56,10 +56,9 @@ TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {
 
   auto x0 = at::randn(input_size, tensor_options);
   std::vector<c10::IValue> inputs = {x0};
-  auto x1 = shardTensor(x0, tv1, communicator_->deviceId());
+  auto x1 = shardTensor(x0, tv1);
   auto x2 = x1 + x1;
-  auto x3 = shardTensor(
-      at::sum(x0 + x0, {sharded_dim}), tv3, communicator_->deviceId());
+  auto x3 = shardTensor(at::sum(x0 + x0, {sharded_dim}), tv3);
   MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
   auto outputs = runtime.runWithInput(inputs);
   testValidate(
@@ -99,8 +98,7 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
   }
 
   auto x1 = at::randn(unsharded_input_size, tensor_options);
-  std::vector<c10::IValue> inputs = {
-      shardTensor(x1, tv0, communicator_->deviceId())};
+  std::vector<c10::IValue> inputs = {shardTensor(x1, tv0)};
   auto x2 = x1 * 2;
   MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
   auto outputs = runtime.runWithInput(inputs);
