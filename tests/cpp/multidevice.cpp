@@ -127,22 +127,19 @@ void MultiDeviceTest::SetUp() {
   }
 }
 
-/*static*/ at::Tensor MultiDeviceTest::shardTensor(
-    at::Tensor tensor,
-    TensorView* tv,
-    DeviceIdxType deviceId) {
+at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
   if (!isSharded(tv)) {
     return tensor;
   }
-  return shardTensor(tensor, getShardedAxis(tv), tv->getDeviceMesh(), deviceId);
+  return shardTensor(tensor, getShardedAxis(tv), tv->getDeviceMesh());
 }
 
-/*static*/ at::Tensor MultiDeviceTest::shardTensor(
+at::Tensor MultiDeviceTest::shardTensor(
     at::Tensor tensor,
     int64_t axis,
-    const DeviceMesh& mesh,
-    DeviceIdxType deviceId) {
-  auto i = mesh.idxOf(deviceId);
+    const DeviceMesh& mesh) {
+  const auto device_id = communicator_->deviceId();
+  auto i = mesh.idxOf(device_id);
   auto extent = tensor.size(axis);
   auto nslices = mesh.size();
   NVF_CHECK(
@@ -157,13 +154,6 @@ void MultiDeviceTest::SetUp() {
     slice = slice.unsqueeze(0);
   }
   return slice;
-}
-
-at::Tensor MultiDeviceTest::shardTensor(
-    at::Tensor tensor,
-    int64_t axis,
-    const DeviceMesh& mesh) {
-  return shardTensor(tensor, axis, mesh, communicator_->deviceId());
 }
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -195,8 +185,7 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
     if (!output_tv->getDeviceMesh().has(communicator_->deviceId())) {
       continue;
     }
-    auto ref_output = shardTensor(
-        ref_unsharded_outputs.at(i), output_tv, communicator_->deviceId());
+    auto ref_output = shardTensor(ref_unsharded_outputs.at(i), output_tv);
     auto obtained_output = outputs.at(i);
     EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
         << "Device " << communicator_->deviceId() << " has unexpected output "
@@ -213,8 +202,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   for (int i : c10::irange(fusion->inputs().size())) {
     ASSERT_TRUE(fusion->inputs().at(i)->isA<TensorView>());
     auto input_tv = fusion->inputs().at(i)->as<TensorView>();
-    auto input = shardTensor(
-        unsharded_inputs.at(i).toTensor(), input_tv, communicator_->deviceId());
+    auto input = shardTensor(unsharded_inputs.at(i).toTensor(), input_tv);
     inputs.push_back(input);
   }
 

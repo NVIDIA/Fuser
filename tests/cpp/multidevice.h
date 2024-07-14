@@ -35,20 +35,12 @@ class MultiDeviceTest : public NVFuserTest {
   ~MultiDeviceTest();
   void SetUp() override;
 
-  // Given an aten tensor, TensorView the tensor is bound to, and deviceId
-  // returns a shard of the tensor according the sharding annotation in tv
+  // Returns a shard of the tensor according to the sharding annotation in tv
   // for the deviceId. If tensor is not sharded returns the original tensor.
   // TODO: If deviceId is not part of the mesh this should return an empty
   // tensor. Currently, we don't support this, so for now it returns a slice.
-  static at::Tensor shardTensor(
-      at::Tensor tensor,
-      TensorView* tv,
-      DeviceIdxType deviceId);
-  static at::Tensor shardTensor(
-      at::Tensor tensor,
-      int64_t axis,
-      const DeviceMesh& mesh,
-      DeviceIdxType deviceId);
+  at::Tensor shardTensor(at::Tensor tensor, TensorView* tv);
+
   at::Tensor shardTensor(
       at::Tensor tensor,
       int64_t axis,
