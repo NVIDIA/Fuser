@@ -124,11 +124,17 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
 
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+
+  // Concretize fusion
+  DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
+
   // Create runtime info for schedulers
   Fusion* user_schedule_fusion = user_sched_->schedule.get();
   user_sched_->runtime_info = std::make_unique<SchedulerRuntimeInfo>(
       user_schedule_fusion,
-      KernelArgumentHolder::createKernelArgumentHolder(inputs, device),
+      args,
       /*precomuted_values=*/nullptr,
       ir_utils::allTvs(user_schedule_fusion));
 
