@@ -560,47 +560,17 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
     tv2c->reorder({{-1, -2}});
   }
 
-  if (tv2c->getMemoryType() == MemoryType::Local) {
-    std::cout << "tv2c is local memory" << std::endl;
-  }
-  if (tv2c->getMemoryType() == MemoryType::Shared) {
-    std::cout << "tv2c is shared memory" << std::endl;
-  }
-  if (tv2c->getMemoryType() == MemoryType::Global) {
-    std::cout << "tv2c is global memory" << std::endl;
-  }
-  if (tv2->getMemoryType() == MemoryType::Local) {
-    std::cout << "tv2 is local memory" << std::endl;
-  }
-  if (tv2->getMemoryType() == MemoryType::Shared) {
-    std::cout << "tv2 is shared memory" << std::endl;
-  }
-  if (tv2->getMemoryType() == MemoryType::Global) {
-    std::cout << "tv2 is global memory" << std::endl;
-  }
-
-  if (tv3->getMemoryType() == MemoryType::Local) {
-    std::cout << "tv3 is local memory" << std::endl;
-  }
-  if (tv3->getMemoryType() == MemoryType::Shared) {
-    std::cout << "tv3 is shared memory" << std::endl;
-  }
-  if (tv3->getMemoryType() == MemoryType::Global) {
-    std::cout << "tv3 is global memory" << std::endl;
-  }
+  EXPECT_TRUE(tv2c->getMemoryType() == MemoryType::Local);
+  EXPECT_TRUE(tv2->getMemoryType() == MemoryType::Shared);
+  EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Global);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
-  // -> reg is swizzled : loop and allocation
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
-  // sh_mem loop domain is swizzle and not allocation
-  // tv2->setAllocationDomain(tv2->getLoopDomain(), true);
 
-  tv3->split(-2, 64);
-  tv3->split(-1, 256);
+  tv3->split(-2, tv3->axis(-2)->extent());
+  tv3->split(-1, tv3->axis(-1)->extent());
   tv3->reorder({{-2, -3}});
-  tv3->getLoopDomain().at(2)->parallelize(ParallelType::Bulk);
-  tv3->getLoopDomain().at(1)->parallelize(ParallelType::Bulk);
-  tv3->printTransforms();
+  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv3, 2);
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
