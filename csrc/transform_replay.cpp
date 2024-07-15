@@ -737,7 +737,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     new_IDs.push_back(it->second);
     used_IDs.emplace(it->second);
   }
-  int64_t consumer_pos = (int64_t)new_IDs.size();
+  // int64_t consumer_pos = (int64_t)new_IDs.size();
 
   // Add axes in (2)
   for (auto p_id : producer->getLoopDomain()) {
@@ -758,7 +758,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     }
   }
 
-  // int64_t consumer_pos = (int64_t)new_IDs.size();
+  int64_t consumer_pos = (int64_t)new_IDs.size();
 
   // Add axes in (3)
   for (auto id : consumer->getLoopDomain()) {
