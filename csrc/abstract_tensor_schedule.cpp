@@ -240,7 +240,10 @@ class AbstractTensorSchedule {
       // have not yet been computed or proven uncomputable; in those cases we
       // will place them into the vector below so that we can push them onto
       // the stack so that we can try again.
-      std::vector<ValGroup> uncomputed_producer_groups;
+      std::vector<ValGroup> unprocessed_producer_groups;
+      // This will be set to true once we have computed an IterDomain for this
+      // ValGroup
+      bool vg_computed = false;
       for (const ExprGroup& eg : graph_->getDefinitions(vg)) {
         // NOTE: it suffices to use any Expr* in eg, since they are all
         // guaranteed to have the same type and identical attributes.
@@ -248,6 +251,7 @@ class AbstractTensorSchedule {
 
         std::vector<IterDomain*> id_inps;
         bool all_inputs_computed = true;
+        bool some_inputs_uncomputable = false;
         for (Val* inp : expr->inputs()) {
           ValGroup vg_inp = graph_->toGroup(inp);
           auto inp_it = computed_ids.find(vg_inp);
@@ -257,12 +261,22 @@ class AbstractTensorSchedule {
             // this input is not yet computed
             all_inputs_computed = false;
             if (uncomputable_groups.count(vg_inp) == 0) {
-              // Input is not yet proven to be incomputable, so try and
+              // this input is not yet proven to be incomputable, so try and
               // compute it in the next iteration
-              uncomputed_producer_groups.push_back(vg_inp);
+              unprocessed_producer_groups.push_back(vg_inp);
+            } else {
+              some_inputs_uncomputable = true;
             }
           }
         }
+        NVF_ERROR(
+            !some_inputs_uncomputable || id_inps.empty(),
+            "There are both computable and uncomputable producer groups."
+            "Refusing to automatically forward those computed inputs.",
+            " Expr: ",
+            expr->toString(),
+            " Computed ID: ",
+            id_inps.front()->toString());
         if (all_inputs_computed) {
           // Compute new ID expression
           Expr* id_expr = replayIdExpr(expr, id_inps);
@@ -274,37 +288,31 @@ class AbstractTensorSchedule {
             auto* id_outp = id_expr->output((int64_t)i)->as<IterDomain>();
             graph_->initializeVal(id_outp, vg_outp);
             computed_ids.emplace(vg_outp, id_outp);
+            vg_computed = true;
           }
           // No need to look at next ExprGroup
           break;
         }
-        // Some input is not yet computed
-        if (uncomputed_producer_groups.empty()) {
-          NVF_ERROR(
-              id_inps.empty(),
-              "The only uncomputed producer groups are uncomputable, but "
-              "some are computed. Refusing to automatically forward those "
-              "computed inputs. Expr: ",
-              expr->toString(),
-              " Computed ID: ",
-              id_inps.front()->toString());
-        }
-        if (!uncomputed_producer_groups.empty()) {
+        if (!unprocessed_producer_groups.empty()) {
           // Do not look at other ExprGroups before we try computing these
-          // uncomputed producer groups
+          // unprocessed producer groups
           break;
         }
       }
+      if (vg_computed) {
+        continue;
+      }
 
-      if (uncomputed_producer_groups.empty()) {
-        // All of the defining expressions are proven uncomputable, so mark vg
-        // uncomputable
+      if (unprocessed_producer_groups.empty()) {
+        // We did not compute a new expression yet there are no producer groups
+        // left to process. This means all of the defining expressions are
+        // proven uncomputable, so mark vg uncomputable.
         uncomputable_groups.insert(vg);
       } else {
-        // There are some uncomputed producer groups that might be computable,
+        // There are some unprocessed producer groups that might be computable,
         // so try again after processing those producer groups
         eval_stack.push(vg);
-        for (const ValGroup& next_vg : uncomputed_producer_groups) {
+        for (const ValGroup& next_vg : unprocessed_producer_groups) {
           eval_stack.push(next_vg);
         }
       }
