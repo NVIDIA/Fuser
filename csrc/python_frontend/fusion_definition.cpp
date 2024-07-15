@@ -549,7 +549,8 @@ std::vector<Tensor> FusionDefinition::tensors() {
       recording_state_.end(),
       std::back_inserter(tensor_states),
       [this](const State& s) {
-        return getFusionState(s.index)->isA<TensorView>();
+        return (s.stype == serde::StateType::Tensor) &&
+            getFusionState(s.index)->isA<TensorView>();
       });
 
   // Reconstruct Tensors

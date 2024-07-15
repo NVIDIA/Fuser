@@ -1030,8 +1030,11 @@ class TestScheduleOps(TestCase):
                 fd.add_output(y)
 
             def schedule(self):
+                assert len(fd.sched.tensors()) == 5
+
                 # Apply selected scheduler
                 _apply_scheduler_helper(fd.sched, SchedulerHeuristic.pointwise)
+
 
         fd = Reshape()
         nvf_out = fd.execute(inputs)
