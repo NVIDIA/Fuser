@@ -2092,7 +2092,7 @@ kir::TensorIndex* Index::getProducerIndex(
   if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
       GpuLower::current()->isTensorIndexerEnabled()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        producer, consumer->definition());
+        producer, consumer->definition(), loops);
     if (generate_pointer) {
       auto address_offset = index;
       if (producer->getMemoryType() == MemoryType::Shared) {
@@ -2195,7 +2195,7 @@ kir::TensorIndex* Index::getConsumerIndex(
   if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
       GpuLower::current()->isTensorIndexerEnabled()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        consumer, consumer->definition());
+        consumer, consumer->definition(), loops);
     if (generate_pointer) {
       auto address_offset = index;
       if (consumer->getMemoryType() == MemoryType::Shared) {
@@ -2626,7 +2626,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   ValGroups groups_to_index = tma_info.getTMADomain();
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-  auto indices_inner_to_outer = indexer.getIndexFor(ldst, groups_to_index);
+  auto indices_inner_to_outer =
+      indexer.getIndexFor(ldst, !is_load, groups_to_index, loops);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
