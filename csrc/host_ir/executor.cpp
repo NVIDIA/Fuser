@@ -202,6 +202,32 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
   }
 }
 
+namespace {
+
+void handleWithExpressionEvaluator(
+    Expr* expr,
+    ExpressionEvaluator& expr_evaluator) {
+  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    NVF_ERROR(
+        expr_evaluator.isKnown(input),
+        "input ",
+        input->toString(),
+        " of the expression ",
+        expr->toString(),
+        "must be precomputed before being retrieved");
+  }
+  for (auto output : expr->outputs()) {
+    expr_evaluator.bind(
+        output, expr_evaluator.evaluate(output), /*evaluate_validate=*/true);
+  }
+}
+
+} // namespace
+
+void HostIrExecutor::handle(SliceOp* slice_op) {
+  return handleWithExpressionEvaluator(slice_op, expr_evaluator_);
+}
+
 } // namespace hir
 
 } // namespace nvfuser

@@ -4,9 +4,10 @@
 import torch
 from typing import Union, List, Tuple
 from nvfuser import DataType
-from .core import DEVICE_PROPERTIES
+from .core import DEVICE_PROPERTIES, BENCHMARK_CONFIG
 import itertools
 import os
+from random import sample
 
 # BENCHMARK_MODE = weekly/nightly.
 BENCHMARK_MODE = os.getenv("BENCHMARK_MODE")
@@ -149,6 +150,9 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             raise NotImplementedError(
                 f"Generating input sizes of dimension {dim} is not implemented"
             )
+    if BENCHMARK_CONFIG["num_inputs"] is not None:
+        inputs = sample(inputs, BENCHMARK_CONFIG["num_inputs"])
+
     return inputs
 
 
@@ -162,4 +166,8 @@ def generate_attn_inputs():
             batch_range, seq_lengths, LLM_CONFIGS
         )
     ]
+
+    if BENCHMARK_CONFIG["num_inputs"] is not None:
+        inputs = sample(inputs, BENCHMARK_CONFIG["num_inputs"])
+
     return inputs
