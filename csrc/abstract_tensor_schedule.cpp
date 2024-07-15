@@ -300,6 +300,7 @@ class AbstractTensorSchedule {
         }
       }
       if (vg_computed) {
+        // Move on to the next ValGroup on the stack
         continue;
       }
 
