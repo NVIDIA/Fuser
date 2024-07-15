@@ -26,16 +26,16 @@ bool idIsAComputeAtLeafDomain(
     IterDomain* id,
     TensorView* producer_tv,
     TensorView* consumer_tv) {
-  auto begin = producer_tv->getLeafDomain().begin();
-  auto end = producer_tv->getLeafDomain().begin() +
+  auto begin = producer_tv->getLoopDomain().begin();
+  auto end = producer_tv->getLoopDomain().begin() +
       producer_tv->getComputePosition(consumer_tv);
   return std::find(begin, end, id) != end;
 }
 
 // Is the provided IterDomain an Leaf of provided TensorView
 bool idIsALeafDomain(IterDomain* id, TensorView* tv) {
-  auto begin = tv->getLeafDomain().begin();
-  auto end = tv->getLeafDomain().end();
+  auto begin = tv->getLoopDomain().begin();
+  auto end = tv->getLoopDomain().end();
   return std::find(begin, end, id) != end;
 }
 
@@ -99,7 +99,7 @@ bool IterDomainGraph::exprsMap(
 
   NVF_ERROR(
       first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>(),
-      "Merge, split and resize are the only expressions supported through rfactor operations in compute at map, but found:\n",
+      "Merge, split and resize are the only expressions supported through root to logical operations in compute at map, but found:\n",
       first->toString());
 
   auto first_ids = ir_utils::filterByType<IterDomain>(
@@ -153,11 +153,13 @@ bool IterDomainGraph::exprsMap(
 
     auto extent_0_match = extent_0o->sameAs(extent_1o) ||
         (extent_0o->isConstInt() && extent_1o->isConstInt() &&
-         extent_0o->evaluate() == extent_1o->evaluate());
+         extent_0o->evaluate().as<int64_t>() ==
+             extent_1o->evaluate().as<int64_t>());
 
     auto extent_1_match = extent_0i->sameAs(extent_1i) ||
         (extent_0i->isConstInt() && extent_1i->isConstInt() &&
-         extent_0i->evaluate() == extent_1i->evaluate());
+         extent_0i->evaluate().as<int64_t>() ==
+             extent_1i->evaluate().as<int64_t>());
 
     if (!(extent_0_match || extent_1_match)) {
       return false;
@@ -168,9 +170,7 @@ bool IterDomainGraph::exprsMap(
     auto first_split = first->as<Split>();
     auto second_split = second->as<Split>();
     if (!first_split->factor()->sameAs(second_split->factor()) ||
-        first_split->innerSplit() != second_split->innerSplit() ||
-        !first_split->startOffset()->sameAs(second_split->startOffset()) ||
-        !first_split->stopOffset()->sameAs(second_split->stopOffset())) {
+        first_split->innerSplit() != second_split->innerSplit()) {
       return false;
     }
   }
@@ -293,43 +293,43 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
 std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
 findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
   for (auto tv : ir_utils::allTvs(fusion)) {
-    // For each tensor, make sure root, rfactor and leaf domains
+    // For each tensor, make sure root, logical and loop domains
     // should not include domains that are mapped with another domain
     // in the same set of domains. This may be overly conservative,
     // and it maybe enough to check the root domains.
 
-    // Root domains
-    auto self_mappped_root_pair =
-        detectMappablePair(tv->getRootDomain(), id_graph, IdMappingMode::EXACT);
+    // logical domains
+    auto self_mappped_root_pair = detectMappablePair(
+        tv->getLogicalDomain(), id_graph, IdMappingMode::EXACT);
     if (self_mappped_root_pair.has_value()) {
       return std::make_tuple(
           tv,
           self_mappped_root_pair->first,
           self_mappped_root_pair->second,
-          "Root");
+          "Logical");
     }
 
-    // Rfactor domains
-    if (tv->hasRFactor()) {
+    // root domains
+    if (tv->hasRoot()) {
       auto self_mappped_rf_pair = detectMappablePair(
-          tv->getRFactorDomain(), id_graph, IdMappingMode::EXACT);
+          tv->getRootDomain(), id_graph, IdMappingMode::EXACT);
       if (self_mappped_rf_pair.has_value()) {
         return std::make_tuple(
             tv,
             self_mappped_rf_pair->first,
             self_mappped_rf_pair->second,
-            "RFactor");
+            "Root");
       }
     }
 
     // Leaf domains
-    auto self_mappped_leaf_pair =
-        detectMappablePair(tv->getLeafDomain(), id_graph, IdMappingMode::LOOP);
-    if (self_mappped_leaf_pair.has_value()) {
+    auto self_mappped_loop_pair =
+        detectMappablePair(tv->getLoopDomain(), id_graph, IdMappingMode::LOOP);
+    if (self_mappped_loop_pair.has_value()) {
       return std::make_tuple(
           tv,
-          self_mappped_leaf_pair->first,
-          self_mappped_leaf_pair->second,
+          self_mappped_loop_pair->first,
+          self_mappped_loop_pair->second,
           "Leaf");
     }
   }
@@ -343,19 +343,19 @@ void IterDomainGraph::build(Fusion* fusion) {
 
   // Initialize a node for every iteration domain
   for (auto tv : ir_utils::allTvs(fusion)) {
-    const auto& domain = tv->getLeafDomain();
+    const auto& domain = tv->getLoopDomain();
     auto all_ids = ir_utils::allIDsOf(tv);
 
     for (auto id : all_ids) {
-      // Check if this id is an rfactor id in the rfactor domain
+      // Check if this id is an logical id in the logical domain
       bool is_rfactor_domain_id = id->isRFactorProduct() &&
           std::find(
-              tv->getMaybeRFactorDomain().begin(),
-              tv->getMaybeRFactorDomain().end(),
-              id) != tv->getMaybeRFactorDomain().end();
-      bool is_leaf_id =
+              tv->getLogicalDomain().begin(),
+              tv->getLogicalDomain().end(),
+              id) != tv->getLogicalDomain().end();
+      bool is_loop_id =
           std::find(domain.begin(), domain.end(), id) != domain.end();
-      initializeId(id, is_rfactor_domain_id, is_leaf_id);
+      initializeId(id, is_rfactor_domain_id, is_loop_id);
     }
   }
 
@@ -385,25 +385,26 @@ void IterDomainGraph::build(Fusion* fusion) {
         // same loops.
 
         NVF_ERROR(
-            c_tv->getRootDomain().size() ==
-                first_output_tv->getRootDomain().size(),
+            c_tv->getMaybeRootDomain().size() ==
+                first_output_tv->getMaybeRootDomain().size(),
             "Multiple outputs with mismatched dimensions is not supported. ",
             "Only supported case is welford op where all outputs tvs have identical domains.");
         // p->f, c->c
         std::unordered_map<IterDomain*, IterDomain*> c2f_root_map;
         for (const auto i :
-             c10::irange(first_output_tv->getRootDomain().size())) {
+             c10::irange(first_output_tv->getMaybeRootDomain().size())) {
           c2f_root_map.insert(std::make_pair(
-              c_tv->getRootDomain()[i], first_output_tv->getRootDomain()[i]));
+              c_tv->getMaybeRootDomain()[i],
+              first_output_tv->getMaybeRootDomain()[i]));
         }
 
         // Multi output mapping, outputs are required to have the same domain
         // and same transformations, so they can be mapped in permissive/exact,
-        // and when within compute at position of getLeafDomain() in the
+        // and when within compute at position of getLoopDomain() in the
         // parallel map.
         auto replay_FasC = BestEffortReplay(
-            first_output_tv->getLeafDomain(),
-            c_tv->getLeafDomain(),
+            first_output_tv->getLoopDomain(),
+            c_tv->getLoopDomain(),
             c2f_root_map);
 
         // Map the entire replay map between the multiple
@@ -423,7 +424,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         }
 
         // Map all entries for the Loop map as they share the same loops.
-        for (auto f_id : first_output_tv->getLeafDomain()) {
+        for (auto f_id : first_output_tv->getLoopDomain()) {
           auto disjoint_set = c2f_disjoint_sets.getDisjointSetOf(f_id);
           auto id0 = *(disjoint_set.begin());
           for (auto id1 : disjoint_set) {
@@ -473,7 +474,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
         // Same as permissive above but for exact
         auto exact_replay_PasC = BestEffortReplay(
-            p_tv->getLeafDomain(), c_tv->getLeafDomain(), exact_c2p_root_map);
+            p_tv->getLoopDomain(), c_tv->getLoopDomain(), exact_c2p_root_map);
 
         const auto& exact_c2p_map = exact_replay_PasC.getReplay();
 
@@ -554,28 +555,30 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
-  // Explicitly map through rfactor transformations, if we have an op like:
+  // Explicitly map through root to logical transformations, if we have an op
+  // like:
   //
   // T1[x, y*z] = view(T0[x*y, z])
   // T3[x, y*z] = view(T2[x*y, z])
   // T4 = T0 + T2
   //
-  // We want to map T1 and T3's rfactor transformations together by playing the
-  // transformations forward since their root domains map. If instead we have:
+  // We want to map T1 and T3's root to logical transformations together by
+  // playing the transformations forward since their root domains map. If
+  // instead we have:
   //
   // T1[x, y*z] = view(T0[x*y, z])
   // T3[x, y*z] = view(T2[x*y, z])
   // T4 = T1 + T3
   //
   // Then we wouldn't have a mapping of T1 and T3's root domain, we'd have a
-  // mapping of their rfactor domain, so we would want to map T1 and T3's
-  // rfactor transformations starting at their rfactor domains.
+  // mapping of their logical domain, so we would want to map T1 and T3's
+  // root to logical transformations starting at their logical domains.
   //
-  // Therefore we'll explicitly map rfactor transformation iteration domains
-  // forward and backwards. Something similar could happen with rfactor of root
-  // domains, though it seems mapping rfactor reduction domains aren't that
-  // important. Mapping view transformations is more important since view is
-  // part of the compute definition so having the map through the
+  // Therefore we'll explicitly map root to logical transformation iteration
+  // domains forward and backwards. Something similar could happen with root of
+  // logical domains, though it seems mapping rfactor reduction domains aren't
+  // that important. Mapping view transformations is more important since view
+  // is part of the compute definition so having the map through the
   // transformations makes it easy to check if different view operations are
   // consistent with eachother.
 
@@ -585,52 +588,52 @@ void IterDomainGraph::build(Fusion* fusion) {
       all_tvs.begin(),
       all_tvs.end(),
       std::back_inserter(all_consumer_tvs),
-      [](TensorView* tv) { return !tv->isFusionInput() && tv->hasRFactor(); });
+      [](TensorView* tv) { return !tv->isFusionInput() && tv->hasRoot(); });
 
   // IterDomains could have multiple uses defined in the fusion if multiple
   // transformations were redefined (more than one transform propagation pass
   // was run and retransformed sections of the graph). We're going to make a new
   // uses map so we can easily process the actual uses of IterDomains. We
-  // actually only need rfactor uses for this section of mapping, so we'll limit
-  // this map to only rfactor transformations.
-  std::unordered_map<IterDomain*, Expr*> rfactor_id_uses;
+  // actually only need logical uses for this section of mapping, so we'll limit
+  // this map to only root to logical transformations.
+  std::unordered_map<IterDomain*, Expr*> logical_id_uses;
 
-  // Order of traversal is important for processing all the rfactor ids as the
+  // Order of traversal is important for processing all the logical ids as the
   // first pass will go forward through expressions and the second pass will
   // traverse backwards through them. ID's will be unique in this vector,
-  // enforced when building it since it's built with rfactor_id_uses.
-  std::vector<IterDomain*> rfactor_id_order;
+  // enforced when building it since it's built with logical_id_uses.
+  std::vector<IterDomain*> logical_id_order;
 
-  // Grab all the rfactor ids.
+  // Grab all the logical ids.
   for (auto consumer_tv : all_consumer_tvs) {
     auto exprs = StmtSort::getExprsTo(
-        {consumer_tv->getMaybeRFactorDomain().begin(),
-         consumer_tv->getMaybeRFactorDomain().end()});
+        {consumer_tv->getLogicalDomain().begin(),
+         consumer_tv->getLogicalDomain().end()});
     for (auto expr : exprs) {
-      auto rfactor_inp_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
+      auto logical_inp_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
       NVF_ERROR(
           expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>() ||
               expr->isA<Swizzle>(),
           "Wasn't expecting the expression type of:\n",
           expr->toString(),
-          "\nto be an expression defined in an rfactor transformation.");
-      for (auto rfactor_inp_id : rfactor_inp_ids) {
+          "\nto be an expression defined in an root to logical transformation.");
+      for (auto logical_inp_id : logical_inp_ids) {
         NVF_ERROR(
-            rfactor_id_uses.find(rfactor_inp_id) == rfactor_id_uses.end(),
+            logical_id_uses.find(logical_inp_id) == logical_id_uses.end(),
             "Was expecting iter domains to only have one active transformation but found id ",
-            rfactor_inp_id->toString(),
+            logical_inp_id->toString(),
             " used in\n",
-            rfactor_id_uses.at(rfactor_inp_id),
+            logical_id_uses.at(logical_inp_id),
             "\nand\n",
             expr->toString());
-        rfactor_id_uses.emplace(rfactor_inp_id, expr);
-        rfactor_id_order.push_back(rfactor_inp_id);
+        logical_id_uses.emplace(logical_inp_id, expr);
+        logical_id_order.push_back(logical_inp_id);
       }
     }
-    for (auto rfactor_id : consumer_tv->getMaybeRFactorDomain()) {
-      if (rfactor_id->isRFactorProduct()) {
-        rfactor_id_uses.emplace(rfactor_id, nullptr);
-        rfactor_id_order.push_back(rfactor_id);
+    for (auto logical_id : consumer_tv->getLogicalDomain()) {
+      if (logical_id->isRFactorProduct()) {
+        logical_id_uses.emplace(logical_id, nullptr);
+        logical_id_order.push_back(logical_id);
       }
     }
   }
@@ -642,15 +645,15 @@ void IterDomainGraph::build(Fusion* fusion) {
   for (auto prop_forward : {true, false}) {
     std::unordered_set<Expr*> visited_exprs;
 
-    for (auto rfactor_id_i : c10::irange(rfactor_id_order.size())) {
-      auto first_rfactor_id = prop_forward
-          ? rfactor_id_order[rfactor_id_i]
-          : rfactor_id_order[rfactor_id_order.size() - 1 - rfactor_id_i];
+    for (auto logical_id_i : c10::irange(logical_id_order.size())) {
+      auto first_logical_id = prop_forward
+          ? logical_id_order[logical_id_i]
+          : logical_id_order[logical_id_order.size() - 1 - logical_id_i];
 
-      // At should be safe since we made rfactor_id_order and rfactor_id_uses at
+      // At should be safe since we made logical_id_order and logical_id_uses at
       // the same time so they should have the same exact entries.
-      auto first_expr = prop_forward ? rfactor_id_uses.at(first_rfactor_id)
-                                     : first_rfactor_id->definition();
+      auto first_expr = prop_forward ? logical_id_uses.at(first_logical_id)
+                                     : first_logical_id->definition();
 
       if (first_expr == nullptr) {
         continue;
@@ -661,9 +664,9 @@ void IterDomainGraph::build(Fusion* fusion) {
       }
       visited_exprs.emplace(first_expr);
 
-      // Only need to be concerned here with mapping across rfactor iter
+      // Only need to be concerned here with mapping across root iter
       // domains, so isolate out those.
-      auto all_exact_map_ids = exact_nodes_.getDisjointSetOf(first_rfactor_id);
+      auto all_exact_map_ids = exact_nodes_.getDisjointSetOf(first_logical_id);
       std::vector<IterDomain*> exact_map_rf_ids;
       std::copy_if(
           all_exact_map_ids.vector().begin(),
@@ -672,16 +675,16 @@ void IterDomainGraph::build(Fusion* fusion) {
           [](IterDomain* id) { return id->isRFactorProduct(); });
 
       for (auto exact_map_rf_id : exact_map_rf_ids) {
-        if (exact_map_rf_id == first_rfactor_id) {
+        if (exact_map_rf_id == first_logical_id) {
           continue;
         }
-        // If there's an input with an rfactor domain we could have an exact
-        // mapped rfactor id that's on the input meaning it wouldn't have an
-        // entry in rfactor_id_uses
+        // If there's an input with an logical domain we could have an exact
+        // mapped logical id that's on the input meaning it wouldn't have an
+        // entry in logical_id_uses
         auto other_use =
-            rfactor_id_uses.find(exact_map_rf_id) == rfactor_id_uses.end()
+            logical_id_uses.find(exact_map_rf_id) == logical_id_uses.end()
             ? nullptr
-            : rfactor_id_uses.at(exact_map_rf_id);
+            : logical_id_uses.at(exact_map_rf_id);
         auto other_expr =
             prop_forward ? other_use : exact_map_rf_id->definition();
 
@@ -717,15 +720,14 @@ void IterDomainGraph::build(Fusion* fusion) {
         innermost_nodes_.mapEntries(merge->outer(), merge->out());
       } else {
         // maps to inner dimension, even though it's not an identical mapping.
-        // This is used for transpose scheduler to map inner leaf dimensions
+        // This is used for transpose scheduler to map inner loop dimensions
         innermost_nodes_.mapEntries(merge->inner(), merge->out());
       }
       if (merge->outer()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->inner(), merge->out());
       }
     } else if (auto split = dynamic_cast<Split*>(def)) {
-      if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-          split->stopOffset()->isZeroInt()) {
+      if (split->factor()->isOneInt()) {
         if (split->innerSplit()) {
           almost_exact_nodes_.mapEntries(split->in(), split->outer());
         } else {
@@ -736,7 +738,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         innermost_nodes_.mapEntries(split->in(), split->outer());
       } else {
         // maps to inner dimension, even though it's not an identical mapping.
-        // This is used for transpose scheduler to map inner leaf dimensions
+        // This is used for transpose scheduler to map inner loop dimensions
         innermost_nodes_.mapEntries(split->in(), split->inner());
       }
     }
@@ -748,11 +750,11 @@ void IterDomainGraph::build(Fusion* fusion) {
 void IterDomainGraph::initializeId(
     IterDomain* id,
     bool is_rfactor_id,
-    bool is_leaf_id) {
+    bool is_loop_id) {
   permissive_nodes_.initializeSet(id);
   permissive_resize_nodes_.initializeSet(id);
   exact_nodes_.initializeSet(id);
-  if (is_leaf_id) {
+  if (is_loop_id) {
     loop_nodes_.initializeSet(id);
   }
   consumers_[id] = {};
@@ -803,7 +805,7 @@ void ComputeAtMap::validateAndPropagatePType() {
 
 void ComputeAtMap::allocateIndexVariables() {
   // Run through all disjoint sets registered in loop map,
-  //  all lowered kir::ForLoop will correspond to one of the disjoint sets
+  //  all lowered ForLoop will correspond to one of the disjoint sets
   //  and we only need one index variable for each set.
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
     ParallelType ptype = ParallelType::Serial;
@@ -827,13 +829,7 @@ void ComputeAtMap::allocateIndexVariables() {
     if (auto result = std::find_if(
             loop_disjoint_set->vector().begin(),
             loop_disjoint_set->vector().end(),
-            [](IterDomain* id) {
-              // Halo extended parallel loops currently are handled
-              // differently and an index variable would still
-              // be allocated in this case.
-              return id->isThread() &&
-                  (GpuLower::current()->haloInfo()->getExtent(id) == nullptr);
-            });
+            [](IterDomain* id) { return id->isThread(); });
         result != loop_disjoint_set->vector().end()) {
       ptype = (*result)->getParallelType();
       loop_index_variable_map_[loop_disjoint_set.get()] =
@@ -859,17 +855,17 @@ void ComputeAtMap::allocateIndexVariables() {
 
     auto concrete_loop_id = concrete_loop_id_it->second;
 
-    // Need to allocate double buffered loop differently.
-    if (GpuLower::current()->doubleBufferInfo().isDoubleBufferedIterDomain(
+    // Need to allocate circular buffered loop differently.
+    if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             concrete_loop_id)) {
-      // Allocate index variable for each stage of the double buffered loop.
-      double_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
-          std::make_unique<DoubleBufferIndices>(DoubleBufferIndices(
-              {{DoubleBufferLoopStage::Prolog,
+      // Allocate index variable for each stage of the circular buffered loop.
+      circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
+          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
+              {{CircularBufferLoopStage::Prolog,
                 IrBuilder::create<Val>(DataType::Index)},
-               {DoubleBufferLoopStage::Main,
+               {CircularBufferLoopStage::Main,
                 IrBuilder::create<Val>(DataType::Index)},
-               {DoubleBufferLoopStage::Epilog,
+               {CircularBufferLoopStage::Epilog,
                 IrBuilder::create<Val>(DataType::Index)}}));
     } else {
       // Everything now should be serial concrete loops,
@@ -882,7 +878,7 @@ void ComputeAtMap::allocateIndexVariables() {
 
 Val* ComputeAtMap::getIndexVariable(
     IterDomain* id,
-    DoubleBufferLoopStage double_buffer_loop_stage) const {
+    CircularBufferLoopStage circular_buffer_loop_stage) const {
   NVF_ERROR(
       id_graph_.loopNodes().mappingExists(id),
       "Index Variable: no index variable allocated as ",
@@ -890,22 +886,23 @@ Val* ComputeAtMap::getIndexVariable(
       " is not registered in loop map");
   const auto* loop_set = &(id_graph_.loopNodes().getDisjointSetOf(id));
 
-  // Check if this loop was modified by double buffer pass.
-  bool is_double_buffer_iterdomain =
-      GpuLower::current()->doubleBufferInfo().isDoubleBufferedIterDomain(id);
+  // Check if this loop was modified by circular buffer pass.
+  bool is_circular_buffer_iterdomain =
+      GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
+          id);
 
-  if (is_double_buffer_iterdomain) {
-    // Use dedicated double buffer index variable if the loop is double buffer
-    // loop
-    if (double_buffer_loop_stage == DoubleBufferLoopStage::NotApplicable) {
-      // The double buffered loop stages are created after the loop nest
+  if (is_circular_buffer_iterdomain) {
+    // Use dedicated circular buffer index variable if the loop is circular
+    // buffer loop
+    if (circular_buffer_loop_stage == CircularBufferLoopStage::NotApplicable) {
+      // The circular buffered loop stages are created after the loop nest
       //  lowering phase so this function will be querried before the double
-      //  buffer pass. At that point, no forloop has any double buffer
+      //  buffer pass. At that point, no forloop has any circular buffer
       //  stage defined, and we just default to using the main stage index.
-      double_buffer_loop_stage = DoubleBufferLoopStage::Main;
+      circular_buffer_loop_stage = CircularBufferLoopStage::Main;
     }
-    return double_buffered_loop_index_variable_map_.at(loop_set)->at(
-        double_buffer_loop_stage);
+    return circular_buffered_loop_index_variable_map_.at(loop_set)->at(
+        circular_buffer_loop_stage);
   } else {
     return loop_index_variable_map_.at(loop_set);
   }
@@ -962,10 +959,10 @@ IterDomain* ComputeAtMap::computeConcreteId(
   }
 
   // Broadcast resolution is what we have to figure out here. So if we traverse
-  // back from leaves to rfactor inputs through the exact map, if there's an
-  // operation with a broadcast input that's resolved within the history all of
-  // the domains in all of the maybe_rfactor_ids, then the concrete ID must
-  // resolve that broadcast.
+  // back from loop domain to logical inputs through the exact map, if there's
+  // an operation with a broadcast input that's resolved within the history all
+  // of the domains in all of the logical_ids, then the concrete ID must resolve
+  // that broadcast.
   //
   // (1) Compute "traversed IDs" which is every exact disjoint set starting at
   // all maybe concrete ID's traversing back through exact map.
@@ -974,7 +971,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
   // that has its broadcast resolved ID within "traversed IDs", and all
   // IterDomains dependant on that broadcast.
   //
-  // (3) Start at all "traversed IDs" set that has an rfactor domain, traverse
+  // (3) Start at all "traversed IDs" set that has an logical domain, traverse
   // backwards to inputs and remove every exact ID set from "traversed IDs".
   //
   // Remove (2) and (3) from (1) and we have the iteration domains we must
@@ -1057,11 +1054,11 @@ IterDomain* ComputeAtMap::computeConcreteId(
 
   // Remove all domains in the history of sets marked as rfactor.
   {
-    // All exact sets in the history of an rfactored domain
+    // All exact sets in the history of an logical domain
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-        produces_rfactor_dom;
+        produces_logical_dom;
     for (const auto& exact_set : all_exact_sets_covered) {
-      if (produces_rfactor_dom.has(exact_set)) {
+      if (produces_logical_dom.has(exact_set)) {
         // Already processed
         continue;
       }
@@ -1072,23 +1069,23 @@ IterDomain* ComputeAtMap::computeConcreteId(
         continue;
       }
       VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-          rfactor_history = getAllDisjointSetProducers({exact_set});
-      for (const auto& entry : rfactor_history) {
-        // Leave rfactor exact set, unless it's in the history of another
-        // rfactor domain.
+          root_to_logical_history = getAllDisjointSetProducers({exact_set});
+      for (const auto& entry : root_to_logical_history) {
+        // Leave logical exact set, unless it's in the history of another
+        // logical domain.
         if (entry != exact_set) {
-          produces_rfactor_dom.pushBack(entry);
+          produces_logical_dom.pushBack(entry);
         }
       }
     }
 
-    // Remove all sets in rfactor history from all_exact_sets_covered by
+    // Remove all sets in root to logical history from all_exact_sets_covered by
     // effectively doing an inplace copy_if
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         tmp_all_exact_sets_covered;
     std::swap(tmp_all_exact_sets_covered, all_exact_sets_covered);
     for (const auto& entry : tmp_all_exact_sets_covered) {
-      if (produces_rfactor_dom.has(entry)) {
+      if (produces_logical_dom.has(entry)) {
         continue;
       }
       all_exact_sets_covered.pushBack(entry);
@@ -1471,18 +1468,18 @@ bool ComputeAtMap::isRfactor(IterDomain* ref_id) const {
   return id_graph_.rfactorIds().find(ref_id) != id_graph_.rfactorIds().end();
 }
 
-std::vector<IterDomain*> ComputeAtMap::getRfactorDomainsOfIdGroup(
+std::vector<IterDomain*> ComputeAtMap::getLogicalDomainsOfIdGroup(
     IterDomain* ref_id,
     IdMappingMode mode) const {
   auto disjoint_set = disjointSetOf(ref_id, mode);
-  std::vector<IterDomain*> rfactor_ids;
+  std::vector<IterDomain*> logical_ids;
   for (auto disjoint_id : disjoint_set->vector()) {
     if (id_graph_.rfactorIds().find(disjoint_id) !=
         id_graph_.rfactorIds().end()) {
-      rfactor_ids.push_back(disjoint_id);
+      logical_ids.push_back(disjoint_id);
     }
   }
-  return rfactor_ids;
+  return logical_ids;
 }
 
 const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>& ComputeAtMap::
@@ -1519,7 +1516,7 @@ bool ComputeAtMap::idExistsInMap(IterDomain* id) const {
 }
 
 VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor) {
+ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_logical) {
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       input_disjoint_sets;
 
@@ -1547,7 +1544,7 @@ ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor) {
       continue;
     }
 
-    if (stop_at_rfactor &&
+    if (stop_at_logical &&
         std::any_of(
             currently_visiting->vector().begin(),
             currently_visiting->vector().end(),
@@ -1692,14 +1689,14 @@ void IterDomainGraph::updateComputeWith(TensorView* compute_with_tv) {
 
     // Find the matching consumer ID using the permissive map
     auto it = std::find_if(
-        consumer_tv->getLeafDomain().begin(),
-        consumer_tv->getLeafDomain().end(),
+        consumer_tv->getLoopDomain().begin(),
+        consumer_tv->getLoopDomain().end(),
         [&](auto consumer_id) {
           return permissiveNodes().disjointSetMap().at(id)->has(consumer_id);
         });
     NVF_ERROR(
-        it != consumer_tv->getLeafDomain().end(),
-        "No consumer leaf ID of tensor ",
+        it != consumer_tv->getLoopDomain().end(),
+        "No consumer loop ID of tensor ",
         consumer_tv->toString(),
         " permissively mapped with: ",
         id->toString());

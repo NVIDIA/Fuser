@@ -14,12 +14,17 @@
 #include <driver_api.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
+#include <fusion_profiler.h>
 #include <global_allocator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
+#include <multidevice/communication.h>
+#include <multidevice/communicator.h>
+#include <multidevice/lower_communication.h>
+#include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <serde/utils.h>
@@ -257,20 +262,48 @@ void FusionExecutor::compileFusion(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
+  // TODO: refactor the options_ passed through
+  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+
   if (isExpressionEvaluated(fusion)) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     return;
   }
 
+  const std::vector<Expr*>& exprs = fusion->exprs();
+  if (std::all_of(exprs.begin(), exprs.end(), [](Expr* e) {
+        return isResharding(e) && isLowerableToCommunication(e);
+      })) {
+    host_ir_container_ = std::make_unique<hir::HostIrContainer>();
+    IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
+    for (Expr* e : exprs) {
+      std::vector<Communication*> communications =
+          lowerCommunication(cloner.clone(e));
+      for (auto* communication : communications) {
+        host_ir_container_->pushBackTopLevelExprs(communication);
+      }
+    }
+    return;
+  }
+
+  // NOTE: Profiling needs to be started below the isExpressionEvaluated query
+  // given the conditional can exit early from compilation.
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id);
+    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
+  }
+
   for (auto out : fusion->outputs()) {
-    const auto maybe_rfactor_domain =
-        out->as<TensorView>()->getMaybeRFactorDomain();
+    const auto logical_domain = out->as<TensorView>()->getLogicalDomain();
     // walking through outputs to see if output shapes are dependent on
     // non-tensor inputs. For which case, we should have disabled output
     // allocation, since the caching id only looks at tensor shapes.
     // See issue https://github.com/csarofeen/pytorch/issues/2002
     std::vector<Val*> output_extents;
-    for (const auto id : maybe_rfactor_domain) {
+    for (const auto id : logical_domain) {
       Val* extent = nullptr;
       if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
         continue;
@@ -299,9 +332,16 @@ void FusionExecutor::compileFusion(
     fusion->printMath();
   }
 
-  // TODO: refactor the options_ passed through
-  options_.device =
-      c10::Device(c10::DeviceType::CUDA, (int8_t)args.getDeviceIndex());
+  //! Force index_type to int and disable magic zero if we detect that the
+  //! kernel contains any TMA memory operations.
+  bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
+    return ir_utils::isCpAsyncBulk(e);
+  });
+
+  // Disable magic zero if there are any TMA operations in Fusion
+  if (has_cp_async_bulk) {
+    compile_params.enable_magic_zero = false;
+  }
 
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
@@ -314,6 +354,12 @@ void FusionExecutor::compileFusion(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
+    NVF_ERROR(
+        !has_cp_async_bulk ||
+            (compile_params.index_type.value() == PrimDataType::Int32),
+        "Compilation with int64 is requested but int32 is required because ",
+        "of TMA operations.");
+
   } else if (arg_index_type == PrimDataType::Int) {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
@@ -321,6 +367,13 @@ void FusionExecutor::compileFusion(
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
+    NVF_ERROR(
+        !has_cp_async_bulk,
+        "Compilation with int64 is required based on input arguments, but ",
+        "int32 is required because of TMA operations.");
+  } else if (has_cp_async_bulk) {
+    // TMA operations require 32-bit indexing.
+    compile_params.index_type = PrimDataType::Int32;
   }
 
   c10::DeviceGuard dg(options_.device);
@@ -481,6 +534,9 @@ void FusionExecutor::compileFusion(
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
     debug() << disassembledKernelSASS() << std::endl;
   }
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id).stopCompile();
+  }
 }
 
 namespace {
@@ -543,7 +599,7 @@ std::vector<int64_t> getContiguousStrides(
     if (expand_flags.at(i - 1)) {
       stride = 0;
     } else if (size == 0) {
-      // If the size is 0, the stride is 1
+      // If the size is 0, the stride is 1.
       stride = 1;
     } else {
       cur_stride *= size;
@@ -611,12 +667,12 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
-class ForwardTraverseFromAllocToRFactor {
+class ForwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
   ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
-  // Forward traverse split from allocation to rFactor. Needs to, for example,
+  // Forward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 15, ...] as [..., 3, 5, ...]
   void handle(Split* split) {
     auto in = split->in();
@@ -627,14 +683,14 @@ class ForwardTraverseFromAllocToRFactor {
     // NVF_ERROR(in_it != frontier_.end());
     if (in_it == frontier_.end()) {
       // TODO: We should get rid of this return and enable the above assert.
-      // Note [Allocation domain on both side of rFactor]
-      // For cases where the allocation domain is on both side of rFactor, for
+      // Note [Allocation domain on both side of logical]
+      // For cases where the allocation domain is on both side of logical, for
       // example, in Tensor3d_To_NHWC4d_FwdBwd_CUDA:
       // [alloc,root]   [alloc,root]           [root]
       //          \     /                      /    |
-      //         [rFactor]                  split   [rFactor]
+      //         [logical]                  split   [logical]
       //                                    /  \         |
-      //                      [alloc,rFactor] [rFactor]  |
+      //                      [alloc,logical] [logical]  |
       //                                             \   |
       //                                             [alloc]
       // I have no idea why StmtSort::getExprsBetween is not returning the
@@ -660,7 +716,7 @@ class ForwardTraverseFromAllocToRFactor {
     frontier_.erase(in_it);
   }
 
-  // Forward traverse split from allocation to rFactor. Needs to, for example,
+  // Forward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
   void handle(Merge* merge) {
     auto inner = merge->inner();
@@ -671,7 +727,7 @@ class ForwardTraverseFromAllocToRFactor {
     // NVF_ERROR(inner_it != frontier_.end());
     // NVF_ERROR(outer_it != frontier_.end());
     if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
+      // TODO: see [Allocation domain on both side of logical]
       return;
     }
     int64_t inner_dim = std::distance(frontier_.begin(), inner_it);
@@ -728,17 +784,17 @@ class ForwardTraverseFromAllocToRFactor {
   }
 
  public:
-  ForwardTraverseFromAllocToRFactor(
+  ForwardTraverseFromAllocToLogical(
       at::Tensor tensor,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
-      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
     auto forward_exprs = StmtSort::getExprsBetween(
-        {alloc.begin(), alloc.end()}, {rfactor.begin(), rfactor.end()});
+        {alloc.begin(), alloc.end()}, {logical.begin(), logical.end()});
     for (auto expr : forward_exprs) {
       handle(expr);
     }
@@ -748,12 +804,12 @@ class ForwardTraverseFromAllocToRFactor {
 
 // Backward traverse is similar to forward traverse, but we need to do opposite
 // transformations.
-class BackwardTraverseFromAllocToRFactor {
+class BackwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
   ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
-  // Backward traverse split from allocation to rFactor. Needs to, for example,
+  // Backward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 3, 5, ...] as [..., 15, ...]
   void handle(Split* split) {
     auto inner = split->inner();
@@ -764,7 +820,7 @@ class BackwardTraverseFromAllocToRFactor {
     // NVF_ERROR(inner_it != frontier_.end());
     // NVF_ERROR(outer_it != frontier_.end());
     if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
+      // TODO: see [Allocation domain on both side of logical]
       return;
     }
     int64_t inner_dim = std::distance(frontier_.begin(), inner_it);
@@ -810,7 +866,7 @@ class BackwardTraverseFromAllocToRFactor {
     }
   }
 
-  // Backward traverse split from allocation to rFactor. Needs to, for example,
+  // Backward traverse split from allocation to logical. Needs to, for example,
   // view tensor with shape [..., 15, ...] as [..., 3, 5, ...]
   void handle(Merge* merge) {
     auto out = merge->out();
@@ -820,7 +876,7 @@ class BackwardTraverseFromAllocToRFactor {
     auto out_it = std::find(frontier_.begin(), frontier_.end(), out);
     // NVF_ERROR(out_it != frontier_.end());
     if (out_it == frontier_.end()) {
-      // TODO: see [Allocation domain on both side of rFactor]
+      // TODO: see [Allocation domain on both side of logical]
       return;
     }
     // view tensor
@@ -852,17 +908,17 @@ class BackwardTraverseFromAllocToRFactor {
   }
 
  public:
-  BackwardTraverseFromAllocToRFactor(
+  BackwardTraverseFromAllocToLogical(
       at::Tensor tensor,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
-      const std::vector<IterDomain*>& rfactor,
+      const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
     auto backward_exprs = StmtSort::getExprsBetween(
-        {rfactor.begin(), rfactor.end()}, {alloc.begin(), alloc.end()});
+        {logical.begin(), logical.end()}, {alloc.begin(), alloc.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());
     for (auto expr : backward_exprs) {
       handle(expr);
@@ -873,32 +929,32 @@ class BackwardTraverseFromAllocToRFactor {
 
 // Start from a tensor whose dimensions are consistent with the allocation
 // domain of tv, apply a sequence of view/permute to the tensor to transform it
-// into a format whose dimensions are consistent with the rFactor domain of tv.
-// For example, if the rFactor domain is [I1, I2], and the allocation domain is
+// into a format whose dimensions are consistent with the logical domain of tv.
+// For example, if the logical domain is [I1, I2], and the allocation domain is
 // [I2*I1], then we will allocate as [I2*I1], then do a tensor.view(I2, I1).t()
 // to get a tensor whose semantics is [I1, I2] but its memory is [I2*I1].
-// Another example, if the rFactor domain is [I1*I2] and the allocation domain
+// Another example, if the logical domain is [I1*I2] and the allocation domain
 // is [I1, I2], then we will allocate as [I1, I2] and do a tensor.view(I1*I2) to
 // get a tensor whose semantics is [I1*I2] but memory is [I1,I2]
-at::Tensor transformOutputFromAllocationToRFactor(
+at::Tensor transformOutputFromAllocationToLogical(
     at::Tensor tensor,
     TensorView* tv,
     ExpressionEvaluator& ee) {
   // Ignore reductions because reductions does not exist in tensor's definition
-  auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
   auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   // Traverse all affine transformations from allocation domain. Because
-  // allocation domain can be before or after the rFactor domain, we need both a
+  // allocation domain can be before or after the logical domain, we need both a
   // forward and a backward traverse.
   std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
   NVF_ERROR(tensor.dim() == (int64_t)frontier.size());
-  tensor = ForwardTraverseFromAllocToRFactor(tensor, ee, frontier)
-               .run(rfactor, alloc);
-  tensor = BackwardTraverseFromAllocToRFactor(tensor, ee, frontier)
-               .run(rfactor, alloc);
-  NVF_ERROR(frontier.size() == rfactor.size());
+  tensor = ForwardTraverseFromAllocToLogical(tensor, ee, frontier)
+               .run(logical, alloc);
+  tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
+               .run(logical, alloc);
+  NVF_ERROR(frontier.size() == logical.size());
   // Now that all affine transformations are handled, and frontiers should
-  // contain the same set of IDs as rfactor. We still need to do a final
+  // contain the same set of IDs as logical. We still need to do a final
   // permutation so that their orders are also consistent.
   std::unordered_map<IterDomain*, int64_t> current_dims;
   int64_t counter = 0;
@@ -907,7 +963,7 @@ at::Tensor transformOutputFromAllocationToRFactor(
   }
   std::vector<int64_t> dims;
   dims.reserve(frontier.size());
-  for (auto id : rfactor) {
+  for (auto id : logical) {
     dims.emplace_back(current_dims.at(id));
   }
   return tensor.permute(dims);
@@ -928,7 +984,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   for (const auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction() || id->isStride()) {
       continue;
-    } else if (id->isDeviceDim()) {
+    }
+
+    if (id->isDeviceDim()) {
       symbolic_sizes.push_back(id->container()->oneVal());
     } else {
       symbolic_sizes.push_back(id->getMaybeExpandedExtent());
@@ -954,16 +1012,10 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
       at::empty_strided(size_stride.first, size_stride.second, options);
   // TODO(jiej): we should refactor it here, there's no need to use
   // meta_tensor at all, size + stride should be used directly in the
-  // `transformOutputFromAllocationToRFactor`
+  // `transformOutputFromAllocationToLogical`
   meta_tensor =
-      transformOutputFromAllocationToRFactor(meta_tensor, tv, expr_eval);
+      transformOutputFromAllocationToLogical(meta_tensor, tv, expr_eval);
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
-}
-
-int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
-  auto i = std::find(fusion->inputs().begin(), fusion->inputs().end(), in);
-  NVF_ERROR(i != fusion->inputs().end());
-  return std::distance(fusion->inputs().begin(), i);
 }
 
 // Allocate an `at::Tensor` for `out_info` or compute it as an alias.
@@ -1870,12 +1922,36 @@ std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
   return outputs;
 }
 
+namespace {
+at::Tensor findBufferForFusionOutput(
+    const std::vector<at::Tensor>& out_tensors,
+    const Val* fusion_out,
+    const Fusion* fusion) {
+  auto i =
+      std::find(fusion->outputs().begin(), fusion->outputs().end(), fusion_out);
+  NVF_ERROR(i != fusion->outputs().end());
+  auto index = std::distance(fusion->outputs().begin(), i);
+  return out_tensors[index];
+}
+} // namespace
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
+
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id_ >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
+    sprof.inputBytesAccessed(inputBytesProcessed(args));
+    sprof.scheduler(toString(heuristic_));
+    sprof.startKernel(args.getDeviceIndex());
+  }
 
   NVF_ERROR(isCompiled());
   NVF_ERROR(
@@ -1890,22 +1966,40 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     expr_eval.bind(inputs[i], *args[i]);
   }
 
-  const bool measure_kernel_time = measure_kernel_time_ ||
-      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
-
-  // It's important to determine the input bytes processed prior
-  // to pushing the outputs into the arg struct.  Otherwise,
-  // the outputs will also be included with inputs when determining
-  // the input bytes accessed.
-  if (measure_kernel_time) {
-    inputBytesProcessed(args);
+  if (isExpressionEvaluated(fusion())) {
+    outputs = evaluateFusionOutputs(args, outputs, expr_eval);
+    if (isProfilerEnabled()) {
+      auto& sprof = FusionProfiler::segment(group_id_);
+      sprof.stopKernel();
+      sprof.outputBytesAccessed(outputBytesProcessed(outputs));
+    }
+    return outputs;
   }
 
-  if (!hasCompiledKernel()) {
-    outputs = evaluateFusionOutputs(args, outputs, expr_eval);
-    if (measure_kernel_time) {
-      outputBytesProcessed(outputs);
+  if (host_ir_container_ != nullptr) {
+    if (outputs.empty()) {
+      std::vector<GlobalBufferInfo> output_info = getOutputBufferInfo(
+          args, expr_eval, PrimDataType::Int, host_ir_container_.get());
+      outputs = allocateOutputs(
+          host_ir_container_.get(), output_info, options_.device, expr_eval);
+    }
+    for (Expr* e : host_ir_container_->topLevelExprs()) {
+      NVF_ERROR(e->isA<Communication>());
+      auto* communication = e->as<Communication>();
+      c10d::Backend* backend =
+          communicator_->getBackendForTeam(communication->team(), std::nullopt);
+      auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
+      at::Tensor out_tensor = findBufferForFusionOutput(
+          outputs, communication->out(), host_ir_container_.get());
+      c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+          communication,
+          communicator_->deviceId(),
+          backend,
+          in_tensor,
+          out_tensor);
+      if (work != nullptr) {
+        work->wait();
+      }
     }
     return outputs;
   }
@@ -2058,10 +2152,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   executor_utils::CudaKernelTimer timer(stream);
 
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
-    if (measure_kernel_time) {
-      timer.init();
-    }
-
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     recomputeArgs(*executor_entry, expr_eval, kernel());
@@ -2095,10 +2185,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               << ", occupancy=" << oss.str() << std::endl;
     }
 
-    if (measure_kernel_time) {
-      timer.start();
-    }
-
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
@@ -2127,23 +2213,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           stream,
           executor_entry->arg_ptrs.data()));
     }
-
-    if (measure_kernel_time) {
-      kernel_time_ms_ = timer.elapsed();
-    }
-  }
-
-  if (measure_kernel_time) {
-    outputBytesProcessed(outputs);
-
-    if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-        isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-      double gb_per_s =
-          ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
-          (double)1.0e9;
-      debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
-              << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
-    }
   }
 
   releaseZeroedMemory();
@@ -2152,51 +2221,37 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     debug() << kernel()->profile().toString(profile_buffer);
   }
 
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::segment(group_id_);
+    sprof.stopKernel();
+    sprof.outputBytesAccessed(outputBytesProcessed(outputs));
+  }
+
   return outputs;
 }
 
 int64_t FusionExecutor::inputBytesProcessed(const KernelArgumentHolder& args) {
-  int64_t total_bytes = 0;
-  if (!bytes_processed_per_input_.has_value()) {
-    int64_t num_bytes = 0;
-    bytes_processed_per_input_ = std::vector<int64_t>(args.size(), 0);
-    // Figure how many bytes are inputs, outputs, and temporary buffers
-    for (auto i : c10::irange(args.size())) {
-      if (args[i]->is<at::Tensor>()) {
-        auto t = args[i]->as<at::Tensor>();
-        num_bytes = static_cast<int64_t>(t.storage().nbytes());
-        bytes_processed_per_input_.value().at(i) = num_bytes;
-        total_bytes += num_bytes;
-      }
-    }
-  } else {
-    for (auto bp : bytes_processed_per_input_.value()) {
-      total_bytes += bp;
+  int64_t num_bytes = 0;
+  // Figure how many bytes are inputs, outputs, and temporary buffers
+  for (auto i : c10::irange(args.size())) {
+    if (args[i]->is<at::Tensor>()) {
+      auto t = args[i]->as<at::Tensor>();
+      num_bytes += static_cast<int64_t>(t.storage().nbytes());
     }
   }
-  return total_bytes;
+  return num_bytes;
 }
 
 int64_t FusionExecutor::outputBytesProcessed(
     const std::vector<at::Tensor>& outputs) {
-  int64_t total_bytes = 0;
-  if (!bytes_processed_per_output_.has_value()) {
-    int64_t num_bytes = 0;
-    bytes_processed_per_output_ = std::vector<int64_t>(outputs.size(), 0);
-    for (auto i : c10::irange(outputs.size())) {
-      const auto& output = outputs.at(i);
-      // NOTE: this assumes that all output elements correspond to a single
-      // store
-      num_bytes = static_cast<int64_t>(output.storage().nbytes());
-      bytes_processed_per_output_.value().at(i) = num_bytes;
-      total_bytes += num_bytes;
-    }
-  } else {
-    for (auto bp : bytes_processed_per_output_.value()) {
-      total_bytes += bp;
-    }
+  int64_t num_bytes = 0;
+  for (auto i : c10::irange(outputs.size())) {
+    const auto& output = outputs.at(i);
+    // NOTE: this assumes that all output elements correspond to a single
+    // store
+    num_bytes += static_cast<int64_t>(output.storage().nbytes());
   }
-  return total_bytes;
+  return num_bytes;
 }
 
 void FusionExecutor::compileRtc(

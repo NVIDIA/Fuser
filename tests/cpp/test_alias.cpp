@@ -34,6 +34,7 @@ using testing::IsTrue;
 using testing::Not;
 using testing::Optional;
 using testing::Pair;
+using testing::SizeIs;
 using testing::UnorderedElementsAre;
 
 using AliasAnalysisTest = NVFuserTest;
@@ -126,10 +127,10 @@ TEST_F(AliasAnalysisTest, Set) {
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
-  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
       alias_analysis.preferredLayout(out).allocation_domain,
-      ElementsAre(out_rfactor[1], out_rfactor[2], out_rfactor[0]));
+      ElementsAre(out_logical[1], out_logical[2], out_logical[0]));
 }
 
 TEST_F(AliasAnalysisTest, Permute) {
@@ -146,10 +147,10 @@ TEST_F(AliasAnalysisTest, Permute) {
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
-  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
       alias_analysis.preferredLayout(out).allocation_domain,
-      ElementsAre(out_rfactor[2], out_rfactor[0], out_rfactor[1]));
+      ElementsAre(out_logical[2], out_logical[0], out_logical[1]));
 }
 
 TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
@@ -262,6 +263,24 @@ TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
+}
+
+TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  fusion.addInput(in);
+  TensorView* broadcast_tv = broadcast(in, {false, true, false});
+  TensorView* expanded_tv = expand(
+      broadcast_tv,
+      {broadcast_tv->axis(0)->extent(),
+       IrBuilder::create<Val>(4),
+       broadcast_tv->axis(2)->extent()});
+  fusion.addOutput(expanded_tv);
+
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(expanded_tv), in);
 }
 
 using AliasTest = NVFuserTest;
@@ -595,10 +614,15 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigConcreteTensor({2, 3});
-  TensorView* slice_out = slice(in, {0, 0}, {2, 2});
-  TensorView* add_out = add(in, fusion->oneVal());
+  TensorView* t = reshape(in, {2, 3}, {6});
+  TensorView* broadcast_out = broadcast(t, {true, false});
+  broadcast_out = expand(
+      broadcast_out,
+      {IrBuilder::create<Val>(5), broadcast_out->axis(1)->extent()});
+  TensorView* add_out = add(t, t);
+
   fusion->addInput(in);
-  fusion->addOutput(slice_out);
+  fusion->addOutput(broadcast_out);
   fusion->addOutput(add_out);
 
   FusionExecutorCache fec(std::move(fusion));
@@ -649,8 +673,9 @@ TEST_F(AliasTest, Issue1452) {
 
   // Large enough to trigger vectorization.
   TensorView* in = makeContigConcreteTensor({1024, 1024});
-  TensorView* set_out = set(in);
-  TensorView* add_out = add(in, fusion->oneVal());
+  TensorView* t = reshape(in, {1024, 1024}, {1024 * 1024});
+  TensorView* set_out = set(t);
+  TensorView* add_out = add(t, fusion->oneVal());
   fusion->addInput(in);
   fusion->addOutput(set_out);
   fusion->addOutput(add_out);
@@ -918,6 +943,29 @@ TEST_F(AliasTest, ManyAliasesBetweenOutputs) {
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
+TEST_F(AliasTest, DoNotOverSegment) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* add_out = add(in, in);
+  TensorView* permute_out = permute(add_out, {1, 0});
+  TensorView* mul_out = mul(permute_out, permute_out);
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+  fusion->addOutput(permute_out);
+  fusion->addOutput(mul_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+}
+
 TEST_F(AliasTest, Broadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -926,6 +974,28 @@ TEST_F(AliasTest, Broadcast) {
   TensorView* out = broadcast(in, {false, true, false});
   fusion->addInput(in);
   fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
+}
+
+TEST_F(AliasTest, Expand) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({-1, -1});
+  fusion->addInput(in);
+  TensorView* broadcast_tv = broadcast(in, {false, true, false});
+  TensorView* expanded_tv = expand(
+      broadcast_tv,
+      {broadcast_tv->axis(0)->extent(),
+       IrBuilder::create<Val>(4),
+       broadcast_tv->axis(2)->extent()});
+  fusion->addOutput(expanded_tv);
 
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
@@ -1049,7 +1119,43 @@ TEST_F(AliasTest, SegmentBoundary) {
           HeuristicIs(ScheduleHeuristic::PointWise)));
 }
 
-TEST_F(AliasTest, ReuseBufferAliasAcrossSegments) {
+TEST_F(AliasTest, ReuseBuffer) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeContigTensor(1);
+  TensorView* out = add(in, IrBuilder::create<Val>(1.0));
+  fusion->addInput(in);
+  fusion->addOutput(out);
+  fusion->aliasOutputToInput(out, in, AllocationType::ReuseBuffer);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto tensor = at::randn({10}, options);
+  auto expected_tensor = tensor + 1.0;
+
+  FusionExecutorCache fec(std::move(fusion));
+  fec.runFusionWithInputs({tensor});
+  EXPECT_TRUE(tensor.allclose(expected_tensor));
+}
+
+TEST_F(AliasTest, ReuseBuffer_FusionExecutor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeContigTensor(1);
+  TensorView* out = add(in, IrBuilder::create<Val>(1.0));
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto tensor = at::randn({10}, options);
+  auto expected_tensor = tensor + 1.0;
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {tensor});
+  fe.runFusion({tensor}, {tensor});
+  EXPECT_TRUE(tensor.allclose(expected_tensor));
+}
+
+TEST_F(AliasTest, ReuseBuffer_AliasAcrossSegments) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1136,6 +1242,11 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({2, 3}, options);
   auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  if (ProfilerState::Running == FusionProfiler::state()) {
+    FusionProfiler::stop();
+  }
+  ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   const FusionProfile& profile = FusionProfiler::profile();
@@ -1146,10 +1257,6 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
       UnorderedElementsAre(
           Field(&KernelProfile::name, IsEmpty()),
           Field(&KernelProfile::name, Not(IsEmpty()))));
-
-  if (ProfilerState::Running == FusionProfiler::state()) {
-    FusionProfiler::stop();
-  }
 }
 
 TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
@@ -1208,15 +1315,83 @@ TEST_F(AliasTest, NoKernelsAreLaunched) {
   at::Tensor in_tensor = at::randn({2, 3}, options);
   fec.runFusionWithInputs({in_tensor});
 
+  if (ProfilerState::Running == FusionProfiler::state()) {
+    FusionProfiler::stop();
+  }
+  ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+
   const FusionProfile& profile = FusionProfiler::profile();
   // Expect a kernel launched for one of the two segments but not the
   // other.
   EXPECT_THAT(
       profile.kernel_profiles,
       UnorderedElementsAre(Field(&KernelProfile::name, IsEmpty())));
+}
 
-  if (ProfilerState::Running == FusionProfiler::state()) {
-    FusionProfiler::stop();
+// While most use cases go through FusionExecutorCache, nvFuser also supports
+// evaluating an alias via FusionExecutor.
+TEST_F(AliasTest, FusionExecutor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({10, 10});
+  TensorView* out = slice(in, {0, 0}, {5, 5});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  // Sanity-check that `out` is a valid alias of `in`.
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+
+  // Mark them alias so FusionExecutor::runFusion expression-evaluates the
+  // output on the host instead of launching a CUDA kernel.
+  fusion.aliasOutputToInput(out, in, AllocationType::Evaluate);
+
+  FusionExecutor fe;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({10, 10}, options);
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
+}
+
+TEST_F(AliasTest, SegmentMetaOps) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* permute_out = permute(in, {1, 0});
+  TensorView* compute_out = mul(in, in);
+  compute_out = add(compute_out, in);
+  fusion->addInput(in);
+  fusion->addOutput(permute_out);
+  fusion->addOutput(compute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  at::Tensor permute_out_tensor = out_tensors[0];
+  EXPECT_TRUE(permute_out_tensor.is_alias_of(in_tensor));
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  // MarkAliasesPrepare adds a `segment_set` between `in` and `permute`, which
+  // leads to three segments:
+  // 1. segment_set`, a no-op segment,
+  // 2. permute`, a no-op segment,
+  // 3. `mul` and `add`, a pointwise segment.
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::PointWise)));
+  for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
+    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+      EXPECT_THAT(group->inputs(), SizeIs(1));
+      EXPECT_THAT(group->outputs(), SizeIs(1));
+    }
   }
 }
 

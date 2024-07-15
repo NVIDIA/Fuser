@@ -1491,106 +1491,6 @@ class ExpandOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
-//! Shift
-class ShiftOp : public Expr {
- public:
-  using Expr::Expr;
-
-  //! \param out
-  //! \param in
-  //! \param offsets
-  ShiftOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in,
-      std::vector<int> offsets,
-      std::vector<int> pad_width);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "ShiftOp";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* out() const {
-    return output(0);
-  }
-  Val* in() const {
-    return input(0);
-  }
-
-  int offset(size_t dim) const {
-    return offsets().at(dim);
-  }
-
-  //! Each of the root axes is shifted by the corresponding value of
-  //! offsets. The sign of each value indicates the direction of shifting.
-  const std::vector<int>& offsets() const {
-    return attribute<std::vector<int>>(0);
-  }
-
-  const std::vector<int>& padWidth() const {
-    return attribute<std::vector<int>>(1);
-  }
-
-  bool hasPadding() const {
-    return std::any_of(padWidth().begin(), padWidth().end(), [](const auto p) {
-      return p > 0;
-    });
-  }
-};
-
-//! Gather a window around each element.
-class GatherOp : public Expr {
- public:
-  using Expr::Expr;
-
-  GatherOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in,
-      std::vector<int> window_shape,
-      std::vector<std::vector<int>> pad_width);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "GatherOp";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* out() const {
-    return output(0);
-  }
-  Val* in() const {
-    return input(0);
-  }
-
-  //! Shape of a window gathered for each element.
-  const auto& windowShape() const {
-    return attribute<std::vector<int>>(0);
-  }
-
-  //! Returns the gather axis that corresponds to an input axis
-  int64_t gatherAxis(int64_t axis) const;
-
-  //! The size of zero-padding of each axis.
-  const auto& padWidth() const {
-    return attribute<std::vector<std::vector<int>>>(1);
-  }
-
-  bool hasPadding() const {
-    return std::any_of(padWidth().begin(), padWidth().end(), [](const auto& p) {
-      return p[0] > 0 || p[1] > 0;
-    });
-  }
-};
-
 class ViewAsScalar : public Expr {
  public:
   using Expr::Expr;
@@ -1697,8 +1597,6 @@ class NVF_API LoadStoreOp : public Expr {
     return attribute<CacheOp>(1);
   }
 
-  bool hasInnerTranspose() const;
-
   void setOpType(LoadStoreOpType op) {
     attribute<LoadStoreOpType>(0) = op;
     if (op != LoadStoreOpType::Set && op != LoadStoreOpType::CpAsync) {
@@ -1718,20 +1616,13 @@ class NVF_API Split : public Expr {
  public:
   using Expr::Expr;
 
-  // start_offset and stop_offset are used to express partial
-  // split. Only the partial domain from start_offset to stop_offset
-  // is split and the outer sub-regions are ignored. Note that both
-  // start_offset and stop_offset are distance from the left end and
-  // right ends, respectively.
   Split(
       IrBuilderPasskey,
       IterDomain* outer,
       IterDomain* inner,
       IterDomain* in,
       Val* factor,
-      bool inner_split = true,
-      Val* start_offset = nullptr,
-      Val* stop_offset = nullptr);
+      bool inner_split = true);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1758,23 +1649,6 @@ class NVF_API Split : public Expr {
   bool innerSplit() const {
     return attribute<bool>(1);
   }
-
-  //! Start position of the input domain. Non-zero means partial
-  //! split. Elements until this offset are ignored.
-  Val* startOffset() const {
-    NVF_ERROR(attributeVal(2) != nullptr);
-    return attributeVal(2);
-  }
-
-  //! Offset from extent of the input domain. Non-zero means partial
-  //! split. Elements after this offset are ignored.
-  Val* stopOffset() const {
-    NVF_ERROR(attributeVal(3) != nullptr);
-    return attributeVal(3);
-  }
-
-  //! Utility function to compute the split extent.
-  static Val* extent(Val* in_extent, Val* start_offset, Val* stop_offset);
 };
 
 //! Merge the IterDomains outer and inner into one domain, outer and inner
@@ -2325,6 +2199,460 @@ class LinearOp : public Expr {
   bool has_bias() const {
     return inputs().size() == 3;
   }
+};
+
+/*
+SDPA node with same functionality at::_scaled_dot_product_flash_attention
+output = [N, H, L, Ev]
+logsumexp = [N, H, L]
+cum_seq_q = [N + 1,]
+cum_seq_k = [N + 1,]
+query_seq_len = scalar(int)
+key_seq_len = scalar(int)
+philox_seed = scalar tensor
+philox_offset = scalar tensor
+debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
+setting `return_debug_mask=False` when invoking flash attention)
+
+query = [N, H, L, E]
+key = [N, H, S, E]
+value = [N, H, S, Ev]
+dropout_p = scalar(double)
+is_causal = scalar(bool)
+scale = scalar(double)
+
+N = number of sequences / batch size
+H = num of heads
+L = query sequence length / target sequence length
+S = key/value sequence length / src sequence length
+E = query/key embd dimension
+Ev = value embd dimension
+
+For flash attention, E = Ev
+*/
+
+class SdpaFwdOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  SdpaFwdOp(
+      IrBuilderPasskey,
+      TensorView* output,
+      TensorView* log_sumexp,
+      TensorView* cum_seq_q,
+      TensorView* cum_seq_k,
+      TensorView* query_seq_len,
+      TensorView* key_seq_len,
+      TensorView* philox_seed,
+      TensorView* philox_offset,
+      TensorView* debug_attn_mask,
+      Val* query,
+      Val* key,
+      Val* value,
+      Val* dropout_p,
+      Val* is_causal,
+      Val* scale);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "SdpaFwdOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* attn_out() const {
+    return output(0);
+  }
+
+  Val* query() const {
+    return input(0);
+  }
+
+  Val* key() const {
+    return input(1);
+  }
+
+  Val* value() const {
+    return input(2);
+  }
+
+  Val* dropout_p() const {
+    return input(3);
+  }
+
+  Val* is_causal() const {
+    return input(4);
+  }
+
+  Val* scale() const {
+    if (inputs().size() > 5) {
+      return input(5);
+    }
+    return nullptr;
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class Scope {
+ public:
+  explicit Scope(Expr* owner) : owner_(owner) {}
+
+  std::string toString(int indent_size = 0) const;
+
+  const std::vector<Expr*>& exprs() const {
+    return exprs_;
+  }
+
+  bool empty() const {
+    return exprs_.empty();
+  }
+
+  auto size() const {
+    return exprs_.size();
+  }
+
+  auto& at(size_t i) {
+    return exprs_.at(i);
+  }
+
+  auto& at(size_t i) const {
+    return exprs_.at(i);
+  }
+
+  auto& operator[](size_t i) {
+    return at(i);
+  }
+
+  auto& operator[](size_t i) const {
+    return at(i);
+  }
+
+  // Insert expr before expression at pos
+  std::vector<Expr*>::iterator insert(size_t pos, Expr* expr);
+
+  // Insert expr before ref
+  std::vector<Expr*>::iterator insert_before(Expr* ref, Expr* expr);
+
+  // Insert expr after ref
+  std::vector<Expr*>::iterator insert_after(Expr* ref, Expr* expr);
+
+  void push_back(Expr* e) {
+    exprs_.push_back(e);
+  }
+
+  // Erase expr at pos
+  void erase(size_t pos);
+
+  // Erase expr ref
+  void erase(Expr* ref);
+
+  bool contains(Expr* expr) const;
+
+  void clear();
+
+  Expr* owner() const {
+    return owner_;
+  }
+
+  bool operator==(const Scope&) const {
+    NVF_ERROR(false, "Should not reach here");
+  }
+
+  // Insert expr before pos
+  std::vector<Expr*>::iterator insert(
+      std::vector<Expr*>::const_iterator pos,
+      Expr* expr);
+
+ private:
+  // Erase expr at pos
+  void erase(std::vector<Expr*>::const_iterator pos);
+
+ private:
+  std::vector<Expr*> exprs_;
+
+  //! Owner exprssion of this scope, e.g., IfThenElse
+  Expr* owner_ = nullptr;
+};
+
+//! ForLoop provides scoping around an int iterator from 0 to range. Exprs
+//! placed in its body are considered inside the scope of the for loop. In the
+//! future the implementation should look quite different so that we can do
+//! proper dependency annalysis like in Fusion.
+//!
+//! TODO(kir): this is not a real expression
+//!
+//! ForLoop may represent a part of an iteration domain representend
+//! by iter_domain_. In that case, the loop extent field, extent_, may
+//! be smaller than the extent of iter_domain_.
+class ForLoop final : public Expr {
+ public:
+  using Expr::Expr;
+
+  //! By default, start and stop are the same as those of iter_domain.
+  //! Step is one by default.
+  //!
+  //! TODO: cleaner way to set options?
+  ForLoop(
+      IrBuilderPasskey passkey,
+      IterDomain* iter_domain,
+      Val* index,
+      Val* start,
+      Val* stop,
+      Val* step,
+      bool vectorize,
+      Val* vectorize_shift,
+      bool unroll_required,
+      CircularBufferLoopStage circular_buffer_loop_stage);
+
+  ForLoop(
+      IrBuilderPasskey passkey,
+      IterDomain* iter_domain,
+      Val* index,
+      CircularBufferLoopStage circular_buffer_loop_stage);
+
+  ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
+
+  ForLoop(IrBuilderPasskey passkey, const ForLoop* other);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ForLoop";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* index() const {
+    return input(0);
+  }
+
+  Val* indexOrStartIfTrivial() const {
+    return isTrivial() ? start() : index();
+  }
+
+  Val* start() const;
+
+  Val* stop() const;
+
+  Val* step() const;
+
+  Val* simplifiedStop() const;
+
+  // [pre | vectorize | post] <= inner-most, merged root domain
+  // shift_ is applied to vectorize and post sections.
+  Val* vectorize_shift() const {
+    return attributeVal(4);
+  }
+
+  IterDomain* iter_domain() const {
+    return input(1)->as<IterDomain>();
+  }
+
+  // TODO: Return pointer instead of reference to be more consistent
+  Scope& body() {
+    return attribute<Scope>(7);
+  }
+
+  const Scope& body() const {
+    return attribute<Scope>(7);
+  }
+
+  bool empty() const {
+    return body().empty();
+  }
+
+  // vectorize is true when the for-loop contains a vectorize set
+  // the flag is used to omit the for-loop from the kernel
+  bool vectorize() const {
+    return attribute<bool>(3);
+  }
+
+  //! True if unrolled (i.e., "#pragma unroll" is attached)
+  bool isUnrolled() const;
+
+  //! True if unroll is required for avoiding stack allocation
+  bool isUnrollRequired() const {
+    return attribute<bool>(5);
+  }
+
+  //! Set unrolling required
+  void requireUnroll() {
+    attribute<bool>(5) = true;
+  }
+
+  //! True if no actual for-loop is materialized
+  bool isTrivial() const;
+
+  //! True if loop is grouped reduction/welford
+  bool isGroup() const;
+
+  //! Returns the stage of a circular buffered iterdomain
+  //!  that this for loop materializes.
+  auto circularBufferLoopStage() const {
+    return attribute<CircularBufferLoopStage>(6);
+  }
+
+ private:
+  //! Returns if a loop could be unrolled.
+  bool isUnrollable() const;
+
+  //! Not storing this as an attribute because this is only a cache for
+  //! simplifiedStop. We are not interested in keeping this across clone/serde,
+  //! etc.
+  mutable Val* simplified_stop_ = nullptr;
+};
+
+/*
+SDPA bwd node with same functionality
+at::_scaled_dot_product_flash_attention_backward
+grad_query = [N, H, L, E]
+grad_key = [N, H, S, E]
+grad_value = [N, H, S, Ev]
+
+grad_output = [N, H, L, Ev]
+query = [N, H, L, E]
+key = [N, H, S, E]
+value = [N, H, S, Ev]
+output = [N, H, L, Ev]
+logsumexp = [N, H, L]
+cum_seq_q = [N + 1,] (undefined tensor for non-nested tensor)
+cum_seq_k = [N + 1,] (undefined tensor for non-nested tensor)
+query_seq_len = scalar(int)
+key_seq_len = scalar(int)
+dropout_p = scalar(double)
+is_causal = scalar(bool)
+philox_seed = scalar CPU tensor
+philox_offset = scalar CPU tensor
+scale = scalar(double)
+
+N = number of sequences / batch size
+H = num of heads
+L = query sequence length / target sequence length
+S = key/value sequence length / src sequence length
+E = query/key embd dimension
+Ev = value embd dimension
+
+For flash attention, E = Ev
+*/
+
+class SdpaBwdOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  SdpaBwdOp(
+      IrBuilderPasskey,
+      TensorView* grad_query,
+      TensorView* grad_key,
+      TensorView* grad_value,
+      TensorView* grad_output,
+      TensorView* query,
+      TensorView* key,
+      TensorView* value,
+      TensorView* output,
+      TensorView* log_sumexp,
+      TensorView* cum_seq_q,
+      TensorView* cum_seq_k,
+      TensorView* query_seq_len,
+      TensorView* key_seq_len,
+      Val* dropout_p,
+      Val* is_causal,
+      TensorView* philox_seed,
+      TensorView* philox_offset,
+      Val* scale);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "SdpaBwdOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* grad_query() const {
+    return output(0);
+  }
+
+  Val* grad_key() const {
+    return output(1);
+  }
+
+  Val* grad_value() const {
+    return output(2);
+  }
+
+  Val* grad_attn() const {
+    return input(0);
+  }
+
+  Val* query() const {
+    return input(1);
+  }
+
+  Val* key() const {
+    return input(2);
+  }
+
+  Val* value() const {
+    return input(3);
+  }
+
+  Val* attn_out() const {
+    return input(4);
+  }
+
+  Val* logsumexp() const {
+    return input(5);
+  }
+
+  Val* cum_seq_q() const {
+    return input(6);
+  }
+
+  Val* cum_seq_k() const {
+    return input(7);
+  }
+
+  Val* max_q() const {
+    return input(8);
+  }
+
+  Val* max_k() const {
+    return input(9);
+  }
+
+  Val* dropout_p() const {
+    return input(10);
+  }
+
+  Val* is_causal() const {
+    return input(11);
+  }
+
+  Val* philox_seed() const {
+    return input(12);
+  }
+
+  Val* philox_offset() const {
+    return input(13);
+  }
+
+  Val* scale() const {
+    if (inputs().size() > 14) {
+      return input(14);
+    }
+    return nullptr;
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 } // namespace nvfuser

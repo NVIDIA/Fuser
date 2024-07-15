@@ -66,7 +66,7 @@ IterDomain* exactConcreteId(IterDomain* id) {
 //! indeed used multiple times. See also issue #2163.
 bool isSerialBroadcastResolution(
     TensorView* producer,
-    const std::vector<kir::ForLoop*>& for_loops) {
+    const std::vector<ForLoop*>& for_loops) {
   //! Note: see issue #1785:
   //!  serial broadcast resolution doesn't only happen to
   //! immediate outputs of broadcast ops. We can also have
@@ -115,36 +115,36 @@ bool isSerialBroadcastResolution(
     }
   }
 
-  // Collect the root id's that the serial loop iterdomain
+  // Collect the logical id's that the serial loop iterdomain
   //  are transformed from.
-  // NOTE: This does not necessarily capture the actual root domains
+  // NOTE: This does not necessarily capture the actual logical domains
   //  as the concrete domains may be post-view domains. We need to
   //  traverse across view boundaries as we do in indexing. This
   //  should not result in false aliasing but may miss safe aliasing
   //  opportunities.
-  auto serial_loop_roots = InputsOf::outputs(serial_loop_concrete_ids);
+  auto serial_loop_logicals = InputsOf::outputs(serial_loop_concrete_ids);
 
-  // Collect exact concrete id's in producer's root domain
-  std::unordered_set<IterDomain*> producer_exact_concrete_root_ids;
-  auto producer_root =
-      TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+  // Collect exact concrete id's in producer's logical domain
+  std::unordered_set<IterDomain*> producer_exact_concrete_logical_ids;
+  auto producer_logical =
+      TensorDomain::noReductions(producer->getLogicalDomain());
   std::transform(
-      producer_root.begin(),
-      producer_root.end(),
+      producer_logical.begin(),
+      producer_logical.end(),
       std::inserter(
-          producer_exact_concrete_root_ids,
-          producer_exact_concrete_root_ids.begin()),
+          producer_exact_concrete_logical_ids,
+          producer_exact_concrete_logical_ids.begin()),
       exactConcreteId);
 
-  // Check if serial loop roots indexes any exact root id's that
-  //  is not within the set of producer's root exact id's. These
+  // Check if serial loop logicals indexes any exact logical id's that
+  //  is not within the set of producer's logical exact id's. These
   //  id's will imply that the same producer pixel is accessed
   //  in multiple iterations of the materialized serial loop.
-  for (auto serial_loop_root :
-       ir_utils::filterByType<IterDomain>(serial_loop_roots)) {
-    if (!producer_exact_concrete_root_ids.count(
+  for (auto serial_loop_logical :
+       ir_utils::filterByType<IterDomain>(serial_loop_logicals)) {
+    if (!producer_exact_concrete_logical_ids.count(
             GpuLower::current()->caMap()->getConcreteMappedID(
-                serial_loop_root, IdMappingMode::EXACT))) {
+                serial_loop_logical, IdMappingMode::EXACT))) {
       return true;
     }
   }
@@ -270,7 +270,7 @@ class BufferReuseDebugPrinter {
   }
 
   void handle(const Expr* node) {
-    if (auto for_loop = dynamic_cast<const kir::ForLoop*>(node)) {
+    if (auto for_loop = dynamic_cast<const ForLoop*>(node)) {
       handle(for_loop);
     } else if (auto ite = dynamic_cast<const kir::IfThenElse*>(node)) {
       handle(ite);
@@ -283,7 +283,7 @@ class BufferReuseDebugPrinter {
     }
   }
 
-  void handle(const kir::ForLoop* node) {
+  void handle(const ForLoop* node) {
     indent();
     os_ << "FOR " << node->index()->toString() << " in "
         << node->iter_domain()->toString() << ":\n";
@@ -403,7 +403,7 @@ struct ScopeInfo {
   int64_t end_pos = -1;
 
   // nullptr means it's global scope
-  kir::ForLoop* loop = nullptr;
+  ForLoop* loop = nullptr;
 };
 
 class ScopeMap;
@@ -455,7 +455,7 @@ class ScopeMap : private kir::IrVisitor {
       : global_scope_info_{makeAndRegisterScopeInfo(nullptr)} {
     handle(exprs);
     // Note that this introduces a position at the end of the scope with no
-    // corresponding Expr. See also handle(kir::ForLoop*) below.
+    // corresponding Expr. See also handle(ForLoop*) below.
     expr_pos_map_.moveToNext();
     global_scope_info_->end_pos = expr_pos_map_.getCurrentPos();
 
@@ -473,7 +473,7 @@ class ScopeMap : private kir::IrVisitor {
     kir::IrVisitor::dispatch(expr);
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     auto loop_info = makeAndRegisterScopeInfo(for_loop);
     kir::IrVisitor::handle(for_loop);
     // Note that this introduces a position at the end of the scope with no
@@ -488,7 +488,7 @@ class ScopeMap : private kir::IrVisitor {
   }
 
   //! Factory function for internal loop information data
-  ScopeInfo* makeAndRegisterScopeInfo(kir::ForLoop* loop) {
+  ScopeInfo* makeAndRegisterScopeInfo(ForLoop* loop) {
     auto loop_info_ptr = std::make_unique<ScopeInfo>();
     auto loop_info = loop_info_ptr.get();
 
@@ -516,7 +516,7 @@ class ScopeMap : private kir::IrVisitor {
     return std::move(all_scope_info_);
   }
 
-  ScopeInfo* getLoopScopeInfo(const kir::ForLoop* loop) const {
+  ScopeInfo* getLoopScopeInfo(const ForLoop* loop) const {
     auto it = loop_to_scope_info_map_.find(loop);
     NVF_ERROR(
         it != loop_to_scope_info_map_.end(),
@@ -543,7 +543,7 @@ class ScopeMap : private kir::IrVisitor {
   ScopeInfo* global_scope_info_ = nullptr;
 
   //! map loop to scope info
-  std::unordered_map<const kir::ForLoop*, ScopeInfo*> loop_to_scope_info_map_;
+  std::unordered_map<const ForLoop*, ScopeInfo*> loop_to_scope_info_map_;
 
   ExprPosMap expr_pos_map_;
 };
@@ -764,7 +764,7 @@ class AllocationInfoMap : private kir::IrVisitor {
     collectLivenessInfoOfExpr(expr);
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     auto loop_info = scope_map_.getLoopScopeInfo(for_loop);
     if (!for_loop->isTrivial()) {
       // Parallelized loops do not result in for loops in the CUDA kernel, so
@@ -1267,7 +1267,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     return false;
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     current_visible_buffer_stack_.emplace_back(
         std::make_unique<std::vector<AllocationInfo*>>());
     kir::IrVisitor::handle(for_loop);
@@ -1283,7 +1283,6 @@ class ReusableAllocationFinder : private kir::IrVisitor {
   //!  current enforced conditions are:
   //!
   //! 1. The two buffers have producer-consumer relationship
-  //! 2. No halo in the allocated iter domains
   //! 3. Require index equivalence when sharing across broadcast
   bool isValidInnerSharing(
       AllocationInfo* alloc_info,
@@ -1330,12 +1329,6 @@ class ReusableAllocationFinder : private kir::IrVisitor {
       auto to_reuse_it = local_alloc_map.find(to_reuse->alloc_expr);
       if (alloc_it == local_alloc_map.end() ||
           to_reuse_it == local_alloc_map.end()) {
-        return false;
-      }
-
-      // Disable in-place reusing for halo ops, since halo
-      //  can issue pointwise op multiple points at some points.
-      if (alloc_it->second->has_halo || to_reuse_it->second->has_halo) {
         return false;
       }
 
@@ -2038,7 +2031,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
 
   //! Recurse into loop, then process ENDFOR position as a potential last read.
   //! An ENDFOR cannot be a first write.
-  void handle(kir::ForLoop* loop) final {
+  void handle(ForLoop* loop) final {
     kir::ExprMutator::handle(loop);
 
     // We might have a last read outer position that is the end of a for loop.

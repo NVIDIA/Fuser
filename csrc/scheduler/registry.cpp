@@ -59,7 +59,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
       std::optional<std::vector<int64_t>> alloc_perm_opt =
           ir_utils::computePermutation(
-              TensorDomain::noReductions(input_tv->getMaybeRFactorDomain()),
+              TensorDomain::noReductions(input_tv->getLogicalDomain()),
               TensorDomain::noReductions(input_tv->getMaybeAllocationDomain()));
       if (alloc_perm_opt.has_value()) {
         // Save the strides in order of allocation domain in case the
@@ -170,7 +170,30 @@ bool checkCanSchedule(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr) {
+  // ExprEval scheduler only requires `canScheduleCompileTime` check and should
+  // not use this fn. The following checks build the computeAt map that do not
+  // work with SDPAOp.
+  NVF_ERROR(SchedulerType::heuristicType() != ScheduleHeuristic::ExprEval);
+
   FusionGuard fg(fusion);
+
+  // Fusions with `SdpaFwdOp` are only accepted in `ExprEval`
+  // scheduler, all other schedulers should reject them.
+  if (ir_utils::hasOpsOfType<SdpaFwdOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        SchedulerType::heuristicType(), "SdpaOps are not supported.");
+    return false;
+  }
+
+  // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
+  // scheduler.
+  if (SchedulerType::heuristicType() != ScheduleHeuristic::Matmul &&
+      ir_utils::hasOpsOfType<MatmulOp, LinearOp, MmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        SchedulerType::heuristicType(), "Matmul ops are not supported.");
+    return false;
+  }
+
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since for all current use cases
   //  it has to pass all the compile time checks to create a data cache for this
@@ -228,8 +251,12 @@ bool checkCanSchedule(
       return checkCanSchedule<MatmulScheduler>(
           fusion, runtime_info, data_cache);
     case ScheduleHeuristic::ExprEval:
-      return checkCanSchedule<ExprEvalScheduler>(
-          fusion, runtime_info, data_cache);
+      // `ExprEval` only accepts a single op, so we don't need other checks
+      // which build a computeAt map. Note: `SdpaOp` does not work with
+      // `computeAt` since it requires all sibling outputs to have same root
+      // domain. `canSchedulerRuntime` is always true so only compile time check
+      // required here.
+      return ExprEvalScheduler::canScheduleCompileTime(fusion);
     default:
       NVF_ERROR(false, "unreachable");
       return false;
@@ -405,7 +432,7 @@ void HeuristicSummary::validate() const {
         if (!*can_schedule_transpose) {
           break;
         }
-        NVF_ERROR(entry_type_map_.count(EntryType::RFACTOR_REORDER_MAP));
+        NVF_ERROR(entry_type_map_.count(EntryType::LOGICAL_REORDER_MAP));
       }
       NVF_ERROR(entry_type_map_.count(EntryType::TRANSPOSE_DOMAIN_MAP));
       NVF_ERROR(entry_type_map_.count(
@@ -507,6 +534,6 @@ template class HeuristicSummaryEntry<HeuristicCompileTime::BroadcastMultiples>;
 template class HeuristicSummaryEntry<HeuristicCompileTime::InnerMostDimInfo>;
 template class HeuristicSummaryEntry<
     HeuristicCompileTime::CanScheduleTranspose>;
-template class HeuristicSummaryEntry<HeuristicCompileTime::RfactorReorderMap>;
+template class HeuristicSummaryEntry<HeuristicCompileTime::LogicalReorderMap>;
 
 } // namespace nvfuser

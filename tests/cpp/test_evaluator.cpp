@@ -197,13 +197,13 @@ TEST_F(ExprEvalTest, Basic) {
   // IMPORTANT:
   // a. The bindings are only as stable as the Vals are in the fusion graph
   // b. You must use the original (rootDomain) extents
-  //  (ex. `tv0->getRootDomain()[0]->extent()`
+  //  (ex. `tv0->getLogicalDomain()[0]->extent()`
   //   instead of `tv0->axis(0)->extent()`)
   //
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6L);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128L);
-  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6L);
-  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128L);
+  evaluator.bind(tv0->getLogicalDomain()[0]->extent(), 6L);
+  evaluator.bind(tv0->getLogicalDomain()[1]->extent(), 128L);
+  evaluator.bind(tv1->getLogicalDomain()[0]->extent(), 6L);
+  evaluator.bind(tv1->getLogicalDomain()[1]->extent(), 128L);
 
   // 3. Evaluate and check result values
   EXPECT_EQ(tv2->domain()->nDims(), 3);
@@ -244,8 +244,8 @@ TEST_F(ExprEvalTest, Complex) {
   ExpressionEvaluator evaluator;
 
   // 2. Bind values
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 129L);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 127L);
+  evaluator.bind(tv0->getLogicalDomain()[0]->extent(), 129L);
+  evaluator.bind(tv0->getLogicalDomain()[1]->extent(), 127L);
 
   // Evaluate and check extent values
   EXPECT_EQ(tv0->domain()->nDims(), 2);
@@ -308,10 +308,10 @@ TEST_F(ExprEvalTest, PostLower) {
   ExpressionEvaluator evaluator;
 
   // 2. Bind values
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6L);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128L);
-  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6L);
-  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128L);
+  evaluator.bind(tv0->getLogicalDomain()[0]->extent(), 6L);
+  evaluator.bind(tv0->getLogicalDomain()[1]->extent(), 128L);
+  evaluator.bind(tv1->getLogicalDomain()[0]->extent(), 6L);
+  evaluator.bind(tv1->getLogicalDomain()[1]->extent(), 128L);
 
   // 3. Evaluate and check result values
   EXPECT_EQ(tv2->domain()->nDims(), 3);
@@ -722,6 +722,58 @@ TEST_F(ExprEvalTest, CatOp) {
   }
 
   EXPECT_TRUE(at::equal(out, at::cat({t0, t1}, 0)));
+}
+
+TEST_F(ExprEvalTest, UnaryOpSignbit) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+
+  auto* a = IrBuilder::create<Val>(7.0);
+  auto* b = IrBuilder::create<Val>(3.8);
+  auto* c = IrBuilder::create<Val>(8);
+  auto* d = IrBuilder::create<Val>(7);
+  auto* e = IrBuilder::create<Val>(-0.8);
+
+  auto* signbit_a = signbit(a);
+  auto* signbit_b = signbit(b);
+  auto* signbit_c = signbit(c);
+  auto* signbit_d = signbit(d);
+  auto* signbit_e = signbit(e);
+
+  EXPECT_EQ(evaluator.evaluate(signbit_a).as<bool>(), false);
+  EXPECT_EQ(evaluator.evaluate(signbit_b).as<bool>(), false);
+  EXPECT_EQ(evaluator.evaluate(signbit_c).as<bool>(), false);
+  EXPECT_EQ(evaluator.evaluate(signbit_d).as<bool>(), false);
+  EXPECT_EQ(evaluator.evaluate(signbit_e).as<bool>(), true);
+}
+
+TEST_F(ExprEvalTest, BinaryOpFmod) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+
+  auto* a = IrBuilder::create<Val>(7.0);
+  auto* b = IrBuilder::create<Val>(3.8);
+  auto* c = IrBuilder::create<Val>(8);
+  auto* d = IrBuilder::create<Val>(3);
+  auto* e = IrBuilder::create<Val>(-0.8);
+
+  auto* out0 = fmod(a, b);
+  auto* out1 = fmod(a, c);
+  auto* out2 = fmod(c, d);
+  auto* out3 = fmod(c, b);
+  auto* out4 = fmod(a, e);
+  auto* out5 = fmod(d, e);
+
+  EXPECT_EQ(evaluator.evaluate(out0).as<double>(), std::fmod(7.0, 3.8));
+  EXPECT_EQ(evaluator.evaluate(out1).as<double>(), std::fmod(7.0, 8));
+  EXPECT_EQ(evaluator.evaluate(out2).as<double>(), std::fmod(8, 3));
+  EXPECT_EQ(evaluator.evaluate(out3).as<double>(), std::fmod(8, 3.8));
+  EXPECT_EQ(evaluator.evaluate(out4).as<double>(), std::fmod(7.0, -0.8));
+  EXPECT_EQ(evaluator.evaluate(out5).as<double>(), std::fmod(3, -0.8));
 }
 
 } // namespace nvfuser

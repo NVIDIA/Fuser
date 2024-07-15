@@ -23,12 +23,7 @@ namespace nvfuser {
 // versions that are doing indexing
 class IndexLowering : private OptOutConstDispatch {
  public:
-  static std::vector<Expr*> getIndexedExprs(std::vector<Expr*> incoming_exprs) {
-    FUSER_PERF_SCOPE("GpuLower::Lower::IndexLowering::getIndexedExprs");
-    IndexLowering il;
-    il.generate(incoming_exprs);
-    return il.lowered_exprs_;
-  }
+  static std::vector<Expr*> getIndexedExprs(std::vector<Expr*> incoming_exprs);
 
  private:
   IndexLowering() = default;
@@ -72,7 +67,7 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const SliceOp*) final;
   void handle(const CatOp*) final;
 
-  void handle(const kir::ForLoop*) final;
+  void handle(const ForLoop*) final;
   void handle(const kir::IfThenElse*) final;
   void handle(const kir::Allocate*) final;
   void handle(const kir::BlockSync*) final;
@@ -89,7 +84,7 @@ class IndexLowering : private OptOutConstDispatch {
   void generate(const std::vector<Expr*>& exprs);
 
   // Get the loop in which the currently visiting expr is a rotated expr.
-  const std::unordered_set<kir::ForLoop*>& getRotatedLoop() const {
+  const std::unordered_set<ForLoop*>& getRotatedLoop() const {
     return rotated_loop_;
   }
 
@@ -185,14 +180,14 @@ class IndexLowering : private OptOutConstDispatch {
   // to be able to carry both around because when we push back to a scope it
   // could be either the body or else body of the IfThenElse. However, we want
   // to understand the nesting of IfThenElse/ForLoop nodes.
-  kir::Scope* active_scope_ = nullptr;
+  Scope* active_scope_ = nullptr;
 
   // Track for loops to send to indexing. Similar to what's done in
   // kir::IrVisitor
-  std::vector<kir::ForLoop*> for_loops_;
+  std::vector<ForLoop*> for_loops_;
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<kir::ForLoop*> rotated_loop_;
+  std::unordered_set<ForLoop*> rotated_loop_;
 
   // Maps to keep track of allocated buffers and objects that must be
   // allocated only once

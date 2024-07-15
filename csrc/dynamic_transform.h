@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
+#include <ir/iostream.h>
 #include <iter_visitor.h>
 #include <transform_view.h>
 #include <utils.h>
@@ -30,12 +31,6 @@ class DynamicTransformInitialInfoBuilder;
 //! sizes
 class DynamicTransformInitialInfo {
  public:
-  bool operator==(const DynamicTransformConcretizationInfo& other) const;
-
-  bool operator!=(const DynamicTransformConcretizationInfo& other) const {
-    return !(*this == other);
-  }
-
   Fusion* fusion() const {
     return fusion_;
   }
@@ -159,7 +154,17 @@ class DynamicTransformConcretizationInfo {
   //! the vector returned by initialInfo()->getDynamicReshapedTensorViews(),
   //! along with an AnalyzeViewResult describing how that reshape operation
   //! should be decomposed into split, merge, squeeze, and broadcast transforms.
-  const std::vector<std::pair<int64_t, AnalyzeViewResult>>&
+  //!
+  //! In case there are any zeros in the size of the input and output we will
+  //! not perform a reshape but rather replace the output with full(). Then
+  //! instead of an AnalyzeViewResult we will hold a vector of symbolic sizes
+  //! indicating how to concretize the output IterDomains.
+  //!
+  //! The symbolic sizes are the actual sizes 0 or 1, or -1 if the size of a
+  //! given reshaped dimension is greater than 1.
+  using ViewConcretizationInfo =
+      std::variant<AnalyzeViewResult, std::vector<int64_t>>;
+  const std::vector<std::pair<int64_t, ViewConcretizationInfo>>&
   getReshapeTransforms() const {
     return reshape_transforms_;
   }
@@ -244,8 +249,9 @@ class DynamicTransformConcretizationInfo {
 
   //! Holds the index of the output TensorView in the vector returned by
   //! initial_info_->getDynamicReshapedTensorViews(), and the corresponding
-  //! result of analyzeView
-  std::vector<std::pair<int64_t, AnalyzeViewResult>> reshape_transforms_;
+  //! result of analyzeView (or list of IterTypes for output of full() in the
+  //! case of empty reshapes).
+  std::vector<std::pair<int64_t, ViewConcretizationInfo>> reshape_transforms_;
 
   //! Holds a vector of indices into initial_info_.getMaybeZeroExtents() which
   //! evaluate to 0
@@ -281,6 +287,17 @@ class DynamicTransform {
   NVF_API static void concretizeFusion(
       Fusion* fusion,
       const DynamicTransformConcretizationInfo* info);
+
+  //! Calls the above after computing concretization info from inputs
+  static void concretizeFusion(
+      Fusion* fusion,
+      const std::vector<c10::IValue>& aten_inputs);
+
+  //! Calls the above after computing concretization info from
+  //! KernelArgumentHolder
+  static void concretizeFusion(
+      Fusion* fusion,
+      const KernelArgumentHolder& args);
 };
 
 } // namespace nvfuser

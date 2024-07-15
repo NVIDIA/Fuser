@@ -172,6 +172,10 @@ Val* IrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::BitwiseOr, lhs, rhs);
 }
 
+Val* IrBuilder::bitwiseXorExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::BitwiseXor, lhs, rhs);
+}
+
 Val* IrBuilder::lShiftExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Lshift, lhs, rhs);
 }
@@ -243,14 +247,14 @@ Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
 Val* IrBuilder::getItemExpr(Val* array, Val* index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
   auto out = create<Val>(*item_dtype);
-  create<GetItem>(array->container(), out, array, index);
+  createInContainer<GetItem>(array->container(), out, array, index);
   return out;
 }
 
 Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
   auto out = create<Val>(*item_dtype);
-  create<GetItem>(
+  createInContainer<GetItem>(
       array->container(), out, array, create<Val>(index, DataType::Int));
   return out;
 }
@@ -259,7 +263,8 @@ Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   auto struct_type = std::get<StructType>(struct_->dtype().type);
   const auto& item_type = struct_type.fieldDataType(attr);
   auto out = create<Val>(item_type);
-  create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
+  createInContainer<GetAttr>(
+      struct_->container(), out, struct_, std::move(attr));
   return out;
 }
 

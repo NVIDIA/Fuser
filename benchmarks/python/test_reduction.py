@@ -68,7 +68,7 @@ def test_reduction_baseline_benchmark(
 ):
     clear_cuda_cache()
 
-    input = torch.randn(*size, degvice="cuda", dtype=dtype)
+    input = torch.randn(size, device="cuda", dtype=dtype)
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,

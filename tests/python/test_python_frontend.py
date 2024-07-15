@@ -1802,6 +1802,8 @@ class TestNvFuserFrontend(TestCase):
 
             _ = fd.execute(inputs)
 
+            code_len = len(fd.sched.user_schedule_ir())
+            self.assertTrue(code_len > 0, "User schedule is not defined.")
             code_len = len(fd.last_cuda_code())
             self.assertTrue(code_len > 0, "Cuda Code was not produced!")
             code_len = len(fd.last_cuda_code(intrinsic_code=True))
@@ -4015,6 +4017,446 @@ class TestNvFuserFrontend(TestCase):
             fd.add_output(T101)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # See https://github.com/NVIDIA/Fuser/issues/2317
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    def test_reduction_transpose_sched_issue2317(self):
+        inputs = [
+            torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((16, 128, 1600), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((1600, 1600), dtype=torch.bfloat16, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition, inputs) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.from_pytorch(inputs[2])
+
+            T10 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+            T11 = fd.ops.stride_order(T10, stride_order=[3, 2, 1, 0])
+            T16 = fd.ops.reshape(T11, new_shape=T1.shape())
+            T17 = fd.ops.linear(T16, T2)
+            T33 = fd.ops.add(T17, T1)
+
+            T33 = fd.ops.cast(T33, dtype=DataType.BFloat16)
+            T34 = fd.ops.linear(T33, T2)
+            T35 = fd.ops.add(T34, T33)
+            fd.add_output(T35)
+
+        nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inputs=inputs), inputs)
+
+    def test_fusion_profiler(self):
+        inputs = [
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.ops.add(T0, T1)
+            T3 = fd.ops.sum(T2, dim=-1)
+            T4 = fd.ops.sum(T3, dim=-1)
+            fd.add_output(T4)
+
+        with FusionDefinition() as fd:
+            fusion_func(fd)
+
+        # Testing returning a profile without profiling, expect an error!
+        try:
+            fd.profile()
+            raise RuntimeError(
+                "fd.profile() should have raised a ValueError because profile() was called before exeute()!"
+            )
+        except ValueError:
+            pass
+
+        # Testing that the profile returns 2 segments
+        try:
+            fd.execute(inputs, profile=True)
+            prof = fd.profile()
+            self.assertEqual(prof.segments, 2)
+            self.assertEqual(len(prof.kernel_profiles), 2)
+        except Exception as e:
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
+
+    def test_fusion_profiler_user_schedule(self):
+        inputs = [
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.ops.add(T0, T1)
+            fd.add_output(T2)
+
+        class MyFusion(FusionDefinition):
+            def definition(self):
+                fusion_func(fd)
+
+            def schedule(self):
+                pass
+
+        fd = MyFusion()
+        try:
+            fd.execute(inputs, profile=True)
+            self.assertTrue(fd.profile().fusion_id >= 0)
+            self.assertEqual(fd.profile().kernel_profiles[0].scheduler, "user")
+        except Exception as e:
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
+
+    def test_fusion_profiler_with_noncodegen_kernels(self):
+        inputs = [
+            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.from_pytorch(inputs[2])
+            T3 = fd.ops.linear(T0, T2)
+            T4 = fd.ops.add(T3, T1)
+            fd.add_output(T4)
+
+        class MyFusion(FusionDefinition):
+            def definition(self):
+                fusion_func(fd)
+
+        fd = MyFusion()
+        try:
+            fd.execute(inputs, profile=True)
+            self.assertTrue(fd.profile().fusion_id >= 0)
+            self.assertEqual(len(fd.profile().kernel_profiles), 2)
+            self.assertGreaterEqual(len(fd.profile().kernel_profiles[0].name), 0)
+            self.assertGreaterEqual(len(fd.profile().kernel_profiles[1].name), 0)
+        except Exception as e:
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
+
+    # Small repro from https://github.com/NVIDIA/Fuser/issues/2359
+    def test_reshape_squeeze_concretization(self):
+        inputs = [
+            torch.randn((100,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 5, 10), (50, 10, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T1 = fd.ops.slice(
+                T0, start_indices=[0, 0, 0], end_indices=[1, 2, 4], strides=[1, 1, 1]
+            )
+            S2 = fd.define_scalar(1, dtype=DataType.Int)
+            S3 = fd.define_scalar(8, dtype=DataType.Int)
+            V4 = fd.define_vector([S2, S3], dtype=DataType.Int)
+            V5 = fd.define_vector([S3], dtype=DataType.Int)
+            T6 = fd.ops.reshape(T1, new_shape=V4)
+            T7 = fd.ops.reshape(T6, new_shape=V5)
+            # this works fine
+            # T7 = fd.ops.reshape(T1, new_shape=V5)
+            fd.add_output(T7)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # Test empty symbolic tensors can be reshaped
+    # See https://github.com/NVIDIA/Fuser/issues/2362
+    def test_empty_reshape(self):
+        inputs = [
+            torch.randint(0, 10, (0, 1, 2, 3, 4), dtype=torch.int64, device="cuda:0")
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, 1, -1, -1, -1],
+                contiguity=[False, None, True, True, True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[4, 3, 2, 1, 0],
+            )
+            S2 = fd.define_scalar(5, dtype=DataType.Int)
+            S3 = fd.define_scalar(0, dtype=DataType.Int)
+            V4 = fd.define_vector([S2, S3], dtype=DataType.Int)
+            T5 = fd.ops.reshape(T0, new_shape=V4)
+            fd.add_output(T5)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # Test that the range of generated uniform values spans the proper range
+    # https://github.com/NVIDIA/Fuser/issues/1653
+    def test_uniform_range(self):
+        dtypes = [DataType.Double, DataType.Float, DataType.Half]
+        if not is_pre_ampere():
+            dtypes.append(DataType.BFloat16)
+
+        def run_test(left: float, right: float, dtype: DataType):
+            samples_per_run = 2**29
+
+            def fusion_fn(fd: FusionDefinition):
+                # Generate enough values to reasonably expect to sample the ends of the range
+                shape = fd.define_vector([samples_per_run], dtype=DataType.Int)
+                S0 = fd.define_scalar(left, dtype=DataType.Double)
+                S1 = fd.define_scalar(right, dtype=DataType.Double)
+                output = fd.ops.uniform(S0, S1, shape=shape, dtype=dtype)
+                fd.add_output(output)
+
+            with FusionDefinition() as fd:
+                fusion_fn(fd)
+
+            output = fd.execute([])[0]
+
+            x = output.amax()
+            m = output.amin()
+            mu = output.type(torch.float64).mean()
+            # Repeat to improve chances of sampling extreme values
+            num_runs = 100
+            num_samples = num_runs * samples_per_run
+            for i in range(num_runs):
+                u = fd.execute([])[0]
+                x = torch.maximum(x, u.amax())
+                m = torch.minimum(m, u.amin())
+                mu = mu + (u.type(torch.float64).mean() - mu) / (i + 2)
+
+            # round-trip cast to find expected min
+            theomin = torch.tensor(left, dtype=output.dtype).item()
+            theomu = 0.5 * (right + left)
+            theomax = torch.nextafter(
+                torch.tensor(right, dtype=output.dtype),
+                torch.tensor(left, dtype=output.dtype),
+            )
+
+            assert (
+                m.item() >= theomin
+            ), f"{output.dtype} expected min generated value {theomin} but found {m.item()}"
+            assert (
+                m.item() <= theomax
+            ), f"{output.dtype} expected max generated value {theomax} but found {x.item()}"
+
+            # uniform distribution on [0, 1) has mean 0.5 and variance 1/12
+            # The standard error of the mean is then 1/sqrt(12 *
+            # num_samples). We use the precision at 1.0 as a surrogate for
+            # the contribution of rounding to the standard error of the
+            # finite-precision mean.
+            assert abs(mu.item() - theomu) < (right - left) * max(
+                right - x.item(), 3.0 / math.sqrt(12 * num_samples)
+            ), f"{output.dtype} expected mean generated value {theomu} but found {mu.item()}"
+
+            if dtype not in [DataType.Float, DataType.Double]:
+                # For reduced precision types, check that we sample the extreme
+                # values. We don't do this for full precision types since the
+                # amount of samples required would be too large.
+                assert (
+                    m.item() == theomin
+                ), f"{output.dtype} expected min generated value {theomin} but found {m.item()}"
+                assert (
+                    x.item() == theomax
+                ), f"{output.dtype} expected max generated value {theomax} but found {x.item()}"
+
+        # test standard and non-standard uniform
+        for left, right in [[0.0, 1.0], [-1.5, 3.7]]:
+            for dtype in dtypes:
+                run_test(left, right, dtype)
+
+    def test_random_distinct_values(self):
+        dtypes = [DataType.Double, DataType.Float, DataType.Half]
+        if not is_pre_ampere():
+            dtypes.append(DataType.BFloat16)
+        for dtype, randopname in itertools.product(dtypes, ["uniform", "normal"]):
+
+            def fusion_fn(fd: FusionDefinition):
+                # generate 4 values and check that they are all distinct
+                shape = fd.define_vector([2, 2], dtype=DataType.Int)
+                randop = getattr(fd.ops, randopname)
+                S0 = fd.define_scalar(0.00000, dtype=DataType.Double)
+                S1 = fd.define_scalar(1.00000, dtype=DataType.Double)
+                output = randop(S0, S1, shape=shape, dtype=dtype)
+                fd.add_output(output)
+
+            with FusionDefinition() as fd:
+                fusion_fn(fd)
+
+            for i in range(100):
+                output = fd.execute([])[0]
+
+                # Rarely we might have a pair of matching lower precision
+                # samples. However, it is extremely rare that we would have a
+                # set of three matching elements in only 100 repeats unless we
+                # have a bug.
+
+                match = output.flatten().unsqueeze(0) == output.flatten().unsqueeze(1)
+                match_pairs = (
+                    match ^ torch.eye(4, dtype=torch.bool, device="cuda")
+                ).sum() // 2
+
+                assert (
+                    match_pairs.item() < 3
+                ), f"At least three entries match in {output}"
+
+    def test_matmul_issue_2354(self):
+        inputs = [
+            torch.randn((8, 4), dtype=torch.float32, device="cuda:0"),
+            torch.randn(
+                (
+                    6,
+                    2,
+                    4,
+                ),
+                dtype=torch.float32,
+                device="cuda:0",
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T2 = fd.ops.linear(T1, T0)
+            S3 = fd.define_scalar(1.41421, dtype=DataType.Double)
+            T4 = fd.ops.mul(T2, S3)
+            fd.add_output(T2)
+            fd.add_output(T4)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_reshape_dynamic(self):
+        inputs = [
+            32,
+            torch.randn((192,), dtype=torch.float32, device="cuda:0").as_strided(
+                (4, 8, 6), (48, 6, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            S0 = fd.define_scalar(None, dtype=DataType.Int)
+            T1 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            S2 = fd.define_scalar(1, dtype=DataType.Int)
+            S3 = fd.ops.mul(S2, S0)
+            S4 = fd.ops.signbit(S3)
+            S5 = fd.define_scalar(False, dtype=DataType.Bool)
+            S6 = fd.ops.ne(S4, S5)
+            S7 = fd.define_scalar(192, dtype=DataType.Int)
+            S8 = fd.ops.fmod(S7, S3)
+            S9 = fd.ops.cast(S8, dtype=DataType.Int)
+            S10 = fd.define_scalar(0, dtype=DataType.Int)
+            S11 = fd.ops.ne(S9, S10)
+            S12 = fd.ops.bitwise_and(S6, S11)
+            S13 = fd.define_scalar(192, dtype=DataType.Int)
+            S14 = fd.ops.reciprocal(S3)
+            S15 = fd.ops.mul(S13, S14)
+            S16 = fd.ops.cast(S12, dtype=DataType.Int)
+            S17 = fd.ops.sub(S15, S16)
+            V18 = fd.define_vector([S0, S17], dtype=DataType.Int)
+            T19 = fd.ops.reshape(T1, new_shape=V18)
+            T20 = fd.ops.sum(T19, dims=[1], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T20)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # Test that we do not hit segfaults when replacing an empty tensor that has multiple uses
+    # https://github.com/NVIDIA/Fuser/issues/2545
+    def test_remove_empty_issue_2545(self):
+        inputs = [
+            torch.randint(0, 10, (2,), dtype=torch.int64, device="cuda:0").as_strided(
+                (2,), (1,)
+            ),
+            torch.randint(0, 10, (0,), dtype=torch.int64, device="cuda:0").as_strided(
+                (0,), (1,)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            S2 = fd.define_scalar(0, dtype=DataType.Int)
+            T3 = fd.ops.lt(T0, S2)
+            S4 = fd.define_scalar(5, dtype=DataType.Int)
+            S5 = fd.define_scalar(0, dtype=DataType.Int)
+            T6 = fd.ops.where(T3, S4, S5)
+            T7 = fd.ops.add(T0, T6)
+            S8 = fd.define_scalar(0, dtype=DataType.Int)
+            T9 = fd.ops.add(T7, S8)
+            T10 = fd.ops.cat([T1, T9], dim=0)
+            S11 = fd.define_scalar(0, dtype=DataType.Int)
+            T12 = fd.ops.add(T10, S11)
+            T13 = fd.ops.cat([T1, T12], dim=0)
+            S14 = fd.define_scalar(5, dtype=DataType.Int)
+            T15 = fd.ops.add(T10, S14)
+            T16 = fd.ops.cat([T13, T15], dim=0)
+            S17 = fd.define_scalar(10, dtype=DataType.Int)
+            T18 = fd.ops.add(T10, S17)
+            fd.add_output(T18)
+            fd.add_output(T16)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_returning_aliased_outputs(self):
+        inputs = [torch.randn((1, 2, 3, 4), dtype=torch.float32, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            S1 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T2 = fd.ops.gt(T0, S1)
+            S3 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T4 = fd.ops.where(T2, T0, S3)
+            fd.add_output(T4)
+            fd.add_output(T4, T0)
+            fd.add_output(T4)
+            fd.add_output(T0)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        num_out = len(nvf_out)
+        self.assertEqual(num_out, 3)
+        for i in range(num_out):
+            self.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
 
 
 if __name__ == "__main__":

@@ -29,17 +29,17 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 
 // Note [ Allocation Order Mapping ]
 //
-// Map allocation domain from ref to target's rfactor domain to construct a new
+// Map allocation domain from ref to target's logical domain to construct a new
 // allocation domain for target. The objective is to have target in a similar
 // memory format as with ref.
 //
 // The propagation rule explained in an example, given inputs:
 //   ref's allocation domain
 //     {iS0[i0], ir1[i1], iS2[i2]}
-//   target's rfactor domain
+//   target's logical domain
 //     {iS3[i3], iS4[i4], ir5[i1], iS6[i5], iS7[i2], ir8[1]}
 //
-// 1. we project iter domains from targets' rfactor domain which has an exact
+// 1. we project iter domains from targets' logical domain which has an exact
 // map to ref's allocation domain. (sharp-edge 0: we exclude mapping from
 // iteration id on ref to reduction id on target to avoid unnecessary
 // re-ordering which exposes #2202).
@@ -47,9 +47,9 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 // 2. remove all projected ids and reduction iter domains from target's rfactor
 // domain:
 //   unmapped_ids {iS3[i3], iS4[i4], iS6[i5]}
-// 3. iterating through unmodified target's rfactor domain to construct target
+// 3. iterating through unmodified target's logical domain to construct target
 // allocation domain:
-//   (sharp-edge 1: if target_rfactor_domain[i] is a reduction and is not
+//   (sharp-edge 1: if target_logical_domain[i] is a reduction and is not
 //   mapped, we keep the reduction iter domain in the original position.) Push
 //   the front of unmapped_id_vec to the end of target allocation domain, if
 //   unmapped_id_vec isn't empty yet; Otherwise, push the frnot of mapped_ids at
@@ -57,7 +57,7 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 //
 // Note: we could be using a simplified logic below,
 // See issue https://github.com/NVIDIA/Fuser/issues/2202
-// 1. we project iter domains from targets' rfactor domain which has an exact
+// 1. we project iter domains from targets' logical domain which has an exact
 // map to ref's allocation domain.
 //   mapped_ids {ir5[i1], iS7[i2]}
 // 2. remove all projected iter domains from target's rfactor
@@ -73,14 +73,14 @@ void mapAllocationDomain(
   const ValGraph& val_graph = id_model.idGraph(IdMappingMode::EXACT);
 
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
-  const std::vector<IterDomain*>& target_rfactor_domain =
-      target->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& target_logical_domain =
+      target->getLogicalDomain();
 
-  // map target rfactor domain into ref's allocation domain
+  // map target logical domain into ref's allocation domain
   nvfuser::VectorOfUniqueEntries<IterDomain*> mapped_ids;
 
   std::unordered_map<ValGroup, IterDomain*> vg_id_map;
-  for (auto* id : target_rfactor_domain) {
+  for (auto* id : target_logical_domain) {
     if (val_graph.hasGroup(id)) {
       vg_id_map[val_graph.toGroup(id)] = id;
     }
@@ -88,14 +88,14 @@ void mapAllocationDomain(
 
   // logic to preserve reduction iter domain in target to WAR #2202
 #if true
-  // mapping id between ref's allocation domain to target's rfactor domain
+  // mapping id between ref's allocation domain to target's logical domain
   for (auto* ref_id : ref_alloc_domain) {
     // skip when no ValGroup for ref_id to map.
     if (!val_graph.hasGroup(ref_id)) {
       continue;
     }
     const ValGroup& vg = val_graph.toGroup(ref_id);
-    // skip when no mapping ValGroup found in target_rfactor_domain.
+    // skip when no mapping ValGroup found in target_logical_domain.
     if (vg_id_map.count(vg) == 0) {
       continue;
     }
@@ -109,12 +109,12 @@ void mapAllocationDomain(
   }
 
   // removing mapped ids and reduction ids to create unmapped_ids.
-  // This means for the rest of ids in target_rfactor_domain that's not in
+  // This means for the rest of ids in target_logical_domain that's not in
   // mapped_ids, they are either 1. a reduction domain, or; 2. in
   // [unmapped_ids.begin(), unmapped_ids_vec_end) This ensures that sharp-edges
-  // 1's loop would reconstruct a permutation of the target_rfactor_domain,
+  // 1's loop would reconstruct a permutation of the target_logical_domain,
   // hence a valid allocation domain for target.
-  std::vector<IterDomain*> unmapped_ids = target_rfactor_domain;
+  std::vector<IterDomain*> unmapped_ids = target_logical_domain;
   auto unmapped_ids_vec_end = std::remove_if(
       unmapped_ids.begin(), unmapped_ids.end(), [&mapped_ids](IterDomain* it) {
         return mapped_ids.has(it) || it->isReduction();
@@ -124,13 +124,13 @@ void mapAllocationDomain(
   auto unmapped_id_iter = unmapped_ids.begin();
   // initialize new target allocation domain with nullptr
   std::vector<IterDomain*> target_alloc_domain(
-      target_rfactor_domain.size(), nullptr);
-  for (auto i : c10::irange(target_rfactor_domain.size())) {
+      target_logical_domain.size(), nullptr);
+  for (auto i : c10::irange(target_logical_domain.size())) {
     // sharp-edges 1
     // preserves non-mapped reduction id in its original position
-    if (target_rfactor_domain[i]->isReduction() &&
-        !mapped_ids.has(target_rfactor_domain[i])) {
-      target_alloc_domain[i] = target_rfactor_domain[i];
+    if (target_logical_domain[i]->isReduction() &&
+        !mapped_ids.has(target_logical_domain[i])) {
+      target_alloc_domain[i] = target_logical_domain[i];
       continue;
     }
     // push unmapped ids to outer dimension until it's fully consumed
@@ -142,21 +142,21 @@ void mapAllocationDomain(
     }
   }
 #else
-  // mapping id between ref's allocation domain to target's rfactor domain
+  // mapping id between ref's allocation domain to target's logical domain
   for (auto* ref_id : ref_alloc_domain) {
     // skip when no ValGroup for ref_id to map.
     if (!val_graph.hasGroup(ref_id)) {
       continue;
     }
     const ValGroup& vg = val_graph.toGroup(ref_id);
-    // skip when no mapping ValGroup found in target_rfactor_domain.
+    // skip when no mapping ValGroup found in target_logical_domain.
     if (vg_id_map.count(vg) == 0) {
       continue;
     }
     IterDomain* id = vg_id_map[vg];
     mapped_ids.pushBack(id);
   }
-  std::vector<IterDomain*> target_alloc_domain = target_rfactor_domain;
+  std::vector<IterDomain*> target_alloc_domain = target_logical_domain;
   // removing mapped ids.
   auto unmapped_ids_vec_end = std::remove_if(
       target_alloc_domain.begin(),
@@ -167,7 +167,7 @@ void mapAllocationDomain(
 #endif
 
   // skip trivial allocation domain
-  if (target_alloc_domain != target_rfactor_domain) {
+  if (target_alloc_domain != target_logical_domain) {
     target->setAllocationDomain(target_alloc_domain, true);
   }
 }
@@ -204,7 +204,7 @@ void mapAllocationDomain(
 // propagation rule:
 //   Given a reference TensorView `ref` and a target TensorView `target`, we try
 //   to map iter domain in `ref->getMaybeAllocationDomain()` to
-//   `target->getMaybeRFactorDomain()`, which would gives `target` to a similar
+//   `target->getLogicalDomain()`, which would gives `target` to a similar
 //   memory layout as `ref`. For details on the propagation rule see Note [
 //   Allocation Order Mapping ]
 void inferenceAllocationOrder(
@@ -300,7 +300,22 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
   std::vector<TensorView*> srcs(input_tvs.begin(), input_tvs.end());
   // mark output TensorViews as propagation destinations
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-  std::vector<TensorView*> dsts(output_tvs.begin(), output_tvs.end());
+  std::vector<TensorView*> dsts;
+  dsts.reserve(output_tvs.size());
+  // TODO: instead of exclusion to propagation, this pass should mark it clear
+  // that the propagated allocation order is strictly an optimization hint,
+  // rather than a semantic requirement coming from computation definition.
+  // Scheduler/segmenter would be able to coordinate and discard optimization
+  // hint, but they should respect semantic requirement.
+  // see issue: https://github.com/NVIDIA/Fuser/pull/2425
+  for (TensorView* output : output_tvs) {
+    if (output->isDefinitionType<LinearOp>() ||
+        output->isDefinitionType<MatmulOp>() ||
+        output->isDefinitionType<MmaOp>()) {
+      continue;
+    }
+    dsts.push_back(output);
+  }
   // propagate allocation domain from sources to destinations
   inferenceAllocationOrder(fusion, srcs, dsts);
 }

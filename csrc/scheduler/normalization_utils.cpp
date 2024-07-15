@@ -664,7 +664,7 @@ int64_t partialReductionBufferSize(
   int64_t partial_reduction_buffer_size = 0;
   for (auto buffer : outer_reduction_tvs) {
     int64_t buffer_size = -1;
-    for (auto id : buffer->getMaybeRFactorDomain()) {
+    for (auto id : buffer->getLogicalDomain()) {
       if (id->isReduction() || id->isBroadcast()) {
         continue;
       }
@@ -703,7 +703,8 @@ getOptionalInnerOuterPersistentBufferBatches(
   // time to tune as these un-vectorized small cases should be rare in real
   // world.
   if (inner_dim_numel <= 1024l) {
-    const int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    batch = std::min(batch, inner_dim_numel);
     return std::make_pair(
         batch, ceilDiv(inner_dim_numel, batch * vectorize_factor));
   }
@@ -1100,13 +1101,6 @@ bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
     return false;
   }
 
-  // Fusions handled by persistent schedulers cannot have matmul ops.
-  if (ir_utils::hasAnyMatmulOps(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "no support for matmul ops.");
-    return false;
-  }
-
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic,
@@ -1136,10 +1130,10 @@ bool checkReductionPattern(
               rtvs[it - 1], rtvs[it], root_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedule_heuristic,
-            "Unmapped reduction ",
-            rtvs[it - 1],
+            "Un-mapped multi-reduction: ",
+            rtvs[it - 1]->toString(),
             " and ",
-            rtvs[it]);
+            rtvs[it]->toString());
         return false;
       }
     }
@@ -1221,7 +1215,7 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   size_t axis_count = 0;
   auto reduction_root_size = [](TensorView* red_tv) {
     size_t count = 0;
-    for (auto id : red_tv->getRootDomain()) {
+    for (auto id : red_tv->getMaybeRootDomain()) {
       if (!id->isBroadcast()) {
         count++;
       }
@@ -1237,7 +1231,7 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
       if (reduction_root_size(red) != axis_count) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedule_heuristic,
-            "inconsistent reduction root size: ",
+            "Inconsistent reduction root size: ",
             red->toString(),
             ", expected: ",
             axis_count);
@@ -1380,7 +1374,7 @@ TensorView* scheduleReductionGeneral(
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
     reduction_tv->reorder(
-        scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
+        scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
 
   if (schedule_heuristic == ScheduleHeuristic::OuterPersistent &&

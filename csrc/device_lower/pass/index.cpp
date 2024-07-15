@@ -21,6 +21,19 @@
 
 namespace nvfuser {
 
+std::vector<Expr*> IndexLowering::getIndexedExprs(
+    std::vector<Expr*> incoming_exprs) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::IndexLowering::getIndexedExprs");
+  // Traverse the exprs and setup allocation domains before
+  // generating indices.
+  if (GpuLower::current()->isTensorIndexerEnabled()) {
+    GpuLower::current()->tensorIndexer().setupAllocationDomains(incoming_exprs);
+  }
+  IndexLowering il;
+  il.generate(incoming_exprs);
+  return il.lowered_exprs_;
+}
+
 Val* IndexLowering::lowerSrcIndex(
     Val* src,
     Val* dst,
@@ -128,10 +141,10 @@ void IndexLowering::handle(const kir::IfThenElse* ite) {
   }
 }
 
-void IndexLowering::handle(const kir::ForLoop* for_loop) {
+void IndexLowering::handle(const ForLoop* for_loop) {
   const auto prev_scope = active_scope_;
 
-  auto new_for_loop = IrBuilder::create<kir::ForLoop>(for_loop);
+  auto new_for_loop = IrBuilder::create<ForLoop>(for_loop);
   pushBack(new_for_loop);
 
   active_scope_ = &new_for_loop->body();
@@ -413,7 +426,7 @@ struct GridCommWorkBufferSizeInfo {
 // The buffer is expanded for privatization when not persistent or grouped.
 GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
     const TensorDomain* td,
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     bool is_persistent) {
   // The buffer size is the number of thread blocks multiplied by the
   // number of threads not used for reduction domains.
@@ -431,7 +444,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
       continue;
     }
     if (isParallelTypeThreadDim(pt) &&
-        std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
+        std::any_of(td->loop().begin(), td->loop().end(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -487,7 +500,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
 
 Val* getGridSyncBufferSize(
     const TensorDomain* td,
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     bool is_persistent) {
   // See the comment above for getGridCommWorkBufferSize.
   Val* buffer_size = GpuLower::current()->kernel()->oneVal();
@@ -496,7 +509,7 @@ Val* getGridSyncBufferSize(
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
       continue;
     }
-    if (std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
+    if (std::any_of(td->loop().begin(), td->loop().end(), [&](auto out_id) {
           return out_id->getParallelType() == pt &&
               (out_id->isReduction() || out_id->isBroadcast());
         })) {
@@ -525,7 +538,7 @@ Val* getGridSyncBufferSize(
   return buffer_size;
 }
 
-Val* getEntranceCountGridReduce(std::vector<kir::ForLoop*>& for_loops) {
+Val* getEntranceCountGridReduce(std::vector<ForLoop*>& for_loops) {
   Val* grid_reduction_entrances = GpuLower::current()->kernel()->oneVal();
 
   for (const auto loop : for_loops) {
@@ -546,7 +559,7 @@ Val* getEntranceCountGridReduce(std::vector<kir::ForLoop*>& for_loops) {
 // Linear indexing of for loops for multiple entrances into grid reduce
 // TODO: What happens if there's a broadcast that's resolved (not present in the
 // grid reduce) but the global buffer isn't expanded?
-Val* getEntranceLinIndGridReduce(std::vector<kir::ForLoop*>& for_loops) {
+Val* getEntranceLinIndGridReduce(std::vector<ForLoop*>& for_loops) {
   Val* linear_index = GpuLower::current()->kernel()->zeroVal();
 
   for (const auto loop : for_loops) {
@@ -623,8 +636,8 @@ void IndexLowering::handleSerialGridReduction(
   // to a grid or block dim.
   NVF_ERROR(
       std::none_of(
-          out_domain->leaf().begin(),
-          out_domain->leaf().end(),
+          out_domain->loop().begin(),
+          out_domain->loop().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -639,13 +652,13 @@ void IndexLowering::handleSerialGridReduction(
 
   // Allocate global work buffer TensorIndex.
   //
-  // For convenience, the global work buffer is allocated like the leaf domain
+  // For convenience, the global work buffer is allocated like the loop domain
   // of the ReductionOp output. In the future, we may want the allocation
   // domain to be different in order to enable re-use of global output buffers
   // for in-place reduction.
   std::vector<IterDomain*> work_buffer_root;
   work_buffer_root.reserve(out_tv->nDims());
-  for (IterDomain* id : out_tv->getLeafDomain()) {
+  for (IterDomain* id : out_tv->getLoopDomain()) {
     work_buffer_root.push_back(IterDomainBuilder(id).build());
   }
   auto work_buffer_domain = IrBuilder::create<TensorDomain>(work_buffer_root);
@@ -722,8 +735,8 @@ void IndexLowering::handleGridReduction(
   // to a grid or block dim.
   NVF_ERROR(
       std::none_of(
-          out_domain->leaf().begin(),
-          out_domain->leaf().end(),
+          out_domain->loop().begin(),
+          out_domain->loop().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -872,8 +885,8 @@ void IndexLowering::handleGridReduction(
   // to a grid or block dim.
   NVF_ERROR(
       std::none_of(
-          out_domain->leaf().begin(),
-          out_domain->leaf().end(),
+          out_domain->loop().begin(),
+          out_domain->loop().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -963,8 +976,8 @@ void IndexLowering::handle(const WelfordOp* wop) {
   if (has_grid_reduce) {
     NVF_ERROR(
         std::none_of(
-            out_domain->leaf().begin(),
-            out_domain->leaf().end(),
+            out_domain->loop().begin(),
+            out_domain->loop().end(),
             [](IterDomain* id) {
               return !id->isThread() && id->isReduction();
             }),
@@ -1196,13 +1209,13 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   // TIDx and BIDx must be used for non-reduction domains. TIDy and
   // BIDy must be used for reduction domains.
   ParallelTypeBitmap used_pts;
-  for (auto leaf_id : out_domain->leaf()) {
-    auto pt = leaf_id->getParallelType();
+  for (auto loop_id : out_domain->loop()) {
+    auto pt = loop_id->getParallelType();
     if (isParallelTypeThread(pt)) {
       used_pts.set(pt);
-      if ((leaf_id->isReduction() &&
+      if ((loop_id->isReduction() &&
            (pt == ParallelType::BIDy || pt == ParallelType::TIDy)) ||
-          (leaf_id->getIterType() == IterType::Iteration &&
+          (loop_id->getIterType() == IterType::Iteration &&
            (pt == ParallelType::BIDx || pt == ParallelType::TIDx))) {
         // valid pattern
         continue;
@@ -1253,7 +1266,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   }
 
   int64_t num_grouped_iterations = 1;
-  for (auto axis : out_domain->leaf()) {
+  for (auto axis : out_domain->loop()) {
     if (axis->getParallelType() == ParallelType::Group) {
       NVF_ERROR(
           axis->extent()->isConstInt(),
@@ -1309,8 +1322,8 @@ void IndexLowering::handleGroupedGridWelford(
   // to a grid or block dim.
   NVF_ERROR(
       std::none_of(
-          out_domain->leaf().begin(),
-          out_domain->leaf().end(),
+          out_domain->loop().begin(),
+          out_domain->loop().end(),
           [](IterDomain* id) {
             return !id->isThread() && id->isReduction() &&
                 !id->extent()->isOneInt();
@@ -1451,22 +1464,16 @@ void IndexLowering::handle(const kir::MBarrierWait* mwait) {
 }
 
 void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
-  auto out_tv = ldst->out()->as<TensorView>();
-  auto in_tv = ldst->in()->as<TensorView>();
-
-  auto gpu_lower = GpuLower::current();
-
   // If LoadStoreOp has a smem TV in ldstMBarrierTokenMap then it is a part
-  //  of double buffer loop, and it has been already handled by double buffer
+  //  of circular buffer loop, and it has been already handled by double buffer
   //  pass - kir nodes for arrive/expect tx and wait are added in their proper
   //  scopes.
   // Otherwise, add these nodes here, at this stage.
-  const bool is_double_buffered =
-      (gpu_lower->ldstMBarrierIndexMap().count(ldst) != 0);
+  bool is_circular_buffered =
+      (GpuLower::current()->ldstMBarrierIndexMap().count(ldst) != 0);
 
-  if (is_double_buffered) {
-    // indexing mbarrier
-    Val* mbarrier = gpu_lower->ldstMBarrierIndexMap()[ldst];
+  if (is_circular_buffered) {
+    Val* mbarrier = GpuLower::current()->ldstMBarrierIndexMap()[ldst];
     NVF_ERROR(
         mbarrier->isA<kir::TensorIndex>(),
         "Expected TensorIndex for double buffer");
@@ -1475,7 +1482,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
     // gmem indexing and expect_bytes for mbarrier
     auto [in, _] = Index::getCpAsyncBulkGmemIndex(
-        in_tv, out_tv, mbarrier_index, for_loops_, rotated_loop_);
+        ldst, mbarrier_index, for_loops_, rotated_loop_);
 
     // indexing ldst op
     Val* out = lowerDstIndex(ldst->out(), {}, true);
@@ -1485,17 +1492,16 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
     pushBack(new_ldst);
 
     // register new LoadStoreOp with mbarrier index
-    gpu_lower->ldstMBarrierIndexMap()[new_ldst] = mbarrier_index;
+    GpuLower::current()->ldstMBarrierIndexMap()[new_ldst] = mbarrier_index;
 
-    gpu_lower->propagateExprInfo(ldst, back());
+    GpuLower::current()->propagateExprInfo(ldst, back());
   } else {
-    TensorView* mbarrier = gpu_lower->ldstMBarrierMap().at(ldst);
-    // indexing mbarrier
+    TensorView* mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
     auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
-        in_tv, out_tv, mbarrier_index, for_loops_, rotated_loop_);
+        ldst, mbarrier_index, for_loops_, rotated_loop_);
 
     // arrive and expect_tx mbarrier
     Val* state = IrBuilder::create<Val>(DataType::UInt);
@@ -1511,7 +1517,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
             ->withPredicate(ldst->predicate());
     pushBack(new_ldst);
 
-    gpu_lower->propagateExprInfo(ldst, back());
+    GpuLower::current()->propagateExprInfo(ldst, back());
     // wait mbarrier
     pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
   }
@@ -1524,10 +1530,8 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
       std::vector<Val*>{},
       kir::Asm::Options{/*volatile=*/true}));
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-  auto in_tv = ldst->in()->as<TensorView>();
-  auto out_tv = ldst->out()->as<TensorView>();
-  auto [out, _] = Index::getCpAsyncBulkGmemIndex(
-      in_tv, out_tv, nullptr, for_loops_, rotated_loop_);
+  auto [out, _] =
+      Index::getCpAsyncBulkGmemIndex(ldst, nullptr, for_loops_, rotated_loop_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());
@@ -1555,7 +1559,7 @@ static DataType getMmaInputBType(MmaMacro macro) {
 
 static inline DataType getMmaOutType(TensorView* mma_out) {
   int64_t size = 1;
-  for (auto id : mma_out->getLeafDomain()) {
+  for (auto id : mma_out->getLoopDomain()) {
     if (id->isMma() && !id->isReduction()) {
       size *= id->extent()->evaluate().as<int64_t>();
     }
@@ -1635,11 +1639,11 @@ static Val* constructMatrixDescriptor(
 }
 
 static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  const auto& alloc_domain = tv->getRootDomain();
-  const auto& leaf_domain = tv->getLeafDomain();
+  const auto& alloc_domain = tv->getMaybeRootDomain();
+  const auto& loop_domain = tv->getLoopDomain();
   auto exprs = StmtSort::getExprsBetween(
       {alloc_domain.begin(), alloc_domain.end()},
-      {leaf_domain.begin(), leaf_domain.end()});
+      {loop_domain.begin(), loop_domain.end()});
   auto swizzle_exprs = ir_utils::filterByType<Swizzle>(exprs);
   if (swizzle_exprs.empty()) {
     return MmaInputSmemSwizzle::None;
@@ -1914,7 +1918,7 @@ Val* IndexLowering::getIterationIndexForBroadcast(
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
+      producer_tv->getLoopDomain(), consumer_tv->getLoopDomain(), c2p_root_map);
 
   const auto& c2p_map = replay_producer_as_consumer.getReplay();
   const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
@@ -1946,7 +1950,7 @@ void IndexLowering::handle(const PadOp* pad) {
   auto producer_tv = pad->in()->as<TensorView>();
   auto consumer_tv = pad->out()->as<TensorView>();
   auto producer_doms =
-      TensorDomain::noReductions(producer_tv->getMaybeRFactorDomain());
+      TensorDomain::noReductions(producer_tv->getLogicalDomain());
 
   const auto in = lowerSrcIndex(pad->in(), pad->out());
   const auto out = lowerDstIndex(pad->out());
@@ -2020,7 +2024,7 @@ void IndexLowering::handle(const CatOp* cat) {
     inputs.at(i) = inp;
 
     // Note the original extent is the extent of the root domain not
-    // rfactor domain
+    // logical domain
     auto inp_concat_id = TensorDomain::noReductions(
                              cat->input(i)->as<TensorView>()->getRootDomain())
                              .at(cat->concatenatedDim());

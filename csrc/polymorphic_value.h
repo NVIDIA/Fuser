@@ -18,7 +18,9 @@
 
 #include <ATen/ATen.h>
 
+#ifndef DYNAMIC_TYPE_CHECK
 #define DYNAMIC_TYPE_CHECK NVF_ERROR
+#endif
 
 #include <dynamic_type/dynamic_type.h>
 #include <macros.h>
@@ -39,6 +41,8 @@ class Pointer {
   Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
 
   inline Pointer(void* ptr, DataType dtype);
+
+  Pointer() : ptr_(nullptr), size_(-1) {}
 
   int64_t size() const {
     return size_;
@@ -273,6 +277,62 @@ inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
         a.as<std::complex<double>>(), b.as<std::complex<double>>());
   }
   return a == b;
+}
+
+inline PolymorphicValue signbit(const PolymorphicValue& a) {
+  if (a.is<int64_t>()) {
+    return PolymorphicValue(std::signbit(a.as<int64_t>()));
+  }
+  if (a.is<double>()) {
+    return PolymorphicValue(std::signbit(a.as<double>()));
+  }
+  if (a.is<at::Tensor>()) {
+    return PolymorphicValue(a.as<at::Tensor>().signbit());
+  }
+  NVF_ERROR(
+      false, "PolymorphicValue signbit not implemented for ", a.type().name());
+}
+
+inline PolymorphicValue fmod(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  // TODO: relax the type check
+  NVF_ERROR(
+      a.is<at::Tensor>() || a.type() == b.type(),
+      "fmod is not implemented for mismatch dtypes");
+  if (a.is<int64_t>()) {
+    if (b.is<int64_t>()) {
+      return PolymorphicValue(std::fmod(a.as<int64_t>(), b.as<int64_t>()));
+    }
+    if (b.is<double>()) {
+      return PolymorphicValue(std::fmod(a.as<int64_t>(), b.as<double>()));
+    }
+  }
+  if (a.is<double>()) {
+    if (b.is<int64_t>()) {
+      return PolymorphicValue(std::fmod(a.as<double>(), b.as<int64_t>()));
+    }
+    if (b.is<double>()) {
+      return PolymorphicValue(std::fmod(a.as<double>(), b.as<double>()));
+    }
+  }
+  if (a.is<at::Tensor>()) {
+    if (b.is<int64_t>()) {
+      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<int64_t>()));
+    }
+    if (b.is<double>()) {
+      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<double>()));
+    }
+    if (b.is<at::Tensor>()) {
+      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<at::Tensor>()));
+    }
+  }
+  NVF_ERROR(
+      false,
+      "PolymorphicValue fmod not implemented for ",
+      a.type().name(),
+      " , ",
+      b.type().name());
 }
 
 inline PolymorphicValue ceildiv(

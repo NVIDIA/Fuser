@@ -56,6 +56,7 @@ class Communicator {
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
+  ~Communicator();
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;
@@ -81,14 +82,16 @@ class Communicator {
   }
 
   // performs a blocking barrier in the communicator
-  void barrier(std::optional<CommunicatorBackend> backend = std::nullopt) {
-    getWorld(backend)->barrier()->wait();
-  }
+  void barrier(std::optional<CommunicatorBackend> backend = std::nullopt);
 
   // returns the backend associated with a team
-  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(
+  // the argument "prefix" is prepended to the key used to retrieve preexisting
+  // backends. Prefix is used to distinguish between different backends with the
+  // same team
+  c10d::Backend* getBackendForTeam(
       const Team& team,
-      std::optional<CommunicatorBackend> backend);
+      std::optional<CommunicatorBackend> backend,
+      const std::string& prefix = "");
 
   // returns the device associated with the current process
   auto device() const {
@@ -109,7 +112,7 @@ class Communicator {
 
   // returns world backend for communicator backend or default backend if not
   // specified.
-  c10::intrusive_ptr<c10d::Backend> getWorld(
+  c10d::Backend* getWorld(
       std::optional<CommunicatorBackend> backend = std::nullopt);
 
   // returns if a backend is available for creation

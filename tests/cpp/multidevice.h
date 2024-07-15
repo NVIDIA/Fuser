@@ -15,25 +15,38 @@
 
 namespace nvfuser {
 
+class MultiDeviceTestEnvironment : public testing::Environment {
+ public:
+  ~MultiDeviceTestEnvironment() override {}
+  void SetUp() override;
+  void TearDown() override;
+
+  static Communicator* getCommunicator() {
+    return communicator_;
+  }
+
+ private:
+  static Communicator* communicator_;
+};
+
 class MultiDeviceTest : public NVFuserTest {
  protected:
   MultiDeviceTest();
   ~MultiDeviceTest();
   void SetUp() override;
 
-  // Given an aten tensor, TensorView the tensor is bound to, and deviceId
-  // returns a shard of the tensor according the sharding annotation in tv
+  // Returns a shard of the tensor according to the sharding annotation in tv
   // for the deviceId. If tensor is not sharded returns the original tensor.
   // TODO: If deviceId is not part of the mesh this should return an empty
   // tensor. Currently, we don't support this, so for now it returns a slice.
-  static at::Tensor shardTensor(
+  at::Tensor shardTensor(at::Tensor tensor, TensorView* tv);
+
+  at::Tensor shardTensor(
       at::Tensor tensor,
-      TensorView* tv,
-      DeviceIdxType deviceId);
+      int64_t axis,
+      const DeviceMesh& mesh);
 
-  static Communicator* getOrCreateCommunicator();
-
-  Communicator* communicator;
+  Communicator* communicator_;
   c10::TensorOptions tensor_options;
   bool debug_print;
   bool disable_skip;
@@ -60,8 +73,7 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<c10::IValue> unsharded_inputs;
   std::vector<at::Tensor> outputs;
   std::vector<at::Tensor> ref_unsharded_outputs;
-  MultiDeviceExecutorParams multi_device_executor_params;
-  LaunchParams l_params = {};
+  hir::HostIrExecutorParams host_ir_executor_params;
 };
 
 } // namespace nvfuser

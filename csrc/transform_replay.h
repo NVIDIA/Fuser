@@ -227,7 +227,7 @@ class NVF_API TransformReplay {
       const TensorDomain* new_self_root,
       const TensorDomain* self);
 
-  // Returns the leaf position in producer that matches with `consumer_pos` in
+  // Returns the loop position in producer that matches with `consumer_pos` in
   // consumer. Returns -1 if matching is impossible. This function can be used
   // to test if replay is needed for getting matching outer dims. This function
   // should be consistent with `replayPasC`: if you pass the tensors just
@@ -247,7 +247,7 @@ class NVF_API TransformReplay {
       int64_t consumer_pos,
       bool skip_resize = false);
 
-  // Returns the leaf position in consumer that matches with `producer_pos` in
+  // Returns the loop position in consumer that matches with `producer_pos` in
   // producer. Behavior similar to getMatchedLeafPosWithoutReplayPasC, except
   // that we are also ignoring reductions in the producer.
   //
@@ -289,9 +289,8 @@ struct MostInlinedTransformPropagator
 
 // Replays an `Expr` with the new input, `new_in`. This function currently has
 // the following limitations:
-// 1. It doesn't set isRFactorProduct correctly (#1857).
-// 2. It requires `e` to be a unary op, and therefore takes a single new input.
-// 3. It requires `e` to be a TensorView op, which takes and produces only
+// 1. It requires `e` to be a unary op, and therefore takes a single new input.
+// 2. It requires `e` to be a TensorView op, which takes and produces only
 // TensorViews.
 Expr* replayExprWithNewInput(Expr* e, Val* new_in);
 

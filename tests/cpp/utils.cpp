@@ -8,6 +8,7 @@
 #include <tests/cpp/utils.h>
 
 #include <ops/all_ops.h>
+#include <scheduler/mma_utils.h>
 
 #include <regex>
 #include <sstream>
@@ -471,12 +472,12 @@ TensorView* canonicalizeInputToBMNK(
     TensorView* tv,
     MmaLayout layout,
     MmaOperand operand) {
-  auto rfnob = TensorDomain::noBroadcasts(tv->getMaybeRFactorDomain());
+  auto lgnob = TensorDomain::noBroadcasts(tv->getLogicalDomain());
   NVF_ERROR(
-      rfnob.size() == 2 || rfnob.size() == 3,
+      lgnob.size() == 2 || lgnob.size() == 3,
       "Expected 2 or 3 domains, got ",
-      rfnob.size());
-  bool has_batch = rfnob.size() == 3;
+      lgnob.size());
+  bool has_batch = lgnob.size() == 3;
   bool already_broadcasted = tv->hasBroadcast();
 
   // Step 1: insert permute as needed.
@@ -484,7 +485,7 @@ TensorView* canonicalizeInputToBMNK(
     if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
       // [M, (N,) B, K] -> [B, M, (N,) K]
       if (has_batch) {
-        // Using reorder + commitLeafToRFactor instead of permute here because
+        // Using reorder + commitLeafToLogical instead of permute here because
         // the former's API is more convenient here
         tv = permute(tv, {{-2, 0}});
       }
@@ -588,7 +589,7 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias) {
       tensor->nDims());
 
   const auto concrete = TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tensor->getLeafDomain()));
+      TensorDomain::noBroadcasts(tensor->getLoopDomain()));
 
   TensorView *biasb = nullptr, *biased = nullptr;
 
@@ -748,6 +749,63 @@ int64_t getNumSMs() {
     num_SMs[dev_idx] = prop.multiProcessorCount;
   }
   return num_SMs[dev_idx];
+}
+
+bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y) {
+  if (!vg.hasGroup(x) || !vg.hasGroup(y)) {
+    return false;
+  }
+  const ValGroup& gx = vg.toGroup(x);
+  const ValGroup& gy = vg.toGroup(y);
+  return gx.get() == gy.get();
+};
+
+MmaLayout getMatmulProblemLayout(Fusion* fusion) {
+  const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
+      mma_utils::getOperandInnerDims(fusion);
+
+  NVF_ERROR(
+      inner_dims_opt.isValid(),
+      "Could not get operand inner dims: ",
+      inner_dims_opt.getErrorMsg());
+
+  const mma_utils::MatmulOperandInnerDims inner_dims = inner_dims_opt.getData();
+
+  NVF_ERROR(inner_dims.size() == 2, "Found other than two operands");
+
+  const bool A_K_inner = inner_dims.front() == MatmulDimRole::K;
+  const bool B_K_inner = inner_dims.back() == MatmulDimRole::K;
+
+  if (A_K_inner && B_K_inner) {
+    return MmaLayout::TN;
+  } else if (A_K_inner && !B_K_inner) {
+    return MmaLayout::TT;
+  } else if (!A_K_inner && B_K_inner) {
+    return MmaLayout::NN;
+  } else {
+    return MmaLayout::NT;
+  }
+}
+
+// get supported floating data types
+std::vector<DataType> getFloatingDataTypes(bool include_complex) {
+  std::vector<DataType> dtypes = {
+      DataType::Double, DataType::Float, DataType::Half};
+  if (include_complex) {
+    dtypes.push_back(DataType::ComplexFloat);
+    dtypes.push_back(DataType::ComplexDouble);
+  }
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
+  if (at::cuda::getDeviceProperties(0)->major >= 8) {
+    dtypes.push_back(DataType::BFloat16);
+  }
+#endif
+  return dtypes;
+}
+
+std::string sanitizeTestName(const std::string& name) {
+  // Replace all non-alphanumeric characters with underscores
+  return std::regex_replace(name, std::regex("[^a-zA-Z0-9]"), "_");
 }
 
 } // namespace nvfuser

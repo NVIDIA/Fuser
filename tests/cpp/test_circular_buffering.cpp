@@ -14,7 +14,7 @@
 namespace nvfuser {
 
 namespace {
-class DoubleBufferingTest : public NVFuserTest {};
+class CircularBufferingTest : public NVFuserTest {};
 } // anonymous namespace
 
 template <typename data_type>
@@ -61,7 +61,7 @@ void compare(
   }
 }
 
-TEST_F(DoubleBufferingTest, TmaDoubleBuffering1d) {
+TEST_F(CircularBufferingTest, TmaCircularBuffering1d) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -108,7 +108,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering1d) {
   }
 }
 
-TEST_F(DoubleBufferingTest, TmaDoubleBufferingUnroll) {
+TEST_F(CircularBufferingTest, TmaCircularBufferingUnroll) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -161,7 +161,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingUnroll) {
   }
 }
 
-TEST_F(DoubleBufferingTest, TmaDoubleBufferingUnswitch) {
+TEST_F(CircularBufferingTest, TmaCircularBufferingUnswitch) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -214,7 +214,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingUnswitch) {
   }
 }
 
-TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
+TEST_F(CircularBufferingTest, TmaCircularBuffering2d) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -278,7 +278,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBuffering2d) {
   }
 }
 
-TEST_F(DoubleBufferingTest, TmaDoubleBufferingPointwise) {
+TEST_F(CircularBufferingTest, TmaCircularBufferingPointwise) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -344,7 +344,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPointwise) {
   }
 }
 
-TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
+TEST_F(CircularBufferingTest, TmaCircularBufferingReduction) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -407,7 +407,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingReduction) {
   }
 }
 
-TEST_F(DoubleBufferingTest, TmaDoubleBufferingPersistent) {
+TEST_F(CircularBufferingTest, TmaCircularBufferingPersistent) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   constexpr int64_t dim0 = 1024;
@@ -423,7 +423,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPersistent) {
   TensorView* x = makeContigTensor(2, aten_to_data_type(dtype));
   fusion->addInput(x);
 
-  Val* num_elem = x->getLeafDomain().at(reduction_axis)->extent();
+  Val* num_elem = x->getLoopDomain().at(reduction_axis)->extent();
 
   TensorView* sum_x = sum(x, {reduction_axis}, /*keepdim=*/false);
   TensorView* mean_x = div(sum_x, num_elem);
@@ -533,7 +533,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingPersistent) {
       fusion.get(), cg_outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
 }
 
-TEST_F(DoubleBufferingTest, TmaDoubleBufferingMatmul) {
+TEST_F(CircularBufferingTest, TmaCircularBufferingMatmul) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -634,7 +634,7 @@ TEST_F(DoubleBufferingTest, TmaDoubleBufferingMatmul) {
   }
 }
 
-TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {
+TEST_F(CircularBufferingTest, CircularBuffering1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -659,7 +659,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
 
-  tv1->doubleBuffer();
+  tv1->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -673,7 +673,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(DoubleBufferingTest, DoubleBuffering2) {
+TEST_F(CircularBufferingTest, CircularBuffering2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -696,7 +696,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering2) {
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
 
-  tv1->doubleBuffer();
+  tv1->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -710,7 +710,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering2) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(DoubleBufferingTest, DoubleBuffering3) {
+TEST_F(CircularBufferingTest, CircularBuffering3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -731,15 +731,15 @@ TEST_F(DoubleBufferingTest, DoubleBuffering3) {
 
   tv0->computeAt(tv3, 1);
 
-  // tv2 is invalid to double-buffer as its producer, tv1, is
-  // computed inside the double-buffering loop.
+  // tv2 is invalid to circular-buffer as its producer, tv1, is
+  // computed inside the circular-buffering loop.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(tv2->doubleBuffer());
+  ASSERT_ANY_THROW(tv2->circularBuffer(/*number_of_stages=*/2));
 
-  // Moving tv2 inner makes tv1 large enough to double-buffer tv2
+  // Moving tv2 inner makes tv1 large enough to circular-buffer tv2
   tv2->computeAt(tv3, 2);
 
-  tv2->doubleBuffer();
+  tv2->circularBuffer(/*number_of_stages=*/2);
 
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
@@ -756,8 +756,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering3) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-// Double buffering smem to local and unswitch
-TEST_F(DoubleBufferingTest, DoubleBuffering4) {
+// circular buffering smem to local and unswitch
+TEST_F(CircularBufferingTest, CircularBuffering4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -784,7 +784,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering4) {
   tv3->axis(1)->parallelize(ParallelType::Unswitch);
   scheduler_utils::parallelizeAllLike(tv3);
 
-  tv2->doubleBuffer();
+  tv2->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -798,8 +798,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering4) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-// Double buffering gmem to shared and unswitch
-TEST_F(DoubleBufferingTest, DoubleBuffering5) {
+// circular buffering gmem to shared and unswitch
+TEST_F(CircularBufferingTest, CircularBuffering5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -825,7 +825,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering5) {
   tv2->axis(1)->parallelize(ParallelType::Unswitch);
   scheduler_utils::parallelizeAllLike(tv2);
 
-  tv1->doubleBuffer();
+  tv1->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -839,8 +839,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering5) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-// Double buffering smem to local and unroll
-TEST_F(DoubleBufferingTest, DoubleBuffering6) {
+// circular buffering smem to local and unroll
+TEST_F(CircularBufferingTest, CircularBuffering6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -867,7 +867,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering6) {
   tv3->axis(2)->parallelize(ParallelType::Unroll);
   tv3->axis(4)->parallelize(ParallelType::TIDx);
 
-  tv2->doubleBuffer();
+  tv2->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({199}, options);
@@ -881,8 +881,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering6) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-// Double buffering and vectorize
-TEST_F(DoubleBufferingTest, DoubleBuffering7) {
+// circular buffering and vectorize
+TEST_F(CircularBufferingTest, CircularBuffering7) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -904,7 +904,7 @@ TEST_F(DoubleBufferingTest, DoubleBuffering7) {
 
   tv1->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  tv1->doubleBuffer();
+  tv1->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({200}, options);
@@ -918,8 +918,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering7) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-// Multiple tensors to double-buffer
-TEST_F(DoubleBufferingTest, DoubleBuffering8) {
+// Multiple tensors to circular-buffer
+TEST_F(CircularBufferingTest, CircularBuffering8) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -944,8 +944,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering8) {
   tv4->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv4);
 
-  tv2->doubleBuffer();
-  tv3->doubleBuffer();
+  tv2->circularBuffer(/*number_of_stages=*/2);
+  tv3->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({100}, options);
@@ -960,8 +960,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering8) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
-// Nested double buffering from gmem to smem and smem to register
-TEST_F(DoubleBufferingTest, DoubleBuffering9) {
+// Nested circular buffering from gmem to smem and smem to register
+TEST_F(CircularBufferingTest, CircularBuffering9) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -987,8 +987,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering9) {
   out->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(out);
 
-  tv2->doubleBuffer();
-  tv3->doubleBuffer();
+  tv2->circularBuffer(/*number_of_stages=*/2);
+  tv3->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1001}, options);
@@ -1002,8 +1002,8 @@ TEST_F(DoubleBufferingTest, DoubleBuffering9) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-// FusionSmemBlockGemmCache + double buffering at both smem and local
-TEST_F(DoubleBufferingTest, SmemBlockGemmCacheDoubleBuffer) {
+// FusionSmemBlockGemmCache + circular buffering at both smem and local
+TEST_F(CircularBufferingTest, SmemBlockGemmCacheCircularBuffer) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1020,11 +1020,11 @@ TEST_F(DoubleBufferingTest, SmemBlockGemmCacheDoubleBuffer) {
 
   TensorView* tv6 = tv5->cacheBefore();
 
-  // For smem double buffering
+  // For smem circular buffering
   auto tv0_cache_local = tv0->cacheAfter();
   auto tv1_cache_local = tv1->cacheAfter();
 
-  // For register double buffering
+  // For register circular buffering
   auto tv0_cache_smem = tv0->cacheAfter();
   auto tv1_cache_smem = tv1->cacheAfter();
 
@@ -1064,11 +1064,11 @@ TEST_F(DoubleBufferingTest, SmemBlockGemmCacheDoubleBuffer) {
 
   scheduler_utils::parallelizeAllLike(tv5);
 
-  tv0_cache_local->doubleBuffer();
-  tv1_cache_local->doubleBuffer();
+  tv0_cache_local->circularBuffer(/*number_of_stages=*/2);
+  tv1_cache_local->circularBuffer(/*number_of_stages=*/2);
 
-  tv0_cache_smem->doubleBuffer();
-  tv1_cache_smem->doubleBuffer();
+  tv0_cache_smem->circularBuffer(/*number_of_stages=*/2);
+  tv1_cache_smem->circularBuffer(/*number_of_stages=*/2);
 
   constexpr int M = 154, K = 45, N = 1524;
 
@@ -1086,15 +1086,15 @@ TEST_F(DoubleBufferingTest, SmemBlockGemmCacheDoubleBuffer) {
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
   // The smem cache write in this test case is redundant predicated,
-  //   and also double buffered. Currently we are relying on WAR sync
-  //   insertion to ensure ordering of double buffered tensor access.
+  //   and also circular buffered. Currently we are relying on WAR sync
+  //   insertion to ensure ordering of circular buffered tensor access.
   // The check below makes sure that the sync is inserted so that the
   //   test isn't running on a race condition.
   NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count > 0);
 }
 
-// Vectorized reset test for double buffered registers
-TEST_F(DoubleBufferingTest, DoubleBufferVector) {
+// Vectorized reset test for circular buffered registers
+TEST_F(CircularBufferingTest, CircularBufferVector) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1122,7 +1122,7 @@ TEST_F(DoubleBufferingTest, DoubleBufferVector) {
   tv1cr->computeAt(tv2c, 2);
 
   tv1cw->setMemoryType(MemoryType::Shared);
-  tv1cr->doubleBuffer();
+  tv1cr->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1135,10 +1135,10 @@ TEST_F(DoubleBufferingTest, DoubleBufferVector) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-// Simple test of async copy primitive: double buffered
-//   Double buffer case 1, both block sync and async wait
+// Simple test of async copy primitive: circular buffered
+//   circular buffer case 1, both block sync and async wait
 //  are needed.
-TEST_F(DoubleBufferingTest, DoubleBufferCpAsync1) {
+TEST_F(CircularBufferingTest, CircularBufferCpAsync1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1169,8 +1169,8 @@ TEST_F(DoubleBufferingTest, DoubleBufferCpAsync1) {
   tv2->split(1, 12);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
 
-  // Double buffer the shared mem tensor.
-  tv0_shared->doubleBuffer();
+  // circular buffer the shared mem tensor.
+  tv0_shared->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({m, n}, options);
@@ -1190,9 +1190,9 @@ TEST_F(DoubleBufferingTest, DoubleBufferCpAsync1) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
-// Simple test of async copy primitive: double buffered
-//   Double buffer case 2, only async wait is needed
-TEST_F(DoubleBufferingTest, DoubleBufferCpAsync2) {
+// Simple test of async copy primitive: circular buffered
+//   circular buffer case 2, only async wait is needed
+TEST_F(CircularBufferingTest, CircularBufferCpAsync2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1222,8 +1222,8 @@ TEST_F(DoubleBufferingTest, DoubleBufferCpAsync2) {
   tv2->split(1, 4);
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
 
-  // Double buffer the shared mem tensor.
-  tv0_shared->doubleBuffer();
+  // circular buffer the shared mem tensor.
+  tv0_shared->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({m, n}, options);
@@ -1243,10 +1243,10 @@ TEST_F(DoubleBufferingTest, DoubleBufferCpAsync2) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
-// Simple test for double buffer in shared mem,
+// Simple test for circular buffer in shared mem,
 //  where we should not insert redundant syncs when
 //  they are not needed.
-TEST_F(DoubleBufferingTest, DoubleBufferNoSync) {
+TEST_F(CircularBufferingTest, CircularBufferNoSync) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1276,8 +1276,8 @@ TEST_F(DoubleBufferingTest, DoubleBufferNoSync) {
   tv2->split(1, 4);
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
 
-  // Double buffer the shared mem tensor.
-  tv0_shared->doubleBuffer();
+  // circular buffer the shared mem tensor.
+  tv0_shared->circularBuffer(/*number_of_stages=*/2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({m, n}, options);

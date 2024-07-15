@@ -11,7 +11,7 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 
 #include <algorithm>
 #include <iterator>
@@ -19,8 +19,8 @@
 
 namespace nvfuser {
 
-int64_t getDoubleBufferAxisPosition(const TensorView* tv) {
-  // Double-buffering prefetches the next subregion of the tensor by
+int64_t getCircularBufferAxisPosition(const TensorView* tv) {
+  // Circular-buffering prefetches the next subregion of the tensor by
   // doubling the allocation. The subregion is defined by the axes
   // at the CA position till the inner-most position. There must be
   // at least one axis that is outside (left) of the CA position,
@@ -29,23 +29,23 @@ int64_t getDoubleBufferAxisPosition(const TensorView* tv) {
 
   NVF_ERROR(tv->getComputeAtPosition() > 0);
 
-  // Unroll must not exist outside of double-buffer axis
+  // Unroll must not exist outside of circular-buffer axis
   auto first_unroll_it = std::find_if(
-      tv->getLeafDomain().begin(),
-      tv->getLeafDomain().end(),
+      tv->getLoopDomain().begin(),
+      tv->getLoopDomain().end(),
       [](const auto axis) {
         return axis->getParallelType() == ParallelType::Unroll;
       });
 
   const int64_t first_unroll_pos =
-      (int64_t)std::distance(tv->getLeafDomain().begin(), first_unroll_it);
+      (int64_t)std::distance(tv->getLoopDomain().begin(), first_unroll_it);
 
   const int64_t unroll_or_ca_pos =
       std::min(tv->getComputeAtPosition(), first_unroll_pos);
 
   NVF_ERROR(
       unroll_or_ca_pos > 0,
-      "Invalid tensor to double-buffer. Valid double buffer axis not found due to Unroll. ",
+      "Invalid tensor to circular-buffer. Valid circular buffer axis not found due to Unroll. ",
       tv->toString());
 
   int64_t valid_pos = -1;
@@ -60,44 +60,44 @@ int64_t getDoubleBufferAxisPosition(const TensorView* tv) {
 
   NVF_ERROR(
       valid_pos >= 0,
-      "Invalid tensor to double-buffer. Valid double buffer axis not found. ",
+      "Invalid tensor to circular-buffer. Valid circular buffer axis not found. ",
       tv->toString());
 
   return valid_pos;
 }
 
-IterDomain* getDoubleBufferAxis(const TensorView* tv) {
-  return tv->axis(getDoubleBufferAxisPosition(tv));
+IterDomain* getCircularBufferAxis(const TensorView* tv) {
+  return tv->axis(getCircularBufferAxisPosition(tv));
 }
 
-void validateDoubleBufferedTensor(const TensorView* tv) {
-  auto double_buffer_pos = getDoubleBufferAxisPosition(tv);
+void validateCircularBufferedTensor(const TensorView* tv) {
+  auto circular_buffer_pos = getCircularBufferAxisPosition(tv);
 
   // Like vectorization, only LoadStoreOp with another TensorView is
   // considered.
   auto def = tv->definition();
   NVF_ERROR(
       def->isA<LoadStoreOp>(),
-      "Invalid tensor to double-buffer. Only tensor defined by LoadStoreOp is supported: ",
+      "Invalid tensor to circular-buffer. Only tensor defined by LoadStoreOp is supported: ",
       def->toString());
 
   NVF_ERROR(
       def->input(0)->isA<TensorView>(),
-      "Invalid tensor to double-buffer. Only tensor defined by LoadStoreOp with TensorView is supported: ",
+      "Invalid tensor to circular-buffer. Only tensor defined by LoadStoreOp with TensorView is supported: ",
       def->toString());
 
   NVF_ERROR(
       !tv->hasComputeWith(),
-      "computeWith is not supported with double buffering: ",
+      "computeWith is not supported with circular buffering: ",
       tv->toString());
 
   // Require the producer tensor to have been computed entirely for
-  // the double-buffering loop. Otherwise, the producer itself would
-  // also need to be double-bufferred.
+  // the circular-buffering loop. Otherwise, the producer itself would
+  // also need to be circular-bufferred.
   auto producer = def->input(0)->as<TensorView>();
   NVF_ERROR(
-      producer->getComputePosition(tv) <= double_buffer_pos,
-      "Invalid tensor to double-buffer. The computeAt position of the producer tensor must be moved left: ",
+      producer->getComputePosition(tv) <= circular_buffer_pos,
+      "Invalid tensor to circular-buffer. The computeAt position of the producer tensor must be moved left: ",
       producer->toString());
 
   // Not strictly necessary, but only gmem -> smem or local and smem -> local
@@ -108,7 +108,7 @@ void validateDoubleBufferedTensor(const TensorView* tv) {
       (p_mem_type == MemoryType::Global &&
        (c_mem_type == MemoryType::Shared || c_mem_type == MemoryType::Local)) ||
           (p_mem_type == MemoryType::Shared && c_mem_type == MemoryType::Local),
-      "Invalid tensor to double-buffer: ",
+      "Invalid tensor to circular-buffer: ",
       tv->toString(),
       ". Producer memory type: ",
       p_mem_type,
@@ -120,10 +120,10 @@ void validateDoubleBufferedTensor(const TensorView* tv) {
 
 namespace {
 
-// Initial inspection of a fusion to find and validate double buffered tensors
-class DoubleBufferFusionInspector : private IterVisitor {
+// Initial inspection of a fusion to find and validate circular buffered tensors
+class CircularBufferFusionInspector : private IterVisitor {
  public:
-  DoubleBufferFusionInspector(Fusion* fusion, DoubleBufferInfo& db_info)
+  CircularBufferFusionInspector(Fusion* fusion, CircularBufferInfo& db_info)
       : db_info_(db_info) {
     traverse(fusion);
   }
@@ -132,22 +132,22 @@ class DoubleBufferFusionInspector : private IterVisitor {
   using IterVisitor::handle;
 
   void handle(TensorView* tv) final {
-    if (!(tv->isDoubleBuffered() || tv->isCircularBuffered())) {
+    if (!(tv->isCircularBuffered() || tv->isCircularBuffered())) {
       return;
     }
 
     NVF_ERROR(
-        tv->definition(), "Fusion input shouldn't be double buffered.", tv);
+        tv->definition(), "Fusion input shouldn't be circular buffered.", tv);
 
-    validateDoubleBufferedTensor(tv);
+    validateCircularBufferedTensor(tv);
 
-    auto db_axis = getDoubleBufferAxis(tv);
+    auto db_axis = getCircularBufferAxis(tv);
 
-    db_info_.setDoubleBufferAxis(tv, db_axis);
+    db_info_.setCircularBufferAxis(tv, db_axis);
   }
 
  private:
-  DoubleBufferInfo& db_info_;
+  CircularBufferInfo& db_info_;
 };
 
 // Creates kir::IfThenElse with the following predicate:
@@ -171,10 +171,10 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
 }
 
 // Creates kir::Loop with range based on stage depth
-kir::ForLoop* createStagesForLoop(kir::ForLoop* double_buffer_loop) {
+ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
   int64_t stage_depth =
-      GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-          double_buffer_loop->iter_domain());
+      GpuLower::current()->circularBufferInfo().getStageDepthFor(
+          circular_buffer_loop->iter_domain());
 
   Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
   Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
@@ -182,7 +182,7 @@ kir::ForLoop* createStagesForLoop(kir::ForLoop* double_buffer_loop) {
   IterDomainBuilder loop_domain_builder(loop_start, loop_extend);
   Val* loop_step = IrBuilder::create<Val>(1L, PrimDataType::Index);
 
-  kir::ForLoop* loop = IrBuilder::create<kir::ForLoop>(
+  ForLoop* loop = IrBuilder::create<ForLoop>(
       loop_domain_builder.build(),
       loop_index,
       loop_start,
@@ -191,7 +191,7 @@ kir::ForLoop* createStagesForLoop(kir::ForLoop* double_buffer_loop) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      DoubleBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable);
 
   return loop;
 }
@@ -237,7 +237,7 @@ Val* getExpectedTransactionCount(LoadStoreOp* ldst) {
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
+      producer_tv->getLoopDomain(), consumer_tv->getLoopDomain(), c2p_root_map);
 
   const auto& c2p_map = replay_producer_as_consumer.getReplay();
 
@@ -262,7 +262,7 @@ Val* getExpectedTransactionCount(LoadStoreOp* ldst) {
   pending.push_back(nullptr); // use nullptr as a checkpoint
   // Start from leaf domain, where all the bulk IterDomains in the leaf domain
   // must be parallelized as ParallelType::Bulk.
-  for (auto id : consumer_tv->getLeafDomain()) {
+  for (auto id : consumer_tv->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Bulk) {
       id = consumer_to_gmem(id);
       bulk_ids.insert(id);
@@ -378,7 +378,7 @@ kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
   // product of all coordinate TMA iterDomains to the right of the circular
   // buffer axis.
   TensorView* ldst_out_tv = ldst->out()->as<TensorView>();
-  const std::vector<IterDomain*>& leaf_domain = ldst_out_tv->getLeafDomain();
+  const std::vector<IterDomain*>& leaf_domain = ldst_out_tv->getLoopDomain();
   for (size_t idx = ldst_out_tv->getComputeAtPosition();
        idx < leaf_domain.size();
        ++idx) {
@@ -433,7 +433,7 @@ kir::MBarrierWait* createMbarrierWait(LoadStoreOp* ldst, Val* loop_index) {
   return mbarrier_wait;
 }
 
-// The epilogue loop is only created when the producer of a double
+// The epilogue loop is only created when the producer of a circular
 // buffer tensor is on smem, in which case it would otherwise require
 // an additional predicate to guard buffer overruns. When it's on
 // gmem, that isn't the case, so it does not need to create an
@@ -447,84 +447,84 @@ bool requireEpilogue(const std::vector<Expr*>& exprs) {
   });
 }
 
-// Replicates double buffer loops for Prologue, Main, and
-// Epilogue. Prologue only copies the load expressions of double
+// Replicates circular buffer loops for Prologue, Main, and
+// Epilogue. Prologue only copies the load expressions of circular
 // buffered tensors, whereas Epilogue does any expression other than
 // the loads. Main copies everything.
-class DoubleBufferLoopCloner : public kir::IrVisitor {
+class CircularBufferLoopCloner : public kir::IrVisitor {
  public:
-  static kir::ForLoop* clone(
-      kir::ForLoop* double_buffer_loop,
-      const std::vector<Expr*>& double_buffer_load_exprs,
-      DoubleBufferLoopStage loop_type,
+  static ForLoop* clone(
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& circular_buffer_load_exprs,
+      CircularBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude = {}) {
-    DoubleBufferLoopCloner cloner(
-        double_buffer_loop, double_buffer_load_exprs, loop_type, exclude);
+    CircularBufferLoopCloner cloner(
+        circular_buffer_loop, circular_buffer_load_exprs, loop_type, exclude);
     cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
-  virtual ~DoubleBufferLoopCloner() = default;
+  virtual ~CircularBufferLoopCloner() = default;
 
  protected:
-  DoubleBufferLoopCloner(
-      kir::ForLoop* double_buffer_loop,
-      const std::vector<Expr*>& double_buffer_load_exprs,
-      DoubleBufferLoopStage loop_type,
+  CircularBufferLoopCloner(
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& circular_buffer_load_exprs,
+      CircularBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude)
-      : double_buffer_loop_(double_buffer_loop),
-        double_buffer_load_exprs_(double_buffer_load_exprs),
+      : circular_buffer_loop_(circular_buffer_loop),
+        circular_buffer_load_exprs_(circular_buffer_load_exprs),
         loop_type_(loop_type),
         exclude_(exclude) {}
 
   using kir::IrVisitor::handle;
 
   void duplicate() {
-    // Cloning the double buffer loop as follows:
+    // Cloning the circular buffer loop as follows:
     //
     // Prologue: 0 to 1
     // Main: 0 to (extent-1)
     // Epilogue: (extent-1) to extent
 
     auto index = GpuLower::current()->caMap()->getIndexVariable(
-        double_buffer_loop_->iter_domain(), loop_type_);
-    auto start = double_buffer_loop_->start();
-    auto stop = double_buffer_loop_->stop();
-    auto stage_depth = GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-        double_buffer_loop_->iter_domain());
+        circular_buffer_loop_->iter_domain(), loop_type_);
+    auto start = circular_buffer_loop_->start();
+    auto stop = circular_buffer_loop_->stop();
+    auto stage_depth = GpuLower::current()->circularBufferInfo().getStageDepthFor(
+        circular_buffer_loop_->iter_domain());
 
-    if (loop_type_ == DoubleBufferLoopStage::Prolog) {
+    if (loop_type_ == CircularBufferLoopStage::Prolog) {
       NVF_ERROR(start->isZeroInt());
       stop = SimplifyingIrBuilder::create<Val>(
           int64_t(stage_depth - 1), DataType::Index);
     } else if (
-        loop_type_ == DoubleBufferLoopStage::Main &&
-        requireEpilogue(double_buffer_load_exprs_)) {
+        loop_type_ == CircularBufferLoopStage::Main &&
+        requireEpilogue(circular_buffer_load_exprs_)) {
       stop = IrBuilder::subExpr(
-          double_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
-    } else if (loop_type_ == DoubleBufferLoopStage::Epilog) {
-      NVF_ERROR(requireEpilogue(double_buffer_load_exprs_));
+          circular_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
+    } else if (loop_type_ == CircularBufferLoopStage::Epilog) {
+      NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
       start = IrBuilder::subExpr(
-          double_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
+          circular_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
     }
 
-    cloned_top_level_loop_ = IrBuilder::create<kir::ForLoop>(
-        double_buffer_loop_->iter_domain(),
+    cloned_top_level_loop_ = IrBuilder::create<ForLoop>(
+        circular_buffer_loop_->iter_domain(),
         index,
         start,
         stop,
         GpuLower::current()->kernel()->oneVal(),
         false,
         nullptr,
-        double_buffer_loop_->isUnrollRequired(),
+        circular_buffer_loop_->isUnrollRequired(),
         loop_type_);
 
-    handle(double_buffer_loop_);
+    handle(circular_buffer_loop_);
   }
 
-  void handle(kir::ForLoop* fl) override {
-    kir::ForLoop* cloned_loop = fl == double_buffer_loop_
+  void handle(ForLoop* fl) override {
+    ForLoop* cloned_loop = fl == circular_buffer_loop_
         ? cloned_top_level_loop_
-        : IrBuilder::create<kir::ForLoop>(fl);
+        : IrBuilder::create<ForLoop>(fl);
 
     cloned_scopes_.push_back(&cloned_loop->body());
 
@@ -548,51 +548,51 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
       return;
     }
 
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
 
     NVF_ERROR(!cloned_scopes_.empty());
 
-    if (loop_type_ == DoubleBufferLoopStage::Main) {
+    if (loop_type_ == CircularBufferLoopStage::Main) {
       cloned_scopes_.back()->push_back(expr);
       return;
     }
 
     // In Prologue and Epilogue, either load expressions or anything
     // else are copied. Note that there can be multiple exprs defining
-    // double buffered TVs (e.g., buffer initialization).
+    // circular buffered TVs (e.g., buffer initialization).
 
     auto out_tv = ir_utils::getTvOutput(expr);
-    const auto is_double_buffer_load_expr = std::any_of(
-        double_buffer_load_exprs_.begin(),
-        double_buffer_load_exprs_.end(),
+    const auto is_circular_buffer_load_expr = std::any_of(
+        circular_buffer_load_exprs_.begin(),
+        circular_buffer_load_exprs_.end(),
         [out_tv](const auto load_expr) {
-          auto double_buffer_tv = ir_utils::getTvOutput(load_expr);
-          NVF_ERROR(double_buffer_tv != nullptr);
-          return out_tv == double_buffer_tv;
+          auto circular_buffer_tv = ir_utils::getTvOutput(load_expr);
+          NVF_ERROR(circular_buffer_tv != nullptr);
+          return out_tv == circular_buffer_tv;
         });
-    if ((loop_type_ == DoubleBufferLoopStage::Prolog &&
-         is_double_buffer_load_expr) ||
-        (loop_type_ == DoubleBufferLoopStage::Epilog &&
-         !is_double_buffer_load_expr)) {
+    if ((loop_type_ == CircularBufferLoopStage::Prolog &&
+         is_circular_buffer_load_expr) ||
+        (loop_type_ == CircularBufferLoopStage::Epilog &&
+         !is_circular_buffer_load_expr)) {
       cloned_scopes_.back()->push_back(expr);
     }
   }
 
  protected:
-  kir::ForLoop* double_buffer_loop_ = nullptr;
-  const std::vector<Expr*>& double_buffer_load_exprs_;
-  const DoubleBufferLoopStage loop_type_;
+  ForLoop* circular_buffer_loop_ = nullptr;
+  const std::vector<Expr*>& circular_buffer_load_exprs_;
+  const CircularBufferLoopStage loop_type_;
 
-  kir::ForLoop* cloned_top_level_loop_ = nullptr;
-  std::deque<kir::Scope*> cloned_scopes_;
+  ForLoop* cloned_top_level_loop_ = nullptr;
+  std::deque<Scope*> cloned_scopes_;
   const std::unordered_set<Expr*>& exclude_;
 };
 
-// Replicates double buffer loops for Prologue, Main, and
-// Epilogue. Prologue only copies the load expressions of double
+// Replicates circular buffer loops for Prologue, Main, and
+// Epilogue. Prologue only copies the load expressions of circular
 // buffered tensors, whereas Epilogue does any expression other than
 // the loads. Main copies everything.
 //
@@ -623,36 +623,36 @@ class DoubleBufferLoopCloner : public kir::IrVisitor {
 // post-epilogue:
 //  - 0th thread:
 //   - loop with mbarriers inval
-class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
+class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
  public:
-  static kir::ForLoop* clone(
-      kir::ForLoop* double_buffer_loop,
-      const std::vector<Expr*>& double_buffer_load_exprs,
-      DoubleBufferLoopStage loop_type,
+  static ForLoop* clone(
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& circular_buffer_load_exprs,
+      CircularBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude = {}) {
-    TmaDoubleBufferLoopCloner cloner(
-        double_buffer_loop, double_buffer_load_exprs, loop_type, exclude);
+    TmaCircularBufferLoopCloner cloner(
+        circular_buffer_loop, circular_buffer_load_exprs, loop_type, exclude);
     cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
-  ~TmaDoubleBufferLoopCloner() override = default;
+  ~TmaCircularBufferLoopCloner() override = default;
 
  private:
-  TmaDoubleBufferLoopCloner(
-      kir::ForLoop* double_buffer_loop,
-      const std::vector<Expr*>& double_buffer_load_exprs,
-      DoubleBufferLoopStage loop_type,
+  TmaCircularBufferLoopCloner(
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& circular_buffer_load_exprs,
+      CircularBufferLoopStage loop_type,
       const std::unordered_set<Expr*>& exclude)
-      : DoubleBufferLoopCloner(
-            double_buffer_loop,
-            double_buffer_load_exprs,
+      : CircularBufferLoopCloner(
+            circular_buffer_loop,
+            circular_buffer_load_exprs,
             loop_type,
             exclude) {}
 
-  void handle(kir::ForLoop* fl) final {
-    kir::ForLoop* cloned_loop = fl == double_buffer_loop_
+  void handle(ForLoop* fl) final {
+    ForLoop* cloned_loop = fl == circular_buffer_loop_
         ? cloned_top_level_loop_
-        : IrBuilder::create<kir::ForLoop>(fl);
+        : IrBuilder::create<ForLoop>(fl);
 
     cloned_scopes_.push_back(&cloned_loop->body());
 
@@ -687,7 +687,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
       // }
       NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
       kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-      kir::Scope& body = if_expr->thenBody();
+      Scope& body = if_expr->thenBody();
       body.push_back(mbarrier_arrive_tx_);
       body.push_back(cloned_loop);
       cloned_scopes_.back()->push_back(if_expr);
@@ -710,7 +710,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
       return;
     }
 
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -719,19 +719,19 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
 
     TensorView* out_tv = ir_utils::getTvOutput(expr);
 
-    bool is_double_buffer_load_expr = std::any_of(
-        double_buffer_load_exprs_.begin(),
-        double_buffer_load_exprs_.end(),
+    bool is_circular_buffer_load_expr = std::any_of(
+        circular_buffer_load_exprs_.begin(),
+        circular_buffer_load_exprs_.end(),
         [out_tv](Expr* load_expr) {
-          TensorView* double_buffer_tv = ir_utils::getTvOutput(load_expr);
-          NVF_ERROR(double_buffer_tv != nullptr);
-          return out_tv == double_buffer_tv;
+          TensorView* circular_buffer_tv = ir_utils::getTvOutput(load_expr);
+          NVF_ERROR(circular_buffer_tv != nullptr);
+          return out_tv == circular_buffer_tv;
         });
 
     // This expr is a part of cpAsyncBulk synchronization process. It was
     // added earlier to satisfy checks in other passes. It was already handled
     // already, so it will not be pushed to the new scope. cpAsyncBulk exprs
-    // that are not a part of double buffering, will be added to a new scope.
+    // that are not a part of circular buffering, will be added to a new scope.
     bool mbarrier_token_exists =
         GpuLower::current()->ldstMBarrierTokenMap().count(expr) != 0;
 
@@ -745,18 +745,18 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         (expr->isA<kir::MBarrierInvalidate>() && mbarrier_token_exists);
 
     int64_t stage_depth =
-        GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-            double_buffer_loop_->iter_domain());
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
 
     switch (loop_type_) {
-      case DoubleBufferLoopStage::Prolog: {
+      case CircularBufferLoopStage::Prolog: {
         // Skip if not LoadStoreOp expression
         if (!expr->isA<LoadStoreOp>()) {
           break;
         }
 
         // Skip expr if it is not circular buffer expression
-        if (!is_double_buffer_load_expr) {
+        if (!is_circular_buffer_load_expr) {
           break;
         }
 
@@ -802,7 +802,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         // mbarrier::arriveExpectTx and new loadStoreOp.
         if (cloned_scopes_.size() == 1) {
           kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-          kir::Scope& body = if_expr->thenBody();
+          Scope& body = if_expr->thenBody();
           body.push_back(mbarrier_arrive_tx_);
           body.push_back(new_ldst);
           cloned_scopes_.back()->push_back(if_expr);
@@ -815,7 +815,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         cloned_scopes_.back()->push_back(new_ldst);
         break;
       }
-      case DoubleBufferLoopStage::Main: {
+      case CircularBufferLoopStage::Main: {
         // Skip shared memory allocation, mbarrier initialize and mbarrier
         // invalidate
         if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
@@ -843,7 +843,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         // current_compute_stage = loop_index % stage_depth
         if (current_compute_stage_ == nullptr) {
           current_compute_stage_ = IrBuilder::modExpr(
-              double_buffer_loop_->index(),
+              circular_buffer_loop_->index(),
               IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
           kir::Allocate* current_compute_stage_alloc =
               IrBuilder::create<kir::Allocate>(
@@ -860,7 +860,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         if (current_load_stage_ == nullptr) {
           current_load_stage_ = IrBuilder::modExpr(
               IrBuilder::addExpr(
-                  double_buffer_loop_->index(),
+                  circular_buffer_loop_->index(),
                   IrBuilder::subExpr(
                       IrBuilder::create<Val>(stage_depth, PrimDataType::Index),
                       IrBuilder::create<Val>(1L, PrimDataType::Index))),
@@ -907,7 +907,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         // mbarrier::arriveExpectTx and new loadStoreOp.
         if (cloned_scopes_.size() == 1) {
           kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-          kir::Scope& body = if_expr->thenBody();
+          Scope& body = if_expr->thenBody();
           body.push_back(mbarrier_arrive_tx_);
           body.push_back(ldst);
           cloned_scopes_.back()->push_back(if_expr);
@@ -920,7 +920,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         cloned_scopes_.back()->push_back(ldst);
         break;
       }
-      case DoubleBufferLoopStage::Epilog: {
+      case CircularBufferLoopStage::Epilog: {
         // Skip shared memory allocation, mbarrier initialize and mbarrier
         // invalidate
         if (is_ignorable_tma_smem_alloc || is_ignorable_mbarrier_init ||
@@ -937,7 +937,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         // Construct mBarrier::wait for last stage
         LoadStoreOp* ldst = expr->as<LoadStoreOp>();
         Val* last_index = IrBuilder::subExpr(
-            double_buffer_loop_->stop(),
+            circular_buffer_loop_->stop(),
             GpuLower::current()->kernel()->oneVal());
         Val* last_compute_stage = IrBuilder::modExpr(
             last_index,
@@ -949,7 +949,7 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
         cloned_scopes_.back()->push_back(mbarrier_wait);
         break;
       }
-      case DoubleBufferLoopStage::NotApplicable: {
+      case CircularBufferLoopStage::NotApplicable: {
         NVF_ERROR(false, "Unsupported loop mode, got: ", loop_type_);
       }
     }
@@ -969,20 +969,20 @@ class TmaDoubleBufferLoopCloner : public DoubleBufferLoopCloner {
   Val* current_load_stage_ = nullptr;
 };
 
-using InsertionInfo = std::unordered_map<kir::ForLoop*, std::vector<Expr*>>;
+using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
 
-class IsDoubleBufferLoadLoop : public kir::IrVisitor {
+class IsCircularBufferLoadLoop : public kir::IrVisitor {
  public:
   static bool check(
       Expr* expr,
-      const std::vector<Expr*>& double_buffer_load_exprs) {
-    IsDoubleBufferLoadLoop checker(double_buffer_load_exprs);
+      const std::vector<Expr*>& circular_buffer_load_exprs) {
+    IsCircularBufferLoadLoop checker(circular_buffer_load_exprs);
     return checker.check(expr);
   }
 
  private:
-  IsDoubleBufferLoadLoop(const std::vector<Expr*>& double_buffer_load_exprs)
-      : double_buffer_load_exprs_(double_buffer_load_exprs) {}
+  IsCircularBufferLoadLoop(const std::vector<Expr*>& circular_buffer_load_exprs)
+      : circular_buffer_load_exprs_(circular_buffer_load_exprs) {}
 
   using kir::IrVisitor::handle;
 
@@ -996,9 +996,9 @@ class IsDoubleBufferLoadLoop : public kir::IrVisitor {
       return;
     }
     if (std::find(
-            double_buffer_load_exprs_.begin(),
-            double_buffer_load_exprs_.end(),
-            expr) != double_buffer_load_exprs_.end()) {
+            circular_buffer_load_exprs_.begin(),
+            circular_buffer_load_exprs_.end(),
+            expr) != circular_buffer_load_exprs_.end()) {
       result_ = true;
       return;
     }
@@ -1006,27 +1006,27 @@ class IsDoubleBufferLoadLoop : public kir::IrVisitor {
   }
 
  private:
-  const std::vector<Expr*>& double_buffer_load_exprs_;
+  const std::vector<Expr*>& circular_buffer_load_exprs_;
   bool result_ = false;
 };
 
-// Traverse lowered loop-nests and find all double buffer loops and
+// Traverse lowered loop-nests and find all circular buffer loops and
 // associated load expressions.
-class DoubleBufferLoopNestInspector : private kir::IrVisitor {
+class CircularBufferLoopNestInspector : private kir::IrVisitor {
  public:
   static InsertionInfo run(const std::vector<Expr*>& exprs) {
-    DoubleBufferLoopNestInspector inspector(exprs);
+    CircularBufferLoopNestInspector inspector(exprs);
     return inspector.insertion_info_;
   }
 
  private:
-  DoubleBufferLoopNestInspector(const std::vector<Expr*>& exprs) {
+  CircularBufferLoopNestInspector(const std::vector<Expr*>& exprs) {
     handle(exprs);
   }
 
   using kir::IrVisitor::handle;
 
-  // Collect double buffer related information on a expr
+  // Collect circular buffer related information on a expr
   //  that is a memory load, i.e. a LoadStore or a Set.
   void handlePossibleLoadExpr(Expr* expr) {
     auto out_tv = ir_utils::getTvOutput(expr);
@@ -1036,23 +1036,23 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
     }
 
     // Ignore init loop
-    if (!(out_tv->isDoubleBuffered() || out_tv->isCircularBuffered()) ||
+    if (!(out_tv->isCircularBuffered() || out_tv->isCircularBuffered()) ||
         !expr->input(0)->isA<TensorView>()) {
       return;
     }
 
-    auto double_buffer_loop =
-        GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
+    auto circular_buffer_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
             out_tv, for_loops_);
 
     NVF_ERROR(
-        double_buffer_loop != nullptr,
-        "No double buffer loop found for a double buffered tensor: ",
+        circular_buffer_loop != nullptr,
+        "No circular buffer loop found for a circular buffered tensor: ",
         out_tv->toString());
 
-    validateDoubleBufferLoop(double_buffer_loop);
+    validateCircularBufferLoop(circular_buffer_loop);
 
-    insertion_info_[double_buffer_loop].push_back(expr);
+    insertion_info_[circular_buffer_loop].push_back(expr);
   }
 
   void handle(UnaryOp* uop) final {
@@ -1063,24 +1063,24 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
     handlePossibleLoadExpr(ldst);
   }
 
-  static void validateDoubleBufferLoop(kir::ForLoop* loop) {
+  static void validateCircularBufferLoop(ForLoop* loop) {
     NVF_ERROR(
         loop->start()->isZeroInt(), "Unsupported loop: ", loop->toString());
     NVF_ERROR(loop->step()->isOneInt(), "Unsupported loop: ", loop->toString());
     NVF_ERROR(
         !loop->vectorize(),
-        "Vectorized loop should not be the allocation loop for double-buffered tensor: ",
+        "Vectorized loop should not be the allocation loop for circular-buffered tensor: ",
         loop->toString());
     NVF_ERROR(
         !loop->vectorize_shift(),
-        "Vectorize shift loop should not be the allocation loop for double-buffered tensor: ",
+        "Vectorize shift loop should not be the allocation loop for circular-buffered tensor: ",
         loop->toString());
   }
 
   InsertionInfo insertion_info_;
 };
 
-// TODO Move to DoubleBufferLoopCloner
+// TODO Move to CircularBufferLoopCloner
 // Creates pre-prologue section necessary for proper handling async TMA memory
 // operations. It moves the allocation of mbarriers and its tokens outside of
 // the main loop
@@ -1095,26 +1095,26 @@ class DoubleBufferLoopNestInspector : private kir::IrVisitor {
 class CpAsyncBulkPrePrologue : public kir::IrVisitor {
  public:
   static std::vector<Expr*> create(
-      kir::ForLoop* double_buffer_loop,
-      const std::vector<Expr*>& double_buffer_load_exprs) {
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& circular_buffer_load_exprs) {
     CpAsyncBulkPrePrologue creator(
-        double_buffer_loop, double_buffer_load_exprs);
+        circular_buffer_loop, circular_buffer_load_exprs);
     creator.create();
     return creator.pre_prologue_exprs_;
   }
 
  private:
   CpAsyncBulkPrePrologue(
-      kir::ForLoop* double_buffer_loop,
-      const std::vector<Expr*>& double_buffer_load_exprs)
-      : double_buffer_loop_(double_buffer_loop),
-        double_buffer_load_exprs_(double_buffer_load_exprs) {}
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& circular_buffer_load_exprs)
+      : circular_buffer_loop_(circular_buffer_loop),
+        circular_buffer_load_exprs_(circular_buffer_load_exprs) {}
 
   using kir::IrVisitor::handle;
 
   void create() {
     // Find and add smem allocations for tokens and mbarrier objects
-    handle(double_buffer_loop_);
+    handle(circular_buffer_loop_);
 
     // Define how many threads should arrive at the barrier
     //  we expect 0th thread to handle init/arrive & transaction config
@@ -1126,13 +1126,13 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
     kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
     // Construct for loop, a body for if expression
-    kir::ForLoop* loop = createStagesForLoop(double_buffer_loop_);
+    ForLoop* loop = createStagesForLoop(circular_buffer_loop_);
 
     // Construct loop body with:
     // - mBarriers' initializations for each element in smem array for
-    //   each double buffered tensor
+    //   each circular buffered tensor
     // - expected arrival: number of threads in the block
-    for (const Expr* ldst : double_buffer_load_exprs_) {
+    for (const Expr* ldst : circular_buffer_load_exprs_) {
       if (GpuLower::current()->ldstMBarrierMap().count(ldst) != 0) {
         TensorView* all_mbarriers =
             GpuLower::current()->ldstMBarrierMap()[ldst];
@@ -1149,7 +1149,7 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
     pre_prologue_exprs_.push_back(if_expr);
   }
 
-  void handle(kir::ForLoop* fl) final {
+  void handle(ForLoop* fl) final {
     kir::IrVisitor::handle(fl);
   }
 
@@ -1158,7 +1158,7 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
   }
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -1174,13 +1174,13 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
   }
 
  private:
-  kir::ForLoop* double_buffer_loop_ = nullptr;
-  const std::vector<Expr*>& double_buffer_load_exprs_;
+  ForLoop* circular_buffer_loop_ = nullptr;
+  const std::vector<Expr*>& circular_buffer_load_exprs_;
 
   std::vector<Expr*> pre_prologue_exprs_;
 };
 
-// TODO Move to DoubleBufferLoopCloner
+// TODO Move to CircularBufferLoopCloner
 // Creates post-epilogue section needed for releasing mbarriers after TMA memory
 // operations.
 //
@@ -1193,33 +1193,33 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
 class CpAsyncBulkPostEpilogue {
  public:
   static std::vector<Expr*> create(
-      kir::ForLoop* double_buffer_loop,
-      const std::vector<Expr*>& double_buffer_load_exprs) {
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& circular_buffer_load_exprs) {
     CpAsyncBulkPostEpilogue creator(
-        double_buffer_loop, double_buffer_load_exprs);
+        circular_buffer_loop, circular_buffer_load_exprs);
     creator.create();
     return creator.post_prologue_exprs_;
   }
 
  private:
   CpAsyncBulkPostEpilogue(
-      kir::ForLoop* double_buffer_loop,
-      const std::vector<Expr*>& double_buffer_load_exprs)
-      : double_buffer_loop_(double_buffer_loop),
-        double_buffer_load_exprs_(double_buffer_load_exprs) {}
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& circular_buffer_load_exprs)
+      : circular_buffer_loop_(circular_buffer_loop),
+        circular_buffer_load_exprs_(circular_buffer_load_exprs) {}
 
   void create() {
     // Construct predicate
     // 'threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0'
     kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
-    // Construct for loop, a body for if expressiong
-    kir::ForLoop* loop = createStagesForLoop(double_buffer_loop_);
+    // Construct for loop, a body for if expression
+    ForLoop* loop = createStagesForLoop(circular_buffer_loop_);
 
     // Construct loop body with:
     // - mBarriers' invalidation for each element in smem array for
-    //   each double buffered tensor
-    for (const Expr* ldst : double_buffer_load_exprs_) {
+    //   each circular buffered tensor
+    for (const Expr* ldst : circular_buffer_load_exprs_) {
       if (GpuLower::current()->ldstMBarrierMap().count(ldst) != 0) {
         TensorView* all_mbarriers =
             GpuLower::current()->ldstMBarrierMap()[ldst];
@@ -1237,24 +1237,22 @@ class CpAsyncBulkPostEpilogue {
   }
 
  private:
-  kir::ForLoop* double_buffer_loop_ = nullptr;
-  const std::vector<Expr*>& double_buffer_load_exprs_;
+  ForLoop* circular_buffer_loop_ = nullptr;
+  const std::vector<Expr*>& circular_buffer_load_exprs_;
 
   std::vector<Expr*> post_prologue_exprs_;
 };
 
 namespace {
 
-void getAllocInTrivialLoop(
-    kir::ForLoop* fl,
-    std::unordered_set<Expr*>& output) {
+void getAllocInTrivialLoop(ForLoop* fl, std::unordered_set<Expr*>& output) {
   if (!fl->isTrivial()) {
     return;
   }
   for (auto expr : fl->body().exprs()) {
     if (expr->isA<kir::Allocate>()) {
       output.emplace(expr);
-    } else if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    } else if (auto loop = dynamic_cast<ForLoop*>(expr)) {
       getAllocInTrivialLoop(loop, output);
     }
   }
@@ -1262,10 +1260,10 @@ void getAllocInTrivialLoop(
 
 } // namespace
 
-// Apply double buffering transformations
-class DoubleBufferInserter : private kir::ExprMutator {
+// Apply circular buffering transformations
+class CircularBufferInserter : private kir::ExprMutator {
  public:
-  // When there exist multiple double buffer loops, apply
+  // When there exist multiple circular buffer loops, apply
   // transformations to inner-most loops first. A single ExprMutator
   // pass can only process one loop.
   static std::vector<Expr*> run(
@@ -1273,26 +1271,26 @@ class DoubleBufferInserter : private kir::ExprMutator {
       InsertionInfo insertion_info) {
     auto inserted_exprs = exprs;
     while (!insertion_info.empty()) {
-      DoubleBufferInserter inserter(inserted_exprs, insertion_info);
+      CircularBufferInserter inserter(inserted_exprs, insertion_info);
       inserted_exprs = inserter.exprs_;
     }
     return inserted_exprs;
   }
 
  private:
-  DoubleBufferInserter(
+  CircularBufferInserter(
       const std::vector<Expr*>& exprs,
       InsertionInfo& insertion_info)
       : insertion_info_(insertion_info) {
-    auto num_double_buffer_loops = insertion_info.size();
+    auto num_circular_buffer_loops = insertion_info.size();
     traverseAndInsert(exprs);
     NVF_ERROR(processed_loop_ != nullptr);
-    NVF_ERROR(insertion_info.size() == num_double_buffer_loops - 1);
+    NVF_ERROR(insertion_info.size() == num_circular_buffer_loops - 1);
   }
 
   using kir::ExprMutator::handle;
 
-  void handle(kir::ForLoop* loop) final {
+  void handle(ForLoop* loop) final {
     kir::ExprMutator::handle(loop);
 
     // If another loop is already taken care of, no more loop should
@@ -1319,34 +1317,34 @@ class DoubleBufferInserter : private kir::ExprMutator {
   }
 
   void insertTma(
-      kir::ForLoop* double_buffer_loop,
+      ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
     // cpAsyncBulk (with TMA) requires some operations to be done prior to
     //  prologue loop, for example:
     // - smem allocation
     // - initialization of mbarrier objects
     std::vector<Expr*> pre_prologue_exprs =
-        CpAsyncBulkPrePrologue::create(double_buffer_loop, loads);
+        CpAsyncBulkPrePrologue::create(circular_buffer_loop, loads);
     if (!pre_prologue_exprs.empty()) {
       for (Expr* expr : pre_prologue_exprs) {
-        registerInsertBefore(double_buffer_loop, expr);
+        registerInsertBefore(circular_buffer_loop, expr);
       }
     }
 
     // cpAsyncBulk (with TMA) block sync prior to entering main loop to
     //  make smem with mbarrier objects is initialized.
     kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
-    registerInsertBefore(double_buffer_loop, sync);
+    registerInsertBefore(circular_buffer_loop, sync);
 
-    kir::ForLoop* prologue_loop = TmaDoubleBufferLoopCloner::clone(
-        double_buffer_loop, loads, DoubleBufferLoopStage::Prolog);
-    registerInsertBefore(double_buffer_loop, prologue_loop);
+    ForLoop* prologue_loop = TmaCircularBufferLoopCloner::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+    registerInsertBefore(circular_buffer_loop, prologue_loop);
 
-    kir::ForLoop* main_loop = TmaDoubleBufferLoopCloner::clone(
-        double_buffer_loop, loads, DoubleBufferLoopStage::Main);
-    registerReplace(double_buffer_loop, main_loop);
+    ForLoop* main_loop = TmaCircularBufferLoopCloner::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::Main);
+    registerReplace(circular_buffer_loop, main_loop);
 
-    kir::ForLoop* last_for_loop = double_buffer_loop;
+    ForLoop* last_for_loop = circular_buffer_loop;
 
     if (requireEpilogue(loads)) {
       // In the case where the main loop is trivial (for example, ldmatrix in
@@ -1364,17 +1362,17 @@ class DoubleBufferInserter : private kir::ExprMutator {
       // allocation.
       std::unordered_set<Expr*> alloc_in_main;
       getAllocInTrivialLoop(main_loop, alloc_in_main);
-      kir::ForLoop* epilogue_loop = TmaDoubleBufferLoopCloner::clone(
-          double_buffer_loop,
+      ForLoop* epilogue_loop = TmaCircularBufferLoopCloner::clone(
+          circular_buffer_loop,
           loads,
-          DoubleBufferLoopStage::Epilog,
+          CircularBufferLoopStage::Epilog,
           alloc_in_main);
-      registerInsertAfter(double_buffer_loop, epilogue_loop);
+      registerInsertAfter(circular_buffer_loop, epilogue_loop);
       last_for_loop = epilogue_loop;
     }
 
     std::vector<Expr*> post_epilogue_exprs =
-        CpAsyncBulkPostEpilogue::create(double_buffer_loop, loads);
+        CpAsyncBulkPostEpilogue::create(circular_buffer_loop, loads);
     if (!post_epilogue_exprs.empty()) {
       for (Expr* expr : post_epilogue_exprs) {
         registerInsertAfter(last_for_loop, expr);
@@ -1382,12 +1380,10 @@ class DoubleBufferInserter : private kir::ExprMutator {
     }
   }
 
-  void insert(
-      kir::ForLoop* double_buffer_loop,
-      const std::vector<Expr*>& loads) {
-    auto prologue_loop = DoubleBufferLoopCloner::clone(
-        double_buffer_loop, loads, DoubleBufferLoopStage::Prolog);
-    registerInsertBefore(double_buffer_loop, prologue_loop);
+  void insert(ForLoop* circular_buffer_loop, const std::vector<Expr*>& loads) {
+    auto prologue_loop = CircularBufferLoopCloner::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+    registerInsertBefore(circular_buffer_loop, prologue_loop);
 
     auto write_to_smem =
         std::any_of(loads.begin(), loads.end(), [](const Expr* expr) {
@@ -1395,25 +1391,25 @@ class DoubleBufferInserter : private kir::ExprMutator {
               MemoryType::Shared;
         });
 
-    // RAW sync is not inserted for double buffered tensors. The only
+    // RAW sync is not inserted for circular buffered tensors. The only
     // exception is the prologue load.
     bool has_cpasync = false;
     if (write_to_smem) {
-      // Here the initial sync before entering double buffer loop is
+      // Here the initial sync before entering circular buffer loop is
       //  inserted.
 
-      // If any of the double buffered tensor in this double buffer
+      // If any of the circular buffered tensor in this circular buffer
       //  loop is async copy. We want to wait for the gmem loads to
       //  finish before synchronizing the block.
       if (std::any_of(loads.begin(), loads.end(), ir_utils::isCpAsyncOp)) {
         auto stage_depth =
-            GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-                double_buffer_loop->iter_domain());
+            GpuLower::current()->circularBufferInfo().getStageDepthFor(
+                circular_buffer_loop->iter_domain());
         auto cp_async_wait = IrBuilder::create<kir::AsyncWait>(
             AsyncOpType::CpAsync, stage_depth - 2);
         prologue_loop->body().push_back(
             IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync));
-        registerInsertBefore(double_buffer_loop, cp_async_wait);
+        registerInsertBefore(circular_buffer_loop, cp_async_wait);
         has_cpasync = true;
       }
 
@@ -1424,21 +1420,21 @@ class DoubleBufferInserter : private kir::ExprMutator {
                 ->needsRawSync(ir_utils::getTvOutput(expr))
                 .hasTID();
           })) {
-        // If any of the double buffered loads require sync, as indicated
-        //  by sync info map, insert the sync before entering the double buffer
-        //  loop.
+        // If any of the circular buffered loads require sync, as indicated
+        //  by sync info map, insert the sync before entering the circular
+        //  buffer loop.
         // TODO:
-        //  Currently not supporting double buffer in gmem, but short to mid
+        //  Currently not supporting circular buffer in gmem, but short to mid
         //  term not yet a priority to go for this case.
         auto sync = IrBuilder::create<kir::BlockSync>(false);
-        registerInsertBefore(double_buffer_loop, sync);
+        registerInsertBefore(circular_buffer_loop, sync);
       }
     }
 
-    auto main_loop = DoubleBufferLoopCloner::clone(
-        double_buffer_loop, loads, DoubleBufferLoopStage::Main);
+    auto main_loop = CircularBufferLoopCloner::clone(
+        circular_buffer_loop, loads, CircularBufferLoopStage::Main);
 
-    registerReplace(double_buffer_loop, main_loop);
+    registerReplace(circular_buffer_loop, main_loop);
 
     // Insert the wait instruction in this pass instead
     //  of relying on WAR sync pass to do it.
@@ -1446,25 +1442,25 @@ class DoubleBufferInserter : private kir::ExprMutator {
     //  exactly where we need it but the purpose of this wait
     //  insertion isn't exactly WAR protection.
     //
-    // TODO: [Double Buffer Sync]
+    // TODO: [Circular Buffer Sync]
     //  We might eventually want to move the block sync inserted
     //   by WAR pass here as well since this sync insertion is kind
     //   of both WAR and RAW (or neither RAW nor WAR, depends
     //   on how we look at it).
     // Eg. in the case when a intermediate
-    //   tensor is double buffered.
+    //   tensor is circular buffered.
     //
     //  __block_sync();    // This is the initial sync
-    //  For i in ...       // Double buffer loop
+    //  For i in ...       // Circular buffer loop
     //     A[i%2] = ...;
     //     ...  = A[1-i%2];
     //     __block_sync();  // sync within loop
     //     ...
     //  The "sync within loop" can be placed anywhere in the
-    //   double buffer loop while in the case of RAW and WAR
+    //   circular buffer loop while in the case of RAW and WAR
     //   there'd be extra insertion point restrictions.
     //  We are currently not actively exploring opportunities
-    //   with this property of "double buffer sync" so this
+    //   with this property of "circular buffer sync" so this
     //   is more conceptual at the moment, aka low priority.
     if (has_cpasync) {
       insertCpAsyncCommitWaitInMainLoop(main_loop, loads);
@@ -1477,7 +1473,7 @@ class DoubleBufferInserter : private kir::ExprMutator {
       // we drain the group after the loops by waiting on these transfers.
       auto cp_async_wait_all =
           IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync, 0);
-      registerInsertAfter(double_buffer_loop, cp_async_wait_all);
+      registerInsertAfter(circular_buffer_loop, cp_async_wait_all);
     }
 
     if (requireEpilogue(loads)) {
@@ -1496,46 +1492,47 @@ class DoubleBufferInserter : private kir::ExprMutator {
       // allocation.
       std::unordered_set<Expr*> alloc_in_main;
       getAllocInTrivialLoop(main_loop, alloc_in_main);
-      auto epilogue_loop = DoubleBufferLoopCloner::clone(
-          double_buffer_loop,
+      auto epilogue_loop = CircularBufferLoopCloner::clone(
+          circular_buffer_loop,
           loads,
-          DoubleBufferLoopStage::Epilog,
+          CircularBufferLoopStage::Epilog,
           alloc_in_main);
-      registerInsertAfter(double_buffer_loop, epilogue_loop);
+      registerInsertAfter(circular_buffer_loop, epilogue_loop);
     }
   }
 
   // Simple conservative rule for inserting async copy wait
-  //  primitive in the double buffer loop:
+  //  primitive in the circular buffer loop:
   void insertCpAsyncCommitWaitInMainLoop(
-      kir::ForLoop* main_loop,
+      ForLoop* main_loop,
       const std::vector<Expr*>& loads) {
     NVF_ERROR(
         !main_loop->body().empty(),
-        "Double buffer sync insertion: empty main loop.");
+        "Circular buffer sync insertion: empty main loop.");
     auto& exprs = main_loop->body().exprs();
     // Note: This pass explicitly assumes that WAR sync has been
     //  inserted so would need to be updated if we re-order the
-    //  passes. Cleanups suggested in [Double Buffer Sync]
+    //  passes. Cleanups suggested in [Circular Buffer Sync]
     //  would resolve this dependency on pass ordering.
-    auto stage_depth = GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-        main_loop->iter_domain());
+    auto stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            main_loop->iter_domain());
     auto cp_async_commit =
         IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync);
     auto cp_async_wait = IrBuilder::create<kir::AsyncWait>(
         AsyncOpType::CpAsync, stage_depth - 2);
 
-    // Find the last double buffer load in the main loop, and insert
+    // Find the last circular buffer load in the main loop, and insert
     // cp.async.commit after it.
-    std::vector<Expr*>::const_iterator last_double_buffer_load = exprs.end();
+    std::vector<Expr*>::const_iterator last_circular_buffer_load = exprs.end();
     for (auto it = exprs.begin(); it != exprs.end(); ++it) {
-      if (IsDoubleBufferLoadLoop::check(*it, loads)) {
-        last_double_buffer_load = it;
+      if (IsCircularBufferLoadLoop::check(*it, loads)) {
+        last_circular_buffer_load = it;
       }
     }
-    NVF_ERROR(last_double_buffer_load != exprs.end());
-    std::vector<Expr*>::const_iterator commit_it =
-        main_loop->body().insert(last_double_buffer_load + 1, cp_async_commit);
+    NVF_ERROR(last_circular_buffer_load != exprs.end());
+    std::vector<Expr*>::const_iterator commit_it = main_loop->body().insert(
+        last_circular_buffer_load + 1, cp_async_commit);
 
     // Check if a sync has been inserted by WAR sync pass.
     auto rend = std::make_reverse_iterator(commit_it);
@@ -1556,53 +1553,53 @@ class DoubleBufferInserter : private kir::ExprMutator {
 
  private:
   InsertionInfo& insertion_info_;
-  kir::ForLoop* processed_loop_ = nullptr;
+  ForLoop* processed_loop_ = nullptr;
 };
 
 } // namespace
 
-void DoubleBufferInfo::build(Fusion* fusion) {
-  DoubleBufferFusionInspector inspector(fusion, *this);
+void CircularBufferInfo::build(Fusion* fusion) {
+  CircularBufferFusionInspector inspector(fusion, *this);
 
-  // Build double buffered loop id's
+  // Build circular buffered loop id's
   for (auto& info : map_) {
-    auto double_buffer_axis = info.second.double_buffer_axis;
+    auto circular_buffer_axis = info.second.circular_buffer_axis;
     // Keeps track of which loop disjoint set has been
-    //  double buffered. In index allocation, one index
+    //  circular buffered. In index allocation, one index
     //  variable would need to be allocated in each
-    //  double buffer stage.
-    concrete_double_buffered_loop_id_.insert(
+    //  circular buffer stage.
+    concrete_circular_buffered_loop_id_.insert(
         GpuLower::current()->caMap()->getConcreteMappedID(
-            double_buffer_axis, IdMappingMode::LOOP));
+            circular_buffer_axis, IdMappingMode::LOOP));
   }
 }
 
-bool DoubleBufferInfo::isDoubleBufferedIterDomain(IterDomain* id) {
+bool CircularBufferInfo::isCircularBufferedIterDomain(IterDomain* id) {
   auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
       id, IdMappingMode::LOOP);
-  return concrete_double_buffered_loop_id_.count(concrete_loop_id);
+  return concrete_circular_buffered_loop_id_.count(concrete_loop_id);
 }
 
-DoubleBufferInfo::TvInfo& DoubleBufferInfo::getTvInfo(const TensorView* tv) {
+CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
+    const TensorView* tv) {
   NVF_ERROR(
-      tv->isDoubleBuffered() || tv->isCircularBuffered(),
-      "Not a double-buffered tensor: ",
+      tv->isCircularBuffered() || tv->isCircularBuffered(),
+      "Not a circular-buffered tensor: ",
       tv->toString());
   return map_[tv];
 }
 
-void DoubleBufferInfo::setDoubleBufferAxis(
+void CircularBufferInfo::setCircularBufferAxis(
     const TensorView* tv,
     IterDomain* axis) {
-  getTvInfo(tv).double_buffer_axis = axis;
+  getTvInfo(tv).circular_buffer_axis = axis;
 
   // Also validate the stage consistency with CA map.
   unsigned int stage_depth = 0;
   if (tv->isCircularBuffered()) {
     stage_depth = tv->circularBufferDepth();
   } else {
-    // Double buffer is essentially
-    //  circular buffer with depth 2.
+    // Double buffer is a circular buffer with depth 2.
     stage_depth = 2;
   }
 
@@ -1610,7 +1607,9 @@ void DoubleBufferInfo::setDoubleBufferAxis(
   setStageDepth(axis, stage_depth);
 }
 
-void DoubleBufferInfo::setStageDepth(IterDomain* id, unsigned int stage_depth) {
+void CircularBufferInfo::setStageDepth(
+    IterDomain* id,
+    unsigned int stage_depth) {
   auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
       id, IdMappingMode::LOOP);
 
@@ -1631,17 +1630,18 @@ void DoubleBufferInfo::setStageDepth(IterDomain* id, unsigned int stage_depth) {
   }
 }
 
-IterDomain* DoubleBufferInfo::getDoubleBufferAxis(const TensorView* tv) {
-  if (!(tv->isDoubleBuffered() || tv->isCircularBuffered())) {
+IterDomain* CircularBufferInfo::getCircularBufferAxis(const TensorView* tv) {
+  if (!(tv->isCircularBuffered() || tv->isCircularBuffered())) {
     return nullptr;
   }
 
-  return getTvInfo(tv).double_buffer_axis;
+  return getTvInfo(tv).circular_buffer_axis;
 }
 
-int64_t DoubleBufferInfo::getStageDepthFor(IterDomain* double_buffer_axis) {
-  IterDomain* concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-      double_buffer_axis, IdMappingMode::LOOP);
+int64_t CircularBufferInfo::getStageDepthFor(
+    IterDomain* circular_buffer_axis) {
+  auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
+      circular_buffer_axis, IdMappingMode::LOOP);
 
   auto maybe_depth_it = stage_depth_.find(concrete_id);
 
@@ -1650,15 +1650,15 @@ int64_t DoubleBufferInfo::getStageDepthFor(IterDomain* double_buffer_axis) {
   return maybe_depth_it->second;
 }
 
-kir::ForLoop* DoubleBufferInfo::getDoubleBufferLoop(
+ForLoop* CircularBufferInfo::getCircularBufferLoop(
     IterDomain* axis,
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     bool ignore_prologue) {
   auto loop_it = std::find_if(loops.begin(), loops.end(), [&](const auto loop) {
     return GpuLower::current()->caMap()->areMapped(
                loop->iter_domain(), axis, IdMappingMode::EXACT) &&
         (!ignore_prologue ||
-         loop->doubleBufferLoopStage() != DoubleBufferLoopStage::Prolog);
+         loop->circularBufferLoopStage() != CircularBufferLoopStage::Prolog);
   });
 
   if (loop_it != loops.end()) {
@@ -1668,36 +1668,36 @@ kir::ForLoop* DoubleBufferInfo::getDoubleBufferLoop(
   }
 }
 
-kir::ForLoop* DoubleBufferInfo::getDoubleBufferLoop(
+ForLoop* CircularBufferInfo::getCircularBufferLoop(
     const TensorView* tv,
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     bool ignore_prologue) {
-  auto axis = getDoubleBufferAxis(tv);
+  auto axis = getCircularBufferAxis(tv);
 
   if (axis == nullptr) {
     return nullptr;
   }
 
-  return getDoubleBufferLoop(axis, loops, ignore_prologue);
+  return getCircularBufferLoop(axis, loops, ignore_prologue);
 }
 
-void DoubleBufferInfo::setOriginalAllocSize(
+void CircularBufferInfo::setOriginalAllocSize(
     const TensorView* tv,
     Val* original_alloc_size) {
   getTvInfo(tv).original_alloc_size = original_alloc_size;
 }
 
-Val* DoubleBufferInfo::getOriginalAllocSize(const TensorView* tv) {
-  if (!(tv->isDoubleBuffered() || tv->isCircularBuffered())) {
+Val* CircularBufferInfo::getOriginalAllocSize(const TensorView* tv) {
+  if (!(tv->isCircularBuffered() || tv->isCircularBuffered())) {
     return nullptr;
   }
 
   return getTvInfo(tv).original_alloc_size;
 }
 
-std::vector<Expr*> DoubleBufferPass::run(const std::vector<Expr*>& exprs) {
-  auto insertion_info = DoubleBufferLoopNestInspector::run(exprs);
-  return DoubleBufferInserter::run(exprs, insertion_info);
+std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {
+  auto insertion_info = CircularBufferLoopNestInspector::run(exprs);
+  return CircularBufferInserter::run(exprs, insertion_info);
 }
 
 } // namespace nvfuser

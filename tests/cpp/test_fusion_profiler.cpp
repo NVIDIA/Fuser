@@ -25,6 +25,11 @@ class FusionProfilerTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
+    // NOTE: The parent "SetUp()" triggers a Cuda Kernel on the device to fill
+    // the a tensor with NaNs if this is true.  This creates a second kernel
+    // in the profile that interfers accurately checking the kernel time.
+    setFillAllocationWithNan(false);
+
     saved_ = ProfilerOptionsGuard::getCurOptions();
     FusionProfiler::reset();
   }

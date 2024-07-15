@@ -77,7 +77,7 @@ DataType metaDataTypeOf(const Val* v) {
     return PointerType{std::make_shared<DataType>(tv->dtype())};
   }
 
-  size_t dim = TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+  size_t dim = TensorDomain::noReductions(tv->getLogicalDomain()).size();
   size_t alloc_dim =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
   return globalTensorMetaData(
@@ -314,10 +314,6 @@ const char* predicate_type2string(PredicateType t) {
       return "Vectorize";
     case PredicateType::Misaligned:
       return "Misaligned";
-    case PredicateType::Shift:
-      return "Shift";
-    case PredicateType::Padding:
-      return "Padding";
     case PredicateType::ReductionWrite:
       return "ReductionWrite";
     case PredicateType::LoopRotation:
@@ -799,8 +795,6 @@ static const char* iter_type2string(IterType t) {
       return "r";
     case IterType::Broadcast:
       return "b";
-    case IterType::Gather:
-      return "g";
     case IterType::Stride:
       return "s";
     case IterType::GatherScatter:
@@ -842,8 +836,6 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "Set";
     case LoadStoreOpType::LdMatrix:
       return "LdMatrix";
-    case LoadStoreOpType::LdMatrixTranspose:
-      return "LdMatrixTranspose";
     case LoadStoreOpType::CpAsync:
       return "CpAsync";
     case LoadStoreOpType::CpAsyncBulkTensorTile:
@@ -1454,21 +1446,21 @@ int64_t dataTypeSize(DataType type, DataType index_type) {
 
 std::ostream& operator<<(
     std::ostream& os,
-    const DoubleBufferLoopStage loop_stage) {
+    const CircularBufferLoopStage loop_stage) {
   switch (loop_stage) {
-    case DoubleBufferLoopStage::NotApplicable:
+    case CircularBufferLoopStage::NotApplicable:
       break;
-    case DoubleBufferLoopStage::Prolog:
-      os << "{DoubleBufferProlog}";
+    case CircularBufferLoopStage::Prolog:
+      os << "{CircularBufferProlog}";
       break;
-    case DoubleBufferLoopStage::Main:
-      os << "{DoubleBufferMainLoop}";
+    case CircularBufferLoopStage::Main:
+      os << "{CircularBufferMainLoop}";
       break;
-    case DoubleBufferLoopStage::Epilog:
-      os << "{DoubleBufferEpilog}";
+    case CircularBufferLoopStage::Epilog:
+      os << "{CircularBufferEpilog}";
       break;
     default:
-      NVF_ERROR(false, "unknown double buffer stage");
+      NVF_ERROR(false, "unknown circular buffer stage");
   }
   return os;
 }
