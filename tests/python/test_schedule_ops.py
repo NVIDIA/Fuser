@@ -671,19 +671,13 @@ class TestScheduleOps(TestCase):
                 self.s0 = fd.define_scalar(1e-6, dtype=DataType.Double)
                 self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
 
-                self.sum0 = fd.ops.sum(self.t0, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot
-                # access hidden reduction tensor view.
-                self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
+                self.bcast_sum0 = fd.ops.sum(self.t0, dims=[-1], keepdim=True)
                 self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
                 self.add_output(self.mean)
 
                 self.diff = fd.ops.sub(self.t0, self.mean)
                 self.diff_sq = fd.ops.mul(self.diff, self.diff)
-                self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot
-                # access hidden reduction tensor view.
-                self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
+                self.bcast_sum1 = fd.ops.sum(self.diff_sq, dims=[-1], keepdim=True)
                 self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
 
                 self.t0_diff = fd.ops.sub(self.t0, self.mean)

@@ -107,6 +107,41 @@ void FusionDefinition::finalizeDefinition() {
   }
 }
 
+void FusionDefinition::findMissingTensorViews(Fusion* fusion) {
+  NVF_ERROR(fusion != nullptr);
+
+  // Gather existing TensorViews in FusionDefinition
+  std::unordered_set<Val*> tensor_states;
+  for (const State& s : recording_state_) {
+    Val* v = getFusionState(s.index);
+    if (v->isA<TensorView>()) {
+      tensor_states.insert(v);
+    }
+  }
+
+  // Find existing TensorViews in Fusion
+  // Get set difference between CPP Fusion and Python FusionDefinition
+  std::vector<Val*> missing_fusion_tvs;
+
+  std::vector<Val*> all_vals = fusion->usedMathVals();
+  std::copy_if(
+      all_vals.begin(),
+      all_vals.end(),
+      std::back_inserter(missing_fusion_tvs),
+      [&](Val* v) {
+        return v->isA<TensorView>() && tensor_states.count(v) == 0;
+      });
+
+  if (missing_fusion_tvs.empty()) {
+    return;
+  }
+
+  // Add missing TensorViews to FusionDefinition
+  for (Val* v : missing_fusion_tvs) {
+    addTensor(v->as<TensorView>());
+  }
+}
+
 void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
@@ -142,6 +177,9 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // guard in a local scope across the schedule function
   prev_fusion_ = FusionGuard::getCurFusion();
   FusionGuard::setCurFusion(user_sched_->schedule.get());
+
+  // Add missing TensorViews from CPP Fusion to Python FusionDefinition
+  findMissingTensorViews(user_sched_->schedule.get());
 }
 
 void FusionDefinition::finalizeSchedule(

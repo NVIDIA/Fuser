@@ -170,6 +170,10 @@ class NVF_API FusionDefinition : public FusionState {
   //! Exit Python Context Manager -- Triggers Fusion IR build if it is not
   //! cached
   NVF_API void finalizeDefinition();
+  //! Composite operations can create hidden TensorViews in the CPP fusion
+  //! These TensorViews are not visible from python definition. This function
+  //! finds and adds them to FusionDefinition
+  void findMissingTensorViews(Fusion* fusion);
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
   NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
