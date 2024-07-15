@@ -56,6 +56,7 @@ class Communicator {
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
+  ~Communicator();
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;
@@ -81,9 +82,7 @@ class Communicator {
   }
 
   // performs a blocking barrier in the communicator
-  void barrier(std::optional<CommunicatorBackend> backend = std::nullopt) {
-    getWorld(backend)->barrier()->wait();
-  }
+  void barrier(std::optional<CommunicatorBackend> backend = std::nullopt);
 
   // returns the backend associated with a team
   // the argument "prefix" is prepended to the key used to retrieve preexisting

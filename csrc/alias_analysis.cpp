@@ -37,6 +37,7 @@ class AliasFinder : public OptOutConstDispatch {
   void handle(const SliceOp*) override;
   void handle(const BroadcastOp*) override;
   void handle(const SqueezeOp*) override;
+  void handle(const ExpandOp*) override;
 
  private:
   // A helper function used to compute the perferred output layout. It computes
@@ -362,6 +363,23 @@ void AliasFinder::handle(const SqueezeOp* squeeze) {
     return;
   }
   auto* out = squeeze->out()->as<TensorView>();
+
+  // Preserve the allocation order of existing dimensions.
+  std::optional<Layout> out_layout =
+      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
+  if (!out_layout.has_value()) {
+    return;
+  }
+
+  analysis_.add(out, in, std::move(*out_layout));
+}
+
+void AliasFinder::handle(const ExpandOp* expand) {
+  auto* in = dynamic_cast<TensorView*>(expand->in());
+  if (in == nullptr) {
+    return;
+  }
+  auto* out = expand->out()->as<TensorView>();
 
   // Preserve the allocation order of existing dimensions.
   std::optional<Layout> out_layout =

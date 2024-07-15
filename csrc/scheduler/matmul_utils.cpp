@@ -40,7 +40,7 @@
 namespace nvfuser {
 namespace {
 
-//! Access to the structure should be done with labels defined in MatmulDomain.
+//! Access to the structure should be done with labels defined in MatmulDimRole.
 using ProblemShape = std::array<int64_t, 4>;
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
@@ -50,7 +50,7 @@ inline std::optional<MmaMacro> getMmaOp(
   using MacroType = MmaMacro;
 
   // NOTE: A temp condition
-  const ProblemShape::value_type n_extend = problem[(size_t)MatmulDomain::N];
+  const ProblemShape::value_type n_extend = problem[(size_t)MatmulDimRole::N];
   const bool use_small_n = ((n_extend % 8) == 0) && ((n_extend % 16) != 0);
 
   switch (dev_version) {
@@ -107,8 +107,8 @@ inline bool initCoreHeuristics(
     DimType m_ratio = 2;
     DimType n_ratio = 2;
 
-    const auto mn_ratio = (double)problem_shape[(size_t)MatmulDomain::M] /
-        (double)problem_shape[(size_t)MatmulDomain::N];
+    const auto mn_ratio = (double)problem_shape[(size_t)MatmulDimRole::M] /
+        (double)problem_shape[(size_t)MatmulDimRole::N];
     if (mn_ratio < 0.5) {
       m_ratio = 1;
       n_ratio = 4;
@@ -128,13 +128,14 @@ inline bool initCoreHeuristics(
     if (isAmpere(params->mma_macro)) {
       constexpr int stages = 3;
 
-      params->double_buffer_options.double_buffer_smem_write = true;
-      params->double_buffer_options.double_buffer_smem_read = true;
-      params->double_buffer_options.smem_double_buffer_stage = stages;
+      params->circular_buffer_options.circular_buffer_smem_write = true;
+      params->circular_buffer_options.circular_buffer_smem_read = true;
+      params->circular_buffer_options.smem_circular_buffer_stage = stages;
     }
   }
 
-  const auto roleMinDtypeSize = [&tensor_roles](MatmulRole role) -> int64_t {
+  const auto roleMinDtypeSize =
+      [&tensor_roles](MatmulTensorRole role) -> int64_t {
     const auto op_it = tensor_roles.find(role);
     NVF_ERROR(op_it != tensor_roles.end());
     int64_t min_size_bytes = 128LL;
@@ -146,15 +147,15 @@ inline bool initCoreHeuristics(
   params->async_gmem_load_operands = isCpAsyncOperandLoadSupported(
       params.get(),
       std::min(
-          roleMinDtypeSize(MatmulRole::OPERAND_A),
-          roleMinDtypeSize(MatmulRole::OPERAND_B)));
+          roleMinDtypeSize(MatmulTensorRole::OPERAND_A),
+          roleMinDtypeSize(MatmulTensorRole::OPERAND_B)));
 
   if (!params->async_gmem_load_operands) {
     // Circular buffering requires async load. If we cannot use async load due
-    // to unsupported vectorization width, then we can only double buffer at
+    // to unsupported vectorization width, then we can only circular buffer at
     // most.
-    params->double_buffer_options.smem_double_buffer_stage =
-        std::min(2, params->double_buffer_options.smem_double_buffer_stage);
+    params->circular_buffer_options.smem_circular_buffer_stage =
+        std::min(2, params->circular_buffer_options.smem_circular_buffer_stage);
   }
   return true;
 }
@@ -164,7 +165,7 @@ inline bool initCoreHeuristics(
 //! For a given domain, try to find the size by evaluating the extent of an
 //! IterDomain in each group of that domain type. For example, if there are
 //! multiple Batch dimensions, we find all ValGroups that are mapped as
-//! MatmulDomain::Batch, we evaluate the extent of each, then we multiply those
+//! MatmulDimRole::Batch, we evaluate the extent of each, then we multiply those
 //! dimensions together to get the overall batch size.
 ProblemShape getProblemShape(
     const mma_utils::DimRolesMap& dim_roles,
@@ -193,7 +194,8 @@ std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
     const mma_utils::MatmulPattern& pattern,
     const mma_utils::TensorRolesMap& tensor_roles,
-    const mma_utils::DimRolesMap& id_roles) {
+    const mma_utils::DimRolesMap& id_roles,
+    const ValGraph& permissive_graph) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   std::vector<TensorView*> mma_inputs = {pattern.A, pattern.B};
@@ -208,27 +210,18 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Quick checks
   {
-    // Check if matmul pattern represents gemm (requires M/N/K == 1, B == 0)
-    //  or bgemm (requires M/N/K/B == 1)
-    std::array<int64_t, 4> num_axes{};
-    for (const auto& [g, dom] : id_roles) {
-      num_axes[(size_t)dom]++;
-    }
-    constexpr int64_t expected_axes_numbers = 1;
-    if (num_axes[(size_t)MatmulDomain::M] != expected_axes_numbers ||
-        num_axes[(size_t)MatmulDomain::N] != expected_axes_numbers ||
-        num_axes[(size_t)MatmulDomain::K] != expected_axes_numbers ||
-        num_axes[(size_t)MatmulDomain::Batch] > expected_axes_numbers) {
-      return "Matmul pattern has unsupported number of one of M/N/K/Batch axes";
-    }
-
     if (!mma_output->hasReduction()) {
       return "MMA output TV has no reduction domain";
     }
-  }
 
-  // Quick checks - Fusion
-  {
+    // Check that there is a single K dimension
+    if (std::count_if(
+            mma_output->getLogicalDomain().begin(),
+            mma_output->getLogicalDomain().end(),
+            [](IterDomain* id) { return id->isReduction(); }) != 1) {
+      return "MMA output TV must have exactly one reduction (K) dimension";
+    }
+
     // Fusion should contain at least two inputs (for now)
     if (minimal_number_of_inputs > fusion_inputs.size()) {
       return "Fusion inputs contain at least one non-TensorView object";
@@ -237,39 +230,17 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
-    // We will check that all operands have same dimension
-    int64_t operand_dim = -1;
-
     // Track TensorViews with assigned roles so we can check that all inputs and
     // outputs have recognized roles
     std::set<TensorView*> tvs_with_roles;
 
     {
-      for (MatmulRole role : {MatmulRole::OPERAND_A, MatmulRole::OPERAND_B}) {
+      for (MatmulTensorRole role :
+           {MatmulTensorRole::OPERAND_A, MatmulTensorRole::OPERAND_B}) {
         auto entry = tensor_roles.find(role);
         if (entry != tensor_roles.end()) {
           if (1 == entry->second.size()) {
             tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-            for (TensorView* tv : entry->second) {
-              const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-              int64_t ndims = (int64_t)std::count_if(
-                  logical.begin(), logical.end(), [](IterDomain* id) {
-                    return !id->isReduction() && !id->isDeviceDim();
-                  });
-              if (operand_dim == -1) {
-                operand_dim = ndims;
-              } else if (ndims != operand_dim) {
-                // We cannot always handle differently sized inputs, such as
-                // those we encounter when translating MatmulOp and LinearOp.
-                // This is because in those cases one of the operands will have
-                // new Broadcast dimensions where the other operand has
-                // Iteration batch dimensions, meaning these new dims are
-                // actually M or N dimensions. Multiple M and N dimension
-                // support is planned but for now we must reject these patterns
-                // before attempting to translate them.
-                return "All operands must have the same no-devices dimension.";
-              }
-            }
           } else {
             return "There is other than one fusion input that can be MMA operand";
           }
@@ -279,7 +250,7 @@ std::string isMatmulFusionDefinitionSupported(
       }
     }
 
-    auto entry = tensor_roles.find(MatmulRole::OUTPUT);
+    auto entry = tensor_roles.find(MatmulTensorRole::OUTPUT);
     if (entry != tensor_roles.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     } else {
@@ -287,7 +258,7 @@ std::string isMatmulFusionDefinitionSupported(
     }
 
     // Non-core input roles are optional, no requirements for definitions
-    entry = tensor_roles.find(MatmulRole::EPILOGUE_INPUT);
+    entry = tensor_roles.find(MatmulTensorRole::EPILOGUE_INPUT);
     if (entry != tensor_roles.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     }
@@ -296,6 +267,51 @@ std::string isMatmulFusionDefinitionSupported(
         fusion_inputs_tvs.size() + fusion_outputs_tvs.size();
     if (in_out_tvs_count != tvs_with_roles.size()) {
       return "Detected input/output TVs without assigned roles";
+    }
+  }
+
+  // Check that canonical dim order is (B)MNK
+  // TODO: Remove this check once we are confident that non-standard orders are
+  // properly handled
+  {
+    std::vector<ValGroup> dim_ordering = mma_utils::canonicalDimOrdering(
+        tensor_roles, id_roles, permissive_graph);
+    VectorOfUniqueEntries<MatmulDimRole> role_order;
+    for (const ValGroup& g : dim_ordering) {
+      const auto it = id_roles.find(g);
+      NVF_ERROR(it != id_roles.end());
+      role_order.pushBack(it->second);
+    }
+    if (role_order.size() != 3 && role_order.size() != 4) {
+      std::stringstream ss;
+      ss << "Expected either {B,M,N,K} roles or {M,N,K} but role_order.size()="
+         << role_order.size();
+      return ss.str();
+    }
+    if (role_order.back() != MatmulDimRole::K) {
+      return "Canonical dim order must be BMNK";
+    }
+    if (role_order.at(role_order.size() - 2) != MatmulDimRole::N) {
+      return "Canonical dim order must be BMNK";
+    }
+    if (role_order.at(role_order.size() - 3) != MatmulDimRole::M) {
+      return "Canonical dim order must be BMNK";
+    }
+
+    // Also check that dims within each role are consecutive with one another
+    // for this pattern.
+    // TODO: Lift this requirement by modifying the definition or setting
+    // allocation domains to support this setting in MmaOp
+    NVF_ERROR(pattern.output->definition() != nullptr);
+    if (pattern.output->definition()->isA<MatmulOp>()) {
+      if (TensorDomain::noReductions(
+              TensorDomain::noDevices(pattern.B->getLogicalDomain()))
+              .size() >
+          TensorDomain::noReductions(
+              TensorDomain::noDevices(pattern.A->getLogicalDomain()))
+              .size()) {
+        return "Implicit broadcast in MatmulOp causes new non-consecutive N dimension";
+      }
     }
   }
 
@@ -336,16 +352,16 @@ class VectorizationCalculator {
 
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> a_vecs =
-        operandVectorizations(MatmulRole::OPERAND_A);
+        operandVectorizations(MatmulTensorRole::OPERAND_A);
     NVF_ERROR(a_vecs.size() == 1, "Expected exactly one A operand");
     const std::vector<int64_t> b_vecs =
-        operandVectorizations(MatmulRole::OPERAND_B);
+        operandVectorizations(MatmulTensorRole::OPERAND_B);
     NVF_ERROR(b_vecs.size() == 1, "Expected exactly one B operand");
     return {a_vecs[0], b_vecs[0], epilogueVectorization()};
   }
 
  private:
-  std::vector<int64_t> operandVectorizations(MatmulRole role) {
+  std::vector<int64_t> operandVectorizations(MatmulTensorRole role) {
     std::vector<int64_t> vec_sizes;
     const auto op_it = tensor_roles_.find(role);
     if (op_it != tensor_roles_.end()) {
@@ -356,7 +372,7 @@ class VectorizationCalculator {
     return vec_sizes;
   }
 
-  MatmulDomain dimRole(const ValGroup& g) const {
+  MatmulDimRole dimRole(const ValGroup& g) const {
     auto dim_role_it = dim_roles_.find(g);
     NVF_ERROR(
         dim_role_it != dim_roles_.end(), "Found ValGroup with unknown role");
@@ -535,7 +551,7 @@ class VectorizationCalculator {
 
     // Find the inner-most non-batch role for this tensor, and collect all
     // ValGroups in that role, in the canonical ordering.
-    std::optional<MatmulDomain> vec_dim_role = std::nullopt;
+    std::optional<MatmulDimRole> vec_dim_role = std::nullopt;
     for (int64_t i = (int64_t)(tv->getMaybeAllocationDomain().size()) - 1;
          i >= 0;
          --i) {
@@ -545,8 +561,8 @@ class VectorizationCalculator {
       }
 
       ValGroup g = permissive_graph_.toGroup(id);
-      MatmulDomain dim_role = dimRole(g);
-      if (dim_role == MatmulDomain::Batch) {
+      MatmulDimRole dim_role = dimRole(g);
+      if (dim_role == MatmulDimRole::Batch) {
         // We cannot vectorize in batch dimensions
         break;
       }
@@ -574,13 +590,13 @@ class VectorizationCalculator {
   int64_t epilogueVectorization() {
     // This is a vector of non-K dimensions sorted from inner to outer
     std::vector<ValGroup> inner_nonk_dims;
-    std::optional<MatmulDomain> inner_nonk_role = std::nullopt;
+    std::optional<MatmulDimRole> inner_nonk_role = std::nullopt;
     for (auto g_it = dim_ordering_.rbegin(); g_it != dim_ordering_.rend();
          ++g_it) {
       const ValGroup& g = *g_it;
 
-      MatmulDomain dim_role = dimRole(g);
-      if (dim_role == MatmulDomain::K) {
+      MatmulDimRole dim_role = dimRole(g);
+      if (dim_role == MatmulDimRole::K) {
         // Skip K dims since they won't appear in epilogue loop nest
         continue;
       }
@@ -594,7 +610,7 @@ class VectorizationCalculator {
     }
 
     if (!inner_nonk_role.has_value() ||
-        inner_nonk_role.value() == MatmulDomain::Batch) {
+        inner_nonk_role.value() == MatmulDimRole::Batch) {
       // If the innermost non-K dimension is a batch dimension, then we cannot
       // vectorize the outputs since we parallelize batch dimensions across
       // the grid.
@@ -609,7 +625,7 @@ class VectorizationCalculator {
           ptrAndDTypeVec(tv), innerDimsVectorization(tv, inner_nonk_dims));
     };
 
-    const auto d_it = tensor_roles_.find(MatmulRole::OUTPUT);
+    const auto d_it = tensor_roles_.find(MatmulTensorRole::OUTPUT);
     NVF_ERROR(
         d_it != tensor_roles_.end(), "Could not find any output D tensors");
     int64_t vec_size = 16l;
@@ -620,7 +636,7 @@ class VectorizationCalculator {
       }
       vec_size = std::min(vec_size, v);
     }
-    if (const auto c_it = tensor_roles_.find(MatmulRole::EPILOGUE_INPUT);
+    if (const auto c_it = tensor_roles_.find(MatmulTensorRole::EPILOGUE_INPUT);
         c_it != tensor_roles_.end()) {
       for (TensorView* tv : c_it->second) {
         int64_t v = innerMostVec(tv);
@@ -742,7 +758,11 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // #4
   {
     auto support_status = isMatmulFusionDefinitionSupported(
-        fusion, patterns.front(), tensor_roles, id_roles);
+        fusion,
+        patterns.front(),
+        tensor_roles,
+        id_roles,
+        id_model.idGraph(IdMappingMode::PERMISSIVE));
     if (!support_status.empty()) {
       return support_status;
     }
@@ -772,7 +792,7 @@ bool isCpAsyncOperandLoadSupported(
   };
   // TODO: We should compute validCpAsyncVecSize for all the operand
   // dtype/vec_size pairs and AND them together
-  return params->double_buffer_options.smem_double_buffer_stage > 1 &&
+  return params->circular_buffer_options.smem_circular_buffer_stage > 1 &&
       validCpAsyncVecSize(
              min_dtype_size,
              std::min(
@@ -836,10 +856,10 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
     // Fill in proper values using plugin
     matmul_heuristic_plugin::updateMatmulParams(
         *params,
-        problem_shape[(size_t)MatmulDomain::M],
-        problem_shape[(size_t)MatmulDomain::N],
-        problem_shape[(size_t)MatmulDomain::K],
-        problem_shape[(size_t)MatmulDomain::Batch],
+        problem_shape[(size_t)MatmulDimRole::M],
+        problem_shape[(size_t)MatmulDimRole::N],
+        problem_shape[(size_t)MatmulDimRole::K],
+        problem_shape[(size_t)MatmulDimRole::Batch],
         inner_dims,
         tensor_roles);
   } else {
@@ -859,7 +879,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           params->tile_sizes,
-          params->double_buffer_options.smem_double_buffer_stage,
+          params->circular_buffer_options.smem_circular_buffer_stage,
           tensor_roles);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {

@@ -3442,4 +3442,72 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
   }
 }
 
+TEST_F(ResizeTest, PadDtypes) {
+  auto sizes = {0, 10};
+  auto dtypes = {
+      at::kBool,
+      at::kFloat,
+      at::kLong,
+      at::kDouble,
+      at::kHalf,
+      at::kBFloat16,
+      at::kInt,
+      at::kComplexFloat,
+      at::kComplexDouble};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* size = IrBuilder::create<Val>(DataType::Int);
+  Val* fill_val = IrBuilder::create<Val>(DataType::Int);
+  fusion->addInput(size);
+  fusion->addInput(fill_val);
+  for (auto dtype : dtypes) {
+    if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
+      continue;
+    }
+    auto full_tv = full({size}, fill_val, aten_to_data_type(dtype));
+    auto out_tv =
+        pad(full_tv, {IrBuilder::create<Val>(1L), IrBuilder::create<Val>(1L)});
+    fusion->addOutput(out_tv);
+
+    auto* pad_value = out_tv->definition()->as<PadOp>()->value();
+    EXPECT_TRUE(pad_value->isZero());
+    EXPECT_FALSE(pad_value->isOne());
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  for (auto size : sizes) {
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, 8});
+
+    testValidate(
+        executor_cache.fusion(), cg_outputs, {size, 8}, __LINE__, __FILE__);
+  }
+}
+
+TEST_F(ResizeTest, Issue2552) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* x = makeContigConcreteTensor({1, 3});
+  TensorView* y = makeContigConcreteTensor({1, 3});
+  fusion->addInput(x);
+  fusion->addInput(y);
+  x = expand(x, {IrBuilder::create<Val>(2), x->axis(1)->extent()});
+  x = slice(x, /*starts=*/{0, 0}, /*stops=*/{1, 3});
+  fusion->addOutput(x);
+  TensorView* z = add(x, y);
+  fusion->addOutput(z);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor x_tensor = at::randn({1, 3}, options);
+  at::Tensor y_tensor = at::randn({1, 3}, options);
+  std::vector<at::Tensor> out_tensors =
+      fec.runFusionWithInputs({x_tensor, y_tensor});
+  testValidate(
+      fec.fusion(), out_tensors, {x_tensor, y_tensor}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

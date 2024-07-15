@@ -9,6 +9,7 @@
 
 #include <c10/util/ArrayRef.h>
 #include <c10/util/irange.h>
+#include <debug.h>
 #include <fusion_profiler.h>
 #include <inlining.h>
 #include <instrumentation.h>
@@ -20,6 +21,8 @@
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
+#include <scheduler/heuristic_types.h>
+#include <scheduler/registry.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 #include <transform_replay.h>
 #include <iostream>
@@ -445,6 +448,19 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("shared", MemoryType::Shared)
       .value("global", MemoryType::Global);
 
+  //! Scheduler Type for scheduling
+  py::enum_<ScheduleHeuristic>(nvfuser, "SchedulerHeuristic")
+      .value("none", ScheduleHeuristic::None)
+      .value("no_op", ScheduleHeuristic::NoOp)
+      .value("pointwise", ScheduleHeuristic::PointWise)
+      .value("matmul", ScheduleHeuristic::Matmul)
+      .value("reduction", ScheduleHeuristic::Reduction)
+      .value("inner_persistent", ScheduleHeuristic::InnerPersistent)
+      .value("inner_outer_persistent", ScheduleHeuristic::InnerOuterPersistent)
+      .value("outer_persistent", ScheduleHeuristic::OuterPersistent)
+      .value("transpose", ScheduleHeuristic::Transpose)
+      .value("expr_eval", ScheduleHeuristic::ExprEval);
+
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
   nvfuser.def("serialize", serialize);
@@ -531,6 +547,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "input_bytes", [](KernelProfile& self) { return self.input_bytes; });
   kernel_prof.def_property_readonly(
       "output_bytes", [](KernelProfile& self) { return self.output_bytes; });
+  kernel_prof.def_property_readonly(
+      "scheduler", [](KernelProfile& self) { return self.scheduler; });
 
   //! A fusion profile is generated for FusionDefinition.
   py::class_<FusionProfile> fusion_prof(nvfuser, "FusionProfile");
@@ -2893,8 +2911,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
       py::return_value_policy::reference);
-  //! The ScedOperators class is a nested class of FusionDefinition to allow the
-  //! user to query the class for the list of schedule operators.
+  //! The SchedOperators class is a nested class of FusionDefinition to allow
+  //! the user to query the class for the list of schedule operators.
   //!
   //! Example:
   //!   help(FusionDefinition.SchedOperators)
@@ -3066,6 +3084,19 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("tensor"),
       py::arg("op_type") = LoadStoreOpType::Set);
+  nvf_sched.def(
+      "cache_fork",
+      [](FusionDefinition::SchedOperators& self, Tensor tensor) -> Tensor {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        TensorView* input_tv =
+            fd->getFusionState(tensor.index)->template as<TensorView>();
+        TensorView* output_tv = input_tv->cacheFork();
+        return fd->addTensor(output_tv);
+      },
+      py::arg("tensor"));
   nvf_sched.def(
       "set_memory_type",
       [](FusionDefinition::SchedOperators& self,
@@ -3264,5 +3295,47 @@ void initNvFuserPythonBindings(PyObject* module) {
             !isResharding(tv->definition()));
       },
       py::arg("tensor"));
+  nvf_sched.def(
+      "can_schedule",
+      [](FusionDefinition::SchedOperators& self,
+         const ScheduleHeuristic& heuristic) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        return self.fusion_definition->userSchedule()->canScheduleDebug(
+            heuristic);
+      },
+      py::arg("heuristic"));
+  nvf_sched.def(
+      "find_compatible_schedulers", [](FusionDefinition::SchedOperators& self) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+
+        std::vector<ScheduleHeuristic> valid_heuristics;
+        valid_heuristics.reserve(all_heuristics_in_priority_order.size());
+        std::copy_if(
+            all_heuristics_in_priority_order.begin(),
+            all_heuristics_in_priority_order.end(),
+            std::back_inserter(valid_heuristics),
+            [sched = self.fusion_definition->userSchedule()](
+                ScheduleHeuristic heuristic) {
+              return sched->canSchedule(heuristic);
+            });
+        return valid_heuristics;
+      });
+  nvf_sched.def(
+      "schedule",
+      [](FusionDefinition::SchedOperators& self,
+         const ScheduleHeuristic& heuristic) {
+        NVF_CHECK(
+            self.validUse(),
+            "Attempting to use a SchedOperators Op prior to definition!");
+        UserSchedule* sched = self.fusion_definition->userSchedule();
+        auto&& [can_schedule, error_msg] = sched->canScheduleDebug(heuristic);
+        NVF_CHECK(can_schedule, error_msg);
+        sched->scheduleWithHeuristic(heuristic);
+      },
+      py::arg("heuristic"));
 }
 } // namespace nvfuser::python_frontend

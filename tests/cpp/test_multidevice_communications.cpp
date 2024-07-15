@@ -19,7 +19,7 @@ namespace nvfuser {
 
 class CommunicationTest
     : public MultiDeviceTest,
-      public ::testing::WithParamInterface<CommunicatorBackend> {
+      public testing::WithParamInterface<CommunicatorBackend> {
  protected:
   CommunicationTest();
   void SetUp() override;

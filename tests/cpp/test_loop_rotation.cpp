@@ -285,7 +285,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   }
 }
 
-TEST_F(LoopRotationTest, DoubleBuffered) {
+TEST_F(LoopRotationTest, CircularBuffered) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -396,7 +396,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   }
 }
 
-TEST_F(LoopRotationTest, SelectDoubleBufferLoad) {
+TEST_F(LoopRotationTest, SelectCircularBufferLoad) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -536,8 +536,8 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 // This is a case similar to matmul, where we have
 // tv4 = set(tv0) // cp.async for matmul
 // tv1 = set(tv4) // ld.matrix for matmul
-// and both are double buffered
-TEST_F(LoopRotationTest, MultipleDoubleBuffer) {
+// and both are circular buffered
+TEST_F(LoopRotationTest, MultipleCircularBuffer) {
   if (!deviceMajorMinorCheck(8)) {
     GTEST_SKIP() << "skipping tests on pre-Ampere GPUs";
     return;
@@ -558,8 +558,8 @@ TEST_F(LoopRotationTest, MultipleDoubleBuffer) {
   inlineAllAt(tv3, 1);
   inlineSelectedAt({tv1, tv2, tv3}, tv3, 2);
 
-  tv4->circularBuffer(5);
-  tv1->doubleBuffer();
+  tv4->circularBuffer(/*number_of_stages=*/5);
+  tv1->circularBuffer(/*number_of_stages=*/2);
   scheduler_utils::rotateLoop(tv3, 0, {tv1});
 
   const std::string expected_kernel = R"(

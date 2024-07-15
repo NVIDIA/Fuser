@@ -36,8 +36,8 @@ struct IndexFromIdGraph {
 //! indexed. If is_global global indexing will be done, else shared memory or
 //! local indexing will be performed.
 IndexFromIdGraph getTensorIndexFromIdGraph(
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const TensorView* consumer_tv,
     const TensorView* producer_tv = nullptr,
     bool is_global = true,
@@ -48,11 +48,11 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 //! indexing If is_start_predicate, will produce indexing math for the start
 //! predicates.
 IndexFromIdGraph getPredicateIndexingFromIdGraph(
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
-    kir::ForLoop* unswitch_or_vec_loop,
-    IterDomain* double_buffer_axis,
+    ForLoop* unswitch_or_vec_loop,
+    IterDomain* circular_buffer_axis,
     bool is_start_predicate);
 
 //! getTensorIndexFromIdGraph is the function that index_compute will call very
@@ -150,7 +150,7 @@ class LoopIndexing {
   friend class LoopIndexingAnalysis;
 
   //! The loop nest that this loop indexing is derived from.
-  std::vector<kir::ForLoop*> loops_;
+  std::vector<ForLoop*> loops_;
 
   //! Consumer tv, where the view related info was derived from.
   const TensorView* consumer_tv_ = nullptr;
@@ -178,7 +178,7 @@ class LoopIndexing {
 class LoopIndexingAnalysis {
  public:
   static LoopIndexing fromLoopAndConsumer(
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       const TensorView* consumer_tv);
 
   //! Return all concrete IDs that can be reachable from a given list
@@ -190,7 +190,7 @@ class LoopIndexingAnalysis {
 
  private:
   explicit LoopIndexingAnalysis(
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       const TensorView* consumer_tv);
 
   explicit LoopIndexingAnalysis(
@@ -201,7 +201,7 @@ class LoopIndexingAnalysis {
 
   //! Populate derived information into a LoopIndexing
   //!  data structure.
-  LoopIndexing getLoopIndexing(const std::vector<kir::ForLoop*>& loops) {
+  LoopIndexing getLoopIndexing(const std::vector<ForLoop*>& loops) {
     LoopIndexing indexing;
     indexing.loops_ = loops;
     indexing.consumer_tv_ = consumer_tv_;
@@ -214,7 +214,7 @@ class LoopIndexingAnalysis {
 
   //! Validates that the current loop structure is well formed, in the sense
   //! that ca_map would not map any two loops in the loop nest together.
-  void validateLoopStructure(const std::vector<kir::ForLoop*>& loops);
+  void validateLoopStructure(const std::vector<ForLoop*>& loops);
 
   //! Start at the loop iter domains, and traverse back into history on the
   //! concrete IDs in the exact map calling "visitExpr" expressions through the

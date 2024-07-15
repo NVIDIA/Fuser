@@ -9,6 +9,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <abstract_tensor.h>
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/lower2device.h>
@@ -6561,8 +6562,8 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->split(0, 4);
   // [I0/4, 4, I1]
 
-  // Initial domain: logical domain
-  // Derived domain: [4, I1]
+  // dom0: logical domain
+  // dom1: [4, I1]
   // Should fail as the derived domain only partially covers the
   // logical domain
   EXPECT_THAT(
@@ -6571,13 +6572,13 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             tv1->getLogicalDomain(), {tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Invalid derived domain")));
+          testing::HasSubstr("dom0 and dom1 are not equal")));
 
   tv1->merge(0);
   // [I0/4*4, I1]
 
-  // Initial domain: logical domain
-  // Derived domain: loop domain
+  // dom0: logical domain
+  // dom1: loop domain
   // Should succeed.
   ir_utils::validateDomainEquivalence(
       tv1->getLogicalDomain(), tv1->getLoopDomain());
@@ -6587,8 +6588,8 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   tv1->split(0, 3);
   // [I0/4*4/3, 3, I1]
 
-  // Initial domain: logical domain
-  // Derived domain: loop + tv1_intermediate_id
+  // dom0: logical domain
+  // dom1: loop + tv1_intermediate_id
   // Should fail as the intermediate ID and the first two loop ids are redundant
   EXPECT_THAT(
       [&]() {
@@ -6597,7 +6598,7 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
             {tv1_intermediate_id, tv1->axis(0), tv1->axis(1), tv1->axis(2)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Invalid derived domain")));
+          testing::HasSubstr("dom0 and dom1 are not equal")));
 
   // Testing symbolic domains
   auto tv2 = reshape(
@@ -6619,17 +6620,16 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
   ir_utils::validateDomainEquivalence(
       tv4->getLogicalDomain(), tv4->getLoopDomain());
 
-  // Initial domain: root domain
-  // Derived domain: [S0, B0/4]
-  // Should fail as the derived domain only partially covers the
-  // root domain
+  // dom0: logical domain
+  // dom1: [S0, B0/4]
+  // Should fail as the dom1 only partially covers dom0
   EXPECT_THAT(
       [&]() {
         ir_utils::validateDomainEquivalence(
             tv4->getLogicalDomain(), {tv4->axis(0), tv4->axis(1)});
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Invalid derived domain")));
+          testing::HasSubstr("dom0 and dom1 are not equal")));
 }
 
 // Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
@@ -8236,6 +8236,122 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
           ::testing::HasSubstr("unsupported use case of cp.async")));
 }
 
+TEST_F(NVFuserTest, DecoupledDomains) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // XX shape structure:
+  //
+  // domain 0: [I0, I1...    I2  I3} domain 1
+  //             \  /         \  /
+  //            merge         merge
+  //             /  \         /  \.
+  // domain 1: {I4  I5    ...I6, I7] domain 0
+  // where domain 0 is [I0, I1, I6, I7], and
+  //       domain 1 is [I4, I5, I2, I3]
+  auto create_xx_shape_structure = []() {
+    auto s0 = IrBuilder::create<Val>(DataType::Index);
+    auto s1 = IrBuilder::create<Val>(DataType::Index);
+    auto s2 = IrBuilder::create<Val>(DataType::Index);
+    auto s3 = IrBuilder::create<Val>(DataType::Index);
+    auto id0 = IterDomainBuilder(s0->fusion()->zeroVal(), s0).build();
+    auto id1 = IterDomainBuilder(s1->fusion()->zeroVal(), s1).build();
+    auto id2 = IterDomainBuilder(s2->fusion()->zeroVal(), s2).build();
+    auto id3 = IterDomainBuilder(s3->fusion()->zeroVal(), s3).build();
+    std::unordered_set<IterDomain*> all_ids{id0, id1, id2, id3};
+    AbstractTensor dom0({id0, id1, id2, id3});
+    AbstractTensor dom1 = dom0;
+    dom0.merge(2);
+    all_ids.insert(dom0[2].as<IterDomain*>());
+    dom0.split(2, 256);
+    all_ids.insert(dom0[2].as<IterDomain*>());
+    all_ids.insert(dom0[3].as<IterDomain*>());
+    dom1.merge(0);
+    all_ids.insert(dom1[0].as<IterDomain*>());
+    dom1.split(0, 256);
+    all_ids.insert(dom1[0].as<IterDomain*>());
+    all_ids.insert(dom1[1].as<IterDomain*>());
+    return std::make_tuple(
+        dom0.as<IterDomain*>(), dom1.as<IterDomain*>(), all_ids);
+  };
+  auto [logical_xx0, logical_xx1, logical_all] = create_xx_shape_structure();
+  auto [root_xx0, root_xx1, root_all] = create_xx_shape_structure();
+  auto [alloc_xx0, alloc_xx1, alloc_all] = create_xx_shape_structure();
+  auto [loop_xx0, loop_xx1, loop_all] = create_xx_shape_structure();
+
+  auto concat = [](auto x, auto y, auto z, auto q) {
+    std::vector<IterDomain*> result;
+    result.reserve(x.size() + y.size() + z.size() + q.size());
+    result.insert(result.end(), x.begin(), x.end());
+    result.insert(result.end(), y.begin(), y.end());
+    result.insert(result.end(), z.begin(), z.end());
+    result.insert(result.end(), q.begin(), q.end());
+    return decltype(x)(result.begin(), result.end());
+  };
+  auto logical_domain = concat(logical_xx1, root_xx0, alloc_xx0, loop_xx0);
+  auto root_domain = concat(logical_xx0, root_xx1, alloc_xx0, loop_xx0);
+  auto allocation_domain = concat(logical_xx0, root_xx0, alloc_xx1, loop_xx0);
+  auto loop_domain = concat(logical_xx0, root_xx0, alloc_xx0, loop_xx1);
+  std::vector<std::optional<bool>> contiguity(allocation_domain.size(), true);
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      root_domain, logical_domain, allocation_domain, loop_domain, contiguity);
+  TensorView* tv = IrBuilder::create<TensorView>(td, DataType::Float);
+  auto all_ids = concat(logical_all, root_all, alloc_all, loop_all);
+  auto tv_all_vec = ir_utils::allIDsOf(tv);
+  std::unordered_set<IterDomain*> tv_all(tv_all_vec.begin(), tv_all_vec.end());
+  EXPECT_EQ(tv_all, all_ids);
+}
+
+// https://github.com/NVIDIA/Fuser/issues/2488
+TEST_F(NVFuserTest, ReplayRFactorMergeBcast) {
+  const std::vector<int64_t> input_shape = {256, 1, 1, 4};
+  // test rFactor, merge of two bcast IDs generate a bcast ID
+  {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+    TensorView* tv0 = makeConcreteTensor(input_shape);
+    fusion.addInput(tv0);
+    auto tv1 = sum(tv0, {-1});
+    fusion.addOutput(tv1);
+    // {256, 1, 1, 4}
+    tv1->merge(1, 2);
+    // {256, 1*1, 4}
+    tv1->merge(0, 1);
+    // {256*1*1, 4}
+    tv1->split(-1, 2);
+    // {256*1*1, 4/2, 2}
+    auto tv2 = tv1->rFactor({-2});
+    for (auto expr : StmtSort::getExprsTo(
+             {tv2->getLoopDomain().begin(), tv2->getLoopDomain().end()})) {
+      if (auto merge = dynamic_cast<Merge*>(expr)) {
+        if (merge->outer()->isBroadcast() && merge->inner()->isBroadcast()) {
+          EXPECT_TRUE(merge->out()->isBroadcast())
+              << "Merge of two broadcast IDs should generate a new broadcast ID: "
+              << merge->toString();
+        }
+      }
+    }
+  }
+  // end-to-end validation
+  {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+    TensorView* tv0 = makeConcreteTensor(input_shape);
+    fusion.addInput(tv0);
+    auto tv1 = sum(tv0, {-1});
+    fusion.addOutput(tv1);
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor at_x = at::ones(input_shape, options);
+    std::vector<c10::IValue> aten_inputs = {at_x};
+    FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+    auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

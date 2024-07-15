@@ -7,8 +7,6 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <codegen.h>
-#include <device_lower/lower2device.h>
 #include <executor.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -18,17 +16,12 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_cache.h>
-#include <kernel_ir.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
 
 namespace nvfuser {
 
@@ -43,7 +36,7 @@ class DistributedMatmulTest : public MultiDeviceTest {
     }
   }
 
-  MultiDeviceExecutorParams executor_params_{
+  hir::HostIrExecutorParams executor_params_{
       .use_fusion_executor_cache = true,
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
@@ -105,9 +98,8 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
       MmaLayout::TN, M, N, K, /*dtype=*/at::kFloat);
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
-  std::vector<c10::IValue> inputs = {
-      shardTensor(in0, a, communicator_->deviceId()), in1};
-  auto expected_output = shardTensor(out, c, communicator_->deviceId());
+  std::vector<c10::IValue> inputs = {shardTensor(in0, a), in1};
+  auto expected_output = shardTensor(out, c);
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
@@ -119,11 +111,11 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_FALSE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -173,9 +165,8 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
       getInputsAndReferenceOutputs(MmaLayout::TN, M, N, K, /*dtype=*/at::kHalf);
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
-  std::vector<c10::IValue> inputs = {
-      shardTensor(in0, a, communicator_->deviceId()), in1};
-  auto expected_output = shardTensor(out, c, communicator_->deviceId());
+  std::vector<c10::IValue> inputs = {shardTensor(in0, a), in1};
+  auto expected_output = shardTensor(out, c);
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
@@ -189,11 +180,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -241,9 +232,8 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
   in0 = in0.view({Mo, Mi, K});
   out = out.view({Mo, Mi, N});
 
-  std::vector<c10::IValue> inputs = {
-      shardTensor(in0, a, communicator_->deviceId()), in1};
-  auto expected_output = shardTensor(out, c, communicator_->deviceId());
+  std::vector<c10::IValue> inputs = {shardTensor(in0, a), in1};
+  auto expected_output = shardTensor(out, c);
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
@@ -256,11 +246,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -306,9 +296,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
       getInputsAndReferenceOutputs(MmaLayout::NT, M, N, K, /*dtype=*/at::kHalf);
   in0 = in0.view({Ko, Ki, M});
   in1 = in1.view({Ko, Ki, N});
-  std::vector<c10::IValue> inputs = {
-      shardTensor(in0, a, communicator_->deviceId()),
-      shardTensor(in1, b, communicator_->deviceId())};
+  std::vector<c10::IValue> inputs = {shardTensor(in0, a), shardTensor(in1, b)};
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
@@ -317,11 +305,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   testValidate(
       runtime.completeFusion(), outputs, inputs, {out}, __LINE__, __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()
@@ -374,11 +362,8 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   in0 = in0.view({Ko, Ki, M});
   in1 = in1.view({Ko, Ki, N});
   out = out.view({Mo, Mi, N});
-  std::vector<c10::IValue> inputs = {
-      shardTensor(in0, a, communicator_->deviceId()),
-      shardTensor(in1, b, communicator_->deviceId())};
-  auto expected_output =
-      shardTensor(out, c, communicator_->deviceId()).view({1, Mi, N});
+  std::vector<c10::IValue> inputs = {shardTensor(in0, a), shardTensor(in1, b)};
+  auto expected_output = shardTensor(out, c).view({1, Mi, N});
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
@@ -391,11 +376,11 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
       __LINE__,
       __FILE__);
 
-  std::vector<FusionExecutorCache*> fecs = runtime.getFusionExecutorCaches();
+  const auto& fecs = runtime.getFusionExecutorCaches();
   EXPECT_EQ(fecs.size(), 1);
 
   const FusionKernelRuntime* kernel_runtime =
-      fecs.front()->getMostRecentKernelRuntime();
+      fecs.begin()->second.getMostRecentKernelRuntime();
   EXPECT_TRUE(kernel_runtime->isSegmented());
 
   ScheduleHeuristic heuristic = kernel_runtime->schedulerHeuristics()

@@ -4018,6 +4018,33 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    # See https://github.com/NVIDIA/Fuser/issues/2317
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    def test_reduction_transpose_sched_issue2317(self):
+        inputs = [
+            torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((16, 128, 1600), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((1600, 1600), dtype=torch.bfloat16, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition, inputs) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.from_pytorch(inputs[2])
+
+            T10 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+            T11 = fd.ops.stride_order(T10, stride_order=[3, 2, 1, 0])
+            T16 = fd.ops.reshape(T11, new_shape=T1.shape())
+            T17 = fd.ops.linear(T16, T2)
+            T33 = fd.ops.add(T17, T1)
+
+            T33 = fd.ops.cast(T33, dtype=DataType.BFloat16)
+            T34 = fd.ops.linear(T33, T2)
+            T35 = fd.ops.add(T34, T33)
+            fd.add_output(T35)
+
+        nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inputs=inputs), inputs)
+
     def test_fusion_profiler(self):
         inputs = [
             torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
@@ -4050,6 +4077,66 @@ class TestNvFuserFrontend(TestCase):
             prof = fd.profile()
             self.assertEqual(prof.segments, 2)
             self.assertEqual(len(prof.kernel_profiles), 2)
+        except Exception as e:
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
+
+    def test_fusion_profiler_user_schedule(self):
+        inputs = [
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.ops.add(T0, T1)
+            fd.add_output(T2)
+
+        class MyFusion(FusionDefinition):
+            def definition(self):
+                fusion_func(fd)
+
+            def schedule(self):
+                pass
+
+        fd = MyFusion()
+        try:
+            fd.execute(inputs, profile=True)
+            self.assertTrue(fd.profile().fusion_id >= 0)
+            self.assertEqual(fd.profile().kernel_profiles[0].scheduler, "user")
+        except Exception as e:
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
+
+    def test_fusion_profiler_with_noncodegen_kernels(self):
+        inputs = [
+            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.from_pytorch(inputs[2])
+            T3 = fd.ops.linear(T0, T2)
+            T4 = fd.ops.add(T3, T1)
+            fd.add_output(T4)
+
+        class MyFusion(FusionDefinition):
+            def definition(self):
+                fusion_func(fd)
+
+        fd = MyFusion()
+        try:
+            fd.execute(inputs, profile=True)
+            self.assertTrue(fd.profile().fusion_id >= 0)
+            self.assertEqual(len(fd.profile().kernel_profiles), 2)
+            self.assertGreaterEqual(len(fd.profile().kernel_profiles[0].name), 0)
+            self.assertGreaterEqual(len(fd.profile().kernel_profiles[1].name), 0)
         except Exception as e:
             raise RuntimeError(
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
@@ -4253,6 +4340,95 @@ class TestNvFuserFrontend(TestCase):
             T4 = fd.ops.mul(T2, S3)
             fd.add_output(T2)
             fd.add_output(T4)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_reshape_dynamic(self):
+        inputs = [
+            32,
+            torch.randn((192,), dtype=torch.float32, device="cuda:0").as_strided(
+                (4, 8, 6), (48, 6, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            S0 = fd.define_scalar(None, dtype=DataType.Int)
+            T1 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            S2 = fd.define_scalar(1, dtype=DataType.Int)
+            S3 = fd.ops.mul(S2, S0)
+            S4 = fd.ops.signbit(S3)
+            S5 = fd.define_scalar(False, dtype=DataType.Bool)
+            S6 = fd.ops.ne(S4, S5)
+            S7 = fd.define_scalar(192, dtype=DataType.Int)
+            S8 = fd.ops.fmod(S7, S3)
+            S9 = fd.ops.cast(S8, dtype=DataType.Int)
+            S10 = fd.define_scalar(0, dtype=DataType.Int)
+            S11 = fd.ops.ne(S9, S10)
+            S12 = fd.ops.bitwise_and(S6, S11)
+            S13 = fd.define_scalar(192, dtype=DataType.Int)
+            S14 = fd.ops.reciprocal(S3)
+            S15 = fd.ops.mul(S13, S14)
+            S16 = fd.ops.cast(S12, dtype=DataType.Int)
+            S17 = fd.ops.sub(S15, S16)
+            V18 = fd.define_vector([S0, S17], dtype=DataType.Int)
+            T19 = fd.ops.reshape(T1, new_shape=V18)
+            T20 = fd.ops.sum(T19, dims=[1], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T20)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # Test that we do not hit segfaults when replacing an empty tensor that has multiple uses
+    # https://github.com/NVIDIA/Fuser/issues/2545
+    def test_remove_empty_issue_2545(self):
+        inputs = [
+            torch.randint(0, 10, (2,), dtype=torch.int64, device="cuda:0").as_strided(
+                (2,), (1,)
+            ),
+            torch.randint(0, 10, (0,), dtype=torch.int64, device="cuda:0").as_strided(
+                (0,), (1,)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            S2 = fd.define_scalar(0, dtype=DataType.Int)
+            T3 = fd.ops.lt(T0, S2)
+            S4 = fd.define_scalar(5, dtype=DataType.Int)
+            S5 = fd.define_scalar(0, dtype=DataType.Int)
+            T6 = fd.ops.where(T3, S4, S5)
+            T7 = fd.ops.add(T0, T6)
+            S8 = fd.define_scalar(0, dtype=DataType.Int)
+            T9 = fd.ops.add(T7, S8)
+            T10 = fd.ops.cat([T1, T9], dim=0)
+            S11 = fd.define_scalar(0, dtype=DataType.Int)
+            T12 = fd.ops.add(T10, S11)
+            T13 = fd.ops.cat([T1, T12], dim=0)
+            S14 = fd.define_scalar(5, dtype=DataType.Int)
+            T15 = fd.ops.add(T10, S14)
+            T16 = fd.ops.cat([T13, T15], dim=0)
+            S17 = fd.define_scalar(10, dtype=DataType.Int)
+            T18 = fd.ops.add(T10, S17)
+            fd.add_output(T18)
+            fd.add_output(T16)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
