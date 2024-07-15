@@ -157,6 +157,11 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
       PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
   for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
     auto p2c_map_it = p2c_map.find(p_id);
+    if (p2c_map_it == p2c_map.end()) {
+      std::cout << "Offending id " << p_id->toString() << std::endl;
+      std::cout << "Error here " << consumer->definition()->toString() << std::endl;
+      std::cout << "Producer " << producer->toString() << std::endl;
+    }
     NVF_ERROR(
         p2c_map_it != p2c_map.end(),
         "the producer ",
@@ -248,7 +253,7 @@ void insertReshardingBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (auto expr : fusion->exprs()) {
-    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr)) {
+    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr) || expr->isA<SdpaFwdOp>()) {
       continue;
     }
     if (expr->outputs().size() != 1) {
@@ -291,7 +296,7 @@ void insertReshardingsAfter(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr)) {
+    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr) || expr->isA<SdpaFwdOp>()) {
       continue;
     }
     if (expr->outputs().size() != 1) {

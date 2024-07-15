@@ -56,8 +56,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
   propagateShardings(complete_fusion_.get());
-  // insertReshardings(complete_fusion_.get());
-  // insertShardedAxisReordering(complete_fusion_.get());
+  insertReshardings(complete_fusion_.get());
+  insertShardedAxisReordering(complete_fusion_.get());
   setShardedAllocationDomain(complete_fusion_.get());
 
   // Performs segmentation at the inter-device communications
