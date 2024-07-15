@@ -534,7 +534,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   tv3->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -590,8 +590,17 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   }
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  // -> reg is swizzled : loop and allocation
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
-  tv2->setAllocationDomain(tv1->getLoopDomain(), true);
+  // sh_mem loop domain is swizzle and not allocation
+  // tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+
+  tv3->split(-2, 64);
+  tv3->split(-1, 256);
+  tv3->reorder({{-2, -3}});
+  tv3->getLoopDomain().at(2)->parallelize(ParallelType::Bulk);
+  tv3->getLoopDomain().at(1)->parallelize(ParallelType::Bulk);
+  tv3->printTransforms();
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
