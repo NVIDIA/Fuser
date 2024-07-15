@@ -878,31 +878,27 @@ void WarpMmaSwizzler::scheduleTMALoadForMma(
     auto dtype = tv->getDataType().value();
 
     // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
-    if (split_outer_dim) {
-      // [..., K(16),  N(326)] ->
-      // [..., KO(2), KI(8), N(32)]
-      //  We use 8 because it's 128 / getBytesFromSwizzle(swizzle)  *
-      //  getBytesFromSwizzle(swizzle) / 16
-      tv->split(-2, 8);
-      num_ids_to_skip++;
-    }
 
     // split the inner-dim
-    // [..., K(16), N(32)] -> [...K(16), N0(2), NI(16)]
-    // [..., KO(2), KI(8), N(32)] ->
-    // [..., KO(2), KI(8), NO(2), NI(16))] (outer split)
+    // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
     tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
-    num_ids_to_skip++;
 
-    // [...K(16), N0(2), NI(16)] -> [..., N0(2), K(16), NI(16)]
-    // [..., KO(2), KI(8), NO(2), NI(16))] ->
-    // [..., KO(2), NO(2), KI(8), NI(16))] (outer split)
+    // [NO, K, NI] - the TMA Box is [K, NI]
     tv->reorder({{-2, -3}});
 
-    // Outer Dim split,box is: [KI(8), NI(16)]
-    // Outer Dim is not split,box is [K(16), NI(16)]
-    // Everything inside a box should be marked parallel bulk
-    tv->swizzleTMABox(swizzle, split_outer_dim);
+    // [NO, K, NI] ->
+    // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+    tv->swizzleTMABox(swizzle);
+
+    // If the outer dim is split, then we pull out KO to be outside NO
+    // and KO and NO are both not marked bulk parallel, else NO is outer
+    // and only NO is not marked bulk parallel.
+    if (split_outer_dim) {
+      // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)] ->
+      // [KO(2), NO(2), KIO(2), KII(4), NIO(2), NII(8)]
+      tv->reorder({{-6, -5}});
+    }
+    num_ids_to_skip += split_outer_dim ? 2 : 1;
   }
 
   parallelizeAsBulkSkippingFirstIDs(tv, num_ids_to_skip);

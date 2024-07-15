@@ -414,7 +414,7 @@ class NVF_API TensorView : public Val {
   //! and the inner-dimension is less or equal to the swizzle size.
   //! This doesn't work for the swizzle none mode. For more details
   //! refer to the figure doc/dev/tma/swizzle.svg
-  void swizzleTMABox(MmaInputSmemSwizzle swizzle, bool split_outer_dim = true);
+  void swizzleTMABox(MmaInputSmemSwizzle swizzle);
 
   //! Transforms the innermost iterdomains according to the given mma swizzle,
   //!  this should be used on the tvs that are inputs of a MmaOp or are loaded
