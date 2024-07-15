@@ -204,7 +204,7 @@ class WarpMmaSwizzler {
   static void swizzleTMABox(
       TensorView* tv,
       MmaInputSmemSwizzle swizzle,
-      bool split_outer_dim = true);
+      bool permute_outer_dim = true);
 
   //! Function to schedule the load of the input operands of a
   //! Mma op. This internally calls swizzleTMABox. This function
