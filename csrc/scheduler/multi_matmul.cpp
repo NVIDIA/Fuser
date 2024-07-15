@@ -34,20 +34,31 @@ constexpr bool isPowOf2(int64_t x) {
   return x > 1 && (x & (x - 1)) == 0;
 }
 
-// Utility to check concrete static size:
-inline void checkConcreteStaticDim(const AbstractId& abs_id) {
-  IterDomain* id = nullptr;
-  // TODO: it might make sense to create an IterDomain*
-  // AbstractId::candidateId() function
+// TODO: it might make sense to make this an AbstractId method
+inline IterDomain* representativeId(const AbstractId& abs_id) {
   if (abs_id.is<IterDomain*>()) {
-    id = abs_id.as<IterDomain*>();
+    return abs_id.as<IterDomain*>();
   } else if (abs_id.is<ValGroupAndItsGraph>()) {
     auto vgg = abs_id.as<ValGroupAndItsGraph>();
-    id = vgg.group->front()->as<IterDomain>();
+    return vgg.group->front()->as<IterDomain>();
   } else {
     NVF_ERROR(false, "Could not convert AbstractId to concrete IterDomain");
   }
+  return nullptr;
+}
 
+inline int64_t constDimSize(const AbstractId& abs_id) {
+  IterDomain* id = representativeId(abs_id);
+  NVF_ERROR(
+      id->extent()->isConstInt(),
+      "swizzled dimension's extend must be known during scheduling, got ",
+      id->toString());
+  return id->extent()->value().as<int64_t>();
+}
+
+// Utility to check concrete static size:
+inline void checkConcreteStaticDim(const AbstractId& abs_id) {
+  IterDomain* id = representativeId(abs_id);
   NVF_ERROR(
       !id->isBroadcast() && !id->isReduction(),
       "no support for reduction or broadcast domains, but got ",
@@ -1242,41 +1253,42 @@ class MultipleMatmulScheduler {
     // [M, N, K]
     auto cta_tile = params_.tile_sizes.cta_tile;
     auto warp_tile = params_.tile_sizes.warp_tile;
-    // auto instruction_tile = params_.tile_sizes.instruction_tile;
+    auto instruction_tile = params_.tile_sizes.instruction_tile;
 
     // Do not split K dimension of CTA tile into multiple warp tiles
     NVF_CHECK(
         cta_tile.k == warp_tile.k,
         "CTA tile and warp tile must have same K dimension");
 
-    // TODO: Check that has M, N, K as the inner dims
+    // Check that at_mma_result_ has M, N, K as the inner dims
+    // TODO: Handle cases where these dimensions are permuted
     NVF_ERROR(at_mma_result_.hasTag(-1, MatmulDimRole::K));
     NVF_ERROR(at_mma_result_.hasTag(-2, MatmulDimRole::N));
     NVF_ERROR(at_mma_result_.hasTag(-3, MatmulDimRole::M));
 
-    /*
-    mma_utils::checkDimSize(
-        tv, {-3, -2, -1}, {cta_tile.m, cta_tile.n, cta_tile.k});
+    NVF_ERROR(constDimSize(at_mma_result_[-3]) == cta_tile.m);
+    NVF_ERROR(constDimSize(at_mma_result_[-2]) == cta_tile.n);
+    NVF_ERROR(constDimSize(at_mma_result_[-1]) == cta_tile.k);
 
     //       -3   -2  -1
     //[...    M,   N,  K]
     // Distribute warp tile:
-    tv->split(-3, warp_tile.m);
-    tv->split(-2, warp_tile.n);
+    at_mma_result_.split(-3, warp_tile.m);
+    at_mma_result_.split(-2, warp_tile.n);
 
     //  -5   -4   -3   -2   -1
     // [Mwo  Mw  Nwo   Nw   K]
-    tv->split(-4, instruction_tile.m);
-    tv->split(-2, instruction_tile.n);
-    tv->split(-1, instruction_tile.k);
+    at_mma_result_.split(-4, instruction_tile.m);
+    at_mma_result_.split(-2, instruction_tile.n);
+    at_mma_result_.split(-1, instruction_tile.k);
 
     //   -8  -7 -6 -5 -4 -3  -2 -1
     // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
 
-    tv->reorder({{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
+    at_mma_result_.reorder(
+        {{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
     //   -8  -7 -6  -5 -4 -3 -2 -1
     // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
-    */
   }
 
   void applyFinalTransforms() const {
