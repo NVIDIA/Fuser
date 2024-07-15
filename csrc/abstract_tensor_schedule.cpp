@@ -249,19 +249,19 @@ class AbstractTensorSchedule {
         // guaranteed to have the same type and identical attributes.
         Expr* expr = eg->front();
 
-        std::vector<IterDomain*> id_inps;
+        std::vector<IterDomain*> computed_inputs;
         bool all_inputs_computed = true;
         bool some_inputs_uncomputable = false;
         for (Val* inp : expr->inputs()) {
           ValGroup vg_inp = graph_->toGroup(inp);
           auto inp_it = computed_ids.find(vg_inp);
           if (inp_it != computed_ids.end()) {
-            id_inps.push_back(inp_it->second);
+            computed_inputs.push_back(inp_it->second);
           } else {
             // this input is not yet computed
             all_inputs_computed = false;
             if (uncomputable_groups.count(vg_inp) == 0) {
-              // this input is not yet proven to be incomputable, so try and
+              // this input is not yet proven to be uncomputable, so try and
               // compute it in the next iteration
               unprocessed_producer_groups.push_back(vg_inp);
             } else {
@@ -270,16 +270,16 @@ class AbstractTensorSchedule {
           }
         }
         NVF_ERROR(
-            !some_inputs_uncomputable || id_inps.empty(),
+            !some_inputs_uncomputable || computed_inputs.empty(),
             "There are both computable and uncomputable producer groups."
             "Refusing to automatically forward those computed inputs.",
             " Expr: ",
             expr->toString(),
             " Computed ID: ",
-            id_inps.front()->toString());
+            computed_inputs.front()->toString());
         if (all_inputs_computed) {
           // Compute new ID expression
-          Expr* id_expr = replayIdExpr(expr, id_inps);
+          Expr* id_expr = replayIdExpr(expr, computed_inputs);
           // Update the mapping to point to all of the newly created Expr's
           // outputs
           NVF_ERROR(id_expr->outputs().size() == expr->outputs().size());
