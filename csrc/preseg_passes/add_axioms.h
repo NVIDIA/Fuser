@@ -8,7 +8,6 @@
 #pragma once
 
 #include <preseg_passes/optimization_pass.h>
-#include <visibility.h>
 
 namespace nvfuser::preseg_passes {
 
