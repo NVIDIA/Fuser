@@ -60,7 +60,9 @@ class AliasAnalysisResult {
   // Computes transitive aliases and caches them in `alias_to_root_`.
   // See `findAliases` for the meaning of
   // `can_override_empty_allocation_domain`.
-  void finalize(bool can_override_empty_allocation_domain);
+  void finalize(
+      bool can_override_empty_allocation_domain,
+      bool allow_output_alias_intermediate);
 
   // Returns the preferred layout. If `alias` is not in `preferred_layout_`,
   // returns the `TensorView`'s initial layout.
@@ -112,7 +114,9 @@ class AliasAnalysisResult {
 // schedulers. The former, used by MarkAliasesPreparePass, updates layouts to
 // enable aliases; the latter, used by NoOpScheduler, calls
 // Fusion::aliasOutputToInput to mark aliases.
-NVF_API AliasAnalysisResult
-findAliases(Fusion* fusion, bool can_override_empty_allocation_domain = true);
+NVF_API AliasAnalysisResult findAliases(
+    Fusion* fusion,
+    bool can_override_empty_allocation_domain = true,
+    bool can_alias_intermediate = false);
 
 } // namespace nvfuser

@@ -14,52 +14,23 @@
 
 namespace nvfuser::preseg_passes {
 
-// TODO: other special ops?
-bool isViewOp(TensorView* tv) {
-  return tv->definition() != nullptr && tv->definition()->isA<ViewOp>();
-}
-
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
-  const AliasAnalysisResult analysis =
-      findAliases(fusion, /*can_override_empty_allocation_domain=*/true);
+  const AliasAnalysisResult analysis = findAliases(
+      fusion,
+      /*can_override_empty_allocation_domain=*/true,
+      /*can_alias_intermediate=*/true);
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Alias analysis result:" << std::endl;
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
   }
 
-<<<<<<< HEAD
-  // Fusion outputs that are (1) aliased by another fusion output, (2) not
-  // aliases themselves, and (3) not fusion inputs (yes, a fusion may trivially
-  // forward an input). Code will later add `segment_set` before them so aliases
-  // are separated from non-aliases and more likely to be accepted by the no-op
-  // scheduler.
-  std::unordered_set<TensorView*> aliased_outs;
-
-  // Fusion outputs that are views of intermediate tensors
-  std::unordered_set<TensorView*> output_view_intermediate;
-
-=======
   // Materialize the alias-enabling allocation domain.
->>>>>>> main
   for (TensorView* tv : ir_utils::allTvs(fusion)) {
     TensorView* aliased_io = analysis.getNearestAliasedIo(tv);
     if (aliased_io == nullptr) {
       continue;
     }
 
-<<<<<<< HEAD
-    if (tv->isFusionOutput() && aliased_io->isFusionOutput() &&
-        !aliased_io->isFusionInput() &&
-        analysis.getNearestAliasedIo(aliased_io) == nullptr) {
-      aliased_outs.insert(aliased_io);
-    } else if (
-        tv->isFusionOutput() && !aliased_io->isFusionOutput() &&
-        !aliased_io->isFusionInput() && isViewOp(tv)) {
-      output_view_intermediate.insert(aliased_io);
-    }
-
-=======
->>>>>>> main
     // `AliasAnalysisResult::finalize` already checked the alias-enabling layout
     // is compliant with `tv`'s existing layout before adding `tv` to
     // `alias_to_root_`. So the existing layout can remain unchanged.
@@ -158,10 +129,6 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     if (aliased_io->isFusionOutput()) {
       fusion->replaceOutput(aliased_io, copy);
     }
-  }
-
-  for (TensorView* tv : output_view_intermediate) {
-    tv->cacheAfter(LoadStoreOpType::SegmenterSet);
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
