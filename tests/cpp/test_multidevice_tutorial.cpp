@@ -16,6 +16,13 @@ class MultiDeviceTutorial : public MultiDeviceTest {
  protected:
   static void SetUpTestSuite() {
     verbose_ = getNvFuserEnv("TUTORIAL_VERBOSE");
+
+    if (communicator_->is_available() == false) {
+      GTEST_SKIP()
+          << "Distributed setting not available. "
+          << "Make sure you are on a node with n>1 GPUs and run "
+          << "`mpirun -np n -x TUTORIAL_VERBOSE=1 tutorial_multidevice`";
+    }
   }
 
  protected:
@@ -24,6 +31,14 @@ class MultiDeviceTutorial : public MultiDeviceTest {
 
 bool MultiDeviceTutorial::verbose_ = false;
 
+// To run those tests, allocate a node with n>1 GPUs and run:
+//
+// mpirun -np n -x TUTORIAL_VERBOSE=1 tutorial_multidevice
+//
+// We use a SPMD paradigm, where each host process manages one and only device.
+// Therefore, the number of process "n" aboves needs to be less or equal than
+// the number of GPUs in the node.
+//
 // The first object we need to introduce is the class `Communicator` which is
 // a convenience that is nvFuser's interface to runtime distributed setting
 // and backend. Communicator's setup is expansive (because all IP addresses
@@ -33,12 +48,11 @@ bool MultiDeviceTutorial::verbose_ = false;
 // have a singleton instance. This communicator can be accessed through
 // MultiDeviceTest::communicator_
 TEST_F(MultiDeviceTutorial, CommunicatorAndC10d) {
-  Communicator* communicator = communicator_;
+  Communicator* communicator = communicator_; // setup by MultiDeviceTest
 
   // To check if distributed setting is available:
-  if (communicator->is_available() == false) {
-    GTEST_SKIP() << "distributed setting not available";
-  }
+  ASSERT_TRUE(communicator->is_available());
+
   // During instantiation, the Communicator will parse information from the
   // environment variable. Setting those env vars properly is what is requested
   // from the user for multidevice to be available in nvFuser. Those environment
@@ -135,9 +149,6 @@ TEST_F(MultiDeviceTutorial, CommunicatorAndC10d) {
 // devices on which the tensors will be sharded.
 TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   Communicator* const communicator = communicator_;
-  if (communicator->is_available() == false) {
-    GTEST_SKIP() << "distributed setting not available";
-  }
 
   // MODEL DEFINITION
   // Let us define a model expressing a simple memcpy
@@ -216,6 +227,9 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
   at::Tensor input = at::randn({tensor_size}, tensor_options);
   {
     // EXECUTION
+    // This class is responsible for managing a single device (given by
+    // communicator->deviceId()) in a SPMD multidevice program. Recall that each
+    // rank manages one and only one GPU.
     MultiDeviceExecutor multidevice_executor(
         std::make_unique<Fusion>(fusion), *communicator);
     if (verbose_print) {
@@ -242,7 +256,9 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
     MultiDeviceExecutor multidevice_executor(
         std::make_unique<Fusion>(fusion), *communicator);
     // here, the compute is done on device 0 only. Other devices don't even read
-    // the input.
+    // the input. However, the shape of the input is used to infer subsequent
+    // tensors' shape, therefore, we still need to give each device inputs with
+    // valid shapes.
     at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
 
     // VALIDATION
@@ -261,20 +277,13 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
 // pipeling will require a network communication between the two pipeline
 // Stages.
 TEST_F(MultiDeviceTutorial, SimplePipelining) {
-  constexpr int64_t tensor_size = 128;
-
   Communicator* const communicator = communicator_;
-  if (communicator->is_available() == false || communicator->size() < 2) {
-    GTEST_SKIP() << "distributed setting is not available";
-  }
-  if (communicator->deviceId() > 1) { // we only need 2 devices for this test
-    return;
-  }
 
   // MODEL DEFINITION
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  constexpr int64_t tensor_size = 128;
   TensorView* tv0 = makeContigConcreteTensor({tensor_size});
   fusion.addInput(tv0);
   TensorView* tv1 = add(tv0, tv0);
@@ -299,7 +308,7 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
 
   MultiDeviceExecutor multidevice_executor(
       std::make_unique<Fusion>(fusion), *communicator);
-  if (verbose_) {
+  if (verbose_ && communicator->deviceId() < 2) {
     std::cout << "Device ID = " << communicator->deviceId() << std::endl;
     multidevice_executor.print();
     // Printing shows that device 0 and device 1 execute different programs.
