@@ -754,9 +754,9 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
   abten.merge(0);
   abten.split(0, 128);
 
-  applyAbstractTransforms(abten, {tv3, tv4, tv5, tv6}, &graph);
-
   for (TensorView* tv : {tv3, tv4, tv5, tv6}) {
+    AbstractTensor local_abten = forwardAroundMissingAxes(abten, tv);
+    applyAbstractTransforms(local_abten, tv, &graph);
     tv->axis(-1)->parallelize(ParallelType::TIDx);
     tv->axis(-2)->parallelize(ParallelType::BIDx);
   }
