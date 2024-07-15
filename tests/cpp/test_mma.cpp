@@ -507,6 +507,107 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+TEST_P(HopperRS, SingleTileWithTMALoadStore) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  auto tv3 = set(tv2);
+  tv2->setMemoryType(MemoryType::Shared);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  moveInnerBroadcastLeft(tv1);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
+  }
+
+  if (tv2c->getMemoryType() == MemoryType::Local) {
+    std::cout << "tv2c is local memory" << std::endl;
+  }
+  if (tv2c->getMemoryType() == MemoryType::Shared) {
+    std::cout << "tv2c is shared memory" << std::endl;
+  }
+  if (tv2c->getMemoryType() == MemoryType::Global) {
+    std::cout << "tv2c is global memory" << std::endl;
+  }
+  if (tv2->getMemoryType() == MemoryType::Local) {
+    std::cout << "tv2 is local memory" << std::endl;
+  }
+  if (tv2->getMemoryType() == MemoryType::Shared) {
+    std::cout << "tv2 is shared memory" << std::endl;
+  }
+  if (tv2->getMemoryType() == MemoryType::Global) {
+    std::cout << "tv2 is global memory" << std::endl;
+  }
+
+  if (tv3->getMemoryType() == MemoryType::Local) {
+    std::cout << "tv3 is local memory" << std::endl;
+  }
+  if (tv3->getMemoryType() == MemoryType::Shared) {
+    std::cout << "tv3 is shared memory" << std::endl;
+  }
+  if (tv3->getMemoryType() == MemoryType::Global) {
+    std::cout << "tv3 is global memory" << std::endl;
+  }
+
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->setAllocationDomain(tv1->getLoopDomain(), true);
+
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
   if (layout == MmaLayout::TT) {
     GTEST_SKIP() << "Skipping test as we only handle TN layout in this test";
