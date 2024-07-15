@@ -113,7 +113,12 @@ void FusionDefinition::findMissingTensorViews(Fusion* fusion) {
   // Gather existing TensorViews in FusionDefinition
   std::unordered_set<Val*> tensor_states;
   for (const State& s : recording_state_) {
+    if (s.stype != serde::StateType::Tensor) {
+      continue;
+    }
+
     Val* v = getFusionState(s.index);
+    NVF_ERROR(v != nullptr);
     if (v->isA<TensorView>()) {
       tensor_states.insert(v);
     }
@@ -159,6 +164,9 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
 
+  // Add missing TensorViews from CPP Fusion to Python FusionDefinition
+  findMissingTensorViews(user_sched_->schedule.get());
+
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
@@ -177,9 +185,6 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // guard in a local scope across the schedule function
   prev_fusion_ = FusionGuard::getCurFusion();
   FusionGuard::setCurFusion(user_sched_->schedule.get());
-
-  // Add missing TensorViews from CPP Fusion to Python FusionDefinition
-  findMissingTensorViews(user_sched_->schedule.get());
 }
 
 void FusionDefinition::finalizeSchedule(
