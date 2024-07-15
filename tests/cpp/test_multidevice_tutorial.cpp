@@ -16,7 +16,10 @@ class MultiDeviceTutorial : public MultiDeviceTest {
  protected:
   static void SetUpTestSuite() {
     verbose_ = getNvFuserEnv("TUTORIAL_VERBOSE");
+  }
 
+  void SetUp() {
+    MultiDeviceTest::SetUp();
     if (communicator_->is_available() == false) {
       GTEST_SKIP()
           << "Distributed setting not available. "
