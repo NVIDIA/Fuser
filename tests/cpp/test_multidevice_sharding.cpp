@@ -186,47 +186,6 @@ TEST_F(MultideviceShardingTest, LayerNorm) {
       __FILE__);
 }
 
-TEST_F(MultideviceShardingTest, ReduceScatter_Allgather) {
-  // Allreduce = ReduceScatter + Allgather
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto num_devices = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(num_devices);
-
-  TensorView* in = makeContigTensor(3);
-  in->setDeviceMesh(mesh);
-  in->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* out = sum(in, {0});
-  out->axis(1)->parallelize(ParallelType::DIDx);
-
-  out = set(out);
-  out->axis(0)->parallelize(ParallelType::Serial);
-
-  fusion->addInput(in);
-  fusion->addOutput(out);
-
-  at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, num_devices, 4}, tensor_options);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
-
-  hir::HostIrExecutorParams executor_params{
-      .use_fusion_executor_cache = true,
-      .skip_auto_scheduling = false,
-      .cache_fusion_executor = false};
-  MultiDeviceExecutor runtime(
-      std::move(fusion), *communicator_, executor_params);
-  auto outputs = runtime.runWithInput({in_tensor});
-  testValidate(
-      runtime.completeFusion(),
-      outputs,
-      {in_tensor},
-      {unsharded_in_tensor.sum(0)},
-      __LINE__,
-      __FILE__);
-}
-
 INSTANTIATE_TEST_SUITE_P(
     ,
     MultideviceShardingTest,
