@@ -285,6 +285,12 @@ TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
 
 using AliasTest = NVFuserTest;
 
+namespace {
+MATCHER_P(HeuristicIs, heuristic, "") {
+  return arg->heuristic() == heuristic;
+}
+} // namespace
+
 TEST_F(AliasTest, View) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -595,18 +601,15 @@ const FusionExecutor& onlyExecutorInMostRecentRuntime(
   return executors.front();
 }
 
-void expectKernelDoesNotStoreToOutput(
-    const FusionExecutor& executor,
-    const int64_t out_index) {
+bool storesToOutput(const FusionExecutor& executor, const int64_t out_index) {
   // Get the variable name from the `kir::Kernel` not the input fusion, because
   // they are not always the same.
   std::string var_name =
       ir_utils::varName(executor.kernel()->outputs()[out_index]);
-  EXPECT_THAT(
-      executor.kernelString(), Not(ContainsRegex(R"(\b)" + var_name + R"(\[)")))
-      << "The generated CUDA kernel shouldn't store data to `" << var_name
-      << "`:" << executor.kernelString();
+  std::regex store_to_output(R"(\b)" + var_name + R"(\[)");
+  return std::regex_search(executor.kernelString(), store_to_output);
 }
+
 } // namespace
 
 TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
@@ -630,11 +633,37 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  at::Tensor slice_out_tensor = out_tensors[0];
-  EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(
-      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
+  // Expect two segments:
+  //
+  // - reshape & add. This segment has two outputs, corresponding to the
+  // reshape and the add. It's expected to be compiled to a pointwise kernel
+  // that stores only to the output of the add.
+  //
+  // - broadcast & expand. This segment is meta-op only.
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::PointWise)));
+
+  for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
+    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+      const FusionExecutor& fe = runtime->executors().at(group->groupId());
+      int num_stores = 0;
+      for (auto i : c10::irange(group->outputs().size())) {
+        if (storesToOutput(fe, i)) {
+          num_stores++;
+        }
+      }
+      EXPECT_EQ(num_stores, 1)
+          << "The generated CUDA kernel is expected to store data to one output:"
+          << std::endl
+          << fe.kernelString();
+    }
+  }
 }
 
 TEST_F(AliasTest, NotAllOutputsAlias_Reduction) {
@@ -688,8 +717,28 @@ TEST_F(AliasTest, Issue1452) {
   at::Tensor set_out_tensor = out_tensors[0];
   EXPECT_TRUE(set_out_tensor.is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(
-      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::PointWise)));
+
+  for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
+    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+      const FusionExecutor& fe = runtime->executors().at(group->groupId());
+      int num_stores = 0;
+      for (auto i : c10::irange(group->outputs().size())) {
+        if (storesToOutput(fe, i)) {
+          num_stores++;
+        }
+      }
+      EXPECT_EQ(num_stores, 1)
+          << "The generated CUDA kernel is expected to store data to one output:"
+          << std::endl
+          << fe.kernelString();
+    }
+  }
 }
 
 TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
@@ -712,8 +761,11 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(
-      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
+  const FusionExecutor& fe = onlyExecutorInMostRecentRuntime(fec);
+  EXPECT_FALSE(storesToOutput(fe, /*out_index=*/0))
+      << "The generated CUDA kernel shouldn't store data to output 0:"
+      << std::endl
+      << fe.kernelString();
 }
 
 TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
@@ -876,9 +928,7 @@ TEST_F(AliasTest, OutputAliasesAnotherOutput) {
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   ASSERT_EQ(out_tensors.size(), 2);
-  at::Tensor reshape_out_tensor = out_tensors[0];
-  at::Tensor permute_out_tensor = out_tensors[1];
-  EXPECT_TRUE(permute_out_tensor.is_alias_of(reshape_out_tensor));
+  EXPECT_TRUE(out_tensors[1].is_alias_of(out_tensors[0]));
 }
 
 TEST_F(AliasTest, OutputNotAliasedByAnotherOutputShouldNotBeSegmented) {
@@ -943,7 +993,7 @@ TEST_F(AliasTest, ManyAliasesBetweenOutputs) {
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
-TEST_F(AliasTest, DoNotOverSegment) {
+TEST_F(AliasTest, DoNotOverSegment_Straightline) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -964,6 +1014,42 @@ TEST_F(AliasTest, DoNotOverSegment) {
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_FALSE(runtime->isSegmented());
+
+  // permute_out should be recognized as an alias of add_out. However, the
+  // pointwise scheduler `cacheFork`s outputs
+  // (https://github.com/NVIDIA/Fuser/blob/de488172d280d033511dfc0939e2207f87c1b1cb/csrc/scheduler/pointwise.cpp#L540),
+  // making permute_out no longer a transitive user of add_out.
+  // EXPECT_TRUE(out_tensors[1].is_alias_of(out_tensors[0]));
+}
+
+TEST_F(AliasTest, DoNotOverSegment_WithForks) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* t0 = add(in, in);
+  TensorView* out0 = permute(t0, {1, 0});
+  TensorView* t1 = reshape(t0, {2, 3}, {6});
+  TensorView* out1 = reshape(t1, {6}, {3, 2});
+  TensorView* out2 = mul(t1, t1);
+
+  fusion->addInput(in);
+  fusion->addOutput(out0);
+  fusion->addOutput(out1);
+  fusion->addOutput(out2);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(ScheduleHeuristic::PointWise)).Times(1));
+
+  // For a similar reason as DoNotOverSegment_Straightline.
+  // EXPECT_TRUE(out_tensors[1].is_alias_of(out_tensors[0]));
 }
 
 TEST_F(AliasTest, Broadcast) {
@@ -1351,7 +1437,29 @@ TEST_F(AliasTest, FusionExecutor) {
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 
-TEST_F(AliasTest, SegmentMetaOps) {
+TEST_F(AliasTest, InplaceUpdate) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* out = makeContigConcreteTensor({2, 3});
+  fusion->addInput(in);
+  fusion->addInput(out);
+  fusion->aliasOutputToInput(out, in, AllocationType::ReuseBuffer);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  at::Tensor out_tensor = in_tensor + 1;
+  fec.runFusionWithInputs({in_tensor, out_tensor});
+  EXPECT_TRUE(out_tensor.equal(in_tensor));
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::PointWise)));
+}
+
+TEST_F(AliasTest, Bookend_InputsAndOutputs) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1391,26 +1499,140 @@ TEST_F(AliasTest, SegmentMetaOps) {
   }
 }
 
-TEST_F(AliasTest, InplaceUpdate) {
+TEST_F(AliasTest, Bookend_IntermediateTensors) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigConcreteTensor({2, 3});
-  TensorView* out = makeContigConcreteTensor({2, 3});
+  TensorView* out = permute(in, {1, 0});
+  out = mul(out, out);
+  out = reshape(out, {2, 3}, {6});
   fusion->addInput(in);
-  fusion->addInput(out);
-  fusion->aliasOutputToInput(out, in, AllocationType::ReuseBuffer);
+  fusion->addOutput(out);
 
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  at::Tensor out_tensor = in_tensor + 1;
-  fec.runFusionWithInputs({in_tensor, out_tensor});
-  EXPECT_TRUE(out_tensor.equal(in_tensor));
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::PointWise)));
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::PointWise)));
+  for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
+    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+      EXPECT_THAT(group->inputs(), SizeIs(1));
+      EXPECT_THAT(group->outputs(), SizeIs(1));
+    }
+  }
+}
+
+TEST_F(AliasTest, Bookend_AliasesOfSameTensor) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* t = add(in, in);
+  TensorView* out0 = reshape(t, {2, 3}, {6});
+  TensorView* out1 = reshape(t, {2, 3}, {3, 2});
+  TensorView* out2 = transpose(t);
+
+  fusion->addInput(in);
+  fusion->addOutput(out0);
+  fusion->addOutput(out1);
+  fusion->addOutput(out2);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_EQ(out_tensors[0].data_ptr(), out_tensors[1].data_ptr());
+  EXPECT_EQ(out_tensors[0].data_ptr(), out_tensors[2].data_ptr());
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(ScheduleHeuristic::PointWise)).Times(1));
+  for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
+    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+      EXPECT_THAT(group->inputs(), SizeIs(1));
+      EXPECT_THAT(group->outputs(), SizeIs(1));
+    }
+  }
+}
+
+TEST_F(AliasTest, Bookend_ReuseSegmentSet) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  TensorView* t = add(in, in);
+  t = reshape(t, {2, 3, 5}, {30});
+  TensorView* out0 = reshape(t, {30}, {6, 5});
+  TensorView* out1 = reshape(t, {30}, {2, 15});
+
+  fusion->addInput(in);
+  fusion->addOutput(out0);
+  fusion->addOutput(out1);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_EQ(out_tensors[0].data_ptr(), out_tensors[1].data_ptr());
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::PointWise),
+          HeuristicIs(ScheduleHeuristic::NoOp)));
+  for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
+    if (group->heuristic() == ScheduleHeuristic::PointWise) {
+      EXPECT_THAT(group->inputs(), SizeIs(1));
+      EXPECT_THAT(group->outputs(), SizeIs(1));
+    }
+  }
+}
+
+TEST_F(AliasTest, QKVSplitBackprop) {
+  // A subgraph of MoveSplitCatTest.Cancellable_Issue1768.
+  constexpr int b = 16;
+  constexpr int h = 12;
+  constexpr int s = 128;
+  constexpr int f = 64;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* dq = makeContigConcreteTensor({b, s, h * f});
+  TensorView* dk = makeContigConcreteTensor({b, s, h * f});
+  TensorView* dv = makeContigConcreteTensor({b, s, h * f});
+  TensorView* catted = cat({dq, dk, dv}, /*dim=*/-1);
+  TensorView* sum_out = sum(catted, {0, 1});
+  TensorView* view_out = reshape(catted, {b, s, h * f * 3}, {b * s, h * f * 3});
+  TensorView* permute_out = permute(view_out, {1, 0});
+
+  fusion->addInput(dq);
+  fusion->addInput(dk);
+  fusion->addInput(dv);
+  fusion->addOutput(sum_out);
+  fusion->addOutput(view_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  std::vector<c10::IValue> in_tensors;
+  for (int i = 0; i < 3; i++) {
+    in_tensors.push_back(at::randn({b, s, h * f}).cuda());
+  }
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs(in_tensors);
+  testValidate(fec.fusion(), out_tensors, in_tensors, __LINE__, __FILE__);
+
+  EXPECT_TRUE(out_tensors[2].is_alias_of(out_tensors[1]));
 }
 
 } // namespace nvfuser
