@@ -1336,7 +1336,7 @@ void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
   // for the comments below, we'll focus on the inner two dims.
 
   NVF_ERROR(
-      this->axis(-1)->extent()->evaluate().as<int64_t>() <=
+      axis(-1)->extent()->evaluate().as<int64_t>() <=
           (getBytesFromSwizzle(swizzle) / dataTypeSize(dtype)),
       "The inner dimension of the box cannot be more than swizzle")
 
