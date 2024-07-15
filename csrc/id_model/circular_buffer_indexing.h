@@ -30,7 +30,7 @@ Val* getLoopIndexOfCircularBufferLoop(
     const std::vector<ForLoop*>& for_loops,
     const IdModel& id_model);
 
-// For a circur-buffering expr, the producer loop index needs to be
+// For a circular-buffering expr, the producer loop index needs to be
 // advanced by (#stages - 1) if it's the main loop. Return the offset
 // if it's applicable. Otherwise, nullptr is returned.
 Val* getLoopIndexOffsetForProducerOfCircularBuffer(

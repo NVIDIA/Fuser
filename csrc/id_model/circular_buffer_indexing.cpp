@@ -92,7 +92,7 @@ Val* getOffsetForCircularBufferTensor(
   const auto gpu_lower = GpuLower::current();
   NVF_ERROR(
       gpu_lower != nullptr,
-      "Double buffering info of GpuLower is required but GpuLower is missing");
+      "Circular buffering info of GpuLower is required but GpuLower is missing");
 
   auto circular_buffer_loop =
       gpu_lower->circularBufferInfo().getCircularBufferLoop(

@@ -2074,7 +2074,7 @@ TEST_F(IndexingTest, CircularBuffering1) {
             // group. Since circular buffering reuses the same loop
             // iter domain for the prologue, main and epilogue loops,
             // the loop index may not be the true index. The index
-            // obatained from ForLoop should be always correct
+            // obtained from ForLoop should be always correct
             auto circular_buffer_index = for_loops_.at(0)->index();
             return addExpr(
                 mulExpr(
