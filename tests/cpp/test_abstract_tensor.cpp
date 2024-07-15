@@ -757,6 +757,14 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
   for (TensorView* tv : {tv3, tv4, tv5, tv6}) {
     AbstractTensor local_abten = forwardAroundMissingAxes(abten, tv);
     applyAbstractTransforms(local_abten, tv, &graph);
+
+    // Check that every tensor is scheduled with two loop dimensions and has
+    // inner dimension 128 resulting from a Split
+    EXPECT_EQ(tv->nDims(), 2);
+    EXPECT_TRUE(tv->axis(-1)->extent()->isConst());
+    EXPECT_EQ(tv->axis(-1)->extent()->value().as<int64_t>(), 128);
+    EXPECT_TRUE(tv->axis(-1)->definition()->isA<Split>());
+
     tv->axis(-1)->parallelize(ParallelType::TIDx);
     tv->axis(-2)->parallelize(ParallelType::BIDx);
   }
