@@ -1335,6 +1335,11 @@ void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
   // been created by tiling [K(16), N(32)] -> [NO(2), K(16), N(16)], but
   // for the comments below, we'll focus on the inner two dims.
 
+  NVF_ERROR(
+      this->axis(-1)->extent()->evaluate().as<int64_t>() <=
+          (getBytesFromSwizzle(swizzle) / dataTypeSize(dtype)),
+      "The inner dimension of the box cannot be more than swizzle")
+
   // [..., K, N(16)] -> [..., KO(2), KI(8), N(16)]
   //  We use 8 because it's 128 / getBytesFromSwizzle(swizzle)  *
   //  getBytesFromSwizzle(swizzle) / 16
