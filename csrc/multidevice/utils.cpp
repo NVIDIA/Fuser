@@ -178,7 +178,7 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
 bool isResharding(Expr* expr) {
   // we don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
-  // Note: this is a temp hack
+  // Note: Skip on SdpaFwdOp is temporary hack.
   if (expr->isA<SdpaFwdOp>() || !ir_utils::isTvOp(expr)) {
     return false;
   }
@@ -229,7 +229,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
     if (tv->getLogicalDomain().size() > 0 && ref->axis(0)->isDeviceDim()) {
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
-}
+  }
   // if (!tvs.empty()) {
   //   scheduler_utils::parallelizeAllLike(
   //       ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
@@ -248,7 +248,7 @@ void insertReshardingBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (auto expr : fusion->exprs()) {
-    if (isLowerableToCommunication(expr) || !ir_utils::isTvOp(expr) || shouldReshardAfter(expr)) {
+    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr)) {
       continue;
     }
     if (expr->outputs().size() != 1) {
@@ -291,7 +291,7 @@ void insertReshardingsAfter(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (isLowerableToCommunication(expr) || !ir_utils::isTvOp(expr) || !shouldReshardAfter(expr)) {
+    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr)) {
       continue;
     }
     if (expr->outputs().size() != 1) {

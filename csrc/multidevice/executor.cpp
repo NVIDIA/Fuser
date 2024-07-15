@@ -110,11 +110,6 @@ MultiDeviceExecutor::MultiDeviceExecutor(
           host_unit, clone(group->inputs()), clone(group->outputs()));
       hic->pushBackTopLevelExprs(post_on_stream);
     } else {
-      if (group->exprs().size() > 1) {
-        for (auto expr : group->exprs()) {
-          std::cout << "Comm group: " << expr->toString() << std::endl;
-        }
-      }
       NVF_ERROR(
           group->exprs().size() == 1,
           "Communication segments must contain only one Expr");

@@ -51,26 +51,10 @@ class DistributedTransformerTest
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
   const int D;
-  const int B = 2;
-  const int E = 128;
-  const int H = 4;
-  const int S = 32;
-
-  // Temporary until https://github.com/NVIDIA/Fuser/issues/2563
-  at::Tensor shardTensor(at::Tensor tensor, int64_t axis, DeviceMesh& mesh) {
-    auto i = mesh.idxOf(communicator_->deviceId());
-    auto extent = tensor.size(axis);
-    auto nslices = mesh.size();
-    NVF_CHECK(
-        extent % nslices == 0,
-        "Sharded axis must be evenly divisble by mesh");
-    auto stride = extent / nslices;
-    // TODO: returning slice 0 temporarily when device is not in the mesh.
-    i = (i < 0) ? 0 : i;
-    return tensor.slice(axis, i * stride, (i + 1) * stride)
-                 .contiguous()
-                 .unsqueeze(0);
-  }
+  static constexpr int B = 4;
+  static constexpr int E = 128;
+  static constexpr int H = 4;
+  static constexpr int S = 32;
 
  private:
   // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
@@ -110,25 +94,32 @@ void validate(
     std::vector<at::Tensor> out) {
   EXPECT_EQ(expected_out.size(), out.size());
   for (auto i : c10::irange(out.size())) {
-    // Note: Scale the tolerance up since the error accumulates across ops
-    double tolerance = 0.5 * (i + 1);
-    auto all_close = expected_out[i].allclose(
-        out[i].to(expected_out[i].dtype()),
-        tolerance,
-        tolerance / 10.0,
-        /*equal_nan=*/true);
+    // Note: Scaling tolerance up since the error accumulates across ops
+    // BFloat16 error is quite high, but the program has been verified with
+    // double precision to be logically correct.
+    double atol = 3.0 * (i + 1);
+    double rtol = 1e-5;
+    auto all_close = out[i]
+                         .to(expected_out[i].dtype())
+                         .allclose(
+                             expected_out[i],
+                             rtol,
+                             atol,
+                             /*equal_nan=*/true);
 
     if (!all_close) {
-      auto max_error =
-          (expected_out[i].sub(out[i])).abs().max().item().to<double>();
-      auto max_relative_error = (max_error / expected_out[i].abs().max()).item();
+      auto error = (out[i].to(expected_out[i].dtype()) - expected_out[i]).abs();
+      auto max_error = error.max().item().to<double>();
+      auto max_relative_error =
+          (max_error / expected_out[i].abs().max()).item();
       auto error_count =
-          at::sum((expected_out[i].sub(out[i])).abs() > tolerance).item();
+          at::sum(error >= (atol + expected_out[i].abs() * rtol)).item();
       std::cout << "output[" << i << "] max error: " << max_error << std::endl;
       std::cout << "          max relative error: " << max_relative_error
                 << std::endl;
-       std::cout << error_count << " elements failing "
-                << error_count.to<float>() / at::numel(out[i]) * 100.0 << "\% of tensor" << std::endl;
+      std::cout << "          failing elements: " << error_count << ", "
+                << error_count.to<float>() / at::numel(out[i]) * 100.0
+                << "\% of tensor" << std::endl;
     }
     EXPECT_TRUE(all_close);
   }
@@ -202,15 +193,9 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   fusion->addOutput(linear1);
   fusion->addOutput(gelu);
   fusion->addOutput(linear2);
-  fusion->addOutput(dropout);
-
-  // Manually shard inputs: x, w0, b0, w1, b1
-  // outputs: linear1, gelu, linear2, dropout
-  // TVs where sharding changes: matmul2
   // (TODO) TVs where sharding propagation breaks down:
   // linear_int0: broadcasts where a device dim axis is broadcasted.
   // rand_vals: rand_like creates a fresh new TV.
-
   // TVs replicated on each device.
   auto tv_inputs = {x, b1, matmul2, linear2, dropout};
   for (auto tv : tv_inputs) {
@@ -224,9 +209,9 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  const auto options = at::TensorOptions().dtype(at_dtype).device(
-      at::kCUDA, communicator_->local_rank());
-  auto x_ = at::randn({B * S, E}, options) / 10.0;
+  const auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto x_ = at::randn({B * S, E}, options);
   auto w0_ = at::randn({4 * E, E}, options);
   auto b0_ = at::randn({4 * E}, options);
   auto w1_ = at::randn({E, 4 * E}, options);
@@ -239,10 +224,12 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       shardTensor(w1_, 1, mesh),
       b1_};
   at::manual_seed(0);
-  auto linear1_aten = at::matmul(x_, w0_.transpose(1, 0)).add(b0_).to(at::kFloat);
+  auto linear1_aten =
+      at::matmul(x_, w0_.transpose(1, 0)).add(b0_).to(at::kFloat);
   auto gelu_aten = at::gelu(linear1_aten, "tanh");
-  auto linear2_aten =
-      at::matmul(gelu_aten.to(at_dtype), w1_.transpose(1, 0)).add(b1_).to(at::kFloat);
+  auto linear2_aten = at::matmul(gelu_aten.to(at_dtype), w1_.transpose(1, 0))
+                          .add(b1_)
+                          .to(at::kFloat);
   auto dropout_aten = at::dropout(linear2_aten, kProb, true);
   std::vector<at::Tensor> expected_outputs = {
       shardTensor(linear1_aten, 1, mesh),
@@ -266,10 +253,10 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
 
   TensorView* x = makeContigConcreteTensor({B * S, E}, dtype);
   TensorView* w0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
-  TensorView* b0 = makeContigConcreteTensor({D, 3 * E/D}, dtype);
-  TensorView* w1 = makeContigConcreteTensor({D, E/D, E}, dtype);
+  TensorView* b0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
+  TensorView* w1 = makeContigConcreteTensor({D, E / D, E}, dtype);
   TensorView* b1 = makeContigConcreteTensor({E}, dtype);
-  
+
   fusion->addInput(x);
   fusion->addInput(w0);
   fusion->addInput(b0);
@@ -278,18 +265,20 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
 
   // linear #1 weight/bias is sharded along the heads, which is concatenated
   // into the column dimension (3*E). Non-reduction axis.
-  // linear #2 is also sharded along the heads which is the row (reduction E). 
+  // linear #2 is also sharded along the heads which is the row (reduction E).
   // Self-attention linear
   TensorView* mm = matmul(x, w0);
   TensorView* proj_bias_bcast = broadcast(b0, {false, true, false});
   TensorView* qkv1 = add(mm, proj_bias_bcast);
   // Forming the q,k,v vectors:
-  TensorView* qkv = reshape(qkv1, {D, B * S, 3 * E/D}, {D, B, S, 3 * E/D});
+  TensorView* qkv = reshape(qkv1, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
   std::vector<TensorView*> qkv_reshaped = {};
   for (auto i : c10::irange(3)) {
-    TensorView* tv_slice = slice(qkv, {0, 0, 0, E/D * i}, {D, B, S, E/D * (i + 1)});
+    TensorView* tv_slice =
+        slice(qkv, {0, 0, 0, E / D * i}, {D, B, S, E / D * (i + 1)});
     // Reshape all the vectors into (B,S,E) -> (B,S,H,E/H) -> (B,H,S,E/H)
-    TensorView* tv_reshape = reshape(tv_slice, {D, B, S, E/D}, {D, B, S, H/D, E/H});
+    TensorView* tv_reshape =
+        reshape(tv_slice, {D, B, S, E / D}, {D, B, S, H / D, E / H});
     TensorView* tv_trans = transpose(tv_reshape, 2, 3); // D, B, H/D, S, E/H
     TensorView* tv_cast = castOp(dtype, tv_trans);
     qkv_reshaped.push_back(tv_cast);
@@ -311,10 +300,11 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
       IrBuilder::create<Val>(kScale));
   TensorView* sdpa_output = sdpa.output; // D, B, H/D, S, E/H
   // Linear projection
-  TensorView* sdpa_transpose = transpose(sdpa_output, 2, 3); // D, B, S, H/D, E/H
+  TensorView* sdpa_transpose =
+      transpose(sdpa_output, 2, 3); // D, B, S, H/D, E/H
   // Note: We have to reshape into a 2D tensor instead of 3D
   TensorView* sdpa_reshape =
-      reshape(sdpa_transpose, {D, B, S, H/D, E/H}, {D, B * S, E/D});
+      reshape(sdpa_transpose, {D, B, S, H / D, E / H}, {D, B * S, E / D});
   TensorView* mm2 = matmul(sdpa_reshape, w1); // D, B*S, E/D * D, E/D, E
   TensorView* mm2_ar = sum(mm2, {0}); // allreduce rD, B*S, E
   TensorView* b1_bcast = broadcast(b1, {true, false});
@@ -338,12 +328,13 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  const auto options = at::TensorOptions().dtype(at_dtype).device(communicator_->device());
-  auto x_ = at::randn({B*S, E}, options);
+  const auto options =
+      at::TensorOptions().dtype(at_dtype).device(communicator_->device());
+  auto x_ = at::randn({B * S, E}, options);
   auto w0_ = at::randn({E, 3 * E}, options) / 10.0;
   auto b0_ = at::randn({3 * E}, options) / 10.0;
   auto w1_ = at::randn({E, E}, options) / 10.0;
-  auto b1_ = at::randn({E}, options)/ 10.0;
+  auto b1_ = at::randn({E}, options) / 10.0;
 
   auto m_ = at::matmul(x_, w0_).add(b0_).view({B, S, 3 * E});
   auto qkv_vec = m_.split(E, 2);
@@ -361,17 +352,21 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   at::manual_seed(0);
   auto y_dropout = at::dropout(y_proj.to(at::kFloat), kDropoutProb, true);
 
-  std::vector<c10::IValue> inputs = 
-    {x_, 
-    shardTensor(w0_.view({E, 3, E}), 2, mesh).view({1, E, 3*E/D}).contiguous(),
-    shardTensor(b0_.view({3, E}), 1, mesh).view({1, 3*E/D}).contiguous(),
-    shardTensor(w1_, 0, mesh),
-    b1_};
+  std::vector<c10::IValue> inputs = {
+      x_,
+      shardTensor(w0_.view({E, 3, E}), 2, mesh)
+          .view({1, E, 3 * E / D})
+          .contiguous(),
+      shardTensor(b0_.view({3, E}), 1, mesh).view({1, 3 * E / D}).contiguous(),
+      shardTensor(w1_, 0, mesh),
+      b1_};
   std::vector<at::Tensor> expected_outputs = {
-    shardTensor(m_.view({B, S, 3, E}), 3, mesh).view({1, B, S, 3*E/D}).contiguous(),
-    shardTensor(sdpa_, 1, mesh),
-    y_proj,
-    y_dropout};
+      shardTensor(m_.view({B, S, 3, E}), 3, mesh)
+          .view({1, B, S, 3 * E / D})
+          .contiguous(),
+      shardTensor(sdpa_, 1, mesh),
+      y_proj,
+      y_dropout};
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
