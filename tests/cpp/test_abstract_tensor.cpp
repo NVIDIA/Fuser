@@ -15,7 +15,7 @@
 #include <abstract_tensor_schedule.h>
 #include <executor.h>
 #include <inlining.h>
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 
 namespace nvfuser {
 
@@ -729,13 +729,14 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
   fusion.addInput(tv2);
 
   // This fusion does not have a reference tensor
-  auto tv3 = broadcast(tv0, {false, true});
-  auto tv4 = mul(tv3, tv1);
-  auto tv5 = broadcast(tv0, {true, false});
-  auto tv6 = mul(tv5, tv2);
+  auto tv3 = set(tv0);
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv4, tv1);
+  auto tv6 = broadcast(tv3, {true, false});
+  auto tv7 = add(tv6, tv2);
 
-  fusion.addOutput(tv4);
-  fusion.addOutput(tv6);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv7);
 
   IdModel id_model(&fusion);
   ValGraph& graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
@@ -754,7 +755,7 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
   abten.merge(0);
   abten.split(0, 128);
 
-  for (TensorView* tv : {tv3, tv4, tv5, tv6}) {
+  for (TensorView* tv : {tv4, tv5, tv6, tv7}) {
     AbstractTensor local_abten = forwardAroundMissingAxes(abten, tv);
     applyAbstractTransforms(local_abten, tv, &graph);
 
