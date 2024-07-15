@@ -277,6 +277,10 @@ class AbstractTensorSchedule {
             expr->toString(),
             " Computed ID: ",
             computed_inputs.front()->toString());
+        // There are three cases to consider:
+        // - all inputs are computed -> replay the expression
+        // - all inputs are uncomputable -> skip this definition and try the next definition
+        // - no input is known to be definitely uncomputable but some are still  unknown if it's computable -> exit the getDefinition loop and check the unknown inputs  
         if (all_inputs_computed) {
           // Compute new ID expression
           Expr* id_expr = replayIdExpr(expr, computed_inputs);
