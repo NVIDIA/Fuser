@@ -295,14 +295,21 @@ class AbstractTensorSchedule {
             auto* id_outp = id_expr->output((int64_t)i)->as<IterDomain>();
             graph_->initializeVal(id_outp, vg_outp);
             computed_ids.emplace(vg_outp, id_outp);
-            vg_computed = true;
           }
-          // No need to look at next ExprGroup
+          // No need to look at next ExprGroup.
+          // Setting vg_computed means that we will move on to the next
+          // ValGroup on the stack after breaking out of the ExprGroup loop for
+          // the current ValGroup.
+          vg_computed = true;
           break;
         }
         if (!unprocessed_producer_groups.empty()) {
           // Do not look at other ExprGroups before we try computing these
           // unprocessed producer groups
+          // At this point vg_computed=false so after this break we will push
+          // the elements of unprocessed_producer_groups onto the stack so that
+          // we process them before proceeding to try the current ValGroup
+          // again.
           break;
         }
       }
