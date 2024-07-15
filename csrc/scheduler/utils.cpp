@@ -2176,7 +2176,6 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
       continue;
     }
     for (auto id : disjoint_set_shared_ptr->vector()) {
-      std::cout << "terminating_reshape_dims: " << id->toString() << std::endl; 
       terminating_reshape_dims.emplace(id);
     }
   }
@@ -2187,9 +2186,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     if (!tv->hasRoot()) {
       continue;
     }
-    std::cout << "processing tv " << tv->toString() << std::endl;
-    tv->printTransforms();
-    std::cout << std::endl;
+
     std::unordered_map<int64_t, int64_t> old2new;
     // Make sure rfactor dims we need are in domain, and reorder them in domain
     // so they're consecutive starting from the left of domain. TODO: We could
@@ -2209,12 +2206,9 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
             tv->toString(),
             " for view propagation.");
         int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);
+
         old2new[old_pos] = (int64_t)old2new.size();
       }
-    }
-
-    for(auto [k, v] : old2new) {
-      std::cout << "old2new: " << k << " -> " << v << std::endl;
     }
 
     if (old2new.empty()) {
@@ -2222,12 +2216,9 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
 
     // Propagate the view transformations
-    std::cout << "Before reorder " << tv->toString() << std::endl;
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
-    std::cout << "Propagating transformations from " << tv->toString() << ", pos= " << old2new.size() << std::endl;
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
-    fusion->print();
   }
 }
 

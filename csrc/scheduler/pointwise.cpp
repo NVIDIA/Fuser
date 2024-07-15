@@ -586,10 +586,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     // Propagate reshape transforms through the graph, expecially the reference.
-    std::cout << "Propagating reshape transforms through the graph" << std::endl;
-    fusion->print();
     scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
-    std::cout << "Propagating reshape transforms through the graph is done" << std::endl;
 
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
