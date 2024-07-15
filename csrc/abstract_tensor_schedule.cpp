@@ -8,14 +8,35 @@
 
 #include <abstract_tensor.h>
 #include <abstract_tensor_schedule.h>
+#include <id_model/schedule.h>
 #include <ir/internal_base_nodes.h>
 #include <iter_visitor.h>
 #include <transform_iter.h>
 #include <val_graph.h>
+#include <val_graph_visitor.h>
 
 namespace nvfuser {
 
 namespace {
+
+std::string toString(const ValGroup& vg) {
+  std::ostringstream ss;
+
+  ss << "idg{";
+  bool first = true;
+
+  for (Val* v : *vg) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << v->name();
+  }
+
+  ss << "}";
+
+  return ss.str();
+}
 
 // Given an IterDomain expression, replay it using the provided inputs and
 // return the new Expr
@@ -162,7 +183,6 @@ class AbstractTensorSchedule {
     //     ValGroup 5: iS5
     //     ValGroup 6: iS7
     //     ValGroup 7: iS8
-    //     ValGroup 8: iS9
     //     ExprGroup 0:
     //       iS3 = merge(iS0, iS1)
     //     ExprGroup 1:
@@ -170,36 +190,7 @@ class AbstractTensorSchedule {
     //     ExprGroup 2:
     //       iS8 = merge(iS6, iS7)
     //
-    //   Note that IterDomains iS6, iS7, iS8, and iS9 might be associated to
-    //   other tensors in the fusion besides tv. Consider the following
-    //   abstract tensor:
-    //
-    //     abstract_tensor_.domain: ValGroup 4, ValGroup 5, ValGroup 2
-    //
-    //   The following diagrams show the transformations that are embedded in
-    //   the abstract tensor in this case:
-    //
-    //      VG0   VG1
-    //        \   /
-    //         EG0
-    //          |
-    //         VG3
-    //          |
-    //         EG1
-    //        /   \
-    //      VG4   VG5       VG2
-    //
-    //   In this case the schedule is computable since VG4, VG5, and VG2 are
-    //   all computable (since producer groups VG0, VG1, and VG2 are occupied
-    //   by tv).
-    //
-    //   Now consider a case where we replace VG2 with {VG5, VG7} in the
-    //   abstract domain and we add VG8:
-    //
-    //     abstract_tensor_.domain: ValGroup 4, ValGroup 5, ValGroup 7, ValGroup 8
-    //
-    //   The following diagrams show the transformations that are embedded in
-    //   the abstract tensor in this case:
+    //   abstract_tensor_.domain: ValGroup 4, ValGroup 5, ValGroup 7
     //
     //      VG0   VG1
     //        \   /
@@ -209,27 +200,22 @@ class AbstractTensorSchedule {
     //          |          \   /
     //         EG1          EG2
     //        /   \          |
-    //      VG4   VG5       VG7      VG8
+    //      VG4   VG5       VG7
     //
-    //   Again ValGroups 4 and 5 are computable since those ValGroups are
-    //   produced by ExprGroup 1 which itself produced by ExprGroup 0, and tv
-    //   includes iS0 and iS1. VG8 is not computable, but it has no computable
-    //   producers either, so we simply ignore it when scheduling tv.
+    // In this case, tv has loop domains in ValGroups 0, 1, and 2. IterDomains
+    // iS6, iS7, and iS8 might be associated to another tensor in the fusion.
     //
-    //   However, ValGroup 7 is not computable. It is produced by ExprGroup 2
-    //   whose input ValGroups are 2 and 6. ValGroup 2 is computable since iS2
-    //   is in tv, however there is no IterDomain in tv that can be used to
-    //   represent ValGroup 6 which also has no producer ValGroups. In this
-    //   case we will throw an error instead of ignoring VG7; the reason we
-    //   cannot ignore it in this case like we did with VG8 is that if we did
-    //   then we would leave VG2 out of the loop domain, which would validate
-    //   the consistency of the logical->loop mapping.
+    // ValGroups 4 and 5 are computable since those ValGroups are produced by
+    // ExprGroup 1 which itself produced by ExprGroup 0, and tv includes iS0 and
+    // iS1.
+    //
+    // However, ValGroup 7 is not computable. It is produced by ExprGroup 2
+    // whose input ValGroups are 2 and 6. ValGroup 2 is computable since iS2 is
+    // in tv, however there is no IterDomain in tv that can be used to represent
+    // ValGroup 6 which also has no producer ValGroups.
 
     // Any computable ValGroup should have an entry in computed_ids. If we prove
     // that the ValGroup is not computable, we insert it here.
-    // In the case of the above example this would include VG6 since it cannot
-    // be computed. VG7 is not included since it can be computed despite VG6
-    // being uncomputable:
     std::unordered_set<ValGroup> uncomputable_groups;
 
     // We are trying to evaluate the ValGroup g which acts like a symbolic
@@ -291,17 +277,17 @@ class AbstractTensorSchedule {
           }
           // No need to look at next ExprGroup
           break;
-        } else {
-          // Some input is not yet computed
-          if (uncomputed_producer_groups.empty() && !id_inps.empty()) {
-            // The only uncomputed producer groups are uncomputable, but some
-            // are computed. Just pass those computed inputs through. Note that
-            // in this case, id_inps.front() will be the representative of vg
-            // even though it is _not_ actually mapped into that ValGroup.
-            NVF_ERROR(id_inps.size() == 1);
-            computed_ids.emplace(vg, id_inps.front());
-            break;
-          }
+        }
+        // Some input is not yet computed
+        if (uncomputed_producer_groups.empty()) {
+          NVF_ERROR(
+              id_inps.empty(),
+              "The only uncomputed producer groups are uncomputable, but "
+              "some are computed. Refusing to automatically forward those "
+              "computed inputs. Expr: ",
+              expr->toString(),
+              " Computed ID: ",
+              id_inps.front()->toString());
         }
         if (!uncomputed_producer_groups.empty()) {
           // Do not look at other ExprGroups before we try computing these
@@ -338,6 +324,31 @@ class AbstractTensorSchedule {
   std::unordered_set<ValGroup> scheduled_val_groups_;
 };
 
+// TODO: this could potentially belong in id_model/schedule.h
+std::vector<ValGroup> replayExprGroup(
+    ValGraph* graph,
+    ExprGroup eg,
+    const std::vector<ValGroup>& input_groups) {
+  Expr* expr = eg->front();
+  if (auto* m = dynamic_cast<Merge*>(expr)) {
+    NVF_ERROR(input_groups.size() == 2);
+    return {merge(graph, input_groups[0], input_groups[1])};
+  } else if (auto* s = dynamic_cast<Split*>(expr)) {
+    NVF_ERROR(input_groups.size() == 1);
+    auto [outer, inner] =
+        split(graph, input_groups.front(), s->factor(), s->innerSplit());
+    return {outer, inner};
+  } else if (auto* s = dynamic_cast<Swizzle*>(expr)) {
+    NVF_ERROR(input_groups.size() == 2);
+    auto [outer, inner] =
+        swizzle(graph, s->swizzleType(), input_groups[0], input_groups[1]);
+    return {outer, inner};
+  } else {
+    NVF_ERROR(false, "Unhandled scheduling expression ", expr->toString());
+  }
+  return {};
+}
+
 } // namespace
 
 void applyAbstractTransforms(
@@ -345,6 +356,96 @@ void applyAbstractTransforms(
     const std::vector<TensorView*>& tvs,
     ValGraph* graph) {
   AbstractTensorSchedule::apply(abstract_tensor, tvs, graph);
+}
+
+AbstractTensor forwardAroundMissingAxes(
+    const AbstractTensor& abstract_tensor,
+    TensorView* tv) {
+  ValGraph* graph = nullptr;
+
+  NVF_ERROR(abstract_tensor.size() > 0);
+  const AbstractId& first_abs_id = abstract_tensor.domain.front();
+  NVF_ERROR(first_abs_id.is<ValGroupAndItsGraph>());
+  graph = first_abs_id.as<ValGroupAndItsGraph>().graph;
+
+  // We will need to map the ValGroups in abstract_tensor to new ones. We do
+  // this recursively using this map. We initialize it by mapping all the loop
+  // ValGroups in tv to themselves. When we traverse the graph in topological
+  // order we update this mapping for each ExprGroup whose input ValGroups are
+  // all found in the map. If a ValGroup is not in the map that means it is not
+  // computable. If we pass a merge operation and only one ValGroup is
+  // computable, we forward that computable ValGroup by updating this mapping.
+  std::unordered_map<ValGroup, ValGroup> computable_valgroup_map;
+
+  for (IterDomain* id : tv->getLoopDomain()) {
+    ValGroup vg = graph->toGroup(id);
+    computable_valgroup_map.emplace(vg, vg);
+  }
+
+  // TODO: ideally we could use something like
+  // getExprsTo(abstract_tensor.domain) in case there are ValGroups downstream
+  // of abstract_tensor
+  ExprGroups expr_groups = ValGraphStmtSort(*graph).exprs();
+  for (const ExprGroup& eg : expr_groups) {
+    const std::vector<ValGroup> input_groups = graph->inputGroups(eg);
+
+    std::vector<ValGroup> computable_valgroups;
+    for (const ValGroup& vg : input_groups) {
+      auto it = computable_valgroup_map.find(vg);
+      if (it != computable_valgroup_map.end()) {
+        computable_valgroups.push_back(it->second);
+      }
+    }
+
+    if (computable_valgroups.empty()) {
+      // This ExprGroup is not computable or forwardable
+      continue;
+    }
+
+    const std::vector<ValGroup> output_groups = graph->outputGroups(eg);
+
+    if (computable_valgroups == input_groups) {
+      // All input groups are computable as-is since their ValGroups match, so
+      // this ExprGroup is computable as-is
+      for (const ValGroup& vg : output_groups) {
+        computable_valgroup_map.emplace(vg, vg);
+      }
+    } else if (computable_valgroups.size() == input_groups.size()) {
+      // All input groups are computable but some of them are different than
+      // the originals due to previous forwarding.
+      std::vector<ValGroup> computable_output_groups =
+          replayExprGroup(graph, eg, computable_valgroups);
+      NVF_ERROR(computable_output_groups.size() == output_groups.size());
+      for (size_t i : c10::irange(output_groups.size())) {
+        computable_valgroup_map.emplace(
+            output_groups[i], computable_output_groups[i]);
+      }
+    } else if (computable_valgroups.size() == 1 && eg->front()->isA<Merge>()) {
+      // Forward the input group
+      for (const ValGroup& vg : output_groups) {
+        computable_valgroup_map.emplace(vg, computable_valgroups.front());
+      }
+    } else {
+      NVF_ERROR(
+          false,
+          "Could not compute all inputs to ExprGroup ",
+          eg->front()->toString(),
+          " for ",
+          tv->toString());
+    }
+  }
+
+  AbstractTensor fwd_abstract_tensor;
+  fwd_abstract_tensor.domain.reserve(abstract_tensor.size());
+  for (const AbstractId& abs_id : abstract_tensor.domain) {
+    const ValGroupAndItsGraph& vgg = abs_id.as<ValGroupAndItsGraph>();
+    NVF_ERROR(vgg.graph == graph);
+    auto it = computable_valgroup_map.find(vgg.group);
+    const ValGroupAndItsGraph new_vgg = {
+        it == computable_valgroup_map.end() ? vgg.group : it->second, graph};
+    fwd_abstract_tensor.domain.emplace_back(new_vgg);
+  }
+  return fwd_abstract_tensor;
 }
 
 } // namespace nvfuser
