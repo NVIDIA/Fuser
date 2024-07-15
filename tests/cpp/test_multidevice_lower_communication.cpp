@@ -62,7 +62,7 @@ TEST_P(LowerGatherTest, ) {
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
       at::randn({in_mesh.size(), kTensorSize}, tensor_options);
-  at::Tensor in_tensor = shardTensor(unsharded_tensor, in, device_id);
+  at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
@@ -112,8 +112,7 @@ TEST_P(LowerScatterTest, ) {
   at::Tensor out_tensor = fe.runFusion({unsharded_tensor})[0];
 
   if (out_mesh.has(device_id)) {
-    EXPECT_TRUE(
-        at::equal(out_tensor, shardTensor(unsharded_tensor, out, device_id)));
+    EXPECT_TRUE(at::equal(out_tensor, shardTensor(unsharded_tensor, out)));
   }
 }
 
@@ -149,7 +148,7 @@ TEST_P(LowerSendRecvTest, ) {
   const auto device_id = communicator_->deviceId();
   at::Tensor unsharded_tensor =
       at::randn({in_mesh.size(), kTensorSize}, tensor_options);
-  at::Tensor in_tensor = shardTensor(unsharded_tensor, in, device_id);
+  at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
@@ -157,8 +156,7 @@ TEST_P(LowerSendRecvTest, ) {
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
 
   if (out_mesh.has(device_id)) {
-    EXPECT_TRUE(
-        at::equal(out_tensor, shardTensor(unsharded_tensor, out, device_id)));
+    EXPECT_TRUE(at::equal(out_tensor, shardTensor(unsharded_tensor, out)));
   }
 }
 
@@ -190,8 +188,7 @@ TEST_F(LowerCollectiveTest, Allgather) {
 
   at::Tensor unsharded_tensor =
       at::randn({num_devices, kTensorSize}, tensor_options);
-  at::Tensor in_tensor =
-      shardTensor(unsharded_tensor, in, communicator_->deviceId());
+  at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
@@ -249,7 +246,7 @@ TEST_F(LowerCollectiveTest, Reduce) {
   at::Tensor unsharded_in_tensor =
       at::randn({num_devices, kTensorSize}, tensor_options);
   const auto device_id = communicator_->deviceId();
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in, device_id);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
@@ -279,8 +276,7 @@ TEST_F(LowerCollectiveTest, Allreduce) {
 
   at::Tensor unsharded_in_tensor =
       at::randn({num_devices, kTensorSize}, tensor_options);
-  const auto device_id = communicator_->deviceId();
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in, device_id);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
@@ -308,8 +304,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
 
   at::Tensor unsharded_in_tensor =
       at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
-  const auto device_id = communicator_->deviceId();
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in, device_id);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutor fe(communicator_);
   fe.compileFusion(&fusion, {in_tensor});
@@ -317,8 +312,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
 
   at::Tensor unsharded_out_tensor = unsharded_in_tensor.sum(0);
-  EXPECT_TRUE(at::allclose(
-      out_tensor, shardTensor(unsharded_out_tensor, out, device_id)));
+  EXPECT_TRUE(at::allclose(out_tensor, shardTensor(unsharded_out_tensor, out)));
 }
 
 } // namespace nvfuser
