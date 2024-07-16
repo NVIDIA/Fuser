@@ -329,6 +329,7 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
     const std::vector<TensorView*>& cached_inputs,
     const std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>& cached_outputs,
     const int64_t vectorization_factor) {
+  std::cout << "\ngetUnrolledOrVectorizedInputsOutputs: " << reference_tv->toString() << std::endl;
   // vectorization_factor_map stores TensorView* from the original fusion,
   // scheduler works on a cloned fusion, tv->name() is used to find the
   // corresponding TensorView*.
@@ -352,7 +353,7 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
   auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 
   for (auto cached_input : cached_inputs) {
-    if (vectorization_factor > 1) {
+    if (vectorization_factor > 1 && cached_input->axis(-1)->getParallelType() == ParallelType::Serial) {
       auto producer_tvs = ir_utils::producerTvsOf(cached_input);
       if (producer_tvs.size() == 1 &&
           vectorizable_expr(cached_input->definition()) &&
@@ -380,7 +381,7 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
   }
 
   for (auto [_, output, old_output] : cached_outputs) {
-    if (vectorization_factor > 1) {
+    if (vectorization_factor > 1 && output->axis(-1)->getParallelType() == ParallelType::Serial) {
       if (vectorizable_expr(output->definition()) &&
           std::find(
               vectorizable_inputs_outputs.begin(),

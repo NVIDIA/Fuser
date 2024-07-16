@@ -21,115 +21,130 @@ namespace nvfuser {
 using VectorizationTest = NVFuserTest;
 
 TEST_F(VectorizationTest, InnerPersistent_fp16_32_64) {
-  auto dtype = DataType::Half;
   const std::vector<int64_t> input_shape = {256, 2048};
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-  TensorView* tv0 = makeContigConcreteTensor(input_shape, dtype);
-  fusion.addInput(tv0);
-  auto tv1 = castOp(DataType::Float, tv0);
-  auto tv2 = sum(tv1, {-1});
-  auto tv3 = broadcast(tv2, {false, true});
-  auto tv4 = div(tv1, tv3);
-  // output is fp32, max vectorization factor is 4
-  fusion.addOutput(tv4);
+  // Fusion with 3 inputs and 3 outputs
+  // inputs: half, float, double
+  // outputs: half, float, double
+  // all are vectorized as 16 bytes, so the vectorization factors are 8, 4,
+  // and 2.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeContigConcreteTensor(input_shape, DataType::Half);
+  TensorView* tv1 = makeContigConcreteTensor(input_shape, DataType::Float);
+  TensorView* tv2 = makeContigConcreteTensor(input_shape, DataType::Double);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = castOp(DataType::Double, tv0);
+  auto tv4 = castOp(DataType::Double, tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = add(tv5, tv2);
+  auto tv7 = sum(tv6, {-1});
+  auto tv8 = broadcast(tv7, {false, true});
+  auto tv9 = div(tv6, tv8);
+  auto tv10 = castOp(DataType::Half, tv9);
+  auto tv11 = castOp(DataType::Float, tv9);
+  fusion->addOutput(tv9);
+  fusion->addOutput(tv10);
+  fusion->addOutput(tv11);
 
-  // output is fp16, max vectorization factor is 8
-  auto tv5 = add(tv1, tv3);
-  auto tv6 = castOp(DataType::Half, tv5);
-  fusion.addOutput(tv6);
-
-  // output is fp64, max vectorization factor is 2
-  auto tv7 = add(tv5, tv5);
-  auto tv8 = castOp(DataType::Double, tv7);
-  fusion.addOutput(tv8);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::Tensor at_x = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs = {at_x};
+  at::Tensor at_x_fp16 = at::randn(
+      input_shape, at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0));
+  at::Tensor at_x_fp32 = at::randn(
+      input_shape, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  at::Tensor at_x_fp64 = at::randn(
+      input_shape, at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+  std::vector<c10::IValue> aten_inputs = {at_x_fp16, at_x_fp32, at_x_fp64};
 
   const int expected_vect_factor = 8;
-  auto hp = getInnerPersistentHeuristics(&fusion, aten_inputs);
+  auto hp = getInnerPersistentHeuristics(fusion.get(), aten_inputs);
   NVF_CHECK(hp, "getInnerPersistentHeuristics failed!");
   EXPECT_EQ(hp->unroll_factor_inner_reduction, expected_vect_factor);
-  scheduleInnerPersistentKernel(&fusion, *hp);
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion.outputs())) {
+  scheduleInnerPersistentKernel(fusion.get(), *hp);
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
     int64_t expected_val = 16L / dataTypeSize(tv->getDataType().value());
     EXPECT_TRUE(tv->axis(-1)->getParallelType() == ParallelType::Vectorize);
     EXPECT_TRUE(tv->axis(-1)->extent()->isConst());
     EXPECT_EQ(tv->axis(-1)->extent()->value(), expected_val);
-    std::cout << "tv: " << tv->toString() << std::endl;
   }
   FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, hp->lparams);
+  fe.compileFusion(fusion.get(), aten_inputs, hp->lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, hp->lparams);
-  auto t1 = at_x.to(at::kFloat);
-  auto t3 = t1.sum(-1).unsqueeze(-1);
-  auto t4 = t1 / t3;
-  auto t5 = t1 + t3;
-  auto t6 = t5.to(at::kHalf);
-  auto t8 = (t5 + t5).to(at::kDouble);
+  auto t1 = at_x_fp16.to(at::kDouble) + at_x_fp32.to(at::kDouble) + at_x_fp64;
+  auto t2 = t1.sum(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+  auto t4 = t3.to(at::kHalf);
+  auto t5 = t3.to(at::kFloat);
   testValidate(
-      &fusion, cg_outputs, aten_inputs, {t4, t6, t8}, __LINE__, __FILE__);
+      fusion.get(), cg_outputs, aten_inputs, {t3, t4, t5}, __LINE__, __FILE__);
 }
 
-
-TEST_F(VectorizationTest, OuterPersistent_fp16_32_64) {
-  auto dtype = DataType::Half;
+TEST_F(VectorizationTest, InnerOuterPersistent_fp16_32_64) {
   const std::vector<int64_t> input_shape = {256, 2048};
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-  TensorView* tv0 = makeContigConcreteTensor(input_shape, dtype);
-  fusion.addInput(tv0);
-  auto tv1 = castOp(DataType::Float, tv0);
-  auto tv2 = sum(tv1, {0});
-  auto tv3 = broadcast(tv2, {true, false});
-  auto tv4 = div(tv1, tv3);
-  // output is fp32, max vectorization factor is 4
-  fusion.addOutput(tv4);
+  // Fusion with 3 inputs and 3 outputs
+  // inputs: half, float, double
+  // outputs: half, float, double, double
+  // all are vectorized as 16 bytes, so the vectorization factors are 8, 4,
+  // and 2.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeContigConcreteTensor(input_shape, DataType::Half);
+  TensorView* tv1 = makeContigConcreteTensor(input_shape, DataType::Float);
+  TensorView* tv2 = makeContigConcreteTensor(input_shape, DataType::Double);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = castOp(DataType::Double, tv0);
+  auto tv4 = castOp(DataType::Double, tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = add(tv5, tv2);
+  auto tv7 = sum(tv6, {-1});
+  auto tv8 = broadcast(tv7, {false, true});
+  auto tv9 = div(tv6, tv8);
+  auto tv10 = castOp(DataType::Half, tv9);
+  auto tv11 = castOp(DataType::Float, tv9);
+  auto tv12 = sum(tv6, {0});
+  fusion->addOutput(tv9);
+  fusion->addOutput(tv10);
+  fusion->addOutput(tv11);
+  fusion->addOutput(tv12);
 
-  // output is fp16, max vectorization factor is 8
-  auto tv5 = add(tv1, tv3);
-  auto tv6 = castOp(DataType::Half, tv5);
-  fusion.addOutput(tv6);
+  at::Tensor at_x_fp16 = at::randn(
+      input_shape, at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0));
+  at::Tensor at_x_fp32 = at::randn(
+      input_shape, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  at::Tensor at_x_fp64 = at::randn(
+      input_shape, at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+  std::vector<c10::IValue> aten_inputs = {at_x_fp16, at_x_fp32, at_x_fp64};
 
-  // output is fp64, max vectorization factor is 2
-  auto tv7 = add(tv5, tv5);
-  auto tv8 = castOp(DataType::Double, tv7);
-  fusion.addOutput(tv8);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::Tensor at_x = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs = {at_x};
-
-  auto hp = getOuterPersistentHeuristics(&fusion, aten_inputs);
-  NVF_CHECK(hp, "getOuterPersistentHeuristics failed!");
-  hp->unroll_factor_iter_dom = 8;
-  hp->vectorize_iter_dom = true;
-  scheduleOuterPersistentKernel(&fusion, *hp);
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion.outputs())) {
+  const int expected_vect_factor = 8;
+  auto hp = getInnerOuterPersistentHeuristics(fusion.get(), aten_inputs);
+  NVF_CHECK(hp, "getInnerPersistentHeuristics failed!");
+  EXPECT_EQ(hp->unroll_factor_inner_reduction, expected_vect_factor);
+  scheduleInnerOuterPersistentKernel(fusion.get(), *hp);
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
     int64_t expected_val = 16L / dataTypeSize(tv->getDataType().value());
     EXPECT_TRUE(tv->axis(-1)->getParallelType() == ParallelType::Vectorize);
     EXPECT_TRUE(tv->axis(-1)->extent()->isConst());
     EXPECT_EQ(tv->axis(-1)->extent()->value(), expected_val);
-    std::cout << "tv: " << tv->toString() << std::endl;
   }
   FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs, hp->lparams);
+  fe.compileFusion(fusion.get(), aten_inputs, hp->lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, hp->lparams);
-  // auto t1 = at_x.to(at::kFloat);
-  // auto t3 = t1.sum(-1).unsqueeze(-1);
-  // auto t4 = t1 / t3;
-  // auto t5 = t1 + t3;
-  // auto t6 = t5.to(at::kHalf);
-  // auto t8 = (t5 + t5).to(at::kDouble);
-  // testValidate(
-  //     &fusion, cg_outputs, aten_inputs, {t4, t6, t8}, __LINE__, __FILE__);
+  auto t1 = at_x_fp16.to(at::kDouble) + at_x_fp32.to(at::kDouble) + at_x_fp64;
+  auto t2 = t1.sum(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+  auto t4 = t3.to(at::kHalf);
+  auto t5 = t3.to(at::kFloat);
+  auto t6 = t1.sum(0);
   testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);      
+      fusion.get(),
+      cg_outputs,
+      aten_inputs,
+      {t3, t4, t5, t6},
+      __LINE__,
+      __FILE__,
+      "",
+      hp->lparams);
 }
 } // namespace nvfuser
