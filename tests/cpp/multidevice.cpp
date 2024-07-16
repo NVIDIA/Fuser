@@ -35,7 +35,7 @@ MultiDeviceTest::MultiDeviceTest() {
   // `TORCH_DISTRIBUTED_DEBUG`.
   c10d::setDebugLevelFromEnvironment();
 
-  communicator_ = MultiDeviceTestEnvironment::getCommunicator();
+  communicator_ = &Communicator::getInstance();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
