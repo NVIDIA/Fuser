@@ -152,6 +152,9 @@ class FusionKernelRuntime {
   //! Unified interface to run the managed kernels with given input
   NVF_API std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
 
+  //! Get unscheduled fusion segments in execution order
+  std::vector<std::unique_ptr<Fusion>> getFusionSegments();
+
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
   NVF_API void compileFusionParallel(KernelArgumentHolder args);
