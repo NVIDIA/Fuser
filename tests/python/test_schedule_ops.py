@@ -960,6 +960,59 @@ class TestScheduleOps(TestCase):
         eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_batch_norm_auto_scheduler(self):
+        batch_size = 16
+        num_channels = 128
+        height = 12
+        width = 76
+        momentum = 1e-1
+        eps = 1e-5
+        inputs = [
+            torch.randn((batch_size, num_channels, height, width), device="cuda"),
+            torch.randn((num_channels,), device="cuda"),
+            torch.randn((num_channels,), device="cuda"),
+            torch.randn((num_channels,), device="cuda"),
+            torch.randn((num_channels,), device="cuda"),
+            momentum,
+            eps,
+        ]
+
+        class BatchNorm(FusionDefinition):
+            def definition(self):
+                a = fd.from_pytorch(inputs[0])
+                w = fd.from_pytorch(inputs[1])
+                b = fd.from_pytorch(inputs[2])
+                running_mean = fd.from_pytorch(inputs[3])
+                running_invstd = fd.from_pytorch(inputs[4])
+                momentum = fd.define_scalar(dtype=DataType.Double)
+                eps = fd.define_scalar(dtype=DataType.Double)
+                result, new_mean, new_invstd = fd.ops.batch_norm(
+                    a,
+                    w,
+                    b,
+                    running_mean,
+                    running_invstd,
+                    momentum,
+                    eps,
+                    training := True,
+                    channels_last := False,
+                )
+                fd.add_output(result)
+
+            def schedule(self):
+                # Apply selected scheduler
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.inner_persistent)
+
+        fd = BatchNorm()
+        nvf_out = fd.execute(inputs)
+        a, w, b, rm, rv, momentum, eps = inputs
+        torch_ref = torch.nn.functional.batch_norm(
+            a, rm, rv, w, b, training=True, momentum=momentum, eps=eps
+        )
+        self.assertEqual(nvf_out[0], rm)
+        self.assertEqual(nvf_out[1], rv)
+        self.assertEqual(nvf_out[2], torch_ref)
+
     def test_matmul_auto_scheduler(self):
         """
         Implement a simple matmul kernel with a user defined schedule
