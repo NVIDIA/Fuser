@@ -117,13 +117,20 @@ class PostOnStream : public Expr {
 
 class Stream : public Val {
  public:
-  Stream(IrBuilderPasskey passkey);
+  Stream(IrBuilderPasskey passkey, Val* index = nullptr);
   Stream(const Stream* src, IrCloner* ir_cloner);
   bool sameAs(const Statement* other) const override;
 
   NVFUSER_DECLARE_CLONE
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  Val* index() const {
+    return index_;
+  }
+
+ private:
+  Val* index_ = nullptr;
 };
 
 class SetCurrentStream : public Expr {

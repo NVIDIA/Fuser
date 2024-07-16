@@ -79,6 +79,11 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
 
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
   Stream* stream = set_current_stream->stream();
+  if (Val* index = stream->index(); index != nullptr) {
+    auto value = expr_evaluator_.evaluate(index);
+    NVF_ERROR(value.hasValue() && value.is<int64_t>());
+    stream = (Stream*)(value.as<int64_t>());
+  }
   if (streams_.find(stream) == streams_.end()) {
     auto i = (communicator_ != nullptr && communicator_->is_available())
         ? communicator_->deviceId()

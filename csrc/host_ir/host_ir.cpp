@@ -116,14 +116,22 @@ bool PostOnStream::sameAs(const Statement* other) const {
   return false;
 }
 
-Stream::Stream(IrBuilderPasskey passkey) : Val(passkey, ValType::Stream) {};
+Stream::Stream(IrBuilderPasskey passkey, Val* index)
+    : Val(passkey, ValType::Stream), index_(index) {}
 
-Stream::Stream(const Stream* src, IrCloner* ir_cloner) : Val(src, ir_cloner) {};
+Stream::Stream(const Stream* src, IrCloner* ir_cloner)
+    : Val(src, ir_cloner), index_(src->index()) {}
+
 NVFUSER_DEFINE_CLONE(Stream)
 
 std::string Stream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "Stream " << name();
+  indent(ss, indent_size) << "Stream ";
+  if (index() == nullptr) {
+    ss << name();
+  } else {
+    ss << index()->toInlineString();
+  }
   return ss.str();
 }
 
