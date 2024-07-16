@@ -110,39 +110,41 @@ void FusionDefinition::finalizeDefinition() {
 void FusionDefinition::findMissingTensorViews(Fusion* fusion) {
   NVF_ERROR(fusion != nullptr);
 
-  // Gather existing TensorViews in FusionDefinition
-  std::unordered_set<Val*> tensor_states;
-  for (const State& s : recording_state_) {
-    if (s.stype != serde::StateType::Tensor) {
-      continue;
-    }
+  // Filter Tensor states
+  std::vector<State> tensor_states;
+  std::copy_if(
+      recording_state_.begin(),
+      recording_state_.end(),
+      std::back_inserter(tensor_states),
+      [](const State& s) { return s.stype == serde::StateType::Tensor; });
 
-    Val* v = getFusionState(s.index);
-    NVF_ERROR(v != nullptr);
-    if (v->isA<TensorView>()) {
-      tensor_states.insert(v);
-    }
-  }
+  // Get corresponding CPP values and add to set
+  std::unordered_set<Val*> known_tensor_vals;
+  std::transform(
+      tensor_states.begin(),
+      tensor_states.end(),
+      std::inserter(known_tensor_vals, known_tensor_vals.end()),
+      [this](State s) { return getFusionState(s.index); });
 
-  // Find existing TensorViews in Fusion
-  // Get set difference between CPP Fusion and Python FusionDefinition
-  std::vector<Val*> missing_fusion_tvs;
-
+  // Find TensorViews in Fusion and get set difference between CPP Fusion and
+  // Python FusionDefinition
+  std::vector<Val*> new_fusion_tvs;
   std::vector<Val*> all_vals = fusion->usedMathVals();
   std::copy_if(
       all_vals.begin(),
       all_vals.end(),
-      std::back_inserter(missing_fusion_tvs),
+      std::back_inserter(new_fusion_tvs),
       [&](Val* v) {
-        return v->isA<TensorView>() && tensor_states.count(v) == 0;
+        return v->isA<TensorView>() && known_tensor_vals.count(v) == 0;
       });
 
-  if (missing_fusion_tvs.empty()) {
+  // Short-Circuit: No new TensorViews found
+  if (new_fusion_tvs.empty()) {
     return;
   }
 
   // Add missing TensorViews to FusionDefinition
-  for (Val* v : missing_fusion_tvs) {
+  for (Val* v : new_fusion_tvs) {
     addTensor(v->as<TensorView>());
   }
 }
@@ -164,9 +166,6 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
 
-  // Add missing TensorViews from CPP Fusion to Python FusionDefinition
-  findMissingTensorViews(user_sched_->schedule.get());
-
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
@@ -180,6 +179,9 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
       args,
       /*precomuted_values=*/nullptr,
       ir_utils::allTvs(user_schedule_fusion));
+
+  // Add missing TensorViews from CPP Fusion to Python FusionDefinition
+  findMissingTensorViews(user_sched_->schedule.get());
 
   // Manually setting the fusion guard as there is not a good way of using a
   // guard in a local scope across the schedule function
@@ -542,23 +544,35 @@ State FusionDefinition::recordingState(size_t index) const {
 }
 
 std::vector<Tensor> FusionDefinition::tensors() {
-  // Filter TensorView states
+  // Filter Tensor states
   std::vector<State> tensor_states;
   std::copy_if(
       recording_state_.begin(),
       recording_state_.end(),
       std::back_inserter(tensor_states),
-      [this](const State& s) {
-        return (s.stype == serde::StateType::Tensor) &&
-            getFusionState(s.index)->isA<TensorView>();
+      [](const State& s) { return s.stype == serde::StateType::Tensor; });
+
+  // Collect all active values in CPP Fusion
+  std::vector<Val*> all_vals = userSchedule()->schedule->usedMathVals();
+  std::unordered_set<Val*> all_vals_set(all_vals.begin(), all_vals.end());
+
+  // Gather all Tensor states that exist in CPP Fusion.
+  // DynamicTransform mutates CPP Fusion values, destroying some Tensor states.
+  std::vector<State> active_states;
+  std::copy_if(
+      tensor_states.begin(),
+      tensor_states.end(),
+      std::back_inserter(active_states),
+      [&](State& s) {
+        return all_vals_set.count(getFusionState(s.index)) != 0;
       });
 
-  // Reconstruct Tensors
+  // Reconstruct Tensors given active Tensor states
   std::vector<Tensor> all_tensors;
   all_tensors.reserve(tensor_states.size());
   std::transform(
-      tensor_states.begin(),
-      tensor_states.end(),
+      active_states.begin(),
+      active_states.end(),
       std::back_inserter(all_tensors),
       [this](const State& s) {
         return Tensor(

@@ -1035,7 +1035,6 @@ class TestScheduleOps(TestCase):
                 # Apply selected scheduler
                 _apply_scheduler_helper(fd.sched, SchedulerHeuristic.pointwise)
 
-
         fd = Reshape()
         nvf_out = fd.execute(inputs)
         torch_ref = torch.abs(inputs[0]).reshape(inputs[1].shape) + inputs[1]
