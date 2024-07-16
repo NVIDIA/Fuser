@@ -34,7 +34,13 @@ void markAliases(Fusion* fusion) {
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
     TensorView* aliased_io = analysis.getNearestAliasedIo(out);
-    if (aliased_io == nullptr || !aliased_io->isFusionInput()) {
+    while(aliased_io != nullptr) {
+      if (aliased_io->isFusionInput()) {
+        break;
+      }
+      aliased_io = analysis.getNearestAliasedIo(aliased_io);
+    }
+    if (aliased_io == nullptr) {
       continue;
     }
 
