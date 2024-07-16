@@ -143,20 +143,6 @@ class AbstractTensorSchedule {
   GroupIdMap mapScheduledGroupsToLoopIterDomains(TensorView* tv) const {
     GroupIdMap computed_ids;
 
-    std::cout << "scheduled_val_groups_ " << tv->toString() << " :"
-              << std::endl;
-    for (const ValGroup& vg : scheduled_val_groups_) {
-      std::cout << "  idg{";
-      bool first = true;
-      for (Val* v : *vg) {
-        if (!first) {
-          std::cout << ", ";
-        }
-        first = false;
-        std::cout << v->name();
-      }
-      std::cout << "}" << std::endl;
-    }
     // Look up each loop IterDomain in tv and assert that it is in
     // scheduled_val_groups_, then map it.
     for (IterDomain* loop_id : tv->getLoopDomain()) {
@@ -254,32 +240,53 @@ class AbstractTensorSchedule {
       // have not yet been computed or proven uncomputable; in those cases we
       // will place them into the vector below so that we can push them onto
       // the stack so that we can try again.
-      std::vector<ValGroup> uncomputed_producer_groups;
+      std::vector<ValGroup> unprocessed_producer_groups;
+      // This will be set to true once we have computed an IterDomain for this
+      // ValGroup
+      bool vg_computed = false;
       for (const ExprGroup& eg : graph_->getDefinitions(vg)) {
         // NOTE: it suffices to use any Expr* in eg, since they are all
         // guaranteed to have the same type and identical attributes.
         Expr* expr = eg->front();
 
-        std::vector<IterDomain*> id_inps;
+        std::vector<IterDomain*> computed_inputs;
         bool all_inputs_computed = true;
+        bool some_inputs_uncomputable = false;
         for (Val* inp : expr->inputs()) {
           ValGroup vg_inp = graph_->toGroup(inp);
           auto inp_it = computed_ids.find(vg_inp);
           if (inp_it != computed_ids.end()) {
-            id_inps.push_back(inp_it->second);
+            computed_inputs.push_back(inp_it->second);
           } else {
             // this input is not yet computed
             all_inputs_computed = false;
             if (uncomputable_groups.count(vg_inp) == 0) {
-              // Input is not yet proven to be incomputable, so try and
+              // this input is not yet proven to be uncomputable, so try and
               // compute it in the next iteration
-              uncomputed_producer_groups.push_back(vg_inp);
+              unprocessed_producer_groups.push_back(vg_inp);
+            } else {
+              some_inputs_uncomputable = true;
             }
           }
         }
+        NVF_ERROR(
+            !some_inputs_uncomputable || computed_inputs.empty(),
+            "There are both computable and uncomputable producer groups."
+            "Refusing to automatically forward those computed inputs.",
+            " Expr: ",
+            expr->toString(),
+            " Computed ID: ",
+            computed_inputs.front()->toString());
+        // There are three cases to consider:
+        // - all inputs are computed -> replay the expression
+        // - all inputs are uncomputable -> skip this definition and try the
+        //   next definition
+        // - not all inputs are known to be definitely uncomputable but some are
+        //   still unprocessed -> exit the getDefinitions loop and check the
+        //   unprocessed inputs
         if (all_inputs_computed) {
           // Compute new ID expression
-          Expr* id_expr = replayIdExpr(expr, id_inps);
+          Expr* id_expr = replayIdExpr(expr, computed_inputs);
           // Update the mapping to point to all of the newly created Expr's
           // outputs
           NVF_ERROR(id_expr->outputs().size() == expr->outputs().size());
@@ -289,36 +296,38 @@ class AbstractTensorSchedule {
             graph_->initializeVal(id_outp, vg_outp);
             computed_ids.emplace(vg_outp, id_outp);
           }
-          // No need to look at next ExprGroup
+          // No need to look at next ExprGroup.
+          // Setting vg_computed means that we will move on to the next
+          // ValGroup on the stack after breaking out of the ExprGroup loop for
+          // the current ValGroup.
+          vg_computed = true;
           break;
         }
-        // Some input is not yet computed
-        if (uncomputed_producer_groups.empty()) {
-          NVF_ERROR(
-              id_inps.empty(),
-              "The only uncomputed producer groups are uncomputable, but "
-              "some are computed. Refusing to automatically forward those "
-              "computed inputs. Expr: ",
-              expr->toString(),
-              " Computed ID: ",
-              id_inps.front()->toString());
-        }
-        if (!uncomputed_producer_groups.empty()) {
+        if (!unprocessed_producer_groups.empty()) {
           // Do not look at other ExprGroups before we try computing these
-          // uncomputed producer groups
+          // unprocessed producer groups
+          // At this point vg_computed=false so after this break we will push
+          // the elements of unprocessed_producer_groups onto the stack so that
+          // we process them before proceeding to try the current ValGroup
+          // again.
           break;
         }
       }
+      if (vg_computed) {
+        // Move on to the next ValGroup on the stack
+        continue;
+      }
 
-      if (uncomputed_producer_groups.empty()) {
-        // All of the defining expressions are proven uncomputable, so mark vg
-        // uncomputable
+      if (unprocessed_producer_groups.empty()) {
+        // We did not compute a new expression yet there are no producer groups
+        // left to process. This means all of the defining expressions are
+        // proven uncomputable, so mark vg uncomputable.
         uncomputable_groups.insert(vg);
       } else {
-        // There are some uncomputed producer groups that might be computable,
+        // There are some unprocessed producer groups that might be computable,
         // so try again after processing those producer groups
         eval_stack.push(vg);
-        for (const ValGroup& next_vg : uncomputed_producer_groups) {
+        for (const ValGroup& next_vg : unprocessed_producer_groups) {
           eval_stack.push(next_vg);
         }
       }
@@ -370,96 +379,6 @@ void applyAbstractTransforms(
     const std::vector<TensorView*>& tvs,
     ValGraph* graph) {
   AbstractTensorSchedule::apply(abstract_tensor, tvs, graph);
-}
-
-AbstractTensor forwardAroundMissingAxes(
-    const AbstractTensor& abstract_tensor,
-    TensorView* tv) {
-  ValGraph* graph = nullptr;
-
-  NVF_ERROR(abstract_tensor.size() > 0);
-  const AbstractId& first_abs_id = abstract_tensor.domain.front();
-  NVF_ERROR(first_abs_id.is<ValGroupAndItsGraph>());
-  graph = first_abs_id.as<ValGroupAndItsGraph>().graph;
-
-  // We will need to map the ValGroups in abstract_tensor to new ones. We do
-  // this recursively using this map. We initialize it by mapping all the loop
-  // ValGroups in tv to themselves. When we traverse the graph in topological
-  // order we update this mapping for each ExprGroup whose input ValGroups are
-  // all found in the map. If a ValGroup is not in the map that means it is not
-  // computable. If we pass a merge operation and only one ValGroup is
-  // computable, we forward that computable ValGroup by updating this mapping.
-  std::unordered_map<ValGroup, ValGroup> computable_valgroup_map;
-
-  for (IterDomain* id : tv->getLoopDomain()) {
-    ValGroup vg = graph->toGroup(id);
-    computable_valgroup_map.emplace(vg, vg);
-  }
-
-  // TODO: ideally we could use something like
-  // getExprsTo(abstract_tensor.domain) in case there are ValGroups downstream
-  // of abstract_tensor
-  ExprGroups expr_groups = ValGraphStmtSort(*graph).exprs();
-  for (const ExprGroup& eg : expr_groups) {
-    const std::vector<ValGroup> input_groups = graph->inputGroups(eg);
-
-    std::vector<ValGroup> computable_valgroups;
-    for (const ValGroup& vg : input_groups) {
-      auto it = computable_valgroup_map.find(vg);
-      if (it != computable_valgroup_map.end()) {
-        computable_valgroups.push_back(it->second);
-      }
-    }
-
-    if (computable_valgroups.empty()) {
-      // This ExprGroup is not computable or forwardable
-      continue;
-    }
-
-    const std::vector<ValGroup> output_groups = graph->outputGroups(eg);
-
-    if (computable_valgroups == input_groups) {
-      // All input groups are computable as-is since their ValGroups match, so
-      // this ExprGroup is computable as-is
-      for (const ValGroup& vg : output_groups) {
-        computable_valgroup_map.emplace(vg, vg);
-      }
-    } else if (computable_valgroups.size() == input_groups.size()) {
-      // All input groups are computable but some of them are different than
-      // the originals due to previous forwarding.
-      std::vector<ValGroup> computable_output_groups =
-          replayExprGroup(graph, eg, computable_valgroups);
-      NVF_ERROR(computable_output_groups.size() == output_groups.size());
-      for (size_t i : c10::irange(output_groups.size())) {
-        computable_valgroup_map.emplace(
-            output_groups[i], computable_output_groups[i]);
-      }
-    } else if (computable_valgroups.size() == 1 && eg->front()->isA<Merge>()) {
-      // Forward the input group
-      for (const ValGroup& vg : output_groups) {
-        computable_valgroup_map.emplace(vg, computable_valgroups.front());
-      }
-    } else {
-      NVF_ERROR(
-          false,
-          "Could not compute all inputs to ExprGroup ",
-          eg->front()->toString(),
-          " for ",
-          tv->toString());
-    }
-  }
-
-  AbstractTensor fwd_abstract_tensor;
-  fwd_abstract_tensor.domain.reserve(abstract_tensor.size());
-  for (const AbstractId& abs_id : abstract_tensor.domain) {
-    const ValGroupAndItsGraph& vgg = abs_id.as<ValGroupAndItsGraph>();
-    NVF_ERROR(vgg.graph == graph);
-    auto it = computable_valgroup_map.find(vgg.group);
-    const ValGroupAndItsGraph new_vgg = {
-        it == computable_valgroup_map.end() ? vgg.group : it->second, graph};
-    fwd_abstract_tensor.domain.emplace_back(new_vgg);
-  }
-  return fwd_abstract_tensor;
 }
 
 } // namespace nvfuser

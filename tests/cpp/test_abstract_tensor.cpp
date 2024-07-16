@@ -15,7 +15,7 @@
 #include <abstract_tensor_schedule.h>
 #include <executor.h>
 #include <inlining.h>
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 
 namespace nvfuser {
 
@@ -729,37 +729,66 @@ TEST_F(AbstractTensorTest, TestApplyScheduling) {
   fusion.addInput(tv2);
 
   // This fusion does not have a reference tensor
-  auto tv3 = broadcast(tv0, {false, true});
-  auto tv4 = mul(tv3, tv1);
-  auto tv5 = broadcast(tv0, {true, false});
-  auto tv6 = mul(tv5, tv2);
+  auto tv3 = tv0; // set(tv0);
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv4, tv1);
+  auto tv6 = broadcast(tv3, {true, false});
+  auto tv7 = add(tv6, tv2);
 
-  fusion.addOutput(tv4);
-  fusion.addOutput(tv6);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv7);
 
   IdModel id_model(&fusion);
   ValGraph& graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
-  AbstractTensor abten;
 
-  abten.domain.reserve(3);
-  const auto addAbstractAxis = [&abten, &graph](IterDomain* id) {
+  // This fusion has three fundamental dimensions: D0, D1, D2
+  //  - tv0 and tv3 have only the single dimension D0
+  //  - tv1, tv4, and tv5 have both D0 and D1
+  //  - tv2, tv6, and tv7 have both D0 and D2
+  // We will schedule each of these segments using a separate AbstractTensor
+  EXPECT_EQ(graph.disjointValSets().size(), 3);
+
+  auto scheduleSegment = [&graph](
+                             const AbstractTensor& abten,
+                             const std::vector<TensorView*>& tvs) {
+    for (TensorView* tv : tvs) {
+      applyAbstractTransforms(abten, tv, &graph);
+
+      // Check that every tensor is scheduled with two loop dimensions and has
+      // inner dimension 128 resulting from a Split
+      EXPECT_EQ(tv->nDims(), 2);
+      EXPECT_TRUE(tv->axis(-1)->extent()->isConst());
+      EXPECT_EQ(tv->axis(-1)->extent()->value().as<int64_t>(), 128);
+      EXPECT_TRUE(tv->axis(-1)->definition()->isA<Split>());
+
+      tv->axis(-1)->parallelize(ParallelType::TIDx);
+      tv->axis(-2)->parallelize(ParallelType::BIDx);
+    }
+  };
+
+  const auto addAbstractAxis = [&graph](AbstractTensor& abten, IterDomain* id) {
     ValGroup g = graph.toGroup(id);
     abten.domain.emplace_back(ValGroupAndItsGraph{g, &graph});
   };
-  addAbstractAxis(tv2->axis(0));
-  addAbstractAxis(tv1->axis(0));
-  addAbstractAxis(tv1->axis(1));
 
-  abten.merge(0);
-  abten.merge(0);
-  abten.split(0, 128);
+  AbstractTensor abten0;
+  addAbstractAxis(abten0, tv0->axis(0));
+  abten0.split(0, 128);
+  scheduleSegment(abten0, {tv0, tv3});
 
-  for (TensorView* tv : {tv3, tv4, tv5, tv6}) {
-    AbstractTensor local_abten = forwardAroundMissingAxes(abten, tv);
-    applyAbstractTransforms(local_abten, tv, &graph);
-    tv->axis(-1)->parallelize(ParallelType::TIDx);
-    tv->axis(-2)->parallelize(ParallelType::BIDx);
-  }
+  AbstractTensor abten1;
+  addAbstractAxis(abten1, tv1->axis(0));
+  addAbstractAxis(abten1, tv1->axis(1));
+  abten1.merge(0);
+  abten1.split(0, 128);
+  scheduleSegment(abten1, {tv1, tv4, tv5});
+
+  AbstractTensor abten2;
+  addAbstractAxis(abten2, tv2->axis(0));
+  addAbstractAxis(abten2, tv2->axis(1));
+  abten2.merge(0);
+  abten2.split(0, 128);
+  scheduleSegment(abten2, {tv2, tv6, tv7});
 
   inlineMost();
 
