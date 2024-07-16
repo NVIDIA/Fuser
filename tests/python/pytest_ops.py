@@ -7,6 +7,7 @@ import torch
 import pytest
 import numpy as np
 
+from benchmarks.python.core import clear_cuda_cache
 from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definition
 from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
@@ -155,6 +156,7 @@ def correctness_test_fn(
 
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
+    clear_cuda_cache()
     for sample in op.sample_input_generator(op, dtype):
         result = correctness_test_fn(op.reference_type, op, sample)
         if result is not None:
@@ -188,6 +190,7 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
 # TODO Maybe only test a single dtype
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
+    clear_cuda_cache()
     for sample in op.sample_input_generator(op, dtype):
         with pytest.raises(
             RuntimeError, match=r"Attempting to add to a completed definition"
@@ -221,6 +224,7 @@ def _regex_escape_parenthesis(a: str) -> str:
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op: OpInfo, dtype: torch.dtype):
+    clear_cuda_cache()
     for sample, exception_type, exception_regex in op.error_input_generator(op, dtype):
         with pytest.raises(
             exception_type, match=_regex_escape_parenthesis(exception_regex)
