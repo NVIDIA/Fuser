@@ -179,7 +179,6 @@ Communicator::Communicator(
       master_port_(0),
       ucc_available_(false),
       nccl_available_(false) {
-  std::cerr << "Communicator::Communicator" << std::endl;
   // retrieves rank and communicator size
   is_available_ = parseEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
@@ -216,8 +215,6 @@ Communicator::Communicator(
 }
 
 void Communicator::cleanup() {
-  std::cerr << "Communicator::cleanup" << std::endl;
-
   store_ = nullptr;
 
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
