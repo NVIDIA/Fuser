@@ -44,6 +44,13 @@ def pytest_addoption(parser):
         help="Number of warmup rounds for each benchmark.",
     )
 
+    parser.addoption(
+        "--benchmark-num-inputs",
+        action="store",
+        default=None,
+        help="Number of inputs to randomly sample for each benchmark.",
+    )
+
 
 @pytest.fixture
 def disable_validation(request):
@@ -70,6 +77,8 @@ def pytest_configure(config):
     BENCHMARK_CONFIG["warmup_rounds"] = int(
         config.getoption("--benchmark-warmup-rounds")
     )
+    if config.getoption("--benchmark-num-inputs"):
+        BENCHMARK_CONFIG["num_inputs"] = int(config.getoption("--benchmark-num-inputs"))
     config.addinivalue_line(
         "markers",
         "inner_outer_persistent: mark tests using inner_outer_persistent scheduler if not being segmented.",

@@ -1126,7 +1126,7 @@ bool checkReductionPattern(
   // Ensure that the reduction operations share the same axes in their root
   // domains
   FusionGuard fg(fusion);
-  ComputeAtRootDomainMap root_map;
+  ComputeAtLogicalDomainMap root_map;
   root_map.build(true);
 
   // Helper function to check the pattern equivalence for a list of

@@ -644,4 +644,38 @@ TEST_F(SegmentationTest, EraseReductionsInSegmentationEdges) {
   }
 }
 
+TEST_F(SegmentationTest, AliasedOutputOnSegmentation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 4}, DataType::Float);
+  fusion->addInput(tv0);
+
+  auto* tv1 = neg(tv0);
+  auto* seg_out = segment_set(tv1);
+  // validating segmentation on aliased output is not affecting how outputs are
+  // hidden.
+  fusion->aliasOutputToInput(seg_out, tv0, AllocationType::ReuseBuffer);
+  auto* tv2 = relu(seg_out);
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn({2, 3, 4}, options);
+  auto in0_ref = in0.clone();
+
+  auto outputs = fec.runFusionWithInputs({in0});
+  auto in0_neg = in0_ref.neg();
+  EXPECT_TRUE(in0_neg.allclose(in0));
+
+  testValidate(
+      fec.fusion(),
+      outputs,
+      {in0.clone()},
+      {in0_neg.relu()},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser

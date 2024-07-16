@@ -253,7 +253,7 @@ c10d::Backend* Communicator::getBackendForTeam(
           static_cast<int64_t>(team.size()));
     }();
 #else
-    backends_[team_key] = c10::make_intrusive<c10d::Backend>();
+    backends_[team_key] = nullptr;
 #endif
   }
   return backends_.at(team_key).get();

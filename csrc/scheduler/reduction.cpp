@@ -953,7 +953,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
 
     // Use root domain map to check the reduction ops have the same axes
     FusionGuard fg(fusion);
-    ComputeAtRootDomainMap root_map;
+    ComputeAtLogicalDomainMap root_map;
     root_map.build(true);
 
     // red_ops.size()>1 checked before

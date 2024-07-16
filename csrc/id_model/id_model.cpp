@@ -16,7 +16,7 @@
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
@@ -308,7 +308,7 @@ void IdModel::buildExactGraph() {
       // For exact mapings do not map any broadcast dimensions to
       // non-broadcast dimensions. Prevent any broadcasted axes being mapped
       // to non-broadcasted axes.
-      auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
+      auto exact_c2p_root_map = PairwiseLogicalDomainMap(p_tv, c_tv)
                                     .mapBroadcast(false)
                                     .mapConsumerToProducer();
 
@@ -454,7 +454,7 @@ void IdModel::buildPermissiveGraph() {
       }
 
       auto permissive_c2p_root_map =
-          PairwiseRootDomainMap(p_tv, c_tv).mapBroadcast(true);
+          PairwiseLogicalDomainMap(p_tv, c_tv).mapBroadcast(true);
 
       for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
@@ -472,7 +472,7 @@ namespace {
 std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
     TensorView* producer,
     TensorView* consumer) {
-  auto p2c_map = PairwiseRootDomainMap(producer, consumer)
+  auto p2c_map = PairwiseLogicalDomainMap(producer, consumer)
                      .mapBroadcast(true)
                      .mapProducerToConsumer();
 
@@ -895,6 +895,27 @@ void IdModel::validateAndPropagatePType() {
     }
 
     for (auto id : *loop_group) {
+      // Due to the broadcast forwarding, not all IDs in a loop group
+      // are indeed loop domains. For example, an ID may be used in a
+      // merge whose output is also in this loop group.
+      bool not_a_loop_domain = false;
+      for (auto expr : id->uses()) {
+        if (auto merge = dynamic_cast<Merge*>(expr);
+            merge != nullptr && loop_group->has(merge->out())) {
+          not_a_loop_domain = true;
+          break;
+        }
+        // This is another case of input-output mappings
+        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(expr);
+            swizzle2d != nullptr &&
+            swizzle2d->swizzleMode() == SwizzleMode::Loop) {
+          not_a_loop_domain = true;
+          break;
+        }
+      }
+      if (not_a_loop_domain) {
+        continue;
+      }
       id->as<IterDomain>()->parallelize(common_ptype);
     }
   }
