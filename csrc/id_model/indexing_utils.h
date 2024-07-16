@@ -87,13 +87,6 @@ inline std::unordered_set<ValGroup> getMaxPathLoopDomains(
   return max_path_loop_domains;
 }
 
-// Currently it's only Shared or Local but Global can be the case
-// too.
-inline bool isAllocationBasedOnLeaf(TensorView* tv) {
-  return tv->getMemoryType() == MemoryType::Shared ||
-      tv->getMemoryType() == MemoryType::Local;
-}
-
 inline bool isNonDivisibleSplit(const ExprGroup& expr_group) {
   const auto& non_divisible_split_info =
       GpuLower::current()->nonDivisibleSplitInfo();

@@ -11,6 +11,7 @@
 #include <id_model/contiguity.h>
 #include <id_model/indexing.h>
 #include <id_model/indexing_utils.h>
+#include <id_model/predicate_indexing.h>
 #include <id_model/to_string.h>
 #include <id_model/utils.h>
 #include <ir/utils.h>
@@ -204,52 +205,6 @@ std::unordered_map<Val*, Val*> TensorIndexer::getPredicateIndexReplacementMap(
   return replacement_map;
 }
 
-namespace {
-
-std::vector<IterDomain*> getPredicateDomains(
-    TensorView* tv,
-    const Expr* expr,
-    const IdModel& id_model) {
-  // TODO: Contig merged indexing
-
-  // Rfactor domains should be the domains to predicate as they define
-  // the logical shape of a tensor. However, in the case of rfactored
-  // reductions, rfactor splits may not be divisible, thus root
-  // domains need to be predicated. Note that the non-divisible split
-  // info does not seem to cover non-divisible reduction rfactor
-  // splits.
-  std::vector<IterDomain*> predicate_domains =
-      tv->hasReduction() ? tv->getMaybeRootDomain() : tv->getLogicalDomain();
-
-  // Broadcast domains should not be predicated
-  predicate_domains.erase(
-      std::remove_if(
-          predicate_domains.begin(),
-          predicate_domains.end(),
-          [](IterDomain* id) -> bool { return id->isBroadcast(); }),
-      predicate_domains.end());
-
-  // If this is an expr initializing a buffer for a reduction, the
-  // reduction domains do not need to be predicated. In fact, if it's
-  // a Local or Shared memory, no predicate is necessary
-  if (lower_utils::isReductionInitExpr(expr)) {
-    VERBOSE() << "Reduction init expr: " << expr->toString();
-    if (isAllocationBasedOnLeaf(tv)) {
-      return {};
-    } else {
-      predicate_domains.erase(
-          std::remove_if(
-              predicate_domains.begin(),
-              predicate_domains.end(),
-              [](IterDomain* id) -> bool { return id->isReduction(); }),
-          predicate_domains.end());
-    }
-  }
-
-  return predicate_domains;
-}
-} // namespace
-
 std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
@@ -268,6 +223,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
   // should be ignored. Double buffering may or may not create the
   // eplogue loop, but irrespective of that we can just use the
   // predicate of the main loop.
+  // TODO: Is this also the case for circular buffering?
   if (is_unswitch) {
     if (auto loop_stage = getCircularBufferLoopStage(
             tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
@@ -277,10 +233,11 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     }
   }
 
-  const auto& traversal_graph = id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   const auto zero_val = tv->fusion()->zeroVal();
 
-  const auto& predicate_domains = getPredicateDomains(tv, expr, id_model_);
+  const auto predicate_domains = getPredicateDomains(tv, expr);
+
+  // TODO: It should be safe to exit if predicate_domains is empty
 
   VERBOSE() << "Predicate domains: " << toDelimitedString(predicate_domains)
             << std::endl;
@@ -294,10 +251,10 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
   const auto& index_map = index_info.index_map;
 
   auto replacement_map_start = getPredicateIndexReplacementMap(
-      tv, for_loops, true, is_unswitch, index_map, traversal_graph);
+      tv, for_loops, true, is_unswitch, index_map, traversalGraph());
 
   auto replacement_map_stop = getPredicateIndexReplacementMap(
-      tv, for_loops, false, is_unswitch, index_map, traversal_graph);
+      tv, for_loops, false, is_unswitch, index_map, traversalGraph());
 
   auto non_divisible_splits = getNonDivisibleConsumerDomainsToPredicate(tv);
 
@@ -306,7 +263,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
           predicate_domains,
           std::vector<bool>(predicate_domains.size(), true),
           reverse(index_info.traversal_path),
-          traversal_graph,
+          traversalGraph(),
           concrete_info_,
           true);
 
@@ -339,7 +296,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
               << ", contig domain: " << contig_domain_group->front()->toString()
               << std::endl;
 
-    auto idx_it = index_map.find(traversal_graph.toGroup(predicate_domain));
+    auto idx_it = index_map.find(traversalGraph().toGroup(predicate_domain));
     if (!getenv("DISABLE_CONTIG_INDEXING")) {
       if (already_indexed_domains.find(contig_domain_group) !=
           already_indexed_domains.end()) {
@@ -356,8 +313,6 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
                   << ". Tensor: " << tv->toString() << std::endl;
       }
 
-      // auto idx_it =
-      // index_map.find(traversal_graph.toGroup(predicate_domain));
       idx_it = index_map.find(contig_domain_group);
     }
     NVF_ERROR(
@@ -402,6 +357,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
     info_vec.emplace_back(info);
   }
 
+  // Add predicates for non-divisible splits.
   // If this is a reduction init expr, then no need to take care of
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
@@ -423,7 +379,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
       info.stop_offset_ = zero_val;
 
       auto idx_it =
-          index_map.find(traversal_graph.toGroup(non_divisible_domain));
+          index_map.find(traversalGraph().toGroup(non_divisible_domain));
       NVF_ERROR(
           idx_it != index_map.end(),
           "Index not found for non-divisible split domain: ",
