@@ -10,7 +10,7 @@
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <tuple>
@@ -436,7 +436,7 @@ void IterDomainGraph::build(Fusion* fusion) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
       for (auto p_tv : tv_inputs) {
-        auto pairwise_map = PairwiseRootDomainMap(p_tv, c_tv);
+        auto pairwise_map = PairwiseLogicalDomainMap(p_tv, c_tv);
 
         // Look for matching ID transformations in producer and consumer, replay
         // producer as consumer. We use the symmetric API of BestEffortReplay so
@@ -459,7 +459,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         // Note on the boolean flags: swizzles and resizes are skipped
         // in the permissive-resize map
         const auto pairwise_resize_map =
-            PairwiseRootDomainMap(p_tv, c_tv).mapIndexedDomains(true);
+            PairwiseLogicalDomainMap(p_tv, c_tv).mapIndexedDomains(true);
         const auto permissive_resize_disjoint_sets =
             BestEffortReplay::replayPasC(
                 p_tv, c_tv, -1, pairwise_resize_map, true, true, true)
@@ -468,7 +468,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         // For exact mapings do not map any broadcast dimensions to
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
-        auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
+        auto exact_c2p_root_map = PairwiseLogicalDomainMap(p_tv, c_tv)
                                       .mapBroadcast(false)
                                       .mapConsumerToProducer();
 

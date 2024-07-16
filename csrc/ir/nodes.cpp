@@ -16,8 +16,8 @@
 #include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
 #include <ops/arith.h>
-#include <root_domain_map.h>
 #include <transform_iter.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>

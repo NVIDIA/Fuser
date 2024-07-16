@@ -18,7 +18,7 @@
 
 namespace nvfuser {
 
-class RootDomainMap;
+class LogicalDomainMap;
 
 namespace {
 
@@ -491,7 +491,7 @@ class BestEffortReplay {
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& root_map,
       bool skip_consumer_swizzle = true,
       bool skip_producer_swizzle = true,
       bool skip_resize = true);
@@ -504,7 +504,7 @@ class BestEffortReplay {
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& root_map,
       bool skip_producer_swizzle = true,
       bool skip_consumer_swizzle = true,
       bool skip_resize = true);

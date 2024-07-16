@@ -11,9 +11,9 @@
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
-#include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <val_graph.h>
@@ -764,7 +764,7 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
 
   // This gives us the ID in the consumer root domain.
   // We'll later map this ID to one in the producer.
-  const PairwiseRootDomainMap map_across_ldst(producer, consumer);
+  const PairwiseLogicalDomainMap map_across_ldst(producer, consumer);
   const auto c2p_map = map_across_ldst.mapConsumerToProducer();
   const auto id_in_proc_logical = c2p_map.at(corresponding_id_in_consumer_root);
 

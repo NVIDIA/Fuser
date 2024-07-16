@@ -7,7 +7,7 @@
 // clang-format on
 #include <executor_kernel_arg.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
@@ -19,7 +19,7 @@ namespace registry_utils {
 bool checkPatternEquivalence(
     TensorView* out_tv0,
     TensorView* out_tv1,
-    const ComputeAtRootDomainMap& root_map) {
+    const ComputeAtLogicalDomainMap& root_map) {
   const auto& out_root0 = out_tv0->getMaybeRootDomain();
   const auto& out_root1 = out_tv1->getMaybeRootDomain();
   const auto domain0 = out_tv0->domain();
@@ -621,7 +621,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
             continue;
           }
 
-          auto forward_pairwise_root_map = PairwiseRootDomainMap(
+          auto forward_pairwise_root_map = PairwiseLogicalDomainMap(
               forward_running_producer, forward_running_consumer);
           auto forward_p2c_root_map =
               forward_pairwise_root_map.mapProducerToConsumer();
@@ -676,7 +676,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
           // see TakeAlongAxisIntermediateTensorNormalization1_CUDA
           bool at_leat_one_id_mapped = false;
           auto forward_pairwise_root_map =
-              PairwiseRootDomainMap(tmp_producer, tmp_consumer);
+              PairwiseLogicalDomainMap(tmp_producer, tmp_consumer);
           auto forward_p2c_root_map =
               forward_pairwise_root_map.mapProducerToConsumer();
           for (size_t entry_i = ids_to_resolve.size(); entry_i > 0; entry_i--) {
@@ -741,7 +741,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
 
               std::vector<IterDomain*> running_resolved_ids;
 
-              auto backward_pairwise_root_map = PairwiseRootDomainMap(
+              auto backward_pairwise_root_map = PairwiseLogicalDomainMap(
                   backward_running_producer, backward_running_consumer);
 
               auto backward_c2p_root_map =
@@ -819,7 +819,7 @@ bool SchedulerTopologyChecker::hasPostReductionBCast(Fusion* fusion) {
           tv_dep_chain.pop_front();
 
           auto pairwise_root_map =
-              PairwiseRootDomainMap(running_producer, running_consumer);
+              PairwiseLogicalDomainMap(running_producer, running_consumer);
           auto p2c_root_map = pairwise_root_map.mapProducerToConsumer();
 
           // Check if any TensorViews have a resolved broadcast
@@ -964,7 +964,7 @@ bool SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
   // If the broadcast IDs are mapped with the reduction TVs, the
   // reduction scheduler should be able to schedule the gather
   // output TVs. This mapping can be PERMISSIVE as the broadcast IDs
-  // may be concretized. ExactRootDomainMap may be enough as
+  // may be concretized. ExactLogicalDomainMap may be enough as
   // broadcasts should not be removed by producer projection exprs.
 
   // Consider reusing a CA map

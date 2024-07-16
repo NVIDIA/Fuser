@@ -7,14 +7,14 @@
 // clang-format on
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
 
 namespace nvfuser {
 
 ConcretizedBroadcastDomains::ConcretizedBroadcastDomains(Fusion* fusion) {
-  exact_map_ = std::make_unique<ExactRootDomainMap>(fusion);
+  exact_map_ = std::make_unique<ExactLogicalDomainMap>(fusion);
 
   // Initialize the origin map with input broadcast domains
   auto inputs = fusion->inputsAndCreated();
@@ -107,7 +107,7 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
     }
 
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto p2c_map = PairwiseRootDomainMap(producer, consumer)
+      auto p2c_map = PairwiseLogicalDomainMap(producer, consumer)
                          .mapProducerToConsumer(&producer_broadcasts);
       for (const auto& kv : p2c_map) {
         auto p_id = kv.first;
