@@ -26,12 +26,12 @@ std::unordered_set<Split*> getAllDivisibleSplits(
   std::unordered_set<Split*> all_divisible_splits;
 
   auto all_tvs = ir_utils::allTvs(fusion);
-  // Find all tensor views with a view like rfactor. Splits used in view
-  // transformations must be divisible by definition.
+  // Find all tensor views with a view like producer projection. Splits used in
+  // view transformations must be divisible by definition.
   for (auto tv : all_tvs) {
     auto logical_dom = tv->getLogicalDomain();
-    // Not view if there's no rfactor axis
-    if (!tv->domain()->hasViewLikeRFactor()) {
+    // Not view if there's no producer projection axis
+    if (!tv->domain()->hasViewLikeProducerProjection()) {
       continue;
     }
 

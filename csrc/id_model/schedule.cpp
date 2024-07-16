@@ -35,8 +35,8 @@ ValGroup merge(ValGraph* graph, const ValGroup& g0, const ValGroup& g1) {
     }
   }
   // There is no such merge, then create one
-  g0_id = g0_id->cloneWithoutRFactor();
-  g1_id = g1_id->cloneWithoutRFactor();
+  g0_id = g0_id->cloneWithoutProducerProjection();
+  g1_id = g1_id->cloneWithoutProducerProjection();
   auto output_id = IterDomain::merge(g0_id, g1_id);
   graph->initializeVal(g0_id, g0);
   graph->initializeVal(g1_id, g1);
@@ -83,7 +83,7 @@ std::pair<ValGroup, ValGroup> split(
     return {output_groups[0], output_groups[1]};
   }
   // There is no such split, then create one
-  g_id = g_id->cloneWithoutRFactor();
+  g_id = g_id->cloneWithoutProducerProjection();
   auto [outer_id, inner_id] = IterDomain::split(g_id, factor, inner_split);
   graph->initializeVal(g_id, g);
   graph->initializeVal(outer_id, {}, {});
@@ -122,8 +122,8 @@ std::pair<ValGroup, ValGroup> swizzle(
     }
   }
   // There is no such merge, then create one
-  g0_id = g0_id->cloneWithoutRFactor();
-  g1_id = g1_id->cloneWithoutRFactor();
+  g0_id = g0_id->cloneWithoutProducerProjection();
+  g1_id = g1_id->cloneWithoutProducerProjection();
   auto [out_x, out_y] = IterDomain::swizzle(swizzle_type, g0_id, g1_id);
   graph->initializeVal(g0_id, g0);
   graph->initializeVal(g1_id, g1);

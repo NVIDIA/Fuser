@@ -99,7 +99,7 @@ bool IterDomainGraph::exprsMap(
 
   NVF_ERROR(
       first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>(),
-      "Merge, split and resize are the only expressions supported through root to logical operations in compute at map, but found:\n",
+      "Merge, split and resize are the only expressions supported through producer projection operations in compute at map, but found:\n",
       first->toString());
 
   auto first_ids = ir_utils::filterByType<IterDomain>(
@@ -347,15 +347,15 @@ void IterDomainGraph::build(Fusion* fusion) {
     auto all_ids = ir_utils::allIDsOf(tv);
 
     for (auto id : all_ids) {
-      // Check if this id is an logical id in the logical domain
-      bool is_rfactor_domain_id = id->isRFactorProduct() &&
+      // Check if this id is an producer projection in the logical domain
+      bool is_producer_projection_domain_id = id->isProducerProjection() &&
           std::find(
               tv->getLogicalDomain().begin(),
               tv->getLogicalDomain().end(),
               id) != tv->getLogicalDomain().end();
       bool is_loop_id =
           std::find(domain.begin(), domain.end(), id) != domain.end();
-      initializeId(id, is_rfactor_domain_id, is_loop_id);
+      initializeId(id, is_producer_projection_domain_id, is_loop_id);
     }
   }
 
@@ -555,14 +555,14 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
-  // Explicitly map through root to logical transformations, if we have an op
-  // like:
+  // Explicitly map through producer projection transformations, if we have an
+  // op like:
   //
   // T1[x, y*z] = view(T0[x*y, z])
   // T3[x, y*z] = view(T2[x*y, z])
   // T4 = T0 + T2
   //
-  // We want to map T1 and T3's root to logical transformations together by
+  // We want to map T1 and T3's producer projection transformations together by
   // playing the transformations forward since their root domains map. If
   // instead we have:
   //
@@ -572,11 +572,11 @@ void IterDomainGraph::build(Fusion* fusion) {
   //
   // Then we wouldn't have a mapping of T1 and T3's root domain, we'd have a
   // mapping of their logical domain, so we would want to map T1 and T3's
-  // root to logical transformations starting at their logical domains.
+  // producer projection transformations starting at their logical domains.
   //
-  // Therefore we'll explicitly map root to logical transformation iteration
+  // Therefore we'll explicitly map producer projection transformation iteration
   // domains forward and backwards. Something similar could happen with root of
-  // logical domains, though it seems mapping rfactor reduction domains aren't
+  // logical domains, though it seems mapping producer projection domains aren't
   // that important. Mapping view transformations is more important since view
   // is part of the compute definition so having the map through the
   // transformations makes it easy to check if different view operations are
@@ -595,7 +595,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   // was run and retransformed sections of the graph). We're going to make a new
   // uses map so we can easily process the actual uses of IterDomains. We
   // actually only need logical uses for this section of mapping, so we'll limit
-  // this map to only root to logical transformations.
+  // this map to only producer projection transformations.
   std::unordered_map<IterDomain*, Expr*> logical_id_uses;
 
   // Order of traversal is important for processing all the logical ids as the
@@ -616,7 +616,7 @@ void IterDomainGraph::build(Fusion* fusion) {
               expr->isA<Swizzle>(),
           "Wasn't expecting the expression type of:\n",
           expr->toString(),
-          "\nto be an expression defined in an root to logical transformation.");
+          "\nto be an expression defined in an producer projection transformation.");
       for (auto logical_inp_id : logical_inp_ids) {
         NVF_ERROR(
             logical_id_uses.find(logical_inp_id) == logical_id_uses.end(),
@@ -631,7 +631,7 @@ void IterDomainGraph::build(Fusion* fusion) {
       }
     }
     for (auto logical_id : consumer_tv->getLogicalDomain()) {
-      if (logical_id->isRFactorProduct()) {
+      if (logical_id->isProducerProjection()) {
         logical_id_uses.emplace(logical_id, nullptr);
         logical_id_order.push_back(logical_id);
       }
@@ -672,7 +672,7 @@ void IterDomainGraph::build(Fusion* fusion) {
           all_exact_map_ids.vector().begin(),
           all_exact_map_ids.vector().end(),
           std::back_inserter(exact_map_rf_ids),
-          [](IterDomain* id) { return id->isRFactorProduct(); });
+          [](IterDomain* id) { return id->isProducerProjection(); });
 
       for (auto exact_map_rf_id : exact_map_rf_ids) {
         if (exact_map_rf_id == first_logical_id) {
@@ -749,7 +749,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
 void IterDomainGraph::initializeId(
     IterDomain* id,
-    bool is_rfactor_id,
+    bool is_producer_projection,
     bool is_loop_id) {
   permissive_nodes_.initializeSet(id);
   permissive_resize_nodes_.initializeSet(id);
@@ -763,8 +763,8 @@ void IterDomainGraph::initializeId(
 
   all_ids_.pushBack(id);
 
-  if (is_rfactor_id) {
-    rfactor_ids_.emplace(id);
+  if (is_producer_projection) {
+    producer_projection_ids_.emplace(id);
   }
 }
 
@@ -1052,7 +1052,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
     }
   }
 
-  // Remove all domains in the history of sets marked as rfactor.
+  // Remove all domains in the history of sets marked as producer projection.
   {
     // All exact sets in the history of an logical domain
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
@@ -1065,7 +1065,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
       if (std::none_of(
               exact_set->vector().begin(),
               exact_set->vector().end(),
-              [&](IterDomain* id) { return isRfactor(id); })) {
+              [&](IterDomain* id) { return isProducerProjection(id); })) {
         continue;
       }
       VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
@@ -1079,8 +1079,8 @@ IterDomain* ComputeAtMap::computeConcreteId(
       }
     }
 
-    // Remove all sets in root to logical history from all_exact_sets_covered by
-    // effectively doing an inplace copy_if
+    // Remove all sets in producer projection history from
+    // all_exact_sets_covered by effectively doing an inplace copy_if
     VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
         tmp_all_exact_sets_covered;
     std::swap(tmp_all_exact_sets_covered, all_exact_sets_covered);
@@ -1464,8 +1464,9 @@ std::string ComputeAtMap::toString() const {
   return ss.str();
 }
 
-bool ComputeAtMap::isRfactor(IterDomain* ref_id) const {
-  return id_graph_.rfactorIds().find(ref_id) != id_graph_.rfactorIds().end();
+bool ComputeAtMap::isProducerProjection(IterDomain* ref_id) const {
+  return id_graph_.producerProjectionIds().find(ref_id) !=
+      id_graph_.producerProjectionIds().end();
 }
 
 std::vector<IterDomain*> ComputeAtMap::getLogicalDomainsOfIdGroup(
@@ -1474,8 +1475,8 @@ std::vector<IterDomain*> ComputeAtMap::getLogicalDomainsOfIdGroup(
   auto disjoint_set = disjointSetOf(ref_id, mode);
   std::vector<IterDomain*> logical_ids;
   for (auto disjoint_id : disjoint_set->vector()) {
-    if (id_graph_.rfactorIds().find(disjoint_id) !=
-        id_graph_.rfactorIds().end()) {
+    if (id_graph_.producerProjectionIds().find(disjoint_id) !=
+        id_graph_.producerProjectionIds().end()) {
       logical_ids.push_back(disjoint_id);
     }
   }
@@ -1548,7 +1549,7 @@ ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_logical) {
         std::any_of(
             currently_visiting->vector().begin(),
             currently_visiting->vector().end(),
-            [&](IterDomain* id) { return isRfactor(id); })) {
+            [&](IterDomain* id) { return isProducerProjection(id); })) {
       input_disjoint_sets.pushBack(currently_visiting);
       continue;
     }

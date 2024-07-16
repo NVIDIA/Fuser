@@ -1035,7 +1035,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   std::vector<IterDomain*> new_logical_domain(
       no_reduction_logical_domain.size());
   for (const auto& dom : no_reduction_logical_domain) {
-    new_logical_domain[i++] = dom->cloneWithoutRFactor();
+    new_logical_domain[i++] = dom->cloneWithoutProducerProjection();
   }
 
   // Warning: allocation domain is temporarily discarded. It will be recovered
@@ -1180,7 +1180,7 @@ TensorView* TensorView::cacheAfter(
   std::vector<IterDomain*> new_logical_domain(
       no_reduction_logical_domain.size());
   for (const auto& dom : no_reduction_logical_domain) {
-    new_logical_domain[i++] = dom->cloneWithoutRFactor();
+    new_logical_domain[i++] = dom->cloneWithoutProducerProjection();
   }
 
   // This domain will be the producer, so create the consumer
@@ -1422,7 +1422,7 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
   // TODO: this shouldn't be necessary. For details see issue
   // https://github.com/NVIDIA/Fuser/issues/1399
   //
-  // skip stride_order if its alloc_domain is in the same order as with rfactor
+  // skip stride_order if its alloc_domain is in the same order as with logical
   // domain. We don't need this and we should be able to just use stride_order_,
   // but currently alloc_domain support isn't ideal and could prevent
   // vectorization. Adding this workaround to restore performance.

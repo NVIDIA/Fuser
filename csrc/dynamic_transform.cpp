@@ -919,7 +919,7 @@ void DynamicTransformConcretizer::concretizeResize() {
         def->in(),
         def->leftExpand(),
         def->rightExpand(),
-        id->isRFactorProduct(),
+        id->isProducerProjection(),
         iter_type);
 
     registerConcretization(id, new_id);
@@ -1017,17 +1017,17 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
 
   // If no root domain is altered by producer, we don't need to propagate back
   // up to logical domain. We could return early, but instead we go ahead and
-  // check the root to logical transforms to be sure we have concretized any
+  // check the producer projection transforms to be sure we have concretized any
   // intermediate IterDomains.
 
-  // At this point, there should be no expr beyond rfactor root
+  // At this point, there should be no expr beyond logical domain
   NVF_ERROR(
       tv->getLoopDomain() == tv->getLogicalDomain(),
       "Invalid tensor: ",
       tv->toString());
 
   // If it has an root domain, the IterTypes of the logical
-  // IDs may need to be updated as well. Traverse the rfactor exprs
+  // IDs may need to be updated as well. Traverse the producer projection exprs
   // and mutate the IterTypes of output IDs if symbolic.
   if (tv->hasRoot()) {
     // Note that it is assumed that theres's no further expression

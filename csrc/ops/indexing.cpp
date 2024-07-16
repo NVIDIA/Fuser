@@ -30,7 +30,7 @@ TensorView* select(TensorView* tv, int64_t dim, Val* index) {
 
   for (auto i : c10::irange((int64_t)dom.size())) {
     if (i != dim) {
-      new_root.emplace_back(dom[i]->cloneWithoutRFactor());
+      new_root.emplace_back(dom[i]->cloneWithoutProducerProjection());
     }
   }
 
@@ -66,9 +66,9 @@ TensorView* index_select(
 
   for (auto i : c10::irange(n_dims)) {
     if (i != dim) {
-      new_root.emplace_back(lookup_dom[i]->cloneWithoutRFactor());
+      new_root.emplace_back(lookup_dom[i]->cloneWithoutProducerProjection());
     } else {
-      new_root.emplace_back(index_dom[0]->cloneWithoutRFactor());
+      new_root.emplace_back(index_dom[0]->cloneWithoutProducerProjection());
     }
   }
 

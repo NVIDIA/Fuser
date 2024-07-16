@@ -67,8 +67,9 @@ class ReplayTransformations : public IterVisitor {
     return *this;
   }
 
-  ReplayTransformations& setReplayRFactor(bool replay_rfactor) {
-    replay_rfactor_ = replay_rfactor;
+  ReplayTransformations& setReplayProducerProjection(
+      bool replay_producer_projection) {
+    replay_producer_projection_ = replay_producer_projection;
     return *this;
   }
 
@@ -151,7 +152,7 @@ class ReplayTransformations : public IterVisitor {
   bool replay_resize_ = false;
 
   // Whether to copy the `rf` flag from ops producing `target_domain`.
-  bool replay_rfactor_ = false;
+  bool replay_producer_projection_ = false;
 
   size_t counter_ = 0;
 
@@ -237,7 +238,7 @@ class ForwardingInfo {
  * T2[I0] = T1[I0, R1i]
  *
  * There's an issue when we want to replay T4 to have transformations similar to
- * those on T0. Primarily T0's "rfactor" domain has a strict match requirement
+ * those on T0. Primarily T0's logical domain has a strict match requirement
  * on T4's root domain. If transformations on top of T0 don't match T4's
  * transformations (from T4's root domain to T4's logical domain), T4 cannot be
  * replayed like T0 on those domains as they would generate incorrect code in
@@ -254,14 +255,15 @@ class ForwardingInfo {
  * generated and expressions are sorted.
  *
  * T0 doesn't have this constraint if we want to replay T0 as T4, so this is
- * directional based on rfactor. Therefore to replay T0 transformations onto T4
- * we want to make sure those transformations are consistent with T4 (between
- * T4's root and logical domain). Best Effort Replay does not actually add any
- * transformations to the tensors provided. However, it will provide information
- * to determine producers's transformations are consistent with consumers
- * transformations (or the other way around). Best Effort Replay will return
- * discovered mappings between tensors that it detects to be matching based on
- * provided initial information (or just through p2c/c2p root domain mappings).
+ * directional based on producer projection. Therefore to replay T0
+ * transformations onto T4 we want to make sure those transformations are
+ * consistent with T4 (between T4's root and logical domain). Best Effort Replay
+ * does not actually add any transformations to the tensors provided. However,
+ * it will provide information to determine producers's transformations are
+ * consistent with consumers transformations (or the other way around). Best
+ * Effort Replay will return discovered mappings between tensors that it detects
+ * to be matching based on provided initial information (or just through p2c/c2p
+ * root domain mappings).
  *
  * Transformations have a concept of "permissiveness" used for broadcast and
  * squeeze. For example:
@@ -312,7 +314,7 @@ class ForwardingInfo {
  * iter domain that doesn't match is in a forwarding map). The replay map is the
  * "best effort" part of BestEffortReplay, it doesn't actually perform new
  * transformations to enforce matching, it just detects existing matching
- * transforms. However, we still include rfactor validation within.
+ * transforms. However, we still include producer projection validation within.
  */
 
 class BestEffortReplay {

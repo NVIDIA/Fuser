@@ -240,7 +240,7 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d) {
 
 // Reshape a 3d tensor into an NHWC tensor with a 4d allocation domain in fusion
 // output. The allocation domain is on both the producer and the consumer side
-// of the rFactor domain.
+// of the logical domain.
 TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -805,7 +805,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
 }
 
 // NOT similar to NHWC2d_To_NHWC2d, because cacheAfter requires the
-// allocation tensor to be between rFactor domain and loop domain, which is not
+// allocation tensor to be between logical domain and loop domain, which is not
 // the case for NHWC2d_To_NHWC2d
 TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
   auto fusion_ptr = std::make_unique<Fusion>();

@@ -169,7 +169,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingRfactor_CUDA) {
   //[B,I,R0,R1=128], root = [B,I,R]
   tv2->split(2, 128);
 
-  // root=[B,I,Irf], rfactor=[B,I,Irf,Rrf]
+  // root=[B,I,Irf], logical=[B,I,Irf,Rrf]
   auto tv4 = tv2->rFactor({3});
 
   checkIdMapped(tv1, tv1->getMaybeRootDomain(), tv4, tv4->getMaybeRootDomain());

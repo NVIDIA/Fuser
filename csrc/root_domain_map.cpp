@@ -647,11 +647,11 @@ bool ComputeAtRootDomainMap::canMap(
     const TensorDomain* td_b,
     const IterDomain* id_b) const {
   NVF_ERROR(
-      id_a->definition() == nullptr || id_a->isRFactorProduct(),
+      id_a->definition() == nullptr || id_a->isProducerProjection(),
       "Non-root domain is not supported: ",
       id_a);
   NVF_ERROR(
-      id_b->definition() == nullptr || id_b->isRFactorProduct(),
+      id_b->definition() == nullptr || id_b->isProducerProjection(),
       "Non-root domain is not supported: ",
       id_b);
 
@@ -696,7 +696,7 @@ bool ComputeAtRootDomainMap::canMap(
     const TensorDomain* td_b,
     const IterDomain* id_b) const {
   NVF_ERROR(
-      id_b->definition() == nullptr || id_b->isRFactorProduct(),
+      id_b->definition() == nullptr || id_b->isProducerProjection(),
       "Non-root domain is not supported: ",
       id_b);
 
@@ -1301,10 +1301,10 @@ void ComputeAtRootDomainMapBuilder::handle(TensorView* tv) {
 
   // When tv has an logical domain, propagate the domain mappings from
   // each of the logical axes to the dependent root axes.
-  if (td->hasViewLikeRFactor()) {
+  if (td->hasViewLikeProducerProjection()) {
     std::unordered_set<Val*> root_set({td->root().begin(), td->root().end()});
     for (auto logical_id : logical) {
-      if (!logical_id->isRFactorProduct()) {
+      if (!logical_id->isProducerProjection()) {
         continue;
       }
       auto dep = DependencyCheck::getAllValsBetween(root_set, {logical_id});

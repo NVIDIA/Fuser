@@ -766,12 +766,12 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   // We'll later map this ID to one in the producer.
   const PairwiseRootDomainMap map_across_ldst(producer, consumer);
   const auto c2p_map = map_across_ldst.mapConsumerToProducer();
-  const auto id_in_proc_rfactor = c2p_map.at(corresponding_id_in_consumer_root);
+  const auto id_in_proc_logical = c2p_map.at(corresponding_id_in_consumer_root);
 
   // If the innermost ID of the (maybe)Allocation domain
   // is not the same as the mapped ID in the producer, then
   // we need to transpose.
-  return producer->getMaybeAllocationDomain().back() != id_in_proc_rfactor;
+  return producer->getMaybeAllocationDomain().back() != id_in_proc_logical;
 }
 
 void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {

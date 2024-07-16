@@ -73,7 +73,7 @@ namespace nvfuser {
 //!   3) Squeeze operation is called on the squeezed axes from the analysis.
 //!   4) applyViewTransforms will generate the output domain of the view
 //!      operation.
-//!        Calls TensorDomain::view(view_analysis) which returns the rfactored
+//!        Calls TensorDomain::view(view_analysis) which returns the logical
 //!        domain.
 //!        Gets forwarded to transformView(TensorDomain, view_analysis)
 //!        Gets forwarded to createViewDomain(TensorDomain, view_analysis)
@@ -116,15 +116,15 @@ class ViewTransform : public Transform {
  public:
   // Function to apply the transformation. Transformation is applied on
   // current_transformed_domain. root_domain is required here to replace
-  // IterDomains so we can flip the rfactor flag on the root domain if it's
-  // involved in merge/split trasnforms to produce the logical domain.
+  // IterDomains so we can flip the producer projection flag on the root domain
+  // if it's involved in merge/split trasnforms to produce the logical domain.
   virtual void createLogicalDomain(
       std::vector<IterDomain*>& root_domain,
       std::vector<IterDomain*>& current_transformed_domain) = 0;
 
   // Convenience function to replace id in root_domain with an id that has
-  // expand expanded, and rfactor flag turned on.
-  static IterDomain* replaceRootIdWithRFactor(
+  // expand expanded, and producer projection flag turned on.
+  static IterDomain* replaceRootIdWithLogical(
       std::vector<IterDomain*>& root_domain,
       IterDomain* id) {
     auto root_domain_it = std::find(root_domain.begin(), root_domain.end(), id);
@@ -133,7 +133,7 @@ class ViewTransform : public Transform {
         root_domain_it != root_domain.end(),
         "Wanted to replace ",
         id->toString(),
-        " in root with an rfactor dimension, but IterDomain was not found in root.");
+        " in root with an logical dimension, but IterDomain was not found in root.");
 
     auto root_domain_pos = std::distance(root_domain.begin(), root_domain_it);
 
@@ -147,7 +147,7 @@ class ViewTransform : public Transform {
                 is_expanded_dim ? IterType::Iteration : id->getIterType())
             .extent(extent)
             .expanded_extent(nullptr)
-            .is_rfactor_domain(true)
+            .is_producer_projection(true)
             .build();
 
     root_domain.erase(root_domain.begin() + root_domain_pos);
@@ -197,13 +197,13 @@ class MergeTransform final : public ViewTransform {
 
     // Assumed to never merge over non-contiguous dimensions.
     IterDomain* outer_id = current_transformed_domain.at(index_);
-    if (!outer_id->isRFactorProduct()) {
-      outer_id = replaceRootIdWithRFactor(root_domain, outer_id);
+    if (!outer_id->isProducerProjection()) {
+      outer_id = replaceRootIdWithLogical(root_domain, outer_id);
     }
 
     IterDomain* inner_id = current_transformed_domain.at(index_ + 1);
-    if (!inner_id->isRFactorProduct()) {
-      inner_id = replaceRootIdWithRFactor(root_domain, inner_id);
+    if (!inner_id->isProducerProjection()) {
+      inner_id = replaceRootIdWithLogical(root_domain, inner_id);
     }
 
     NVF_ERROR(
@@ -262,8 +262,8 @@ class SplitTransform final : public ViewTransform {
     auto factor = IrBuilder::create<Val>(split_factor_, DataType::Index);
 
     IterDomain* id = current_transformed_domain.at(index_);
-    if (!id->isRFactorProduct()) {
-      id = replaceRootIdWithRFactor(root_domain, id);
+    if (!id->isProducerProjection()) {
+      id = replaceRootIdWithLogical(root_domain, id);
     }
 
     NVF_ERROR(
@@ -275,7 +275,7 @@ class SplitTransform final : public ViewTransform {
         id,
         factor,
         /*inner_split=*/false,
-        /*rfactor_domain=*/true);
+        /*producer_projection=*/true);
 
     current_transformed_domain.erase(
         current_transformed_domain.begin() + index_);
@@ -687,7 +687,7 @@ TensorDomain* createViewDomain(
   for (auto id_i : c10::irange(orig_logical_domain.size())) {
     if (!view_analysis.squeeze_axes.at(id_i)) {
       auto id = orig_logical_domain.at(id_i);
-      new_root_domain.push_back(id->cloneWithoutRFactor());
+      new_root_domain.push_back(id->cloneWithoutProducerProjection());
       continue;
     }
   }
@@ -695,7 +695,7 @@ TensorDomain* createViewDomain(
   std::vector<IterDomain*> new_logical_domain(
       new_root_domain.begin(), new_root_domain.end());
 
-  // Apply root to logical transformations.
+  // Apply producer projection transformations.
   for (auto& t : view_analysis.transforms) {
     t->createLogicalDomain(new_root_domain, new_logical_domain);
   }

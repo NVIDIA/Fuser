@@ -87,8 +87,8 @@ class IndexLowering : private OptOutConstDispatch {
   }
 
   // lower index for producer. The `override_index` is a mapping `id->index`,
-  // where `id` must be an IterDomain in the rFactor domain of the producer.
-  // This is can used to manually set the index for the given rFactor ID.
+  // where `id` must be an IterDomain in the logical domain of the producer.
+  // This is can used to manually set the index for the given logical ID.
   // Currently, this `override_index` is only used by indexing ops like
   // select/index_select.
   // The argument `generate_pointer` specifies whether to generate pointer for

@@ -434,13 +434,13 @@ void IndexCompute::handle(Resize* resize) {
   if (isZero(out_id) || hasZeroMerged(out_id)) {
     // When the out ID is (partially) zero, the in ID is not indexable. Don't
     // add any new mapping to the index and extent maps. This is fine since when
-    // a resize shows up as part of root to logical transformations, the input
-    // to the resize is not indexed as the indexing is done using the logical
-    // domain. This could be an issue when a resize is shows up outside of
-    // rfactor transfomations, but currently that only can happen when a
-    // producer tensor is transformed to look like a consumer. Since inlining is
-    // not allowed with resize, the out ID should never be a zero domain in that
-    // case.
+    // a resize shows up as part of producer projection transformations, the
+    // input to the resize is not indexed as the indexing is done using the
+    // logical domain. This could be an issue when a resize is shows up outside
+    // of producer projection transfomations, but currently that only can happen
+    // when a producer tensor is transformed to look like a consumer. Since
+    // inlining is not allowed with resize, the out ID should never be a zero
+    // domain in that case.
     return;
   } else {
     index_map_[in_id] = sub(out_ind, resize->leftExpand());
@@ -2250,12 +2250,12 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
     const std::unordered_map<IterDomain*, Val*>& consumer_index_map) {
   const auto gpu_lower = GpuLower::current();
 
-  // When there's a resize expr between the root and the logical
-  // domains, predicate the logical domain. Otherwise, predicate the
-  // root domain. The actual size of an IterDomain after resize
-  // changes, and the output IterDomain needs to be used to generate
-  // its predicate.
-  const auto& consumer_root_domain = ir_utils::hasResizedRfactor(consumer_tv)
+  // When there's a resize expr on the producer projection path, predicate the
+  // logical domain. Otherwise, predicate the root domain. The actual size of an
+  // IterDomain after resize changes, and the output IterDomain needs to be used
+  // to generate its predicate.
+  const auto& consumer_root_domain =
+      ir_utils::hasResizedProducerProjection(consumer_tv)
       ? consumer_tv->getLogicalDomain()
       : consumer_tv->getMaybeRootDomain();
 

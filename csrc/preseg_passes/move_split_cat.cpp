@@ -124,7 +124,7 @@ class CancelSplitCat {
   //   out = cat([x, y], axis=1)  # [[0, 1, 2, 6, 7, 8], [3, 4, 5, 9, 10, 11]]
   // It's impossible to set strides to make `out` a view of `in`.
   int64_t computeCatAxisAfterZipping(
-      const std::vector<IterDomain*>& slice_rfactor,
+      const std::vector<IterDomain*>& slice_logical,
       IterDomain* cat_id);
 
   // Finds the canceling split of `cat` and returns the input TensorView of the
@@ -296,18 +296,18 @@ TensorView* slicesFormSplit(
 }
 
 int64_t CancelSplitCat::computeCatAxisAfterZipping(
-    const std::vector<IterDomain*>& slice_rfactor,
+    const std::vector<IterDomain*>& slice_logical,
     IterDomain* cat_id) {
   const ValGraph& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
   ValGroup cat_group = exact_graph.toGroup(cat_id);
   while (cat_group != nullptr) {
-    // If `cat_group` contains a slice rfactor ID, return the index of that ID.
+    // If `cat_group` contains a slice logical ID, return the index of that ID.
     auto i = std::find_if(
-        slice_rfactor.begin(), slice_rfactor.end(), [&](IterDomain* id) {
+        slice_logical.begin(), slice_logical.end(), [&](IterDomain* id) {
           return exact_graph.toGroup(id) == cat_group;
         });
-    if (i != slice_rfactor.end()) {
-      return i - slice_rfactor.begin();
+    if (i != slice_logical.end()) {
+      return i - slice_logical.begin();
     }
 
     // Conceptually zip `cat_group` over its definition.

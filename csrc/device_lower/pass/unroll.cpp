@@ -284,7 +284,8 @@ bool UnrollPass::canOmitElseClause(ForLoop* fl) {
       if (std::any_of(
               expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
                 return output->isA<TensorView>() &&
-                    ir_utils::hasResizedRfactor(output->as<TensorView>());
+                    ir_utils::hasResizedProducerProjection(
+                           output->as<TensorView>());
               })) {
         resize_exprs.insert(expr);
       }

@@ -56,7 +56,7 @@ class ReplaySelf : public ReplayTransformations {
     Val* remainder = ceilDiv(mapped->extent(), s->factor());
 
     // Manually replay the split, following the output of the operations.
-    // This is so rfactor ops are replayed correctly.
+    // This is so producer projection ops are replayed correctly.
     IterDomain* ido = IterDomainBuilder(s->outer())
                           .start(s->container()->zeroVal())
                           .extent(s->innerSplit() ? remainder : s->factor())
@@ -150,9 +150,9 @@ class ReplaySelf : public ReplayTransformations {
         loop_ids_.find(mapped) != loop_ids_.end(),
         "Transform traversal failed, modified a node but it was not a loop node.");
 
-    // When the original output is an rfactor, make the replayed
-    // output domain also an rfactor
-    const auto resize_out_logical = resize->out()->isRFactorProduct();
+    // When the original output is an producer projection, make the replayed
+    // output domain also an producer projection
+    const auto resize_out_logical = resize->out()->isProducerProjection();
 
     auto replayed_out = IterDomain::resize(
         mapped,
@@ -193,8 +193,8 @@ TensorDomain* TransformReplay::fullSelfReplay(
     for (auto id : self->maybeRoot()) {
       NVF_ERROR(
           new_self_root->maybeRoot()[i]->isReduction() == id->isReduction() &&
-              new_self_root->maybeRoot()[i]->isRFactorProduct() ==
-                  id->isRFactorProduct() &&
+              new_self_root->maybeRoot()[i]->isProducerProjection() ==
+                  id->isProducerProjection() &&
               new_self_root->maybeRoot()[i]->isBroadcast() == id->isBroadcast(),
           "Axes ",
           id,
@@ -283,11 +283,11 @@ std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
 
 } // namespace
 
-// Producer could have rfactor axes which consumer may want replayed. We can
-// "replay" them as long as it doesn't modify the root rfactor axes. What we
+// Producer could have logical axes which consumer may want replayed. We can
+// "replay" them as long as it doesn't modify the logical axes. What we
 // really want to do is validate if we replayed these axes to the ones they
 // mapped to in the consumer the operations would all be the same. then we want
-// to start the replay of the producer from the rfactor root axes, not the root.
+// to start the replay of the producer from the logical axes, not the root.
 std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
     const TensorView* producer,
     const TensorView* consumer,
@@ -306,7 +306,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
       consumer->getLoopDomain().begin() + consumer_pos);
 
   // Instead of replaying from the root, lets try to play forward the history of
-  // producer if they match ops on consumer. Enforce if we modify an rfactor
+  // producer if they match ops on consumer. Enforce if we modify a logical
   // axis that those ops must match.
   //
   // Swizzles should not be skipped in the BestEffortReplay matching in this
@@ -543,7 +543,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   target_producer_ids = TensorDomain::noReductions(target_producer_ids);
 
   // Instead of replaying from the root, lets try to forward the history of
-  // consumer if they match ops on producer. Enforce if we modify an rfactor
+  // consumer if they match ops on producer. Enforce if we modify a logical
   // axis that those ops match.
   //
   // Note on skip_swizzles: Similar constraints apply in replayPasC. See the
@@ -1244,7 +1244,7 @@ TensorDomain* fullReplay(
       "use its loop as the target domain: ",
       old_domain->toString(0, /*loop_only=*/false));
   ReplayTransformations replay(old_domain->loop(), old_root_to_new);
-  replay.setReplayRFactor(true);
+  replay.setReplayProducerProjection(true);
 
   std::vector<IterDomain*> new_loop;
   new_loop.reserve(old_domain->nDims());
@@ -1308,7 +1308,8 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
       // `in_logical_id`.
       new_out_root.push_back(
           IterDomainBuilder(in_logical_id)
-              .is_rfactor_domain(old_domain->maybeRoot()[i]->isRFactorProduct())
+              .is_producer_projection(
+                  old_domain->maybeRoot()[i]->isProducerProjection())
               .build());
       i++;
     }

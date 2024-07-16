@@ -2419,7 +2419,7 @@ TEST_F(IdModelTest, LoopGraphWithSibling) {
 }
 
 // Repro of issue #2296
-TEST_F(IdModelTest, LoopPromotionWithViewRFactor1) {
+TEST_F(IdModelTest, LoopPromotionWithViewProducerProjection1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 

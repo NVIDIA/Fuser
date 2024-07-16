@@ -292,7 +292,8 @@ NVF_API std::vector<TensorView*> getReductionTvs(Fusion* fusion);
 std::vector<TensorView*> getViewTVs(Fusion* fusion);
 
 // Returns a list of non-reduction TensorViews that have a root domain
-std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
+std::vector<TensorView*> getTVsWithNonReductionProducerProjection(
+    Fusion* fusion);
 
 // Reset inputs and outputs to global memory, everything else to local.
 NVF_API void clearMemorySpace(Fusion* fusion);
@@ -312,17 +313,16 @@ NVF_API std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
 IterDomain* innerMostAllocDim(TensorView* tv);
 
 // Looks through fusion and finds all dims that match to the one provided in
-// the tensorview provided. Iter domain must be a root domain. If inner_only,
-// will only map dimensions if they're the inner most position. This is
-// important when projecting a dimension between an rfactor position and its
-// root position when mapping from consumer to producer. If inner_only=true,
-// takes the rfactor/root dimensions that maps, projects it to the root/rfactor
-// domain, but only following the inner most pass when encounting split/merge.
-// When propagating backward, for split it will only propagate backwards if the
-// mapped dimension is the inner portion of the split. For merge, inner_only
-// doesn't make a dimension and will propagate through the inner portion of the
-// merge. When propagating forward, the logic is symmetric with the backward
-// case.
+// the tensorview provided. Iter domain must be in root/logical domain. If
+// inner_only, will only map dimensions if they're the inner most position. This
+// is important when projecting a dimension through producer projections when
+// mapping from consumer to producer. If inner_only=true, takes the logical/root
+// dimensions that maps, projects it to the root/logical domain, but only
+// following the inner most pass when encounting split/merge. When propagating
+// backward, for split it will only propagate backwards if the mapped dimension
+// is the inner portion of the split. For merge, inner_only doesn't make a
+// dimension and will propagate through the inner portion of the merge. When
+// propagating forward, the logic is symmetric with the backward case.
 class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
   std::unordered_map<TensorView*, IterDomain*> mapped_root_ids_;
   std::unordered_map<TensorView*, IterDomain*> mapped_logical_ids_;
@@ -365,11 +365,11 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
 
 // Holder return struct for the below function.
 struct DisjointLogicalSetInfo {
-  // const* to the disjoint set in disjoint_rfactor_set passed in to
-  // getDisjointLogicalSetsOf each iterdomain in the rfactor of ref is mapped
-  // to.
+  // const* to the disjoint set in disjoint_logical_set passed in to
+  // getDisjointLogicalSetsOf each iterdomain in the logical domain of ref is
+  // mapped to.
   //
-  // WARNING: these pointers are relative to the disjoint_rfactor_set reference
+  // WARNING: these pointers are relative to the disjoint_logical_set reference
   // passed into getDisjointLogicalSetsOf it's the user's responsibility to
   // maintain the lifetime of that reference to match this vector.
   std::vector<const VectorOfUniqueEntries<IterDomain*>*> disjoint_sets_of_ref;
@@ -383,16 +383,16 @@ struct DisjointLogicalSetInfo {
   TensorView* ref;
 };
 
-// Returns disjoint rfactor sets mapped onto the given reference. Returns a pair
-// of vectors of size rfactorDomain of reference. Vector of
+// Returns disjoint logical sets mapped onto the given reference. Returns a pair
+// of vectors of size logical domain of reference. Vector of
 // VectorOfUniqueEntries returns a const* to the disjoint set in
-// disjoint_rfactor_set the iterdomain is mapped to. Integer vector represents
-// which disjoint rfactor group the logical id belongs to. It's straightforward
+// disjoint_logical_set the iterdomain is mapped to. Integer vector represents
+// which disjoint logical group the logical id belongs to. It's straightforward
 // to map from the former to the latter, but not the latter to former.
 //
-// Since we return a const* to entries in disjoint_rfactor_set, it must be
+// Since we return a const* to entries in disjoint_logical_set, it must be
 // passed in as a reference. Algorithm is N^2 based on number of dims in
-// reference, but generating the disjoint rfactor set is likely the limiter on
+// reference, but generating the disjoint logical set is likely the limiter on
 // perf of this function.
 //
 // logical_reorder_map is provided to assume TensorView `of` will be reordered
@@ -400,7 +400,7 @@ struct DisjointLogicalSetInfo {
 DisjointLogicalSetInfo getDisjointLogicalSetsOf(
     Fusion* fusion,
     TensorView* of,
-    DisjointSets<IterDomain*>& disjoint_rfactor_set,
+    DisjointSets<IterDomain*>& disjoint_logical_set,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map = {});
 
 // Structure to hold byte multiples for break points. I.e. if we have the
@@ -566,7 +566,8 @@ struct BoundedDirectionalTransformPropagator {
 // If IterDomains are disjoint in the returned set, then they are considered
 // "separable".
 // Warning: This pass generates the IdGraphs, not intended for use at runtime.
-NVF_API DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion);
+NVF_API DisjointSets<IterDomain*> disjointProducerProjectionSets(
+    Fusion* fusion);
 
 // Makes sure that there are no group id's left of pos that match right of pos.
 // e.g.

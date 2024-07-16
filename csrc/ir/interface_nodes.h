@@ -496,7 +496,7 @@ class NVF_API TensorView : public Val {
   // example, grouping multiple reductions.
   void updateMaxProducerPosition();
 
-  // Commit the current changes in loop domain into rFactor domain. This
+  // Commit the current changes in loop domain into logical domain. This
   // function can be used to do implicit transpose and view, but today, only
   // implicit transpose is being tested. This function can be dangerous: it
   // changes the the semantics of the current tensor without updating its

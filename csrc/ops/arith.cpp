@@ -1287,7 +1287,8 @@ TensorView* maybeFullInsteadOfReduction(
             new_root.push_back(id);
           }
         } else {
-          new_root.push_back(tv_logical.at(j)->cloneWithoutRFactor());
+          new_root.push_back(
+              tv_logical.at(j)->cloneWithoutProducerProjection());
         }
       }
 
@@ -2262,7 +2263,7 @@ TensorView* viewAsScalar(TensorView* inp) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
   out_domain.reserve(inp_domain.size());
   for (auto d : inp_domain) {
-    out_domain.push_back(d->cloneWithoutRFactor());
+    out_domain.push_back(d->cloneWithoutProducerProjection());
   }
 
   IterDomain* id =

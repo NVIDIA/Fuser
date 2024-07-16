@@ -41,12 +41,12 @@ class IterDomainBuilder {
   // Grab all the parameters from id to set the IterDomainBuilder
   NVF_API IterDomainBuilder(const IterDomain* id);
 
-  // Resets defaults for rfactor, is padded dim, padded to size, and is mma
-  // swizzle which should only be set during scheduling.
+  // Resets defaults for producer projection, is padded dim, padded to size, and
+  // is mma swizzle which should only be set during scheduling.
   IterDomainBuilder& resetSchedulingParams();
 
-  // Resets is_rfactor_domain
-  IterDomainBuilder& resetRfactor();
+  // Resets is_producer_projection
+  IterDomainBuilder& resetProducerProjection();
 
   IterDomainBuilder& start(Val* _start);
   IterDomainBuilder& extent(Val* _extent);
@@ -54,7 +54,7 @@ class IterDomainBuilder {
   IterDomainBuilder& stop_offset(Val* _stop_offset);
   IterDomainBuilder& parallel_type(ParallelType _parallel_type);
   NVF_API IterDomainBuilder& iter_type(IterType _iter_type);
-  IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
+  IterDomainBuilder& is_producer_projection(bool _is_producer_projection);
   IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
   IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
   IterDomainBuilder& is_mma_swizzled(bool _is_mma_swizzled);
@@ -72,7 +72,7 @@ class IterDomainBuilder {
   IterType iter_type_ = IterType::Iteration;
 
   // Only relevant at scheduling time or compile time.
-  bool is_rfactor_domain_ = false;
+  bool is_producer_projection_ = false;
   bool is_padded_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
   bool is_mma_swizzled_ = false;
@@ -96,7 +96,7 @@ class NVF_API IterDomain : public Val {
       Val* stop_offset,
       ParallelType parallel_type,
       IterType iter_type,
-      bool is_rfactor_domain,
+      bool is_producer_projection,
       bool is_padded_dimension,
       std::optional<int64_t> padded_to_size_,
       bool is_mma_swizzled);
@@ -113,25 +113,25 @@ class NVF_API IterDomain : public Val {
 
   //! Returns a new IterDomain matching properties of this
   //!
-  //! This does NOT copy the is_rfactor_domain flag.
-  IterDomain* cloneWithoutRFactor() const;
+  //! This does NOT copy the is_producer_projection flag.
+  IterDomain* cloneWithoutProducerProjection() const;
 
   //! Clone a vector domains
   static std::vector<IterDomain*> clone(
       const std::vector<IterDomain*>& domains);
 
-  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
-  //! the result IterDomain.
+  //! When `producer_projection` is true, also set the `is_producer_projection_`
+  //! flag of the result IterDomain.
   static IterDomain* merge(
       IterDomain* outer,
       IterDomain* inner,
-      bool rfactor_domain = false);
+      bool producer_projection = false);
 
   static std::pair<IterDomain*, IterDomain*> split(
       IterDomain* in,
       Val* factor,
       bool inner_split,
-      bool rfactor_domain = false);
+      bool producer_projection = false);
 
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of
@@ -140,10 +140,9 @@ class NVF_API IterDomain : public Val {
   //! is shrunk. This is the case when resize is used to represent
   //! slice.
   //!
-  //! When mark_as_rfactor is true, the output IterDomain
-  //! is marked as an rfactor domain. For example, expressions such as
-  //! PadOp and SliceOp resize IterDomains and generate rfactor
-  //! resized domains.
+  //! When mark_as_producer_projection is true, the output IterDomain
+  //! is marked as an producer projection domain. For example, expressions such
+  //! as PadOp and SliceOp resize IterDomains and generate resized domains.
   //!
   //! Usually, the IterType of the output IterDomain will be Symbolic. This is
   //! because unless the left and right expansions are known at Fusion
@@ -161,7 +160,7 @@ class NVF_API IterDomain : public Val {
       IterDomain* in,
       Val* left_expansion,
       Val* right_expansion,
-      bool mark_as_rfactor = false,
+      bool mark_as_producer_projection = false,
       std::optional<IterType> iter_type = std::nullopt);
 
   bool isReduction() const {
@@ -172,8 +171,8 @@ class NVF_API IterDomain : public Val {
     return getIterType() == IterType::Iteration;
   }
 
-  bool isRFactorProduct() const {
-    return is_rfactor_domain_;
+  bool isProducerProjection() const {
+    return is_producer_projection_;
   }
 
   bool isBroadcast() const {
@@ -403,7 +402,7 @@ class NVF_API IterDomain : public Val {
   Val* const stop_offset_ = nullptr;
   ParallelType parallel_type_ = ParallelType::Serial;
   IterType iter_type_ = IterType::Iteration;
-  bool is_rfactor_domain_ = false;
+  bool is_producer_projection_ = false;
   bool is_padded_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
 
@@ -530,8 +529,7 @@ class TensorDomain : public Val {
     return !allocation_domain_.empty();
   }
 
-  // Returns if rfactor domain only consists of id's of iter type.
-  bool hasViewLikeRFactor() const;
+  bool hasViewLikeProducerProjection() const;
 
   bool hasVectorize() const;
 
