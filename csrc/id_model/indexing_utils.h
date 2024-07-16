@@ -16,7 +16,6 @@
 namespace nvfuser {
 namespace indexing_utils {
 
-
 // Get a matching ForLoop for a given loop iter domain. There may not
 // be such a loop if this loop-nest is for initializing a reduction
 // buffer.

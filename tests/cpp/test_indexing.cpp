@@ -126,7 +126,8 @@ class AbstractGetReference {
   // These could be getLinearIndex parameters, but it's just easier to
   // add them here since the function signature doesn't need to change.
   std::vector<ForLoop*> for_loops_;
-  CircularBufferLoopStage circular_buffer_loop_stage_;
+  CircularBufferLoopStage circular_buffer_loop_stage_ =
+      CircularBufferLoopStage::NotApplicable;
 };
 
 template <typename GetReference>

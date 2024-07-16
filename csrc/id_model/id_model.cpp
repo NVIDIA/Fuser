@@ -911,10 +911,11 @@ void IdModel::validateAndPropagatePType() {
     }
 
     for (auto id : *loop_group) {
+      // Due to the broadcast forwarding, not all IDs in a loop group
+      // are indeed loop domains. For example, an ID may be used in a
+      // merge whose output is also in this loop group.
       bool not_a_loop_domain = false;
       for (auto expr : id->uses()) {
-        // Not a loop domain when there's a merge expr whose output is
-        // also in this loop group.
         if (auto merge = dynamic_cast<Merge*>(expr);
             merge != nullptr && loop_group->has(merge->out())) {
           not_a_loop_domain = true;

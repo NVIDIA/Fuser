@@ -10,30 +10,27 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <id_model/id_model.h>
-#include <id_model/utils.h>
 
 namespace nvfuser {
 
 // Get the loop index of a given loop domain for circular buffer
 // loops. nullptr is returned if not relevant.
 //
-// This is a WAR for circular buffering. The loop graph is
+// This is a WAR for circular buffering. TensorIndexer has a map of
+// loop indices for all loop groups, however, it does not work with
+// circular buffering. The loop graph is
 // designed to represent each loop and each loop group is supposed
 // to have a one-to-one relationship with each loop. However, for
 // circular buffering, this assumption is broken as we are using
 // the same iter domain for the prologue, main and epilogue
-// loops. Those loops should have distinctive loop groups, but for
-// now, here's a workaround to assign a correct loop
-// index. Specifically, since the actual loop trip count is
-// changed from the extent of the iter domain, the actual extent
-// of some loop may become just one, in that case the start val
-// needs to be used instead of the index val.
+// loops. Ideally, those loops should have distinctive loop groups,
+// but for now, here's a workaround to get a correct loop index
 Val* getLoopIndexOfCircularBufferLoop(
     IterDomain* loop_id,
     const std::vector<ForLoop*>& for_loops,
     const IdModel& id_model);
 
-// For a circur-buffering expr, the producer loop index needs to be
+// For a circular-buffering expr, the producer loop index needs to be
 // advanced by (#stages - 1) if it's the main loop. Return the offset
 // if it's applicable. Otherwise, nullptr is returned.
 Val* getLoopIndexOffsetForProducerOfCircularBuffer(
@@ -45,7 +42,7 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
 // be added to the normal linear index. For example, if this is a
 // double buffered tensor, the offset would look like "i % 2", where i
 // is the loop index of the double-buffer loop.
-Val* getCircularBufferOffset(
+Val* getOffsetForCircularBufferTensor(
     TensorView* circular_buffer_tv,
     bool as_consumer,
     const std::vector<ForLoop*>& for_loops);

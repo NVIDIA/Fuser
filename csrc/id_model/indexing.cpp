@@ -927,10 +927,9 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 std::vector<Val*> TensorIndexer::getIndexFor(
     const Expr* expr,
     bool as_consumer,
-    const std::vector<ForLoop*>& for_loops,
-    const ValGroups& index_groups) const {
-  const IndexingInfo info =
-      computeIndex(expr, index_groups, for_loops, false, false);
+    const ValGroups& index_groups,
+    const std::vector<ForLoop*>& for_loops) const {
+  auto info = computeIndex(expr, index_groups, for_loops, false, false);
   const std::unordered_map<Val*, Val*> replacement_map = getIndexReplacementMap(
       expr, as_consumer, info.loop_domains, for_loops, info.index_map);
 
@@ -1036,7 +1035,7 @@ Val* TensorIndexer::getLinearIndex(
   // the circular buffer itself
   if (tv->isCircularBuffered()) {
     auto circular_buffer_offset =
-        getCircularBufferOffset(tv, as_consumer, for_loops);
+        getOffsetForCircularBufferTensor(tv, as_consumer, for_loops);
     linear_index =
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
@@ -1146,6 +1145,8 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
       // happens when loop_id is a reduction domain and this loop-nest
       // is for initializing the reduction buffer.
       if (for_loop != nullptr) {
+        // If this for-loop is a circular buffer loop, the loop index
+        // may need to have an additional offset
         if (!as_consumer) {
           if (auto circular_buffer_offset =
                   getLoopIndexOffsetForProducerOfCircularBuffer(

@@ -80,8 +80,8 @@ class TensorIndexer {
   std::vector<Val*> getIndexFor(
       const Expr* expr,
       bool as_consumer,
-      const std::vector<ForLoop*>& for_loops,
-      const ValGroups& index_groups) const;
+      const ValGroups& index_groups,
+      const std::vector<ForLoop*>& loops) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
@@ -129,7 +129,7 @@ class TensorIndexer {
   // getIndexFor.
   IndexingInfo computeIndex(
       const Expr* expr,
-      const ValGroups& index_domains,
+      const ValGroups& index_groups,
       const std::vector<ForLoop*>& for_loops,
       bool is_predicate,
       bool is_unswitch) const;

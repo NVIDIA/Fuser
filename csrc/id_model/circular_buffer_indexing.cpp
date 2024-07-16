@@ -83,7 +83,7 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
   return IrBuilder::create<Val>(stage_depth - 1L, DataType::Index);
 }
 
-Val* getCircularBufferOffset(
+Val* getOffsetForCircularBufferTensor(
     TensorView* circular_buffer_tv,
     bool as_consumer,
     const std::vector<ForLoop*>& for_loops) {
@@ -92,7 +92,7 @@ Val* getCircularBufferOffset(
   const auto gpu_lower = GpuLower::current();
   NVF_ERROR(
       gpu_lower != nullptr,
-      "Double buffering info of GpuLower is required but GpuLower is missing");
+      "Circular buffering info of GpuLower is required but GpuLower is missing");
 
   auto circular_buffer_loop =
       gpu_lower->circularBufferInfo().getCircularBufferLoop(

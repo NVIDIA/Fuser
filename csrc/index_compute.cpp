@@ -2112,10 +2112,13 @@ kir::TensorIndex* Index::getProducerIndex(
     if (generate_pointer) {
       auto address_offset = index;
       if (producer->getMemoryType() == MemoryType::Shared) {
+        auto producer_dt = producer->getDataType();
+        NVF_ERROR(producer_dt.has_value());
+        auto index_dt = index->getDataType();
+        NVF_ERROR(index_dt.has_value());
         address_offset = SimplifyingIrBuilder::mulExpr(
             address_offset,
-            IrBuilder::create<Val>(
-                dataTypeSize(*producer->getDataType()), *index->getDataType()));
+            IrBuilder::create<Val>(dataTypeSize(*producer_dt), *index_dt));
       }
       index = SimplifyingIrBuilder::addExpr(
           IrBuilder::baseAddressExpr(producer), address_offset);
@@ -2212,10 +2215,13 @@ kir::TensorIndex* Index::getConsumerIndex(
     if (generate_pointer) {
       auto address_offset = index;
       if (consumer->getMemoryType() == MemoryType::Shared) {
+        auto consumer_dt = consumer->getDataType();
+        NVF_ERROR(consumer_dt.has_value());
+        auto index_dt = index->getDataType();
+        NVF_ERROR(index_dt.has_value());
         address_offset = SimplifyingIrBuilder::mulExpr(
             index,
-            IrBuilder::create<Val>(
-                dataTypeSize(*consumer->getDataType()), *index->getDataType()));
+            IrBuilder::create<Val>(dataTypeSize(*consumer_dt), *index_dt));
       }
       index = SimplifyingIrBuilder::addExpr(
           IrBuilder::baseAddressExpr(consumer), address_offset);
@@ -2629,7 +2635,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
   auto indices_inner_to_outer =
-      indexer.getIndexFor(ldst, !is_load, loops, groups_to_index);
+      indexer.getIndexFor(ldst, !is_load, groups_to_index, loops);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
