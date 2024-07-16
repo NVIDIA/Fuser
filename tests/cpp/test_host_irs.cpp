@@ -719,15 +719,15 @@ TEST_F(MatmulHostIrTest, HostIr) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-  TensorView* A = makeContigTensor(3);
-  TensorView* B = makeContigTensor(3);
-  TensorView* C = matmul(A, B);
+  TensorView* a = makeContigTensor(3);
+  TensorView* b = makeContigTensor(3);
+  TensorView* c = matmul(a, b);
 
-  hic->addInput(A);
-  hic->addInput(B);
-  hic->addOutput(C);
+  hic->addInput(a);
+  hic->addInput(b);
+  hic->addOutput(c);
 
-  hic->pushBackTopLevelExprs(C->definition());
+  hic->pushBackTopLevelExprs(c->definition());
 
   HostIrExecutor hie(std::move(hic));
 
