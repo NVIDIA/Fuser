@@ -13,6 +13,6 @@ PYBIND11_MODULE(EXTENSION_NAME, m) {
 
   nvfuser::python_frontend::initNvFuserPythonBindings(m.ptr());
 
-  auto cleanup = []() {};
+  auto cleanup = []() -> void { nvfuser::python_frontend::cleanup(); };
   m.add_object("_cleanup", py::capsule(cleanup));
 }

@@ -3267,4 +3267,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("tensor"));
 }
+
+void cleanup() {
+  Communicator::getInstance().cleanup();
+}
+
 } // namespace nvfuser::python_frontend
