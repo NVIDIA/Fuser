@@ -7,9 +7,9 @@
 // clang-format on
 #include <debug.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <options.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
-#include <logical_domain_map.h>
 
 namespace nvfuser::preseg_passes {
 

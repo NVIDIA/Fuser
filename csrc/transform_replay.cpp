@@ -16,10 +16,10 @@
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <maxinfo_propagator.h>
 #include <ops/arith.h>
 #include <options.h>
-#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <deque>

@@ -34,8 +34,9 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
     auto consumers = ir_utils::consumerTvsOf(tv);
     for (auto consumer : consumers) {
       // Grab dimensions in producer and consumer that are mappable to eachother
-      // based on the computeAtLogicalDomainMap. This will tell us which dimensions
-      // can be inlined based on avoiding trying to inline reduction structures.
+      // based on the computeAtLogicalDomainMap. This will tell us which
+      // dimensions can be inlined based on avoiding trying to inline reduction
+      // structures.
       auto mappable_roots =
           root_map.getMappableDims(tv->domain(), consumer->domain());
       for (auto tv_logical_id : tv->getLogicalDomain()) {

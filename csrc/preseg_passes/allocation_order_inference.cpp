@@ -9,8 +9,8 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <preseg_passes/allocation_order_inference.h>
 #include <logical_domain_map.h>
+#include <preseg_passes/allocation_order_inference.h>
 
 namespace nvfuser::preseg_passes {
 

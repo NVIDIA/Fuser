@@ -38,8 +38,8 @@ bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
   const auto* out_tv = out->as<TensorView>();
 
   auto logical_domain_map = PairwiseLogicalDomainMap(in_tv, out_tv)
-                             .mapBroadcast(true)
-                             .mapProducerToConsumer();
+                                .mapBroadcast(true)
+                                .mapProducerToConsumer();
   return std::find_if(
              logical_domain_map.begin(),
              logical_domain_map.end(),

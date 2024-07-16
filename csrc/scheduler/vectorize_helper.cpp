@@ -934,8 +934,9 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     return break_point;
   }
 
-  const auto c2p = PairwiseLogicalDomainMap(reduction_producer, reduction_consumer)
-                       .mapConsumerToProducer();
+  const auto c2p =
+      PairwiseLogicalDomainMap(reduction_producer, reduction_consumer)
+          .mapConsumerToProducer();
 
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs

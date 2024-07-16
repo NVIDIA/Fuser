@@ -13,9 +13,9 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <logical_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>

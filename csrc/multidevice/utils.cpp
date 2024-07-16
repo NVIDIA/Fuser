@@ -10,10 +10,10 @@
 #include <device_lower/utils.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <logical_domain_map.h>
 #include <scheduler/utils.h>
 
 #include <c10/util/irange.h>

@@ -1021,7 +1021,8 @@ TEST_F(ResizeTest, Slice4) {
   tv5->setMemoryType(MemoryType::Global);
   SetSelector tv5_rf_selector({tv1, tv3, tv5, tv5_cache});
   TransformPropagator tv5_rf_tp(tv5_rf);
-  MaxLogicalDomainInfoSpanningTree(tv5_rf, &tv5_rf_selector).traverse(&tv5_rf_tp);
+  MaxLogicalDomainInfoSpanningTree(tv5_rf, &tv5_rf_selector)
+      .traverse(&tv5_rf_tp);
   inlineMost(std::vector<TensorView*>{tv1, tv3, tv5_rf});
   tv5_rf->axis(0)->parallelize(ParallelType::BIDx);
   tv5_rf->axis(1)->parallelize(ParallelType::TIDx);
@@ -1034,7 +1035,8 @@ TEST_F(ResizeTest, Slice4) {
   tv6->setMemoryType(MemoryType::Global);
   SetSelector tv6_rf_selector({tv2, tv4, tv6, tv6_cache});
   TransformPropagator tv6_rf_tp(tv6_rf);
-  MaxLogicalDomainInfoSpanningTree(tv6_rf, &tv6_rf_selector).traverse(&tv6_rf_tp);
+  MaxLogicalDomainInfoSpanningTree(tv6_rf, &tv6_rf_selector)
+      .traverse(&tv6_rf_tp);
   inlineMost(std::vector<TensorView*>{tv2, tv4, tv6_rf});
   tv6_rf->axis(0)->parallelize(ParallelType::BIDx);
   tv6_rf->axis(1)->parallelize(ParallelType::TIDx);
@@ -2220,9 +2222,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
-      [&]() {
-        fec.runFusionWithInputs({t0, 10});
-      },
+      [&]() { fec.runFusionWithInputs({t0, 10}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "must concretize to IterType::Broadcast but found")));
 }

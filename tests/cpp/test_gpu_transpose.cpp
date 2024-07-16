@@ -296,9 +296,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeNoReference) {
   at::Tensor input1 = at::randn({1024, 1024}, options);
 
   EXPECT_THAT(
-      [&]() {
-        scheduleTranspose(&fusion, {input0, input1});
-      },
+      [&]() { scheduleTranspose(&fusion, {input0, input1}); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("reference tensor")));
 }

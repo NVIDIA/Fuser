@@ -11,9 +11,9 @@
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
-#include <logical_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <val_graph.h>

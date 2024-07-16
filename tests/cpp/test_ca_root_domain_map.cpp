@@ -8,8 +8,8 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ops/all_ops.h>
 #include <logical_domain_map.h>
+#include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 
 namespace nvfuser {
@@ -367,7 +367,9 @@ TEST_F(CaLogicalDomainMapTest, FusionRootMappingReductionDependency4_CUDA) {
 }
 
 // Reproducer of issue #749
-TEST_F(CaLogicalDomainMapTest, FusionRootMappingReductionDependency5_CUDA_CUDA) {
+TEST_F(
+    CaLogicalDomainMapTest,
+    FusionRootMappingReductionDependency5_CUDA_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -425,7 +427,9 @@ TEST_F(CaLogicalDomainMapTest, FusionRootMappingReductionDependency5_CUDA_CUDA) 
 }
 
 // Similar to RootMappingReductionDependency5 but with rFactor
-TEST_F(CaLogicalDomainMapTest, FusionRootMappingReductionDependency6_CUDA_CUDA) {
+TEST_F(
+    CaLogicalDomainMapTest,
+    FusionRootMappingReductionDependency6_CUDA_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -701,7 +705,9 @@ TEST_F(CaLogicalDomainMapTest, FusionRootMappingRepro1950_CUDA) {
 // After fix, there are two persistent buffers and can be further
 // reduced to one with a following step-2 to fix the issue in resolution
 // points detection.
-TEST_F(CaLogicalDomainMapTest, FusionRootMappingConsumerMappedWithReductionInput) {
+TEST_F(
+    CaLogicalDomainMapTest,
+    FusionRootMappingConsumerMappedWithReductionInput) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);

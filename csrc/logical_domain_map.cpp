@@ -9,8 +9,8 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <ops/utils.h>
 #include <logical_domain_map.h>
+#include <ops/utils.h>
 
 #include <sstream>
 
@@ -128,7 +128,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   // 2. Do not map Symbolic ID if the extents are not identical unless
   // map_symbolic_ = true.
   auto updatePairwiseLogicalDomainMap = [&](IterDomain* producer_id,
-                                         IterDomain* consumer_id) {
+                                            IterDomain* consumer_id) {
     if (!map_broadcast_ &&
         producer_id->isBroadcast() != consumer_id->isBroadcast()) {
       return;
@@ -257,7 +257,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
     // Map D from any input (query/key/value) to output only.
     if (num_device_dim == 1 && consumer_root.size() > 3) {
-      updatePairwiseLogicalDomainMap(producer_logical.at(0), consumer_root.at(0));
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(0), consumer_root.at(0));
     }
     return dom_map;
   }
@@ -565,7 +566,8 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
                 // to be an input to reduction domain and also used by the
                 // consumers, it becomes a persistent tensor.
                 if (input_key.id()->isBroadcast()) {
-                  if (!logical_map.isConcretized(input_key.td(), input_key.id())) {
+                  if (!logical_map.isConcretized(
+                          input_key.td(), input_key.id())) {
                     return false;
                   }
                 }
@@ -1115,9 +1117,10 @@ void ComputeAtLogicalDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
   for (auto producer_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto consumer_tv :
          ir_utils::filterByType<TensorView>(expr->outputs())) {
-      for (const auto& mapping : PairwiseLogicalDomainMap(producer_tv, consumer_tv)
-                                     .mapBroadcast(true)
-                                     .mapProducerToConsumer()) {
+      for (const auto& mapping :
+           PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+               .mapBroadcast(true)
+               .mapProducerToConsumer()) {
         setMaybeMapped(
             producer_tv->domain(),
             mapping.first,

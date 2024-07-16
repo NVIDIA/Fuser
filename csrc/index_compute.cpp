@@ -23,8 +23,8 @@
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <ops/arith.h>
 #include <logical_domain_map.h>
+#include <ops/arith.h>
 #include <swizzle.h>
 #include <transform_iter.h>
 #include <transform_replay.h>

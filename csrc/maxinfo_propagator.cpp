@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <maxinfo_propagator.h>
 #include <logical_domain_map.h>
+#include <maxinfo_propagator.h>
 
 namespace nvfuser {
 
@@ -234,11 +234,11 @@ std::unordered_set<IterDomain*> mapLogicalToRoot(
 // to first map it to the logical domain of the producer, then we can map it to
 // the consumer's root domain. The computed info will be represented by root
 // domain as root domain contains the raw information.
-std::shared_ptr<MaxInfoSpanningTree::Information> MaxLogicalDomainInfoSpanningTree::
-    computeInfoP2C(
-        TensorView* from,
-        TensorView* to,
-        std::shared_ptr<Information> from_info) {
+std::shared_ptr<MaxInfoSpanningTree::Information>
+MaxLogicalDomainInfoSpanningTree::computeInfoP2C(
+    TensorView* from,
+    TensorView* to,
+    std::shared_ptr<Information> from_info) {
   DomainInfo result;
 
   TensorView* producer = from;
@@ -290,11 +290,11 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxLogicalDomainInfoSpanningTr
 // need to first map it to the root domain of the consumer, then we can map it
 // to the producer's logical domain. The computed info will be represented by
 // logical domain as logical domain contains the raw information.
-std::shared_ptr<MaxInfoSpanningTree::Information> MaxLogicalDomainInfoSpanningTree::
-    computeInfoC2P(
-        TensorView* from,
-        TensorView* to,
-        std::shared_ptr<Information> from_info) {
+std::shared_ptr<MaxInfoSpanningTree::Information>
+MaxLogicalDomainInfoSpanningTree::computeInfoC2P(
+    TensorView* from,
+    TensorView* to,
+    std::shared_ptr<Information> from_info) {
   DomainInfo result;
 
   TensorView* producer = to;
@@ -403,11 +403,11 @@ MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(
 // replay state, so sibling info is always identical by definition, except that
 // we need to replace the IDs stored in the info with the corresponding IDs in
 // `to`.
-std::shared_ptr<MaxInfoSpanningTree::Information> MaxLogicalDomainInfoSpanningTree::
-    computeInfoSibling(
-        TensorView* from,
-        TensorView* to,
-        std::shared_ptr<Information> from_info) {
+std::shared_ptr<MaxInfoSpanningTree::Information>
+MaxLogicalDomainInfoSpanningTree::computeInfoSibling(
+    TensorView* from,
+    TensorView* to,
+    std::shared_ptr<Information> from_info) {
   DomainInfo result;
 
   const auto& from_root_id_info =

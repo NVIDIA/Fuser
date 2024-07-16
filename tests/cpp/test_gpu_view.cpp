@@ -28,8 +28,8 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <ops/all_ops.h>
 #include <logical_domain_map.h>
+#include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>

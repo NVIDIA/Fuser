@@ -29,10 +29,10 @@
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
 #include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
-#include <logical_domain_map.h>
 #include <vectorization_info.h>
 #include <visibility.h>
 
