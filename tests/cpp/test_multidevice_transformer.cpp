@@ -26,6 +26,9 @@
 
 namespace nvfuser {
 
+constexpr int B = 4, E = 128, H = 4, S = 32;
+constexpr double kDropoutProb = 0.1, kSdpaProb = 0.1, kSdpaScale = 1e-3;
+
 class DistributedTransformerTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<DataType> {
@@ -52,14 +55,7 @@ class DistributedTransformerTest
       .cache_fusion_executor = false};
 
  public:
-  const int D;
-  static constexpr int B = 4;
-  static constexpr int E = 128;
-  static constexpr int H = 4;
-  static constexpr int S = 32;
-  static constexpr double kDropoutProb = 0.1;
-  static constexpr double kSdpaProb = 0.1;
-  static constexpr double kSdpaScale = 1e-3;
+  const int D; // number of devices
 
  private:
   // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
@@ -131,8 +127,48 @@ void validate(
 }
 } // namespace
 
-std::tuple<TensorView*, TensorView*, TensorView*, TensorView*>
-mlp(
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> reference_mlp(
+    at::Tensor x,
+    at::Tensor w0,
+    at::Tensor b0,
+    at::Tensor w1,
+    at::Tensor b1,
+    at::ScalarType at_dtype) {
+  at::manual_seed(0);
+  auto linear1 = at::matmul(x, w0.transpose(1, 0)).add(b0).to(at::kFloat);
+  auto gelu = at::gelu(linear1, "tanh");
+  auto linear2 =
+      at::matmul(gelu.to(at_dtype), w1.transpose(1, 0)).add(b1).to(at::kFloat);
+  auto dropout = at::dropout(linear2, kDropoutProb, true);
+  return std::make_tuple(linear1, gelu, linear2, dropout);
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> reference_mha(
+    at::Tensor x,
+    at::Tensor w0,
+    at::Tensor b0,
+    at::Tensor w1,
+    at::Tensor b1,
+    at::ScalarType at_dtype) {
+  auto m = at::matmul(x, w0).add(b0).view({B, S, 3 * E});
+  auto qkv_vec = m.split(E, 2);
+  for (auto i = 0; i < 3; i++) {
+    qkv_vec[i] =
+        qkv_vec[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
+  }
+  at::manual_seed(0);
+  auto sdpa_out = at::_scaled_dot_product_flash_attention(
+      qkv_vec[0], qkv_vec[1], qkv_vec[2], kSdpaProb, true, false, kSdpaScale);
+  auto sdpa = std::get<0>(sdpa_out);
+  // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
+  auto y = sdpa.transpose(1, 2).reshape({B * S, E});
+  auto y_proj = at::matmul(y, w1).add(b1);
+  at::manual_seed(0);
+  auto y_dropout = at::dropout(y_proj.to(at::kFloat), kDropoutProb, true);
+  return std::make_tuple(m, sdpa, y_proj, y_dropout);
+}
+
+std::tuple<TensorView*, TensorView*, TensorView*, TensorView*> mlp(
     TensorView* x,
     TensorView* w0,
     TensorView* b0,
@@ -157,7 +193,7 @@ mlp(
   TensorView* bcast_bias = broadcast(b1, {true, false});
   TensorView* linear2 = add(matmul2, bcast_bias);
   // Dropout
-  TensorView* dropout = replicated_dropout(linear2, DistributedTransformerTest::kDropoutProb, fusion, mesh);
+  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, fusion, mesh);
 
   // Sharding
   // (TODO) TVs where sharding propagation breaks down:
@@ -175,63 +211,7 @@ mlp(
   return std::make_tuple(linear1, gelu, linear2, dropout);
 }
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> reference_mlp(
-    at::Tensor x,
-    at::Tensor w0,
-    at::Tensor b0,
-    at::Tensor w1,
-    at::Tensor b1,
-    at::ScalarType at_dtype) {
-  at::manual_seed(0);
-  auto linear1 =
-      at::matmul(x, w0.transpose(1, 0)).add(b0).to(at::kFloat);
-  auto gelu = at::gelu(linear1, "tanh");
-  auto linear2 = at::matmul(gelu.to(at_dtype), w1.transpose(1, 0))
-                          .add(b1)
-                          .to(at::kFloat);
-  auto dropout =
-      at::dropout(linear2, DistributedTransformerTest::kDropoutProb, true);
-  return std::make_tuple(linear1, gelu, linear2, dropout);
-}
-
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> reference_mha(
-    at::Tensor x,
-    at::Tensor w0,
-    at::Tensor b0,
-    at::Tensor w1,
-    at::Tensor b1,
-    at::ScalarType at_dtype) {
-  auto B = DistributedTransformerTest::B;
-  auto S = DistributedTransformerTest::S;
-  auto H = DistributedTransformerTest::H;
-  auto E = DistributedTransformerTest::E;
-  auto m = at::matmul(x, w0).add(b0).view({B, S, 3 * E});
-  auto qkv_vec = m.split(E, 2);
-  for (auto i = 0; i < 3; i++) {
-    qkv_vec[i] =
-        qkv_vec[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
-  }
-  at::manual_seed(0);
-  auto sdpa_out = at::_scaled_dot_product_flash_attention(
-      qkv_vec[0],
-      qkv_vec[1],
-      qkv_vec[2],
-      DistributedTransformerTest::kSdpaProb,
-      true,
-      false,
-      DistributedTransformerTest::kSdpaScale);
-  auto sdpa = std::get<0>(sdpa_out);
-  // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
-  auto y = sdpa.transpose(1, 2).reshape({B * S, E});
-  auto y_proj = at::matmul(y, w1).add(b1);
-  at::manual_seed(0);
-  auto y_dropout = at::dropout(
-      y_proj.to(at::kFloat), DistributedTransformerTest::kDropoutProb, true);
-  return std::make_tuple(m, sdpa, y_proj, y_dropout);
-}
-
-std::tuple<TensorView*, TensorView*, TensorView*, TensorView*>
-mha(
+std::tuple<TensorView*, TensorView*, TensorView*, TensorView*> mha(
     TensorView* x,
     TensorView* w0,
     TensorView* b0,
@@ -241,10 +221,6 @@ mha(
     DeviceMesh& mesh,
     DataType dtype,
     int D) {
-  auto B = DistributedTransformerTest::B;
-  auto S = DistributedTransformerTest::S;
-  auto H = DistributedTransformerTest::H;
-  auto E = DistributedTransformerTest::E;
   // Linear 1
   TensorView* mm = matmul(x, w0);
   TensorView* proj_bias_bcast = broadcast(b0, {false, true, false});
@@ -271,9 +247,9 @@ mha(
       qkv_reshaped[0],
       qkv_reshaped[1],
       qkv_reshaped[2],
-      IrBuilder::create<Val>(DistributedTransformerTest::kSdpaProb),
+      IrBuilder::create<Val>(kSdpaProb),
       IrBuilder::create<Val>(true),
-      IrBuilder::create<Val>(DistributedTransformerTest::kSdpaScale));
+      IrBuilder::create<Val>(kSdpaScale));
   TensorView* sdpa_output = sdpa.output; // D, B, H/D, S, E/H
   // Linear projection
   TensorView* sdpa_transpose =
@@ -285,7 +261,7 @@ mha(
   TensorView* b1_bcast = broadcast(b1, {true, false});
   TensorView* linear2 = add(mm2_ar, b1_bcast);
   // Dropout
-  TensorView* dropout = replicated_dropout(linear2, DistributedTransformerTest::kDropoutProb, fusion, mesh);
+  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, fusion, mesh);
 
   for (auto tv : {x, b1, mm2_ar, linear2, dropout}) {
     tv->setDeviceMesh(mesh);
@@ -382,7 +358,7 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   fusion->addInput(tvb1);
 
   auto [tvqkv, tvsdpa, tvlinear2, tvdropout] =
-      mha(tvx, tvw0, tvb0,tvw1, tvb1, fusion.get(), mesh, dtype, D);
+      mha(tvx, tvw0, tvb0, tvw1, tvb1, fusion.get(), mesh, dtype, D);
 
   fusion->addOutput(tvqkv);
   fusion->addOutput(tvsdpa);
@@ -435,7 +411,7 @@ TEST_F(DistributedTransformerTest, Forward) {
   // TensorView* mha_b0 = makeContigTensor(2, dtype);
   // TensorView* mha_w1 = makeContigTensor(3, dtype);
   // TensorView* mha_b1 = makeContigTensor(1, dtype);
-  TensorView* x = makeContigConcreteTensor({B*S, E}, DataType::Float);
+  TensorView* x = makeContigConcreteTensor({B * S, E}, DataType::Float);
   TensorView* mha_w0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
   TensorView* mha_b0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
   TensorView* mha_w1 = makeContigConcreteTensor({D, E / D, E}, dtype);
@@ -483,8 +459,8 @@ TEST_F(DistributedTransformerTest, Forward) {
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
-  auto mha_w0_ = at::randn({E, 3 * E}, options);
-  auto mha_b0_ = at::randn({3 * E}, options);
+  auto mha_w0_ = at::randn({E, 3 * E}, options) / 10.0;
+  auto mha_b0_ = at::randn({3 * E}, options) / 10.0;
   auto mha_w1_ = at::randn({E, E}, options);
   auto mha_b1_ = at::randn({E}, options);
 
@@ -507,7 +483,7 @@ TEST_F(DistributedTransformerTest, Forward) {
 
   auto mlp_out_ =
       reference_mlp(ln_2_out_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_, at_dtype);
-  auto at_out = std::get<3>(mha_out_)+ std::get<3>(mlp_out_);
+  auto at_out = std::get<3>(mha_out_) + std::get<3>(mlp_out_);
 
   std::vector<c10::IValue> inputs = {
       x_,
@@ -525,8 +501,11 @@ TEST_F(DistributedTransformerTest, Forward) {
       mlp_b1_};
 
   std::vector<at::Tensor> expected_outputs = {
-      ln_1_out_, std::get<3>(mha_out_), ln_2_out_, std::get<3>(mlp_out_), at_out};
-
+      ln_1_out_,
+      std::get<3>(mha_out_),
+      ln_2_out_,
+      std::get<3>(mlp_out_),
+      at_out};
 
   at::manual_seed(0);
   MultiDeviceExecutor runtime(
