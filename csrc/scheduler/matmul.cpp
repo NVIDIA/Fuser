@@ -948,7 +948,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
-  // [..., Mo, No, Ko, Mi, Ni, Ki]
+  // [BMo, No, Ko, Mi, Ni, Ki]
 
   // Unswizzle mma result in shared memory
   // Note that if we are using split-K, we will set up this buffer after
@@ -979,13 +979,23 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     }
   }
 
-  // [..., iMo, iNo, rKo, iMi, iNi, rKi]
+  // Combine all batch dims with Mo or No. Depending on cta_order, either Mo or
+  // No will be parallelized BIDx. We combine batch dimensions so that they are
+  // included in BIDx.
+  int64_t bidx_dim =
+      params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor ? -6
+                                                                         : -5;
+  while (mma_result->nDims() > 6) {
+    mma_result->merge(-7, bidx_dim);
+  }
+
+  // [iBMo, iNo, rKo, iMi, iNi, rKi]
   int num_splitk_dims = 0;
   TensorView* splitk_sum = nullptr;
   if (params.splitk_factor != 1) {
     // Split Ko -> [rKf, rKg]
     mma_result->split(-4, params.splitk_factor, /*inner*/ false);
-    // After split [..., iMo, iNo, rKf, rKg, iMi, iNi, rKi]
+    // After split [iBMo, iNo, rKf, rKg, iMi, iNi, rKi]
     // rFactor converts
     //   mma_result = mma(A, B, {/*Kf*/-5, /*Kg*/-4, /*Ki*/-1});
     // to
@@ -1001,10 +1011,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // At this point we have the following schedule:
   //   No split-K
-  //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
+  //     mma_result      [iBMo, iNo, rKo, iMi, iNi, rKi]
   //   Split-K
-  //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
-  //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
+  //     mma_result      [iBMo, iNo, iKf, rKg, iMi, iNi, rKi]
+  //     splitk_sum      [iBMo, iNo, rKf, iMi, iNi]
 
   if (params.use_smem_epilogue) {
     // Note that for split-K
@@ -1013,7 +1023,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     //   smem_epilogue = set(mma_result)
     //   splitk_sum = sum(smem_epilogue)
     smem_epilogue = mma_result->cacheAfter();
-    // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
+    // smem_epilogue = [iBMo, iNo, iKf, iMi, iNi]
   }
 
   // Propagate tiling globally
@@ -1047,7 +1057,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       mma_result, -1, {acw_smem, bcw_smem}, {smem_epilogue});
 
   // No (cross-CTA) split-K
-  //   mma_result      [..., iMo iNo rKo rKwo iMwo iNwo iMw iNw iMin iNin rKin]
+  //   mma_result      [iBMo iNo rKo rKwo iMwo iNwo iMw iNw iMin iNin rKin]
   //   smem_epilogue   (unscheduled, same as original or current mma_result)
   //   splitk_sum      (nullptr)
   //
@@ -1149,10 +1159,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //
   // With split-K:
   //   mma_result
-  //     nbatch +   1    2    3    4    5    6   7   8
-  //              -15  -14  -13  -12  -11  -10  -9  -8
-  //     [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw     ...
-  //          iBx iBy  iBz   rS   rS  iTz  iTy  iS  iS
+  //         0   1    2    3    4    5    6   7   8
+  //       -16 -15  -14  -13  -12  -11  -10  -9  -8
+  //     [iBMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw     ...
+  //       iBx iBy  iBz   rS   rS  iTz  iTy  iS  iS
   //                              9    10    11    12    13    14    15
   //                             -7    -6    -5    -4    -3    -2    -1
   //                    ...   iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
@@ -1162,10 +1172,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //
   // Without split-K:
   //   mma_result
-  //     nbatch +   1   2    3    4    5   6   7    8
-  //              -14 -13  -12  -11  -10  -9  -8   -7
-  //     [... iMo iNo rKg rKwo iMwo iNwo iMw iNw iMino
-  //    (iBz) iBx iBy  rS   rS  iTz  iTy  iS  iS  iTx
+  //         0   1   2    3    4    5   6   7     8
+  //       -15 -14 -13  -12  -11  -10  -9  -8    -7
+  //     [iBMo iNo rKg rKwo iMwo iNwo iMw iNw iMino
+  //       iBx iBy  rS   rS  iTz  iTy  iS  iS   iTx
   //                                   9    10    11     12    13    14
   //                                  -6    -5    -4     -3    -2    -1
   //                               iNino iMin2 iNin2  rKino rKin4 rKin2]
@@ -1179,8 +1189,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (num_splitk_dims != 0) {
     mma_result->axis(num_device_and_batch_dims + 2)
         ->parallelize(ParallelType::BIDz);
-  } else if (num_local_batch_dims > 0) {
-    mma_result->axis(num_device_dims)->parallelize(ParallelType::BIDz);
   }
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
