@@ -292,6 +292,12 @@ class DynamicTransform {
   static void concretizeFusion(
       Fusion* fusion,
       const std::vector<c10::IValue>& aten_inputs);
+
+  //! Calls the above after computing concretization info from
+  //! KernelArgumentHolder
+  static void concretizeFusion(
+      Fusion* fusion,
+      const KernelArgumentHolder& args);
 };
 
 } // namespace nvfuser

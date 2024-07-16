@@ -215,8 +215,6 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-namespace {
-
 void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
@@ -227,6 +225,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   }
 }
 
+namespace {
 // TODO: We can either reshard the inputs of a resharding expression or
 // the outputs. Currently, we reshard the outputs when there is only one
 // input, otherwise we reshard the inputs. This heuristic should be smarter
@@ -323,35 +322,6 @@ void setShardedAllocationDomain(TensorView* tv) {
 }
 
 } // namespace
-
-void propagateShardings(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
-    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    if (inputs.empty()) {
-      continue;
-    }
-    TensorView* input_with_mesh = nullptr;
-    for (auto tv : inputs) {
-      NVF_CHECK(
-          tv->hasDeviceMesh(),
-          "Tensor ",
-          tv->toString(),
-          " should be assigned a DeviceMesh");
-      if (input_with_mesh == nullptr) {
-        input_with_mesh = tv;
-      }
-    }
-
-    std::vector<TensorView*> outputs_without_mesh;
-    for (auto tv : outputs) {
-      if (!tv->hasDeviceMesh()) {
-        outputs_without_mesh.push_back(tv);
-      }
-    }
-    shardAllLike(input_with_mesh, outputs_without_mesh);
-  }
-}
 
 void insertReshardings(Fusion* fusion) {
   // shouldReshardAfter selects whether insertReshardingAfter or

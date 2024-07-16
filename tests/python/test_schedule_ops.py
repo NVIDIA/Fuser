@@ -10,7 +10,21 @@ import torch
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
-from nvfuser import FusionDefinition, DataType, ParallelType, MemoryType
+from nvfuser import (
+    FusionDefinition,
+    DataType,
+    ParallelType,
+    MemoryType,
+    SchedulerHeuristic,
+    LoadStoreOpType,
+)
+
+# NOTE We cannot iterate pybind11 enum directly, so we extract the entries here.
+all_scheduler_heuristics = [
+    heuristic
+    for heuristic, _ in SchedulerHeuristic.__entries.values()
+    if not SchedulerHeuristic.none
+]
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -20,6 +34,40 @@ def is_pre_volta():
         return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 7
+
+
+def is_pre_hopper():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 9
+
+
+# A helper function to test heuristic schedulers with user schedules
+def _apply_scheduler_helper(schedule, selected_heuristic):
+    available_heuristics = schedule.find_compatible_schedulers()
+
+    # Assume that only a single heuristic is available for fusion
+    assert len(available_heuristics) == 1
+
+    # Check that only selected heuristic is available as a scheduler
+    assert set(available_heuristics) == set([selected_heuristic])
+
+    # Double-check with can_schedule
+    status, _ = schedule.can_schedule(selected_heuristic)
+    assert status
+
+    # Check that the other schedulers are not compatible with this fusion
+    assert all(
+        [
+            not schedule.can_schedule(h)[0]
+            for h in all_scheduler_heuristics
+            if h is not selected_heuristic
+        ]
+    )
+
+    # Apply selected scheduler
+    schedule.schedule(selected_heuristic)
 
 
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
@@ -608,7 +656,8 @@ class TestScheduleOps(TestCase):
         """
         Implement a simple normalization kernel with a user defined schedule
          * Uses the following schedule operations:
-         * merge, split, parallelize, cache_after, cache_before, set_memory_type
+         * merge, split, parallelize
+         * cache_after, cache_before, cache_fork, set_memory_type
          * transform_like, parallelize_like
          * inline_like
          * predicates: is_reduction, equality operator
@@ -623,20 +672,25 @@ class TestScheduleOps(TestCase):
                 self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
 
                 self.sum0 = fd.ops.sum(self.t0, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
+                # NOTE Manually broadcast because fusion definition cannot
+                # access hidden reduction tensor view.
                 self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
                 self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
+                self.add_output(self.mean)
 
                 self.diff = fd.ops.sub(self.t0, self.mean)
                 self.diff_sq = fd.ops.mul(self.diff, self.diff)
                 self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
-                # NOTE Manually broadcast because fusion definition cannot access hidden reduction tensor view.
+                # NOTE Manually broadcast because fusion definition cannot
+                # access hidden reduction tensor view.
                 self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
                 self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
 
                 self.t0_diff = fd.ops.sub(self.t0, self.mean)
-                self.var_eps = fd.ops.sqrt(fd.ops.add(self.var, self.s0))
-                self.t0_norm = fd.ops.div(self.t0_diff, self.var_eps)
+                self.invstd = fd.ops.rsqrt(fd.ops.add(self.var, self.s0))
+                self.add_output(self.invstd)
+
+                self.t0_norm = fd.ops.mul(self.t0_diff, self.invstd)
                 self.add_output(self.t0_norm)
 
             def schedule(self):
@@ -644,7 +698,14 @@ class TestScheduleOps(TestCase):
                 fd.sched.set_memory_type(cache_after_t0, MemoryType.shared)
 
                 cache_before_t0_norm = fd.sched.cache_before(self.t0_norm)
-                cache_tensors = [cache_after_t0, cache_before_t0_norm]
+                cache_fork_mean = fd.sched.cache_fork(self.mean)
+                cache_fork_invstd = fd.sched.cache_fork(self.invstd)
+                cache_tensors = [
+                    cache_after_t0,
+                    cache_before_t0_norm,
+                    cache_fork_mean,
+                    cache_fork_invstd,
+                ]
 
                 reference_tensor = self.mean
 
@@ -675,10 +736,325 @@ class TestScheduleOps(TestCase):
                 fd.sched.inline_most()
 
         fd = VarMean()
+        nvf_mean, nvf_invstd, nvf_out = fd.execute(inputs)
+        var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
+        invstd = torch.rsqrt(var + 1e-6)
+        eager_out = (inputs[0] - mean) * invstd
+        self.assertEqual(mean, nvf_mean)
+        self.assertEqual(invstd, nvf_invstd)
+        self.assertEqual(eager_out, nvf_out)
+
+    def test_var_mean_tma_user_schedule(self):
+        """
+        Implement a simple normalization kernel using TMA ops with a user defined schedule
+        """
+        tensor_size = 4096
+        use_tma_ops = not is_pre_hopper()
+        inputs = [
+            torch.randn(tensor_size, tensor_size, dtype=torch.bfloat16, device="cuda")
+        ]
+
+        class VarMean(FusionDefinition):
+            def definition(self):
+                self.t0 = fd.from_pytorch(inputs[0])
+                self.s0 = fd.define_scalar(1e-6, dtype=DataType.Double)
+                self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
+
+                self.mean_cast = fd.ops.cast(self.t0, dtype=DataType.Float)
+                self.sum0 = fd.ops.sum(self.mean_cast, dims=[-1])
+                # NOTE Manually broadcast because fusion definition cannot
+                # access hidden reduction tensor view.
+                self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
+                self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
+
+                self.var_cast = fd.ops.cast(self.t0, dtype=DataType.Float)
+                self.diff = fd.ops.sub(self.var_cast, self.mean)
+                self.diff_sq = fd.ops.mul(self.diff, self.diff)
+                self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
+                # NOTE Manually broadcast because fusion definition cannot
+                # access hidden reduction tensor view.
+                self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
+                self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
+
+                self.t0_cast = fd.ops.cast(self.t0, dtype=DataType.Float)
+                self.t0_diff = fd.ops.sub(self.t0_cast, self.mean)
+                self.var_eps = fd.ops.sqrt(fd.ops.add(self.var, self.s0))
+                self.t0_norm = fd.ops.div(self.t0_diff, self.var_eps)
+
+                self.t0_norm_cast = fd.ops.cast(self.t0_norm, dtype=DataType.BFloat16)
+                self.add_output(self.t0_norm_cast)
+
+            def schedule(self):
+                smem_cache_op = (
+                    LoadStoreOpType.tma if use_tma_ops else LoadStoreOpType.set
+                )
+                t0_smem = fd.sched.cache_after(self.t0, smem_cache_op)
+                fd.sched.set_memory_type(t0_smem, MemoryType.shared)
+                tma_tvs = [t0_smem]
+
+                t0_lmem = fd.sched.cache_after(t0_smem)
+                cache_before_t0_norm = fd.sched.cache_before(self.t0_norm_cast)
+
+                def _is_not_tma_tensor(a):
+                    return a not in tma_tvs
+
+                all_tvs_except_tma = list(
+                    filter(_is_not_tma_tensor, fd.sched.tensors())
+                )
+
+                tma_width = 256
+                vectorize = 8
+                elem_per_compute_thread = tensor_size // tma_width // vectorize
+
+                # Define TMA Box
+                fd.sched.split(t0_smem, dim=-1, factor=tma_width)
+
+                reference_tv = self.t0_norm_cast
+
+                # Schedule Reference
+                # root domain: [I1, I2]
+                # split: [I1, I2/V, V]
+                fd.sched.split(reference_tv, dim=-1, factor=vectorize)
+                # NOTE use outer-split to have constant register allocation
+                # split: [I1, EPCT, I2/V/EPCT (block_x), V]
+                fd.sched.split(
+                    reference_tv,
+                    dim=-2,
+                    factor=elem_per_compute_thread,
+                    inner_split=False,
+                )
+                # split: [I1, EPCT, I2/V/EPCT (block_x), U, V]
+                fd.sched.split(reference_tv, dim=-2, factor=1)
+                # split: [I1, I2/V/EPCT (block_x), EPCT, U, V]
+                fd.sched.reorder(reference_tv, {-4: -3, -3: -4})
+
+                # Transform all tensors
+                fd.sched.transform_like(reference_tv, all_tvs_except_tma)
+
+                # rfactor reduction tensors
+                reduction_tvs = list(filter(fd.sched.is_reduction, fd.sched.tensors()))
+                rfactor_tvs = [
+                    fd.sched.rfactor(tv, dims=[-3, -2, -1]) for tv in reduction_tvs
+                ]
+
+                # Apply general parallelization
+                fd.sched.parallelize(reference_tv, axis := 0, ParallelType.grid_x)
+                fd.sched.parallelize(reference_tv, axis := 1, ParallelType.block_x)
+                fd.sched.parallelize(reference_tv, axis := -2, ParallelType.unroll)
+                fd.sched.parallelize_like(reference_tv)
+
+                # vectorize store output
+                fd.sched.parallelize(
+                    self.t0_norm_cast, axis := -1, ParallelType.vectorize
+                )
+
+                # tma load input
+                if use_tma_ops:
+                    fd.sched.parallelize(t0_smem, axis := -1, ParallelType.tma)
+
+                # computeAt
+                fd.sched.inline_at(
+                    reference_tv,
+                    pos=-1,
+                    best_effort=True,
+                    selected_tensors=all_tvs_except_tma,
+                )
+                fd.sched.inline_at(
+                    t0_lmem,
+                    pos=-1,
+                    best_effort=True,
+                    selected_tensors=[t0_smem],
+                )
+
+        fd = VarMean()
+        nvf_out = fd.execute(inputs)
+        var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
+        eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
+        self.assertTrue(torch.allclose(eager_out, nvf_out[0], atol=1e-1))
+
+    def test_pointwise_auto_scheduler(self):
+        """
+        Implement a simple pointwise kernel with user defined schedule
+         * Uses nvfuser's PointwiseScheduler
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Pointwise(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.from_pytorch(inputs[1])
+                self.t2 = self.ops.add(self.t0, self.t1)
+                self.t3 = self.ops.exp(self.t2)
+                self.add_output(self.t3)
+
+            def schedule(self):
+                # Apply selected scheduler
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.pointwise)
+
+        fd = Pointwise()
+        nvf_out = fd.execute(inputs)
+        eager_out = torch.exp(inputs[0] + inputs[1])
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_reduction_auto_scheduler(self):
+        """
+        Implement a simple reduction kernel with user defined schedule
+         * Expects failure with PointwiseScheduler
+         * Uses nvfuser's ReductionScheduler
+        """
+        inputs = [
+            torch.randn(4, 4, device="cuda"),
+        ]
+
+        class Reduction(FusionDefinition):
+            def definition(self):
+                self.t0 = self.from_pytorch(inputs[0])
+                self.t1 = self.ops.sum(self.t0, dims=[1])
+                self.t2 = self.ops.exp(self.t1)
+                self.add_output(self.t2)
+
+            def schedule(self):
+                # Test error msg for can_schedule
+                pointwise_status, error_msg = fd.sched.can_schedule(
+                    SchedulerHeuristic.pointwise
+                )
+                assert not pointwise_status
+                assert (
+                    error_msg.strip()
+                    == "Scheduler _pointwise_ ***rejected*** because : cannot find reference tensor"
+                )
+
+                # Apply selected scheduler
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.reduction)
+
+        fd = Reduction()
+        nvf_out = fd.execute(inputs)
+        eager_out = torch.exp(inputs[0].sum(1))
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_inner_persistent_auto_scheduler(self):
+        """
+        Implement a simple normalization kernel with a user defined schedule
+         * Uses nvfuser's InnerPersistentScheduler
+        """
+        tensor_size = 4
+        inputs = [torch.randn(tensor_size, tensor_size, device="cuda")]
+
+        class VarMean(FusionDefinition):
+            def definition(self):
+                self.t0 = fd.from_pytorch(inputs[0])
+                self.s0 = fd.define_scalar(1e-6, dtype=DataType.Double)
+                self.norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
+
+                self.sum0 = fd.ops.sum(self.t0, dims=[-1])
+                # NOTE Manually broadcast because fusion definition cannot
+                # access hidden reduction tensor view.
+                self.bcast_sum0 = fd.ops.broadcast(self.sum0, [False, True])
+                self.mean = fd.ops.div(self.bcast_sum0, self.norm_const)
+
+                self.diff = fd.ops.sub(self.t0, self.mean)
+                self.diff_sq = fd.ops.mul(self.diff, self.diff)
+                self.sum1 = fd.ops.sum(self.diff_sq, dims=[-1])
+                # NOTE Manually broadcast because fusion definition cannot
+                # access hidden reduction tensor view.
+                self.bcast_sum1 = fd.ops.broadcast(self.sum1, [False, True])
+                self.var = fd.ops.div(self.bcast_sum1, self.norm_const)
+
+                self.t0_diff = fd.ops.sub(self.t0, self.mean)
+                self.var_eps = fd.ops.sqrt(fd.ops.add(self.var, self.s0))
+                self.t0_norm = fd.ops.div(self.t0_diff, self.var_eps)
+                self.add_output(self.t0_norm)
+
+            def schedule(self):
+                # Apply selected scheduler
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.inner_persistent)
+
+        fd = VarMean()
         nvf_out = fd.execute(inputs)
         var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
         eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
         self.assertEqual(eager_out, nvf_out[0])
+
+    def test_matmul_auto_scheduler(self):
+        """
+        Implement a simple matmul kernel with a user defined schedule
+         * Uses nvfuser's ExprEvalScheduler
+        """
+        m = 24
+        n = 16
+        k = 8
+        inputs_tt = [
+            torch.randn(m, k, device="cuda", dtype=torch.float16),
+            torch.randn(k, n, device="cuda", dtype=torch.float16),
+        ]
+        inputs_tn = [
+            inputs_tt[0].clone(),
+            inputs_tt[1].clone().as_strided(size=[k, n], stride=[1, k]),
+        ]
+        inputs_nt = [
+            inputs_tt[0].clone().as_strided(size=[m, k], stride=[1, m]),
+            inputs_tt[1].clone(),
+        ]
+
+        inputs_tn = [inputs_tt[0].clone(), inputs_tn[1].clone()]
+        inputs_nn = [inputs_nt[0].clone(), inputs_tn[1].clone()]
+
+        class Matmul(FusionDefinition):
+            def __init__(self, inputs):
+                super().__init__()
+                self.inps = inputs
+
+            def definition(self):
+                t0 = fd.from_pytorch(self.inps[0])
+                t1 = fd.from_pytorch(self.inps[1])
+                t2 = fd.ops.matmul(t0, t1)
+                fd.add_output(t2)
+
+            def schedule(self):
+                # Apply selected scheduler
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.expr_eval)
+
+        for inputs in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
+            fd = Matmul(inputs)
+            nvf_out = fd.execute(inputs)
+            eager_out = torch.matmul(inputs[0], inputs[1])
+            self.assertEqual(eager_out, nvf_out[0])
+
+    def test_concretize_reshape_pointwise(self):
+        input0_shape = [5, 10, 12]
+        input1_shape = [2, 25, 3, 4]
+        inputs = [
+            torch.randn(input0_shape, device="cuda"),
+            torch.randn(input1_shape, device="cuda"),
+            *input1_shape,
+        ]
+
+        class Reshape(FusionDefinition):
+            def definition(self):
+                x = fd.from_pytorch(inputs[0])
+                bias = fd.from_pytorch(inputs[1])
+                S0 = fd.define_scalar(dtype=DataType.Int)
+                S1 = fd.define_scalar(dtype=DataType.Int)
+                S2 = fd.define_scalar(dtype=DataType.Int)
+                S3 = fd.define_scalar(dtype=DataType.Int)
+                bias_shape = fd.define_vector([S0, S1, S2, S3], dtype=DataType.Int)
+
+                tv1 = fd.ops.abs(x)
+                x_reshape = fd.ops.reshape(tv1, new_shape=bias_shape)
+                y = fd.ops.add(x_reshape, bias)
+                fd.add_output(y)
+
+            def schedule(self):
+                # Apply selected scheduler
+                _apply_scheduler_helper(fd.sched, SchedulerHeuristic.pointwise)
+
+        fd = Reshape()
+        nvf_out = fd.execute(inputs)
+        torch_ref = torch.abs(inputs[0]).reshape(inputs[1].shape) + inputs[1]
+        self.assertEqual(nvf_out[0], torch_ref)
 
 
 if __name__ == "__main__":
