@@ -353,6 +353,7 @@ std::vector<ValGroup> replayExprGroup(
     ExprGroup eg,
     const std::vector<ValGroup>& input_groups) {
   Expr* expr = eg->front();
+  NVF_ERROR(expr != nullptr);
   if (auto* m = dynamic_cast<Merge*>(expr)) {
     NVF_ERROR(input_groups.size() == 2);
     return {merge(graph, input_groups[0], input_groups[1])};
