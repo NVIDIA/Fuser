@@ -795,7 +795,8 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
 
 } // namespace
 
-std::pair<int64_t, std::unordered_map<TensorView*, int64_t>> getVectorizationFactor(
+std::pair<int64_t, std::unordered_map<TensorView*, int64_t>>
+getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
@@ -831,7 +832,7 @@ std::pair<int64_t, std::unordered_map<TensorView*, int64_t>> getVectorizationFac
     return std::make_pair(1, tv_to_vectorization_factor);
   }
 
-  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  int64_t min_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
 
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
@@ -870,12 +871,10 @@ std::pair<int64_t, std::unordered_map<TensorView*, int64_t>> getVectorizationFac
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
         my_vect_factor);
     tv_to_vectorization_factor.insert({inp_or_out, my_vect_factor});
-    std::cout << "Vectorization factor for " << inp_or_out->name() << " is "
-              << my_vect_factor << std::endl;
-    max_vec_size = std::min(max_vec_size, my_vect_factor);
+    min_vec_size = std::min(min_vec_size, my_vect_factor);
   }
 
-  return std::make_pair(max_vec_size, tv_to_vectorization_factor);
+  return std::make_pair(min_vec_size, tv_to_vectorization_factor);
 }
 
 int64_t getVectorizationFactorTransposeGroup(

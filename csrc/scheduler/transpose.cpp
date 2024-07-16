@@ -148,7 +148,7 @@ void moveReductionsOut(TensorView* tv, int n) {
 // the path of potential propagation checking if there's any incompatible
 // propagation that would not be resolved.
 struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
-  void propagateC2P(TensorView* from, TensorView* to) override {};
+  void propagateC2P(TensorView* from, TensorView* to) override{};
   void propagateP2C(TensorView* from, TensorView* to) override {
     // short-cut to skip if we know we are already rejecting the fusion for
     // transpose scheduler
@@ -164,7 +164,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
       should_reject = true;
     };
   };
-  void propagateSibling(TensorView* from, TensorView* to) override {};
+  void propagateSibling(TensorView* from, TensorView* to) override{};
   ~TransposeViewPropagator() override = default;
 
   bool shouldReject() {

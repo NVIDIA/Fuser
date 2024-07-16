@@ -1162,11 +1162,10 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   return cached_inputs;
 }
 
-// Returns the pairs of <cache of each fusion output, corresponding output, old output before fork> for
-// all outputs.
-std::vector<std::tuple<TensorView*, TensorView*, TensorView*>> cacheAndForkOutputs(
-    Fusion* fusion,
-    bool unroll) {
+// Returns the pairs of <cache of each fusion output, corresponding output, old
+// output before fork> for all outputs.
+std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>
+cacheAndForkOutputs(Fusion* fusion, bool unroll) {
   std::vector<std::tuple<TensorView*, TensorView*, TensorView*>> cached_outputs;
   // For intermediate outputs, apply cacheFork
   for (auto output : ir_utils::filterByType<TensorView>(fusion->outputs())) {

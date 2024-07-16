@@ -486,7 +486,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
   // Use max vectorization factor
   int64_t vectorize_factor = min_vectorize_factor;
-  for(auto pair : vectorization_factor_map) {
+  for (auto pair : vectorization_factor_map) {
     vectorize_factor = std::max(vectorize_factor, pair.second);
   }
 
@@ -889,7 +889,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   auto properties =
       scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
   auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-  const auto& [min_vectorize_factor, vectorization_factor_map] = 
+  const auto& [min_vectorize_factor, vectorization_factor_map] =
       vectorize_helper::getVectorizationFactor(
           runtime_info,
           reduced_tv,
@@ -898,7 +898,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
               ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
   // Use max vectorization factor
   int64_t vectorize_factor = min_vectorize_factor;
-  for(auto pair : vectorization_factor_map) {
+  for (auto pair : vectorization_factor_map) {
     vectorize_factor = std::max(vectorize_factor, pair.second);
   }
   auto persistent_buffer_info_entry =
@@ -1140,7 +1140,11 @@ void scheduleInnerOuterPersistentKernel(
 
   const auto& unrolled_vectorized_tvs =
       reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
-          inner_reference_tv, rparams.vectorization_factor_map, cached_inputs, cached_outputs, vectorization_factor);
+          inner_reference_tv,
+          rparams.vectorization_factor_map,
+          cached_inputs,
+          cached_outputs,
+          vectorization_factor);
   reduction_scheduler_utils::propagateParallelization(
       fusion,
       inner_reduction_tvs[0],
@@ -1165,7 +1169,11 @@ void scheduleInnerOuterPersistentKernel(
         outer_reference_tvs[i], boundaryNodesSet);
     const auto& unrolled_vectorized_tvs =
         reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
-            outer_reference_tvs[i], rparams.vectorization_factor_map, cached_inputs, cached_outputs, vectorization_factor);
+            outer_reference_tvs[i],
+            rparams.vectorization_factor_map,
+            cached_inputs,
+            cached_outputs,
+            vectorization_factor);
     reduction_scheduler_utils::propagateParallelization(
         fusion,
         outer_reduction_tvs[i],

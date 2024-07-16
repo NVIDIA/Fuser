@@ -1840,7 +1840,9 @@ TEST_F(NVFuserTest, FusionSimpleCpAsync_CUDA) {
   // requires ampere+ GPU
   if (!deviceMajorMinorCheck(8)) {
     ASSERT_THAT(
-        [&]() { fe.compileFusion(&fusion, {t0, t1}); },
+        [&]() {
+          fe.compileFusion(&fusion, {t0, t1});
+        },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
             "Reason: LoadStoreOpType::CpAsync requires Ampere")));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
@@ -8350,7 +8352,6 @@ TEST_F(NVFuserTest, ReplayRFactorMergeBcast) {
     testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
-
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -640,15 +640,19 @@ TEST_F(NVFuserTest, CombinedReduction_CUDA) {
     tv->axis(-1)->parallelize(ParallelType::Vectorize);
   }
   std::unordered_map<TensorView*, int64_t> vectorization_factor_map;
-  for(auto tv : cached_inputs){
+  for (auto tv : cached_inputs) {
     vectorization_factor_map.insert({tv, vecx});
   }
-  for(auto [_, out, old_out] : cached_outputs){
+  for (auto [_, out, old_out] : cached_outputs) {
     vectorization_factor_map.insert({out, vecx});
-  }  
+  }
   const auto& unrolled_vectorized_tvs_1 =
       reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
-          reference_tv_inner, vectorization_factor_map, cached_inputs, cached_outputs, vecx);
+          reference_tv_inner,
+          vectorization_factor_map,
+          cached_inputs,
+          cached_outputs,
+          vecx);
   reduction_scheduler_utils::propagateParallelization(
       &fusion,
       inner_reduction_tv,
@@ -659,7 +663,11 @@ TEST_F(NVFuserTest, CombinedReduction_CUDA) {
       unrolled_vectorized_tvs_1);
   const auto& unrolled_vectorized_tvs_2 =
       reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
-          reference_tv_outer, vectorization_factor_map, cached_inputs, cached_outputs, vecx);
+          reference_tv_outer,
+          vectorization_factor_map,
+          cached_inputs,
+          cached_outputs,
+          vecx);
   reduction_scheduler_utils::propagateParallelization(
       &fusion,
       outer_reduction_tv,
@@ -813,15 +821,19 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
   const auto& selected_tvs_inner = scheduler_utils::getAllTvsFrom(
       inner_reduction_tvs, {partialResultReload});
   std::unordered_map<TensorView*, int64_t> vectorization_factor_map;
-  for(auto tv : cached_inputs){
+  for (auto tv : cached_inputs) {
     vectorization_factor_map.insert({tv, vecx});
   }
-  for(auto [_, out, old_out] : cached_outputs){
+  for (auto [_, out, old_out] : cached_outputs) {
     vectorization_factor_map.insert({out, vecx});
-  }          
+  }
   const auto& unrolled_vectorized_tvs_1 =
       reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
-          reference_tv_inner, vectorization_factor_map, cached_inputs, cached_outputs, vecx);      
+          reference_tv_inner,
+          vectorization_factor_map,
+          cached_inputs,
+          cached_outputs,
+          vecx);
   reduction_scheduler_utils::propagateParallelization(
       &fusion,
       inner_reduction_tv,
@@ -838,7 +850,11 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
       reference_tv_outer, {partialResultReload});
   const auto& unrolled_vectorized_tvs_2 =
       reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
-          reference_tv_outer, vectorization_factor_map, cached_inputs, cached_outputs, vecx);        
+          reference_tv_outer,
+          vectorization_factor_map,
+          cached_inputs,
+          cached_outputs,
+          vecx);
   reduction_scheduler_utils::propagateParallelization(
       &fusion,
       outer_reduction_tv,

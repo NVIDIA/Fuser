@@ -450,7 +450,8 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
           largest_out,
           data_cache,
           break_point,
-          logical_reorder_map).first);
+          logical_reorder_map)
+          .first);
 
   if (vectorize_factor == 1) {
     params->vectorize = false;

@@ -974,16 +974,17 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // (3) vectorization factor
   auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-  const auto& [min_vectorize_factor, vectorization_factor_map] = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+  const auto& [min_vectorize_factor, vectorization_factor_map] =
+      vectorize_helper::getVectorizationFactor(
+          runtime_info,
+          reduced_tv,
+          data_cache,
+          vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+              ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   // Use max vectorization factor
   int64_t vectorize_factor = min_vectorize_factor;
-  for(auto pair : vectorization_factor_map) {
+  for (auto pair : vectorization_factor_map) {
     vectorize_factor = std::max(vectorize_factor, pair.second);
   }
 
@@ -1332,7 +1333,8 @@ void beforeSchedule(
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
-    std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>& cached_outputs) {
+    std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>&
+        cached_outputs) {
   // Project the persistent buffers to the inputs. Inputs will be cached in a
   // later step, this will move them to be in a register buffer as expected.
   // dummy outputs are helper tensors to make sure persistent buffer projection
@@ -1448,7 +1450,7 @@ void schedulePersistentKernel(
   const int64_t vectorization_factor = rparams.fastest_dim
       ? rparams.unroll_factor_inner_reduction
       : rparams.unroll_factor_iter_dom;
-      
+
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
       reduction_tvs[0],

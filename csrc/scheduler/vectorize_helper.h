@@ -310,9 +310,10 @@ class NVF_API ContiguousInnerDimensionsMapper
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
-// Returns max vectorization factor and a map of tv to is vectorization factor
-// logical_reorder_map is provided to assume reference_tv will be reordered per
-// the map, hence changing the order of IterDomain in the reference.
+// Returns min of the vectorization factors of all the IO tensors and a map of
+// IO tensor to its max allowed vectorization factor. logical_reorder_map is
+// provided to assume reference_tv will be reordered per the map, hence changing
+// the order of IterDomain in the reference.
 std::pair<int64_t, std::unordered_map<TensorView*, int64_t>>
 getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
