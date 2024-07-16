@@ -35,7 +35,14 @@ bool allOutputsArePointerArithmetics(Fusion* fusion) {
   auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   return std::all_of(
       out_tvs.begin(), out_tvs.end(), [&analysis](TensorView* out) {
-        return analysis.getNearestAliasedIo(out) != nullptr;
+        auto val = analysis.getNearestAliasedIo(out);
+        while (val != nullptr) {
+          if (val->isFusionInput()) {
+            return true;
+          }
+          val = analysis.getNearestAliasedIo(val);
+        }
+        return false;
       });
 }
 } // namespace
