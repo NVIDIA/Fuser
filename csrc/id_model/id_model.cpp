@@ -895,6 +895,27 @@ void IdModel::validateAndPropagatePType() {
     }
 
     for (auto id : *loop_group) {
+      // Due to the broadcast forwarding, not all IDs in a loop group
+      // are indeed loop domains. For example, an ID may be used in a
+      // merge whose output is also in this loop group.
+      bool not_a_loop_domain = false;
+      for (auto expr : id->uses()) {
+        if (auto merge = dynamic_cast<Merge*>(expr);
+            merge != nullptr && loop_group->has(merge->out())) {
+          not_a_loop_domain = true;
+          break;
+        }
+        // This is another case of input-output mappings
+        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(expr);
+            swizzle2d != nullptr &&
+            swizzle2d->swizzleMode() == SwizzleMode::Loop) {
+          not_a_loop_domain = true;
+          break;
+        }
+      }
+      if (not_a_loop_domain) {
+        continue;
+      }
       id->as<IterDomain>()->parallelize(common_ptype);
     }
   }
