@@ -1162,12 +1162,12 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   return cached_inputs;
 }
 
-// Returns the pairs of <cache of each fusion output, corresponding output> for
+// Returns the pairs of <cache of each fusion output, corresponding output, old output before fork> for
 // all outputs.
-std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+std::vector<std::tuple<TensorView*, TensorView*, TensorView*>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll) {
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  std::vector<std::tuple<TensorView*, TensorView*, TensorView*>> cached_outputs;
   // For intermediate outputs, apply cacheFork
   for (auto output : ir_utils::filterByType<TensorView>(fusion->outputs())) {
     if (output->definition() == nullptr ||
@@ -1176,6 +1176,7 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
         output->definition()->isA<ScatterOp>()) {
       continue;
     }
+    auto old_output = output;
     if (!output->uses().empty()) {
       output = output->cacheFork();
     }
@@ -1187,7 +1188,7 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
     // strategy is optimal.
     if (unroll) {
       auto cached_output = output->cacheBefore();
-      cached_outputs.emplace_back(cached_output, output);
+      cached_outputs.emplace_back(cached_output, output, old_output);
     }
   }
   return cached_outputs;

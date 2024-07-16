@@ -1069,7 +1069,7 @@ void scheduleInnerOuterPersistentKernel(
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  std::vector<std::tuple<TensorView*, TensorView*, TensorView*>> cached_outputs;
   normalization_scheduler_utils::beforeSchedule(
       fusion,
       rparams,

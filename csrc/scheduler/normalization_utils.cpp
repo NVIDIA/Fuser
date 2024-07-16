@@ -1332,7 +1332,7 @@ void beforeSchedule(
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
-    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
+    std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>& cached_outputs) {
   // Project the persistent buffers to the inputs. Inputs will be cached in a
   // later step, this will move them to be in a register buffer as expected.
   // dummy outputs are helper tensors to make sure persistent buffer projection
@@ -1420,7 +1420,7 @@ void schedulePersistentKernel(
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  std::vector<std::tuple<TensorView*, TensorView*, TensorView*>> cached_outputs;
   beforeSchedule(
       fusion,
       rparams,

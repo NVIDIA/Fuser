@@ -327,7 +327,7 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
     TensorView* reference_tv,
     const std::unordered_map<TensorView*, int64_t>& vectorization_factor_map,
     const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>& cached_outputs,
     const int64_t vectorization_factor) {
   // vectorization_factor_map stores TensorView* from the original fusion,
   // scheduler works on a cloned fusion, tv->name() is used to find the
@@ -379,8 +379,7 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
     }
   }
 
-  for (auto cached_output_pair : cached_outputs) {
-    auto output = cached_output_pair.second;
+  for (auto [_, output, old_output] : cached_outputs) {
     if (vectorization_factor > 1) {
       if (vectorizable_expr(output->definition()) &&
           std::find(
@@ -388,7 +387,7 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
               vectorizable_inputs_outputs.end(),
               output) != vectorizable_inputs_outputs.end()) {
         std::cout << "Vectorizing output: " << output->name() << std::endl;
-        int64_t allowed_vectorization_factor = getAllowedVectFactor(output);
+        int64_t allowed_vectorization_factor = getAllowedVectFactor(old_output);
         if (allowed_vectorization_factor < vectorization_factor) {
           output->split(-1, allowed_vectorization_factor);
           output->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -414,7 +413,7 @@ void multiReductionInliner(
     const std::unordered_map<TensorView*, int64_t>& vectorization_factor_map,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
-    std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
+    std::vector<std::tuple<TensorView*, TensorView*, TensorView*>> cached_outputs,
     std::vector<TensorView*> dummy_outputs) {
   // Propagate transformations before we rfactor the other reductions
   propagateTransformation(reference_tv);

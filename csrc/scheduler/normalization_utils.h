@@ -288,7 +288,7 @@ void beforeSchedule(
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
-    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
+    std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>& cached_outputs);
 
 // schedule a reduction tv, used by all persistent schedulers.
 // will group reduction ops for OuterPersistentKernelScheduler with multiple

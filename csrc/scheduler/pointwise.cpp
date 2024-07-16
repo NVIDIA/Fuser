@@ -902,8 +902,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   for (auto cached_input : cached_inputs) {
     inner_most_tensors.erase(cached_input);
   }
-  for (auto entry : cached_outputs) {
-    auto output = entry.second;
+  for (auto [_0, output, _2] : cached_outputs) {
     inner_most_tensors.erase(output);
   }
   inlineMost(inner_most_tensors);

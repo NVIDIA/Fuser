@@ -643,8 +643,8 @@ TEST_F(NVFuserTest, CombinedReduction_CUDA) {
   for(auto tv : cached_inputs){
     vectorization_factor_map.insert({tv, vecx});
   }
-  for(auto tv_pair : cached_outputs){
-    vectorization_factor_map.insert({tv_pair.second, vecx});
+  for(auto [_, out, old_out] : cached_outputs){
+    vectorization_factor_map.insert({out, vecx});
   }  
   const auto& unrolled_vectorized_tvs_1 =
       reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
@@ -816,9 +816,9 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
   for(auto tv : cached_inputs){
     vectorization_factor_map.insert({tv, vecx});
   }
-  for(auto tv_pair : cached_outputs){
-    vectorization_factor_map.insert({tv_pair.second, vecx});
-  }        
+  for(auto [_, out, old_out] : cached_outputs){
+    vectorization_factor_map.insert({out, vecx});
+  }          
   const auto& unrolled_vectorized_tvs_1 =
       reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
           reference_tv_inner, vectorization_factor_map, cached_inputs, cached_outputs, vecx);      

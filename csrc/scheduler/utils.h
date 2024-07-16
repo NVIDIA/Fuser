@@ -301,11 +301,10 @@ NVF_API void clearMemorySpace(Fusion* fusion);
 // return empty vector.
 NVF_API std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
 
-// Returns the pairs of <cache of each fusion output, corresponding output> for
-// all outputs.
-NVF_API std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
-    Fusion* fusion,
-    bool unroll);
+// Returns the pairs of <cache of each fusion output, corresponding output, old
+// output before fork> for all outputs.
+NVF_API std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>
+cacheAndForkOutputs(Fusion* fusion, bool unroll);
 
 // Ignores broadcast and reduction, returns iter domain in allocation domain
 // that's "inner most".

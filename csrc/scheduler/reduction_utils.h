@@ -38,7 +38,7 @@ void multiReductionInliner(
     const std::unordered_map<TensorView*, int64_t>& vectorization_factor_map,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
-    std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
+    std::vector<std::tuple<TensorView*, TensorView*, TensorView*>> cached_outputs,
     std::vector<TensorView*> dummy_outputs = {});
 
 // Propagate transformations with internal cutoff boundary at boundaryNodesSet
@@ -109,7 +109,7 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
     TensorView* reference_tv,
     const std::unordered_map<TensorView*, int64_t>& vectorization_factor_map,
     const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>& cached_outputs,
     const int64_t vectorization_factor);
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser
