@@ -1358,7 +1358,7 @@ void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
 
 void TensorView::applyMmaSwizzleForTMALoad(
     MmaInputSmemSwizzle swizzle,
-    bool split_outer_dim) {
+    bool permute_outer_dim) {
   NVF_ERROR(
       getMemoryType() == MemoryType::Shared,
       "Shared memory swizzle is only supported for shared memory");
@@ -1367,7 +1367,7 @@ void TensorView::applyMmaSwizzleForTMALoad(
           LoadStoreOpType::CpAsyncBulkTensorTile,
       "Operation requires a TMA operation");
   mma_utils::WarpMmaSwizzler::scheduleTMALoadForMma(
-      this, swizzle, split_outer_dim);
+      this, swizzle, permute_outer_dim);
 }
 
 void TensorView::commitLeafToLogical() {

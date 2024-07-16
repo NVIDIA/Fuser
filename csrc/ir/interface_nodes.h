@@ -421,7 +421,7 @@ class NVF_API TensorView : public Val {
   //!  using TMA.
   void applyMmaSwizzleForTMALoad(
       MmaInputSmemSwizzle swizzle,
-      bool split_outer_dim = true);
+      bool permute_outer_dim = true);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
