@@ -22,8 +22,7 @@
 
 using namespace nvfuser;
 
-#define TRANSPOSE_CONFIG \
-  { true, false, false, false }
+#define TRANSPOSE_CONFIG {true, false, false, false}
 
 struct TransposeConfig {
   bool input1_transpose_axes = false;

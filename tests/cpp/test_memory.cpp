@@ -1575,9 +1575,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       &fusion, cg_outputs, {t0, items_of_16_bytes}, {t0}, __LINE__, __FILE__);
 
   EXPECT_THAT(
-      [&]() {
-        fe.runFusion({t0, items_of_16_bytes / 2});
-      },
+      [&]() { fe.runFusion({t0, items_of_16_bytes / 2}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "The expected bytes must be a multiple of 16 bytes, but ")));
 }
