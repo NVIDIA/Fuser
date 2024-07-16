@@ -52,7 +52,12 @@ struct RecordFunctor {
         outputs_(std::move(_outputs)),
         name_(std::move(_name)),
         record_type_(_record_type),
-        inline_def_(_inline_def && !isOptionDisabled(DisableOption::PythonInlineDefinitions)) {}
+        inline_def_(_inline_def && !isOptionDisabled(DisableOption::PythonInlineDefinitions)) {
+    // Set this Record as the parent of each output
+    for (auto& out : outputs_) {
+      out.parent = this;
+    }
+  }
   virtual ~RecordFunctor() = default;
   //! Allows for copying of Child Class objects with RecordFunctor pointers.
   virtual RecordFunctor* clone() = 0;
@@ -151,6 +156,7 @@ struct RecordFunctor {
   //! The base print function when printing Record for a given FusionState
   //! in python formated code.
   virtual void print(std::ostream& os, bool close_function = true) const {
+    NVF_ERROR(!inline_def_, "The default print function does not handle inline definitions!");
     bool first_output = true;
     for (auto& output : outputs_) {
       if (first_output) {

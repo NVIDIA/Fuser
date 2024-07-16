@@ -26,6 +26,8 @@ struct State {
   size_t index;
   //! StateType is either: Tensor, Scalar, or Vector
   serde::StateType stype;
+  //! Parent Fusion Record
+  const RecordFunctor* parent;
 };
 
 NVF_API std::ostream& operator<<(std::ostream& os, const State& state);
