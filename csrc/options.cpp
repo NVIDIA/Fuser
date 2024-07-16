@@ -182,6 +182,7 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
       {"parallel_compile", DisableOption::ParallelCompile},
       {"parallel_serde", DisableOption::ParallelSerde},
       {"predicate_elimination", DisableOption::PredicateElimination},
+      {"python_inline_definitions", DisableOption::PythonInlineDefinitions},
       {"kernel_reuse", DisableOption::KernelReuse},
       {"var_name_remapping", DisableOption::VarNameRemapping},
       {"welford_vectorization", DisableOption::WelfordVectorization},

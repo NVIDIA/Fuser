@@ -45,12 +45,14 @@ struct RecordFunctor {
       std::vector<State> _args,
       std::vector<State> _outputs,
       std::string _name,
-      serde::RecordType _record_type)
+      serde::RecordType _record_type,
+      bool _inline_def = false)
       : args_(std::move(_args)),
         arg_names_(args_.size()),
         outputs_(std::move(_outputs)),
         name_(std::move(_name)),
-        record_type_(_record_type) {}
+        record_type_(_record_type),
+        inline_def_(_inline_def && !isOptionDisabled(DisableOption::PythonInlineDefinitions)) {}
   virtual ~RecordFunctor() = default;
   //! Allows for copying of Child Class objects with RecordFunctor pointers.
   virtual RecordFunctor* clone() = 0;
@@ -67,7 +69,8 @@ struct RecordFunctor {
     for (auto output : outputs_) {
       output_hash ^= ((output.index << 1) ^ static_cast<size_t>(output.stype));
     }
-    return ((static_cast<size_t>(record_type_) & 0xff) << 56) |
+    return (static_cast<size_t>(inline_def_) << 63) |
+        ((static_cast<size_t>(record_type_) & 0x7f) << 56) |
         ((output_hash & 0xff) << 48) | ((arg_hash & 0xffff) << 32);
   }
 
@@ -78,6 +81,7 @@ struct RecordFunctor {
     result = result && (args_.size() == other.args_.size()) &&
         (outputs_.size() == other.outputs_.size());
     result = result && (arg_names_ == other.arg_names_);
+    result = result && (inline_def_ == other.inline_def_);
     if (result) {
       for (size_t i = 0; i < args_.size(); ++i) {
         if ((args_[i].index != other.args_[i].index) ||
@@ -192,6 +196,10 @@ struct RecordFunctor {
     return record_type_;
   }
 
+  bool inlineDef() const {
+    return inline_def_;
+  }
+
   //! Set the name of an argument. If given, it will be listed as a keyword
   //! argument during printing using the given name as the key. Unnamed
   //! arguments are the default, and are listed as positional arguments before
@@ -212,6 +220,8 @@ struct RecordFunctor {
   //! Record Type of child class used for hashing
   //! enum class RecordType is defined in flatbuffer schema
   serde::RecordType record_type_;
+  //! Indicates if a record was defined inline with another record for printing
+  bool inline_def_;
   //! Whether this record type returns a tuple of unknown length. This is only
   //! used for TensorSizesRecord.
   bool always_returns_tuple_ = false;
