@@ -11,6 +11,8 @@ nvfuser_root = Path(__file__).parent.parent
 
 # note that this root currently is still part of pytorch.
 def get_sha() -> str:
+    # assume the $NVFUSER_VERSION is in sha form
+    nvfuser_version = os.environ.get('NVFUSER_VERSION')
     try:
         return (
             subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=nvfuser_root)
@@ -18,7 +20,7 @@ def get_sha() -> str:
             .strip()
         )
     except Exception:
-        return UNKNOWN
+        return nvfuser_version if nvfuser_version is not None else UNKNOWN
 
 
 def get_version() -> str:
