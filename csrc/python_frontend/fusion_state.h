@@ -17,7 +17,7 @@ struct RecordFunctor;
 
 struct State {
   State(size_t _index, serde::StateType _stype)
-      : index(_index), stype(_stype) {}
+      : index(_index), stype(_stype), parent(nullptr) {}
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;
