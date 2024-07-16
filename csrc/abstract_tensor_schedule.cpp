@@ -143,6 +143,20 @@ class AbstractTensorSchedule {
   GroupIdMap mapScheduledGroupsToLoopIterDomains(TensorView* tv) const {
     GroupIdMap computed_ids;
 
+    std::cout << "scheduled_val_groups_ " << tv->toString() << " :"
+              << std::endl;
+    for (const ValGroup& vg : scheduled_val_groups_) {
+      std::cout << "  idg{";
+      bool first = true;
+      for (Val* v : *vg) {
+        if (!first) {
+          std::cout << ", ";
+        }
+        first = false;
+        std::cout << v->name();
+      }
+      std::cout << "}" << std::endl;
+    }
     // Look up each loop IterDomain in tv and assert that it is in
     // scheduled_val_groups_, then map it.
     for (IterDomain* loop_id : tv->getLoopDomain()) {

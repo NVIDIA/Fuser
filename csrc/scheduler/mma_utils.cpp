@@ -356,6 +356,41 @@ void scheduleContiguousVectorLoad(
   tv->axis(-4)->parallelize(ParallelType::TIDz);
 }
 
+void scheduleContiguousVectorLoad(
+    AbstractMatmulTensor& abten,
+    const MatMulTileOptions& tile,
+    MatmulDimRole innermost_dim_role,
+    int64_t vector_word) {
+  auto warp_dims = tile.cta_tile / tile.warp_tile;
+  int64_t num_of_thread = warp_dims.m * warp_dims.n * warp_dims.k * 32;
+
+  // Assume abstract tensor looks like Mi, Ni, Ki or Ni, Mi, Ki
+  NVF_ERROR(
+      abten.hasTag(-3, MatmulDimRole::M) || abten.hasTag(-3, MatmulDimRole::N));
+  NVF_ERROR(
+      abten.hasTag(-2, MatmulDimRole::M) || abten.hasTag(-2, MatmulDimRole::N));
+  NVF_ERROR(abten.hasTag(-1, MatmulDimRole::K));
+
+  abten.split(-1, num_of_thread * vector_word);
+  abten.split(-1, vector_word);
+  // [..., thread, vec]
+  // distribute to warp: for tidx
+  abten.split(-2, 32);
+
+  //      -3    -2    -1
+  // [...warp, lane, vec]
+
+  if (warp_dims.k == 1) {
+    //      -4     -3    -2    -1
+    // [...warpM, warpN, lane, vec]
+    abten.split(-3, warp_dims.n);
+  } else {
+    //      -4     -3    -2    -1
+    // [...warpMN, warpR, lane, vec]
+    abten.split(-3, warp_dims.k);
+  }
+}
+
 void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes) {
   NVF_CHECK(
       tv->getLoopDomain().size() >= tile_sizes.size(),

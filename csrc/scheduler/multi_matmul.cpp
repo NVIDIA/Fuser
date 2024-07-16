@@ -69,6 +69,534 @@ inline void checkConcreteStaticDim(const AbstractId& abs_id) {
       id->toString());
 }
 
+//! Given a base AbstractMatmulTensor, perform a shared memory swizzle on it.
+//!
+//! Since some tensors might be missing in the actual tensors we plan to
+//! apply this schedule to, we cannot just look at the two innermost
+//! dimensions. Instead, the roles of those two inner dimensions should be
+//! provided, and we will find the two inner-most dimensions with those roles.
+//!
+//! apply_swizzle indicates whether we should apply AbstractTensor::swizzle.
+//! This should only be done when the tensors we will apply this schedule to
+//! reside in shared memory.
+// NOTE: legacy=false by default here since DispatchLegacySwizzle does not
+// support swizzle of two ValGroups
+template <bool legacy = false>
+mma_utils::AbstractMatmulTensor swizzleSharedMemory(
+    const mma_utils::AbstractMatmulTensor& abten,
+    const std::vector<MatmulDimRole>& inner_dim_roles,
+    int64_t data_type_size,
+    bool apply_swizzle) {
+  // Find x and y dimensions
+  int64_t x_dim = -1, y_dim = -1;
+  for (int64_t pos = (int64_t)abten.size() - 1; pos >= 0; --pos) {
+    if (std::find_if(
+            inner_dim_roles.begin(),
+            inner_dim_roles.end(),
+            [pos, &abten](MatmulDimRole role) {
+              return abten.hasTag(pos, role);
+            }) != inner_dim_roles.end()) {
+      if (y_dim == -1) {
+        y_dim = pos;
+      } else if (x_dim == -1) {
+        x_dim = pos;
+        break;
+      }
+    }
+  }
+  NVF_ERROR(
+      x_dim != -1 && y_dim != -1,
+      "Could not find inner dims with provided roles");
+
+  mma_utils::AbstractMatmulTensor swizzle_domain = abten;
+
+  // Check that the innermost 2 dimensions are concrete and static
+  //  sized so that the swizzle function can be defined.
+  checkConcreteStaticDim(swizzle_domain[x_dim]);
+  checkConcreteStaticDim(swizzle_domain[y_dim]);
+
+  // Extract the constant sizes of the swizzled tile
+  auto abstractIdConstantExtent = [](const AbstractId& abs_id) {
+    if (abs_id.is<IterDomain*>()) {
+      return abs_id.as<IterDomain*>()->extent()->evaluate().as<int64_t>();
+    } else if (abs_id.is<ValGroupAndItsGraph>()) {
+      auto vgg = abs_id.as<ValGroupAndItsGraph>();
+      for (Val* v : *vgg.group) {
+        // Not all the IDs in this group might have the same constant extent,
+        // so check them until we find one that does.
+        PolymorphicValue ext = v->as<IterDomain>()->extent()->evaluate();
+        if (!ext.hasValue()) {
+          continue;
+        }
+        return ext.as<int64_t>();
+      }
+      NVF_ERROR(
+          false, "Could not find IterDomain in group with constant extent");
+    }
+    NVF_ERROR(false, "Could not convert AbstractId to concrete IterDomain");
+    return 0l;
+  };
+  const int64_t tile_size_x = abstractIdConstantExtent(swizzle_domain[x_dim]);
+  const int64_t tile_size_y = abstractIdConstantExtent(swizzle_domain[y_dim]);
+
+  // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
+  // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
+  // (i.e. float)
+  NVF_ERROR(data_type_size == 2 || data_type_size == 4);
+
+  // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
+  // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
+  // Each thread vectorized write 2 items, so 8 items per row.
+  //--0--1--2--3
+  //--4--5--6--7
+  //--8--9--10-11
+  //--12-13-14-15
+  //--16-17-18-19
+  //--20-21-22-23
+  //--24-25-26-27
+  //--28-29-30-31
+  constexpr int64_t n_rows = 8;
+  constexpr int64_t n_cols = 8;
+
+  // Column size of the tile needs to be multiples of 8 for ldmatrix to work.
+  NVF_ERROR(
+      tile_size_x >= n_rows && tile_size_x % n_rows == 0 &&
+          tile_size_y >= n_cols && tile_size_y % n_cols == 0,
+      "Prolog swizzle for ldmatrix, illegal tile size for prolog swizzle",
+      tile_size_x,
+      "x",
+      tile_size_y);
+
+  /* Note [How to remove bank conflict for ldmatrix?]
+   *
+   * **This note is interleaved with code, I suggest reading this note like
+   *   reading a jupyter notebook**
+   *
+   * Our task is to make sure different rows does not fall into the same
+   * bank of shared memory.
+   *
+   * Introduction to bank conflict can be found at page 54-72 of:
+   * https://on-demand.gputechconf.com/gtc/2018/presentation/s81006-volta-architecture-and-performance-optimization.pdf
+   *
+   * When we talk about bank conflict removal, we are talking about the
+   * following task:
+   *   "there are 32 banks, and each bank contains one 4-byte word, we want to
+   *    make sure different lanes in a warp does not access different word
+   *    addresses in the same bank"
+   * For example, if thread 0 is accessing word address 1, and thread 1 is
+   * accessing word address 33, then these two threads will have a bank
+   * conflict because they are accessing different word addresses in the same
+   * bank. However, if thread 0 is accessing byte address 4 and thread 1 is
+   * accessing byte address 6 then there will be no bank conflict because 4
+   * and 6 both belong to word 1.
+   */
+
+  constexpr int64_t smem_bytes_per_word = 4;
+  constexpr int64_t smem_banks = 32;
+
+  /* but here, for our convenience, because ldmatrix always use vectorized
+   * access of 8 items = 16 bytes = 4 words, we further group words into
+   * units: we consider each 4 words as a "unit", and each 4 banks as a
+   * "megabank". So we can rephrase our task as:
+   *   "there are 8 megabanks, and each megabanks contains one 4-word unit, we
+   *    want to make sure different lanes in a warp does not access different
+   *    unit addresses in the same megabank"
+   * In this terminology, matrices are in the row major format, each matrix
+   * has 8 rows, and each row has exactly one unit.
+   */
+
+  constexpr int64_t items_per_unit = n_cols;
+  const int64_t bytes_per_unit = items_per_unit * data_type_size;
+  const int64_t words_per_unit = bytes_per_unit / smem_bytes_per_word;
+  const int64_t num_megabanks = smem_banks / words_per_unit;
+
+  /* In the following example, each CTA tile contains 2 rows and 3 colums of
+   * matrices, each 8x8 size:
+   *   +----------+----------+----------+
+   *   | matrix 0 | matrix 1 | matrix 2 |
+   *   +----------+----------+----------+
+   *   | matrix 3 | matrix 4 | matrix 5 |
+   *   +----------+----------+----------+
+   * The addresses of different rows in the same matrix are offset by 3 units.
+   * In this perspective, loading a matrix is a strided memory access with the
+   * following stride (in units):
+   */
+
+  // number of units per row
+  int64_t row_stride = tile_size_y / items_per_unit;
+
+  /* So the bank conflicting problem is now converted to the following game:
+   *   I have a clock that has one pointer and `num_megabanks` ticks. I start
+   *   my game by making my pointer pointing to somewhere, and turn forward
+   *   the pointer `n_rows` times, each time by `row_stride` ticks.
+   * This problem can be well modeled by modular arithmetic in number theory
+   * using the concept "integers modulo n" a.k.a. "Z/nZ"[1].
+   * Take n = 6 as an example, Z/6Z only has 6 elements: 0, 1, 2, 3, 4, 5.
+   * Additions and multiplications are defined in a cyclic manner:
+   *   5 + 1 = 0, 5 + 2 = 1, 5 + 3 = 2, 5 + 4 = 3, ...
+   *   2 * 1 = 2, 2 * 2 = 4, 2 * 3 = 0, 2 * 4 = 2, ...
+   * With this definition, Z is mapped to Z/nZ naturally by i -> i % n [2]
+   *
+   * It worth mention that Z/nZ is a "commutative ring", that is, we can use
+   * addition and multiplication rules just like using normal integers:
+   *   a + b = b + a, a * (b + c) = a * b + a * c, ...
+   * In short, we can reason about Z/nZ just like we are reasoning about
+   * integers, except that every number is automatically "% n".
+   *
+   * Reference:
+   * [1] https://en.wikipedia.org/wiki/Modular_arithmetic#Integers_modulo_n
+   * [2] The % is under Euclidean definition, that is -1 % 6 is 5 instead of
+   *     -1, see [The Mathematics of Integer Arithmetic] for more detail. But
+   *     we are only interested in non-negative numbers here, so there is no
+   *     need to worry about this problem
+   */
+
+  // row_stride in Z/nZ, where n is num_megabanks:
+  // assert(row_stride >= 0);
+  // assert(num_megabanks >= 0);
+  int64_t row_stride_znz = row_stride % num_megabanks;
+  /* Consider the following function in Z/nZ:
+   *   f(i; init) = init + i * stride
+   * where init is the initial position of the pointer in the clock when we
+   * start the game, and stride is the number of ticks we move forward each
+   * time, and i is the number of times we move forward. For a fixed init, we
+   * abbrivate f(i; init) as f(i).
+   *
+   * In our problem, f(i) is the megabank of the `i`th row of the matrix, and
+   * `init` is the megabank of the 0th row of the matrix.
+   *
+   * One very important property of f(i) is:
+   * - if f(i1) == f(i2), then for every j, f(i1 + j) = f(i2 + j)
+   * This property is true because:
+   *   f(i1 + j) = f(i1) + j * stride = f(i2) + j * stride = f(i2 + j)
+   *
+   * The above property tells us, as we turn the clock forward:
+   * - initially, we will go to a never-visited tick in each turn, but,
+   * - at some point, we will return back to our original position, and,
+   * - after we return, we start repeat the pervious pattern again and again.
+   *
+   * As an example, consider f(i) where init = 0, stride = 6, under Z/8Z:
+   *     i  0 1 2 3 4 5 6 7
+   *   f(i) 0 6 4 2 0 6 4 2
+   * We can see that f(i) is repeating a pattern of four unique numbers
+   * "0 6 4 2" twice. In our bank conflict problem, this means we are using 4
+   * different megabanks, and we have a 2-way conflict.
+   *
+   * The question of interest is, does the above observation generalize? That
+   * is, does f(i) always repeat a pattern of p unique numbers q times? Note
+   * that p and q must satisfy p * q = n.
+   *
+   * The answer to the above question is: yes! Consider the following
+   * equation:
+   *    f(i1 + j) == f(i1)
+   * We want to know what is the smallest positive number j that makes the
+   * above equation true. Because this tells us in how many steps we will see
+   * repeat. This equation can be simplified as:
+   *   f(i1 + j) == f(i1) + j * stride == f(i1)
+   *   ==> j * stride == 0
+   *
+   * An important tool to study this equation is multiplicative inverse:
+   * https://en.wikipedia.org/wiki/Modular_multiplicative_inverse
+   * A number i has multiplicative inverse `minv(i)` in Z/nZ if and only if it
+   * coprime with n. `minv(i)` is the number that `i * minv(i) == 1`. So in
+   * Z/nZ, the equation `ax = b` has solution `x = minv(a)*b` if a has
+   * multiplicative inverse. For example, in Z/15Z, `minv(2) = 8` because
+   *   (2 * 8) % 15 = 1
+   *
+   * stride has an multiplicative inverse if and only if stride coprime with
+   * n, that is, g := gcd(stride, n) == 1. In such case, the solution to our
+   * equation j * stride == 0 is j = minv(stride) * 0 = 0, that is: f(i) does
+   * not repeat, that is: there is no bank conflict.
+   */
+
+  int64_t g = std::gcd(num_megabanks, row_stride_znz);
+  if (g == 1) {
+    return swizzle_domain; // No need to swizzle in this case.
+  }
+
+  /* For the case where stride does not coprime with n, we note that
+   * j * stride == 0 in Z/nZ is equivalent to (j * stride) % n = 0 in Z. We
+   * can write stride and n as:
+   *   stride = s * g, n = m * g
+   * According to Theorem 4.13 in [The Mathematics of Integer Arithmetic], we
+   * have:
+   *   (j * stride) % n = 0
+   *   ==> (j * s) % m * g = 0
+   *   ==> (j * s) % m = 0
+   * which is equivalent to j * s == 0 in Z/mZ. Because s coprime with m, we
+   * further get:
+   *   j == 0 (in Z/mZ)
+   * That is, j is a multiple of m in Z. So the smallest positive j that make
+   * the equation hold is n / g.
+   *
+   * That is: f(i) always repeat a pattern of n/g unique numbers g times.
+   * In other word: we are using n/g megabanks, and we have a g-way bank
+   * conflict.
+   *
+   * Let's use the word "pattern" to refer to the set of values of `f` at
+   * different `i`, that is:
+   *   pattern k = { f(i; init=k) | i in Z/nZ }
+   * For the example of stride = 6 under Z/8Z, we have the following patterns
+   *        f(i): 01234567
+   *   pattern 0: x_x_x_x_
+   *   pattern 1: _x_x_x_x
+   *   (x => occupied, _ => unoccupied)
+   */
+
+  int64_t repeated_pattern_size = num_megabanks / g;
+
+  if (repeated_pattern_size >= n_rows) {
+    return swizzle_domain; // No need to swizzle in this case.
+  }
+
+  /* Now we know that we have a g-way bank conflict. How do we remove this
+   * bank conflict? The answer is to mix the storage of different matrices.
+   * We first split the matrices along the row axis into g pieces, each piece
+   * has n/g rows. With this split, each piece occupies exactly one pattern.
+   * We want to use some non-traditional storage to let different pieces of
+   * the same matrix to occupy different patterns.
+   *
+   * Because Z/nZ has n items, each pattern has n/g different items, so we
+   * have in total g different patterns. We want to find the corresponding
+   * `init` values of these g different patterns.
+   *
+   * Consider two different init values `init1` and `init2`. When do they
+   * represent the same pattern? They represent the same pattern if and only
+   * if `f(0; init2)` falls on the pattern of `init1`, that is, there exist an
+   * i such that
+   *   f(i; init1) == f(0; init2)
+   * which simplifies to
+   *   init1 + i * stride == init2
+   *   ==> init2 - init1 == i * stride
+   * What values can `i * stride` be? It can be an arbitrary multiple of g:
+   * i * stride in Z/nZ is (i * stride) % n in Z. Let m = n/g, according to
+   * Theorem 4.13 in [The Mathematics of Integer Arithmetic]
+   *   (i * stride) % n = (i * s) % m * g
+   * Because s coprime with m, we know that for an arbitrary value `j` in
+   * Z/mZ, we can take `i = minv(s) * j` to make `i * s == j`.
+   *
+   * That said, for init values that are off by a multiple of g they
+   * correspond to the same pattern, otherwise they belongs to different
+   * patterns. So, we can use
+   *   init = 0, 1, ..., g - 1
+   * to canonically represent g patterns. Let's call the above
+   * `init` values "pattern id".
+   *
+   * Now we have the idea about how to remove bank conflict: We can do an
+   * inner split of our row dimension by `repeated_pattern_size` to get
+   * (repeat, pattern), then different indices of the "repeat" dimension will
+   * be using the same megabank, and different indices of the "pattern"
+   * dimension will be using different megabank. We don't need to touch the
+   * "pattern" dimension, but we need to play with the "repeat" dimension to
+   * interleave it with matrice ids so that each matrix is distributed across
+   * different banks.
+   *
+   * For example, if we have repeated_pattern_size = 4, we would want to do
+   * something like below:
+   *    +----------+----------+
+   *   0|          |          |
+   *   1| matrix 0 | matrix 1 |
+   *   2|          |          |
+   *   3|          |          |
+   *    +----------+----------+
+   *   4|          |          |
+   *   5| matrix 1 | matrix 0 |
+   *   6|          |          |
+   *   7|          |          |
+   *    +----------+----------+
+   *
+   * We can consider each repeated_pattern_size rows as a gigarow, and each
+   * repeated_pattern_size megabanks as a gigabank. Note that megabank is a
+   * contiguous chunk of banks, but gigabank is not contiguous. Indeed,
+   * nearby megabanks in a gigabank has a distance of `g` megabanks
+   */
+
+  NVF_ERROR(
+      n_rows % repeated_pattern_size == 0,
+      "Can not partition matrix into megarows");
+  int64_t num_gigarows = n_rows / repeated_pattern_size;
+  int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
+
+  //    x    y
+  //   -2   -1
+  // [row, col]
+  if (repeated_pattern_size > 1) {
+    swizzle_domain.split(x_dim, repeated_pattern_size);
+    y_dim++;
+  }
+  swizzle_domain.split(y_dim, n_cols);
+  //       x        x+1        y       y+1
+  //      -4         -3       -2        -1
+  // [gigarow id, gigarow, matrix id, matrix]
+  swizzle_domain.split(y_dim, num_gigabanks);
+  //       x       x+1         y       y+1        y+2
+  //      -5        -4        -3        -2         -1
+  // [gigarow id, gigarow, y outer, gigabank id, matrix]
+  // Note that megabanks inside a gigabank are not contiguous, so the gigabank
+  // id is -2 instead of -3
+
+  /* We want to evenly distribute gigarows across gigabanks, for example, if
+   * we have 7 gigarows and 3 gigabanks, then we might distribute them as:
+   *  +---+
+   *  |x  |
+   *  | x |
+   *  |  x|
+   *  |x  |
+   *  | x |
+   *  |  x|
+   *  |x  |
+   *  +---+
+   * considering all matrices, this is a swizzle function like:
+   *  +---+
+   *  |012|
+   *  |201|
+   *  |120|
+   *  |012|
+   *  |201|
+   *  |120|
+   *  |012|
+   *  +---+
+   * which is a cyclic shift.
+   *
+   * Note that because num_gigabanks (a.k.a. g) divide num_megabanks and
+   * row_stride_znz (which is row_stride % num_megabanks), g should also
+   * divide row_stride, because according to the fundamental
+   * division-with-remainder property (see doc/math/integer-division.md):
+   *   row_stride = q * num_megabanks + row_stride_znz
+   * which means, we can just consider each num_gigabanks matrices as a group,
+   * and we always have complete groups (i.e. no group has less than
+   * num_gigabanks matrices). Interleaving the memory of matrices within each
+   * group should be enough to fully remove bank conflict.
+   */
+
+  /* To further simplify the problem, if we assume: */
+  NVF_ERROR(
+      num_gigarows % num_gigabanks == 0,
+      "Requires non-square swizzle, which is not supported yet");
+  /* Then we can partition gigarows into full waves, each wave has
+   * num_gigabanks gigarows. This partition creates square dimensions, making
+   * the swizzle implementation easier */
+
+  //       x       x+1         y       y+1        y+2
+  //      -5        -4        -3        -2         -1
+  // [gigarow id, gigarow, y outer, gigabank id, matrix]
+  int axis_of_gigarow_id = repeated_pattern_size > 1 ? x_dim : x_dim + 1;
+  swizzle_domain.split(axis_of_gigarow_id, num_gigabanks);
+  y_dim++;
+  //      x    x+1    x+2        y       y+1        y+2
+  //     -6     -5     -4       -3        -2         -1
+  // [wave id, wave, gigarow, y outer, gigabank id, matrix]
+
+  // swizzle wave with gigabank id to make threads in a wave access different
+  // gigabank. Apply swizzle only when shared_mem_tv is stored in shared
+  // memory.
+  // TODO: This is a temporary workaround for the following issue:
+  // For the mma output, we have the following schedule:
+  // rFactor: [...., X, Y] -> mma-swizzle transformations -> loop
+  // For epilogue smem tensor, the schedule is
+  // rFactor: [...., X, Y] -> split -> [...., X1, X2, X3, Y1, Y2, Y3]
+  //   -> swizzle X2, Y2 -> [...., X1, X2', X3, Y1, Y2', Y3]
+  //   -> merge back -> [...., X', Y']
+  //   -> mma-swizzle transformations -> loop
+  // The mma-swizzle transformations for the mma output and epilogue smem
+  // tensor are the same. In indexing, we do require {X, X'} and {Y, Y'} to be
+  // mapped in CA map, however, we currently can not handle that. So we have
+  // to do the same split and merge to the mma output without actually
+  // applying the swizzle, and this check is to detect and handle this
+  // specific case. We should remove this special handling when we fix our CA
+  // mapping.
+  if (apply_swizzle) {
+    int axis_of_gigarow_id = repeated_pattern_size > 1 ? x_dim + 1 : x_dim + 2;
+    using SwizzleTypeMaybeLegacy =
+        std::conditional_t<legacy, Swizzle2DType, SwizzleType>;
+    if (isPowOf2(num_gigabanks)) {
+      swizzle_domain.swizzle(
+          SwizzleTypeMaybeLegacy::XOR, axis_of_gigarow_id, y_dim + 1);
+    } else {
+      swizzle_domain.swizzle(
+          SwizzleTypeMaybeLegacy::CyclicShift, axis_of_gigarow_id, y_dim + 1);
+    }
+  }
+
+  if (repeated_pattern_size > 1) {
+    swizzle_domain.merge(x_dim);
+    //      x      x+1        y          y+1     y+2
+    //     -5       -4       -3           -2      -1
+    // [waves, gigarow, y outer, gigabank id, matrix]
+    y_dim--;
+  }
+  swizzle_domain.merge(x_dim);
+  y_dim--;
+
+  //    x        y          y+1     y+2
+  //   -4       -3           -2      -1
+  // [wgr, y outer, gigabank id, matrix]
+
+  // merge back tile_size_y
+  swizzle_domain.merge(y_dim);
+  //    x       y     y+2
+  //   -3      -2      -1
+  // [wgr, yo_gid, matrix]
+  swizzle_domain.merge(y_dim);
+  //    x        y
+  //   -3       -2
+  // [wgr, yo_gid_matrix]
+
+  return swizzle_domain;
+}
+
+// A matmul kernel might perform multiple matmuls; i.e. there can be multiple
+// MmaOps in the scheduled tensor. Each one outputs a TensorView* which call an
+// mma_result. Each MmaOp will also have two input TensorViews which we call
+// "ab" and "bb". Again there can be multiple abs and multiple bbs in one
+// fusion. These TensorViews are loaded from global memory tensors that we call
+// "a" and "b" into shared memory tensors called acw_smem and bcw_smem. They are
+// loaded from shared memory to register buffers we call "acr" and "bcr" ("cr"
+// meaning "cache read" in this context).
+//
+// Putting this all together we have the following order for a simple matmul
+//
+//   a -> acw_smem -> acr -> ... -> ab
+//                                    \
+//                                      mma_result ->  ... -> dc -> d
+//                                    /
+//   b -> bcw_smem -> bcr -> ... -> bb
+//
+// The ... indicate that there might be other tensors involved in a prologue or
+// epilogue section at that location.
+//
+// In this example there are two matmuls both using the same "a" operand:
+//
+//   b1 -> bcw_smem1 -> bcr1 -> ... -> bb1
+//                                        \
+//                                          mma_result1
+//                                        /             \
+//       a -> acw_smem -> acr -> ... -> ab                ... -> dc -> d
+//                                        \             /
+//                                          mma_result2
+//                                        /
+//   b2 -> bcw_smem2 -> bcr2 -> ... -> bb2
+//
+// Note that there can be more than one output d and each one will have its own
+// register cache dc.
+//
+// Split-K and smem epilogue unswizzling add two additional tensors for each
+// mma in the fusion: splitk_sum and smem_epilogue.
+//
+//   // No split-K, no smem epilogue unswizzling:
+//     mma_result ->  ... -> dc -> d
+//   // split-K, no smem epilogue unswizzling:
+//     mma_result -> splitk_sum -> ... -> dc -> d
+//   // smem epilogue unswizzling, no split-K:
+//     mma_result -> smem_epilogue -> ... -> dc -> d
+//   // split-K and smem epilogue unswizzling:
+//     mma_result -> smem_epilogue -> splitk_sum -> ... -> dc -> d
+//
+// These additional tensors are added to each mma_result in the fusion.
+//
+// Each of the named tensors above is scheduled differently. We schedule them
+// by building AbstractTensors for each tensor category; these are held in
+// MultipleMatmulScheduler::schedules_.
 class MultipleMatmulScheduler {
  public:
   MultipleMatmulScheduler(Fusion* fusion, const MatmulParams& params)
@@ -77,6 +605,73 @@ class MultipleMatmulScheduler {
         id_model_(fusion, /*build_graphs=*/false) {}
 
   void run() {
+    // Clears memory spaces on intermediate tensors, calls
+    // cache{After,Before,Fork} on inputs and outputs
+    cacheInputsAndOutputs();
+
+    // Finds matmul patterns and translates them to MmaOps, then finds tensor
+    // and dimension roles for all tensors in the fusion
+    findPatterns();
+    translatePatterns();
+    findRoles();
+
+    // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
+    // This also collects mma_results_
+    defineOperandCaches();
+
+    // Computes the scheduling that is common to all tensors in the Fusion:
+    // namely the coarsest tiling level into block tiles as well as the 2D M/N
+    // swizzle of block tiles (if enabled).
+    scheduleTiling();
+
+    // Use rFactor and cacheAfter to set up splitk_sum and smem_epilogue. This
+    // must be done after tiling.
+    doSplitKRFactor();
+
+    // After this point, no new TensorViews will be introduced.
+    // We proceed to schedule each kind of TensorView in order from inputs to
+    // outputs. These steps are invariant to reordering.
+
+    // schedule acw_smem and bcw_smem
+
+    // schedule register loads (ldmatrix) acr/bcr
+
+    // schedule prologue after acr/bcr up to and including ab/bb (mma
+    // instruction inputs)
+
+    // schedule mma instruction output (mma_result)
+
+    // schedule smem_epilogue
+
+    // schedule splitk_sum
+
+    // schedule epilogue
+
+    // Swizzle writes to prologue and epilogue smem tensors
+    swizzleAllSharedMemory();
+
+    // Schedules from the operand smem cache read buffers up to (not including)
+    // smem_epilogue
+    scheduleWarpTileWithReduction();
+
+    // Generates the prolog schedule on the shared memory buffer
+    //  tensor. The scheduling performs two steps:
+    //
+    // 1. Swizzled the shared mem data layout.
+    // 2. Coalesce and vectorize the read write schedule.
+    // schedulePrologue();
+
+    // TODO: fill in the rest of scheduling
+
+    applyFinalTransforms();
+
+    inlineMost();
+
+    fusion_->printMath();
+  }
+
+ private:
+  void cacheInputsAndOutputs() const {
     // Make sure we don't have global memory set on intermediate tensors from
     // fusion segmentation
     scheduler_utils::clearMemorySpace(fusion_);
@@ -87,234 +682,8 @@ class MultipleMatmulScheduler {
     // Cache and fork outputs
     auto cached_outputs =
         scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
-
-    findPatterns();
-
-    translatePatterns();
-
-    findRoles();
-
-    // This also collects mma_results_
-    cacheOperands();
-
-    // Unswizzle mma result in shared memory
-    // Note that if we are using split-K, we will set up this buffer after
-    // rfactoring the matmul, between the MmaOp and the ReductionOp, in order to
-    // take advantage of unswizzling during the grid reduction
-    smem_epilogues_ = mma_results_;
-
-    makeAllTiles();
-
-    swizzleBlockTiles();
-
-    doSplitKRFactor();
-
-    // Creates at_acw_smem_, at_bcw_smem_, and at_smem_epilogue_ all of which
-    // swizzle the shared memory writes
-    swizzleAllSharedMemory();
-
-    scheduleWarpTileWithReduction();
-
-    applyFinalTransforms();
-
-    // swizzleSharedMemory(mma_result)
-
-    /*
-    mma_utils::scheduleWarpTileWithReduction(mma_result, gemm_tile);
-    scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
-        mma_result, -1, {acw_smem, bcw_smem}, {smem_epilogue});
-
-    scheduleProlog(acw_smem, params.supported_vec_size.a, params);
-    scheduleProlog(bcw_smem, params.supported_vec_size.b, params);
-
-    mma = mma_result->definition()->as<MmaOp>();
-    auto ab = mma->inA()->as<TensorView>();
-    auto bb = mma->inB()->as<TensorView>();
-
-    if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
-      moveInnerBroadcastLeft(ab);
-      moveInnerBroadcastLeft(bb);
-    }
-
-    ab->applyMmaSwizzle(MmaOperand::A);
-    bb->applyMmaSwizzle(MmaOperand::B);
-
-    propagate_mma_input_schedule_to(acw_smem, bcw_smem);
-    mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
-
-    if (acr != ab) {
-      //  -5  -4   -3   -2   -1
-      //[8mi, 4k, 2ko, 2mo, 2ki]
-      acr->setAllocationDomain(acr->getLoopDomain(), true);
-      mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
-      ab->merge(-5);
-      ab->axis(-4)->parallelize(ParallelType::TIDx);
-      propagate_mma_input_schedule_to(acr, nullptr);
-    }
-    if (bcr != bb) {
-      //   -5  -4   -3   -2   -1
-      // [8ni, 4k, 2ko, 1no, 2ki]
-      bcr->setAllocationDomain(bcr->getLoopDomain(), true);
-      mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
-      bb->merge(-5);
-      bb->axis(-4)->parallelize(ParallelType::TIDx);
-      propagate_mma_input_schedule_to(nullptr, bcr);
-    }
-
-    if (num_splitk_dims != 0) {
-      mma_result->axis(num_device_and_batch_dims + 2)
-          ->parallelize(ParallelType::BIDz);
-    } else if (num_local_batch_dims > 0) {
-      mma_result->axis(num_device_dims)->parallelize(ParallelType::BIDz);
-    }
-    switch (params.cta_order) {
-      case MatmulParams::TileRasterizationOrder::RowMajor:
-        mma_result->axis(num_device_and_batch_dims)
-            ->parallelize(ParallelType::BIDx);
-        mma_result->axis(num_device_and_batch_dims + 1)
-            ->parallelize(ParallelType::BIDy);
-        break;
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
-        mma_result->axis(num_device_and_batch_dims)
-            ->parallelize(ParallelType::BIDy);
-        mma_result->axis(num_device_and_batch_dims + 1)
-            ->parallelize(ParallelType::BIDx);
-        break;
-      default:
-        NVF_ERROR(
-            false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
-    }
-
-    // parallelize Mwo, Nwo by thread
-    mma_result->axis(num_device_and_batch_dims + 4 + num_splitk_dims)
-        ->parallelize(ParallelType::TIDz);
-    mma_result->axis(num_device_and_batch_dims + 5 + num_splitk_dims)
-        ->parallelize(ParallelType::TIDy);
-
-    scheduler_utils::parallelizeAllLike(
-        mma_result,
-        -1,
-        {acr, bcr, ab, bb},
-        {ParallelType::TIDy, ParallelType::TIDz});
-
-    // handle epilogue and always vectorize Ki
-    if (params.use_smem_epilogue) {
-      smem_epilogue->setMemoryType(MemoryType::Shared);
-      auto swizzled_dom = swizzleSharedMemory(smem_epilogue);
-      smem_epilogue->setLoopDomain(swizzled_dom.as<IterDomain*>());
-      smem_epilogue->setHasSwizzleOp();
-      scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-          mma_result,
-          -1,
-          {smem_epilogue},
-          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-              .propagateParallelType()
-              .propagateToBoundary());
-      smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
-
-      for (auto [dc, d] : cached_outputs) {
-        // Schedule output tensor differently for better global memory access
-        // pattern.
-        scheduleOutputTensor(
-            mma_result, d, gemm_tile, params.supported_vec_size.epilogue);
-        d->axis(-1)->parallelize(ParallelType::Vectorize);
-
-        // Propagate output tensor transformations back to smem_epilogue
-        scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-            d, -1, {smem_epilogue});
-      }
-    } else {
-      for (auto [dc, d] : cached_outputs) {
-        scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-            mma_result,
-            -1,
-            {d},
-            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-                .propagateParallelType()
-                .propagateToBoundary());
-        // We might propagate an inner dimension that is not compatible with the
-        // output or bias-like inputs. In those cases, we will further split
-    this
-        // dimension with an outer unrolled loop to achieve the proper
-        // vectorization as specified by params.supported_vec_size.epilogue.
-        NVF_ERROR(d->axis(-1)->extent()->isConst());
-        int64_t d_extent = d->axis(-1)->extent()->value().as<int64_t>();
-        if (d_extent > params.supported_vec_size.epilogue) {
-          // Should always be a divisible split
-          NVF_ERROR(d_extent % params.supported_vec_size.epilogue == 0);
-          d->split(-1, params.supported_vec_size.epilogue, true);
-          d->axis(-2)->parallelize(ParallelType::Unroll);
-        }
-        d->axis(-1)->parallelize(ParallelType::Vectorize);
-      }
-    }
-    // propagate output transformations to all inputs that are part of epilogue
-    //  operations, input tvs with non-core roles
-    //  core roles: essential for matmul, for example mma inputs' producers
-    if (has_non_mma_input_tvs) {
-      scheduleFusionInputsForEpilogue(tensor_roles, params.use_smem_epilogue);
-    }
-
-    scheduleSplitKSum(
-        splitk_sum, num_device_and_batch_dims, params.use_smem_epilogue);
-
-    // auto inline for all tensors except register tensors
-    inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
-
-    // if auto inline, will inline to position-7, leads to performance
-    regression inlineSelectedAt( {acr, bcr, ab, bb}, mma_result,
-        num_device_and_batch_dims + 6 + num_splitk_dims);
-
-    // Propagate mma output swizzle and parallelization down the DAG
-    if (params.circular_buffer_options.circular_buffer_smem_write) {
-      NVF_ERROR(
-          params.circular_buffer_options.smem_circular_buffer_stage > 1,
-          "Invalid buffer stage config")
-      if (params.circular_buffer_options.smem_circular_buffer_stage > 2) {
-        NVF_ERROR(
-            params.async_gmem_load_operands,
-            "Circular buffer only supports async load");
-      }
-
-      acw_smem->circularBuffer(
-          params.circular_buffer_options.smem_circular_buffer_stage);
-      bcw_smem->circularBuffer(
-          params.circular_buffer_options.smem_circular_buffer_stage);
-    }
-
-    if (params.circular_buffer_options.circular_buffer_smem_read) {
-      acr->circularBuffer(2);
-      bcr->circularBuffer(2);
-    }
-
-    if (params.circular_buffer_options.circular_buffer_smem_read &&
-        params.circular_buffer_options.circular_buffer_smem_write) {
-      // rotate Kg loop
-      scheduler_utils::rotateLoop(
-          mma_result,
-          num_device_and_batch_dims + 2 + num_splitk_dims,
-          {acr, bcr});
-    }
-
-    NVF_ERROR(!cached_outputs.empty());
-    mma_utils::MmaDataTypes data_types = {
-        a->dtype(), b->dtype(), mma_result->dtype()};
-    // NOTE: Batch split-K matmuls cannot currently re-use smem due to outer
-    // batch loop
-    bool guaranteed_operand_reuse =
-        num_local_batch_dims == 0 || num_splitk_dims == 0;
-    int64_t estimated_smem = mma_utils::computeExpectedSharedMemoryUsage(
-        params,
-        data_types,
-        guaranteed_operand_reuse,
-        guaranteed_operand_reuse);
-    fusion->setExpectedDynamicSmemBytes(estimated_smem);
-    */
-
-    fusion_->printMath();
   }
 
- private:
   void findPatterns() {
     patterns_ = mma_utils::findMatmulPatterns(fusion_);
     NVF_ERROR(!patterns_.empty(), "No matmul patterns were found");
@@ -348,14 +717,6 @@ class MultipleMatmulScheduler {
 
     as_ = tensor_roles_.at(MatmulTensorRole::OPERAND_A);
     bs_ = tensor_roles_.at(MatmulTensorRole::OPERAND_B);
-
-    const bool has_epilogue =
-        std::any_of(mma_ops_.begin(), mma_ops_.end(), [](MmaOp* mma) {
-          return !mma->out()->isFusionOutput();
-        });
-    const bool has_fusion_c_roles =
-        (0 != tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT));
-    has_non_mma_input_tvs_ = has_epilogue && has_fusion_c_roles;
   }
 
   // Including current tensor naming convention for reference,
@@ -392,7 +753,7 @@ class MultipleMatmulScheduler {
 
   // Currently the support is for a, b, c and d as fusion inputs/outputs
   //  aka. no prolog fusion yet.
-  void cacheOperands() {
+  void defineOperandCaches() {
     mma_results_.reserve(mma_ops_.size());
     for (MmaOp* mma : mma_ops_) {
       mma->setMacro(params_.mma_macro);
@@ -497,7 +858,7 @@ class MultipleMatmulScheduler {
     ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::PERMISSIVE);
 
     // Update AbstractTensors
-    for (mma_utils::AbstractMatmulTensor& abten : {std::ref(at_tiled_)}) {
+    for (mma_utils::AbstractMatmulTensor& abten : {std::ref(schedule_.tiled)}) {
       for (AbstractId& abs_id : abten.domain) {
         ValGroupAndItsGraph& vgg = abs_id.as<ValGroupAndItsGraph>();
         bool replaced_group = false;
@@ -537,32 +898,35 @@ class MultipleMatmulScheduler {
 
   // Gets canonical dim ordering then uses it to canonicalize each tensor in the
   // fusion, then create tiles and swizzle their ordering.
-  void makeAllTiles() {
+  void scheduleTiling() {
     std::vector<ValGroup> canonical_dim_ordering =
         mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, *graph_);
 
-    at_tiled_.domain.reserve(canonical_dim_ordering.size());
+    schedule_.tiled.domain.reserve(canonical_dim_ordering.size());
     for (const ValGroup& vg : canonical_dim_ordering) {
-      at_tiled_.domain.push_back(ValGroupAndItsGraph{vg, graph_});
+      schedule_.tiled.domain.push_back(ValGroupAndItsGraph{vg, graph_});
       // Tag each dimension with a MatmulDimRole
       auto it = id_roles_.find(vg);
       NVF_ERROR(it != id_roles_.end());
-      at_tiled_.tags.push_back({it->second});
+      schedule_.tiled.tags.push_back({it->second});
     }
 
-    mma_utils::mergeCanonicalAbstractTensor(at_tiled_);
+    mma_utils::mergeCanonicalAbstractTensor(schedule_.tiled);
 
-    mma_utils::makeTile(at_tiled_, params_.tile_sizes.cta_tile.toVector());
+    mma_utils::makeTile(
+        schedule_.tiled, params_.tile_sizes.cta_tile.toVector());
+
+    swizzleBlockTiles();
   }
 
   void swizzleBlockTiles() {
     if (params_.grid_swizzle_factor != 1) {
-      // Find position of outer M and N dims in at_tiled_
+      // Find position of outer M and N dims in schedule_.tiled
       int64_t Mo_pos = -1, No_pos = -1;
       for (size_t i : c10::irange(3)) {
-        if (at_tiled_.getTag((int64_t)i) == MatmulDimRole::M) {
+        if (schedule_.tiled.getTag((int64_t)i) == MatmulDimRole::M) {
           Mo_pos = (int64_t)i;
-        } else if (at_tiled_.getTag((int64_t)i) == MatmulDimRole::N) {
+        } else if (schedule_.tiled.getTag((int64_t)i) == MatmulDimRole::N) {
           No_pos = (int64_t)i;
         }
       }
@@ -577,13 +941,13 @@ class MultipleMatmulScheduler {
           // reorder [I1, factor, I2/factor]
           // merge   [I1*factor, I2/factor]
           // where I1 and I2 are the outer M and N dimensions, respectively
-          at_tiled_.split(No_pos, factor);
+          schedule_.tiled.split(No_pos, factor);
           // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
           if (No_pos < Mo_pos) {
             Mo_pos++;
           }
-          at_tiled_.reorder({{No_pos, No_pos + 1}});
-          at_tiled_.merge(Mo_pos, No_pos);
+          schedule_.tiled.reorder({{No_pos, No_pos + 1}});
+          schedule_.tiled.merge(Mo_pos, No_pos);
           break;
 
         case MatmulParams::TileRasterizationOrder::ColumnMajor:
@@ -591,23 +955,23 @@ class MultipleMatmulScheduler {
           // reorder [I1/factor, I2, factor]
           // merge   [I1/factor, I2*factor]
           // where I1 and I2 are the outer M and N dimensions, respectively
-          at_tiled_.split(Mo_pos, factor);
+          schedule_.tiled.split(Mo_pos, factor);
           // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
           if (No_pos > Mo_pos) {
             No_pos++;
           }
-          at_tiled_.reorder({{Mo_pos + 1, No_pos}});
-          at_tiled_.merge(Mo_pos + 1, No_pos);
+          schedule_.tiled.reorder({{Mo_pos + 1, No_pos}});
+          schedule_.tiled.merge(Mo_pos + 1, No_pos);
       }
     }
   }
 
   void doSplitKRFactor() {
-    // Find Ko dimension in at_tiled_ by looking at tags
+    // Find Ko dimension in schedule_.tiled by looking at tags
     int64_t Ko_dim = -1;
     int64_t Ki_dim = -1;
-    for (size_t dim : c10::irange(at_tiled_.size())) {
-      if (at_tiled_.getTag((int64_t)dim) == MatmulDimRole::K) {
+    for (size_t dim : c10::irange(schedule_.tiled.size())) {
+      if (schedule_.tiled.getTag((int64_t)dim) == MatmulDimRole::K) {
         if (Ko_dim == -1) {
           Ko_dim = (int64_t)dim;
         } else {
@@ -619,15 +983,22 @@ class MultipleMatmulScheduler {
     NVF_ERROR(Ko_dim != -1, "Could not find outer K dimension");
 
     // Split Ko -> [rKf, rKg]
-    at_tiled_.split(Ko_dim, params_.splitk_factor, /*inner*/ false);
+    schedule_.tiled.split(Ko_dim, params_.splitk_factor, /*inner*/ false);
     // After splitting Ko we have Kf_dim = Ko_dim and Kg_dim = Kf_dim + 1
     int64_t Kf_dim = Ko_dim;
     Ki_dim++;
 
     // We need to apply the transforms here so that we can perform rFactor
     if (params_.splitk_factor != 1) {
-      applyAbstractTransforms(at_tiled_, mma_results_);
+      applyAbstractTransforms(schedule_.tiled, mma_results_);
     }
+
+    // Unswizzle mma result in shared memory
+    // Note that if we are using split-K, we will set up this buffer after
+    // rfactoring the matmul, between the MmaOp and the ReductionOp, in order to
+    // take advantage of unswizzling during the grid reduction. If
+    // params_smem_epilogue is false it just points to mma_result.
+    smem_epilogues_ = mma_results_;
 
     for (TensorView*& mma_result : mma_results_) {
       if (params_.splitk_factor != 1) {
@@ -746,503 +1117,24 @@ class MultipleMatmulScheduler {
     return c;
   }
 
-  //! Given a base AbstractMatmulTensor, perform a shared memory swizzle on it.
-  //!
-  //! Since some tensors might be missing in the actual tensors we plan to
-  //! apply this schedule to, we cannot just look at the two innermost
-  //! dimensions. Instead, the roles of those two inner dimensions should be
-  //! provided, and we will find the two inner-most dimensions with those roles.
-  //!
-  //! apply_swizzle indicates whether we should apply AbstractTensor::swizzle.
-  //! This should only be done when the tensors we will apply this schedule to
-  //! reside in shared memory.
-  // NOTE: legacy=false by default here since DispatchLegacySwizzle does not
-  // support swizzle of two ValGroups
-  template <bool legacy = false>
-  mma_utils::AbstractMatmulTensor swizzleSharedMemory(
-      const mma_utils::AbstractMatmulTensor& abten,
-      const std::vector<MatmulDimRole>& inner_dim_roles,
-      int64_t data_type_size,
-      bool apply_swizzle) {
-    // Find x and y dimensions
-    int64_t x_dim = -1, y_dim = -1;
-    for (int64_t pos = (int64_t)abten.size() - 1; pos >= 0; --pos) {
-      if (std::find_if(
-              inner_dim_roles.begin(),
-              inner_dim_roles.end(),
-              [pos, &abten](MatmulDimRole role) {
-                return abten.hasTag(pos, role);
-              }) != inner_dim_roles.end()) {
-        if (y_dim == -1) {
-          y_dim = pos;
-        } else if (x_dim == -1) {
-          x_dim = pos;
-          break;
-        }
-      }
-    }
-    NVF_ERROR(
-        x_dim != -1 && y_dim != -1,
-        "Could not find inner dims with provided roles");
-
-    mma_utils::AbstractMatmulTensor swizzle_domain = abten;
-
-    // Check that the innermost 2 dimensions are concrete and static
-    //  sized so that the swizzle function can be defined.
-    checkConcreteStaticDim(swizzle_domain[x_dim]);
-    checkConcreteStaticDim(swizzle_domain[y_dim]);
-
-    // Extract the constant sizes of the swizzled tile
-    auto abstractIdConstantExtent = [](const AbstractId& abs_id) {
-      if (abs_id.is<IterDomain*>()) {
-        return abs_id.as<IterDomain*>()->extent()->evaluate().as<int64_t>();
-      } else if (abs_id.is<ValGroupAndItsGraph>()) {
-        auto vgg = abs_id.as<ValGroupAndItsGraph>();
-        for (Val* v : *vgg.group) {
-          // Not all the IDs in this group might have the same constant extent,
-          // so check them until we find one that does.
-          PolymorphicValue ext = v->as<IterDomain>()->extent()->evaluate();
-          if (!ext.hasValue()) {
-            continue;
-          }
-          return ext.as<int64_t>();
-        }
-        NVF_ERROR(
-            false, "Could not find IterDomain in group with constant extent");
-      }
-      NVF_ERROR(false, "Could not convert AbstractId to concrete IterDomain");
-      return 0l;
-    };
-    const int64_t tile_size_x = abstractIdConstantExtent(swizzle_domain[x_dim]);
-    const int64_t tile_size_y = abstractIdConstantExtent(swizzle_domain[y_dim]);
-
-    // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
-    // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
-    // (i.e. float)
-    NVF_ERROR(data_type_size == 2 || data_type_size == 4);
-
-    // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
-    // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
-    // Each thread vectorized write 2 items, so 8 items per row.
-    //--0--1--2--3
-    //--4--5--6--7
-    //--8--9--10-11
-    //--12-13-14-15
-    //--16-17-18-19
-    //--20-21-22-23
-    //--24-25-26-27
-    //--28-29-30-31
-    constexpr int64_t n_rows = 8;
-    constexpr int64_t n_cols = 8;
-
-    // Column size of the tile needs to be multiples of 8 for ldmatrix to work.
-    NVF_ERROR(
-        tile_size_x >= n_rows && tile_size_x % n_rows == 0 &&
-            tile_size_y >= n_cols && tile_size_y % n_cols == 0,
-        "Prolog swizzle for ldmatrix, illegal tile size for prolog swizzle",
-        tile_size_x,
-        "x",
-        tile_size_y);
-
-    /* Note [How to remove bank conflict for ldmatrix?]
-     *
-     * **This note is interleaved with code, I suggest reading this note like
-     *   reading a jupyter notebook**
-     *
-     * Our task is to make sure different rows does not fall into the same
-     * bank of shared memory.
-     *
-     * Introduction to bank conflict can be found at page 54-72 of:
-     * https://on-demand.gputechconf.com/gtc/2018/presentation/s81006-volta-architecture-and-performance-optimization.pdf
-     *
-     * When we talk about bank conflict removal, we are talking about the
-     * following task:
-     *   "there are 32 banks, and each bank contains one 4-byte word, we want to
-     *    make sure different lanes in a warp does not access different word
-     *    addresses in the same bank"
-     * For example, if thread 0 is accessing word address 1, and thread 1 is
-     * accessing word address 33, then these two threads will have a bank
-     * conflict because they are accessing different word addresses in the same
-     * bank. However, if thread 0 is accessing byte address 4 and thread 1 is
-     * accessing byte address 6 then there will be no bank conflict because 4
-     * and 6 both belong to word 1.
-     */
-
-    constexpr int64_t smem_bytes_per_word = 4;
-    constexpr int64_t smem_banks = 32;
-
-    /* but here, for our convenience, because ldmatrix always use vectorized
-     * access of 8 items = 16 bytes = 4 words, we further group words into
-     * units: we consider each 4 words as a "unit", and each 4 banks as a
-     * "megabank". So we can rephrase our task as:
-     *   "there are 8 megabanks, and each megabanks contains one 4-word unit, we
-     *    want to make sure different lanes in a warp does not access different
-     *    unit addresses in the same megabank"
-     * In this terminology, matrices are in the row major format, each matrix
-     * has 8 rows, and each row has exactly one unit.
-     */
-
-    constexpr int64_t items_per_unit = n_cols;
-    const int64_t bytes_per_unit = items_per_unit * data_type_size;
-    const int64_t words_per_unit = bytes_per_unit / smem_bytes_per_word;
-    const int64_t num_megabanks = smem_banks / words_per_unit;
-
-    /* In the following example, each CTA tile contains 2 rows and 3 colums of
-     * matrices, each 8x8 size:
-     *   +----------+----------+----------+
-     *   | matrix 0 | matrix 1 | matrix 2 |
-     *   +----------+----------+----------+
-     *   | matrix 3 | matrix 4 | matrix 5 |
-     *   +----------+----------+----------+
-     * The addresses of different rows in the same matrix are offset by 3 units.
-     * In this perspective, loading a matrix is a strided memory access with the
-     * following stride (in units):
-     */
-
-    // number of units per row
-    int64_t row_stride = tile_size_y / items_per_unit;
-
-    /* So the bank conflicting problem is now converted to the following game:
-     *   I have a clock that has one pointer and `num_megabanks` ticks. I start
-     *   my game by making my pointer pointing to somewhere, and turn forward
-     *   the pointer `n_rows` times, each time by `row_stride` ticks.
-     * This problem can be well modeled by modular arithmetic in number theory
-     * using the concept "integers modulo n" a.k.a. "Z/nZ"[1].
-     * Take n = 6 as an example, Z/6Z only has 6 elements: 0, 1, 2, 3, 4, 5.
-     * Additions and multiplications are defined in a cyclic manner:
-     *   5 + 1 = 0, 5 + 2 = 1, 5 + 3 = 2, 5 + 4 = 3, ...
-     *   2 * 1 = 2, 2 * 2 = 4, 2 * 3 = 0, 2 * 4 = 2, ...
-     * With this definition, Z is mapped to Z/nZ naturally by i -> i % n [2]
-     *
-     * It worth mention that Z/nZ is a "commutative ring", that is, we can use
-     * addition and multiplication rules just like using normal integers:
-     *   a + b = b + a, a * (b + c) = a * b + a * c, ...
-     * In short, we can reason about Z/nZ just like we are reasoning about
-     * integers, except that every number is automatically "% n".
-     *
-     * Reference:
-     * [1] https://en.wikipedia.org/wiki/Modular_arithmetic#Integers_modulo_n
-     * [2] The % is under Euclidean definition, that is -1 % 6 is 5 instead of
-     *     -1, see [The Mathematics of Integer Arithmetic] for more detail. But
-     *     we are only interested in non-negative numbers here, so there is no
-     *     need to worry about this problem
-     */
-
-    // row_stride in Z/nZ, where n is num_megabanks:
-    // assert(row_stride >= 0);
-    // assert(num_megabanks >= 0);
-    int64_t row_stride_znz = row_stride % num_megabanks;
-    /* Consider the following function in Z/nZ:
-     *   f(i; init) = init + i * stride
-     * where init is the initial position of the pointer in the clock when we
-     * start the game, and stride is the number of ticks we move forward each
-     * time, and i is the number of times we move forward. For a fixed init, we
-     * abbrivate f(i; init) as f(i).
-     *
-     * In our problem, f(i) is the megabank of the `i`th row of the matrix, and
-     * `init` is the megabank of the 0th row of the matrix.
-     *
-     * One very important property of f(i) is:
-     * - if f(i1) == f(i2), then for every j, f(i1 + j) = f(i2 + j)
-     * This property is true because:
-     *   f(i1 + j) = f(i1) + j * stride = f(i2) + j * stride = f(i2 + j)
-     *
-     * The above property tells us, as we turn the clock forward:
-     * - initially, we will go to a never-visited tick in each turn, but,
-     * - at some point, we will return back to our original position, and,
-     * - after we return, we start repeat the pervious pattern again and again.
-     *
-     * As an example, consider f(i) where init = 0, stride = 6, under Z/8Z:
-     *     i  0 1 2 3 4 5 6 7
-     *   f(i) 0 6 4 2 0 6 4 2
-     * We can see that f(i) is repeating a pattern of four unique numbers
-     * "0 6 4 2" twice. In our bank conflict problem, this means we are using 4
-     * different megabanks, and we have a 2-way conflict.
-     *
-     * The question of interest is, does the above observation generalize? That
-     * is, does f(i) always repeat a pattern of p unique numbers q times? Note
-     * that p and q must satisfy p * q = n.
-     *
-     * The answer to the above question is: yes! Consider the following
-     * equation:
-     *    f(i1 + j) == f(i1)
-     * We want to know what is the smallest positive number j that makes the
-     * above equation true. Because this tells us in how many steps we will see
-     * repeat. This equation can be simplified as:
-     *   f(i1 + j) == f(i1) + j * stride == f(i1)
-     *   ==> j * stride == 0
-     *
-     * An important tool to study this equation is multiplicative inverse:
-     * https://en.wikipedia.org/wiki/Modular_multiplicative_inverse
-     * A number i has multiplicative inverse `minv(i)` in Z/nZ if and only if it
-     * coprime with n. `minv(i)` is the number that `i * minv(i) == 1`. So in
-     * Z/nZ, the equation `ax = b` has solution `x = minv(a)*b` if a has
-     * multiplicative inverse. For example, in Z/15Z, `minv(2) = 8` because
-     *   (2 * 8) % 15 = 1
-     *
-     * stride has an multiplicative inverse if and only if stride coprime with
-     * n, that is, g := gcd(stride, n) == 1. In such case, the solution to our
-     * equation j * stride == 0 is j = minv(stride) * 0 = 0, that is: f(i) does
-     * not repeat, that is: there is no bank conflict.
-     */
-
-    int64_t g = std::gcd(num_megabanks, row_stride_znz);
-    if (g == 1) {
-      return swizzle_domain; // No need to swizzle in this case.
-    }
-
-    /* For the case where stride does not coprime with n, we note that
-     * j * stride == 0 in Z/nZ is equivalent to (j * stride) % n = 0 in Z. We
-     * can write stride and n as:
-     *   stride = s * g, n = m * g
-     * According to Theorem 4.13 in [The Mathematics of Integer Arithmetic], we
-     * have:
-     *   (j * stride) % n = 0
-     *   ==> (j * s) % m * g = 0
-     *   ==> (j * s) % m = 0
-     * which is equivalent to j * s == 0 in Z/mZ. Because s coprime with m, we
-     * further get:
-     *   j == 0 (in Z/mZ)
-     * That is, j is a multiple of m in Z. So the smallest positive j that make
-     * the equation hold is n / g.
-     *
-     * That is: f(i) always repeat a pattern of n/g unique numbers g times.
-     * In other word: we are using n/g megabanks, and we have a g-way bank
-     * conflict.
-     *
-     * Let's use the word "pattern" to refer to the set of values of `f` at
-     * different `i`, that is:
-     *   pattern k = { f(i; init=k) | i in Z/nZ }
-     * For the example of stride = 6 under Z/8Z, we have the following patterns
-     *        f(i): 01234567
-     *   pattern 0: x_x_x_x_
-     *   pattern 1: _x_x_x_x
-     *   (x => occupied, _ => unoccupied)
-     */
-
-    int64_t repeated_pattern_size = num_megabanks / g;
-
-    if (repeated_pattern_size >= n_rows) {
-      return swizzle_domain; // No need to swizzle in this case.
-    }
-
-    /* Now we know that we have a g-way bank conflict. How do we remove this
-     * bank conflict? The answer is to mix the storage of different matrices.
-     * We first split the matrices along the row axis into g pieces, each piece
-     * has n/g rows. With this split, each piece occupies exactly one pattern.
-     * We want to use some non-traditional storage to let different pieces of
-     * the same matrix to occupy different patterns.
-     *
-     * Because Z/nZ has n items, each pattern has n/g different items, so we
-     * have in total g different patterns. We want to find the corresponding
-     * `init` values of these g different patterns.
-     *
-     * Consider two different init values `init1` and `init2`. When do they
-     * represent the same pattern? They represent the same pattern if and only
-     * if `f(0; init2)` falls on the pattern of `init1`, that is, there exist an
-     * i such that
-     *   f(i; init1) == f(0; init2)
-     * which simplifies to
-     *   init1 + i * stride == init2
-     *   ==> init2 - init1 == i * stride
-     * What values can `i * stride` be? It can be an arbitrary multiple of g:
-     * i * stride in Z/nZ is (i * stride) % n in Z. Let m = n/g, according to
-     * Theorem 4.13 in [The Mathematics of Integer Arithmetic]
-     *   (i * stride) % n = (i * s) % m * g
-     * Because s coprime with m, we know that for an arbitrary value `j` in
-     * Z/mZ, we can take `i = minv(s) * j` to make `i * s == j`.
-     *
-     * That said, for init values that are off by a multiple of g they
-     * correspond to the same pattern, otherwise they belongs to different
-     * patterns. So, we can use
-     *   init = 0, 1, ..., g - 1
-     * to canonically represent g patterns. Let's call the above
-     * `init` values "pattern id".
-     *
-     * Now we have the idea about how to remove bank conflict: We can do an
-     * inner split of our row dimension by `repeated_pattern_size` to get
-     * (repeat, pattern), then different indices of the "repeat" dimension will
-     * be using the same megabank, and different indices of the "pattern"
-     * dimension will be using different megabank. We don't need to touch the
-     * "pattern" dimension, but we need to play with the "repeat" dimension to
-     * interleave it with matrice ids so that each matrix is distributed across
-     * different banks.
-     *
-     * For example, if we have repeated_pattern_size = 4, we would want to do
-     * something like below:
-     *    +----------+----------+
-     *   0|          |          |
-     *   1| matrix 0 | matrix 1 |
-     *   2|          |          |
-     *   3|          |          |
-     *    +----------+----------+
-     *   4|          |          |
-     *   5| matrix 1 | matrix 0 |
-     *   6|          |          |
-     *   7|          |          |
-     *    +----------+----------+
-     *
-     * We can consider each repeated_pattern_size rows as a gigarow, and each
-     * repeated_pattern_size megabanks as a gigabank. Note that megabank is a
-     * contiguous chunk of banks, but gigabank is not contiguous. Indeed,
-     * nearby megabanks in a gigabank has a distance of `g` megabanks
-     */
-
-    NVF_ERROR(
-        n_rows % repeated_pattern_size == 0,
-        "Can not partition matrix into megarows");
-    int64_t num_gigarows = n_rows / repeated_pattern_size;
-    int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
-
-    //    x    y
-    //   -2   -1
-    // [row, col]
-    if (repeated_pattern_size > 1) {
-      swizzle_domain.split(x_dim, repeated_pattern_size);
-      y_dim++;
-    }
-    swizzle_domain.split(y_dim, n_cols);
-    //       x        x+1        y       y+1
-    //      -4         -3       -2        -1
-    // [gigarow id, gigarow, matrix id, matrix]
-    swizzle_domain.split(y_dim, num_gigabanks);
-    //       x       x+1         y       y+1        y+2
-    //      -5        -4        -3        -2         -1
-    // [gigarow id, gigarow, y outer, gigabank id, matrix]
-    // Note that megabanks inside a gigabank are not contiguous, so the gigabank
-    // id is -2 instead of -3
-
-    /* We want to evenly distribute gigarows across gigabanks, for example, if
-     * we have 7 gigarows and 3 gigabanks, then we might distribute them as:
-     *  +---+
-     *  |x  |
-     *  | x |
-     *  |  x|
-     *  |x  |
-     *  | x |
-     *  |  x|
-     *  |x  |
-     *  +---+
-     * considering all matrices, this is a swizzle function like:
-     *  +---+
-     *  |012|
-     *  |201|
-     *  |120|
-     *  |012|
-     *  |201|
-     *  |120|
-     *  |012|
-     *  +---+
-     * which is a cyclic shift.
-     *
-     * Note that because num_gigabanks (a.k.a. g) divide num_megabanks and
-     * row_stride_znz (which is row_stride % num_megabanks), g should also
-     * divide row_stride, because according to the fundamental
-     * division-with-remainder property (see doc/math/integer-division.md):
-     *   row_stride = q * num_megabanks + row_stride_znz
-     * which means, we can just consider each num_gigabanks matrices as a group,
-     * and we always have complete groups (i.e. no group has less than
-     * num_gigabanks matrices). Interleaving the memory of matrices within each
-     * group should be enough to fully remove bank conflict.
-     */
-
-    /* To further simplify the problem, if we assume: */
-    NVF_ERROR(
-        num_gigarows % num_gigabanks == 0,
-        "Requires non-square swizzle, which is not supported yet");
-    /* Then we can partition gigarows into full waves, each wave has
-     * num_gigabanks gigarows. This partition creates square dimensions, making
-     * the swizzle implementation easier */
-
-    //       x       x+1         y       y+1        y+2
-    //      -5        -4        -3        -2         -1
-    // [gigarow id, gigarow, y outer, gigabank id, matrix]
-    int axis_of_gigarow_id = repeated_pattern_size > 1 ? x_dim : x_dim + 1;
-    swizzle_domain.split(axis_of_gigarow_id, num_gigabanks);
-    y_dim++;
-    //      x    x+1    x+2        y       y+1        y+2
-    //     -6     -5     -4       -3        -2         -1
-    // [wave id, wave, gigarow, y outer, gigabank id, matrix]
-
-    // swizzle wave with gigabank id to make threads in a wave access different
-    // gigabank. Apply swizzle only when shared_mem_tv is stored in shared
-    // memory.
-    // TODO: This is a temporary workaround for the following issue:
-    // For the mma output, we have the following schedule:
-    // rFactor: [...., X, Y] -> mma-swizzle transformations -> loop
-    // For epilogue smem tensor, the schedule is
-    // rFactor: [...., X, Y] -> split -> [...., X1, X2, X3, Y1, Y2, Y3]
-    //   -> swizzle X2, Y2 -> [...., X1, X2', X3, Y1, Y2', Y3]
-    //   -> merge back -> [...., X', Y']
-    //   -> mma-swizzle transformations -> loop
-    // The mma-swizzle transformations for the mma output and epilogue smem
-    // tensor are the same. In indexing, we do require {X, X'} and {Y, Y'} to be
-    // mapped in CA map, however, we currently can not handle that. So we have
-    // to do the same split and merge to the mma output without actually
-    // applying the swizzle, and this check is to detect and handle this
-    // specific case. We should remove this special handling when we fix our CA
-    // mapping.
-    if (apply_swizzle) {
-      int axis_of_gigarow_id =
-          repeated_pattern_size > 1 ? x_dim + 1 : x_dim + 2;
-      using SwizzleTypeMaybeLegacy =
-          std::conditional_t<legacy, Swizzle2DType, SwizzleType>;
-      if (isPowOf2(num_gigabanks)) {
-        swizzle_domain.swizzle(
-            SwizzleTypeMaybeLegacy::XOR, axis_of_gigarow_id, y_dim + 1);
-      } else {
-        swizzle_domain.swizzle(
-            SwizzleTypeMaybeLegacy::CyclicShift, axis_of_gigarow_id, y_dim + 1);
-      }
-    }
-
-    if (repeated_pattern_size > 1) {
-      swizzle_domain.merge(x_dim);
-      //      x      x+1        y          y+1     y+2
-      //     -5       -4       -3           -2      -1
-      // [waves, gigarow, y outer, gigabank id, matrix]
-      y_dim--;
-    }
-    swizzle_domain.merge(x_dim);
-    y_dim--;
-
-    //    x        y          y+1     y+2
-    //   -4       -3           -2      -1
-    // [wgr, y outer, gigabank id, matrix]
-
-    // merge back tile_size_y
-    swizzle_domain.merge(y_dim);
-    //    x       y     y+2
-    //   -3      -2      -1
-    // [wgr, yo_gid, matrix]
-    swizzle_domain.merge(y_dim);
-    //    x        y
-    //   -3       -2
-    // [wgr, yo_gid_matrix]
-
-    return swizzle_domain;
-  }
-
-  // Creates at_acw_swmem_ and at_bcw_smem_ which are used to schedule
-  // acw_smems_ and bcw_smems_
   void swizzleAllSharedMemory() {
     if (params_.use_smem_epilogue) {
       // Transform mma_result through the epilogue swizzle without actually
       // swizzling the axes. This is done to enable the domains
       // are mapped between mma_result and smem_epilogue.
-      at_mma_result_ = swizzleSharedMemory(
-          at_tiled_,
+      schedule_.mma_result = swizzleSharedMemory(
+          schedule_.tiled,
           {MatmulDimRole::M, MatmulDimRole::N},
           dataTypeSize(mma_results_.front()->dtype()),
           /*apply_swizzle=*/false);
       // Also apply to smem_epilogue, and now apply the swizzle
-      at_smem_epilogue_ = swizzleSharedMemory(
-          at_tiled_,
+      schedule_.smem_epilogue = swizzleSharedMemory(
+          schedule_.tiled,
           {MatmulDimRole::M, MatmulDimRole::N},
           dataTypeSize(smem_epilogues_.front()->dtype()),
           /*apply_swizzle=*/true);
     } else {
-      at_mma_result_ = at_tiled_;
+      schedule_.mma_result = schedule_.tiled;
     }
 
     // TODO: swizzle operand smem
@@ -1260,35 +1152,89 @@ class MultipleMatmulScheduler {
         cta_tile.k == warp_tile.k,
         "CTA tile and warp tile must have same K dimension");
 
-    // Check that at_mma_result_ has M, N, K as the inner dims
+    // Check that schedule_.mma_result has M, N, K as the inner dims
     // TODO: Handle cases where these dimensions are permuted
-    NVF_ERROR(at_mma_result_.hasTag(-1, MatmulDimRole::K));
-    NVF_ERROR(at_mma_result_.hasTag(-2, MatmulDimRole::N));
-    NVF_ERROR(at_mma_result_.hasTag(-3, MatmulDimRole::M));
+    NVF_ERROR(schedule_.mma_result.hasTag(-1, MatmulDimRole::K));
+    NVF_ERROR(schedule_.mma_result.hasTag(-2, MatmulDimRole::N));
+    NVF_ERROR(schedule_.mma_result.hasTag(-3, MatmulDimRole::M));
 
-    NVF_ERROR(constDimSize(at_mma_result_[-3]) == cta_tile.m);
-    NVF_ERROR(constDimSize(at_mma_result_[-2]) == cta_tile.n);
-    NVF_ERROR(constDimSize(at_mma_result_[-1]) == cta_tile.k);
+    NVF_ERROR(constDimSize(schedule_.mma_result[-3]) == cta_tile.m);
+    NVF_ERROR(constDimSize(schedule_.mma_result[-2]) == cta_tile.n);
+    NVF_ERROR(constDimSize(schedule_.mma_result[-1]) == cta_tile.k);
 
     //       -3   -2  -1
     //[...    M,   N,  K]
     // Distribute warp tile:
-    at_mma_result_.split(-3, warp_tile.m);
-    at_mma_result_.split(-2, warp_tile.n);
+    schedule_.mma_result.split(-3, warp_tile.m);
+    schedule_.mma_result.split(-2, warp_tile.n);
 
     //  -5   -4   -3   -2   -1
     // [Mwo  Mw  Nwo   Nw   K]
-    at_mma_result_.split(-4, instruction_tile.m);
-    at_mma_result_.split(-2, instruction_tile.n);
-    at_mma_result_.split(-1, instruction_tile.k);
+    schedule_.mma_result.split(-4, instruction_tile.m);
+    schedule_.mma_result.split(-2, instruction_tile.n);
+    schedule_.mma_result.split(-1, instruction_tile.k);
 
     //   -8  -7 -6 -5 -4 -3  -2 -1
     // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
 
-    at_mma_result_.reorder(
+    schedule_.mma_result.reorder(
         {{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
     //   -8  -7 -6  -5 -4 -3 -2 -1
     // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
+  }
+
+  void schedulePrologue() {
+    // No (cross-CTA) split-K
+    //   mma_result      [..., iMo iNo rKo rKwo iMwo iNwo iMw iNw iMin iNin
+    //   rKin] smem_epilogue   (unscheduled, same as original or current
+    //   mma_result) splitk_sum      (nullptr)
+    //
+    // With split-K
+    //   mma_result   [... iMo iNo iKf  rKg rKwo iMwo iNwo iMw iNw iMin iNin
+    //   rKin] splitk_sum   [... iMo iNo rKf  iMi  iNi]
+
+    // Schedule prolog:
+    // ------------------------------------------------------------------
+    auto schedulePrologueBranch = [&](const std::vector<TensorView*>&
+                                          shared_mem_tvs,
+                                      int64_t vec_size) {
+      for (TensorView* shared_mem_tv : shared_mem_tvs) {
+        shared_mem_tv->setMemoryType(MemoryType::Shared);
+
+        // The following line allows us to reclaim the memory allocated to
+        // shared_mem_tv and reuse it for the epilogue, introducing one block
+        // sync if needed. This is not done by default as we do not insert new
+        // syncs unless requested to do so. If smem is not used for the
+        // epilogue, this call will have no effect.
+        if (params_.promote_prologue_smem_reuse) {
+          shared_mem_tv->promoteReuse();
+        }
+
+        NVF_ERROR(
+            false,
+            "orderTiledConcreteIdAsMaybeAllocationDomain not implemented for AbstractTensor yet");
+        mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(shared_mem_tv);
+
+        // Swizzle the shared memory data layout
+        // auto swizzled_dom = swizzleSharedMemory(shared_mem_tv);
+        // shared_mem_tv->setLoopDomain(swizzled_dom.as<IterDomain*>());
+        NVF_ERROR(false, "fix swizzleSharedMemory for prologue");
+
+        shared_mem_tv->setHasSwizzleOp();
+
+        // Assuming we are always vectorizing smem write by 128b at the moment:
+        //   TODO: would need a data-type and alignment dependent interface
+        //    to support non-vectorizable shapes.
+        shared_mem_tv->merge(-2);
+        mma_utils::scheduleContiguousVectorLoad(
+            shared_mem_tv,
+            params_.tile_sizes,
+            vec_size,
+            /*vectorize=*/vec_size > 1);
+      }
+    };
+    schedulePrologueBranch(acw_smems_, params_.supported_vec_size.a);
+    schedulePrologueBranch(bcw_smems_, params_.supported_vec_size.b);
   }
 
   void applyFinalTransforms() const {
@@ -1301,12 +1247,12 @@ class MultipleMatmulScheduler {
     };
 
     for (TensorView* tv : mma_results_) {
-      forwardAndApply(at_mma_result_, tv);
+      forwardAndApply(schedule_.mma_result, tv);
     }
 
     if (params_.use_smem_epilogue) {
       for (TensorView* tv : smem_epilogues_) {
-        forwardAndApply(at_smem_epilogue_, tv);
+        forwardAndApply(schedule_.smem_epilogue, tv);
       }
     }
 
@@ -1325,15 +1271,31 @@ class MultipleMatmulScheduler {
   mma_utils::DimRolesMap id_roles_;
   mma_utils::TensorRolesMap tensor_roles_;
   mma_utils::MatmulOperandInnerDims inner_dims_;
+
   std::vector<TensorView*> as_, bs_, acw_smems_, bcw_smems_, acrs_, bcrs_, abs_,
       bbs_, mma_results_, splitk_sums_, smem_epilogues_;
-  bool has_non_mma_input_tvs_;
 
-  // Track the role of each axis for each tensor in the Fusion
-  std::unordered_map<TensorView*, std::vector<MatmulDimRole>> all_tv_dims_;
+  // This holds the abstract schedules for
+  struct AbstractSchedules {
+    // This is the base tiling layout for all tensors in the fusion
+    mma_utils::AbstractMatmulTensor tiled;
 
-  mma_utils::AbstractMatmulTensor at_tiled_, at_acw_smem_, at_bcw_smem_,
-      at_mma_result_, at_smem_epilogue_;
+    // shared memory operand loads
+    mma_utils::AbstractMatmulTensor acw_smem, bcw_smem;
+    // register loads from smem using ldmatrix
+    mma_utils::AbstractMatmulTensor acr, bcr;
+    // register buffers after the load from smem, through prologue and up until
+    // the mma instruction
+    mma_utils::AbstractMatmulTensor ab, bb;
+    // register buffer holding the result tile
+    mma_utils::AbstractMatmulTensor mma_result;
+    // Shared memory unswizzling buffer
+    mma_utils::AbstractMatmulTensor smem_epilogue;
+    // result tile summed across CTAs in split-K
+    mma_utils::AbstractMatmulTensor splitk_sum;
+    // all tensors holding epilogue computation, epilogue inputs, and outputs.
+    mma_utils::AbstractMatmulTensor epilogue;
+  } schedule_;
 };
 
 } // namespace
