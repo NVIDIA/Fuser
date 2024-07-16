@@ -917,6 +917,27 @@ class MultipleMatmulScheduler {
         schedule_.tiled, params_.tile_sizes.cta_tile.toVector());
 
     swizzleBlockTiles();
+
+    // TODO: merge batch dimensions with outermost M/N dimension here, unless
+    // splitk_factor=1. See https://github.com/NVIDIA/Fuser/pull/2140
+
+    // We could have M before N or N before M. Whichever is first (outer) will
+    // be parallelized as BIDy and the other will be BIDx.
+    bool hasBIDy = false;
+    for (size_t i : c10::irange(schedule_.tiled.size())) {
+      // Note that block tiles might be swizzled, in which case a dimension
+      // might have both M and N tags
+      if (schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::M) || 
+        schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::N)) {
+        if (hasBIDy) {
+          parallelize(schedule_.tiled[i], ParallelType::BIDx);
+          break;
+        } else {
+          parallelize(schedule_.tiled[i], ParallelType::BIDy);
+          hasBIDy = true;
+        }
+      }
+    }
   }
 
   void swizzleBlockTiles() {
@@ -987,6 +1008,7 @@ class MultipleMatmulScheduler {
     // After splitting Ko we have Kf_dim = Ko_dim and Kg_dim = Kf_dim + 1
     int64_t Kf_dim = Ko_dim;
     Ki_dim++;
+    parallelize(schedule_.tiled[Kf_dim], ParallelType::BIDz);
 
     // We need to apply the transforms here so that we can perform rFactor
     if (params_.splitk_factor != 1) {
@@ -1126,21 +1148,26 @@ class MultipleMatmulScheduler {
                             const std::vector<TensorView*>& gmem_operands,
                             const std::vector<MatmulDimRole>& inner_dims) {
       abten = schedule_.tiled;
-      // get min datatype size of all A or B operands
-      int64_t min_dtype_size = 16;
+      // get max datatype size of all A or B operands
+      int64_t max_dtype_size = 0;
       for (TensorView* operand : gmem_operands) {
-        min_dtype_size =
-            std::min(min_dtype_size, dataTypeSize(operand->dtype()));
+        max_dtype_size =
+            std::max(max_dtype_size, dataTypeSize(operand->dtype()));
       }
-      std::cout << "min_dtype_size=" << min_dtype_size << std::endl;
       swizzleSharedMemory(
           abten,
           inner_dims,
-          min_dtype_size,
+          max_dtype_size,
           /*apply_swizzle=*/true);
     };
     setupSwizzle(schedule_.acw_smem, as_, {MatmulDimRole::M, MatmulDimRole::K});
     setupSwizzle(schedule_.bcw_smem, bs_, {MatmulDimRole::N, MatmulDimRole::K});
+
+    applyAbstractTransforms(schedule_.acw_smem, acw_smems_);
+    applyAbstractTransforms(schedule_.bcw_smem, bcw_smems_);
+
+    parallelizeTensors(acw_smems_);
+    parallelizeTensors(bcw_smems_);
   }
 
   void swizzleAllSharedMemory() {
@@ -1348,6 +1375,12 @@ class MultipleMatmulScheduler {
     parallelization_map_.emplace(vg, pt);
   }
 
+  void parallelize(const AbstractId& abs_id, ParallelType pt) {
+    NVF_ERROR(abs_id.is<ValGroupAndItsGraph>());
+    const ValGroup& vg = abs_id.as<ValGroupAndItsGraph>().group;
+    parallelize(vg, pt);
+  }
+
   // Assumes tv has all loop transforms applied. Looks up each loop domain in
   // parallelization_map_ and applies parallelizations if found.
   void parallelizeTensor(TensorView* tv) {
@@ -1358,6 +1391,12 @@ class MultipleMatmulScheduler {
         continue;
       }
       id->parallelize(it->second);
+    }
+  }
+
+  void parallelizeTensors(const std::vector<TensorView*>& tvs) {
+    for (TensorView * tv : tvs) {
+      parallelizeTensor(tv);
     }
   }
 
