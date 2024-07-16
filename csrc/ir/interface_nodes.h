@@ -423,6 +423,8 @@ class NVF_API TensorView : public Val {
       MmaInputSmemSwizzle swizzle,
       bool permute_outer_dim = true);
 
+  void scheduleMmaTMAStore();
+
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
   //!  implementation is used and will be removed in follow ups.

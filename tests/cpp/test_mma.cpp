@@ -567,10 +567,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  tv3->split(-2, tv3->axis(-2)->extent());
-  tv3->split(-1, tv3->axis(-1)->extent());
-  tv3->reorder({{-2, -3}});
-  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv3, 2);
+  tv3->scheduleMmaTMAStore();
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
