@@ -131,7 +131,6 @@ class TensorIndexer {
       const Expr* expr,
       const ValGroups& index_groups,
       const std::vector<ForLoop*>& for_loops,
-      bool is_predicate,
       bool is_unswitch) const;
 
   // Propagate the loop indices of a given list of loop domains to the

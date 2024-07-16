@@ -929,7 +929,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     bool as_consumer,
     const ValGroups& index_groups,
     const std::vector<ForLoop*>& for_loops) const {
-  auto info = computeIndex(expr, index_groups, for_loops, false, false);
+  auto info = computeIndex(expr, index_groups, for_loops, false);
   const std::unordered_map<Val*, Val*> replacement_map = getIndexReplacementMap(
       expr, as_consumer, info.loop_domains, for_loops, info.index_map);
 
@@ -975,11 +975,7 @@ Val* TensorIndexer::getLinearIndex(
             << std::endl;
 
   const auto& index_info = computeIndex(
-      expr,
-      traversalGraph().toGroups(alloc_info.domains),
-      for_loops,
-      false,
-      false);
+      expr, traversalGraph().toGroups(alloc_info.domains), for_loops, false);
   const auto& index_map = index_info.index_map;
 
   // ValGroups may not be suitable here. It should be fine currently,
@@ -1073,7 +1069,6 @@ IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const ValGroups& index_groups,
     const std::vector<ForLoop*>& for_loops,
-    bool is_predicate,
     bool is_unswitch) const {
   VERBOSE() << "computeIndex of " << expr->toString() << std::endl;
 
