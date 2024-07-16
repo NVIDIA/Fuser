@@ -1370,36 +1370,6 @@ void TensorView::applyMmaSwizzleForTMALoad(
       this, swizzle, permute_outer_dim);
 }
 
-void TensorView::scheduleMmaTMAStore() {
-  NVF_ERROR(
-      getMemoryType() == MemoryType::Global,
-      "TMA Store should write to global memory");
-
-  NVF_ERROR(
-      definition()->isA<LoadStoreOp>(),
-      "This tensor should be the result of a LoadStoreOp");
-
-  NVF_ERROR(
-      definition()->as<LoadStoreOp>()->opType() ==
-          LoadStoreOpType::CpAsyncBulkTensorTile,
-      "This is not a TMA operation");
-
-  NVF_ERROR(
-      definition()
-              ->as<LoadStoreOp>()
-              ->in()
-              ->as<TensorView>()
-              ->getMemoryType() == MemoryType::Shared,
-      "Producer should be in shared memory");
-
-  // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
-  split(-2, axis(-2)->extent());
-  split(-1, axis(-1)->extent());
-  // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
-  reorder({{-2, -3}});
-  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(this, 2);
-}
-
 void TensorView::commitLeafToLogical() {
   NVF_CHECK(
       ir_utils::consumerTvsOf(this).empty(),

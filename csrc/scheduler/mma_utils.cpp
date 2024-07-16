@@ -1166,6 +1166,42 @@ inline void resolveTvToMatmulDimRolesMapping(
 
 } // anonymous namespace
 
+void scheduleTMAStoreForMmaOutput(TensorView* tv) {
+  NVF_ERROR(
+      tv->getMemoryType() == MemoryType::Global,
+      "TMA Store should write to global memory");
+
+  NVF_ERROR(
+      tv->definition()->isA<LoadStoreOp>(),
+      "This tensor should be the result of a LoadStoreOp");
+
+  NVF_ERROR(
+      tv->definition()->as<LoadStoreOp>()->opType() ==
+          LoadStoreOpType::CpAsyncBulkTensorTile,
+      "This is not a TMA operation");
+
+  NVF_ERROR(
+      tv->definition()
+              ->as<LoadStoreOp>()
+              ->in()
+              ->as<TensorView>()
+              ->getMemoryType() == MemoryType::Shared,
+      "Producer should be in shared memory");
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(tv->fusion());
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+
+  // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
+  tv->split(-2, getM(mma_ops.front()->macro()));
+  tv->split(-1, getN(mma_ops.front()->macro()));
+  // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
+  tv->reorder({{-2, -3}});
+  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv, 2);
+}
+
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
   const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
   if (patterns.size() != 1) {

@@ -423,13 +423,6 @@ class NVF_API TensorView : public Val {
       MmaInputSmemSwizzle swizzle,
       bool permute_outer_dim = true);
 
-  //! Schedules the copy operation of output of a Mma op which resided in the
-  //! shared memory to global memory. This assumes the outout of Mma in the
-  //! shared memory is of the form [M, N].
-  //! This is tiled to [MO(1), NO(1), MI(m), NI(n)]. The inner two dims are
-  //! marked parallel type bulk.
-  void scheduleMmaTMAStore();
-
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
   //!  implementation is used and will be removed in follow ups.
