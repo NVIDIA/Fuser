@@ -16,7 +16,7 @@
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
 #include <ops/arith.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <expr_simplifier.h>
 #include <algorithm>
@@ -909,7 +909,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
       continue;
     }
     NVF_ERROR(in_tv->getMemoryType() == MemoryType::Shared);
-    auto out2in = PairwiseRootDomainMap(in_tv, out_tv).mapConsumerToProducer();
+    auto out2in = PairwiseLogicalDomainMap(in_tv, out_tv).mapConsumerToProducer();
     auto reduction_id_in = out2in.at(reduction_id);
     auto inner_id = in_tv->getMaybeAllocationDomain().back();
     while (inner_id != reduction_id_in && inner_id->definition() != nullptr) {

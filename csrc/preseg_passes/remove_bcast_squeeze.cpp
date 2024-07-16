@@ -9,7 +9,7 @@
 #include <ir/utils.h>
 #include <options.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 namespace nvfuser::preseg_passes {
 

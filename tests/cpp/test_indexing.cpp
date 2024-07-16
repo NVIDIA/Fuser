@@ -250,7 +250,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv1->inlineAt(1);
 
@@ -340,7 +340,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
   tv3->split(0, 4);
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
@@ -579,7 +579,7 @@ TEST_F(IndexingTest, Reshape) {
   fusion.addOutput(tv5);
 
   TransformPropagator propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
 
   inlineMost();
 
@@ -695,7 +695,7 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   // The first merge of the logical domains should be a trivial merge,
   // i.e., a merge with a extent-one domain. Thus, the indexing
@@ -756,7 +756,7 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
   tv3->flatten();
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   inlineMost();
 
@@ -826,7 +826,7 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   // [4, i0*i1/4]
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   for (auto tv : ir_utils::allTvs(&fusion)) {
     tv->inlineAt(-2);
@@ -940,7 +940,7 @@ TEST_F(IndexingTest, MultiDevice2D) {
   tv1->split(0, num_devices, false);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
@@ -983,7 +983,7 @@ TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
   tv1->split(0, num_devices, false);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
@@ -1124,7 +1124,7 @@ TEST_F(IndexingTest, SimpleVectorize) {
   tv2->axis(2)->parallelize(ParallelType::Vectorize);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -1193,7 +1193,7 @@ TEST_F(IndexingTest, NonInnermostVectorize) {
   tv3->reorder({{-1, -2}});
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
@@ -1258,7 +1258,7 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
   tv3->merge(1);
   tv3->split(1, 5);
 
-  MaxRootDomainInfoSpanningTree tree(tv3);
+  MaxLogicalDomainInfoSpanningTree tree(tv3);
   TransformPropagator tp(tv3);
   tree.traverse(&tp);
 
@@ -1369,7 +1369,7 @@ TEST_F(IndexingTest, SimpleUnroll) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -1426,7 +1426,7 @@ TEST_F(IndexingTest, InlinedUnroll) {
   tv4->split(0, 1);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -1675,7 +1675,7 @@ TEST_F(IndexingTest, DoubleBuffering1) {
   tv3->split(-1, 128);
   tv3->split(-1, 32);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv1->inlineAt(-2);
   tv2->inlineAt(-2);
@@ -1782,7 +1782,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
   tv3->split(-1, 32);
   tv3->split(-1, 8);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 2);
   tv2->computeAt(tv3, -1);
@@ -1889,7 +1889,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
   tv3->split(-2, 4);
   tv3->split(-2, 2);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
   tv2->computeAt(tv3, -1);
@@ -2036,7 +2036,7 @@ TEST_F(IndexingTest, CircularBuffering1) {
   tv3->split(-1, 128);
   tv3->split(-1, 32);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv1->inlineAt(-2);
   tv2->inlineAt(-2);
@@ -2156,7 +2156,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
   tv3->split(-2, 4);
   tv3->split(-2, 2);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
   tv2->computeAt(tv3, -1);

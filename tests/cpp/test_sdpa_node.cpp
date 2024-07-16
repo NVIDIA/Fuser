@@ -220,7 +220,7 @@ TEST_F(SDPATest, CausalAttn) {
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
-TEST_F(SDPATest, PairwiseRootDomainMap) {
+TEST_F(SDPATest, PairwiseLogicalDomainMap) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -260,7 +260,7 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
 
     for (Val* consumer : fusion->outputs()) {
       auto consumer_tv = consumer->as<TensorView>();
-      auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                               .mapProducerToConsumer();
       auto mappingExists = [&pairwise_map](
                                IterDomain* p_id, IterDomain* c_id) -> bool {

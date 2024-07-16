@@ -31,7 +31,7 @@
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/pre_segmenter.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>

@@ -1834,7 +1834,7 @@ Val* IndexLowering::getIterationIndexForBroadcast(
       "Expected broadcast ID but found ",
       broadcast_id->toString());
 
-  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+  auto c2p_root_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                           .mapBroadcast(false)
                           .mapConsumerToProducer();
 
