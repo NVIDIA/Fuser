@@ -308,6 +308,13 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
   for (Expr* expr : loop_body) {
     for_loop->body().push_back(expr);
   }
+  if (params.use_different_streams) {
+    for_loop->body().insert(
+        /*pos=*/0,
+        IrBuilder::create<hir::SetCurrentStream>(
+            IrBuilder::create<hir::Stream>(j)));
+  }
+
   hic->pushBackTopLevelExprs(for_loop);
 
   // The following line is artificial but necessary to make
