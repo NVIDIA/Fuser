@@ -301,6 +301,16 @@ std::vector<Val*> consumerValsOf(const Val* val) {
   return uniqueEntries<Val>(consumer_vals);
 }
 
+// Return all consumers of val
+std::unordered_set<Val*> allConsumerValsOf(const Val* val) {
+  std::unordered_set<Val*> consumer_vals;
+  for (Val* consumer : consumerValsOf(val)) {
+    consumer_vals.insert(consumer);
+    consumer_vals.merge(std::move(allConsumerValsOf(consumer)));
+  }
+  return consumer_vals;
+}
+
 // Return immediate siblings of val
 std::vector<Val*> siblingValsOf(const Val* val) {
   std::vector<Val*> sibling_vals;
