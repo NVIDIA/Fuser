@@ -511,7 +511,6 @@ void propagateParallelization(
   if (unroll) {
     if (!unrolled_vectorized_tvs.empty()) {
       // Propagate vectorization/unrolling to those tensors that need it
-      std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
       scheduler_utils::parallelizeAllLike(
           reference_tv,
           -1,
