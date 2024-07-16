@@ -1433,7 +1433,13 @@ void DynamicTransform::concretizeFusion(
 void DynamicTransform::concretizeFusion(
     Fusion* fusion,
     const std::vector<c10::IValue>& aten_inputs) {
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  concretizeFusion(
+      fusion, KernelArgumentHolder::createKernelArgumentHolder(aten_inputs));
+}
+
+void DynamicTransform::concretizeFusion(
+    Fusion* fusion,
+    const KernelArgumentHolder& args) {
   ExpressionEvaluator expr_eval = executor_utils::bindInputs(args, fusion);
   auto initial_info = getInitialInfo(fusion);
   DynamicTransformConcretizationInfo info(&initial_info, &expr_eval);
