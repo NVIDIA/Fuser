@@ -118,7 +118,7 @@ void FusionDefinition::findMissingTensorViews(Fusion* fusion) {
       std::back_inserter(tensor_states),
       [](const State& s) { return s.stype == serde::StateType::Tensor; });
 
-  // Get corresponding CPP values and add to set
+  // Get corresponding CPP values and add to set for membership check.
   std::unordered_set<Val*> known_tensor_vals;
   std::transform(
       tensor_states.begin(),
@@ -126,10 +126,9 @@ void FusionDefinition::findMissingTensorViews(Fusion* fusion) {
       std::inserter(known_tensor_vals, known_tensor_vals.end()),
       [this](State s) { return getFusionState(s.index); });
 
-  // Find TensorViews in Fusion and get set difference between CPP Fusion and
-  // Python FusionDefinition
-  std::vector<Val*> new_fusion_tvs;
+  // Get set difference between CPP Fusion and Python FusionDefinition
   std::vector<Val*> all_vals = fusion->usedMathVals();
+  std::vector<Val*> new_fusion_tvs;
   std::copy_if(
       all_vals.begin(),
       all_vals.end(),
@@ -553,6 +552,7 @@ std::vector<Tensor> FusionDefinition::tensors() {
       [](const State& s) { return s.stype == serde::StateType::Tensor; });
 
   // Collect all active values in CPP Fusion
+  // Add to set for membership check.
   std::vector<Val*> all_vals = userSchedule()->schedule->usedMathVals();
   std::unordered_set<Val*> all_vals_set(all_vals.begin(), all_vals.end());
 
@@ -569,7 +569,7 @@ std::vector<Tensor> FusionDefinition::tensors() {
 
   // Reconstruct Tensors given active Tensor states
   std::vector<Tensor> all_tensors;
-  all_tensors.reserve(tensor_states.size());
+  all_tensors.reserve(active_states.size());
   std::transform(
       active_states.begin(),
       active_states.end(),
