@@ -51,12 +51,13 @@ constexpr int comm_server_local_rank_default = 0;
 class Communicator {
  public:
   static Communicator& getInstance() {
-    static Communicator communicator;
-    return communicator;
+    static auto* communicator = new Communicator();
+    return *communicator;
   }
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;
+  void cleanup();
 
   // returns if distributed config is available
   auto is_available() const {
@@ -126,7 +127,6 @@ class Communicator {
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
-  ~Communicator();
 
   // returns the rank corresponding to a device index
   RankType dIdToRank(DeviceIdxType d_id) const {

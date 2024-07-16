@@ -179,7 +179,7 @@ Communicator::Communicator(
       master_port_(0),
       ucc_available_(false),
       nccl_available_(false) {
-  std::cerr << "Communicator constructed" << std::endl;
+  std::cerr << "Communicator::Communicator" << std::endl;
   // retrieves rank and communicator size
   is_available_ = parseEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
@@ -215,8 +215,11 @@ Communicator::Communicator(
 #endif
 }
 
-Communicator::~Communicator() {
-  std::cerr << "Communicator destroyed" << std::endl;
+void Communicator::cleanup() {
+  std::cerr << "Communicator::cleanup" << std::endl;
+
+  store_ = nullptr;
+
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
   for (auto& [key, backend] : backends_) {
     // Call shutdown before destructing a ProcessGroupNCCL as instructed by
@@ -226,6 +229,7 @@ Communicator::~Communicator() {
     }
   }
 #endif
+  backends_.clear();
 }
 
 c10d::Backend* Communicator::getBackendForTeam(

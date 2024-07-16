@@ -17,16 +17,11 @@ namespace nvfuser {
 
 class MultiDeviceTestEnvironment : public testing::Environment {
  public:
-  ~MultiDeviceTestEnvironment() override {}
-  void SetUp() override;
   void TearDown() override;
 
   static Communicator* getCommunicator() {
-    return communicator_;
+    return &Communicator::getInstance();
   }
-
- private:
-  static Communicator* communicator_;
 };
 
 class MultiDeviceTest : public NVFuserTest {

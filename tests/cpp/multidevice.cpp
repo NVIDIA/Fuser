@@ -26,13 +26,9 @@
 
 namespace nvfuser {
 
-void MultiDeviceTestEnvironment::SetUp() {
-  communicator_ = &Communicator::getInstance();
+void MultiDeviceTestEnvironment::TearDown() {
+  Communicator::getInstance().cleanup();
 }
-
-void MultiDeviceTestEnvironment::TearDown() {}
-
-/*static*/ Communicator* MultiDeviceTestEnvironment::communicator_ = nullptr;
 
 MultiDeviceTest::MultiDeviceTest() {
   // Enable logging in c10d so debug messages can be printed out via
