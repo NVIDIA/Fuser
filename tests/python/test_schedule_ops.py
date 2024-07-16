@@ -986,7 +986,7 @@ class TestScheduleOps(TestCase):
                 running_invstd = fd.from_pytorch(inputs[4])
                 momentum = fd.define_scalar(dtype=DataType.Double)
                 eps = fd.define_scalar(dtype=DataType.Double)
-                result, new_mean, new_invstd = fd.ops.batch_norm(
+                a_norm, new_mean, new_invstd = fd.ops.batch_norm(
                     a,
                     w,
                     b,
@@ -997,7 +997,7 @@ class TestScheduleOps(TestCase):
                     training := True,
                     channels_last := False,
                 )
-                fd.add_output(result)
+                fd.add_output(a_norm)
 
             def schedule(self):
                 # Apply selected scheduler
@@ -1005,12 +1005,18 @@ class TestScheduleOps(TestCase):
 
         fd = BatchNorm()
         nvf_out = fd.execute(inputs)
-        a, w, b, rm, rv, momentum, eps = inputs
         torch_ref = torch.nn.functional.batch_norm(
-            a, rm, rv, w, b, training=True, momentum=momentum, eps=eps
+            inputs[0],
+            running_mean := inputs[3],
+            running_var := inputs[4],
+            weight := inputs[1],
+            bias := inputs[2],
+            training=True,
+            momentum=momentum,
+            eps=eps,
         )
-        self.assertEqual(nvf_out[0], rm)
-        self.assertEqual(nvf_out[1], rv)
+        self.assertEqual(nvf_out[0], inputs[3])
+        self.assertEqual(nvf_out[1], inputs[4])
         self.assertEqual(nvf_out[2], torch_ref)
 
     def test_matmul_auto_scheduler(self):
