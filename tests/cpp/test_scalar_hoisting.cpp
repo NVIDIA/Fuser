@@ -242,7 +242,7 @@ TEST_F(ScalarHoistTest, IndexHoist2) {
 
   tv5->split(-1, 4);
   TransformPropagatorWithCheck propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
 
   tv4->split(-1, 3);
 
