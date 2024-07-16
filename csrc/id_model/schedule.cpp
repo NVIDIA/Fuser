@@ -27,7 +27,7 @@ IterDomain* representativeId(const ValGroup& vg) {
   };
 
   auto preferNewExtent = [&rep](IterDomain* new_id) {
-    if (rep->hasExpandedExtent() && !new_id->hasExpandedExtent()) {
+    if (!rep->hasExpandedExtent() && new_id->hasExpandedExtent()) {
       // Prefer non-expanded dimensions
       return true;
     }
@@ -41,10 +41,9 @@ IterDomain* representativeId(const ValGroup& vg) {
         (rep == nullptr || preferNewIterType(id) ||
          (id->getIterType() == rep->getIterType() && preferNewExtent(id)))) {
       rep = id;
-      continue;
     }
   }
-  NVF_ERROR(rep != nullptr);
+  NVF_ERROR(rep != nullptr, "Could not find any IterDomains in ValGroup");
   return rep;
 }
 
