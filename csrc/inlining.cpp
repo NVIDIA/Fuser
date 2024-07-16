@@ -7,7 +7,7 @@
 // clang-format on
 #include <inlining.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <utility>
@@ -129,7 +129,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     TensorView* producer,
     TensorView* consumer,
     bool best_effort) const {
-  auto pairwise_root_map = PairwiseRootDomainMap(producer, consumer);
+  auto pairwise_root_map = PairwiseLogicalDomainMap(producer, consumer);
   auto replay_CasP =
       BestEffortReplay::replayCasP(consumer, producer, -1, pairwise_root_map);
   auto p2c_replay_map = replay_CasP.getReplay();
@@ -283,7 +283,7 @@ std::unordered_map<TensorView*, int64_t> getPositionsMappedTo(
     TensorView* reference_tv,
     int64_t reference_pos) {
   std::unordered_map<TensorView*, int64_t> mapped_positions;
-  MaxRootDomainInfoSpanningTree tree(reference_tv, reference_pos);
+  MaxLogicalDomainInfoSpanningTree tree(reference_tv, reference_pos);
   FindMappedPositions propagator(mapped_positions, reference_tv, reference_pos);
   tree.traverse(&propagator);
   return mapped_positions;

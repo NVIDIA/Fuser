@@ -10,7 +10,7 @@
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <tuple>
@@ -296,7 +296,7 @@ findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
     // For each tensor, make sure root, logical and loop domains
     // should not include domains that are mapped with another domain
     // in the same set of domains. This may be overly conservative,
-    // and it maybe enough to check the root domains.
+    // and it maybe enough to check the producer projections.
 
     // logical domains
     auto self_mappped_root_pair = detectMappablePair(
@@ -309,10 +309,10 @@ findFirstSelfMapping(Fusion* fusion, const IterDomainGraph& id_graph) {
           "Logical");
     }
 
-    // root domains
-    if (tv->hasRoot()) {
+    // producer projections
+    if (tv->hasProducerProjection()) {
       auto self_mappped_rf_pair = detectMappablePair(
-          tv->getRootDomain(), id_graph, IdMappingMode::EXACT);
+          tv->getProducerProjection(), id_graph, IdMappingMode::EXACT);
       if (self_mappped_rf_pair.has_value()) {
         return std::make_tuple(
             tv,
@@ -385,17 +385,17 @@ void IterDomainGraph::build(Fusion* fusion) {
         // same loops.
 
         NVF_ERROR(
-            c_tv->getMaybeRootDomain().size() ==
-                first_output_tv->getMaybeRootDomain().size(),
+            c_tv->projectToProducer().size() ==
+                first_output_tv->projectToProducer().size(),
             "Multiple outputs with mismatched dimensions is not supported. ",
             "Only supported case is welford op where all outputs tvs have identical domains.");
         // p->f, c->c
         std::unordered_map<IterDomain*, IterDomain*> c2f_root_map;
         for (const auto i :
-             c10::irange(first_output_tv->getMaybeRootDomain().size())) {
+             c10::irange(first_output_tv->projectToProducer().size())) {
           c2f_root_map.insert(std::make_pair(
-              c_tv->getMaybeRootDomain()[i],
-              first_output_tv->getMaybeRootDomain()[i]));
+              c_tv->projectToProducer()[i],
+              first_output_tv->projectToProducer()[i]));
         }
 
         // Multi output mapping, outputs are required to have the same domain
@@ -436,7 +436,7 @@ void IterDomainGraph::build(Fusion* fusion) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
       for (auto p_tv : tv_inputs) {
-        auto pairwise_map = PairwiseRootDomainMap(p_tv, c_tv);
+        auto pairwise_map = PairwiseLogicalDomainMap(p_tv, c_tv);
 
         // Look for matching ID transformations in producer and consumer, replay
         // producer as consumer. We use the symmetric API of BestEffortReplay so
@@ -459,7 +459,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         // Note on the boolean flags: swizzles and resizes are skipped
         // in the permissive-resize map
         const auto pairwise_resize_map =
-            PairwiseRootDomainMap(p_tv, c_tv).mapIndexedDomains(true);
+            PairwiseLogicalDomainMap(p_tv, c_tv).mapIndexedDomains(true);
         const auto permissive_resize_disjoint_sets =
             BestEffortReplay::replayPasC(
                 p_tv, c_tv, -1, pairwise_resize_map, true, true, true)
@@ -468,7 +468,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         // For exact mapings do not map any broadcast dimensions to
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
-        auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
+        auto exact_c2p_root_map = PairwiseLogicalDomainMap(p_tv, c_tv)
                                       .mapBroadcast(false)
                                       .mapConsumerToProducer();
 
@@ -563,14 +563,14 @@ void IterDomainGraph::build(Fusion* fusion) {
   // T4 = T0 + T2
   //
   // We want to map T1 and T3's root to logical transformations together by
-  // playing the transformations forward since their root domains map. If
+  // playing the transformations forward since their producer projections map. If
   // instead we have:
   //
   // T1[x, y*z] = view(T0[x*y, z])
   // T3[x, y*z] = view(T2[x*y, z])
   // T4 = T1 + T3
   //
-  // Then we wouldn't have a mapping of T1 and T3's root domain, we'd have a
+  // Then we wouldn't have a mapping of T1 and T3's producer projection, we'd have a
   // mapping of their logical domain, so we would want to map T1 and T3's
   // root to logical transformations starting at their logical domains.
   //
@@ -588,7 +588,7 @@ void IterDomainGraph::build(Fusion* fusion) {
       all_tvs.begin(),
       all_tvs.end(),
       std::back_inserter(all_consumer_tvs),
-      [](TensorView* tv) { return !tv->isFusionInput() && tv->hasRoot(); });
+      [](TensorView* tv) { return !tv->isFusionInput() && tv->hasProducerProjection(); });
 
   // IterDomains could have multiple uses defined in the fusion if multiple
   // transformations were redefined (more than one transform propagation pass
@@ -1119,7 +1119,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
 
   // The concrete_id should have the most roots it can trace back to that are
   // iter domains, (non-broadcast/non-reduction). We don't trace back through
-  // view operations, so the one with the most iter root domains is the concrete
+  // view operations, so the one with the most iter producer projections is the concrete
   // ID.
   IterDomain* concrete_id = nullptr;
   int max_iter_root_count = 0;
@@ -1290,7 +1290,7 @@ void ComputeAtMap::buildUniqueExactExprMaps() {
           // tv0[32, 32]
           // tv0->swizzle(Swizzle2DType::ZShape, 0, 1);
           //
-          // each root domain is exact mapped with the outputs of the swizzle.
+          // each producer projection is exact mapped with the outputs of the swizzle.
           // So the pre and post swizzle ID is in an exact set, but that exact
           // set also has the swizzle as a definition that leads to itself.
           //

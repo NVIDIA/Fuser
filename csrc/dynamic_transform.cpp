@@ -166,10 +166,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     // Loop over all axes, check whether any expansions are undetermined
     const std::vector<IterDomain*> inp_logical =
         TensorDomain::noReductions(inp_tv->getLogicalDomain());
-    const std::vector<IterDomain*>& out_root = out_tv->getMaybeRootDomain();
-    NVF_ERROR(inp_logical.size() == out_root.size());
-    for (auto i : c10::irange((int64_t)out_root.size())) {
-      IterDomain* out_id = out_root[i];
+    const std::vector<IterDomain*>& out_producer_projection = out_tv->projectToProducer();
+    NVF_ERROR(inp_logical.size() == out_producer_projection.size());
+    for (auto i : c10::irange((int64_t)out_producer_projection.size())) {
+      IterDomain* out_id = out_producer_projection[i];
       if (!out_id->isSymbolic()) {
         continue;
       }
@@ -298,7 +298,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
     }
 
     NVF_ERROR(
-        out_tv->hasRoot(),
+        out_tv->hasProducerProjection(),
         "Unexpected output tv of ViewOp: ",
         out_tv->toString());
 
@@ -428,16 +428,16 @@ void DynamicTransformConcretizationInfo::analyzeExpands(
     const TensorView* out_tv = expanded_tvs.at(tv_index);
     const TensorView* inp_tv = out_tv->definition()->as<ExpandOp>()->in();
 
-    const std::vector<IterDomain*>& out_root = out_tv->getMaybeRootDomain();
+    const std::vector<IterDomain*>& out_producer_projection = out_tv->projectToProducer();
     const std::vector<IterDomain*> inp_logical =
         TensorDomain::noReductions(inp_tv->getLogicalDomain());
 
-    NVF_ERROR(out_root.size() == inp_logical.size());
+    NVF_ERROR(out_producer_projection.size() == inp_logical.size());
     std::vector<bool> expand_axes;
-    expand_axes.reserve(out_root.size());
-    for (int64_t i : c10::irange((int64_t)out_root.size())) {
+    expand_axes.reserve(out_producer_projection.size());
+    for (int64_t i : c10::irange((int64_t)out_producer_projection.size())) {
       const IterDomain* inp_id = inp_logical[i];
-      const IterDomain* out_id = out_root[i];
+      const IterDomain* out_id = out_producer_projection[i];
       if (out_id->isIteration()) {
         expand_axes.push_back(false);
         continue;
@@ -677,7 +677,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void mutate(Expr* expr) final;
 
-  //! Concretizes the root domain of a symbolic consumer tensor from
+  //! Concretizes the producer projection of a symbolic consumer tensor from
   //! its producer domains. Returns true if any root ID is concretized.
   bool propagateFromProducerToConsumer(TensorView* consumer);
 
@@ -728,7 +728,7 @@ void DynamicTransformConcretizer::concretize() {
     // respect to our IR graph. That IR does not explicitly hold TensorView
     // dependencies for IterDomains; i.e. we rely on TensorView expressions to
     // infer that one IterDomain is a producer logical which another consumer
-    // root domain depends on. So we avoid processing IterDomains and
+    // producer projection depends on. So we avoid processing IterDomains and
     // TensorDomains until we reach the TensorView that contains them. Otherwise
     // we would not be able to propagate across exact maps before processing
     // all root->logical IterDomains and expressions.
@@ -1005,17 +1005,17 @@ void DynamicTransformConcretizer::checkConcretizedUses(
 // concretized. Since symbolic IDs may be propagated down to
 // consumers, those domains need to be concretized accordingly.
 void DynamicTransformConcretizer::mutate(TensorView* tv) {
-  for (auto root_id : tv->getMaybeRootDomain()) {
+  for (auto root_id : tv->projectToProducer()) {
     // This will register root_id for mutation if its extent, start, or
     // stop_offset is registered for mutation
     OptOutMutator::mutate(root_id);
   }
 
-  // First, try to concretize the root domain as there may be symbolic
+  // First, try to concretize the producer projection as there may be symbolic
   // axes inherited from the producers
   propagateFromProducerToConsumer(tv);
 
-  // If no root domain is altered by producer, we don't need to propagate back
+  // If no producer projection is altered by producer, we don't need to propagate back
   // up to logical domain. We could return early, but instead we go ahead and
   // check the root to logical transforms to be sure we have concretized any
   // intermediate IterDomains.
@@ -1026,14 +1026,14 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       "Invalid tensor: ",
       tv->toString());
 
-  // If it has an root domain, the IterTypes of the logical
+  // If it has an producer projection, the IterTypes of the logical
   // IDs may need to be updated as well. Traverse the rfactor exprs
   // and mutate the IterTypes of output IDs if symbolic.
-  if (tv->hasRoot()) {
+  if (tv->hasProducerProjection()) {
     // Note that it is assumed that theres's no further expression
     // beyond the logical domain as asserted above
     auto all_id_exprs = StmtSort::getExprsBetween(
-        {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+        {tv->getProducerProjection().begin(), tv->getProducerProjection().end()},
         {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
     for (auto expr : all_id_exprs) {
       // Assume outputs of IterDomain exprs are always IterDomains. If
@@ -1162,7 +1162,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   };
 
   std::vector<IterDomain*> root_dom =
-      td->hasRoot() ? updateIdVec(td->root()) : std::vector<IterDomain*>();
+      td->hasProducerProjection() ? updateIdVec(td->root()) : std::vector<IterDomain*>();
   std::vector<IterDomain*> logical_dom = updateIdVec(td->logical());
   std::vector<IterDomain*> loop_domain = updateIdVec(td->loop());
   std::vector<IterDomain*> alloc_dom = td->hasAllocation()
@@ -1214,7 +1214,7 @@ static bool hasTrivialReduction(
     TensorView* out,
     std::vector<int64_t>& reduction_axes) {
   bool has_trivial_reduction = false;
-  PairwiseRootDomainMap p2c_map(in, out);
+  PairwiseLogicalDomainMap p2c_map(in, out);
   // We need to map broadcasts in order to detect reductions of broadcasts
   p2c_map.mapBroadcast(true);
   auto p2c = p2c_map.mapProducerToConsumer();
@@ -1292,7 +1292,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     return false;
   }
 
-  const auto& root_domain = consumer->getMaybeRootDomain();
+  const auto& root_domain = consumer->projectToProducer();
 
   auto def = consumer->definition();
 
@@ -1303,7 +1303,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   std::vector<std::unordered_map<IterDomain*, IterDomain*>> c2p_maps;
   bool is_factory_output = true;
   for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
-    PairwiseRootDomainMap root_map(producer, consumer);
+    PairwiseLogicalDomainMap root_map(producer, consumer);
     // We map symbolic domains here regardless of whether their extents match.
     // This is safe because we are propagating from a producer which should have
     // already been concretized. The consumer might have a different extent
@@ -1382,7 +1382,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     NVF_ERROR(
         id_type.has_value(),
-        "Did not find id_type for consumer root domain ",
+        "Did not find id_type for consumer producer projection ",
         root_id->toString(),
         ". Perhaps consumer def has no inputs. Consumer definition = ",
         def->toString());

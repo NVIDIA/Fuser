@@ -590,7 +590,7 @@ bool isPointwiseTvOp(const Expr* expr) {
   // considered pointwise
   return isTvOp(expr) &&
       (expr->isOneOf<UnaryOp, BinaryOp, TernaryOp>() ||
-       (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasRoot()));
+       (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasProducerProjection()));
 }
 
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
@@ -610,7 +610,7 @@ std::vector<ViewOp*> getViewOps(Fusion* fusion) {
               if (!v->isA<TensorView>()) {
                 return false;
               }
-              return v->as<TensorView>()->hasRoot();
+              return v->as<TensorView>()->hasProducerProjection();
             });
       });
 
@@ -732,7 +732,7 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
 
 std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
   VectorOfUniqueEntries<Val*> all_vals;
-  const auto& root_domain = tv->getRootDomain();
+  const auto& root_domain = tv->getProducerProjection();
   const auto& logical_domain = tv->getLogicalDomain();
   const auto& loop_domain = tv->getLoopDomain();
   const auto& alloc_domain = tv->getAllocationDomain();
@@ -810,11 +810,11 @@ std::string varName(const Val* val) {
 }
 
 bool hasResizedRfactor(const TensorView* tv) {
-  if (!tv->hasRoot()) {
+  if (!tv->hasProducerProjection()) {
     return false;
   }
   auto root_to_rf_exprs = StmtSort::getExprsBetween(
-      {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+      {tv->getProducerProjection().begin(), tv->getProducerProjection().end()},
       {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
   return std::any_of(
       root_to_rf_exprs.begin(), root_to_rf_exprs.end(), [](Expr* expr) {
@@ -1150,7 +1150,7 @@ MmaLayout getInputLayout(
   // TT layout (b - broadcast, r - reduction):
   // A = [M, K, b]
   // B = [b, K, N]
-  // C = [M, r, N] (root domain)
+  // C = [M, r, N] (producer projection)
   if ((m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_a.bcasts.front()) &&
       (in_b.bcasts.front() < k_axes.front()) &&
@@ -1160,7 +1160,7 @@ MmaLayout getInputLayout(
   // TN layout (b - broadcast, r - reduction):
   // A = [M, b, K]
   // B = [b, N, K]
-  // C = [M, N, r] (root domain)
+  // C = [M, N, r] (producer projection)
   if ((m_axes.front() < in_a.bcasts.front()) &&
       (in_a.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front()) &&
@@ -1170,7 +1170,7 @@ MmaLayout getInputLayout(
   // NT layout (b - broadcast, r - reduction):
   // A = [K, M, b]
   // B = [K, b, N]
-  // C = [r, M, N] (root domain)
+  // C = [r, M, N] (producer projection)
   if ((k_axes.front() < in_a.bcasts.front()) &&
       (m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_b.bcasts.front()) &&
@@ -1180,7 +1180,7 @@ MmaLayout getInputLayout(
   // NN layout (b - broadcast, r - reduction):
   // A = [b, K, M]
   // B = [N, K, b]
-  // C = [N, r, M] (root domain)
+  // C = [N, r, M] (producer projection)
   if ((in_a.bcasts.front() < k_axes.front()) &&
       (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
       (k_axes.front() < in_b.bcasts.front())) {
@@ -1199,7 +1199,7 @@ MmaOpDetails getMmaOpDetails(
   const auto in_b_details =
       getDetailsFor(TensorDomain::noDevices(in_b->getLogicalDomain()));
   const auto out_details =
-      getDetailsFor(TensorDomain::noDevices(out->getMaybeRootDomain()));
+      getDetailsFor(TensorDomain::noDevices(out->projectToProducer()));
 
   using AxesData = MmaOp::AxesData;
 

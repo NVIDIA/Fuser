@@ -1200,7 +1200,7 @@ TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
   fusion.addOutput(tv2);
 
   // According to the stride order below, the allocation domain should be the
-  // same as the root domain. However, here we intentionally make the allocation
+  // same as the producer projection. However, here we intentionally make the allocation
   // domain [axis(1), axis(0), axis(2)] because doing so allows us to vectorize
   // by 4.
   tv0->setAllocationDomain(
@@ -1425,7 +1425,7 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
   // and allocation domain and adjusting contiguity flag as well
   tv1->clearReductionIterDomains();
   // entry 2 is removed since tv1->axis(2) is a reduction iter domain in tv1's
-  // root domain
+  // producer projection
   EXPECT_THAT(
       tv1->getLogicalDomain(), ElementsAre(logical_copy[0], logical_copy[1]));
   // entry 1 is removed since tv1->axis(2) is a reduction iter domain and tv1's

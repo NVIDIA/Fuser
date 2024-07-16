@@ -13,7 +13,7 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/utils.h>
 
 #include <c10/util/irange.h>
@@ -79,10 +79,10 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
   std::vector<IterDomain*> shard_additions;
   std::vector<IterDomain*> shard_deletions;
-  auto rootmap = PairwiseRootDomainMap(input, output).mapBroadcast(false);
+  auto rootmap = PairwiseLogicalDomainMap(input, output).mapBroadcast(false);
   const auto c2p_map = rootmap.mapConsumerToProducer();
 
-  for (IterDomain* out_root : output->getMaybeRootDomain()) {
+  for (IterDomain* out_root : output->projectToProducer()) {
     IterDomain* in_root = c2p_map.at(out_root);
     // Ignore sharded broadcast domains and
     // sharded reductions on the output
@@ -154,7 +154,7 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
   // over producer's iterdomain and compare sharding type with consumer's
   // iterdomain
   const auto p2c_map =
-      PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
+      PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
   for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
     auto p2c_map_it = p2c_map.find(p_id);
     NVF_ERROR(

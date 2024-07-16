@@ -19,7 +19,7 @@ namespace nvfuser {
  * MaxInfoSpanningTree is class that generates a path to visit TensorViews in a
  * DAG. The generated path is a maximum spanning tree of the DAG with the root
  * at the reference tensor and the DAG traversal path that preserves the maximum
- * amount of the given information (evaluated by root domain mapping). The
+ * amount of the given information (evaluated by producer projection mapping). The
  * spanning tree is generated using the Prim's algorithm.
  *
  * This class only generates ordered paths, it does not have any knowledge about
@@ -66,8 +66,8 @@ class MaxInfoSpanningTree {
   // determine if the maximum information is preserved.
  protected:
   struct Information {
-    // returns true if there is any info about the root domain of the reference
-    // tensor, returns false if there is no info about the root domain of the
+    // returns true if there is any info about the producer projection of the reference
+    // tensor, returns false if there is no info about the producer projection of the
     // reference tensor.
     virtual operator bool() const = 0;
     // l < r means l contains a smaller amount of information about the starting
@@ -155,7 +155,7 @@ class MaxInfoSpanningTree {
   virtual ~MaxInfoSpanningTree() = default;
 };
 
-// MaxRootDomainInfoSpanningTree is a subclass of MaxInfoSpanningTree which
+// MaxLogicalDomainInfoSpanningTree is a subclass of MaxInfoSpanningTree which
 // generates the maximum spanning tree that perserves the most amount of root
 // domain information from the reference tensor.
 //*
@@ -164,7 +164,7 @@ class MaxInfoSpanningTree {
 // level. This information is stored as a vector of `IDInfo`, where each
 // item in the vector corresponds to one ID in the reference tensor's root
 // domain.
-class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
+class NVF_API MaxLogicalDomainInfoSpanningTree : public MaxInfoSpanningTree {
  protected:
   // This is a struct storing how the information about a root ID in the
   // starting tensor is preserved during path-finding. If during path-finding,
@@ -183,9 +183,9 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
 
     // The IDs in the current tensor's root or logical domain that contains
     // information of the corresponding reference tensor's root ID. Whether we
-    // are using root domain or logical domain depends on how we reached the
+    // are using producer projection or logical domain depends on how we reached the
     // current tensor during path-finding. `is_logical` tells us whether the IDs
-    // contained in `mapped_ids` are from the root domain or the logical domain.
+    // contained in `mapped_ids` are from the producer projection or the logical domain.
     std::unordered_set<IterDomain*> mapped_ids;
 
     // Does `mapped_ids` contain all the IDs required to recompute the
@@ -198,13 +198,13 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
     // t1 is complete, but t4 is not because one axis is missing.
     bool is_complete;
 
-    // Is `mapped_ids` from the root domain or logical domain of the current
+    // Is `mapped_ids` from the producer projection or logical domain of the current
     // tensor? We only store IDs from one of them, depending on how we reach the
     // current tensor during path-finding. If we reached the current tensor from
     // a consumer, then `mapped_ids` containes IDs in the current tensor's
     // logical domain because the logical domain contains raw information. If we
     // reached the current tensor from a producer, then `mapped_ids` containes
-    // IDs in the current tensor's root domain because the root domain contains
+    // IDs in the current tensor's producer projection because the producer projection contains
     // raw information.
     bool is_logical;
   };
@@ -235,23 +235,23 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
       int64_t loop_pos);
 
  public:
-  MaxRootDomainInfoSpanningTree(
+  MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
       std::shared_ptr<Information> reference_info,
       Selector* selector = nullptr)
       : MaxInfoSpanningTree(reference, reference_info, selector) {}
-  MaxRootDomainInfoSpanningTree(
+  MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
       Selector* selector = nullptr)
-      : MaxRootDomainInfoSpanningTree(
+      : MaxLogicalDomainInfoSpanningTree(
             reference,
             getReferenceIDInfo(reference),
             selector) {}
-  MaxRootDomainInfoSpanningTree(
+  MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
       int64_t loop_pos,
       Selector* selector = nullptr)
-      : MaxRootDomainInfoSpanningTree(
+      : MaxLogicalDomainInfoSpanningTree(
             reference,
             getReferenceIDInfo(reference, loop_pos),
             selector) {}

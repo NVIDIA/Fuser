@@ -2961,7 +2961,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
 
   NVF_ERROR(
       in_logical.size() == out_logical.size(),
-      "Invalid root domains of Welford input and output.",
+      "Invalid producer projections of Welford input and output.",
       " Input: ",
       ir_utils::toString(in_logical),
       ". Output: ",
@@ -3023,7 +3023,7 @@ bool SegmentCandidateFinder::translateWelfordInFusion(
 //!    It identifies reduction operations that can be combined
 //!    together to form a normalization kernel.
 //!  Two reductions are considered the same type if they have
-//!   the same root domain length, and the reduction axis are the same.
+//!   the same producer projection length, and the reduction axis are the same.
 //!   This pass tries to merge nodes with the same reduction type based
 //!   on the graph structure.
 class CombineReductions {
@@ -4135,14 +4135,14 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   std::unordered_set<Val*> visited;
 
   const auto processTV = [&to_visit](TensorView* tv) {
-    for (auto id : TensorDomain::noReductions(tv->getMaybeRootDomain())) {
+    for (auto id : TensorDomain::noReductions(tv->projectToProducer())) {
       to_visit.push_back(id->getMaybeExpandedExtent());
     }
-    if (tv->domain()->hasRoot()) {
+    if (tv->domain()->hasProducerProjection()) {
       // traverse from root to logical and inspect all Expr attrs and outputs
       std::vector<Val*> all_vals;
       for (const auto id_expr : StmtSort::getExprsBetween(
-               {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+               {tv->getProducerProjection().begin(), tv->getProducerProjection().end()},
                {tv->getLogicalDomain().begin(),
                 tv->getLogicalDomain().end()})) {
         all_vals.insert(
@@ -4189,7 +4189,7 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
                                 return e->val == tv;
                               })) {
         // Intermediate group inputs (producer edges) will have their logical
-        // domain reassigned as the root domain, so there is no need to process
+        // domain reassigned as the producer projection, so there is no need to process
         // them. Tensors computed inside this group will need processing,
         // however, as their root->logical transforms must be computed in this
         // group.

@@ -27,7 +27,7 @@ class SDPATest : public NVFuserTest {
  private:
   // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
   // `SdpaFwdOp` currently does not work with ID model since it requires all
-  // sibling outputs to have the same root domain.
+  // sibling outputs to have the same producer projection.
   //  This will be modified in a future PR.
   preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
       optimization_guard_;
@@ -220,7 +220,7 @@ TEST_F(SDPATest, CausalAttn) {
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
-TEST_F(SDPATest, PairwiseRootDomainMap) {
+TEST_F(SDPATest, PairwiseLogicalDomainMap) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -260,7 +260,7 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
 
     for (Val* consumer : fusion->outputs()) {
       auto consumer_tv = consumer->as<TensorView>();
-      auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                               .mapProducerToConsumer();
       auto mappingExists = [&pairwise_map](
                                IterDomain* p_id, IterDomain* c_id) -> bool {
@@ -269,8 +269,8 @@ TEST_F(SDPATest, PairwiseRootDomainMap) {
       };
 
       // For cum_seq_q/k, root_domain = {iN}, logical_domain = {i(N+1)}
-      // Mapping exists from root domain to producer.
-      auto consumer_root = consumer_tv->getMaybeRootDomain();
+      // Mapping exists from producer projection to producer.
+      auto consumer_root = consumer_tv->projectToProducer();
       for (auto idx : c10::irange(consumer_tv->nDims())) {
         // Mapping for N, H exists from Q/K/V to any output.
         if (idx < 2) {

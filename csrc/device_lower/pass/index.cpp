@@ -1561,7 +1561,7 @@ static Val* constructMatrixDescriptor(
 }
 
 static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  const auto& alloc_domain = tv->getMaybeRootDomain();
+  const auto& alloc_domain = tv->projectToProducer();
   const auto& loop_domain = tv->getLoopDomain();
   auto exprs = StmtSort::getExprsBetween(
       {alloc_domain.begin(), alloc_domain.end()},
@@ -1834,7 +1834,7 @@ Val* IndexLowering::getIterationIndexForBroadcast(
       "Expected broadcast ID but found ",
       broadcast_id->toString());
 
-  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+  auto c2p_root_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                           .mapBroadcast(false)
                           .mapConsumerToProducer();
 
@@ -1945,10 +1945,10 @@ void IndexLowering::handle(const CatOp* cat) {
     const auto inp = lowerSrcIndex(cat->input(i), cat->output(0));
     inputs.at(i) = inp;
 
-    // Note the original extent is the extent of the root domain not
+    // Note the original extent is the extent of the producer projection not
     // logical domain
     auto inp_concat_id = TensorDomain::noReductions(
-                             cat->input(i)->as<TensorView>()->getRootDomain())
+                             cat->input(i)->as<TensorView>()->getProducerProjection())
                              .at(cat->concatenatedDim());
     cur_extent = add(cur_extent, inp_concat_id->getMaybeExpandedExtent());
     preds.at(i) = IrBuilder::ltExpr(concatenated_dim_idx, cur_extent);

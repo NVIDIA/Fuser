@@ -461,7 +461,7 @@ TEST_F(Tutorial, Reshape) {
     fusion.addOutput(tv1);
 
     if (verbose_) {
-      // Notice that tv1 has root and logical domains. The root domain
+      // Notice that tv1 has root and logical domains. The producer projection
       // should consist of two IterDomains, whreas the logical domain
       // consists of a single IterDomain that is an output of a merge
       // operation of the two root IterDomains
@@ -469,12 +469,12 @@ TEST_F(Tutorial, Reshape) {
     }
 
     // Check if the tv1 domains are generated as expected
-    ASSERT_TRUE(tv1->hasRoot());
+    ASSERT_TRUE(tv1->hasProducerProjection());
     ASSERT_EQ(tv1->getLogicalDomain().size(), 1);
     ASSERT_TRUE(tv1->getLogicalDomain().at(0)->definition()->isA<Merge>());
     Merge* tv1_merge = tv1->getLogicalDomain().at(0)->definition()->as<Merge>();
-    ASSERT_EQ(tv1_merge->inner(), tv1->getRootDomain().at(1));
-    ASSERT_EQ(tv1_merge->outer(), tv1->getRootDomain().at(0));
+    ASSERT_EQ(tv1_merge->inner(), tv1->getProducerProjection().at(1));
+    ASSERT_EQ(tv1_merge->outer(), tv1->getProducerProjection().at(0));
   }
 
   {
@@ -504,7 +504,7 @@ TEST_F(Tutorial, Reshape) {
         reshape_output->definition()->input(0)->as<TensorView>();
     ASSERT_TRUE(squeeze_output->definition()->isA<SqueezeOp>());
 
-    ASSERT_TRUE(reshape_output->hasRoot());
+    ASSERT_TRUE(reshape_output->hasProducerProjection());
     ASSERT_EQ(reshape_output->getLogicalDomain().size(), 2);
     ASSERT_TRUE(
         reshape_output->getLogicalDomain().at(0)->definition()->isA<Split>());
@@ -520,9 +520,9 @@ TEST_F(Tutorial, Reshape) {
     auto reshape_output_merge =
         reshape_output_split->in()->definition()->as<Merge>();
     ASSERT_EQ(
-        reshape_output_merge->outer(), reshape_output->getRootDomain().at(0));
+        reshape_output_merge->outer(), reshape_output->getProducerProjection().at(0));
     ASSERT_EQ(
-        reshape_output_merge->inner(), reshape_output->getRootDomain().at(1));
+        reshape_output_merge->inner(), reshape_output->getProducerProjection().at(1));
 
     // So far, the fusion has transformations as part of its
     // definition. It can be further extended with scheduling transformations.
@@ -569,7 +569,7 @@ TEST_F(Tutorial, Reshape) {
     // Here's how we propagate the transformations of reshape_output
     // to all other tensors in the fusion
     TransformPropagatorWithCheck propagator(reshape_output);
-    MaxRootDomainInfoSpanningTree(reshape_output).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(reshape_output).traverse(&propagator);
 
     // Now, all tensors, including those before the reshape op, should
     // be transformed to 2D tensors with an inner domain of extent
@@ -584,7 +584,7 @@ TEST_F(Tutorial, Reshape) {
     // for the reshape, followed by another merge and split for
     // scheduling. Specifically:
     //
-    // Root domain: [b0, i1, i2]
+    // producer projection: [b0, i1, i2]
     // merge(1, 2) -> [b0, i1*i2]
     // outer split(1, 3) -> [b0, 3, i1*i2/3]
     // merge(1, 2) -> [b0, 3*i1*i2/3]
@@ -626,8 +626,8 @@ TEST_F(Tutorial, Reshape) {
         squeeze_output->getLogicalDomain().at(1));
 
     // Note that all the transformations of squeeze_output are scheduling
-    // transformations, thus it should not have a root domain
-    ASSERT_FALSE(squeeze_output->hasRoot());
+    // transformations, thus it should not have a producer projection
+    ASSERT_FALSE(squeeze_output->hasProducerProjection());
   }
 }
 
@@ -678,17 +678,17 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
   // Now, tv2 and tv3 should be fully mapped, including their root,
   // intermediate and loop domains.
 
-  // Check the root domains.
-  for (const auto i : c10::irange(tv2->getRootDomain().size())) {
+  // Check the producer projections.
+  for (const auto i : c10::irange(tv2->getProducerProjection().size())) {
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
-        tv2->getRootDomain().at(i), tv3->getRootDomain().at(i)));
+        tv2->getProducerProjection().at(i), tv3->getProducerProjection().at(i)));
   }
 
   // The reshape consists of a merge and split. The output of the
   // merge should be mapped as well
   ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
-      tv2->getRootDomain().at(0)->uses().at(0)->as<Merge>()->out(),
-      tv3->getRootDomain().at(0)->uses().at(0)->as<Merge>()->out()));
+      tv2->getProducerProjection().at(0)->uses().at(0)->as<Merge>()->out(),
+      tv3->getProducerProjection().at(0)->uses().at(0)->as<Merge>()->out()));
 
   // The next operation is split. Its outputs, which are the loop
   // domains, should be mapped too.
@@ -1279,8 +1279,8 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
   auto reference_tv = tv2;
 
   // Step 1: Create tma domain
-  // Use the root domain as TMA domain
-  //   root domain: [I0, I1]
+  // Use the producer projection as TMA domain
+  //   producer projection: [I0, I1]
 
   constexpr int64_t num_threads = 128;
   constexpr int64_t vectorization = 2;
@@ -1308,7 +1308,7 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
 
   // Transform Operations between cache operations and output reference
   TransformPropagator propagator(reference_tv);
-  MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
 
   // Propagate common parallel dimensions
   reference_tv->axis(1)->parallelize(ParallelType::BIDx);
@@ -1388,7 +1388,7 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
   auto reference_tv = tv3;
 
   // Step 1: Create tma domain
-  //   root domain: [I0, I1, I2, I3]
+  //   producer projection: [I0, I1, I2, I3]
   //    TMA domain: [I0, I1, I4]
   reference_tv->merge(-2, -1);
 
@@ -1409,7 +1409,7 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
 
   // Transform Operations between cache operations and output reference
   TransformPropagator propagator(reference_tv);
-  MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
 
   // Define Parallelization Schema
   // Intermediate Tensors

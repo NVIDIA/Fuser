@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <tests/cpp/utils.h>
 
 namespace nvfuser {
@@ -172,63 +172,63 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingRfactor_CUDA) {
   // root=[B,I,Irf], rfactor=[B,I,Irf,Rrf]
   auto tv4 = tv2->rFactor({3});
 
-  checkIdMapped(tv1, tv1->getMaybeRootDomain(), tv4, tv4->getMaybeRootDomain());
+  checkIdMapped(tv1, tv1->projectToProducer(), tv4, tv4->projectToProducer());
   checkIdMapped(
       tv4,
       tv4->getLogicalDomain(),
       {true, true, true, false},
       tv2,
-      tv2->getMaybeRootDomain(),
+      tv2->projectToProducer(),
       {true, true, true});
   checkIdMapped(
       tv1,
-      tv1->getMaybeRootDomain(),
+      tv1->projectToProducer(),
       {true, true, false},
       tv2,
-      tv2->getMaybeRootDomain(),
+      tv2->projectToProducer(),
       {true, true, false});
   checkIdMapped(
       tv1,
-      tv1->getMaybeRootDomain(),
+      tv1->projectToProducer(),
       {true, true, false},
       tv3,
-      tv3->getMaybeRootDomain(),
+      tv3->projectToProducer(),
       {true, true});
   checkIdMapped(
       tv2,
-      tv2->getMaybeRootDomain(),
+      tv2->projectToProducer(),
       {true, true, false},
       tv3,
-      tv3->getMaybeRootDomain(),
+      tv3->projectToProducer(),
       {true, true});
-  checkIdMapped(tv0, tv0->getMaybeRootDomain(), tv3, tv3->getMaybeRootDomain());
+  checkIdMapped(tv0, tv0->projectToProducer(), tv3, tv3->projectToProducer());
   checkIdMapped(
       tv0,
-      tv0->getMaybeRootDomain(),
+      tv0->projectToProducer(),
       {true, true},
       tv1,
-      tv1->getMaybeRootDomain(),
+      tv1->projectToProducer(),
       {true, true, false});
   checkIdMapped(
       tv0,
-      tv0->getMaybeRootDomain(),
+      tv0->projectToProducer(),
       {true, true},
       tv2,
-      tv2->getMaybeRootDomain(),
+      tv2->projectToProducer(),
       {true, true, false});
   checkIdMapped(
       tv0,
-      tv0->getMaybeRootDomain(),
+      tv0->projectToProducer(),
       {true, true},
       tv4,
       tv4->getLogicalDomain(),
       {true, true, false, false});
   checkIdMapped(
       tv0,
-      tv0->getMaybeRootDomain(),
+      tv0->projectToProducer(),
       {true, true},
       tv4,
-      tv4->getMaybeRootDomain(),
+      tv4->projectToProducer(),
       {true, true, false});
 }
 
@@ -305,20 +305,20 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency3_CUDA) {
   tv1->split(-1, 4);
   auto tv3 = tv1->rFactor({-2});
 
-  checkIdMapped(tv0, tv0->getMaybeRootDomain(), tv3, tv3->getMaybeRootDomain());
+  checkIdMapped(tv0, tv0->projectToProducer(), tv3, tv3->projectToProducer());
   checkIdMapped(
       tv3,
       tv3->getLogicalDomain(),
       {true, false, true},
       tv1,
-      tv1->getMaybeRootDomain(),
+      tv1->projectToProducer(),
       {true, true});
   checkIdMapped(
       tv1,
-      tv1->getMaybeRootDomain(),
+      tv1->projectToProducer(),
       {true, false},
       tv2,
-      tv2->getMaybeRootDomain(),
+      tv2->projectToProducer(),
       {true, false});
 }
 
@@ -337,32 +337,32 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency4_CUDA) {
 
   checkIdMapped(
       tv0,
-      tv0->getMaybeRootDomain(),
+      tv0->projectToProducer(),
       {true, false},
       tv4,
-      tv4->getMaybeRootDomain(),
+      tv4->projectToProducer(),
       {true, false});
   checkIdMapped(
       tv4,
       tv4->getLogicalDomain(),
       {true, false, true},
       tv1,
-      tv1->getMaybeRootDomain(),
+      tv1->projectToProducer(),
       {true, true});
   checkIdMapped(
       tv1,
-      tv1->getMaybeRootDomain(),
+      tv1->projectToProducer(),
       {true, false},
       tv2,
-      tv2->getMaybeRootDomain(),
+      tv2->projectToProducer(),
       {true, false});
-  checkIdMapped(tv2, tv2->getMaybeRootDomain(), tv3, tv3->getMaybeRootDomain());
+  checkIdMapped(tv2, tv2->projectToProducer(), tv3, tv3->projectToProducer());
   checkIdMapped(
       tv0,
-      tv0->getMaybeRootDomain(),
+      tv0->projectToProducer(),
       {true, false},
       tv2,
-      tv2->getMaybeRootDomain(),
+      tv2->projectToProducer(),
       {true, false});
 }
 
@@ -443,59 +443,59 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency6_CUDA_CUDA) {
 
   checkIdMapped(
       tv0,
-      tv0->getMaybeRootDomain(),
+      tv0->projectToProducer(),
       {true, false},
       tv1,
-      tv1->getMaybeRootDomain(),
+      tv1->projectToProducer(),
       {true, false});
   checkIdMapped(
       tv1,
-      tv1->getMaybeRootDomain(),
+      tv1->projectToProducer(),
       {true, false},
       tv6,
-      tv6->getMaybeRootDomain(),
+      tv6->projectToProducer(),
       {true, false});
   checkIdMapped(
       tv6,
       tv6->getLogicalDomain(),
       {true, true, false},
       tv2,
-      tv2->getMaybeRootDomain(),
+      tv2->projectToProducer(),
       {true, true});
   checkIdMapped(
       tv1,
-      tv1->getMaybeRootDomain(),
+      tv1->projectToProducer(),
       {true, false},
       tv2,
-      tv2->getMaybeRootDomain(),
+      tv2->projectToProducer(),
       {true, false});
   checkIdMapped(
       tv2,
-      tv2->getMaybeRootDomain(),
+      tv2->projectToProducer(),
       {true, false},
       tv3,
-      tv3->getMaybeRootDomain(),
+      tv3->projectToProducer(),
       {true, false});
   checkIdMapped(
       tv3,
-      tv3->getMaybeRootDomain(),
+      tv3->projectToProducer(),
       {true, true},
       tv4,
-      tv4->getMaybeRootDomain(),
+      tv4->projectToProducer(),
       {true, true});
   checkIdMapped(
       tv0,
-      tv0->getMaybeRootDomain(),
+      tv0->projectToProducer(),
       {true, false},
       tv4,
-      tv4->getMaybeRootDomain(),
+      tv4->projectToProducer(),
       {true, false});
   checkIdMapped(
       tv4,
-      tv4->getMaybeRootDomain(),
+      tv4->projectToProducer(),
       {true, true},
       tv5,
-      tv5->getMaybeRootDomain(),
+      tv5->projectToProducer(),
       {true, true});
 }
 
@@ -695,7 +695,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingRepro1950_CUDA) {
 
 // Step-1 to fix https://github.com/NVIDIA/Fuser/issues/1631
 // Needs to check consumer mapped with reduction inputs in
-// isReductionOutputMapped(), otherwise compute at root domain map
+// isReductionOutputMapped(), otherwise compute at producer projection map
 // is wrong then leads to wrong compute at position and finally
 // expr sort failed.
 // After fix, there are two persistent buffers and can be further

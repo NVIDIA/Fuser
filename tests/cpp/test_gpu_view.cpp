@@ -29,7 +29,7 @@
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -756,7 +756,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain4) {
 
   // The concrete domain of tv5, which is 1D, with permissive or loop mapping
   // needs to be either the domain of tv4 or tv5, both of which have the three
-  // concrete root domains of tv1. In other words, it must map with tv4 and tv5
+  // concrete producer projections of tv1. In other words, it must map with tv4 and tv5
   // with the exact mapping.
   ComputeAtMap map(&fusion);
   auto concrete_id =
@@ -811,7 +811,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain5) {
 
     if (order) {
       // Fails before #1544. Concrete ID is picked from path1_out, which
-      // doesn't have the second root domain of tv1
+      // doesn't have the second producer projection of tv1
       path2_out = path2();
       path1_out = path1();
     } else {
@@ -1201,11 +1201,11 @@ TEST_F(GpuViewTest, FusionReshapeIdGraph) {
   NVF_CHECK(id_graph.exactNodes().strictAreMapped(tv2->axis(2), tv4->axis(2)));
 
   NVF_CHECK(id_graph.exactNodes().strictAreMapped(
-      tv2->getRootDomain()[1], tv12->getRootDomain()[1]));
+      tv2->getProducerProjection()[1], tv12->getProducerProjection()[1]));
   NVF_CHECK(id_graph.exactNodes().strictAreMapped(
-      tv2->getRootDomain()[2], tv12->getRootDomain()[2]));
+      tv2->getProducerProjection()[2], tv12->getProducerProjection()[2]));
   NVF_CHECK(id_graph.exactNodes().strictAreMapped(
-      tv2->getRootDomain()[3], tv12->getRootDomain()[3]));
+      tv2->getProducerProjection()[3], tv12->getProducerProjection()[3]));
 }
 
 TEST_F(GpuViewTest, FusionReshapeVectorize) {
@@ -1344,7 +1344,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
 
   {
     TransformPropagator propagator(tv4);
-    MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   }
 
   for (auto i : c10::irange(tv5->nDims() - 1)) {
@@ -1359,7 +1359,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
 
   {
     TransformPropagator propagator(tv5);
-    MaxRootDomainInfoSpanningTree spanning_tree(tv5);
+    MaxLogicalDomainInfoSpanningTree spanning_tree(tv5);
     spanning_tree.traverse(&propagator);
     scheduler_utils::parallelizeAllLike(tv5);
 
@@ -1407,7 +1407,7 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
   {
     TransformPropagator propagator(tv4);
-    MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   }
 
   tv5->split(1, 128);
@@ -1420,7 +1420,7 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
   {
     TransformPropagator propagator(tv5_rf);
-    MaxRootDomainInfoSpanningTree spanning_tree(tv5_rf);
+    MaxLogicalDomainInfoSpanningTree spanning_tree(tv5_rf);
     spanning_tree.traverse(&propagator);
     scheduler_utils::parallelizeAllLike(tv5_rf);
 
@@ -1939,7 +1939,7 @@ TEST_F(GpuViewTest, FusionReshapeMapping) {
   tv6->axis(2)->parallelize(ParallelType::TIDx);
 
   TransformPropagator propagator(tv6);
-  MaxRootDomainInfoSpanningTree spanning_tree(tv6);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(tv6);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv6);
 
@@ -1975,7 +1975,7 @@ TEST_F(GpuViewTest, FusionLowerDivisibleSplits) {
   tv2->merge(0)->merge(0)->merge(0)->split(0, 4)->split(0, 8, false);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree spanning_tree(tv2);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(tv2);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv2);
 

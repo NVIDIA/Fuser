@@ -365,7 +365,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
   return vectorized_tensor_info_ptr;
 }
 
-// Make sure the root domain(s) comprising the vectorized loop domain
+// Make sure the producer projection(s) comprising the vectorized loop domain
 // have the (merged) extent that is divisible by the vectorization
 // word size.
 void validateAlignedVectorizeExtents(
@@ -386,7 +386,7 @@ void validateAlignedVectorizeExtents(
         extent_val.hasValue(),
         "Error vectorizing, ",
         info.consumer_tv->toString(),
-        " as the extent of a vectorized root domain, ",
+        " as the extent of a vectorized producer projection, ",
         id->toString(),
         ", is unknown.");
     // TODO: Rewrite validation of the vectorized dimension
@@ -453,7 +453,7 @@ getTensorOffsets(
       offset += static_cast<size_t>(
           slice_start_eval.as<int64_t>() * logical_strides.at(i));
 
-      // Keep track of the root domain unless this slice is
+      // Keep track of the producer projection unless this slice is
       // effectively no-op
       if (slice_start_eval.as<int64_t>() != 0 ||
           slice_stop_eval.as<int64_t>() != extent_eval.as<int64_t>()) {

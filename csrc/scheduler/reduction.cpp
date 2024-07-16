@@ -921,12 +921,12 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (reduction_ops.size() > 1) {
     // Before examining the reduction axes want to quickly
     //   check the reductions have the same axis width
-    //   to avoid building root domain map in easier cases
+    //   to avoid building producer projection map in easier cases
     bool valid_axis_count = false;
     size_t axis_count = 0;
     auto reduction_root_size = [](TensorView* red_tv) {
       size_t count = 0;
-      for (auto id : red_tv->getMaybeRootDomain()) {
+      for (auto id : red_tv->projectToProducer()) {
         if (!id->isBroadcast()) {
           count++;
         }
@@ -951,7 +951,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
       }
     }
 
-    // Use root domain map to check the reduction ops have the same axes
+    // Use producer projection map to check the reduction ops have the same axes
     FusionGuard fg(fusion);
     ComputeAtRootDomainMap root_map;
     root_map.build(true);

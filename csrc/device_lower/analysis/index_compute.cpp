@@ -48,7 +48,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
       producer_tv,
       consumer_tv,
       -1,
-      PairwiseRootDomainMap(producer_tv, consumer_tv));
+      PairwiseLogicalDomainMap(producer_tv, consumer_tv));
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
@@ -567,8 +567,8 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
 void LoopIndexingAnalysis::run() {
   // Collect consumer id's for view rfactor traversal.
   all_consumer_id_vals_ = DependencyCheck::getAllValsBetween(
-      {consumer_tv_->getMaybeRootDomain().begin(),
-       consumer_tv_->getMaybeRootDomain().end()},
+      {consumer_tv_->projectToProducer().begin(),
+       consumer_tv_->projectToProducer().end()},
       {consumer_tv_->getLoopDomain().begin(),
        consumer_tv_->getLoopDomain().end()});
 
@@ -785,7 +785,7 @@ void LoopIndexingAnalysis::constructLoopDomains() {
     loop_domains_.pushBack(concrete_to_original_id_.at(ref_id));
   }
 
-  // Construct the root domain as the inputs of the replayed domain
+  // Construct the producer projection as the inputs of the replayed domain
   auto loops_replayed_domain_vals =
       ir_utils::filterByType<Val>(loop_domains_.vector());
   auto root_domain_vals = IterVisitor::getInputsTo(
@@ -798,7 +798,7 @@ void LoopIndexingAnalysis::constructLoopDomains() {
 
   // The domain may have dangling iteration domains, i.e. the inner output of
   // a split but not the outer. Find which replayed vals are dependant on the
-  // root domains.
+  // producer projections.
   auto all_replayed_vals =
       ir_utils::filterByType<Val>(replayed_concrete_ids_.vector());
   auto all_ids_from_root = DependencyCheck::getAllValsBetween(
@@ -861,7 +861,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   indexing.run(loop_indexing);
 
   // Populate indexing through exact map from initial indexing
-  auto consumer_root = index_producer ? consumer_tv->getMaybeRootDomain()
+  auto consumer_root = index_producer ? consumer_tv->projectToProducer()
                                       : consumer_tv->getMaybeAllocationDomain();
 
   // First collect all iterdomains in consumer transform history.

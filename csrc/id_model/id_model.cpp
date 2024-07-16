@@ -16,7 +16,7 @@
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
@@ -171,7 +171,7 @@ ValGraph& IdModel::idGraph(IdMappingMode mode) {
 void IdModel::buildIterDomainDefinitionsAndUses() {
   for (const auto tv : tvs_) {
     VectorOfUniqueEntries<IterDomain*> root_domain_ids{
-        tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()};
+        tv->projectToProducer().begin(), tv->projectToProducer().end()};
 
     std::vector<IterDomain*> all_ids = ir_utils::allIDsOf(tv);
 
@@ -291,24 +291,24 @@ void IdModel::buildExactGraph() {
       // their loop iter domains.
 
       NVF_ERROR(
-          other_tv_output->getMaybeRootDomain().size() ==
-              c_tv->getMaybeRootDomain().size(),
+          other_tv_output->projectToProducer().size() ==
+              c_tv->projectToProducer().size(),
           "Multiple outputs with mismatched TV domains is not supported.");
 
-      for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
-        auto c_id = c_tv->getMaybeRootDomain()[domain_i];
-        auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
+      for (auto domain_i : c10::irange(c_tv->projectToProducer().size())) {
+        auto c_id = c_tv->projectToProducer()[domain_i];
+        auto o_id = other_tv_output->projectToProducer()[domain_i];
         idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
       }
     }
 
-    // Map producer-consumer relationships based on the root domain map
+    // Map producer-consumer relationships based on the producer projection map
     auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto p_tv : tv_inputs) {
       // For exact mapings do not map any broadcast dimensions to
       // non-broadcast dimensions. Prevent any broadcasted axes being mapped
       // to non-broadcasted axes.
-      auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
+      auto exact_c2p_root_map = PairwiseLogicalDomainMap(p_tv, c_tv)
                                     .mapBroadcast(false)
                                     .mapConsumerToProducer();
 
@@ -454,7 +454,7 @@ void IdModel::buildPermissiveGraph() {
       }
 
       auto permissive_c2p_root_map =
-          PairwiseRootDomainMap(p_tv, c_tv).mapBroadcast(true);
+          PairwiseLogicalDomainMap(p_tv, c_tv).mapBroadcast(true);
 
       for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
@@ -472,7 +472,7 @@ namespace {
 std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
     TensorView* producer,
     TensorView* consumer) {
-  auto p2c_map = PairwiseRootDomainMap(producer, consumer)
+  auto p2c_map = PairwiseLogicalDomainMap(producer, consumer)
                      .mapBroadcast(true)
                      .mapProducerToConsumer();
 

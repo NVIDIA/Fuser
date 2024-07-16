@@ -101,7 +101,7 @@ TEST_F(ExprSortTest, IndirectNormalizationWithZeroDimTensors) {
   tv3->split(0, 4);
   auto tv11 = tv3->rFactor({1});
 
-  MaxRootDomainInfoSpanningTree tree(tv11);
+  MaxLogicalDomainInfoSpanningTree tree(tv11);
   TransformPropagator tp(tv11);
   tree.traverse(&tp);
 
@@ -146,7 +146,7 @@ TEST_F(ExprSortTest, IndirectInnerNormalization) {
   tv3->split(1, 4);
   auto tv11 = tv3->rFactor({-1});
 
-  MaxRootDomainInfoSpanningTree tree(tv11);
+  MaxLogicalDomainInfoSpanningTree tree(tv11);
   TransformPropagator tp(tv11);
   tree.traverse(&tp);
 

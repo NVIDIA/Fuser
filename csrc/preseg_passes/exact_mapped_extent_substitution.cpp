@@ -9,7 +9,7 @@
 #include <ir/utils.h>
 #include <options.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -31,7 +31,7 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
   std::unordered_map<Val*, Val*> replacement_map;
 
   const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
-  // Loop over each exact root domain set
+  // Loop over each exact producer projection set
   for (const auto& set_ptr : mapped_sets.disjointSets()) {
     // (1) pick a const extent
     // (2) if no const extent, pick the var with the lowest name()

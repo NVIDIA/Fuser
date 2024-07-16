@@ -191,12 +191,12 @@ ParallelizedDomainPredicate::getPredicateMap(
         continue;
       }
 
-      // If it's a root domain, it should be covered by the root
+      // If it's a producer projection, it should be covered by the root
       // predicates, so no extra predicate is required.
       if (std::find(
-              tv->getMaybeRootDomain().begin(),
-              tv->getMaybeRootDomain().end(),
-              tv_id) != tv->getMaybeRootDomain().end()) {
+              tv->projectToProducer().begin(),
+              tv->projectToProducer().end(),
+              tv_id) != tv->projectToProducer().end()) {
         continue;
       }
 
@@ -525,7 +525,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     // done. When non-zero, find the corresponding MergedPredicates
     // and merge both the start and stop offsets. Note that the
     // offsets are non-zero, the predicates must be generated at a
-    // root domain, so root_ids.size() must be one. That unique root
+    // producer projection, so root_ids.size() must be one. That unique root
     // domain is used as a key to find the corresponding
     // MergedPredicate.
 
@@ -534,7 +534,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     auto merged_pred_it = pending_predicates_.end();
 
     if (add_pred) {
-      // This is a new predicate for the root domain. Initialize a new
+      // This is a new predicate for the producer projection. Initialize a new
       // MergedPredicates and add it to the pending list.
       UnswitchPredicate::MergedPredicates merged_pred;
 
@@ -557,8 +557,8 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
             return merged_predicates.predicate_key == first_key;
           });
       // Note: It is possible that no matching merged predicate info
-      // is found. Since add_pred is false here, the root domain is
-      // already predicated. It must mean that the root domain
+      // is found. Since add_pred is false here, the producer projection is
+      // already predicated. It must mean that the producer projection
       // is included in a contiguous merged domain, which means there
       // must be no halo-extended domain involved.
     }

@@ -287,16 +287,16 @@ void IrGraphGenerator::generateScheduleGraph() {
   for (auto tv : tensor_views_) {
     addArc(tv->domain(), tv, "[style=dashed, arrowhead=none]");
     if (detail_level_ >= DetailLevel::Explicit) {
-      // Maybe not the best way to handle the root domain, but should be okay
+      // Maybe not the best way to handle the producer projection, but should be okay
       addArc(
           tv,
           IrBuilder::create<TensorDomain>(tv->getLogicalDomain()),
           "[style=dashed, color=green, arrowhead=none]");
 
-      if (tv->domain()->hasRoot()) {
+      if (tv->domain()->hasProducerProjection()) {
         addArc(
             tv,
-            IrBuilder::create<TensorDomain>(tv->getRootDomain()),
+            IrBuilder::create<TensorDomain>(tv->getProducerProjection()),
             "[style=dashed, color=green, arrowhead=none]");
       }
     }
@@ -402,7 +402,7 @@ class TransformToDot {
   void handle(IterDomain*);
   void markLogical(TensorView* tv);
 
-  // Make sure the root domains are ordered correctly
+  // Make sure the producer projections are ordered correctly
   // TODO: ordering of allocation domain
   void enforceRootOrder(TensorView* tv);
 
@@ -449,7 +449,7 @@ void TransformToDot::handle(TensorView* tv) {
   // Note this won't print allocation domains if not in the path
   // between the root and loop domains
   const auto all_exp = DependencyCheck::getAllExprsBetween(
-      {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
+      {tv->projectToProducer().begin(), tv->projectToProducer().end()},
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
 
   for (auto exp : all_exp) {

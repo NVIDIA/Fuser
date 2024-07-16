@@ -113,12 +113,12 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
 
   // Before examining the reduction axes want to quickly
   //   check the reductions have the same axis width
-  //   to avoid building root domain map in easier cases
+  //   to avoid building producer projection map in easier cases
   bool valid_axis_count = false;
   size_t axis_count = 0;
   auto reduction_root_size = [](TensorView* red_tv) {
     size_t count = 0;
-    for (auto id : red_tv->getMaybeRootDomain()) {
+    for (auto id : red_tv->projectToProducer()) {
       if (!id->isBroadcast()) {
         count++;
       }

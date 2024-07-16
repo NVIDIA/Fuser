@@ -47,7 +47,7 @@ class LoopPromotionMapBuilder {
  public:
   // Build a map of loop groups to IterDomains that represent actual
   // loops. The map is built based on the broadcast resolution with
-  // root domains between inlined producer and consumer tensors.
+  // producer projections between inlined producer and consumer tensors.
   static std::unordered_map<ValGroup, IterDomain*> get(
       IdModel& id_model,
       const StatefulInliningInfo& inlining_info,

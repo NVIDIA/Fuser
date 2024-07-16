@@ -45,7 +45,7 @@ class DomainMap {
       std::unordered_set<IterDomain*>& in_concrete_ids,
       IterDomain* out_id) const;
 
-  // Check if in_ids are mapped to ids through any root domain as
+  // Check if in_ids are mapped to ids through any producer projection as
   // well as indirectly accessed domains with ops like torch_gather
   void eraseifInputMappedThroughRootDomainAndIndexing(
       std::unordered_set<IterDomain*>& in_ids,

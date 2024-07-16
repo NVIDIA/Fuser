@@ -19,7 +19,7 @@
 namespace nvfuser {
 
 class MaxPosCalculator {
-  // Root domains in producer that's unmappable to any of its consumers
+  // producer projections in producer that's unmappable to any of its consumers
   std::unordered_set<IterDomain*> unmappable_dims_;
 
   // User set IterDomains to not inline

@@ -32,8 +32,8 @@ struct StatefulInliningInfo {
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
       p2c_ca_permissive_maps;
 
-  // Broadcast resolution map for root domains, including non-inlined
-  // root domains
+  // Broadcast resolution map for producer projections, including non-inlined
+  // producer projections
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       p2c_root_broadcast_resolution_map;
 
@@ -225,7 +225,7 @@ class IdModel : public PolymorphicBase {
 
   // Build a map of loop groups to IterDomains that represent actual
   // loops. The map is built based on the broadcast resolution with
-  // root domains between inlined producer and consumer tensors.
+  // producer projections between inlined producer and consumer tensors.
   std::unordered_map<ValGroup, IterDomain*> buildLoopPromotionMap(
       const StatefulInliningInfo& info);
 
@@ -278,7 +278,7 @@ class IdModel : public PolymorphicBase {
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_uses_;
 
   // Make sure we don't blindly use definitions as we don't want to grab
-  // transformations before a tensor view's root domain. There can be
+  // transformations before a tensor view's producer projection. There can be
   // multiple definitions due to replays.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_definitions_;
 

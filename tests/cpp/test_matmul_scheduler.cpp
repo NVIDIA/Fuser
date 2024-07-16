@@ -2821,7 +2821,7 @@ class AllocationDomainTest
   DisableOptionsGuard option_guard_;
 };
 
-// This tests fusions where inputs to a Matmul will have the root domains
+// This tests fusions where inputs to a Matmul will have the producer projections
 // [M, K] and [K, N], and all possible combinations of allocation domains.
 // Please note that inpout in B is transposed prior to creating a Mma op.
 TEST_P(AllocationDomainTest, BasicMatmul) {

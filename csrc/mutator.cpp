@@ -124,7 +124,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
   };
 
   std::vector<IterDomain*> root_dom =
-      td->hasRoot() ? updateIdVec(td->root()) : std::vector<IterDomain*>();
+      td->hasProducerProjection() ? updateIdVec(td->root()) : std::vector<IterDomain*>();
   std::vector<IterDomain*> logical_dom = updateIdVec(td->logical());
   std::vector<IterDomain*> allocation_dom = td->hasAllocation()
       ? updateIdVec(td->allocation())

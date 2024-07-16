@@ -3129,7 +3129,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         if (selected_tensors.empty()) {
           // Propagate scheduler transformations on reference TensorView to the
           // rest of the fusion.
-          MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+          MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
         } else {
           // Propagate scheduler transformations on reference TensorView to the
           // subset of the fusion.
@@ -3144,7 +3144,7 @@ void initNvFuserPythonBindings(PyObject* module) {
               });
           SetSelector selector(
               {selected_tv_set.begin(), selected_tv_set.end()});
-          MaxRootDomainInfoSpanningTree(reference_tv, &selector)
+          MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
               .traverse(&propagator);
         }
       },
@@ -3289,8 +3289,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         return (
             !tv->isFusionInput() &&
             std::any_of(
-                tv->getMaybeRootDomain().begin(),
-                tv->getMaybeRootDomain().end(),
+                tv->projectToProducer().begin(),
+                tv->projectToProducer().end(),
                 [](IterDomain* id) { return id->isReduction(); }) &&
             !isResharding(tv->definition()));
       },

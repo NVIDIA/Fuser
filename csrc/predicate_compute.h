@@ -12,7 +12,7 @@
 #include <exceptions.h>
 #include <index_compute.h>
 #include <kernel_ir.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 namespace nvfuser {
 

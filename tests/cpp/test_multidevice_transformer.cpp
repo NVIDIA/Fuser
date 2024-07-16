@@ -59,7 +59,7 @@ class DistributedTransformerTest
  private:
   // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
   // `SdpaFwdOp` currently does not work with ID model since it requires all
-  // sibling outputs to have the same root domain.
+  // sibling outputs to have the same producer projection.
   //  This will be modified in a future PR.
   preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
       optimization_guard_;

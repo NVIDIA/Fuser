@@ -13,7 +13,7 @@
 #include <ir/printer.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/utils.h>
 #include <val_graph.h>
@@ -467,7 +467,7 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
   // The re-ordering would first try to decide the inner iterdomains
   //  we want to re-order. For this we start from the innermost position
   //  and move back and collect all the iterdomains that we know
-  //  are inner tiles of some root domain or broadcast/reduction domains
+  //  are inner tiles of some producer projection or broadcast/reduction domains
   //  that won't affect the concrete id layout.
   // The collection process would stop whenever a iterdomain that is
   //  neither an inner tile nor reduction/broadcast is found, and would
@@ -517,7 +517,7 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv) {
 
   // Next put all the innermost loop id's, we make sure that
   //  the inner tile ordering follows the corresponding root
-  //  domain ordering by iterating on the root domain and
+  //  domain ordering by iterating on the producer projection and
   //  find their corresponding inner tile iterdomains from
   //  the populated root_id_to_inner_loop_pos.
   for (auto id : tv->getMaybeAllocationDomain()) {
@@ -635,8 +635,8 @@ namespace {
 std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
   // This utility is user facing so shouldn't ever see tensor index here.
 
-  // Note: [Use Root Domain in Accumulator TV]
-  //  Have to use root domain for accumulator tv since the operands do not have
+  // Note: [Use producer projection in Accumulator TV]
+  //  Have to use producer projection for accumulator tv since the operands do not have
   //  root/logical domains that map to the logical domain of output.
   //  For example:
   //   C[I,I,R,R] = mma (A[I,B,I,I], B[B,I,I,I]),
@@ -649,11 +649,11 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
   //  in A or B.
   //
   //  Essentially in the case of rfactor, this utility does producer side
-  //   matching so looking at root domain would be required.
+  //   matching so looking at producer projection would be required.
   //  This matching pattern should support most common matmul applications,
   //   but in follow ups we may need to extend RFactor matching if there
   //   are more complex scheduling patterns that we want to support.
-  auto accumulator_domain = mma->out()->as<TensorView>()->getMaybeRootDomain();
+  auto accumulator_domain = mma->out()->as<TensorView>()->projectToProducer();
   auto a_domain = TensorDomain::noReductions(
       mma->inA()->as<TensorView>()->getLogicalDomain());
   auto b_domain = TensorDomain::noReductions(
@@ -747,8 +747,8 @@ IterDomain* getIDinConsumerRoot(IterDomain* id) {
 // consumer (register) is derived from a series of scheduling operations on the
 // 'k' ID (for now only splits, but there could be merges in the future).
 // So starting from the inner-most ID of the consumer's allocation we go up the
-// DAG (along the innermost path) to ID this came from in the root domain.  We
-// then map this ID in the root domain to producer's (shared memory) logical
+// DAG (along the innermost path) to ID this came from in the producer projection.  We
+// then map this ID in the producer projection to producer's (shared memory) logical
 // domain. Once we have the ID in the producer's logical domain, we check if
 // that's the innermost dimension in its allocation domain. Here, the other
 // assumption we have is that the producer's allocation domain is a permutation
@@ -758,13 +758,13 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   const auto consumer = ir_utils::getTvOutput(ldst);
   const auto producer = ir_utils::getTvInput(ldst);
 
-  // Get the innermost ID and go back up the DAG to the root domain.
+  // Get the innermost ID and go back up the DAG to the producer projection.
   auto corresponding_id_in_consumer_root =
       getIDinConsumerRoot(consumer->getMaybeAllocationDomain().back());
 
-  // This gives us the ID in the consumer root domain.
+  // This gives us the ID in the consumer producer projection.
   // We'll later map this ID to one in the producer.
-  const PairwiseRootDomainMap map_across_ldst(producer, consumer);
+  const PairwiseLogicalDomainMap map_across_ldst(producer, consumer);
   const auto c2p_map = map_across_ldst.mapConsumerToProducer();
   const auto id_in_proc_rfactor = c2p_map.at(corresponding_id_in_consumer_root);
 
@@ -1454,7 +1454,7 @@ class MatmulPatternMatcher : IterVisitor {
       // for implicit broadcasting.
       NVF_ERROR(lrf.size() == rrf.size());
       const std::vector<IterDomain*>& red_root = TensorDomain::noDevices(
-          rop->out()->as<TensorView>()->getMaybeRootDomain());
+          rop->out()->as<TensorView>()->projectToProducer());
       NVF_ERROR(red_root.size() == lrf.size());
       // Find innermost M or N dimension in output
       // We will assume for now that the output logical domain matches the

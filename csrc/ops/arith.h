@@ -407,7 +407,7 @@ NVF_API TensorView* broadcast(
     const std::vector<bool>& is_broadcast_dim);
 
 // Expands input based on provided sizes. expand_sizes should be larger than
-// the input's root domain (really rfactor) and will broadcast on inner
+// the input's producer projection (really rfactor) and will broadcast on inner
 // dimensions. expand_sizes should be -1 for any dimension that should remain a
 // symbolic size. For dimensions that remain broadcast after the expand should
 // be set to 1, any dimension being expanded must be marked as a broadcast in
@@ -670,7 +670,7 @@ NVF_API TensorView* clamp(TensorView* in, Val* min_val, Val* max_val);
 //!   v1 = T1 [I0(10),I1(20),I2(30),I3(40)]
 //!   v2 = sum_to(v1,{30,1}) ------> v2 = T2[I2,R3 (keep_dim)]
 //!
-//!  This operator will return v1* directly if sizes of v1 root domain
+//!  This operator will return v1* directly if sizes of v1 producer projection
 //!  is already the same as shape.
 //!
 //!  Name of sum_to is different from NV fuser naming,

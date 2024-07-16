@@ -20,8 +20,8 @@ void AddAxiomsPass::runPass(Fusion* fusion) {
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     std::vector<const std::vector<nvfuser::IterDomain*>*> interested_domains{
         &tv->getLogicalDomain()};
-    if (tv->hasRoot()) {
-      interested_domains.push_back(&tv->getRootDomain());
+    if (tv->hasProducerProjection()) {
+      interested_domains.push_back(&tv->getProducerProjection());
     }
     if (tv->hasAllocation()) {
       interested_domains.push_back(&tv->getAllocationDomain());

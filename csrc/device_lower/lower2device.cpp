@@ -343,7 +343,7 @@ bool requiresIdModel(Fusion* fusion) {
   // If a tensor does not have a nice root->logical/allocation->loop
   // linear transformation history, use IdModel.
   for (auto tv : ir_utils::allTvs(fusion)) {
-    auto root = tv->getMaybeRootDomain();
+    auto root = tv->projectToProducer();
     auto loop = tv->getLoopDomain();
     std::vector<Val*> loop_val(loop.begin(), loop.end());
     auto all_ids_vec = DependencyCheck::getAllValsBetween(

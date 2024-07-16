@@ -318,7 +318,7 @@ class FusionTransformer {
       // reduction, all parallel types can be reset.
       if (with_broadcast) {
         // It may be just fine to remove the broadcast expr, but
-        // technically speaking that would violate the root domain mapping
+        // technically speaking that would violate the producer projection mapping
         // as broadcast domains would appear in the consumer of the
         // broadcast output tensor without a broadcast expression.
         for (auto reduction_out :

@@ -10,7 +10,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <preseg_passes/allocation_order_inference.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 namespace nvfuser::preseg_passes {
 

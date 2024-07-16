@@ -7,7 +7,7 @@
 // clang-format on
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>
@@ -405,7 +405,7 @@ BestEffortReplay::BestEffortReplay(
     for (auto id : ir_utils::filterByType<IterDomain>(replay_expr->inputs())) {
       NVF_ERROR(
           replay_id2expr_map.find(id) == replay_id2expr_map.end(),
-          "Error trying to map rfactor root domain during replay.",
+          "Error trying to map rfactor producer projection during replay.",
           " An IterDomain was found to be used in more than one expression.");
 
       replay_id2expr_map[id] = replay_expr;
@@ -688,10 +688,10 @@ int64_t BestEffortReplay::findFirstMismatchedID(
     const TensorDomain* td1,
     const TensorDomain* td2) {
   std::unordered_map<IterDomain*, IterDomain*> id_map;
-  auto rd1 = td1->maybeRoot();
-  auto rd2 = td2->maybeRoot();
+  auto rd1 = td1->projectToProducer();
+  auto rd2 = td2->projectToProducer();
   std::unordered_set<IterDomain*> rd2_set(
-      td2->maybeRoot().begin(), td2->maybeRoot().end());
+      td2->projectToProducer().begin(), td2->projectToProducer().end());
 
   // Find matching root IterDomains, we could make this O(nlog(n)) if we could
   // sort IterDomains.

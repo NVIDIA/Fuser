@@ -284,11 +284,11 @@ void checkStep2Results(Fusion* fusion, const IdModelTester& tester) {
     ASSERT_EQ(consumers.size(), 1) << "Assumed to have one consumer";
     TensorView* c_tv = consumers.at(0);
     const auto p2c = BestEffortReplay::replayCasP(
-                         c_tv, tv, -1, PairwiseRootDomainMap(tv, c_tv))
+                         c_tv, tv, -1, PairwiseLogicalDomainMap(tv, c_tv))
                          .getReplay();
 
     for (auto p_id : ir_utils::allIDsOf(tv)) {
-      // Root domains are already done at Step 1
+      // producer projections are already done at Step 1
       if (std::find(
               tv->getLogicalDomain().begin(),
               tv->getLogicalDomain().end(),
@@ -473,7 +473,7 @@ std::unique_ptr<Fusion> createFusionWithMultipleResolutionPaths() {
   // tv10[7*11*13//5//3, 3, 5]
 
   TransformPropagatorWithCheck propagator(tv10);
-  MaxRootDomainInfoSpanningTree(tv10).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv10).traverse(&propagator);
 
   std::vector<TensorView*> tensors_to_inline{tv1, tv2, tv4, tv6, tv8};
   for (auto tensor : tensors_to_inline) {
@@ -553,7 +553,7 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   // tensors.
   tv2->merge(0)->split(0, 4);
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   // The exact graph should just map all IDs of the tensors. Ther
   // ordering of the exprs should be the merge and then the split.
@@ -876,7 +876,7 @@ TEST_F(IdModelTest, LoopPromotion3) {
   tv3->merge(1);
 
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv2->inlineAt(1);
 
@@ -951,7 +951,7 @@ TEST_F(IdModelTest, LoopPromotion4) {
   // [4, i0*i1/4]
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   for (auto tv : ir_utils::allTvs(&fusion)) {
     tv->inlineAt(-2);
@@ -973,7 +973,7 @@ TEST_F(IdModelTest, LoopPromotion4) {
     switch (tv->name()) {
       case 2:
         // T2_l[ iS20{4}, iS21{( ceilDiv(( 1 * 4 ), 4) )} ] ca_pos( 1 )
-        //  root domain : (bS4{1}, iS5{4})
+        //  producer projection : (bS4{1}, iS5{4})
         validateIELResolution(
             tv->getLogicalDomain().at(0),
             tv4->getLogicalDomain().at(0),
@@ -1097,7 +1097,7 @@ TEST_F(IdModelTest, LoopPromotion5) {
       case 3:
         // T3_l[ iS30{( ceilDiv(( ceilDiv(( ( ( 1 * i0 ) * i2 ) * i3 ), 128) ),
         // 4) )}, iUR31{4}, ithreadIdx.x29{128} ] ca_pos( 1 ) produce_pos( 1 )
-        //  root domain : (bS10{1}, iS11{i0}, iS12{i2}, iS13{i3})
+        //  producer projection : (bS10{1}, iS11{i0}, iS12{i2}, iS13{i3})
         validateIELResolution(
             tv->getLogicalDomain().at(0),
             tv4->getLogicalDomain().at(0),
@@ -1252,7 +1252,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
       case 2:
         // T2_l[ iS49{( ceilDiv(( ceilDiv(( 7 * 1 ), 5) ), 3) )}, iS50{3},
         // iS48{5} ] ca_pos( 1 ) produce_pos( 1 )
-        //  root domain : (iS2{7}, bS3{1})
+        //  producer projection : (iS2{7}, bS3{1})
         // Resolution: Resolved by the immediate consumer (T4)
         validateIELResolution(
             tv->getLogicalDomain().at(1),
@@ -1263,7 +1263,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
       case 5:
         // T5_l[ iS39{( ceilDiv(( ceilDiv(( ( 7 * 11 ) * 1 ), 5) ), 3) )},
         // iS40{3}, iS38{5} ] produce_pos( 1 )
-        //  root domain : (iS8{7}, iS9{11}, bS10{1})
+        //  producer projection : (iS8{7}, iS9{11}, bS10{1})
         // Resolution: T5 is not inlined to the immediate consumer,
         // T10. Resolution is done with the other path from T1, such
         // as T8 or T9.
@@ -1276,7 +1276,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
       case 6:
         // T6_l[ iS64{( ceilDiv(( ceilDiv(( 7 * 1 ), 5) ), 3) )}, iS65{3},
         // iS63{5} ] ca_pos( 1 ) produce_pos( 1 )
-        //  root domain : (iS11{7}, bS12{1})
+        //  producer projection : (iS11{7}, bS12{1})
         // Resolution: Resolved by the immediate consumer (T8)
         validateIELResolution(
             tv->getLogicalDomain().at(1),
@@ -1287,7 +1287,7 @@ TEST_F(IdModelTest, LoopPromotion6) {
       case 9:
         // T9_l[ iS33{( ceilDiv(( ceilDiv(( ( 7 * 1 ) * 13 ), 5) ), 3) )},
         // iS34{3}, iS32{5} ] produce_pos( 1 )
-        //  root domain : (iS17{7}, bS18{1}, iS19{13})
+        //  producer projection : (iS17{7}, bS18{1}, iS19{13})
         // Resolution: T9 is not inlined to the immediate consumer,
         // T10. Resolution is done with the other path from T1, such
         // as T4 or T5
@@ -1551,7 +1551,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
   tv4->split(0, 32);
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv2->inlineAt(1);
   tv3->inlineAt(1);
@@ -1576,7 +1576,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
     switch (tv->name()) {
       case 3:
         // T3_l[ iS15{( ceilDiv(( 1 * i0 ), 32) )}, iS16{32} ] ca_pos( 1 )
-        // produce_pos( 1 ) root domain : (bS4{1}, iS5{i0})
+        // produce_pos( 1 ) producer projection : (bS4{1}, iS5{i0})
         validateIELResolution(
             tv->getLogicalDomain().at(0),
             tv4->getLogicalDomain().at(0),
@@ -1685,7 +1685,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
   // [3, 3*5//2]
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv1->inlineAt(1);
   tv2->inlineAt(1);
@@ -1725,7 +1725,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
         break;
       case 5:
         // T5_l[ iS27{2}, iS40{4}, iS41{( ceilDiv(( ( ceilDiv(( 3 * 5 ), 2) ) *
-        // 1 ), 4) )} ] ca_pos( 2 ) produce_pos( 1 ) root domain : (iS8{3},
+        // 1 ), 4) )} ] ca_pos( 2 ) produce_pos( 1 ) producer projection : (iS8{3},
         // iS9{5}, bS10{1})
         validateIELResolution(
             tv->getLogicalDomain().at(2),
@@ -1886,7 +1886,7 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   tv4->merge(1, 2);
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   for (auto tv : {tv0, tv1, tv2, tv3}) {
     tv->inlineAt(1);
@@ -1990,7 +1990,7 @@ TEST_F(IdModelTest, LoopPromotionTwoStepFailureReproSimple) {
   t4->merge(-2, -1)->merge(-2, -1)->merge(-2, -1)->merge(-2, -1)->split(0, 4);
 
   TransformPropagatorWithCheck propagator(t4);
-  MaxRootDomainInfoSpanningTree(t4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(t4).traverse(&propagator);
 
   for (auto tv : ir_utils::allTvs(&fusion)) {
     tv->inlineAt(1);
@@ -2070,11 +2070,11 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   // Specifically, here are the tv10 and tv11 tensors:
   //
   // T10_l[ iS22{7}, iS23{8}, iS24{9} ] ca_pos( 3 )
-  // root domain : (iS22{7}, iS23{8}, iS24{9})
+  // producer projection : (iS22{7}, iS23{8}, iS24{9})
   // contiguity: t t t
   // loop domain : (iS22{7}, iS23{8}, iS24{9})
   // T11_g[ iS25{7}, iS26{8}, iS27{9} ] produce_pos( 3 )
-  // root domain : (iS25{7}, iS26{8}, iS27{9})
+  // producer projection : (iS25{7}, iS26{8}, iS27{9})
   // contiguity: t t t
   // loop domain : (iS25{7}, iS26{8}, iS27{9})
   //
@@ -2403,7 +2403,7 @@ TEST_F(IdModelTest, LoopGraphWithSibling) {
   avg->merge(0);
   avg->split(0, 8);
   TransformPropagatorWithCheck propagator(avg);
-  MaxRootDomainInfoSpanningTree(avg).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(avg).traverse(&propagator);
 
   IdModel id_model(&fusion);
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
@@ -2545,7 +2545,7 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
   // there is only one loop group.
   tv10->flatten();
   TransformPropagatorWithCheck propagator(tv10);
-  MaxRootDomainInfoSpanningTree(tv10).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv10).traverse(&propagator);
   inlineMost();
 
   IdModel id_model(&fusion);
@@ -2598,7 +2598,7 @@ TEST_F(IdModelTest, ParallelTypePropagation) {
 
   tv2->split(0, 4);
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
