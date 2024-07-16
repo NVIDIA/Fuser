@@ -10,7 +10,10 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
+#include <id_model/circular_buffer_indexing.h>
+#include <id_model/id_model_index_compute.h>
 #include <id_model/indexing.h>
+#include <id_model/indexing_utils.h>
 #include <id_model/to_string.h>
 #include <index_compute.h>
 #include <ir/builder.h>
@@ -695,139 +698,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::unordered_set<TensorView*> used_as_producer;
 };
 
-// Similar to IndexCompute but adapted for the graph-based indexing
-class IdGraphIndexCompute : public OptOutDispatch {
- public:
-  IdGraphIndexCompute(
-      const ValGraph& traversal_graph,
-      std::unordered_map<ValGroup, Val*> initial_index_map)
-      : traversal_graph_(traversal_graph),
-        index_map_(std::move(initial_index_map)) {}
-
-  // Propagate the index map through a given expr of a specified
-  // direction.
-  void propagate(const ExprGroup& expr_group, Direction direction) {
-    NVF_ERROR(!expr_group->empty());
-    // This looks a little ugly but the dispatch interface doesn't
-    // have a way to pass arguments
-    current_direction_ = direction;
-    dispatch(expr_group->front());
-    current_direction_ = Direction::Undefined;
-  }
-
-  const std::unordered_map<ValGroup, Val*> indexMap() const {
-    return index_map_;
-  }
-
- private:
-  using OptOutDispatch::handle;
-
-  void handle(Split* split) override;
-
-  void handle(Merge* merge) override;
-
-  void handle(Swizzle* swizzle) override;
-
-  bool isForward(Expr* expr) const;
-
-  bool hasIndex(IterDomain* id) const {
-    return indexMap().find(toGroup(id)) != indexMap().end();
-  }
-
-  Val* getIndex(IterDomain* id) const {
-    auto it = index_map_.find(toGroup(id));
-    NVF_ERROR(it != index_map_.end(), "Index not found: ", id->toString());
-    return it->second;
-  }
-
-  void setIndex(IterDomain* id, Val* idx) {
-    index_map_.emplace(toGroup(id), idx);
-  }
-
-  const ValGroup& toGroup(IterDomain* id) const {
-    return traversal_graph_.toGroup(id);
-  }
-
- private:
-  const ValGraph& traversal_graph_;
-  std::unordered_map<ValGroup, Val*> index_map_;
-  Direction current_direction_ = Direction::Undefined;
-};
-
-bool IdGraphIndexCompute::isForward(Expr* expr) const {
-  return current_direction_ == Direction::Forward;
-}
-
-void IdGraphIndexCompute::handle(Split* split) {
-  const bool is_forward = isForward(split);
-
-  auto inner_extent = split->inner()->extent();
-
-  if (is_forward) {
-    auto in_idx = getIndex(split->in());
-    auto outer_idx = SimplifyingIrBuilder::divExpr(in_idx, inner_extent);
-    Val* inner_idx = SimplifyingIrBuilder::modExpr(in_idx, inner_extent);
-    setIndex(split->outer(), outer_idx);
-    setIndex(split->inner(), inner_idx);
-  } else {
-    auto outer_idx = getIndex(split->outer());
-    auto inner_idx = getIndex(split->inner());
-    auto in_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(outer_idx, inner_extent), inner_idx);
-    setIndex(split->in(), in_idx);
-  }
-}
-
-void IdGraphIndexCompute::handle(Merge* merge) {
-  const bool is_forward = isForward(merge);
-
-  auto inner_ext = merge->inner()->extent();
-
-  if (is_forward) {
-    auto outer_idx = getIndex(merge->outer());
-    auto inner_idx = getIndex(merge->inner());
-    auto out_idx = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::mulExpr(inner_ext, outer_idx), inner_idx);
-    setIndex(merge->out(), out_idx);
-  } else {
-    auto out_idx = getIndex(merge->out());
-    auto outer_idx = SimplifyingIrBuilder::divExpr(out_idx, inner_ext);
-    setIndex(merge->outer(), outer_idx);
-    Val* inner_idx = SimplifyingIrBuilder::modExpr(out_idx, inner_ext);
-    setIndex(merge->inner(), inner_idx);
-  }
-}
-
-void IdGraphIndexCompute::handle(Swizzle* swizzle) {
-  const bool is_forward = isForward(swizzle);
-
-  auto x_ext = swizzle->inX()->extent();
-  auto y_ext = swizzle->inY()->extent();
-
-  if (is_forward) {
-    auto x_idx = getIndex(swizzle->inX());
-    auto y_idx = getIndex(swizzle->inY());
-    auto [result_x, result_y] =
-        dispatchUnSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
-    setIndex(swizzle->outX(), result_x);
-    setIndex(swizzle->outY(), result_y);
-  } else {
-    auto x_idx = getIndex(swizzle->outX());
-    auto y_idx = getIndex(swizzle->outY());
-    auto [result_x, result_y] =
-        dispatchSwizzle(swizzle->swizzleType(), x_idx, y_idx, x_ext, y_ext);
-    setIndex(swizzle->inX(), result_x);
-    setIndex(swizzle->inY(), result_y);
-  }
-}
-
-} // namespace
-
-TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
-  buildLoopIndexMap();
-}
-
-namespace {
 ParallelType getParallelType(const ValGroup& loop_group) {
   ParallelType common_pt = ParallelType::Serial;
   for (const auto val : *loop_group) {
@@ -850,7 +720,12 @@ ParallelType getParallelType(const ValGroup& loop_group) {
 
   return common_pt;
 }
+
 } // namespace
+
+TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
+  buildLoopIndexMap();
+}
 
 void TensorIndexer::buildLoopIndexMap() {
   if (id_model_.empty()) {
@@ -942,7 +817,8 @@ Val* TensorIndexer::getLoopIndex(IterDomain* loop_id) const {
 }
 
 std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
-    const std::vector<IterDomain*>& loop_domains) const {
+    const std::vector<IterDomain*>& loop_domains,
+    const std::vector<ForLoop*>& for_loops) const {
   std::unordered_map<ValGroup, Val*> initial_index_map;
 
   // For a given list of the loop domains, assign its corresponding
@@ -966,6 +842,12 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
       continue;
     }
 
+    // War for circular buffering
+    if (auto circular_buffer_loop_index =
+            getLoopIndexOfCircularBufferLoop(loop_id, for_loops, id_model_)) {
+      loop_index = circular_buffer_loop_index;
+    }
+
     initial_index_map.emplace(almost_exact_group, loop_index);
   }
 
@@ -974,10 +856,12 @@ std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
 
 std::vector<Val*> TensorIndexer::getIndexFor(
     const Expr* expr,
-    const ValGroups& index_groups) const {
-  auto info = computeIndex(expr, index_groups);
-  const auto& replacement_map =
-      getIndexReplacementMap(info.loop_domains, info.index_map);
+    bool as_consumer,
+    const ValGroups& index_groups,
+    const std::vector<ForLoop*>& for_loops) const {
+  auto info = computeIndex(expr, index_groups, for_loops);
+  const auto& replacement_map = getIndexReplacementMap(
+      expr, as_consumer, info.loop_domains, for_loops, info.index_map);
 
   std::vector<Val*> result;
   result.reserve(index_groups.size());
@@ -991,7 +875,10 @@ std::vector<Val*> TensorIndexer::getIndexFor(
   return result;
 }
 
-Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
+Val* TensorIndexer::getLinearIndex(
+    TensorView* tv,
+    const Expr* expr,
+    const std::vector<ForLoop*>& for_loops) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -1004,10 +891,17 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
       " not found in ",
       expr->toString());
 
+  const bool as_consumer =
+      std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
+      expr->outputs().end();
+
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
-  auto indices =
-      getIndexFor(expr, traversalGraph().toGroups(alloc_info.domains));
+  auto indices = getIndexFor(
+      expr,
+      as_consumer,
+      traversalGraph().toGroups(alloc_info.domains),
+      for_loops);
   NVF_ERROR(indices.size() == alloc_info.domains.size());
 
   // Linearize the indices with strides.
@@ -1017,6 +911,14 @@ Val* TensorIndexer::getLinearIndex(TensorView* tv, const Expr* expr) const {
     Val* stride = alloc_info.strides.at(i);
     index = SimplifyingIrBuilder::addExpr(
         index, SimplifyingIrBuilder::mulExpr(indices.at(i), stride));
+  }
+
+  // If a tensor is circular buffered, it also requires indexing of
+  // the circular buffer itself
+  if (tv->isCircularBuffered()) {
+    auto circular_buffer_offset =
+        getOffsetForCircularBufferTensor(tv, as_consumer, for_loops);
+    index = SimplifyingIrBuilder::addExpr(index, circular_buffer_offset);
   }
 
   return index;
@@ -1038,15 +940,16 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
-    const ValGroups& index_groups) const {
+    const ValGroups& index_groups,
+    const std::vector<ForLoop*>& for_loops) const {
   const auto loop_domains = getLoopDomains(expr);
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
-  const ExprPath traversal_path =
-      ValGraphBFS::getExprsBetween(traversalGraph(), loop_groups, index_groups);
+  const ExprPath traversal_path = IndexingTraversal::getExprsBetween(
+      expr, traversalGraph(), loop_groups, index_groups);
 
   const std::unordered_map<ValGroup, Val*> initial_index_map =
-      getInitialIndexMap(loop_domains);
+      getInitialIndexMap(loop_domains, for_loops);
 
   IdGraphIndexCompute index_compute(traversalGraph(), initial_index_map);
 
@@ -1059,24 +962,55 @@ IndexingInfo TensorIndexer::computeIndex(
 }
 
 std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
+    const Expr* expr,
+    bool as_consumer,
     const std::vector<IterDomain*>& loop_domains,
+    const std::vector<ForLoop*>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
-    // Replace the index of a vectorized/bulk domain with zero. Note that
-    // vectorized domains may need to use N-1, where N is the extent
-    // of the domain, for predication, so the replacement is not
-    // always done with zero.
-    if (loop_id->getParallelType() != ParallelType::Vectorize &&
-        loop_id->getParallelType() != ParallelType::Bulk) {
-      continue;
-    }
     const ValGroup& loop_group = traversalGraph().toGroup(loop_id);
     auto index_it = index_map.find(loop_group);
     NVF_ERROR(index_it != index_map.end());
     Val* cur_index = index_it->second;
-    replacement_map.emplace(cur_index, cur_index->fusion()->zeroVal());
+    NVF_ERROR(cur_index != nullptr);
+
+    Val* replacement_index = nullptr;
+    // Replace the index of a vectorized/bulk domain with zero. Note that
+    // vectorized domains may need to use N-1, where N is the extent
+    // of the domain, for predication, so the replacement is not
+    // always done with zero.
+    if (loop_id->getParallelType() == ParallelType::Vectorize ||
+        loop_id->getParallelType() == ParallelType::Bulk) {
+      replacement_index = loop_id->fusion()->zeroVal();
+    } else {
+      ForLoop* for_loop = indexing_utils::getForLoop(
+          loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
+
+      // for_loop is nullptr if no matching loop is found, which
+      // happens when loop_id is a reduction domain and this loop-nest
+      // is for initializing the reduction buffer.
+      if (for_loop != nullptr) {
+        // If this for-loop is a circular buffer loop, the loop index
+        // may need to have an additional offset
+        if (!as_consumer) {
+          if (auto circular_buffer_offset =
+                  getLoopIndexOffsetForProducerOfCircularBuffer(
+                      expr, for_loop, id_model_)) {
+            replacement_index = SimplifyingIrBuilder::addExpr(
+                replacement_index != nullptr ? replacement_index : cur_index,
+                circular_buffer_offset);
+          }
+        }
+      }
+    }
+
+    if (replacement_index == nullptr || replacement_index == cur_index) {
+      continue;
+    }
+
+    replacement_map.emplace(cur_index, replacement_index);
   }
 
   return replacement_map;
