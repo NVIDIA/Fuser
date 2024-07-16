@@ -1395,4 +1395,36 @@ TEST_F(AliasTest, SegmentMetaOps) {
   }
 }
 
+TEST_F(AliasTest, StackedAliases) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigConcreteTensor({2, 3});
+  TensorView* tv1 = slice(tv0, {0, 0}, {2, 3});
+  // slice introduce a segment here
+  TensorView* tv2 = slice(tv1, {0, 0}, {2, 3});
+  TensorView* tv3 = segment_set(tv2);
+  // segment_set adds a segment
+  TensorView* tv4 = relu(tv3);
+  // slice introduce a segment here
+  TensorView* tv5 = slice(tv4, {0, 0}, {2, 3});
+  TensorView* tv6 = broadcast(tv5, {false, true, false});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv6);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::PointWise),
+          HeuristicIs(ScheduleHeuristic::NoOp)));
+}
+
 } // namespace nvfuser
