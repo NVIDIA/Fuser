@@ -157,8 +157,6 @@ For this case, we call this box dimension "implicit whole".
 
 ##### Define box by rotation
 
-TODO: this is not implemented yet
-
 The name "rotation" comes from [tree rotation](https://en.wikipedia.org/wiki/Tree_rotation).
 According to Theorem 2.1 in [The Mathematical Theory of IterDomain](../reading/iterdomain.md),
 the IterDomain transformations in the Figure 7 below are equivalent:

@@ -44,7 +44,8 @@ std::string getSerdeTmpFile() {
 
 std::string getSerdeFile(std::optional<int64_t> device_id) {
   auto device_prop = (device_id.has_value())
-      ? at::cuda::getDeviceProperties(device_id.value())
+      ? at::cuda::getDeviceProperties(
+            static_cast<c10::DeviceIndex>(device_id.value()))
       : at::cuda::getCurrentDeviceProperties();
   int cuda_major = 0;
   int cuda_minor = 0;
@@ -114,7 +115,8 @@ const serde::FusionCache* verifyFusionCache(
 
   // Check device major and minor versions
   auto device_prop = (device_id.has_value())
-      ? at::cuda::getDeviceProperties(device_id.value())
+      ? at::cuda::getDeviceProperties(
+            static_cast<c10::DeviceIndex>(device_id.value()))
       : at::cuda::getCurrentDeviceProperties();
   NVF_CHECK(
       device_prop->major == fusion_cache_buffer->device_major() &&
@@ -186,6 +188,34 @@ FusionCache* FusionCache::singleton_ = nullptr;
 UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
   schedule = std::make_unique<Fusion>();
   executor = std::make_unique<FusionExecutor>();
+}
+
+bool UserSchedule::canSchedule(const ScheduleHeuristic& heuristic) {
+  return SchedulerEntry::canSchedule(heuristic, fusion(), *runtimeInfo());
+}
+
+std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
+    const ScheduleHeuristic& heuristic) {
+  // Enable collection of messages from canScheduleRejectReason
+  DebugDumpOptionsGuard debug_dump_options_guard;
+  DebugDumpOptionsGuard::getCurOptions().set(
+      DebugDumpOption::FusionSegmenterLog);
+
+  // Send debug messages to stringstream
+  std::stringstream ss;
+  DebugStreamGuard dsg(ss);
+
+  bool can_schedule = canSchedule(heuristic);
+  return std::make_tuple(can_schedule, ss.str());
+}
+
+void UserSchedule::scheduleWithHeuristic(const ScheduleHeuristic& heuristic) {
+  NVF_CHECK(
+      heuristic_scheduler == nullptr,
+      "Heuristic Scheduler is already defined for this UserSchedule");
+  heuristic_scheduler =
+      SchedulerEntry::makeEntry(heuristic, fusion(), *runtimeInfo());
+  heuristic_scheduler->schedule(fusion());
 }
 
 FusionSchedules::FusionSchedules(int64_t fusion_id)
