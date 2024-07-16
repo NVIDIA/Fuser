@@ -29,8 +29,9 @@ struct TrieNode;
 
 NVF_API const char* dtypeToPyString(PrimDataType t);
 
-//! The Tensor and Scalar classes are used to define separate function signtures
-//! in the FusionDefinition to identify the appropriate Operator function.
+//! The Tensor and Scalar classes are used to define separate function
+//! signatures in the FusionDefinition to identify the appropriate Operator
+//! function.
 //!
 //! Example:
 //!
@@ -173,7 +174,7 @@ class NVF_API FusionDefinition : public FusionState {
   //! Composite operations can create hidden TensorViews in the CPP fusion
   //! These TensorViews are not visible from python definition. This function
   //! finds and adds them to FusionDefinition
-  void findMissingTensorViews(Fusion* fusion);
+  void findHiddenTensorViews(Fusion* fusion);
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
   NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);

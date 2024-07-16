@@ -107,7 +107,7 @@ void FusionDefinition::finalizeDefinition() {
   }
 }
 
-void FusionDefinition::findMissingTensorViews(Fusion* fusion) {
+void FusionDefinition::findHiddenTensorViews(Fusion* fusion) {
   NVF_ERROR(fusion != nullptr);
 
   // Filter Tensor states
@@ -179,8 +179,8 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
       /*precomuted_values=*/nullptr,
       ir_utils::allTvs(user_schedule_fusion));
 
-  // Add missing TensorViews from CPP Fusion to Python FusionDefinition
-  findMissingTensorViews(user_sched_->schedule.get());
+  // Add TensorViews from CPP Fusion to Python FusionDefinition
+  findHiddenTensorViews(user_sched_->schedule.get());
 
   // Manually setting the fusion guard as there is not a good way of using a
   // guard in a local scope across the schedule function
