@@ -16,7 +16,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <linked_hash_map.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 namespace nvfuser {
 
@@ -41,7 +41,7 @@ class AliasFinder : public OptOutConstDispatch {
 
  private:
   // A helper function used to compute the perferred output layout. It computes
-  // the mapping from `in_logical` to `out_root` and applies that mapping to
+  // the mapping from `in_logical` to `out_producer_projection` and applies that mapping to
   // `preferred_in_layout`. For many ops, this function returns a good initial
   // preferred output layout for aliasing because it tries to preserve the input
   // layout. An op (e.g. ViewOp and SliceOp) that transforms root to logical
@@ -50,7 +50,7 @@ class AliasFinder : public OptOutConstDispatch {
   //
   // Returns `nullopt` if computation fails, so the caller can handle things
   // conservatively.
-  static std::optional<Layout> mapInLayoutToOutRoot(
+  static std::optional<Layout> mapInLayoutToOutProducerProjection(
       const Layout& preferred_in_layout,
       TensorView* in,
       TensorView* out);
@@ -130,7 +130,7 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
   return {false, std::nullopt};
 }
 
-/*static*/ std::optional<Layout> AliasFinder::mapInLayoutToOutRoot(
+/*static*/ std::optional<Layout> AliasFinder::mapInLayoutToOutProducerProjection(
     const Layout& preferred_in_layout,
     TensorView* in,
     TensorView* out) {
@@ -139,22 +139,22 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
            .has_value()) {
     // Give up when `in`'s allocation domain is not an logical permutation. As
     // an extension, we could map in_alloc to in_logical and apply the inverse
-    // mapping to out_root.
+    // mapping to out_producer_projection.
     return std::nullopt;
   }
 
-  std::unordered_map<IterDomain*, IterDomain*> in_logical_to_out_root =
-      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
+  std::unordered_map<IterDomain*, IterDomain*> in_logical_to_out_producer_projection =
+      PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
 
   Layout preferred_out_layout;
   for (const auto i : c10::irange(preferred_in_layout.size())) {
     IterDomain* in_alloc_id = preferred_in_layout.allocation_domain[i];
-    IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
-    if (out_root_id == nullptr) {
+    IterDomain* out_producer_projection_id = getOrDefault(in_logical_to_out_producer_projection, in_alloc_id);
+    if (out_producer_projection_id == nullptr) {
       // This can happen when in_alloc_id is of type reduction or squeezed out.
       continue;
     }
-    preferred_out_layout.allocation_domain.push_back(out_root_id);
+    preferred_out_layout.allocation_domain.push_back(out_producer_projection_id);
     preferred_out_layout.contiguity.push_back(
         preferred_in_layout.contiguity[i]);
   }
@@ -167,34 +167,34 @@ void AliasFinder::handle(const ViewOp* view) {
 
   // Collect the allocation order of `in`'s logical domain and thus `out`'s root
   // domain.
-  std::optional<Layout> out_root_layout =
-      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
-  if (!out_root_layout.has_value()) {
+  std::optional<Layout> out_producer_projection_layout =
+      mapInLayoutToOutProducerProjection(analysis_.preferredLayout(in), in, out);
+  if (!out_producer_projection_layout.has_value()) {
     return;
   }
 
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
-  for (const auto i : c10::irange(out_root_layout->size())) {
-    if (!out_root_layout->contiguity[i].has_value() &&
-        !out_root_layout->allocation_domain[i]->isBroadcast()) {
-      // TODO(#1126): Due to #1126, `out_root` materializes an expanded
+  for (const auto i : c10::irange(out_producer_projection_layout->size())) {
+    if (!out_producer_projection_layout->contiguity[i].has_value() &&
+        !out_producer_projection_layout->allocation_domain[i]->isBroadcast()) {
+      // TODO(#1126): Due to #1126, `out_producer_projection` materializes an expanded
       // broadcast IterDomain from `in_logical` when `view` splits or merges
       // that IterDomain. We return no alias when this happen; otherwise
       // AliasTest.MergeBroadcastsBetweenConcretes would fail.
       return;
     }
     allocation_to_contiguity.pushBack(
-        out_root_layout->allocation_domain[i], out_root_layout->contiguity[i]);
+        out_producer_projection_layout->allocation_domain[i], out_producer_projection_layout->contiguity[i]);
   }
 
-  // Replay `Expr`s from `out_root` to `out_logical` on
+  // Replay `Expr`s from `out_producer_projection` to `out_logical` on
   // `allocation_to_contiguity`. Stop when an `Expr` requires a data copy;
   // otherwise generate the allocation order of `out_logical` and the
   // corresponding contiguity flags.
-  const std::vector<IterDomain*>& out_root = out->getRootDomain();
+  const std::vector<IterDomain*>& out_producer_projection = out->getProducerProjection();
   const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   for (Expr* transform : DependencyCheck::getAllExprsBetween(
-           {out_root.begin(), out_root.end()},
+           {out_producer_projection.begin(), out_producer_projection.end()},
            {out_logical.begin(), out_logical.end()})) {
     if (Split* split = dynamic_cast<Split*>(transform)) {
       const auto [contiguity, split_i] =
@@ -260,12 +260,12 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   // 1. Construct the map from `in`'s logical to `out`'s root:
   // {i0->i3,i1->i4,i2->i5}.
   // 2. Apply the map to `in`'s allocation and get [i5,i3,i4].
-  std::optional<Layout> out_root_layout =
-      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
-  if (!out_root_layout.has_value()) {
+  std::optional<Layout> out_producer_projection_layout =
+      mapInLayoutToOutProducerProjection(analysis_.preferredLayout(in), in, out);
+  if (!out_producer_projection_layout.has_value()) {
     return;
   }
-  analysis_.add(out, in, std::move(*out_root_layout));
+  analysis_.add(out, in, std::move(*out_producer_projection_layout));
 }
 
 // For future improvement, a PadOp with negative padding amount can also be
@@ -275,20 +275,20 @@ void AliasFinder::handle(const SliceOp* slice) {
   TensorView* out = slice->out();
 
   std::optional<Layout> out_layout =
-      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
+      mapInLayoutToOutProducerProjection(analysis_.preferredLayout(in), in, out);
   if (!out_layout.has_value()) {
     return;
   }
 
-  const std::vector<IterDomain*>& out_root = out->getRootDomain();
-  std::unordered_map<IterDomain*, IterDomain*> out_root_to_logical;
+  const std::vector<IterDomain*>& out_producer_projection = out->getProducerProjection();
+  std::unordered_map<IterDomain*, IterDomain*> out_producer_projection_to_logical;
   {
     const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
-    const auto out_rank = out_root.size();
+    const auto out_rank = out_producer_projection.size();
     NVF_ERROR(out_logical.size() == out_rank);
-    out_root_to_logical.reserve(out_rank);
+    out_producer_projection_to_logical.reserve(out_rank);
     for (auto i : c10::irange(out_rank)) {
-      out_root_to_logical[out_root[i]] = out_logical[i];
+      out_producer_projection_to_logical[out_producer_projection[i]] = out_logical[i];
     }
   }
 
@@ -306,7 +306,7 @@ void AliasFinder::handle(const SliceOp* slice) {
     IterDomain*& alloc_id = out_layout->allocation_domain[i];
     std::optional<bool>& contiguity = out_layout->contiguity[i];
 
-    alloc_id = out_root_to_logical.at(alloc_id);
+    alloc_id = out_producer_projection_to_logical.at(alloc_id);
 
     if (alloc_id->isBroadcast()) {
       // A broadcast dimension may be a slicing product as well. So, don't
@@ -319,7 +319,7 @@ void AliasFinder::handle(const SliceOp* slice) {
 
     // Set `next_non_broadcast_is_non_contiguous` if this dimension is sliced.
     std::vector<Expr*> dependencies = DependencyCheck::getAllExprsBetween(
-        {out_root.begin(), out_root.end()}, {alloc_id});
+        {out_producer_projection.begin(), out_producer_projection.end()}, {alloc_id});
     if (std::find_if(
             dependencies.begin(), dependencies.end(), [](const Expr* expr) {
               return expr->isA<Resize>();
@@ -340,7 +340,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   auto* out = bcast->out()->as<TensorView>();
 
   std::optional<Layout> out_layout =
-      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
+      mapInLayoutToOutProducerProjection(analysis_.preferredLayout(in), in, out);
   if (!out_layout.has_value()) {
     return;
   }
@@ -366,7 +366,7 @@ void AliasFinder::handle(const SqueezeOp* squeeze) {
 
   // Preserve the allocation order of existing dimensions.
   std::optional<Layout> out_layout =
-      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
+      mapInLayoutToOutProducerProjection(analysis_.preferredLayout(in), in, out);
   if (!out_layout.has_value()) {
     return;
   }
@@ -383,7 +383,7 @@ void AliasFinder::handle(const ExpandOp* expand) {
 
   // Preserve the allocation order of existing dimensions.
   std::optional<Layout> out_layout =
-      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
+      mapInLayoutToOutProducerProjection(analysis_.preferredLayout(in), in, out);
   if (!out_layout.has_value()) {
     return;
   }

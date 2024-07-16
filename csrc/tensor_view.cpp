@@ -218,7 +218,7 @@ int64_t getConsumerPosAlignedToProducerCA(
 
   auto disjoint_sets =
       BestEffortReplay::replayPasC(
-          producer, consumer, -1, PairwiseRootDomainMap(producer, consumer))
+          producer, consumer, -1, PairwiseLogicalDomainMap(producer, consumer))
           .getIterDomainEquivalence();
 
   // Find the innermost position of consumer that has
@@ -768,7 +768,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
       this,
       " its definition is either a nullptr or not a reduction.");
   NVF_CHECK(
-      !domain()->hasRoot(), "Cannot call rfactor on the same view twice.");
+      !domain()->hasProducerProjection(), "Cannot call rfactor on the same view twice.");
 
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
@@ -898,7 +898,7 @@ std::vector<TensorView*> TensorView::rFactor(
       " its definition is either a nullptr or not a GroupedReductionOp or a multi-output reduction op.");
 
   NVF_CHECK(
-      !domain()->hasRoot(), "Cannot call rfactor on the same view twice.");
+      !domain()->hasProducerProjection(), "Cannot call rfactor on the same view twice.");
 
   NVF_CHECK(
       definition()->outputs().size() == tvs.size(),
@@ -1019,7 +1019,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       container(),
       IrBuilder::createInContainer<TensorDomain>(
           container(),
-          getRootDomain(),
+          getProducerProjection(),
           getLogicalDomain(),
           getAllocationDomain(),
           getLoopDomain(),
@@ -1233,7 +1233,7 @@ void TensorView::setMemoryType(MemoryType mt) {
 
 void TensorView::clearReductionIterDomains() {
   NVF_ERROR(
-      !domain()->hasRoot(),
+      !domain()->hasProducerProjection(),
       "should not call clearReductionIterDomains on rfactor tv");
 
   NVF_ERROR(
@@ -1333,7 +1333,7 @@ void TensorView::commitLeafToLogical() {
       "Changing the logical domain of an intermediate tensor is not supported yet");
   setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
-      domain_->maybeRoot(),
+      domain_->projectToProducer(),
       domain_->loop(),
       domain_->allocation(),
       domain_->loop(),

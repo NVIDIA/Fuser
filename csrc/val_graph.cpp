@@ -677,9 +677,9 @@ std::optional<SelfMapping> hasSelfMapping(
         .id1 = mapped->first, .id2 = mapped->second, .where = "Logical"};
   }
 
-  // Root domains
-  if (tv->hasRoot()) {
-    mapped = detectSelfMapping(tv->getRootDomain(), id_graph);
+  // producer projections
+  if (tv->hasProducerProjection()) {
+    mapped = detectSelfMapping(tv->getProducerProjection(), id_graph);
     if (mapped.has_value()) {
       return SelfMapping{
           .id1 = mapped->first, .id2 = mapped->second, .where = "Root"};

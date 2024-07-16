@@ -72,7 +72,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //! Returns sizes of tensor dimensions in same order as allocation domain,
   //! ignoring any IterType::Reduction domains in the allocation domain. This
   //! only works for complete Fusion inputs whose allocation domain is a
-  //! permutation of their root domain and will raise an exception otherwise.
+  //! permutation of their producer projection and will raise an exception otherwise.
   const std::vector<int64_t>& getInputAllocationSizes(TensorView* tv) const {
     NVF_ERROR(
         isInputTv(tv),
@@ -87,7 +87,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
 
   //! Returns strides of tensor in same order as allocation domain, in elements
   //! instead of bytes. Only works for complete Fusion inputs whose allocation
-  //! domain is a permutation of their root domain and will raise an exception
+  //! domain is a permutation of their producer projection and will raise an exception
   //! otherwise.
   const std::vector<int64_t>& getInputAllocationStrides(TensorView* tv) const {
     NVF_ERROR(

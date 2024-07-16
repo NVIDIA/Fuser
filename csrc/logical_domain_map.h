@@ -16,7 +16,7 @@
 
 namespace nvfuser {
 
-//! Generic interface for mapping root domains of a producer-consumer pair.
+//! Generic interface for mapping producer projections of a producer-consumer pair.
 class RootDomainMap : public PolymorphicBase {
  public:
   //! Return a map from a producer TensorDomain to a consumer
@@ -24,7 +24,7 @@ class RootDomainMap : public PolymorphicBase {
   //!
   //! \param producer A producer TensorDomain
   //! \param consumer A consumer TensorDomain
-  //! \param root_dims_to_map Maps only producer root domains in this set
+  //! \param root_dims_to_map Maps only producer producer projections in this set
   std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
       const TensorDomain* producer,
       const TensorDomain* consumer,
@@ -44,7 +44,7 @@ class RootDomainMap : public PolymorphicBase {
   //!
   //! \param consumer A consumer TensorDomain
   //! \param producer A producer TensorDomain
-  //! \param root_dims_to_map Maps only consumer root domains in this set
+  //! \param root_dims_to_map Maps only consumer producer projections in this set
   std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
       const TensorDomain* consumer,
       const TensorDomain* producer,
@@ -74,13 +74,13 @@ class RootDomainMap : public PolymorphicBase {
       bool producer_to_consumer) const = 0;
 };
 
-//! Maps root domains of a producer-consumer pair. This class only
+//! Maps producer projections of a producer-consumer pair. This class only
 //! looks at the given pair of TensorViews and does not take into
 //! consideration the constraints of the computeAt transformation,
 //! i.e., unable to compute the same tensors multiple times. This
 //! should not be used for transformations implementing computeAt, but
 //! should be valid otherwise.
-class NVF_API PairwiseRootDomainMap : public RootDomainMap {
+class NVF_API PairwiseLogicalDomainMap : public RootDomainMap {
  public:
   //! When require_same_extent is false, domains that may have
   //! different extents are also mapped. For example, IDs of lookup
@@ -90,11 +90,11 @@ class NVF_API PairwiseRootDomainMap : public RootDomainMap {
   //!
   //! \param producer The producer tensor of a producer-consumer pair.
   //! \param consumer The consumer tensor of a producer-consumer pair.
-  explicit PairwiseRootDomainMap(
+  explicit PairwiseLogicalDomainMap(
       const TensorView* producer,
       const TensorView* consumer);
 
-  PairwiseRootDomainMap& mapBroadcast(bool b) {
+  PairwiseLogicalDomainMap& mapBroadcast(bool b) {
     map_broadcast_ = b;
     return *this;
   }
@@ -102,17 +102,17 @@ class NVF_API PairwiseRootDomainMap : public RootDomainMap {
   //! If b is true: map symbolic domains with other IterDomains even if their
   //! extents don't match. If b is false (default): map symbolic domains with
   //! other IterDomains only if their extents match.
-  PairwiseRootDomainMap& mapSymbolic(bool b) {
+  PairwiseLogicalDomainMap& mapSymbolic(bool b) {
     map_symbolic_ = b;
     return *this;
   }
 
-  PairwiseRootDomainMap& mapDifferentExtents(bool b) {
+  PairwiseLogicalDomainMap& mapDifferentExtents(bool b) {
     map_different_extents_ = b;
     return *this;
   }
 
-  PairwiseRootDomainMap& mapIndexedDomains(bool b) {
+  PairwiseLogicalDomainMap& mapIndexedDomains(bool b) {
     map_indexed_domains_ = b;
     return *this;
   }
@@ -163,13 +163,13 @@ class NVF_API PairwiseRootDomainMap : public RootDomainMap {
 };
 
 //! Represents an iteration domain of a TensorDomain. Only used for
-//! root domain mapping.
+//! producer projection mapping.
 //!
 //! Note that an IterDomain object may be reused
 //! across multiple TensorDomains, but an IterDomain in a
 //! TensorDomain may not be necessarily mappable to the same
 //! IterDomain used in a different TensorDomain. Thus, for the purpose
-//! of root domain mapping, an iteration domain needs to be identified
+//! of producer projection mapping, an iteration domain needs to be identified
 //! with an IterDomain and its TensorDomain.
 class DomainKey {
  public:
@@ -231,7 +231,7 @@ class UnmappableReductionDomains : private IterVisitor {
   //! reduction output domain to be mapped with a consumer domain of
   //! the redution. It needs to be avoided as computing consumers of
   //! reduction outputs within the corresponding reduction loop is not
-  //! possible. This routine is used to build root domain mappings.
+  //! possible. This routine is used to build producer projection mappings.
   bool isReductionOutputMapped(
       const DomainKeySet& consumer_domains,
       const ComputeAtRootDomainMap& root_map) const;
@@ -321,9 +321,9 @@ class NVF_API ComputeAtRootDomainMap : public RootDomainMap {
   //! mapped to multiple domains, which can happen with views.
   //!
   //! \param from_td A TensorDomain from which a map is created
-  //! \param from_root A root domain of from_td
+  //! \param from_root A producer projection of from_td
   //! \param to_td A TensorDomain to which a map is created
-  //! \param to_root A root domain of to_td
+  //! \param to_root A producer projection of to_td
   std::unordered_map<IterDomain*, IterDomain*> mapBestEffort(
       const TensorDomain* from_td,
       const std::vector<IterDomain*>& from_root,
@@ -548,7 +548,7 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
   bool map_through_reduction_ = false;
 };
 
-//! Maps root domains of an entire fusion. Does not map broadcast
+//! Maps producer projections of an entire fusion. Does not map broadcast
 //! domains with non-broadcast domains.
 class NVF_API ExactRootDomainMap : public RootDomainMap {
  public:

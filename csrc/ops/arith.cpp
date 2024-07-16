@@ -1154,7 +1154,7 @@ static TensorView* newForReduction(
       *(axes_set.rbegin()),
       ") is outside nDims (",
       orig_domain.size(),
-      "). Keep in mind reductions are relative to root domains, not modified views.");
+      "). Keep in mind reductions are relative to producer projections, not modified views.");
 
   auto axis_iter = axes_set.begin();
   for (const auto dim : c10::irange(orig_domain.size())) {
@@ -2312,7 +2312,7 @@ static TensorView* newForMma(
       *(axes_set.rbegin()),
       ") is outside nDims (",
       orig_domain_a.size(),
-      "). Keep in mind reductions are relative to root domains, not modified views.");
+      "). Keep in mind reductions are relative to producer projections, not modified views.");
 
   auto axis_iter = axes_set.begin();
   for (const auto dim : c10::irange(orig_domain_a.size())) {

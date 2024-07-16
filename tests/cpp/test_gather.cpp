@@ -532,7 +532,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
   tv4->split(1, 10);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   // All of the tensors should have the split by 2, except for tv1.
   for (auto tv : ir_utils::allTvsExcept(&fusion, {tv1})) {

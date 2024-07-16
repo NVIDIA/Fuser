@@ -295,7 +295,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   int break_point = 0;
 
   // If break_point, mark if BIDy and BIDx should be positionally reversed
-  // relative to root domains
+  // relative to producer projections
   bool flip_grid_binding = false;
 
   // Elements on the right of break point (without break point all are on the
@@ -851,7 +851,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   }
 
   TransformPropagator propagator(reference_tv);
-  MaxRootDomainInfoSpanningTree spanning_tree(reference_tv);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(reference_tv);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv);
 

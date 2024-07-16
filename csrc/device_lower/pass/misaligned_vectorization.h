@@ -59,7 +59,7 @@ namespace nvfuser {
 //!     shift_init = vector_size - offset_size
 //!     shift = (shift_init == vector_size) ? 0 : shift_init
 //!
-//!     // size of the last root domain
+//!     // size of the last producer projection
 //!     extent = ...
 //!     remainder = (extent - shift) % vector_size
 //!

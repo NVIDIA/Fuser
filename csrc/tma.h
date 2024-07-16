@@ -30,7 +30,7 @@
 //   smem_tensor = gmem_tensor[i:i+16:2, j:j+32:1]
 // Or in the language of affine transformations, the gmem_tensor must be
 // transformed as:
-//   root domain: [I1, I2]
+//   producer projection: [I1, I2]
 //         split: [I1/16, 16, I2]
 //         split: [I1/16, 8, 2, I2]
 //         split: [I1/16, 8, 2, I2/32, 32]

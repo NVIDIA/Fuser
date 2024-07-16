@@ -180,10 +180,10 @@ bool CancelSplitCat::sameIterDomainTransforms(
     // Map pads[i0].root[cat_axis] and pads[i1].root[cat_axis]. Other axes were
     // already mapped due to the `cat` when the IdModel was built.
     const std::vector<IterDomain*>& first_root =
-        pads[0]->out()->as<TensorView>()->getMaybeRootDomain();
+        pads[0]->out()->as<TensorView>()->projectToProducer();
     for (size_t i = 1; i < pads.size(); i++) {
       const std::vector<IterDomain*>& other_root =
-          pads[i]->out()->as<TensorView>()->getMaybeRootDomain();
+          pads[i]->out()->as<TensorView>()->projectToProducer();
       NVF_ERROR(first_root.size() == other_root.size());
       exact_graph.mapVals(first_root[cat_axis], other_root[cat_axis]);
     }
@@ -258,9 +258,9 @@ TensorView* slicesFormSplit(
 
     // Check only the split axis is sliced.
     for (auto j : c10::irange(
-             static_cast<int64_t>(slice->out()->getMaybeRootDomain().size()))) {
+             static_cast<int64_t>(slice->out()->projectToProducer().size()))) {
       const bool sliced =
-          (slice->out()->getMaybeRootDomain()[j] !=
+          (slice->out()->projectToProducer()[j] !=
            slice->out()->getLogicalDomain()[j]);
       if ((j == split_axis) != sliced) {
         return nullptr;
@@ -439,7 +439,7 @@ TensorView* CancelSplitCat::findCancelingSplit(
 
   cat_axis = computeCatAxisAfterZipping(
       slices[0]->out()->getLogicalDomain(),
-      pads[0]->out()->as<TensorView>()->getMaybeRootDomain()[cat_axis]);
+      pads[0]->out()->as<TensorView>()->projectToProducer()[cat_axis]);
   if (cat_axis == -1) {
     return nullptr;
   }

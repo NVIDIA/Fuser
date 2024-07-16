@@ -191,7 +191,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
         parent_scope_ite->thenBody(), shift_val, "shift");
 
     // >>>>>>>>>>>>>
-    // Get full extent for the inner-most, merged root domain
+    // Get full extent for the inner-most, merged producer projection
     auto extent = getVectorizeExtent(tensors.in_tv, tensors.out_tv);
 
     // remainder = (extent - shift) % vector_size
@@ -328,7 +328,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     // All expressions are placed at the beginning of the new for-loop
     copyExprsExceptForLoops(parent_for_loop, new_parent_for_loop);
 
-    // Get the predicate for all but the last root domain
+    // Get the predicate for all but the last producer projection
     auto pred_except_last_root_domain = IrBuilder::create<kir::Predicate>(
         PredicateType::Misaligned,
         vectorized_expr,
@@ -340,7 +340,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     auto constants = createVectorizeConstants(
         for_loop_structure, reference_tensors, pred_ite);
 
-    // The last root domain is divided into three sections.
+    // The last producer projection is divided into three sections.
     // | Initial - N/A Shift | Vectorize - Shift | Remainder - Shift |
 
     // Vectorized set operation with vectorize shift
@@ -468,10 +468,10 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
     return nullptr;
   }
 
-  // Get full extent for the inner-most, merged root domain
+  // Get full extent for the inner-most, merged producer projection
   Val* getVectorizeExtent(TensorView* producer_tv, TensorView* consumer_tv) {
     auto p2c =
-        PairwiseRootDomainMap(producer_tv, consumer_tv).mapProducerToConsumer();
+        PairwiseLogicalDomainMap(producer_tv, consumer_tv).mapProducerToConsumer();
 
     auto consumer_root_right_of_ca_domains = IterVisitor::getInputsTo(
         {consumer_tv->getLoopDomain().begin() +

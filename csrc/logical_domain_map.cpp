@@ -10,7 +10,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <ops/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <sstream>
 
@@ -46,11 +46,11 @@ std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::
         const TensorDomain* consumer,
         const TensorDomain* producer) const {
   std::unordered_set<IterDomain*> root_dims_to_map(
-      consumer->maybeRoot().begin(), consumer->maybeRoot().end());
+      consumer->projectToProducer().begin(), consumer->projectToProducer().end());
   return mapConsumerToProducer(consumer, producer, root_dims_to_map);
 }
 
-PairwiseRootDomainMap::PairwiseRootDomainMap(
+PairwiseLogicalDomainMap::PairwiseLogicalDomainMap(
     const TensorView* producer,
     const TensorView* consumer)
     : producer_tv_(producer), consumer_tv_(consumer) {
@@ -99,7 +99,7 @@ std::pair<IterDomain*, bool> getIndexedDomainInfo(
 
 } // namespace
 
-std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
+std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     const TensorDomain* producer,
     const TensorDomain* consumer,
     const std::unordered_set<IterDomain*>& root_dims_to_map,
@@ -120,14 +120,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
   const auto producer_logical = TensorDomain::noReductions(producer->logical());
-  const auto& consumer_root = consumer->maybeRoot();
+  const auto& consumer_root = consumer->projectToProducer();
 
   // Check following conditions and add key-value iterdomain pair to domain map:
   // 1. Do not map broadcast ID to non-broadcast ID unless map_broadcast_ =
   // true.
   // 2. Do not map Symbolic ID if the extents are not identical unless
   // map_symbolic_ = true.
-  auto updatePairwiseRootDomainMap = [&](IterDomain* producer_id,
+  auto updatePairwiseLogicalDomainMap = [&](IterDomain* producer_id,
                                          IterDomain* consumer_id) {
     if (!map_broadcast_ &&
         producer_id->isBroadcast() != consumer_id->isBroadcast()) {
@@ -175,7 +175,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       if (producer_id == nullptr) {
         continue;
       }
-      updatePairwiseRootDomainMap(producer_id, consumer_id);
+      updatePairwiseLogicalDomainMap(producer_id, consumer_id);
     }
   };
 
@@ -241,23 +241,23 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // Map N, H from any input (query/key/value)
     for (auto idx : c10::irange(consumer_root.size())) {
       if (idx >= num_device_dim && idx < (2 + num_device_dim)) {
-        updatePairwiseRootDomainMap(
+        updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
       // Map L, E from query and value respectively
       if (idx == (2 + num_device_dim) && producer_tv_->sameAs(op->query())) {
-        updatePairwiseRootDomainMap(
+        updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
       // Map Ev from value to output
       if (idx == (3 + num_device_dim) && producer_tv_->sameAs(op->value())) {
-        updatePairwiseRootDomainMap(
+        updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
     }
     // Map D from any input (query/key/value) to output only.
     if (num_device_dim == 1 && consumer_root.size() > 3) {
-      updatePairwiseRootDomainMap(producer_logical.at(0), consumer_root.at(0));
+      updatePairwiseLogicalDomainMap(producer_logical.at(0), consumer_root.at(0));
     }
     return dom_map;
   }
@@ -316,7 +316,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
       continue;
     }
 
-    updatePairwiseRootDomainMap(producer_id, consumer_id);
+    updatePairwiseLogicalDomainMap(producer_id, consumer_id);
 
     itc++;
     itp++;
@@ -324,7 +324,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   return dom_map;
 }
 
-std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
+std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::
     mapProducerToConsumer(
         const std::unordered_set<IterDomain*>* root_dims_to_map) const {
   if (root_dims_to_map == nullptr) {
@@ -336,7 +336,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
   }
 }
 
-std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
+std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::
     mapConsumerToProducer(
         const std::unordered_set<IterDomain*>* root_dims_to_map) const {
   if (root_dims_to_map == nullptr) {
@@ -348,7 +348,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
   }
 }
 
-std::string PairwiseRootDomainMap::toString() const {
+std::string PairwiseLogicalDomainMap::toString() const {
   std::stringstream ss;
   ss << "{producer: " << producerTv() << ", consumer: " << consumerTv();
   auto p2c = mapProducerToConsumer();
@@ -400,7 +400,7 @@ std::string DomainKey::toString() const {
     auto tv = lookUpTv(td());
     NVF_ERROR(tv != nullptr, "No TV found for ", td()->toString());
     ss << "T" << tv->name() << "[ " << td()->logical() << " ]";
-    if (td()->hasRoot()) {
+    if (td()->hasProducerProjection()) {
       ss << " (root: [ " << td()->root() << " ])";
     }
   } else {
@@ -444,8 +444,8 @@ class FindInputDomains : BackwardVisitor {
   }
 
   void propagate(TensorView* in_tv, TensorView* out_tv) {
-    auto c2p = PairwiseRootDomainMap(in_tv, out_tv).mapConsumerToProducer();
-    for (auto root_dom : out_tv->getMaybeRootDomain()) {
+    auto c2p = PairwiseLogicalDomainMap(in_tv, out_tv).mapConsumerToProducer();
+    for (auto root_dom : out_tv->projectToProducer()) {
       DomainKey out_key({out_tv->domain(), root_dom});
       if (input_keys_.find(out_key) == input_keys_.end()) {
         continue;
@@ -473,7 +473,7 @@ class FindInputDomains : BackwardVisitor {
 
 void UnmappableReductionDomains::handleReductionOutput(TensorView* out_tv) {
   std::vector<DomainKey> reduction_keys;
-  for (const auto id : out_tv->getMaybeRootDomain()) {
+  for (const auto id : out_tv->projectToProducer()) {
     if (id->isReduction()) {
       DomainKey key(out_tv->domain(), id);
       reduction_keys.push_back(key);
@@ -487,7 +487,7 @@ void UnmappableReductionDomains::handleReductionOutput(TensorView* out_tv) {
       if (tv == out_tv) {
         continue;
       }
-      const auto& root_domain = tv->getMaybeRootDomain();
+      const auto& root_domain = tv->projectToProducer();
       for (const auto& id : root_domain) {
         DomainKey consumer_key(tv->domain(), id);
         for (const auto& reduction_key : reduction_keys) {
@@ -648,11 +648,11 @@ bool ComputeAtRootDomainMap::canMap(
     const IterDomain* id_b) const {
   NVF_ERROR(
       id_a->definition() == nullptr || id_a->isRFactorProduct(),
-      "Non-root domain is not supported: ",
+      "Non-producer projection is not supported: ",
       id_a);
   NVF_ERROR(
       id_b->definition() == nullptr || id_b->isRFactorProduct(),
-      "Non-root domain is not supported: ",
+      "Non-producer projection is not supported: ",
       id_b);
 
   // Forward to overloaded functions
@@ -697,7 +697,7 @@ bool ComputeAtRootDomainMap::canMap(
     const IterDomain* id_b) const {
   NVF_ERROR(
       id_b->definition() == nullptr || id_b->isRFactorProduct(),
-      "Non-root domain is not supported: ",
+      "Non-producer projection is not supported: ",
       id_b);
 
   if (!id_b->isBroadcast()) {
@@ -835,7 +835,7 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::map(
     bool producer_to_consumer) const {
   const auto& producer_logical =
       TensorDomain::noReductions(producer->logical());
-  const auto& consumer_root = consumer->maybeRoot();
+  const auto& consumer_root = consumer->projectToProducer();
   const TensorDomain* from_td = producer_to_consumer ? producer : consumer;
   const TensorDomain* to_td = producer_to_consumer ? consumer : producer;
   const auto& from_ids =
@@ -857,7 +857,7 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::map(
     // 2. from_id is a removed broadcast of a producer domain; or
     // 3. from_id is a window axis of a consumer domain; or
     // 4. from_id is a ViewAsScalar domain
-    // Note that reduction domains are removed from the producer root domain.
+    // Note that reduction domains are removed from the producer producer projection.
     if ((!producer_to_consumer &&
          (new_broadcast_domains_.find(DomainKey(from_td, from_id)) !=
               new_broadcast_domains_.end() ||
@@ -894,7 +894,7 @@ std::unordered_set<IterDomain*> ComputeAtRootDomainMap::getMappableDims(
   //! grab any domain that is mapped in a pairwise way.
 
   const auto& producer_logical = producer->logical();
-  const auto& consumer_root = consumer->maybeRoot();
+  const auto& consumer_root = consumer->projectToProducer();
 
   std::unordered_set<IterDomain*> mappable_ids;
 
@@ -957,7 +957,7 @@ void ComputeAtRootDomainMapBuilder::initializeBcastMap(
   // pairwise map has no mapping for the broadcast.
   for (auto consumer : ir_utils::consumerTvsOf(tv)) {
     const auto p2c =
-        PairwiseRootDomainMap(tv, consumer).mapProducerToConsumer();
+        PairwiseLogicalDomainMap(tv, consumer).mapProducerToConsumer();
     // Unfortunately, const_cast is required as our const model is
     // broken.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
@@ -1115,7 +1115,7 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
   for (auto producer_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto consumer_tv :
          ir_utils::filterByType<TensorView>(expr->outputs())) {
-      for (const auto& mapping : PairwiseRootDomainMap(producer_tv, consumer_tv)
+      for (const auto& mapping : PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                                      .mapBroadcast(true)
                                      .mapProducerToConsumer()) {
         setMaybeMapped(
@@ -1132,18 +1132,18 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
   const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
   const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
   const auto in_logical = TensorDomain::noReductions(in_td->logical());
-  const auto& out_root = out_td->maybeRoot();
+  const auto& out_producer_projection = out_td->projectToProducer();
   const auto& bcast_dim_flags = op->getBroadcastDimFlags();
   NVF_ERROR(
-      out_root.size() == bcast_dim_flags.size(),
+      out_producer_projection.size() == bcast_dim_flags.size(),
       "dim flags: ",
       bcast_dim_flags,
       ", out root: ",
-      out_root);
+      out_producer_projection);
   auto in_it = in_logical.begin();
-  auto out_it = out_root.begin();
-  while (in_it != in_logical.end() && out_it != out_root.end()) {
-    if (bcast_dim_flags.at(std::distance(out_root.begin(), out_it))) {
+  auto out_it = out_producer_projection.begin();
+  while (in_it != in_logical.end() && out_it != out_producer_projection.end()) {
+    if (bcast_dim_flags.at(std::distance(out_producer_projection.begin(), out_it))) {
       // new broadcast dim. No matching dimension in the input
       // tensor.
       root_map_.new_broadcast_domains_.insert(DomainKey(out_td, *out_it));
@@ -1164,9 +1164,9 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
       in_td);
   // On the other hand, the output may still have some domains left,
   // and they must be new broadcast domains.
-  for (; out_it != out_root.end(); ++out_it) {
+  for (; out_it != out_producer_projection.end(); ++out_it) {
     NVF_ERROR(
-        bcast_dim_flags.at(std::distance(out_root.begin(), out_it)),
+        bcast_dim_flags.at(std::distance(out_producer_projection.begin(), out_it)),
         "Unmatched domain detected: ",
         *out_it,
         " of ",
@@ -1179,7 +1179,7 @@ void ComputeAtRootDomainMapBuilder::handle(SqueezeOp* op) {
   const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
   const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
   const auto in_logical = TensorDomain::noReductions(in_td->logical());
-  const auto& out_root = out_td->maybeRoot();
+  const auto& out_producer_projection = out_td->projectToProducer();
   const auto& squeeze_dim_flags = op->getSqueezeDimFlags();
   NVF_ERROR(
       in_logical.size() == squeeze_dim_flags.size(),
@@ -1188,8 +1188,8 @@ void ComputeAtRootDomainMapBuilder::handle(SqueezeOp* op) {
       ", in root: ",
       in_logical);
   auto in_it = in_logical.begin();
-  auto out_it = out_root.begin();
-  while (in_it != in_logical.end() && out_it != out_root.end()) {
+  auto out_it = out_producer_projection.begin();
+  while (in_it != in_logical.end() && out_it != out_producer_projection.end()) {
     if (squeeze_dim_flags.at(std::distance(in_logical.begin(), in_it))) {
       // new broadcast dim. No matching dimension in the input
       // tensor.
@@ -1204,7 +1204,7 @@ void ComputeAtRootDomainMapBuilder::handle(SqueezeOp* op) {
   // At this point, the output domain should have been scanned
   // entirely.
   NVF_ERROR(
-      out_it == out_root.end(),
+      out_it == out_producer_projection.end(),
       "Unmatched domain detected: ",
       *out_it,
       " of ",
@@ -1225,7 +1225,7 @@ void ComputeAtRootDomainMapBuilder::handle(SqueezeOp* op) {
 void ComputeAtRootDomainMapBuilder::handle(ViewAsScalar* op) {
   const TensorView* out_tv = op->output(0)->as<TensorView>();
   const TensorDomain* out_td = out_tv->domain();
-  const auto& out_root = out_td->maybeRoot();
+  const auto& out_producer_projection = out_td->projectToProducer();
 
   const TensorView* in_tv = op->input(0)->as<TensorView>();
   const TensorDomain* in_td = in_tv->domain();
@@ -1233,16 +1233,16 @@ void ComputeAtRootDomainMapBuilder::handle(ViewAsScalar* op) {
   std::vector<IterDomain*> in_logical =
       TensorDomain::noReductions(in_tv->getLogicalDomain());
   NVF_ERROR(
-      in_logical.size() + 1 == out_root.size(),
+      in_logical.size() + 1 == out_producer_projection.size(),
       "\nExpression: ",
       op,
-      "\nInput root domain: ",
+      "\nInput producer projection: ",
       in_logical,
-      "\nOutput root domain: ",
-      out_root);
+      "\nOutput producer projection: ",
+      out_producer_projection);
   auto in_it = in_logical.begin();
-  auto out_it = out_root.begin();
-  while (in_it != in_logical.end() && out_it != out_root.end()) {
+  auto out_it = out_producer_projection.begin();
+  while (in_it != in_logical.end() && out_it != out_producer_projection.end()) {
     setMaybeMapped(in_td, *in_it, out_td, *out_it);
     ++in_it;
     ++out_it;
@@ -1324,9 +1324,9 @@ void ComputeAtRootDomainMapBuilder::handle(TensorView* tv) {
     }
     // Once mappings for logical axes are propagated to root axes,
     // aggregates them at each root axis
-    for (auto id : tv->getMaybeRootDomain()) {
+    for (auto id : tv->projectToProducer()) {
       if (id->isBroadcast()) {
-        // There can be broadcast domains that appear at root domains but
+        // There can be broadcast domains that appear at producer projections but
         // are removed at logical domains as they are merged into
         // non-reduction domains. Initialize the map for those broadcast
         // domains.
@@ -1373,7 +1373,7 @@ class ExactRootDomainMapBuilder : private IterVisitor {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
       for (auto consumer :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
-        PairwiseRootDomainMap pwise_map(producer, consumer);
+        PairwiseLogicalDomainMap pwise_map(producer, consumer);
         pwise_map.mapBroadcast(false);
         const auto mappings = pwise_map.mapProducerToConsumer();
         for (const auto& mapping : mappings) {
@@ -1397,7 +1397,7 @@ bool ExactRootDomainMap::areMapped(
     const IterDomain* id_a,
     const IterDomain* id_b) const {
   // With expand going into a view operation there can be an instance where an
-  // iteration root domain in the consumer resolves the broadcast from the
+  // iteration producer projection in the consumer resolves the broadcast from the
   // producer, then immediately rfactors it. In this case the consumer root is
   // not mapped exactly to any other domain, so it might no have an entry in
   // eq_sets_. eq_sets_.strictAreMapped would throw in this case so just return
@@ -1415,7 +1415,7 @@ std::unordered_map<IterDomain*, IterDomain*> ExactRootDomainMap::map(
     bool producer_to_consumer) const {
   const auto& producer_logical =
       TensorDomain::noReductions(producer->logical());
-  const auto& consumer_root = consumer->maybeRoot();
+  const auto& consumer_root = consumer->projectToProducer();
   const auto& from_ids =
       producer_to_consumer ? producer_logical : consumer_root;
   const auto& to_ids = producer_to_consumer ? consumer_root : producer_logical;

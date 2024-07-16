@@ -269,7 +269,7 @@ class NVF_API TransformReplay {
 };
 
 class NVF_API TransformPropagator
-    : public MaxRootDomainInfoSpanningTree::Propagator {
+    : public MaxLogicalDomainInfoSpanningTree::Propagator {
  protected:
   std::unordered_map<TensorView*, int64_t> replayed_pos_;
 
@@ -281,7 +281,7 @@ class NVF_API TransformPropagator
 };
 
 struct MostInlinedTransformPropagator
-    : public MaxRootDomainInfoSpanningTree::Propagator {
+    : public MaxLogicalDomainInfoSpanningTree::Propagator {
   void propagateC2P(TensorView* from, TensorView* to) override;
   void propagateP2C(TensorView* from, TensorView* to) override;
   void propagateSibling(TensorView* from, TensorView* to) override;

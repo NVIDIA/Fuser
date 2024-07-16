@@ -17,7 +17,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <ops/arith.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
@@ -1447,7 +1447,7 @@ ReductionOp::ReductionOp(
   if (in->isA<TensorView>()) {
     NVF_ERROR(
         TensorDomain::noReductions(in->as<TensorView>()->getLogicalDomain())
-                .size() == out->as<TensorView>()->getMaybeRootDomain().size(),
+                .size() == out->as<TensorView>()->projectToProducer().size(),
         "Reduction operation created with mismatched domains.");
   }
   NVF_ERROR(
@@ -1484,7 +1484,7 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
   const auto output = out()->as<TensorView>();
 
   NVF_ERROR(
-      !output->hasRoot(),
+      !output->hasProducerProjection(),
       "Evaluation for rFactored reductions is not supported.");
 
   std::vector<int64_t> reduction_axes;
@@ -1579,7 +1579,7 @@ std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
     const auto& in_tensor = inputs.at(i).as<at::Tensor>();
     const auto out_tv = output(i)->as<TensorView>();
     NVF_ERROR(
-        !out_tv->hasRoot(),
+        !out_tv->hasProducerProjection(),
         "Evaluation for rFactored reductions is not supported.");
 
     std::vector<int64_t> reduction_axes;
@@ -1799,7 +1799,7 @@ std::vector<PolymorphicValue> WelfordOp::evaluate(
   const auto& in_tensor = inputs.at(0).as<at::Tensor>();
   const auto out_tv = out()->as<TensorView>();
   NVF_ERROR(
-      !out_tv->hasRoot(),
+      !out_tv->hasProducerProjection(),
       "Evaluation for WelfordOp is not supported when output is rFactored.");
 
   int64_t N = 1;
@@ -2227,13 +2227,13 @@ std::vector<PolymorphicValue> LoadStoreOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   if (TensorView* out_tv = dynamic_cast<TensorView*>(out())) {
-    if (out_tv->hasRoot()) {
+    if (out_tv->hasProducerProjection()) {
       std::optional<std::vector<int64_t>> permutation =
           ir_utils::computePermutation(
-              out_tv->getRootDomain(), out_tv->getLogicalDomain());
+              out_tv->getProducerProjection(), out_tv->getLogicalDomain());
       NVF_ERROR(
           permutation.has_value(),
-          "The logical domain of a Set.Permute is supposed to be a permutation of the root domain: ",
+          "The logical domain of a Set.Permute is supposed to be a permutation of the producer projection: ",
           out_tv->toString());
       NVF_ERROR(inputs.size() == 1);
       at::Tensor in_tensor = inputs[0].as<at::Tensor>();
@@ -2253,7 +2253,7 @@ std::string LoadStoreOp::toString(int indent_size) const {
     if (auto ti = dynamic_cast<kir::TensorIndex*>(out())) {
       tv = ti->view();
     }
-    if (tv != nullptr && tv->hasRoot()) {
+    if (tv != nullptr && tv->hasProducerProjection()) {
       modifier = ".Permute";
     }
   }
@@ -3229,7 +3229,7 @@ std::string TensorDomain::toString(const int indent_size, const bool loop_only)
   }
   indent(ss, indent_size) << "[ " << toDelimitedString(loop()) << " ]";
   if (!loop_only) {
-    if (hasRoot()) {
+    if (hasProducerProjection()) {
       ss << "," << std::endl;
       indent(ss, indent_size + 1)
           << "root=[ " << toDelimitedString(root()) << " ]";
@@ -3286,7 +3286,7 @@ bool TensorDomain::hasGridReduction() const {
 bool TensorDomain::hasSymbolicAxis() const {
   // If there's any Symbolic axis, there must be one at the root or
   // logical domain.
-  return (hasRoot() &&
+  return (hasProducerProjection() &&
           std::any_of(
               root().begin(),
               root().end(),
@@ -3299,7 +3299,7 @@ bool TensorDomain::hasSymbolicAxis() const {
 }
 
 bool TensorDomain::hasViewLikeRFactor() const {
-  if (!hasRoot()) {
+  if (!hasProducerProjection()) {
     // Can't have view like rfactor if there is no logical domain
     return false;
   }
@@ -3352,10 +3352,10 @@ int64_t TensorDomain::posOf(IterDomain* id) const {
 
 int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   NVF_ERROR(
-      !maybeRoot().empty(), "Tried to find an axis in a 0-dim root domain");
-  auto it = std::find(maybeRoot().begin(), maybeRoot().end(), id);
-  NVF_ERROR(it != maybeRoot().end(), "Provided id is not part of root domain.");
-  return std::distance(maybeRoot().begin(), it);
+      !projectToProducer().empty(), "Tried to find an axis in a 0-dim producer projection");
+  auto it = std::find(projectToProducer().begin(), projectToProducer().end(), id);
+  NVF_ERROR(it != projectToProducer().end(), "Provided id is not part of producer projection.");
+  return std::distance(projectToProducer().begin(), it);
 }
 
 void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {

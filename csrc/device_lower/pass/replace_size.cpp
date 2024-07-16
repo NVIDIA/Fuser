@@ -10,14 +10,14 @@
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <device_lower/pass/replace_size.h>
 
 namespace nvfuser {
 
 namespace {
-// Going to generate a map of tensor view root domain extents to reduce the
+// Going to generate a map of tensor view producer projection extents to reduce the
 // number used during lowering. For example if we have:
 //
 // T2[i0, i1] = T1[i0, i1] + T2[i2, i3]
@@ -90,7 +90,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   for (auto producer_tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     auto consumer_tvs = ir_utils::consumerTvsOf(producer_tv);
     for (auto consumer_tv : consumer_tvs) {
-      auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv);
+      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv);
       auto c2p_root_map = pairwise_map.mapConsumerToProducer();
       for (auto entry : c2p_root_map) {
         auto c_id = entry.first;
@@ -105,7 +105,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   std::unordered_map<std::unordered_set<IterDomain*>*, IterDomain*>
       set_to_input_id;
 
-  // Loop over the root domains, of the inputs to the fusion. Pick an input ID
+  // Loop over the producer projections, of the inputs to the fusion. Pick an input ID
   // to use as the representative ID of the collected sets. Only consider inputs
   // as those are the ones that map to values like "T0.size[1]". They are he
   // ID's that propagated their extents into the problem. We could also check
@@ -186,7 +186,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
   }
 
   // After ExactMappedExtentSubstitutionPass, different inputs and outputs may
-  // have same root domain extents e.g. T1[{i0}, {i2}], T2[{i2}]. When maping
+  // have same producer projection extents e.g. T1[{i0}, {i2}], T2[{i2}]. When maping
   // {i2}, we want to use the lower labeled tensor size "T1.size[1]", instead of
   // "T2.size[0]".
   std::sort(

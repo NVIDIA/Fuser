@@ -122,7 +122,7 @@ NVF_API AnalyzeViewConstraint analyzeViewConstraint(
     const std::vector<int64_t>& new_sizes);
 
 // Generate a new TensorDomain from the given view transformations.
-// The original root domain is kept in the new TensorDomain,
+// The original producer projection is kept in the new TensorDomain,
 // but a new logical domain is created from the view transformations.
 TensorDomain* transformView(
     TensorDomain* original_domain,

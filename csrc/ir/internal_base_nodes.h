@@ -305,7 +305,7 @@ class NVF_API IterDomain : public Val {
 
   //! Check if IterDomain is a broadcast axis with compile-time
   //! known extent. This is the case with all size-1 IterDomains on
-  //! a TensorView's root domain when the TensorView is created.
+  //! a TensorView's producer projection when the TensorView is created.
   bool isImplicitBroadcast() const {
     return isBroadcast() && extent()->isOneInt();
   }
@@ -522,7 +522,7 @@ class TensorDomain : public Val {
     return no_bcast_domain_.size() != loop_domain_.size();
   }
 
-  bool hasRoot() const {
+  bool hasProducerProjection() const {
     return !root_domain_.empty();
   }
 
@@ -547,13 +547,13 @@ class TensorDomain : public Val {
     return no_bcast_domain_;
   }
 
-  // The input logical domain. The root domain of a consumer should equal the
+  // The input logical domain. The producer projection of a consumer should equal the
   // logical domain of its producer ignoring reduction dimensions.
   const std::vector<IterDomain*>& root() const {
     return root_domain_;
   };
 
-  const std::vector<IterDomain*>& maybeRoot() const {
+  const std::vector<IterDomain*>& projectToProducer() const {
     return root_domain_.empty() ? logical_domain_ : root_domain_;
   };
 
@@ -610,7 +610,7 @@ class TensorDomain : public Val {
 
   int64_t posOf(IterDomain* id) const;
 
-  //! Returns a position of a root domain
+  //! Returns a position of a producer projection
   int64_t rootPosOf(IterDomain* id) const;
 
   // Split "axis" into 2 axes

@@ -541,7 +541,7 @@ TensorView* pad(
     } else {
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
-      // Expand the root domain and mark it as a logical domain
+      // Expand the producer projection and mark it as a logical domain
       out_rf_id = IterDomain::resize(
           out_root_id, left_pad, right_pad, true, iter_type_opt);
       is_padded_any = true;

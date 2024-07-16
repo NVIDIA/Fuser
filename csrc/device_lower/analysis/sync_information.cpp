@@ -211,20 +211,20 @@ struct ProducerConsumerIndexingInfoCache {
 };
 
 // For a given pair of a producer and consumer loop ID, check if the
-// root domains that have dependencies with them are guaranteed to
+// producer projections that have dependencies with them are guaranteed to
 // have the same index.
 //
-// The algorithm first sees if the root domains reachable from the
-// consumer domain are all exactly mapped with the root domains
+// The algorithm first sees if the producer projections reachable from the
+// consumer domain are all exactly mapped with the producer projections
 // reachable from the producer domain. This is to detect merged
 // broadcast domains that only show up in the consumer. If such a
-// consumer-only root domain is found, it can mean the producer and
+// consumer-only producer projection is found, it can mean the producer and
 // consumer are indexed differently, but not always. If there's a
 // consumer loop ID that is shared with the producer through
 // computeAt, and if there's a dependency from the loop ID to the
 // consumer-only root ID, the producer indexing also uses the shared
 // consumer ID and the indexing traversal reach at the consumer-only
-// broadcast root domain, generating the same index as that of the
+// broadcast producer projection, generating the same index as that of the
 // consumer.
 //
 // It is also necessary to check non-CA-shared consumer loop IDs that

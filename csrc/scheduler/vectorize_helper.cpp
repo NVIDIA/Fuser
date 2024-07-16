@@ -95,9 +95,9 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
   auto projected_logical = projectId(filtered_ids, logical_domain);
 
   std::shared_ptr<Information> reference_information = MappedDomain::build(
-      projectId(projected_logical, reference->getMaybeRootDomain()),
+      projectId(projected_logical, reference->projectToProducer()),
       projected_logical,
-      reference->hasRoot() /*shouldn't matter how we initialize this*/);
+      reference->hasProducerProjection() /*shouldn't matter how we initialize this*/);
 
   // Stop recording before traversal
   recording_ = false;
@@ -451,7 +451,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // and i2 are not contiguous in the original domain of T3.
   //
   // Another example is that, if the last broadcast dimension resolved in
-  // consumers root domain is mapped for vectorization, the merge order in
+  // consumers producer projection is mapped for vectorization, the merge order in
   // the vectorization axes matters.
   //
   // T0[i0, i1]
@@ -463,7 +463,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // resolved broadcast iterdomain is `i2`/`b2`, which would give clear_pos=1.
   // So we'll skip all from_ids with index < clear_pos. see issue:
   // https://github.com/NVIDIA/Fuser/issues/1567#issuecomment-1894605385
-  PairwiseRootDomainMap root_map(to, from);
+  PairwiseLogicalDomainMap root_map(to, from);
   auto c2p_map = root_map.mapConsumerToProducer();
 
   // Id's in consumer to clear from the mapped set due to broadcast
@@ -500,7 +500,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
     }
   }
   return MappedDomain::build(
-      projectId(producer_logical_ids, to->getMaybeRootDomain()),
+      projectId(producer_logical_ids, to->projectToProducer()),
       producer_logical_ids,
       true);
 }
@@ -531,7 +531,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   // T3[i1, i2] = T2
   // Then i1 and i2 are contiguous in both T0 and T3, but due to the sum on T1
   // we will have removed i1.
-  PairwiseRootDomainMap root_map(from, to);
+  PairwiseLogicalDomainMap root_map(from, to);
   auto p2c_map = root_map.mapProducerToConsumer();
   std::vector<IterDomain*> consumer_root_ids;
 
@@ -576,15 +576,15 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
   NVF_ERROR(
-      from->getMaybeRootDomain().size() == to->getMaybeRootDomain().size(),
+      from->projectToProducer().size() == to->projectToProducer().size(),
       "Siblings of different root sizes not supported, but found:\n  ",
       from->toString(),
       "\n  and\n  ",
       to->toString(),
       "\nhave root sizes of ",
-      from->getMaybeRootDomain().size(),
+      from->projectToProducer().size(),
       " and ",
-      to->getMaybeRootDomain().size());
+      to->projectToProducer().size());
 
   auto from_root_ids = std::dynamic_pointer_cast<const MappedDomain>(from_info)
                            ->mapped_root_ids_;
@@ -592,25 +592,25 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
 
   for (auto from_root_id : from_root_ids) {
     auto from_it = std::find(
-        from->getMaybeRootDomain().begin(),
-        from->getMaybeRootDomain().end(),
+        from->projectToProducer().begin(),
+        from->projectToProducer().end(),
         from_root_id);
     NVF_ERROR(
-        from_it != from->getMaybeRootDomain().end(),
+        from_it != from->projectToProducer().end(),
         "Expected ",
         from_root_id->toString(),
         " to be in the root of ",
         from->toString());
-    auto pos = std::distance(from->getMaybeRootDomain().begin(), from_it);
-    sibling_root_ids.push_back(to->getMaybeRootDomain()[pos]);
+    auto pos = std::distance(from->projectToProducer().begin(), from_it);
+    sibling_root_ids.push_back(to->projectToProducer()[pos]);
     if (recording_) {
       addProjectedExtent(
-          to->getMaybeRootDomain()[pos],
-          getProjectedExtent(from->getMaybeRootDomain()[pos]));
+          to->projectToProducer()[pos],
+          getProjectedExtent(from->projectToProducer()[pos]));
     }
   }
 
-  if (!from->hasRoot()) {
+  if (!from->hasProducerProjection()) {
     return MappedDomain::build(
         sibling_root_ids,
         sibling_root_ids,
@@ -934,15 +934,15 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     return break_point;
   }
 
-  const auto c2p = PairwiseRootDomainMap(reduction_producer, reduction_consumer)
+  const auto c2p = PairwiseLogicalDomainMap(reduction_producer, reduction_consumer)
                        .mapConsumerToProducer();
 
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs
   std::unordered_set<IterDomain*> producer_innermost_ids;
-  for (auto it = reduction_consumer->getMaybeRootDomain().begin() +
+  for (auto it = reduction_consumer->projectToProducer().begin() +
            ((int64_t)reduction_consumer->nDims() - consumer_innermost_ndims);
-       it != reduction_consumer->getMaybeRootDomain().end();
+       it != reduction_consumer->projectToProducer().end();
        ++it) {
     auto consumer_id = *it;
     auto c2p_it = c2p.find(consumer_id);

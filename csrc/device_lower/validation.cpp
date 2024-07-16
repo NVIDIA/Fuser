@@ -51,7 +51,7 @@ class ValidateSiblings : public IterVisitor {
 
     auto ref_output = expr->outputs().at(0)->as<TensorView>();
     auto ref_ndims = ref_output->nDims();
-    const auto& ref_root = ref_output->getMaybeRootDomain();
+    const auto& ref_root = ref_output->projectToProducer();
     std::unordered_map<IterDomain*, IterDomain*> id_map;
 
     for (const auto sibling :
@@ -74,7 +74,7 @@ class ValidateSiblings : public IterVisitor {
       }
 
       for (const auto i : c10::irange(ref_root.size())) {
-        id_map[ref_root[i]] = sibling->getMaybeRootDomain().at(i);
+        id_map[ref_root[i]] = sibling->projectToProducer().at(i);
       }
 
       auto replay =
@@ -237,7 +237,7 @@ void checkContiguity(
       !consumer->hasAllocation() && !producer->hasAllocation(),
       "Misaligned vectorization for allocation domain is not supported.");
   auto alloc_c2p =
-      PairwiseRootDomainMap(producer, consumer).mapConsumerToProducer();
+      PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
 
   std::unordered_map<IterDomain*, std::optional<bool>>
       producer_domain_contiguity;
@@ -515,7 +515,7 @@ class VectorizeValidator : public OptInDispatch {
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
-    auto pairwise_map = PairwiseRootDomainMap(producer_tv, tv);
+    auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
     auto producer_replayed_as_consumer =
         TransformReplay::replayPasC(
             producer_tv,
@@ -1097,10 +1097,10 @@ void validateReductions(Fusion* fusion) {
   for (auto rop : ir_utils::getOpsOfType<ReductionOp>(fusion)) {
     auto in = rop->in()->as<TensorView>();
     auto out = rop->out()->as<TensorView>();
-    PairwiseRootDomainMap c2p_map(in, out);
+    PairwiseLogicalDomainMap c2p_map(in, out);
     c2p_map.mapBroadcast(true);
     auto c2p = c2p_map.mapConsumerToProducer();
-    for (auto out_id : out->getMaybeRootDomain()) {
+    for (auto out_id : out->projectToProducer()) {
       if (out_id->isReduction()) {
         auto in_it = c2p.find(out_id);
         NVF_ERROR(

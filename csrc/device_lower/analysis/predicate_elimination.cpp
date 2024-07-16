@@ -74,7 +74,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       return false;
     }
     // Both tensors must be on local or shared memory. Global tensors must be
-    // predicated as allocation is done based on root domains. Smem
+    // predicated as allocation is done based on producer projections. Smem
     // and local tensors are allocated based on loop domains.
     // However, smem tensors are parallelized, which is highly likely, the size
     // of the parallelized axis is the actual size of the axis, not
@@ -85,7 +85,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       return true;
     }
 
-    auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
+    auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
     auto c2p =
         BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
             .getReplay();
@@ -320,7 +320,7 @@ class PredicateChcker : public IterVisitor {
         expr->toString());
 
     for (auto i : c10::irange(tv_inputs.size())) {
-      const auto root_p2c = PairwiseRootDomainMap(tv_inputs[i], tv_outputs[i])
+      const auto root_p2c = PairwiseLogicalDomainMap(tv_inputs[i], tv_outputs[i])
                                 .mapProducerToConsumer();
       for (auto entry : root_p2c) {
         auto p_id = entry.first;
@@ -517,7 +517,7 @@ class PredicateChcker : public IterVisitor {
   // This is not an issue if the index includes a zero domain (as defined in
   // index_compute.cpp), the extent is calculated by multiplying the
   // split output domains, so it never cross the domain boundary.
-  // So, if a root domain is split and none of its descendants is a
+  // So, if a producer projection is split and none of its descendants is a
   // zero domain, the expr needs to be predicated. See
   // FusionPredicateElimination6 for a concrete example.
   //
@@ -555,7 +555,7 @@ class PredicateChcker : public IterVisitor {
             }
             return false;
           });
-      // If no root domain is split, no need to predicate
+      // If no producer projection is split, no need to predicate
       if (split_root.empty()) {
         continue;
       }

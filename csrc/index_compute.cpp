@@ -24,7 +24,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <swizzle.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -1356,7 +1356,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
       producer_tv,
       consumer_tv,
       -1,
-      PairwiseRootDomainMap(producer_tv, consumer_tv));
+      PairwiseLogicalDomainMap(producer_tv, consumer_tv));
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
@@ -1394,7 +1394,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   const auto gpu_lower = GpuLower::current();
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
-  auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv);
+  auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv);
   // Resize ops can be and should be replayed.
   auto producer_replayed_as_consumer =
       TransformReplay::replayPasC(
@@ -1420,7 +1420,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+  auto c2p_root_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                           .mapBroadcast(false)
                           .mapConsumerToProducer();
 
@@ -1720,7 +1720,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   // Replay producer to look like consumer so we can index on producer since
   // our loop nests look like consumer
   auto pairwise_map =
-      PairwiseRootDomainMap(producer_tv, consumer_tv).mapBroadcast(true);
+      PairwiseLogicalDomainMap(producer_tv, consumer_tv).mapBroadcast(true);
 
   TensorDomain* producerAsC = TransformReplay::replayPasC(
                                   producer_tv,
@@ -1735,7 +1735,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+  auto c2p_root_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                           .mapBroadcast(false)
                           .mapConsumerToProducer();
 
@@ -1745,7 +1745,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
   auto c2p_map = replay_producer_as_consumer.getReplay();
 
-  // Make sure at least root domains are mapped even when extents may
+  // Make sure at least producer projections are mapped even when extents may
   // be different. This mapping is important for the indexing lookup
   // tensors of PyTorch gather as a producer. The IDs of a lookup
   // tensor may have larger extents than those of the corresponding
@@ -1766,7 +1766,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   // If we add I1->I6 and I2->I7, the c2p map will no longer be injective, which
   // is not what we want.
   const auto p2c_map = invertOneToOneMap(c2p_map);
-  for (const auto& kv : PairwiseRootDomainMap(producer_tv, consumer_tv)
+  for (const auto& kv : PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                             .mapBroadcast(false)
                             .mapDifferentExtents(true)
                             .mapConsumerToProducer()) {
@@ -2252,12 +2252,12 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
 
   // When there's a resize expr between the root and the logical
   // domains, predicate the logical domain. Otherwise, predicate the
-  // root domain. The actual size of an IterDomain after resize
+  // producer projection. The actual size of an IterDomain after resize
   // changes, and the output IterDomain needs to be used to generate
   // its predicate.
   const auto& consumer_root_domain = ir_utils::hasResizedRfactor(consumer_tv)
       ? consumer_tv->getLogicalDomain()
-      : consumer_tv->getMaybeRootDomain();
+      : consumer_tv->projectToProducer();
 
   if (consumer_root_domain.empty()) {
     return std::vector<PredicateDomainInfo>();
@@ -2372,8 +2372,8 @@ std::pair<Val*, Val*> getStartAndStopOffsets(
     bool unswitch,
     bool intermediate_domain_pred) {
   // By default, the offsets for the start and stop predicates are
-  // just zero. All halo-related adjustments are done at root domains,
-  // so consumer_id is not a root domain, no adjustment is required.
+  // just zero. All halo-related adjustments are done at producer projections,
+  // so consumer_id is not a producer projection, no adjustment is required.
   if (consumer_id->definition() != nullptr && !intermediate_domain_pred) {
     return {
         GpuLower::current()->kernel()->zeroVal(),
@@ -2421,7 +2421,7 @@ std::unordered_map<IterDomain*, Val*> updateInitialLoopIndexMap(
 
 } // namespace
 
-// Returns predicates and the concrete (by loop map) root domains they cover
+// Returns predicates and the concrete (by loop map) producer projections they cover
 std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,

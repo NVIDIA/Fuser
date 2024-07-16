@@ -7,7 +7,7 @@
 // clang-format on
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <grouped_reduction.h>
@@ -111,7 +111,7 @@ bool validateReductionGrouping(
       GROUP_REDUCTION_CHECK(
           error_on_failure,
           ref_id->isBroadcast() == output_id->isBroadcast(),
-          "Invalid grouped reduction due to mismatched broadcast root domains. ",
+          "Invalid grouped reduction due to mismatched broadcast producer projections. ",
           "Reference domain: ",
           ref_id->toString(),
           ". Mismatched domain: ",
@@ -124,7 +124,7 @@ bool validateReductionGrouping(
       GROUP_REDUCTION_CHECK(
           error_on_failure,
           ref_id->isReduction() == output_id->isReduction(),
-          "Invalid grouped reduction due to mismatched reduction root domains. ",
+          "Invalid grouped reduction due to mismatched reduction producer projections. ",
           "Reference domain: ",
           ref_id->toString(),
           ". Mismatched domain: ",
@@ -134,7 +134,7 @@ bool validateReductionGrouping(
       GROUP_REDUCTION_CHECK(
           error_on_failure,
           exact_map.areMapped(ref_id, output_id) || ref_id->sameAs(output_id),
-          "Invalid grouped reduction due to mismatched root domains. ",
+          "Invalid grouped reduction due to mismatched producer projections. ",
           "Reference domain: ",
           ref_id->toString(),
           ". Mismatched domain: ",

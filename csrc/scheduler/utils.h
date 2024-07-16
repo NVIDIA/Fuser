@@ -291,7 +291,7 @@ NVF_API std::vector<TensorView*> getReductionTvs(Fusion* fusion);
 // Returns a list of TensorViews that are the consumer tv for a view operation.
 std::vector<TensorView*> getViewTVs(Fusion* fusion);
 
-// Returns a list of non-reduction TensorViews that have a root domain
+// Returns a list of non-reduction TensorViews that have a producer projection
 std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 
 // Reset inputs and outputs to global memory, everything else to local.
@@ -312,7 +312,7 @@ NVF_API std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
 IterDomain* innerMostAllocDim(TensorView* tv);
 
 // Looks through fusion and finds all dims that match to the one provided in
-// the tensorview provided. Iter domain must be a root domain. If inner_only,
+// the tensorview provided. Iter domain must be a producer projection. If inner_only,
 // will only map dimensions if they're the inner most position. This is
 // important when projecting a dimension between an rfactor position and its
 // root position when mapping from consumer to producer. If inner_only=true,

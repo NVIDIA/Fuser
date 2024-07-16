@@ -366,7 +366,7 @@ void propagateTransformation(
     const std::unordered_set<TensorView*>& boundaryNodesSet) {
   InternalBoundarySelector ibSelector(boundaryNodesSet);
   TransformPropagator propagator(reference_tv);
-  MaxRootDomainInfoSpanningTree(reference_tv, &ibSelector)
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &ibSelector)
       .traverse(&propagator);
 }
 
@@ -870,7 +870,7 @@ class PersistentBufferProjector {
       // resulting DAG, neither the propagation path T2->T3->T4->T5 nor
       // T2->T1->T0->T6->T4->T5 works because they both have missing root
       // domain. But adding `T7 = T1 + T6` creates a new propagation path
-      // `T2->T1->T7->T6->T4->T5` which has all root domain information.
+      // `T2->T1->T7->T6->T4->T5` which has all producer projection information.
       // See FusionBroadcastPersistentReduction_CUDA for an example
       // avoid replacing the use with itself, see
       // https://github.com/NVIDIA/Fuser/issues/1533

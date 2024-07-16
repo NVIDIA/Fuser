@@ -77,7 +77,7 @@ namespace nvfuser {
 //!        domain.
 //!        Gets forwarded to transformView(TensorDomain, view_analysis)
 //!        Gets forwarded to createViewDomain(TensorDomain, view_analysis)
-//!        createViewDomain creates the new root domain, and calls
+//!        createViewDomain creates the new producer projection, and calls
 //!        createLogicalDomain on view_analysis.transforms().
 //!   5) brooadcast will be called with view_analysis.broadcast_axes
 //!
@@ -116,7 +116,7 @@ class ViewTransform : public Transform {
  public:
   // Function to apply the transformation. Transformation is applied on
   // current_transformed_domain. root_domain is required here to replace
-  // IterDomains so we can flip the rfactor flag on the root domain if it's
+  // IterDomains so we can flip the rfactor flag on the producer projection if it's
   // involved in merge/split trasnforms to produce the logical domain.
   virtual void createLogicalDomain(
       std::vector<IterDomain*>& root_domain,
@@ -658,7 +658,7 @@ class AnalyzeViewTransformation {
   std::vector<std::shared_ptr<BroadcastTransform>> broadcast_transforms_;
   std::vector<std::shared_ptr<SqueezeTransform>> squeeze_transforms_;
 
-  // If root domain isn't provided always assume size-1 dimensions are
+  // If producer projection isn't provided always assume size-1 dimensions are
   // compile-time dimensions. TODO: Remove runtime size-1 dimension support.
   // This should be cached higher in the stack.
   const bool root_domain_not_provided_ = true;
@@ -670,7 +670,7 @@ class AnalyzeViewTransformation {
   const std::vector<int64_t>& new_view_;
 };
 
-//! Create new TensorDomain with a new root domain and modified logical domains
+//! Create new TensorDomain with a new producer projection and modified logical domains
 //! using the specified view transformations. Original domain should already be
 //! without reduction axes.
 TensorDomain* createViewDomain(

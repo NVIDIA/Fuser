@@ -130,9 +130,9 @@ void IrTransformPrinter::handle(Fusion* f) {
 
 void IrTransformPrinter::printTransforms(const TensorView* tv) {
   const auto& logical_domain = tv->getLogicalDomain();
-  if (tv->hasRoot()) {
-    const auto& root_domain = tv->getRootDomain();
-    os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
+  if (tv->hasProducerProjection()) {
+    const auto& root_domain = tv->getProducerProjection();
+    os() << " producer projection : (" << toDelimitedString(root_domain) << ")\n";
 
     const auto all_exp = DependencyCheck::getAllExprsBetween(
         {root_domain.begin(), root_domain.end()},

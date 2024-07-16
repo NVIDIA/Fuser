@@ -9,7 +9,7 @@
 
 #include <exceptions.h>
 #include <iter_visitor.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <unordered_map>
 #include <unordered_set>

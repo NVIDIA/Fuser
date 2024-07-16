@@ -15,7 +15,7 @@
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -690,7 +690,7 @@ ReductionTvProperties getReductionProperties(
   // Start from the inner most dimension, and work outwards. If this is a 3D
   // pattern, i.e. theres a pattern like [r0, r1, i2, r3] or [i0, r1, r2, i3,
   // i4] then compute the inner most dimension to compute separately.
-  const auto& root_dom = tv->getMaybeRootDomain();
+  const auto& root_dom = tv->projectToProducer();
   for (size_t i = root_dom.size(); i > 0; i--) {
     auto id = root_dom[i - 1];
     if (id->isBroadcast()) {
@@ -1116,7 +1116,7 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion) {
       ir_utils::filterByType<TensorView>(fusion_vals).end(),
       std::back_inserter(tvs_with_rfactor),
       [](TensorView* tv) {
-        return tv->hasRoot() &&
+        return tv->hasProducerProjection() &&
             std::none_of(
                    tv->getLogicalDomain().begin(),
                    tv->getLogicalDomain().end(),
@@ -1196,7 +1196,7 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
 namespace {
 
 // Take the inner most logical id from innerMostAllocDim and project it to the
-// root domain if the provided domain is on the logical domain. If vectorize,
+// producer projection if the provided domain is on the logical domain. If vectorize,
 // will not project if not following the inner most path.
 IterDomain* projectIdToRoot(
     TensorView* tv,
@@ -1207,7 +1207,7 @@ IterDomain* projectIdToRoot(
     return nullptr;
   }
 
-  if (!tv->hasRoot()) {
+  if (!tv->hasProducerProjection()) {
     return reference_id;
   }
 
@@ -1272,7 +1272,7 @@ IterDomain* projectIdToRFactor(
     return nullptr;
   }
 
-  if (!tv->hasRoot()) {
+  if (!tv->hasProducerProjection()) {
     return reference_id;
   }
 
@@ -1361,7 +1361,7 @@ void FindAllMappedDims::setUp() {
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   auto from_id = mapped_root_ids_.at(from);
-  PairwiseRootDomainMap root_map(to, from);
+  PairwiseLogicalDomainMap root_map(to, from);
   auto c2p_map = root_map.mapConsumerToProducer();
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
@@ -1376,7 +1376,7 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
 
 void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   auto from_id = mapped_logical_ids_.at(from);
-  PairwiseRootDomainMap root_map(from, to);
+  PairwiseLogicalDomainMap root_map(from, to);
   auto p2c_map = root_map.mapProducerToConsumer();
   auto c_it = p2c_map.find(from_id);
   if (c_it != p2c_map.end()) {
@@ -1394,9 +1394,9 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i : c10::irange(from->getMaybeRootDomain().size())) {
-      if (from_id == from->getMaybeRootDomain()[i]) {
-        mapped_root_ids_[to] = to->getMaybeRootDomain()[i];
+    for (auto i : c10::irange(from->projectToProducer().size())) {
+      if (from_id == from->projectToProducer()[i]) {
+        mapped_root_ids_[to] = to->projectToProducer()[i];
         break;
       }
     }
@@ -1491,7 +1491,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
 
   FindAllMappedDims all_mapped_root_dims(
       reference_tv, inner_most_id, inner_only, vectorize_pass);
-  MaxRootDomainInfoSpanningTree tree(reference_tv);
+  MaxLogicalDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
 
   auto vectorizable_dims = all_mapped_root_dims.get();
@@ -1665,7 +1665,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
     std::vector<bool> mapped_axes(ref_root_domain.size(), false);
 
     auto in_out_tv_domain =
-        TensorDomain::noDevices(in_out_tv->getMaybeRootDomain());
+        TensorDomain::noDevices(in_out_tv->projectToProducer());
     auto in_out_tv_domain_list = std::list<IterDomain*>(
         in_out_tv_domain.begin(), in_out_tv_domain.end());
 
@@ -1754,7 +1754,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
 //! Propagate current transformations on from_tv to all graphs
 void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos) {
   TransformPropagator propagator(from_tv, pos);
-  MaxRootDomainInfoSpanningTree(from_tv, nullptr).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(from_tv, nullptr).traverse(&propagator);
 }
 
 namespace {
@@ -1897,7 +1897,7 @@ void BoundedDirectionalTransformPropagator::propagate(
   // Run transform propagation using the custom selector.
   SetSelector selector(included_tvs);
   TransformPropagator propagator(from_tv, pos);
-  MaxRootDomainInfoSpanningTree(from_tv, &selector).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(from_tv, &selector).traverse(&propagator);
 
   // Propagate parallel type if requested by option parameters.
   if (options.propagate_parallel_type) {
@@ -1983,7 +1983,7 @@ DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion) {
   IterDomainGraph id_graph(fusion);
   auto disjoint_logical_ids = id_graph.exactNodes();
 
-  // If iter domains are involved in any transformation from root domains to
+  // If iter domains are involved in any transformation from producer projections to
   // logical domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
     for (auto expr : StmtSort::getExprsTo(
@@ -2143,11 +2143,11 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       transformed_disjoint_sets;
 
-  // If iter domains are involved in any transformation from root domains to
+  // If iter domains are involved in any transformation from producer projections to
   // logical domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
     for (auto expr : StmtSort::getExprsBetween(
-             {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
+             {tv->projectToProducer().begin(), tv->projectToProducer().end()},
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       for (auto id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
         transformed_disjoint_sets.emplace(
@@ -2180,10 +2180,10 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
   }
 
-  // If iter domains are involved in any transformation from root domains to
+  // If iter domains are involved in any transformation from producer projections to
   // logical domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
-    if (!tv->hasRoot()) {
+    if (!tv->hasProducerProjection()) {
       continue;
     }
 
@@ -2412,7 +2412,7 @@ void promoteProducerMemoryTypes(
     auto c2p_exact_map = BestEffortReplay(
                              producer->getLoopDomain(),
                              consumer->getLoopDomain(),
-                             PairwiseRootDomainMap(producer, consumer)
+                             PairwiseLogicalDomainMap(producer, consumer)
                                  .mapBroadcast(false)
                                  .mapConsumerToProducer())
                              .getReplay();

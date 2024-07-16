@@ -44,7 +44,7 @@ namespace vectorize_helper {
 // If we want to base the vectorization size on the reference being contiguous
 // in a 1D scheduler, we'd start the proces on the reference with {i0, i1,
 // i2}. When we propogate to the input what we would still like is: {i0, i1,
-// i2} to signify to us that the root domains in the input that map to the
+// i2} to signify to us that the producer projections in the input that map to the
 // reference are not contiguous. So when we think of vector word, if we want
 // the input to be included in the vectorized dimensions, we can only check
 // multiples based on i2, not i0*i1*i2 like the reference would indicate.

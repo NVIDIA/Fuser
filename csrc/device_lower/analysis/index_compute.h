@@ -247,7 +247,7 @@ class LoopIndexingAnalysis {
   //! (traverseFromDomainVals). loop_domains_ are the original_id not the
   //! concrete_id (translated with concrete_to_original_id). These iter domains
   //! are used to grab the history that will be replayed in IndexCompute. We're
-  //! looking for "new" root domains and subsequent transformations, filling in
+  //! looking for "new" producer projections and subsequent transformations, filling in
   //! any missing "outputs" (or inputs for backward traversal). Then fills
   //! loop_domains_ with all of these iter domains.
   void constructLoopDomains();

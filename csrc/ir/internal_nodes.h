@@ -2444,7 +2444,7 @@ class ForLoop final : public Expr {
 
   Val* simplifiedStop() const;
 
-  // [pre | vectorize | post] <= inner-most, merged root domain
+  // [pre | vectorize | post] <= inner-most, merged producer projection
   // shift_ is applied to vectorize and post sections.
   Val* vectorize_shift() const {
     return attributeVal(4);

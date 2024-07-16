@@ -273,7 +273,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
   // traversal on all broadcast groups.
   //
 
-  // We first visit all broadcast root domains. If a broadcast is
+  // We first visit all broadcast producer projections. If a broadcast is
   // resovled, see if it's promoted. Note that a domain be resolved to
   // a domain that may not be loop mapped, yet it can still be
   // promoted. In other words, there can be a domain that is exactly
@@ -288,8 +288,8 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
   //    find all loop-mapped domains with the broadcast domain and
   //    pick one that is exactly mapped with the resolving domain
   //
-  // Note again this process is only done for root domains. Once we
-  // find promotion relationships for root domains, we propagate the
+  // Note again this process is only done for producer projections. Once we
+  // find promotion relationships for producer projections, we propagate the
   // mappings to derived domains
   for (const ValGroup& iel_group : iel_graph.disjointValSets().disjointSets()) {
     NVF_ERROR(!iel_group->empty());
@@ -867,7 +867,7 @@ void LoopPromotionMapBuilder::sanityCheckLoopPromotionMap(
   for (const ValGroup& loop_group :
        loop_graph.disjointValSets().disjointSets()) {
     // Non-loop loop groups are not guaranteed to have valid
-    // promotions. See for example FusionRepro1713, where root domains
+    // promotions. See for example FusionRepro1713, where producer projections
     // are all grouped together but there's no valid promotion.
     if (loop_graph.hasUses(loop_group)) {
       continue;

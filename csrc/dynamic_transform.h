@@ -179,7 +179,7 @@ class DynamicTransformConcretizationInfo {
   //! Return a vector of pairs holding the index of each expanded TensorView in
   //! the vector returned by initialInfo()->getDynamicExpandedTensorViews(),
   //! along with a vector of bools describing whether each axis in the output
-  //! root domain is expanded.
+  //! producer projection is expanded.
   const std::vector<std::pair<int64_t, std::vector<bool>>>& getExpandAxes()
       const {
     return expand_axes_;

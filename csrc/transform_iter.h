@@ -238,8 +238,8 @@ class ForwardingInfo {
  *
  * There's an issue when we want to replay T4 to have transformations similar to
  * those on T0. Primarily T0's "rfactor" domain has a strict match requirement
- * on T4's root domain. If transformations on top of T0 don't match T4's
- * transformations (from T4's root domain to T4's logical domain), T4 cannot be
+ * on T4's producer projection. If transformations on top of T0 don't match T4's
+ * transformations (from T4's producer projection to T4's logical domain), T4 cannot be
  * replayed like T0 on those domains as they would generate incorrect code in
  * the system today.
  *
@@ -247,7 +247,7 @@ class ForwardingInfo {
  * T4's view from it's logical domain. This would allow logical domains to be
  * "reversible". The way this would have to be implemented is that there just
  * needs to be a path of transformations from a tensors loop domains, to its
- * root domains, and its logical domain. It shouldn't really matter if those
+ * producer projections, and its logical domain. It shouldn't really matter if those
  * connections are forward or backward through transformations. The only thing
  * that really matters is they're connected. This is left for future work as it
  * could have significant impact on other parts of the system like how loops are
@@ -261,7 +261,7 @@ class ForwardingInfo {
  * to determine producers's transformations are consistent with consumers
  * transformations (or the other way around). Best Effort Replay will return
  * discovered mappings between tensors that it detects to be matching based on
- * provided initial information (or just through p2c/c2p root domain mappings).
+ * provided initial information (or just through p2c/c2p producer projection mappings).
  *
  * Transformations have a concept of "permissiveness" used for broadcast and
  * squeeze. For example:

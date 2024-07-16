@@ -1197,14 +1197,14 @@ struct TensorRecord : RecordFunctor {
 
     for (const auto index : c10::irange(rank)) {
       // since contiguity_ vector is given to the corresponding order in alloc
-      // domain, while is_expand is given to root domain, we need to map it
+      // domain, while is_expand is given to producer projection, we need to map it
       // correctly with `contig_index` and `index`.
       //
       // stride_order[i] indicates that:
       //   `logical_domain[i]` (and therefore `root_domain[i]` for input) maps
       //   to `alloc_domain[rank - 1 - stride_order_[i]]`
       //
-      // Hence `index` on root domain would be corresponding to the contiguity
+      // Hence `index` on producer projection would be corresponding to the contiguity
       // index `contig_index = rank - 1 - stride_order[index]`
       const auto contig_index = stride_order_.empty()
           ? index

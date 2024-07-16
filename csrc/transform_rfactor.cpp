@@ -19,7 +19,7 @@ namespace nvfuser {
 
 namespace {
 
-// This class replays the root domains of the producer of an logical domain.
+// This class replays the producer projections of the producer of an logical domain.
 // Axes must be replayed to mark rfactor iter domains as being reductions in the
 // producer, but converting the other reductions in the producer as iter
 // domains. Those (previously reductions in the producer) iter domains are then
@@ -27,7 +27,7 @@ namespace {
 // into two stages, but maintains the correct values are reduced across those
 // stages.
 //
-// The logical domain of the producer must match the consumers root domain to
+// The logical domain of the producer must match the consumers producer projection to
 // maintain producer-consumer mappings. The following uses the original domain
 // being rfactored and marked iter domains as "static_logical_ids". These static
 // IDs cannot be changed in the producer as it would invalidate the rfactor, no
@@ -249,7 +249,7 @@ class ReplayRFactor : public ReplayTransformations {
   ReplayRFactor(
       // Original domain the rfactor is in reference to.
       TensorDomain* original_domain,
-      // The root mapping from the original root domain, to the roots of the
+      // The root mapping from the original producer projection, to the roots of the
       // domain to be replayed.
       std::unordered_map<IterDomain*, IterDomain*> id_map,
       // The rfactor axes in original_domain->loop() to be factored into the
@@ -410,7 +410,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   }
 
   // Specify the logical domain of the producer which will match the consumer
-  // root domain.
+  // producer projection.
   std::vector<IterDomain*> new_producer_logical_domain;
   new_producer_logical_domain.reserve(replay_rfactor.logical_domain_.size());
   std::transform(

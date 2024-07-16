@@ -137,7 +137,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     auto out = rop->out()->as<TensorView>();
     // The input is empty in some axes. Assert that they are all reduced
     for (auto ax : empty_input_axes) {
-      auto id = out->getMaybeRootDomain().at(ax);
+      auto id = out->projectToProducer().at(ax);
       // Input logical domain positions correspond to output root positions
       NVF_ERROR(
           id->isReduction(),
@@ -174,7 +174,7 @@ class EmptyTensorRemover : public DeadCodeRemover {
     auto N = wop->outN()->as<TensorView>();
     // The input is empty in some axes. Assert that they are all reduced
     for (auto ax : empty_input_axes) {
-      auto id = avg->getMaybeRootDomain().at(ax);
+      auto id = avg->projectToProducer().at(ax);
       // Input logical domain positions correspond to output root positions
       NVF_ERROR(
           id->isReduction(),

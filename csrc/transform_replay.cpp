@@ -19,7 +19,7 @@
 #include <maxinfo_propagator.h>
 #include <ops/arith.h>
 #include <options.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <deque>
@@ -183,25 +183,25 @@ TensorDomain* TransformReplay::fullSelfReplay(
   FUSER_PERF_SCOPE("TransformReplay::fullSelfReplay");
 
   NVF_ERROR(
-      new_self_root->maybeRoot().size() == self->maybeRoot().size(),
+      new_self_root->projectToProducer().size() == self->projectToProducer().size(),
       "Invalid number of IterDomains provided.");
 
   // Map for replay, should be pretty simple.
   id_map axis_map;
   {
     int64_t i = 0;
-    for (auto id : self->maybeRoot()) {
+    for (auto id : self->projectToProducer()) {
       NVF_ERROR(
-          new_self_root->maybeRoot()[i]->isReduction() == id->isReduction() &&
-              new_self_root->maybeRoot()[i]->isRFactorProduct() ==
+          new_self_root->projectToProducer()[i]->isReduction() == id->isReduction() &&
+              new_self_root->projectToProducer()[i]->isRFactorProduct() ==
                   id->isRFactorProduct() &&
-              new_self_root->maybeRoot()[i]->isBroadcast() == id->isBroadcast(),
+              new_self_root->projectToProducer()[i]->isBroadcast() == id->isBroadcast(),
           "Axes ",
           id,
           " and ",
-          new_self_root->maybeRoot()[i],
+          new_self_root->projectToProducer()[i],
           " do not match for self replay.");
-      axis_map[id] = new_self_root->maybeRoot()[i];
+      axis_map[id] = new_self_root->projectToProducer()[i];
       i++;
     }
   }
@@ -220,7 +220,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
       new_domain[i++] = it->second;
     }
 
-    if (self->hasRoot()) {
+    if (self->hasProducerProjection()) {
       std::vector<IterDomain*> new_logical_domain(
           self->logical().size(), nullptr);
       int64_t i = 0;
@@ -260,7 +260,7 @@ std::unordered_set<IterDomain*> getMaybeUnmappedIDs(
   std::unordered_set<Val*> unmapped_root_ids;
 
   const auto& root_domain =
-      is_producer ? tv->getLogicalDomain() : tv->getMaybeRootDomain();
+      is_producer ? tv->getLogicalDomain() : tv->projectToProducer();
 
   for (auto root_id : root_domain) {
     if (root_id_map.count(root_id) == 0) {
@@ -384,7 +384,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
     producer_self_replay_map[entry.first] = entry.first;
   }
 
-  // Check which root domains were used to produce the producer_loop_ids. We may
+  // Check which producer projections were used to produce the producer_loop_ids. We may
   // have picked up extra roots in consumer because of broadcast forwarding.
   std::vector<Val*> unordered_non_root_loop_vals;
   for (auto loop_id : replay_PasC.getUnorderedLeafIDs()) {
@@ -399,7 +399,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
 
   // Figure out all id's that have been processed to generate the
   // unordered_non_root_loop_vals. This needs to be done because we want to
-  // match on producer's logical domain, not root domain.
+  // match on producer's logical domain, not producer projection.
   std::unordered_set<IterDomain*> all_processed_ids;
   {
     auto all_processed_vals_vec = DependencyCheck::getAllValsBetween(
@@ -411,7 +411,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
         all_processed_ids_vec.begin(), all_processed_ids_vec.end());
   }
 
-  // Any root domain that was not used to generate computeIDs we can also put in
+  // Any producer projection that was not used to generate computeIDs we can also put in
   // the map to forward their transformations.
   for (auto producer_logical_id : producer_logical) {
     if (all_processed_ids.find(producer_logical_id) ==
@@ -513,7 +513,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
 
   TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
       producer->container(),
-      producer->getRootDomain(),
+      producer->getProducerProjection(),
       producer->getLogicalDomain(),
       producer->getAllocationDomain(),
       new_IDs,
@@ -625,7 +625,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     consumer_self_replay_map[entry.first] = entry.first;
   }
 
-  // Check which root domains were used to produce the consumer_loop_ids. We may
+  // Check which producer projections were used to produce the consumer_loop_ids. We may
   // have picked up extra roots in consumer because of broadcast forwarding.
   std::vector<Val*> unordered_non_root_loop_vals;
   for (auto loop_id : replay_CasP.getUnorderedLeafIDs()) {
@@ -638,9 +638,9 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
 
   auto processed_roots = IterVisitor::getInputsTo(unordered_non_root_loop_vals);
 
-  std::vector<IterDomain*> consumer_root = consumer->getMaybeRootDomain();
+  std::vector<IterDomain*> consumer_root = consumer->projectToProducer();
 
-  // Any root domain that was not used to generate computeIDs we can also put in
+  // Any producer projection that was not used to generate computeIDs we can also put in
   // the map to forward their transformations.
   for (auto consumer_root_id : consumer_root) {
     if (std::find(
@@ -742,7 +742,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   if (!opt.replay_allocation) {
     TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
         consumer->container(),
-        consumer->getRootDomain(),
+        consumer->getProducerProjection(),
         consumer->getLogicalDomain(),
         consumer->getAllocationDomain(),
         new_IDs,
@@ -752,14 +752,14 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   }
 
   NVF_ERROR(
-      consumer->definition()->isA<LoadStoreOp>() && !consumer->hasRoot(),
+      consumer->definition()->isA<LoadStoreOp>() && !consumer->hasProducerProjection(),
       "TransformReplay::replayCasP currently replays allocation only for Set. "
       "Other ops (e.g. `consumer = broadcast(producer)`) can break. "
       "See https://github.com/NVIDIA/Fuser/pull/1291#discussion_r1391999007 for details.");
 
   TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
       consumer->container(),
-      consumer->getRootDomain(),
+      consumer->getProducerProjection(),
       consumer->getLogicalDomain(),
       /*allocation=*/std::vector<IterDomain*>{},
       /*loop=*/new_IDs,
@@ -800,7 +800,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
     int64_t compute_at_axis,
     TransformReplayOptions opt) {
   // Use the pairwise root map as a default mapper
-  PairwiseRootDomainMap root_map(producer, consumer);
+  PairwiseLogicalDomainMap root_map(producer, consumer);
   // Allow replay through indexing exprs
   root_map.mapIndexedDomains(true);
   return replayPasC(producer, consumer, compute_at_axis, root_map, opt);
@@ -812,7 +812,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     int64_t compute_at_axis,
     TransformReplayOptions opt) {
   // Use the pairwise root map as a default mapper
-  PairwiseRootDomainMap root_map(producer, consumer);
+  PairwiseLogicalDomainMap root_map(producer, consumer);
   // Allow replay through indexing exprs
   root_map.mapIndexedDomains(true);
   return replayCasP(consumer, producer, compute_at_axis, root_map, opt);
@@ -831,7 +831,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
 
   // Allow replay through indexing exprs
   const auto pairwise_map =
-      PairwiseRootDomainMap(producer, consumer).mapIndexedDomains(true);
+      PairwiseLogicalDomainMap(producer, consumer).mapIndexedDomains(true);
   id_map c2p_root_map = pairwise_map.mapConsumerToProducer();
 
   // IterDomains in `consumer` root also in `producer` root
@@ -903,7 +903,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
 
   // Allow replay through indexing exprs
   const auto pairwise_map =
-      PairwiseRootDomainMap(producer, consumer).mapIndexedDomains(true);
+      PairwiseLogicalDomainMap(producer, consumer).mapIndexedDomains(true);
   id_map p2c_root_map = pairwise_map.mapProducerToConsumer();
 
   // IterDomains in `producer` root that are not reduction
@@ -978,9 +978,9 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
 bool TransformReplay::fullSelfMatching(
     const TensorView* replay,
     const TensorView* target) {
-  auto replay_root = replay->getMaybeRootDomain();
+  auto replay_root = replay->projectToProducer();
   auto replay_dom = replay->getLoopDomain();
-  auto target_root = target->getMaybeRootDomain();
+  auto target_root = target->projectToProducer();
   auto target_dom = target->getLoopDomain();
   std::unordered_map<IterDomain*, IterDomain*> target2replay_map;
   if (replay_root.size() != target_root.size()) {
@@ -1229,13 +1229,13 @@ TensorDomain* fullReplay(
     const std::vector<IterDomain*>& new_root) {
   std::unordered_map<IterDomain*, IterDomain*> old_root_to_new;
   NVF_CHECK(
-      old_domain->maybeRoot().size() == new_root.size(),
-      "Unable to replay transformations on a root domain of different size: ",
-      old_domain->maybeRoot().size(),
+      old_domain->projectToProducer().size() == new_root.size(),
+      "Unable to replay transformations on a producer projection of different size: ",
+      old_domain->projectToProducer().size(),
       " vs ",
       new_root.size());
   for (auto i : c10::irange(new_root.size())) {
-    old_root_to_new[old_domain->maybeRoot()[i]] = new_root[i];
+    old_root_to_new[old_domain->projectToProducer()[i]] = new_root[i];
   }
   NVF_CHECK(
       !old_domain->hasAllocation(),
@@ -1256,7 +1256,7 @@ TensorDomain* fullReplay(
         return replay.getReplay().at(old_loop_id);
       });
 
-  if (!old_domain->hasRoot()) {
+  if (!old_domain->hasProducerProjection()) {
     return IrBuilder::createInContainer<TensorDomain>(
         old_domain->container(), new_root, new_loop, old_domain->contiguity());
   }
@@ -1299,20 +1299,20 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
         old_out);
     TensorDomain* old_domain = old_out_tv->domain();
 
-    std::vector<IterDomain*> new_out_root;
-    new_out_root.reserve(old_domain->maybeRoot().size());
+    std::vector<IterDomain*> new_out_producer_projection;
+    new_out_producer_projection.reserve(old_domain->projectToProducer().size());
     int64_t i = 0;
     for (IterDomain* in_logical_id :
          TensorDomain::noReductions(new_in_tv->getLogicalDomain())) {
       // Copy the `rf` flag from `old_domain` and everything else from
       // `in_logical_id`.
-      new_out_root.push_back(
+      new_out_producer_projection.push_back(
           IterDomainBuilder(in_logical_id)
-              .is_rfactor_domain(old_domain->maybeRoot()[i]->isRFactorProduct())
+              .is_rfactor_domain(old_domain->projectToProducer()[i]->isRFactorProduct())
               .build());
       i++;
     }
-    TensorDomain* new_domain = fullReplay(old_domain, new_out_root);
+    TensorDomain* new_domain = fullReplay(old_domain, new_out_producer_projection);
     TensorView* new_out_tv =
         IrBuilder::create<TensorView>(new_domain, *old_out->getDataType());
     new_outs.push_back(new_out_tv);

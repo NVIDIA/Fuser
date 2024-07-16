@@ -7,7 +7,7 @@
 // clang-format on
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
 
@@ -55,19 +55,19 @@ std::unordered_set<IterDomain*> ConcretizedBroadcastDomains::
 // In some cases an op like pad or slice will introduce a broadcast domain by
 // truncating a longer dimension or expanding an empty dimension to size 1. In
 // these cases tv will have logical Broadcast IterDomains that are not present
-// in the root domain. Contrast this with BroadcastOp, whose output does not
+// in the producer projection. Contrast this with BroadcastOp, whose output does not
 // have logical domains and instead places new broadcast domains in the output
-// root domain.
+// producer projection.
 void ConcretizedBroadcastDomains::handle(TensorView* tv) {
-  if (!tv->hasRoot()) {
+  if (!tv->hasProducerProjection()) {
     return;
   }
   for (auto id : tv->getLogicalDomain()) {
-    // Register broadcast logical domains that are not root domains as new
+    // Register broadcast logical domains that are not producer projections as new
     // broadcast origins.
     if (id->isBroadcast() &&
-        std::find(tv->getRootDomain().begin(), tv->getRootDomain().end(), id) ==
-            tv->getRootDomain().end()) {
+        std::find(tv->getProducerProjection().begin(), tv->getProducerProjection().end(), id) ==
+            tv->getProducerProjection().end()) {
       broadcast_origin_map_.emplace(id, std::unordered_set<IterDomain*>({id}));
     }
   }
@@ -107,7 +107,7 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
     }
 
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto p2c_map = PairwiseRootDomainMap(producer, consumer)
+      auto p2c_map = PairwiseLogicalDomainMap(producer, consumer)
                          .mapProducerToConsumer(&producer_broadcasts);
       for (const auto& kv : p2c_map) {
         auto p_id = kv.first;

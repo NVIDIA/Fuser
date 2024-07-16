@@ -148,8 +148,8 @@ class NVF_API TensorView : public Val {
     return domain()->hasBroadcast();
   }
 
-  bool hasRoot() const {
-    return domain()->hasRoot();
+  bool hasProducerProjection() const {
+    return domain()->hasProducerProjection();
   }
 
   bool hasAllocation() const {
@@ -170,12 +170,12 @@ class NVF_API TensorView : public Val {
     return domain()->getReductionAxis();
   }
 
-  const std::vector<IterDomain*>& getRootDomain() const {
+  const std::vector<IterDomain*>& getProducerProjection() const {
     return domain()->root();
   };
 
-  const std::vector<IterDomain*>& getMaybeRootDomain() const {
-    return domain()->maybeRoot();
+  const std::vector<IterDomain*>& projectToProducer() const {
+    return domain()->projectToProducer();
   };
 
   const std::vector<IterDomain*>& getLogicalDomain() const {
@@ -638,7 +638,7 @@ class NVF_API TensorViewBuilder {
   //! Set if a dimension is expanded
   TensorViewBuilder& expanded(std::vector<bool> expanded);
 
-  //! Set the permutation from allocation domain on root domain
+  //! Set the permutation from allocation domain on producer projection
   TensorViewBuilder& strideOrder(std::vector<int64_t> stride_order);
 
   //! Creates a new TensorView with the specified options
