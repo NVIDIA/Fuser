@@ -310,23 +310,23 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
       }
 
       // Grab the producer projection definition
-      auto producer projection_def = id_producer_projection->definition();
+      auto producer_projection_def = id_producer_projection->definition();
 
-      if (producer projection_def == nullptr) {
+      if (producer_projection_def == nullptr) {
         // Guard segfault if there isn't a definition for this iter domain
         continue;
       }
 
-      // producer projection_def can be Resize, but resize transformation is not
+      // producer_projection_def can be Resize, but resize transformation is not
       // replayed, so mismatch doesn't matter
-      if (producer projection_def->isA<Resize>()) {
+      if (producer_projection_def->isA<Resize>()) {
         continue;
       }
 
       // If one output of the expression is an producer projection ID all of
       // them should be
       auto def_outs = ir_utils::filterByType<IterDomain>(
-          producer projection_def->outputs());
+          producer_projection_def->outputs());
       NVF_ERROR(
           std::all_of(
               def_outs.begin(),
@@ -339,26 +339,26 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
       // doesn't make sense to have transforms on non-logical domains that
       // produce logical domains.
       auto def_inps =
-          ir_utils::filterByType<IterDomain>(producer projection_def->inputs());
+          ir_utils::filterByType<IterDomain>(producer_projection_def->inputs());
       NVF_ERROR(
           std::all_of(
               def_inps.begin(),
               def_inps.end(),
               [](IterDomain* id) { return id->isProducerProjection(); }),
           "Inputs producing an logical domain, should be marked as producer projection but found:\n  ",
-          producer projection_def->toString());
+          producer_projection_def->toString());
 
       // Check which definition in the unique exact definition set this
       // definition matches to:
       // TODO: Why does it need to check all unique defs? It actually
-      // only looks at those that are exact with producer projection_def and
+      // only looks at those that are exact with producer_projection_def and
       // adds those unique_defs, which are all exactly mapped, to the
       // unique_exact_use map. Since the objective of this analysis is
       // to find non-exact exprs using the same exact ID set, it seems
-      // it's just sufficient to register producer projection_def as a user of
+      // it's just sufficient to register producer_projection_def as a user of
       // the exact set.
       for (auto unique_def : unique_defs) {
-        if (ca_map.areExactExprs(producer projection_def, unique_def)) {
+        if (ca_map.areExactExprs(producer_projection_def, unique_def)) {
           // Check if we already have an expression that consumes an
           // equivalent of any of the input logical domains. If so and it's
           // not the already registered transformation, return true
