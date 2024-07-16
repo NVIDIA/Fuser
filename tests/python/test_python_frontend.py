@@ -4432,6 +4432,32 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    def test_returning_aliased_outputs(self):
+        inputs = [torch.randn((1, 2, 3, 4), dtype=torch.float32, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            S1 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T2 = fd.ops.gt(T0, S1)
+            S3 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T4 = fd.ops.where(T2, T0, S3)
+            fd.add_output(T4)
+            fd.add_output(T4, T0)
+            fd.add_output(T4)
+            fd.add_output(T0)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        num_out = len(nvf_out)
+        self.assertEqual(num_out, 3)
+        for i in range(num_out):
+            self.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
+
 
 if __name__ == "__main__":
     run_tests()
