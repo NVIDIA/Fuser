@@ -1401,14 +1401,14 @@ TEST_F(AliasTest, StackedAliases) {
 
   TensorView* tv0 = makeContigConcreteTensor({2, 3});
   TensorView* tv1 = slice(tv0, {0, 0}, {2, 3});
-  // slice introduce a segment here
-  TensorView* tv2 = slice(tv1, {0, 0}, {2, 3});
-  TensorView* tv3 = segment_set(tv2);
+  TensorView* tv2 = segment_set(tv1);
   // segment_set adds a segment
-  TensorView* tv4 = relu(tv3);
-  // slice introduce a segment here
-  TensorView* tv5 = slice(tv4, {0, 0}, {2, 3});
-  TensorView* tv6 = broadcast(tv5, {false, true, false});
+  TensorView* tv3 = slice(tv2, {0, 0}, {2, 3});
+  TensorView* tv4 = segment_set(tv3);
+  // segment_set adds a segment
+  TensorView* tv5 = relu(tv4);
+  TensorView* tv6 = slice(tv5, {0, 0}, {2, 3});
+  TensorView* tv7 = broadcast(tv6, {false, true, false});
   fusion->addInput(tv0);
   fusion->addOutput(tv6);
 
