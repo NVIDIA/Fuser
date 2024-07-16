@@ -8,6 +8,7 @@
 #include <abstract_tensor.h>
 #include <abstract_tensor_schedule.h>
 #include <disjoint_set.h>
+#include <id_model/schedule.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
@@ -34,17 +35,9 @@ constexpr bool isPowOf2(int64_t x) {
   return x > 1 && (x & (x - 1)) == 0;
 }
 
-// TODO: it might make sense to make this an AbstractId method
 inline IterDomain* representativeId(const AbstractId& abs_id) {
-  if (abs_id.is<IterDomain*>()) {
-    return abs_id.as<IterDomain*>();
-  } else if (abs_id.is<ValGroupAndItsGraph>()) {
-    auto vgg = abs_id.as<ValGroupAndItsGraph>();
-    return vgg.group->front()->as<IterDomain>();
-  } else {
-    NVF_ERROR(false, "Could not convert AbstractId to concrete IterDomain");
-  }
-  return nullptr;
+  NVF_ERROR(abs_id.is<ValGroupAndItsGraph>());
+  return representativeId(abs_id.as<ValGroupAndItsGraph>().group);
 }
 
 inline int64_t constDimSize(const AbstractId& abs_id) {
@@ -633,6 +626,7 @@ class MultipleMatmulScheduler {
     // outputs. These steps are invariant to reordering.
 
     // schedule acw_smem and bcw_smem
+    scheduleOperandSmemLoads();
 
     // schedule register loads (ldmatrix) acr/bcr
 
@@ -647,6 +641,16 @@ class MultipleMatmulScheduler {
 
     // schedule epilogue
 
+    fusion_->printMath();
+
+    setUpInlining();
+
+    // set up circular buffering. This must come after everything up to
+    // mma_result is scheduled, since everything in the main loop will need to
+    // be rotated
+    setUpCircularBuffering();
+
+    /*
     // Swizzle writes to prologue and epilogue smem tensors
     swizzleAllSharedMemory();
 
@@ -661,13 +665,9 @@ class MultipleMatmulScheduler {
     // 2. Coalesce and vectorize the read write schedule.
     // schedulePrologue();
 
-    // TODO: fill in the rest of scheduling
 
     applyFinalTransforms();
-
-    inlineMost();
-
-    fusion_->printMath();
+    */
   }
 
  private:
@@ -1117,6 +1117,32 @@ class MultipleMatmulScheduler {
     return c;
   }
 
+  // Schedule the loads of all operands from global memory to shared memory.
+  // Starting from the basic tiled schedule, we swizzle the operand memory.
+  // Note that the cache op and LoadStoreOpType are already set during
+  // defineOperandCaches().
+  void scheduleOperandSmemLoads() {
+    auto setupSwizzle = [&](mma_utils::AbstractMatmulTensor& abten,
+                            const std::vector<TensorView*>& gmem_operands,
+                            const std::vector<MatmulDimRole>& inner_dims) {
+      abten = schedule_.tiled;
+      // get min datatype size of all A or B operands
+      int64_t min_dtype_size = 16;
+      for (TensorView* operand : gmem_operands) {
+        min_dtype_size =
+            std::min(min_dtype_size, dataTypeSize(operand->dtype()));
+      }
+      std::cout << "min_dtype_size=" << min_dtype_size << std::endl;
+      swizzleSharedMemory(
+          abten,
+          inner_dims,
+          min_dtype_size,
+          /*apply_swizzle=*/true);
+    };
+    setupSwizzle(schedule_.acw_smem, as_, {MatmulDimRole::M, MatmulDimRole::K});
+    setupSwizzle(schedule_.bcw_smem, bs_, {MatmulDimRole::N, MatmulDimRole::K});
+  }
+
   void swizzleAllSharedMemory() {
     if (params_.use_smem_epilogue) {
       // Transform mma_result through the epilogue swizzle without actually
@@ -1259,6 +1285,82 @@ class MultipleMatmulScheduler {
     // TODO: all tensors
   }
 
+  void setUpInlining() {
+    NVF_ERROR(false, "Find tensors and inline positions for inlineSelectedAt");
+
+    /*
+    // auto inline for all tensors except register tensors
+    inlineMost(ir_utils::allTvsExcept(fusion_, {acr, bcr, ab, bb}));
+
+    // if auto inline, will inline to position-7, leads to performance
+    regression inlineSelectedAt( {acr, bcr, ab, bb}, mma_result,
+        num_device_and_batch_dims + 6 + num_splitk_dims);
+    */
+  }
+
+  // NOTE: this should be called after acw_smem, acr, ..., ab, and mma_result
+  // transforms have been applied and inlining
+  void setUpCircularBuffering() {
+    // Propagate mma output swizzle and parallelization down the DAG
+    if (params_.circular_buffer_options.circular_buffer_smem_write) {
+      NVF_ERROR(
+          params_.circular_buffer_options.smem_circular_buffer_stage > 1,
+          "Invalid buffer stage config")
+      if (params_.circular_buffer_options.smem_circular_buffer_stage > 2) {
+        NVF_ERROR(
+            params_.async_gmem_load_operands,
+            "Circular buffer only supports async load");
+      }
+
+      for (TensorView* acw_smem : acw_smems_) {
+        acw_smem->circularBuffer(
+            params_.circular_buffer_options.smem_circular_buffer_stage);
+      }
+      for (TensorView* bcw_smem : bcw_smems_) {
+        bcw_smem->circularBuffer(
+            params_.circular_buffer_options.smem_circular_buffer_stage);
+      }
+    }
+
+    if (params_.circular_buffer_options.circular_buffer_smem_read) {
+      for (TensorView* acr : acrs_) {
+        acr->circularBuffer(/*number_of_stages=*/2);
+      }
+      for (TensorView* bcr : bcrs_) {
+        bcr->circularBuffer(/*number_of_stages=*/2);
+      }
+    }
+
+    if (params_.circular_buffer_options.circular_buffer_smem_read &&
+        params_.circular_buffer_options.circular_buffer_smem_write) {
+      // rotate Kg loop
+      NVF_ERROR(false, "TODO: rotateLoop");
+      /*
+      scheduler_utils::rotateLoop(
+          mma_results_.front(),
+          num_device_and_batch_dims + 2 + num_splitk_dims,
+          {acr, bcr});
+      */
+    }
+  }
+
+  void parallelize(const ValGroup& vg, ParallelType pt) {
+    parallelization_map_.emplace(vg, pt);
+  }
+
+  // Assumes tv has all loop transforms applied. Looks up each loop domain in
+  // parallelization_map_ and applies parallelizations if found.
+  void parallelizeTensor(TensorView* tv) {
+    for (IterDomain* id : tv->getLoopDomain()) {
+      ValGroup vg = graph_->toGroup(id);
+      auto it = parallelization_map_.find(vg);
+      if (it == parallelization_map_.end()) {
+        continue;
+      }
+      id->parallelize(it->second);
+    }
+  }
+
  private:
   Fusion* fusion_;
   const MatmulParams& params_;
@@ -1296,6 +1398,13 @@ class MultipleMatmulScheduler {
     // all tensors holding epilogue computation, epilogue inputs, and outputs.
     mma_utils::AbstractMatmulTensor epilogue;
   } schedule_;
+
+  // This mapping allows us to set parallelization during abstract scheduling,
+  // then later apply it in a standardized way. Once we have applied transforms
+  // to a TensorView we need only to look up the ValGroup of each of its loop
+  // domains in this map to determine the parallelization to use. This is
+  // implemented in parallelizeTensor(tv).
+  std::unordered_map<ValGroup, ParallelType> parallelization_map_;
 };
 
 } // namespace
