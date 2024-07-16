@@ -32,11 +32,4 @@ inline void applyAbstractTransforms(
   applyAbstractTransforms(abstract_tensor, tvs, graph);
 }
 
-//! Build a new AbstractTensor based on the provided one by traversing
-//! ExprGroups and "forwarding" ValGroups through merge operations when the
-//! other ValGroup is missing in tv.
-AbstractTensor forwardAroundMissingAxes(
-    const AbstractTensor& abstract_tensor,
-    TensorView* tv);
-
 } // namespace nvfuser

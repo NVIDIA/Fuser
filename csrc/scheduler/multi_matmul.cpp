@@ -665,8 +665,6 @@ class MultipleMatmulScheduler {
     // 2. Coalesce and vectorize the read write schedule.
     // schedulePrologue();
 
-
-    applyFinalTransforms();
     */
   }
 
@@ -927,8 +925,8 @@ class MultipleMatmulScheduler {
     for (size_t i : c10::irange(schedule_.tiled.size())) {
       // Note that block tiles might be swizzled, in which case a dimension
       // might have both M and N tags
-      if (schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::M) || 
-        schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::N)) {
+      if (schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::M) ||
+          schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::N)) {
         if (hasBIDy) {
           parallelize(schedule_.tiled[i], ParallelType::BIDx);
           break;
@@ -1290,28 +1288,6 @@ class MultipleMatmulScheduler {
     schedulePrologueBranch(bcw_smems_, params_.supported_vec_size.b);
   }
 
-  void applyFinalTransforms() const {
-    auto forwardAndApply = [](const mma_utils::AbstractMatmulTensor& abten,
-                              TensorView* tv) {
-      AbstractTensor local_abten = forwardAroundMissingAxes(abten, tv);
-      applyAbstractTransforms(local_abten, tv);
-      // TODO: look up original ValGroup for each axis in local_abten and find
-      // corresponding ParallelType if there is one set and apply it here
-    };
-
-    for (TensorView* tv : mma_results_) {
-      forwardAndApply(schedule_.mma_result, tv);
-    }
-
-    if (params_.use_smem_epilogue) {
-      for (TensorView* tv : smem_epilogues_) {
-        forwardAndApply(schedule_.smem_epilogue, tv);
-      }
-    }
-
-    // TODO: all tensors
-  }
-
   void setUpInlining() {
     NVF_ERROR(false, "Find tensors and inline positions for inlineSelectedAt");
 
@@ -1395,7 +1371,7 @@ class MultipleMatmulScheduler {
   }
 
   void parallelizeTensors(const std::vector<TensorView*>& tvs) {
-    for (TensorView * tv : tvs) {
+    for (TensorView* tv : tvs) {
       parallelizeTensor(tv);
     }
   }
