@@ -1410,7 +1410,7 @@ TEST_F(AliasTest, StackedAliases) {
   TensorView* tv6 = slice(tv5, {0, 0}, {2, 3});
   TensorView* tv7 = broadcast(tv6, {false, true, false});
   fusion->addInput(tv0);
-  fusion->addOutput(tv6);
+  fusion->addOutput(tv7);
 
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
