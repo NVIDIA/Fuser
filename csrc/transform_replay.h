@@ -203,7 +203,7 @@ class NVF_API TransformReplay {
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
-      const LogicalDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       TransformReplayOptions opt = {});
 
   // Replay producer as consumer, returns {replayed_consumer_domain,
@@ -219,7 +219,7 @@ class NVF_API TransformReplay {
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
-      const LogicalDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       TransformReplayOptions opt = {});
 
   // Self replay.

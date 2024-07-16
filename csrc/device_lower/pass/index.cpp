@@ -1834,13 +1834,15 @@ Val* IndexLowering::getIterationIndexForBroadcast(
       "Expected broadcast ID but found ",
       broadcast_id->toString());
 
-  auto c2p_root_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
-                          .mapBroadcast(false)
-                          .mapConsumerToProducer();
+  auto c2p_logical_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+                             .mapBroadcast(false)
+                             .mapConsumerToProducer();
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLoopDomain(), consumer_tv->getLoopDomain(), c2p_root_map);
+      producer_tv->getLoopDomain(),
+      consumer_tv->getLoopDomain(),
+      c2p_logical_map);
 
   const auto& c2p_map = replay_producer_as_consumer.getReplay();
   const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
