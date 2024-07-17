@@ -33,21 +33,22 @@ void markAliases(Fusion* fusion) {
 
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    if (fusion->getOutputAlias(out).type != AllocationType::New) {
+    // AllocationType::ReuseBuffer requires the output to be updated in place
+    // so it can't be computed as an alias.
+    if (fusion->getOutputAlias(out).type == AllocationType::ReuseBuffer) {
       continue;
     }
 
-    TensorView* aliased_io = analysis.getNearestAliasedIo(out);
-    if (aliased_io == nullptr) {
-      continue;
+    if (TensorView* aliased_io = analysis.getNearestAliasedIo(out)) {
+      if (aliased_io->isFusionInput() || aliased_io->isFusionOutput()) {
+        fusion->aliasOutputToInput(out, aliased_io, AllocationType::Evaluate);
+        vlog(
+            "Marked ",
+            ir_utils::varName(out),
+            " as an alias of ",
+            ir_utils::varName(aliased_io));
+      }
     }
-
-    fusion->aliasOutputToInput(out, aliased_io, AllocationType::Evaluate);
-    vlog(
-        "Marked ",
-        ir_utils::varName(out),
-        " as an alias of ",
-        ir_utils::varName(aliased_io));
   }
 }
 

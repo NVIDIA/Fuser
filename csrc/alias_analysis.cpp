@@ -415,6 +415,14 @@ TensorView* AliasAnalysisResult::getNearestAliasedIo(
   return getOrDefault(alias_to_root_, alias);
 }
 
+TensorView* AliasAnalysisResult::source(const TensorView* alias) const {
+  if (const auto i = alias_to_source_.find(alias);
+      i != alias_to_source_.end()) {
+    return i->second.first;
+  }
+  return nullptr;
+}
+
 namespace {
 bool okToRelayout(
     const TensorView* tv,
@@ -431,21 +439,20 @@ void AliasAnalysisResult::finalize(
     const bool can_override_empty_allocation_domain) {
   for (auto [alias, source_and_layout] : alias_to_source_) {
     auto [root, preferred_layout] = source_and_layout;
-    // Walks up the `alias_to_source_` chain.
-    while (root != nullptr && !root->isFusionInput() &&
-           !root->isFusionOutput()) {
-      const auto i = alias_to_source_.find(root);
-      root = (i == alias_to_source_.end() ? nullptr : i->second.first);
-    }
-    if (root == nullptr) {
-      continue;
-    }
 
     if (!okToRelayout(
             alias, preferred_layout, can_override_empty_allocation_domain)) {
       continue;
     }
 
+    // Walks up the `alias_to_source_` chain.
+    while (true) {
+      const auto i = alias_to_source_.find(root);
+      if (i == alias_to_source_.end()) {
+        break;
+      }
+      root = i->second.first;
+    }
     alias_to_root_[alias] = root;
   }
 }

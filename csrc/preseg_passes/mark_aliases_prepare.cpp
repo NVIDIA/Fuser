@@ -7,12 +7,33 @@
 // clang-format on
 #include <alias_analysis.h>
 #include <debug.h>
+#include <ir/iostream.h> // for operator<<(ostream&, TensorView*)
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <options.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 
 namespace nvfuser::preseg_passes {
+
+namespace {
+
+std::pair<TensorView*, Expr*> findUseToSegment(
+    TensorView* out,
+    const AliasAnalysisResult& analysis,
+    const std::unordered_set<Expr*>& used_by_non_aliases) {
+  Expr* user = nullptr;
+  while (true) {
+    Expr* def = out->definition();
+    if (analysis.getNearestAliasedIo(out) == nullptr ||
+        used_by_non_aliases.count(def)) {
+      return {out, user};
+    }
+    out = def->input(0)->as<TensorView>();
+    user = def;
+  }
+}
+
+} // namespace
 
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   const AliasAnalysisResult analysis =
@@ -50,82 +71,78 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     }
   }
 
-  std::vector<Val*> non_alias_outs;
-  non_alias_outs.reserve(fusion->outputs().size());
-  // Fusion inputs/outputs that are (1) aliased by another output and (2) not
-  // an alias itself. Code will later add `segment_set` around them so aliases
-  // are separated from non-aliases and more likely to be accepted by the no-op
-  // scheduler. See AliasTest.OutputAliasesAnotherOutput and
-  // AliasTest.SegmentMetaOps.
-  //
-  // This algorithm is suboptimal in many cases. See
-  // https://github.com/NVIDIA/Fuser/issues/2395#issuecomment-2207043749 for a
-  // proposal that may work better.
-  std::unordered_set<TensorView*> aliased_ios;
-  for (TensorView* out_tv :
-       ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    if (TensorView* aliased_io = analysis.getNearestAliasedIo(out_tv)) {
-      if (analysis.getNearestAliasedIo(aliased_io) == nullptr) {
-        aliased_ios.insert(aliased_io);
+  auto used_by_non_aliases = [&]() -> std::unordered_set<Expr*> {
+    std::vector<Val*> non_aliases;
+    for (TensorView* tv : ir_utils::allTvs(fusion)) {
+      if (analysis.getNearestAliasedIo(tv) == nullptr) {
+        non_aliases.push_back(tv);
       }
-    } else {
-      non_alias_outs.push_back(out_tv);
+    }
+    // Mark all expressions that are (transitively) used by non-alias outputs.
+    std::vector<Expr*> used_by_non_aliases = StmtSort::getExprsTo(non_aliases);
+    return {used_by_non_aliases.begin(), used_by_non_aliases.end()};
+  }();
+
+  std::vector<std::pair<TensorView*, Expr*>> uses_to_segment;
+  uses_to_segment.reserve(fusion->outputs().size());
+  for (auto* out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    std::pair<TensorView*, Expr*> use_to_segment =
+        findUseToSegment(out, analysis, used_by_non_aliases);
+    if (use_to_segment.first != out) {
+      uses_to_segment.push_back(use_to_segment);
+    }
+  }
+  std::sort(uses_to_segment.begin(), uses_to_segment.end());
+  uses_to_segment.erase(
+      std::unique(uses_to_segment.begin(), uses_to_segment.end()),
+      uses_to_segment.end());
+
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    for (const auto& [use_of, user] : uses_to_segment) {
+      debug() << "Will put a segment_set at " << user << std::endl;
     }
   }
 
-  // Mark all expressions that are (transitively) used by non-alias outputs.
-  auto used_by_non_aliases =
-      [](const std::vector<Expr*>& exprs) -> std::unordered_set<Expr*> {
-    return {exprs.begin(), exprs.end()};
-  }(StmtSort::getExprsTo(non_alias_outs));
+  auto i = uses_to_segment.begin();
+  while (i != uses_to_segment.end()) {
+    TensorView* use_of = i->first;
+    auto j = i;
+    while (j != uses_to_segment.end() && j->first == use_of) {
+      j++;
+    }
 
-  for (TensorView* aliased_io : aliased_ios) {
-    // Divide the users of aliased_io into two groups according to
-    // `used_by_non_aliases`.
-    std::vector<Expr*> users_used_by_non_aliases;
-    std::vector<Expr*> users_used_only_by_aliases;
-    for (Expr* e : aliased_io->uses()) {
-      if (used_by_non_aliases.count(e)) {
-        users_used_by_non_aliases.push_back(e);
+    auto insert_segment_set = [&]() {
+      if (static_cast<size_t>(std::distance(i, j)) == use_of->uses().size()) {
+        // Put a `segment_set` before `use_of`.
+        if (use_of->isFusionInput()) {
+          // A `segment_set` before a fusion input is useless.
+          return;
+        }
+        // Rarely, if `aliased_io` is already defined by `segment_set`, don't
+        // create another `segment_set`.
+        if (LoadStoreOp* def =
+                dynamic_cast<LoadStoreOp*>(use_of->definition())) {
+          if (def->opType() == LoadStoreOpType::SegmenterSet) {
+            return;
+          }
+        }
+        use_of->cacheBefore(LoadStoreOpType::SegmenterSet);
       } else {
-        users_used_only_by_aliases.push_back(e);
-      }
-    }
-
-    // If all users are used by non-alias outputs, do nothing. Adding
-    // segment_set around unlikely creates more no-op regions.
-    if (users_used_only_by_aliases.empty()) {
-      continue;
-    }
-
-    // If all users are used by aliases, put a `segment_set` before it.
-    if (users_used_by_non_aliases.empty()) {
-      if (aliased_io->isFusionInput()) {
-        // A `segment_set` before a fusion input is useless.
-        continue;
-      }
-      // Rarely, if `aliased_io` is already defined by `segment_set`, don't
-      // create another `segment_set`.
-      if (LoadStoreOp* def =
-              dynamic_cast<LoadStoreOp*>(aliased_io->definition())) {
-        if (def->opType() == LoadStoreOpType::SegmenterSet) {
-          continue;
+        // Some users of `use_of` are used by non-aliases, and some are used
+        // only by aliases. We put a `segment_set` after `use_of` and redirect
+        // the latter group to use the `segment_set`.
+        TensorView* copy = segment_set(use_of);
+        std::for_each(i, j, [&](const std::pair<TensorView*, Expr*>& use) {
+          ir_utils::replaceValInExprInputs(use.second, use_of, copy);
+        });
+        if (use_of->isFusionOutput()) {
+          fusion->replaceOutput(use_of, copy);
         }
       }
-      aliased_io->cacheBefore(LoadStoreOpType::SegmenterSet);
-      continue;
-    }
+    };
+    insert_segment_set();
 
-    // Some users of `aliased_io` are used by non-aliases, and some are used
-    // only by aliases. We put a `segment_set` after `aliased_io` and redirect
-    // the latter group to use the `segment_set`.
-    TensorView* copy = segment_set(aliased_io);
-    for (Expr* e : users_used_only_by_aliases) {
-      ir_utils::replaceValInExprInputs(e, aliased_io, copy);
-    }
-    if (aliased_io->isFusionOutput()) {
-      fusion->replaceOutput(aliased_io, copy);
-    }
+    i = j;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
