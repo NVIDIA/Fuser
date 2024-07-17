@@ -222,7 +222,7 @@ class WarpMmaSwizzler {
 //! shared memory is of the form [M, N].
 //! This is tiled to [MO(1), NO(1), MI(m), NI(n)]. The inner two dims are
 //! marked parallel type bulk.
-void scheduleTMAStoreForMmaOutput(TensorView *tv);
+void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n);
 
 void checkDimSize(
     TensorView* tv,

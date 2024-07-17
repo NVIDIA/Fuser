@@ -1166,7 +1166,7 @@ inline void resolveTvToMatmulDimRolesMapping(
 
 } // anonymous namespace
 
-void scheduleTMAStoreForMmaOutput(TensorView* tv) {
+void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n) {
   NVF_ERROR(
       tv->getMemoryType() == MemoryType::Global,
       "TMA Store should write to global memory");
@@ -1188,15 +1188,9 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv) {
               ->getMemoryType() == MemoryType::Shared,
       "Producer should be in shared memory");
 
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(tv->fusion());
-  NVF_CHECK(
-      1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
-      mma_ops.size());
-
   // [M(m), N(n)] -> [MO(1), MI(m), NO(1), NI(n)]
-  tv->split(-2, getM(mma_ops.front()->macro()));
-  tv->split(-1, getN(mma_ops.front()->macro()));
+  tv->split(-2, m);
+  tv->split(-1, n);
   // [MO(1), MI(m), NO(1), NI(n)] -> [MO(1), NO(1), MI(m), NI(n)]
   tv->reorder({{-2, -3}});
   mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv, 2);
