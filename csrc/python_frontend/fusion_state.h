@@ -16,8 +16,8 @@ namespace nvfuser::python_frontend {
 struct RecordFunctor;
 
 struct State {
-  State(size_t _index, serde::StateType _stype)
-      : index(_index), stype(_stype), parent(nullptr) {}
+  State(size_t _index, serde::StateType _stype, const RecordFunctor* _parent = nullptr)
+      : index(_index), stype(_stype), parent(_parent) {}
 
   bool operator==(const State& other) const;
   bool operator!=(const State& other) const;

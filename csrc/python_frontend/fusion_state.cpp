@@ -31,7 +31,7 @@ bool State::operator!=(const State& other) const {
 
 // Generalized printing of State
 std::ostream& operator<<(std::ostream& os, const State& state) {
-  NVF_CHECK(state.parent != nullptr, "The State object's parent record is null!");
+  NVF_CHECK(state.parent != nullptr, "The State object's parent record is null! Index: ", state.index);
   if (state.parent->inlineDef()) {
     state.parent->print(os);
   } else {
