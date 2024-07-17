@@ -8296,7 +8296,7 @@ TEST_F(NVFuserTest, DecoupledDomains) {
       root_domain, logical_domain, allocation_domain, loop_domain, contiguity);
   TensorView* tv = IrBuilder::create<TensorView>(td, DataType::Float);
   auto all_ids = concat(logical_all, root_all, alloc_all, loop_all);
-  auto tv_all_vec = ir_utils::allIDsOf(tv);
+  auto tv_all_vec = tv->domain()->allIDs();
   std::unordered_set<IterDomain*> tv_all(tv_all_vec.begin(), tv_all_vec.end());
   EXPECT_EQ(tv_all, all_ids);
 }

@@ -730,35 +730,6 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
       tv->definition()->as<ScatterOp>()->getIndexedID() == id;
 }
 
-std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
-  VectorOfUniqueEntries<Val*> all_vals;
-  const auto& root_domain = tv->getRootDomain();
-  const auto& logical_domain = tv->getLogicalDomain();
-  const auto& loop_domain = tv->getLoopDomain();
-  const auto& alloc_domain = tv->getAllocationDomain();
-
-  std::array<const std::vector<IterDomain*>*, 4> domains{
-      &root_domain, &logical_domain, &loop_domain, &alloc_domain};
-
-  for (auto dom0 : domains) {
-    if (dom0->empty()) {
-      continue;
-    }
-    for (auto dom1 : domains) {
-      if (dom1->empty()) {
-        continue;
-      }
-      auto all_vals_01 = DependencyCheck::getAllValsBetween(
-          {dom0->begin(), dom0->end()}, {dom1->begin(), dom1->end()});
-      all_vals.pushBack(all_vals_01);
-    }
-  }
-
-  // Filter so we only have iteration domains (ignore Ints used in split)
-  auto all_ids = ir_utils::filterByType<IterDomain>(all_vals.vector());
-  return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
-}
-
 bool isIndexSelectLookupTv(const TensorView* tv) {
   for (auto expr : tv->uses()) {
     if (expr->isA<IndexSelectOp>()) {

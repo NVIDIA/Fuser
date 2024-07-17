@@ -271,7 +271,7 @@ void checkStep2Results(Fusion* fusion, const IdModelTester& tester) {
         (tv->getComputeAtPosition() == 0 &&
          tv->getMaxProducerPosition() == 0)) {
       // Make sure there's no promotion of any of the IDs of this tensor
-      for (auto id : ir_utils::allIDsOf(tv)) {
+      for (auto id : tv->domain()->allIDs()) {
         auto promoted_id = getPromotedDomain(id);
         ASSERT_EQ(promoted_id, nullptr)
             << "Expected no mapping for " << id->toString()
@@ -287,7 +287,7 @@ void checkStep2Results(Fusion* fusion, const IdModelTester& tester) {
                          c_tv, tv, -1, PairwiseLogicalDomainMap(tv, c_tv))
                          .getReplay();
 
-    for (auto p_id : ir_utils::allIDsOf(tv)) {
+    for (auto p_id : tv->domain()->allIDs()) {
       // Root domains are already done at Step 1
       if (std::find(
               tv->getLogicalDomain().begin(),
@@ -2450,7 +2450,7 @@ TEST_F(IdModelTest, LoopPromotionWithViewRFactor1) {
     if (tv->isFusionInput()) {
       continue;
     }
-    for (auto id : ir_utils::allIDsOf(tv)) {
+    for (auto id : tv->domain()->allIDs()) {
       ASSERT_TRUE(loop_group->has(id))
           << "Expected to be included. ID: " << id->toString()
           << ". Loop group: " << nvfuser::toString(loop_group);
@@ -2500,7 +2500,7 @@ TEST_F(IdModelTest, LoopPromotionWithLogicalDomains2) {
     if (tv->isFusionInput()) {
       continue;
     }
-    for (auto id : ir_utils::allIDsOf(tv)) {
+    for (auto id : tv->domain()->allIDs()) {
       ASSERT_TRUE(loop_group->has(id))
           << "Expected to be included. ID: " << id->toString()
           << ". Loop group: " << nvfuser::toString(loop_group);

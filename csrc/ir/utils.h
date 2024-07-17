@@ -463,10 +463,6 @@ IterDomain* getIndexedProducerID(const Expr* expr);
 // indirectly accessed.
 IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
 
-// Get all IDs of a tensor. Returned values are topologicaly ordered, and
-// unique.
-std::vector<IterDomain*> allIDsOf(const TensorView* tv);
-
 // Check if the given tv is first argment of index_select(lookup, dim, indices)
 bool isIndexSelectLookupTv(const TensorView* tv);
 

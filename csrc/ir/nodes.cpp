@@ -3650,6 +3650,63 @@ void TensorDomain::setAllocationDomain(
   contiguity_ = std::move(new_contiguity);
 }
 
+std::vector<IterDomain*> TensorDomain::allIDs() const {
+  VectorOfUniqueEntries<IterDomain*> pending;
+  for (const auto& domain :
+       {logical_domain_, root_domain_, allocation_domain_, loop_domain_}) {
+    pending.pushBack(domain);
+  }
+  VectorOfUniqueEntries<IterDomain*> discovered_ids;
+  std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+
+  // Find all IDs along definition-uses chain with DFS
+  while (!pending.empty()) {
+    auto back = pending.back();
+    pending.popBack();
+    discovered_ids.pushBack(back);
+    std::vector<const Expr*> all_exprs;
+    auto def = back->definition();
+    if (def != nullptr) {
+      all_exprs.push_back(def);
+    }
+    all_exprs.insert(
+        all_exprs.back(), back->uses().begin(), back->uses().end());
+    for (auto e : all_exprs) {
+      std::vector<Val*> all_ids;
+      all_ids.insert(all_ids.back(), e->inputs().begin(), e->inputs().end());
+      all_ids.insert(all_ids.back(), e->outputs().begin(), e->outputs().end());
+      for (auto id : ir_utils::filterByType<IterDomain>(all_ids)) {
+        if (!discovered_ids.has(id) && !pending.has(id)) {
+          pending.pushBack(id);
+        }
+      }
+      for (auto in : e->inputs()) {
+        for (auto out : e->inputs()) {
+          out2in.emplace(out->as<IterDomain>(), in->as<IterDomain>());
+        }
+      }
+    }
+  }
+
+  // Topological sort all IDs
+  std::list<IterDomain*> ids_to_be_sorted(
+      discovered_ids.begin(), discovered_ids.end());
+  VectorOfUniqueEntries<IterDomain*> sorted_ids;
+  while (!ids_to_be_sorted.empty()) {
+    auto it = ids_to_be_sorted.begin();
+    while (it != ids_to_be_sorted.end()) {
+      auto in_it = out2in.find(*it);
+      if (in_it == out2in.end() || sorted_ids.has(in_it->second)) {
+        sorted_ids.pushBack(*it);
+        it = ids_to_be_sorted.erase(it);
+      } else {
+        it++;
+      }
+    }
+  }
+  return sorted_ids.vector();
+}
+
 Split::Split(
     IrBuilderPasskey passkey,
     IterDomain* outer,
