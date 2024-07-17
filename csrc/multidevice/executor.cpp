@@ -17,6 +17,7 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 
@@ -64,7 +65,8 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       preseg_passes::InsertReshardingsPass>::runPass(complete_fusion_.get());
   preseg_passes::OptimizationPass<
       preseg_passes::ReorderShardedAxisPass>::runPass(complete_fusion_.get());
-  setShardedAllocationDomain(complete_fusion_.get());
+  preseg_passes::OptimizationPass<preseg_passes::MakeReshardingContiguousPass>::
+      runPass(complete_fusion_.get());
 
   // Performs segmentation at the inter-device communications
   // Each SegmentedGroup represents a pipeline's stage, and can be either
