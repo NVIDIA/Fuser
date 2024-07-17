@@ -70,7 +70,6 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
-    std::cout << "Dispatch " << expr->toString() << std::endl;
     dispatch(expr);
   }
 

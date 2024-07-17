@@ -166,16 +166,17 @@ TEST_F(MultideviceShardingTest, LayerNorm) {
   c10::optional<at::Tensor> aten_bias = c10::nullopt;
   auto aten_outputs =
       at::native_layer_norm(aten_x, norm_shape, aten_weight, aten_bias, kEps);
-  std::cout << "Done with aten" << std::endl;
 
-  MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
+  hir::HostIrExecutorParams executor_params{
+      .use_fusion_executor_cache = true,
+      .skip_auto_scheduling = false,
+      .cache_fusion_executor = false};
+  MultiDeviceExecutor runtime(
+      std::move(fusion), *communicator_, executor_params);
   auto out = runtime.runWithInput({aten_x});
-  // FusionExecutorCache executor_cache(std::move(fusion));
-  // auto out = executor_cache.runFusionWithInputs({aten_x});
-  std::cout << "Done with nvfuser" << std::endl;
+
   testValidate(
       runtime.completeFusion(),
-      // executor_cache.fusion(),
       out,
       {aten_x},
       {std::get<0>(aten_outputs),

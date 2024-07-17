@@ -258,7 +258,6 @@ void insertReshardingBefore(Fusion* fusion) {
               expr->toString());
         }
       }
-      std::cout << "Done checking multi-output expression" << std::endl;
       continue;
     }
 
@@ -283,7 +282,6 @@ void insertReshardingBefore(Fusion* fusion) {
     }
     shardAllLike(output, new_inputs);
   }
-  std::cout << "Done with pass" << std::endl;
 }
 
 void insertReshardingsAfter(Fusion* fusion) {

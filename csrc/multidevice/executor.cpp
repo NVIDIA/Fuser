@@ -184,10 +184,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     val_to_IValue[vals_to_allocate_.at(i)] = allocations.at(i);
   }
 
-  auto llll =  host_ir_executor_->runWithInput(val_to_IValue);
-  std::cout << "Ran" << std::endl;
-  return llll;
-  
+  return host_ir_executor_->runWithInput(val_to_IValue);
 }
 
 std::string MultiDeviceExecutor::validate() const {
