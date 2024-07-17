@@ -306,7 +306,7 @@ std::unordered_set<Val*> allConsumerValsOf(const Val* val) {
   std::unordered_set<Val*> consumer_vals;
   for (Val* consumer : consumerValsOf(val)) {
     consumer_vals.insert(consumer);
-    consumer_vals.merge(std::move(allConsumerValsOf(consumer)));
+    consumer_vals.merge(allConsumerValsOf(consumer));
   }
   return consumer_vals;
 }
