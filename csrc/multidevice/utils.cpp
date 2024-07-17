@@ -579,4 +579,3 @@ void reorderDIDToFront(TensorView* tv) {
 }
 
 } // namespace nvfuser
-     
