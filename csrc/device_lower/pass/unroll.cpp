@@ -98,7 +98,8 @@ void UnrollPass::dispatch(Expr* expr) {
     Expr* expr_with_predicate = expr;
 
     // Reduction may need a separate predicate for writes.
-    if (!lower_utils::isReductionInitExpr(expr) && out_tv->domain()->hasReduction()) {
+    if (!lower_utils::isReductionInitExpr(expr) &&
+        out_tv->domain()->hasReduction()) {
       const auto write_pred = unswitched_loop_
           ? thread_pred_expr
           : IrBuilder::create<kir::Predicate>(
