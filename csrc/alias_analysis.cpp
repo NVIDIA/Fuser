@@ -549,10 +549,9 @@ AliasAnalysisResult findAliases(
     finder.dispatch(expr);
   }
   // allow output to alias intermediate
-  bool allow_output_alias_intermediate =
-      can_alias_intermediate && outputInterferingReduction(fusion);
   analysis.finalize(
-      can_override_empty_allocation_domain, allow_output_alias_intermediate);
+      can_override_empty_allocation_domain,
+      can_alias_intermediate && outputInterferingReduction(fusion));
   return analysis;
 }
 

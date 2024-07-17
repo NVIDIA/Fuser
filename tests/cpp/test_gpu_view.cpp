@@ -47,9 +47,9 @@
 #include <iostream>
 
 namespace nvfuser {
+using testing::Contains;
 
 using namespace at::indexing;
-
 using GpuViewTest = NVFuserTest;
 
 TEST_F(GpuViewTest, FusionViewDtypeSameSizeOutput) {
@@ -2344,6 +2344,12 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
   testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
+namespace {
+MATCHER_P(HeuristicIs, heuristic, "") {
+  return arg->heuristic() == heuristic;
+}
+} // namespace
+
 // segmented into 3 kernels: pointwise, normalization, and pointwise
 TEST_F(GpuViewTest, GroupNormOriginal) {
   auto fusion = std::make_unique<Fusion>();
@@ -2400,19 +2406,13 @@ TEST_F(GpuViewTest, GroupNormOriginal) {
   // and output.
   auto seg_groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-  int n_pointwise = 0, n_norm = 0, n_other = 0;
-  for (auto sg : seg_groups) {
-    if (sg->heuristic() == ScheduleHeuristic::PointWise) {
-      n_pointwise++;
-    } else if (sg->heuristic() == ScheduleHeuristic::InnerPersistent) {
-      n_norm++;
-    } else {
-      n_other++;
-    }
-  }
-  EXPECT_EQ(n_pointwise, 2);
-  EXPECT_EQ(n_norm, 1);
-  EXPECT_EQ(n_other, 0);
+
+  EXPECT_THAT(
+      seg_groups, Contains(HeuristicIs(ScheduleHeuristic::PointWise)).Times(2));
+  EXPECT_THAT(
+      seg_groups,
+      Contains(HeuristicIs(ScheduleHeuristic::InnerPersistent)).Times(1));
+
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
@@ -2452,18 +2452,12 @@ TEST_F(GpuViewTest, OutputAliasIntermediate) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
   const std::vector<SegmentedGroup*>& seg_groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-  int n_no_op = 0, n_norm = 0;
-  for (auto sg : seg_groups) {
-    if (sg->heuristic() == ScheduleHeuristic::NoOp) {
-      n_no_op++;
-    } else if (sg->heuristic() == ScheduleHeuristic::InnerPersistent) {
-      n_norm++;
-    } else {
-      FAIL() << "Unexpected heuristic: " << sg->heuristic();
-    }
-  }
-  EXPECT_EQ(n_no_op, 1);
-  EXPECT_EQ(n_norm, 1);
+
+  EXPECT_THAT(
+      seg_groups, Contains(HeuristicIs(ScheduleHeuristic::NoOp)).Times(1));
+  EXPECT_THAT(
+      seg_groups,
+      Contains(HeuristicIs(ScheduleHeuristic::InnerPersistent)).Times(1));
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0}, {t4}, __LINE__, __FILE__);
 }

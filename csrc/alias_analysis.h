@@ -62,7 +62,7 @@ class AliasAnalysisResult {
   // `can_override_empty_allocation_domain`.
   void finalize(
       bool can_override_empty_allocation_domain,
-      bool allow_output_alias_intermediate);
+      bool can_alias_intermediate);
 
   // Returns the preferred layout. If `alias` is not in `preferred_layout_`,
   // returns the `TensorView`'s initial layout.
