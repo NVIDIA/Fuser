@@ -57,7 +57,8 @@ inline IterDomain* getLoopPromotion(
   return loop_promotion_map_it->second;
 }
 
-inline std::vector<ForLoop*> getMaxPathLoops(const std::vector<ForLoop*>& for_loops) {
+inline std::vector<ForLoop*> getMaxPathLoops(
+    const std::vector<ForLoop*>& for_loops) {
   std::vector<ForLoop*> unswitched_domains;
 
   bool within_unswitch = false;

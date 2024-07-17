@@ -132,7 +132,6 @@ class OrderedIdInformation : public OptInDispatch {
   // fusion.
   const ConcretizedBroadcastDomains& concrete_info_;
 
-
   // TODO: Temporary WAR to do ContigIDGroup-specific processing
   bool using_id_graph_ = false;
 };

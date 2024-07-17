@@ -59,8 +59,7 @@ int64_t OrderedIdInformation::getActiveIdPos(IterDomain* id) const {
 
 bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
   NVF_ERROR(
-      findActiveId(id) !=
-          active_ids_.end(),
+      findActiveId(id) != active_ids_.end(),
       "Error replaying transforms in contiguous ID checker, expected ",
       id->toString(),
       " to be in the active ID set.");
@@ -172,7 +171,8 @@ void OrderedIdInformation::handle(Merge* merge) {
       if (active_ids_[pos_after_outer]->isReduction() ||
           ((active_ids_[pos_after_outer]->isBroadcast() &&
             !concrete_info_.isConcretized(active_ids_[pos_after_outer])))) {
-        // Skip reduction or broadcast axes that aren't concretized in the fusion
+        // Skip reduction or broadcast axes that aren't concretized in the
+        // fusion
         continue;
       }
     }
@@ -528,7 +528,8 @@ ContigIDs::ContigIDs(
     concrete_info_ =
         std::make_shared<ConcretizedBroadcastDomains>(ids[0]->fusion());
 
-    consistent_transform_info_ = std::make_unique<const OrderedIdInformation>(OrderedIdInformation::get(ids, alloc_domain, *concrete_info_));
+    consistent_transform_info_ = std::make_unique<const OrderedIdInformation>(
+        OrderedIdInformation::get(ids, alloc_domain, *concrete_info_));
   }
   build(ids);
 }
@@ -555,9 +556,8 @@ ContigIDs::ContigIDs(
       p2c_id_map_(std::move(p2c_id_map)),
       ignore_indexability_(ignore_indexability),
       ignore_consistent_ordering_(ignore_consistent_ordering),
-      consistent_transform_info_(std::make_unique<const OrderedIdInformation>(OrderedIdInformation::get(ids,
-          alloc_domain,
-                                                                                                        *concrete_info_))),
+      consistent_transform_info_(std::make_unique<const OrderedIdInformation>(
+          OrderedIdInformation::get(ids, alloc_domain, *concrete_info_))),
       non_divisible_id_info_(ids, alloc_domain, divisible_splits_) {
   build(ids);
 }
