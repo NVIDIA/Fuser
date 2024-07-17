@@ -10,7 +10,7 @@
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <device_lower/pass/replace_size.h>
 
@@ -90,7 +90,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   for (auto producer_tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     auto consumer_tvs = ir_utils::consumerTvsOf(producer_tv);
     for (auto consumer_tv : consumer_tvs) {
-      auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv);
+      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv);
       auto c2p_root_map = pairwise_map.mapConsumerToProducer();
       for (auto entry : c2p_root_map) {
         auto c_id = entry.first;
