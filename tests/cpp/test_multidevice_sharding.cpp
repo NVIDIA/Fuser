@@ -106,6 +106,86 @@ TEST_P(MultideviceShardingTest, ShardGlobalInput) {
       runtime.completeFusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
 }
 
+TEST_F(MultideviceShardingTest, Slice) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+
+  std::vector<int64_t> input_shape = {communicator_->size(), 8, 8};
+  TensorView* x = makeContigConcreteTensor(input_shape);
+  TensorView* x_slice0 = slice(x, {0, 0, 0}, {communicator_->size(), 8, 4});
+  TensorView* x_slice1 = slice(x, {0, 0, 4}, {communicator_->size(), 8, 8});
+
+  fusion->addInput(x);
+  fusion->addOutput(x_slice0);
+  fusion->addOutput(x_slice1);
+
+  for (auto tv : {x, x_slice0, x_slice1}) {
+    tv->setDeviceMesh(mesh);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  const auto options = at::TensorOptions().device(communicator_->device());
+  auto aten_x = at::randn(input_shape, options);
+  auto expected_out = aten_x.split(4, 2);
+  std::vector<c10::IValue> inputs = {{shardTensor(aten_x, x)}};
+
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
+  auto out = runtime.runWithInput(inputs);
+  testValidate(
+      runtime.completeFusion(),
+      out,
+      inputs,
+      {shardTensor(expected_out[0], x), shardTensor(expected_out[1], x)},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MultideviceShardingTest, LayerNorm) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+
+  std::vector<int64_t> input_shape = {1024, 32, 256};
+  std::vector<int64_t> norm_shape{256};
+  TensorView* x = makeContigConcreteTensor(input_shape);
+  fusion->addInput(x);
+
+  constexpr float kEps = 1e-5;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+  auto result = layer_norm(x, norm_shape, nullptr, nullptr, eps_ptr);
+  fusion->addOutput(result.output);
+  fusion->addOutput(result.mean);
+  fusion->addOutput(result.invstd);
+
+  x->setDeviceMesh(mesh);
+
+  auto options = at::TensorOptions().device(communicator_->device());
+  auto aten_x = at::randn(input_shape, options);
+  c10::optional<at::Tensor> aten_weight = c10::nullopt;
+  c10::optional<at::Tensor> aten_bias = c10::nullopt;
+  auto aten_outputs =
+      at::native_layer_norm(aten_x, norm_shape, aten_weight, aten_bias, kEps);
+  std::cout << "Done with aten" << std::endl;
+
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
+  auto out = runtime.runWithInput({aten_x});
+  // FusionExecutorCache executor_cache(std::move(fusion));
+  // auto out = executor_cache.runFusionWithInputs({aten_x});
+  std::cout << "Done with nvfuser" << std::endl;
+  testValidate(
+      runtime.completeFusion(),
+      // executor_cache.fusion(),
+      out,
+      {aten_x},
+      {std::get<0>(aten_outputs),
+       std::get<1>(aten_outputs),
+       std::get<2>(aten_outputs)},
+      __LINE__,
+      __FILE__,
+      "");
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     MultideviceShardingTest,
