@@ -382,8 +382,15 @@ Val* PredicateCompute::getInlinePredicate(
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
-  auto pred_info_vec =
-      Index::getReferenceRootPredicates(out_tv, loops, rotated_loops, nullptr);
+  std::vector<PredicateInfo> pred_info_vec;
+  if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    pred_info_vec =
+        gpu_lower->tensorIndexer().getInlinePredicates(out_tv, expr, loops);
+  } else {
+    pred_info_vec = Index::getReferenceRootPredicates(
+        out_tv, loops, rotated_loops, nullptr);
+  }
 
   std::vector<Val*> preds;
 
