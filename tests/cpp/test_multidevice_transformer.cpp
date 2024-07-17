@@ -437,8 +437,8 @@ TEST_F(DistributedTransformerTest, Forward) {
 
   auto ln_1 = layer_norm(x, norm_shape, nullptr, nullptr, eps_ptr);
   auto mha_in = castOp(dtype, ln_1.output);
-  auto mha__ = mha(
-      mha_in, mha_w0, mha_b0, mha_w1, mha_b1, fusion.get(), mesh, dtype, D);
+  auto mha__ =
+      mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, fusion.get(), mesh, dtype, D);
   auto mha_out = std::get<3>(mha__);
   auto resid_1 = add(x, mha_out);
   auto ln_2 = layer_norm(resid_1, norm_shape, nullptr, nullptr, eps_ptr);

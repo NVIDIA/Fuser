@@ -159,7 +159,8 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
     auto p2c_map_it = p2c_map.find(p_id);
     if (p2c_map_it == p2c_map.end()) {
       std::cout << "Offending id " << p_id->toString() << std::endl;
-      std::cout << "Error here " << consumer->definition()->toString() << std::endl;
+      std::cout << "Error here " << consumer->definition()->toString()
+                << std::endl;
       std::cout << "Producer " << producer->toString() << std::endl;
     }
     NVF_ERROR(
@@ -246,44 +247,48 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
 // input, otherwise we reshard the inputs. This heuristic should be smarter
 // and attempt to minimize communication.
 bool shouldReshardAfter(Expr* expr) {
-  return expr->inputs().size() == 1;
+  return expr->outputs().size() == 1 && expr->inputs().size() == 1;
 }
 
 void insertReshardingBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (auto expr : fusion->exprs()) {
-    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr) || expr->isA<SdpaFwdOp>()) {
+    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr) ||
+        expr->isA<SdpaFwdOp>()) {
       continue;
     }
-    if (expr->outputs().size() != 1) {
-      std::cout << "Skip on " << expr->toString() << std::endl;
-      continue;
-    }
-    // NVF_ERROR(
-    //     expr->outputs().size() == 1,
-    //     "multi-output expressions are not supported");
-
-    auto output = expr->outputs().at(0)->as<TensorView>();
-    std::unordered_set<TensorView*> inputs;
-    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output)) {
-        inputs.insert(input);
+    if (expr->outputs().size() > 1) {
+      for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+          NVF_CHECK(
+              !haveDifferentShardings(input, output),
+              "Cannot handle resharding a multi-output expression ",
+              expr->toString());
+        }
       }
-    }
+    } else {
+      auto output = expr->outputs().at(0)->as<TensorView>();
+      std::unordered_set<TensorView*> inputs;
+      for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+        if (haveDifferentShardings(input, output)) {
+          inputs.insert(input);
+        }
+      }
 
-    // Reshard each input of expr to match output if necessary
-    std::vector<TensorView*> new_inputs;
-    for (auto input : inputs) {
-      // TODO: reuse cacheAfter?
-      // TODO: here we should add a mechanism to potentially reuse the
-      // inserted resharding accross all the consumer of the resharded tensor.
-      // This way we could avoid wasteful resharding set insertion.
-      TensorView* new_input = set(input);
-      new_inputs.push_back(new_input);
-      expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
+      // Reshard each input of expr to match output if necessary
+      std::vector<TensorView*> new_inputs;
+      for (auto input : inputs) {
+        // TODO: reuse cacheAfter?
+        // TODO: here we should add a mechanism to potentially reuse the
+        // inserted resharding accross all the consumer of the resharded tensor.
+        // This way we could avoid wasteful resharding set insertion.
+        TensorView* new_input = set(input);
+        new_inputs.push_back(new_input);
+        expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
+      }
+      shardAllLike(output, new_inputs);
     }
-    shardAllLike(output, new_inputs);
   }
 }
 
@@ -296,16 +301,9 @@ void insertReshardingsAfter(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr) || expr->isA<SdpaFwdOp>()) {
+    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr)) {
       continue;
     }
-    if (expr->outputs().size() != 1) {
-      std::cout << "Skip on " << expr->toString() << std::endl;
-      continue;
-    }
-    // NVF_ERROR(
-    //     expr->outputs().size() == 1,
-    //     "multi-output expressions are not supported");
 
     auto output = expr->outputs().at(0)->as<TensorView>();
     std::unordered_set<TensorView*> inputs;
@@ -587,3 +585,4 @@ void reorderDIDToFront(TensorView* tv) {
 }
 
 } // namespace nvfuser
+     
