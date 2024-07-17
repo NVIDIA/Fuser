@@ -3171,4 +3171,190 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
+using MultiMatmulSchedulerMatchTestParams = std::tuple<
+    bool, // a_m_inner
+    bool // b_k_inner
+    >;
+
+class MultiMatmulSchedulerMatchTest
+    : public NVFuserFixtureParamTest<MultiMatmulSchedulerMatchTestParams> {
+ protected:
+  // Allocation order set by the pass breaks matmul tests
+  // see issue https://github.com/NVIDIA/Fuser/issues/1810
+  MultiMatmulSchedulerMatchTest() : optimization_guard_(false) {
+    fusion_ptr_ = std::make_unique<Fusion>();
+    fusion = fusion_ptr_.get();
+    fusion_guard_ptr_ = std::make_unique<FusionGuard>(fusion);
+
+    a_m_inner = std::get<0>(GetParam());
+    b_k_inner = std::get<1>(GetParam());
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
+    params.supported_vec_size = {8, 8, 4};
+    params.tile_sizes = gemm_tile;
+    params.async_gmem_load_operands = true;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
+  }
+
+  std::pair<TensorView*, TensorView*> getInputTVs(
+      int M,
+      int N,
+      int K,
+      bool a_m_inner,
+      bool b_k_inner) {
+    auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
+    auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
+
+    if (a_m_inner) {
+      tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+    }
+
+    if (b_k_inner) {
+      tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+    }
+    return {tv0, tv1};
+  }
+
+  std::pair<at::Tensor, at::Tensor> getInputTensors(
+      int M,
+      int N,
+      int K,
+      bool a_m_inner,
+      bool b_k_inner) {
+    const auto options =
+        at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
+    auto t0 = a_m_inner ? at::randn({M, K}, options).as_strided({M, K}, {1, M})
+                        : at::randn({M, K}, options);
+    auto t1 = b_k_inner ? at::randn({K, N}, options).as_strided({K, N}, {1, K})
+                        : at::randn({K, N}, options);
+    return {t0, t1};
+  }
+
+  void compareTVs(TensorView* tv_orig, TensorView* tv_new) const {
+#define EXPECT_EQ_TENS(a, b)                                      \
+  EXPECT_EQ(a, b) << "when comparing\n    " << tv_new->toString() \
+                  << "\nto original TensorView\n    " << tv_orig->toString();
+    EXPECT_EQ_TENS(tv_new->nDims(), tv_orig->nDims());
+    return;
+    EXPECT_EQ_TENS(
+        tv_new->getComputeAtPosition(), tv_orig->getComputeAtPosition());
+
+    // Inspect loop domain
+    for (size_t i : c10::irange(tv_orig->nDims())) {
+      IterDomain* id_orig = tv_orig->axis((int64_t)i);
+      IterDomain* id_new = tv_new->axis((int64_t)i);
+      EXPECT_EQ_TENS(id_orig->getIterType(), id_new->getIterType());
+      EXPECT_EQ_TENS(id_orig->getParallelType(), id_new->getParallelType());
+    }
+
+    // TODO: inspect loop transforms
+
+    // Inspect definition. If it's a LoadStoreOp, check that the op type and
+    // cache_op match
+    EXPECT_EQ_TENS(
+        tv_new->definition() == nullptr, tv_orig->definition() == nullptr);
+    if (auto* lsop_orig = dynamic_cast<LoadStoreOp*>(tv_orig->definition())) {
+      auto lsop_new = dynamic_cast<LoadStoreOp*>(tv_new->definition());
+      ASSERT_TRUE(lsop_new != nullptr);
+      EXPECT_EQ_TENS(lsop_new->opType(), lsop_orig->opType());
+      EXPECT_EQ_TENS(lsop_new->cacheOp(), lsop_orig->cacheOp());
+    }
+#undef EXPECT_EQ_TENS
+  }
+
+  void compareSchedules() const {
+    // clone fusion for scheduling with original matmul scheduler
+    Fusion new_fusion;
+    IrCloner cloner = Fusion::copy(fusion, &new_fusion);
+
+    // Schedule fusion with original matmul scheduler
+    scheduleMatmul(fusion, params);
+
+    // Schedule cloned fusion with new scheduler
+    scheduleMultipleMatmuls(&new_fusion, params);
+
+    // find tensors in old scheduler-scheduled fusion to compare
+    auto getTensorsToCompare = [](Fusion* fusion) {
+      std::vector<TensorView*> tvs;
+
+      for (int64_t i : {0, 1}) { // A and B
+        TensorView* operand = fusion->inputs().at(i)->as<TensorView>();
+
+        NVF_ERROR(operand->uses().size() == 1);
+        NVF_ERROR(operand->uses()[0]->isA<LoadStoreOp>());
+        TensorView* op_smem = operand->uses()[0]->output(0)->as<TensorView>();
+        tvs.push_back(op_smem);
+      }
+
+      return tvs;
+    };
+    std::vector<TensorView*> orig_compare_tvs = getTensorsToCompare(fusion);
+
+    std::vector<TensorView*> new_compare_tvs = getTensorsToCompare(&new_fusion);
+
+    // Compare each TensorView
+    NVF_ERROR(new_compare_tvs.size() == orig_compare_tvs.size());
+    for (size_t i : c10::irange(new_compare_tvs.size())) {
+      compareTVs(orig_compare_tvs[i], new_compare_tvs[i]);
+    }
+  }
+
+ protected:
+  MatmulParams params;
+  Fusion* fusion = nullptr;
+  bool a_m_inner = false, b_k_inner = false;
+
+ private:
+  std::unique_ptr<Fusion> fusion_ptr_;
+  std::unique_ptr<FusionGuard> fusion_guard_ptr_;
+
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      optimization_guard_;
+
+  DisableOptionsGuard option_guard_;
+};
+
+TEST_P(MultiMatmulSchedulerMatchTest, MatchSimpleMatmul) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
+  const int M = 128, N = 256, K = 512;
+
+  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+
+  fusion->addOutput(tv2);
+
+  compareSchedules();
+
+  // TODO: once the schedules match, add compileFusion and testValidate
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    MultiMatmulSchedulerMatchTest,
+    testing::Combine(testing::Bool(), testing::Bool()),
+    [](const testing::TestParamInfo<MultiMatmulSchedulerMatchTestParams>&
+           info) {
+      std::ostringstream os;
+      if (std::get<0>(info.param)) {
+        os << "AMinner_";
+      }
+      if (std::get<1>(info.param)) {
+        os << "BKinner_";
+      }
+      os << "_";
+      return os.str();
+    });
+
 } // namespace nvfuser
