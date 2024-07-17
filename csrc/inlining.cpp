@@ -27,8 +27,8 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
   if (compute_at_only) {
     return;
   }
-  ComputeAtLogicalDomainMap root_map;
-  root_map.build();
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build();
   auto all_tvs = ir_utils::allTvs(FusionGuard::getCurFusion());
   for (auto tv : all_tvs) {
     auto consumers = ir_utils::consumerTvsOf(tv);
@@ -38,7 +38,7 @@ void MaxPosCalculator::buildUnmappableDims(bool compute_at_only) {
       // dimensions can be inlined based on avoiding trying to inline reduction
       // structures.
       auto mappable_roots =
-          root_map.getMappableDims(tv->domain(), consumer->domain());
+          logical_map.getMappableDims(tv->domain(), consumer->domain());
       for (auto tv_logical_id : tv->getLogicalDomain()) {
         if (mappable_roots.find(tv_logical_id) == mappable_roots.end() &&
             !ir_utils::isSqueezedID(tv, tv_logical_id)) {
@@ -130,9 +130,9 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     TensorView* producer,
     TensorView* consumer,
     bool best_effort) const {
-  auto pairwise_root_map = PairwiseLogicalDomainMap(producer, consumer);
-  auto replay_CasP =
-      BestEffortReplay::replayCasP(consumer, producer, -1, pairwise_root_map);
+  auto pairwise_logical_map = PairwiseLogicalDomainMap(producer, consumer);
+  auto replay_CasP = BestEffortReplay::replayCasP(
+      consumer, producer, -1, pairwise_logical_map);
   auto p2c_replay_map = replay_CasP.getReplay();
 
   for (const auto producer_pos : c10::irange(producer->nDims())) {

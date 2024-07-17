@@ -187,9 +187,6 @@ TEST_P(CommunicationTest, Broadcast) {
 }
 
 TEST_P(CommunicationTest, SendRecv) {
-  if (GetParam() == CommunicatorBackend::ucc) {
-    GTEST_SKIP() << "Disabling because of UCC hangs, see issue #2091";
-  }
   if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }

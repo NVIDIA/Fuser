@@ -932,7 +932,7 @@ bool isReductionInitExpr(const Expr* expr) {
   if (!out_tv->domain()->hasReduction()) {
     return false;
   }
-  // False if it has have TensorView inputs as initialization should
+  // False if it has TensorView inputs as initialization should
   // never use TensorViews
   const auto tv_filter_inp_view =
       ir_utils::filterByType<TensorView>(expr->inputs());

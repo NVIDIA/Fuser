@@ -16,7 +16,9 @@
 #include <multidevice/executor.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
+#include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/propagate_shardings.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 
 namespace nvfuser {
 
@@ -58,8 +60,10 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   // Note: passes run before PreSegmenter optimization passes.
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(complete_fusion_.get());
-  insertReshardings(complete_fusion_.get());
-  insertShardedAxisReordering(complete_fusion_.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(complete_fusion_.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(complete_fusion_.get());
   setShardedAllocationDomain(complete_fusion_.get());
 
   // Performs segmentation at the inter-device communications

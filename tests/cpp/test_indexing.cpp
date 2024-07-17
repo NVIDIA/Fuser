@@ -1613,7 +1613,7 @@ TEST_F(IndexingTest, SmemAllocationDomainForTranspose) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
 
-  // Apply the transpose scheduler
+  // Reproduce the transpose scheduler manually
   tv3->setMemoryType(MemoryType::Shared);
 
   for (auto tv : {tv2, tv3}) {
@@ -2208,7 +2208,7 @@ TEST_F(IndexingTest, CircularBuffering1) {
             // group. Since circular buffering reuses the same loop
             // iter domain for the prologue, main and epilogue loops,
             // the loop index may not be the true index. The index
-            // obatained from ForLoop should be always correct
+            // obtained from ForLoop should be always correct
             auto circular_buffer_index = for_loops_.at(0)->index();
             return addExpr(
                 mulExpr(
@@ -2534,7 +2534,7 @@ TEST_F(PredicateIndexingTest, ReductionRfactor) {
           if (is_init) {
             return tv->fusion()->trueVal();
           } else {
-            // Predicaing the logical domains can result in wrong
+            // Predicating the logical domains can result in wrong
             // outputs since the split may not be divisible, allowing
             // out-of-bounds accesses to the input
             // global-memory tensor. Instead, its root domain should be

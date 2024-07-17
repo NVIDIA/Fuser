@@ -309,12 +309,13 @@ void IdModel::buildExactGraph() {
       // For exact mapings do not map any broadcast dimensions to
       // non-broadcast dimensions. Prevent any broadcasted axes being mapped
       // to non-broadcasted axes.
-      auto exact_c2p_root_map = PairwiseLogicalDomainMap(p_tv, c_tv)
-                                    .mapBroadcast(false)
-                                    .mapConsumerToProducer();
+      auto exact_c2p_logical_map = PairwiseLogicalDomainMap(p_tv, c_tv)
+                                       .mapBroadcast(false)
+                                       .mapConsumerToProducer();
 
-      for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
-        auto p_id = exact_c2p_root_map.at(c_id);
+      for (auto c_id :
+           getSortedKeys(exact_c2p_logical_map, Statement::lessThan)) {
+        auto p_id = exact_c2p_logical_map.at(c_id);
         idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
       }
     }
@@ -454,10 +455,10 @@ void IdModel::buildPermissiveGraph() {
         }
       }
 
-      auto permissive_c2p_root_map =
+      auto permissive_c2p_logical_map =
           PairwiseLogicalDomainMap(p_tv, c_tv).mapBroadcast(true);
 
-      for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
+      for (auto entry : permissive_c2p_logical_map.mapConsumerToProducer()) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
       }
     }

@@ -468,13 +468,15 @@ void IterDomainGraph::build(Fusion* fusion) {
         // For exact mapings do not map any broadcast dimensions to
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
-        auto exact_c2p_root_map = PairwiseLogicalDomainMap(p_tv, c_tv)
-                                      .mapBroadcast(false)
-                                      .mapConsumerToProducer();
+        auto exact_c2p_logical_map = PairwiseLogicalDomainMap(p_tv, c_tv)
+                                         .mapBroadcast(false)
+                                         .mapConsumerToProducer();
 
         // Same as permissive above but for exact
         auto exact_replay_PasC = BestEffortReplay(
-            p_tv->getLoopDomain(), c_tv->getLoopDomain(), exact_c2p_root_map);
+            p_tv->getLoopDomain(),
+            c_tv->getLoopDomain(),
+            exact_c2p_logical_map);
 
         const auto& exact_c2p_map = exact_replay_PasC.getReplay();
 

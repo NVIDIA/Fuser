@@ -1427,13 +1427,15 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
-                          .mapBroadcast(false)
-                          .mapConsumerToProducer();
+  auto c2p_logical_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+                             .mapBroadcast(false)
+                             .mapConsumerToProducer();
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLoopDomain(), consumer_tv->getLoopDomain(), c2p_root_map);
+      producer_tv->getLoopDomain(),
+      consumer_tv->getLoopDomain(),
+      c2p_logical_map);
 
   c2p_index_map = replay_producer_as_consumer.getReplay();
 
@@ -1751,13 +1753,15 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
-                          .mapBroadcast(false)
-                          .mapConsumerToProducer();
+  auto c2p_logical_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+                             .mapBroadcast(false)
+                             .mapConsumerToProducer();
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLoopDomain(), consumer_tv->getLoopDomain(), c2p_root_map);
+      producer_tv->getLoopDomain(),
+      consumer_tv->getLoopDomain(),
+      c2p_logical_map);
 
   auto c2p_map = replay_producer_as_consumer.getReplay();
 
