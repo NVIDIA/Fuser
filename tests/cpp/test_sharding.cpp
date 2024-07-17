@@ -12,7 +12,9 @@
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/propagate_shardings.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -104,8 +106,10 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(&fusion);
-  insertReshardings(&fusion);
-  insertShardedAxisReordering(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   setShardedAllocationDomain(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
