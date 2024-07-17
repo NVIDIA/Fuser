@@ -483,10 +483,16 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   auto out_tv = ir_utils::getTvOutput(tv_expr);
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
+  const ParallelType parallel_type = unrolled_loop_->iter_domain()->getParallelType();
+
+  // For the sake of predicate generation, unswitch and unroll can be
+  // handled in the same way. Note that !is_unswitch means this is for
+  // a vectorized loop.
+  const bool is_unswitch = parallel_type == ParallelType::Unswitch ||
+      parallel_type == ParallelType::Unroll;
+
   std::vector<PredicateInfo> ref_pred_info;
-  bool is_unswitch = unrolled_loop_->iter_domain()->getParallelType() ==
-          ParallelType::Unswitch ||
-      unrolled_loop_->iter_domain()->getParallelType() == ParallelType::Unroll;
+
   if (TensorIndexer::isSupported(GpuLower::current()->kernel()) &&
       ((is_unswitch &&
         hasEnableOptionArgument(EnableOption::IdModel, "unswitch_predicate")) ||

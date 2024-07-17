@@ -331,7 +331,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
       // not be necessary to use the promotion domain.
       // TODO: Add tests
       if (is_loop && !allocation_domain->isBroadcast()) {
-        promotion_domain = indexing_utils::getLoopPromotion(allocation_domain, id_model);
+        promotion_domain =
+            indexing_utils::getLoopPromotion(allocation_domain, id_model);
       } else {
         promotion_domain = allocation_domain;
       }

@@ -278,7 +278,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
               << std::endl;
 
     auto idx_it = index_map.find(traversalGraph().toGroup(predicate_domain));
-    if (!getenv("DISABLE_CONTIG_INDEXING")) {
+    if (enableContigIndexing()) {
       if (already_indexed_domains.find(contig_domain_group) !=
           already_indexed_domains.end()) {
         VERBOSE() << "Already indexed: " << predicate_domain->toString()
@@ -321,7 +321,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
     VERBOSE() << "Before replacement: " << idx->toInlineString()
               << " after: " << stop_idx->toInlineString() << std::endl;
 
-    if (getenv("DISABLE_CONTIG_INDEXING")) {
+    if (!enableContigIndexing()) {
       info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
           SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
           predicate_domain->extent());

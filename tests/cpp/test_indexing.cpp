@@ -330,7 +330,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
   }
 
   template <typename... Args>
-  static void validate(Fusion* fusion, Args... args) {
+  static void validate(Fusion* fusion, bool enable_contig_indexing, Args... args) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"inline_predicate"});
@@ -345,6 +345,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
         DisableOption::PredicateElimination);
 
     GpuLower lower(fusion);
+    lower.tensorIndexer().enableContigIndexing(enable_contig_indexing);
 
     kir::Kernel* kernel = nullptr;
     // Suppress warnings due to using dynamic register tensors
@@ -2476,7 +2477,7 @@ TEST_F(PredicateIndexingTest, SimplePointwise1) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Testing predicate indexing with an rfactor reduction
@@ -2556,7 +2557,7 @@ TEST_F(PredicateIndexingTest, ReductionRfactor) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 }
 
 } // namespace nvfuser

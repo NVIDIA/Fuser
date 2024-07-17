@@ -124,8 +124,13 @@ struct UnswitchPredicateKeyHash {
   std::size_t operator()(const UnswitchPredicateKey& key) const;
 };
 
+// Generate predicates for loops that are unswitched, unrolled or
+// vectorized loops
 class UnswitchPredicate {
  public:
+  // Get a predicate for a loop that is unswitched, unrolled or
+  // vectorized. The outer_loops parameter represents the outer loops
+  // of the unswitched/unrolled/vectorized loop.
   static Val* get(
       const std::vector<ForLoop*>& outer_loops,
       ForLoop* unrolled_loop);
