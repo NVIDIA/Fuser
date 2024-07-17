@@ -62,6 +62,13 @@ NVF_API void scheduleWarpTileWithNoReduction(
 //! Gives A[B, I0o, I1o, I2o, I0i(1), I1i(2), I2i(3)]
 void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes);
 
+//! The above call assumes the axes are [(B), M, N, K]. In this version, we
+//! provide the dimension roles that are present for this tensor.
+void makeTile(
+    TensorView* tv,
+    const GemmTile& tile_sizes,
+    const std::vector<MatmulDimRole>& axis_roles);
+
 //! We model each dimension of every tensor in the Fusion with ID roles
 //! described by MatmulDimRole.
 using AbstractMatmulTensor = TaggedAbstractTensor<MatmulDimRole>;
@@ -87,6 +94,13 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     const ValGraph& permissive_graph,
     const DimRolesMap& dim_roles,
     const std::vector<ValGroup>& ordering);
+
+//! Given a TensorView matching the canonicalDimOrdering, schedule it by
+//! merging dimensions with matching roles.
+void mergeAxesWithSameRole(
+    TensorView* tv,
+    const DimRolesMap& dim_roles,
+    const ValGraph* graph);
 
 //! Given an AbstractTensor matching the canonicalDimOrdering schedule it by
 //! merging matching dimensions. Returns the domains of the merged dimensions.

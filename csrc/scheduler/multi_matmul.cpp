@@ -615,11 +615,15 @@ class MultipleMatmulScheduler {
     // Computes the scheduling that is common to all tensors in the Fusion:
     // namely the coarsest tiling level into block tiles as well as the 2D M/N
     // swizzle of block tiles (if enabled).
-    scheduleTiling();
+    // TODO: without forwardAroundMissingAxes, we need to specialize this
+    // That means we will need to apply tiling as the first step in each of the
+    // class-specific scheduling methods instead of doing it all at once
+    // scheduleTiling();
 
     // Use rFactor and cacheAfter to set up splitk_sum and smem_epilogue. This
     // must be done after tiling.
-    doSplitKRFactor();
+    // TODO: this should be part of scheduleMmaResults
+    // doSplitKRFactor();
 
     // After this point, no new TensorViews will be introduced.
     // We proceed to schedule each kind of TensorView in order from inputs to
@@ -643,12 +647,12 @@ class MultipleMatmulScheduler {
 
     fusion_->printMath();
 
-    setUpInlining();
+    // setUpInlining();
 
     // set up circular buffering. This must come after everything up to
     // mma_result is scheduled, since everything in the main loop will need to
     // be rotated
-    setUpCircularBuffering();
+    // setUpCircularBuffering();
 
     /*
     // Swizzle writes to prologue and epilogue smem tensors
@@ -1137,11 +1141,100 @@ class MultipleMatmulScheduler {
     return c;
   }
 
+  // Do block tiling for a collection of TensorViews. The tensors should be
+  // unscheduled before this method is called. Axes will be ordered
+  // according to canonicalDimOrdering, and then axes with the same role will
+  // be merged. After that, we perform splits according to
+  // params_.tile_sizes.cta_tile, e.g. [M, K] -> [Mo, Ko, Mi, Ki]. Finally,
+  // depending on the value of params_.grid_swizzle_factor, if the TV has both
+  // M and N dimensions, we perform a 2D swizzle of the outer dimensions Mo and
+  // No.
+  void blockTileTensors(const std::vector<TensorView*>& tvs) {
+    if (canonical_dim_ordering_.empty()) {
+      canonical_dim_ordering_ =
+          mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, *graph_);
+    }
+
+    for (TensorView* tv : tvs) {
+      // Find dimensions in canonical_dim_ordering_ that exist in tv's loop
+      // domain. Reorder those according to the canonical dim ordering then
+      std::unordered_map<ValGroup, IterDomain*> tv_dims;
+      std::unordered_set<MatmulDimRole> axis_roles;
+      for (IterDomain* id : tv->getLoopDomain()) {
+        ValGroup vg = graph_->toGroup(id);
+        tv_dims.emplace(vg, id);
+        // track axis roles in this tensor to use in makeTile
+        auto it = id_roles_.find(vg);
+        NVF_ERROR(it != id_roles_.end());
+        axis_roles.insert(it->second);
+      }
+      std::vector<IterDomain*> new_loop;
+      new_loop.reserve(tv->nDims());
+      for (const ValGroup& vg : canonical_dim_ordering_) {
+        auto it = tv_dims.find(vg);
+        if (it != tv_dims.end()) {
+          new_loop.push_back(it->second);
+        }
+      }
+      NVF_ERROR(new_loop.size() == tv->nDims());
+      tv->setLoopDomain(new_loop);
+
+      // Now merge consecutive axes with same role
+      mma_utils::mergeAxesWithSameRole(tv, id_roles_, graph_);
+
+      // Find order the axes that are present in the merged tensor
+      std::vector<MatmulDimRole> merged_roles;
+      merged_roles.reserve(tv->nDims());
+      for (const ValGroup& vg : canonical_dim_ordering_) {
+        MatmulDimRole role = id_roles_[vg];
+        if (axis_roles.count(role) != 0) {
+          if (merged_roles.empty() || merged_roles.back() != role) {
+            merged_roles.push_back(role);
+          }
+        }
+      }
+      NVF_ERROR(merged_roles.size() == axis_roles.size());
+
+      mma_utils::makeTile(tv, params_.tile_sizes.cta_tile, merged_roles);
+
+      if (axis_roles.count(MatmulDimRole::M) > 0 &&
+          axis_roles.count(MatmulDimRole::N)) {
+        // swizzleBlockTiles(tv, axis_roles);
+      }
+    }
+
+    // TODO: merge batch dimensions with outermost M/N dimension here, unless
+    // splitk_factor=1. See https://github.com/NVIDIA/Fuser/pull/2140
+
+    // We could have M before N or N before M. Whichever is first (outer) will
+    // be parallelized as BIDy and the other will be BIDx.
+    /*
+    bool hasBIDy = false;
+    for (size_t i : c10::irange(schedule_.tiled.size())) {
+      // Note that block tiles might be swizzled, in which case a dimension
+      // might have both M and N tags
+      if (schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::M) ||
+          schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::N)) {
+        if (hasBIDy) {
+          parallelize(schedule_.tiled[i], ParallelType::BIDx);
+          break;
+        } else {
+          parallelize(schedule_.tiled[i], ParallelType::BIDy);
+          hasBIDy = true;
+        }
+      }
+    }
+    */
+  }
+
   // Schedule the loads of all operands from global memory to shared memory.
   // Starting from the basic tiled schedule, we swizzle the operand memory.
   // Note that the cache op and LoadStoreOpType are already set during
   // defineOperandCaches().
   void scheduleOperandSmemLoads() {
+    blockTileTensors(acw_smems_);
+    blockTileTensors(bcw_smems_);
+
     auto setupSwizzle = [&](mma_utils::AbstractMatmulTensor& abten,
                             const std::vector<TensorView*>& gmem_operands,
                             const std::vector<MatmulDimRole>& inner_dims) {
@@ -1289,8 +1382,6 @@ class MultipleMatmulScheduler {
   }
 
   void setUpInlining() {
-    NVF_ERROR(false, "Find tensors and inline positions for inlineSelectedAt");
-
     /*
     // auto inline for all tensors except register tensors
     inlineMost(ir_utils::allTvsExcept(fusion_, {acr, bcr, ab, bb}));
@@ -1388,6 +1479,8 @@ class MultipleMatmulScheduler {
   mma_utils::DimRolesMap id_roles_;
   mma_utils::TensorRolesMap tensor_roles_;
   mma_utils::MatmulOperandInnerDims inner_dims_;
+
+  std::vector<ValGroup> canonical_dim_ordering_;
 
   std::vector<TensorView*> as_, bs_, acw_smems_, bcw_smems_, acrs_, bcrs_, abs_,
       bbs_, mma_results_, splitk_sums_, smem_epilogues_;
