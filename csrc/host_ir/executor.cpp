@@ -228,6 +228,10 @@ void HostIrExecutor::handle(SliceOp* slice_op) {
   return handleWithExpressionEvaluator(slice_op, expr_evaluator_);
 }
 
+void HostIrExecutor::handle(MatmulOp* matmul_op) {
+  return handleWithExpressionEvaluator(matmul_op, expr_evaluator_);
+}
+
 } // namespace hir
 
 } // namespace nvfuser
