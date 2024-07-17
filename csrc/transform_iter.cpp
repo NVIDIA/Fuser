@@ -7,7 +7,7 @@
 // clang-format on
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>
@@ -954,7 +954,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
     const TensorView* consumer,
     const TensorView* producer,
     int64_t producer_compute_at_axis,
-    const RootDomainMap& root_map,
+    const LogicalDomainMap& root_map,
     bool skip_consumer_swizzle,
     bool skip_producer_swizzle,
     bool skip_resize) {
@@ -1021,7 +1021,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
     const TensorView* producer,
     const TensorView* consumer,
     int64_t consumer_compute_at_axis,
-    const RootDomainMap& root_map,
+    const LogicalDomainMap& root_map,
     bool skip_producer_swizzle,
     bool skip_consumer_swizzle,
     bool skip_resize) {

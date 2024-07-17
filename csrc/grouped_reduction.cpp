@@ -7,7 +7,7 @@
 // clang-format on
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <grouped_reduction.h>
@@ -60,7 +60,7 @@ bool validateReductionGrouping(
   NVF_ERROR(
       fusion != nullptr, "Grouping of reductions must be done within a Fusion");
 
-  ExactRootDomainMap exact_map(fusion);
+  ExactLogicalDomainMap exact_map(fusion);
 
   // Pick the first output TV as a reference and compare it with the
   // rest. Do not allow grouping if any mismatch is detected.

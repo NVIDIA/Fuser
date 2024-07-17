@@ -16,10 +16,10 @@
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <maxinfo_propagator.h>
 #include <ops/arith.h>
 #include <options.h>
-#include <root_domain_map.h>
 #include <transform_iter.h>
 
 #include <deque>
@@ -292,7 +292,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
     const TensorView* producer,
     const TensorView* consumer,
     int64_t consumer_pos,
-    const RootDomainMap& root_map,
+    const LogicalDomainMap& root_map,
     TransformReplayOptions opt) {
   FUSER_PERF_SCOPE("TransformReplay::replayPasC");
   if (producer == consumer) {
@@ -525,7 +525,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     const TensorView* consumer,
     const TensorView* producer,
     int64_t producer_pos,
-    const RootDomainMap& root_map,
+    const LogicalDomainMap& root_map,
     TransformReplayOptions opt) {
   FUSER_PERF_SCOPE("TransformReplay::replayCasP");
 
@@ -803,7 +803,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
     int64_t compute_at_axis,
     TransformReplayOptions opt) {
   // Use the pairwise root map as a default mapper
-  PairwiseRootDomainMap root_map(producer, consumer);
+  PairwiseLogicalDomainMap root_map(producer, consumer);
   // Allow replay through indexing exprs
   root_map.mapIndexedDomains(true);
   return replayPasC(producer, consumer, compute_at_axis, root_map, opt);
@@ -815,7 +815,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     int64_t compute_at_axis,
     TransformReplayOptions opt) {
   // Use the pairwise root map as a default mapper
-  PairwiseRootDomainMap root_map(producer, consumer);
+  PairwiseLogicalDomainMap root_map(producer, consumer);
   // Allow replay through indexing exprs
   root_map.mapIndexedDomains(true);
   return replayCasP(consumer, producer, compute_at_axis, root_map, opt);
@@ -834,7 +834,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
 
   // Allow replay through indexing exprs
   const auto pairwise_map =
-      PairwiseRootDomainMap(producer, consumer).mapIndexedDomains(true);
+      PairwiseLogicalDomainMap(producer, consumer).mapIndexedDomains(true);
   id_map c2p_root_map = pairwise_map.mapConsumerToProducer();
 
   // IterDomains in `consumer` root also in `producer` root
@@ -906,7 +906,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
 
   // Allow replay through indexing exprs
   const auto pairwise_map =
-      PairwiseRootDomainMap(producer, consumer).mapIndexedDomains(true);
+      PairwiseLogicalDomainMap(producer, consumer).mapIndexedDomains(true);
   id_map p2c_root_map = pairwise_map.mapProducerToConsumer();
 
   // IterDomains in `producer` root that are not reduction

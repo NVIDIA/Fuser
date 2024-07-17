@@ -185,7 +185,7 @@ TEST_F(SwizzleTest, SwizzleMapping) {
   tv1->computeAt(tv2, -1);
 
   // Check BestEffortReplay behavior with skip swizzles option on.
-  PairwiseRootDomainMap root_map(tv1, tv2);
+  PairwiseLogicalDomainMap root_map(tv1, tv2);
 
   // Check producer to consumer map,
   //  i.e. unswizzled tensor to swizzled tensor map
@@ -641,7 +641,7 @@ TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {
   tv0->merge(0);
 
   TransformPropagatorWithCheck propagator(tv0);
-  MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator);
 
   auto exprs = StmtSort::getExprsBetween(
       {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},
