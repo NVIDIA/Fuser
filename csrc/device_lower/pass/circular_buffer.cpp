@@ -178,15 +178,16 @@ ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
 
   Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
   Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
-  Val* loop_extend = IrBuilder::create<Val>(stage_depth, PrimDataType::Index);
-  IterDomainBuilder loop_domain_builder(loop_start, loop_extend);
+  Val* loop_stop =
+      SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index);
+  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
   Val* loop_step = IrBuilder::create<Val>(1L, PrimDataType::Index);
 
   ForLoop* loop = IrBuilder::create<ForLoop>(
       loop_domain_builder.build(),
       loop_index,
       loop_start,
-      loop_extend,
+      loop_stop,
       loop_step,
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
@@ -489,8 +490,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         circular_buffer_loop_->iter_domain(), loop_type_);
     auto start = circular_buffer_loop_->start();
     auto stop = circular_buffer_loop_->stop();
-    auto stage_depth = GpuLower::current()->circularBufferInfo().getStageDepthFor(
-        circular_buffer_loop_->iter_domain());
+    int64_t stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop_->iter_domain());
 
     if (loop_type_ == CircularBufferLoopStage::Prolog) {
       NVF_ERROR(start->isZeroInt());
@@ -500,11 +502,13 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         loop_type_ == CircularBufferLoopStage::Main &&
         requireEpilogue(circular_buffer_load_exprs_)) {
       stop = IrBuilder::subExpr(
-          circular_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
+          circular_buffer_loop_->stop(),
+          GpuLower::current()->kernel()->oneVal());
     } else if (loop_type_ == CircularBufferLoopStage::Epilog) {
       NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
       start = IrBuilder::subExpr(
-          circular_buffer_loop_->stop(), GpuLower::current()->kernel()->oneVal());
+          circular_buffer_loop_->stop(),
+          GpuLower::current()->kernel()->oneVal());
     }
 
     cloned_top_level_loop_ = IrBuilder::create<ForLoop>(
@@ -1402,7 +1406,7 @@ class CircularBufferInserter : private kir::ExprMutator {
       //  loop is async copy. We want to wait for the gmem loads to
       //  finish before synchronizing the block.
       if (std::any_of(loads.begin(), loads.end(), ir_utils::isCpAsyncOp)) {
-        auto stage_depth =
+        int64_t stage_depth =
             GpuLower::current()->circularBufferInfo().getStageDepthFor(
                 circular_buffer_loop->iter_domain());
         auto cp_async_wait = IrBuilder::create<kir::AsyncWait>(
@@ -1514,7 +1518,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  inserted so would need to be updated if we re-order the
     //  passes. Cleanups suggested in [Circular Buffer Sync]
     //  would resolve this dependency on pass ordering.
-    auto stage_depth =
+    int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
             main_loop->iter_domain());
     auto cp_async_commit =
@@ -1638,8 +1642,7 @@ IterDomain* CircularBufferInfo::getCircularBufferAxis(const TensorView* tv) {
   return getTvInfo(tv).circular_buffer_axis;
 }
 
-int64_t CircularBufferInfo::getStageDepthFor(
-    IterDomain* circular_buffer_axis) {
+int64_t CircularBufferInfo::getStageDepthFor(IterDomain* circular_buffer_axis) {
   auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
       circular_buffer_axis, IdMappingMode::LOOP);
 
