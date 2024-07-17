@@ -575,7 +575,7 @@ std::vector<Tensor> FusionDefinition::tensors() {
       recording_state_.begin(),
       recording_state_.end(),
       std::back_inserter(tensor_states),
-      [this](const State& s) { return s.stype == serde::StateType::Tensor; });
+      [](const State& s) { return s.stype == serde::StateType::Tensor; });
 
   // Reconstruct Tensors
   std::vector<Tensor> all_tensors;
