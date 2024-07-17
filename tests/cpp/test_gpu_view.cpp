@@ -2452,7 +2452,6 @@ TEST_F(GpuViewTest, OutputAliasIntermediate) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
   const std::vector<SegmentedGroup*>& seg_groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-
   EXPECT_THAT(
       seg_groups, Contains(HeuristicIs(ScheduleHeuristic::NoOp)).Times(1));
   EXPECT_THAT(

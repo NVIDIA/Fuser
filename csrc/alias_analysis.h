@@ -61,6 +61,7 @@ class AliasAnalysisResult {
   // See `findAliases` for the meaning of
   // `can_override_empty_allocation_domain`.
   void finalize(
+      Fusion* fusion,
       bool can_override_empty_allocation_domain,
       bool can_alias_intermediate);
 
@@ -117,6 +118,6 @@ class AliasAnalysisResult {
 AliasAnalysisResult findAliases(
     Fusion* fusion,
     bool can_override_empty_allocation_domain = true,
-    bool can_alias_intermediate = false);
+    bool may_alias_intermediate = false);
 
 } // namespace nvfuser

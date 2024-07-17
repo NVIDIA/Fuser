@@ -18,7 +18,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   const AliasAnalysisResult analysis = findAliases(
       fusion,
       /*can_override_empty_allocation_domain=*/true,
-      /*can_alias_intermediate=*/true);
+      /*may_alias_intermediate=*/true);
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Alias analysis result:" << std::endl;
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
