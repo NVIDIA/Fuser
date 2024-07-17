@@ -526,12 +526,28 @@ bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
         });
   };
 
+  // val group for reduction tv's root IDs
+  std::unordered_set<ValGroup> ref_root_groups;
+  for (auto id : reduction_reference->getMaybeRootDomain()) {
+    ref_root_groups.insert(graph.toGroup(id));
+  }
+
   // Loop over each view and process the IDs
   for (auto view : view_ops_not_used_by_reduction) {
     auto tv = view->out();
     for (auto expr : StmtSort::getExprsTo(
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       if (auto merge = dynamic_cast<Merge*>(expr)) {
+        // if the output of the merge op and one of the reduction tv's root ID
+        // are in the same valGroup. It won't cause the merge of an iter dim
+        // with a redu dim when replayed on the reduction tv. We can skip this
+        // transform, further transforms using this ID can still be captured and
+        // mapped since it it a root ID of the reduction tv. See tests
+        // GpuViewTest.SplitMergeReductionSplitMerge and
+        // GpuViewTest.SplitMergeReductionSplitMergeSplitMerge
+        if (ref_root_groups.count(graph.toGroup(merge->out())) > 0) {
+          continue;
+        }
         auto id1 = merge->inner();
         auto id2 = merge->outer();
         disjoint_sets.mapEntries(id1, merge->out());

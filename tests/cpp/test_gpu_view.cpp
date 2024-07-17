@@ -2379,7 +2379,6 @@ TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {
   testValidate(executor_cache.fusion(), {cg_outputs}, {t0}, __LINE__, __FILE__);
 }
 
-
 using ReductionAxes = std::vector<int64_t>;
 class ViewReductionTest : public NVFuserFixtureParamTest<ReductionAxes> {};
 
@@ -2699,4 +2698,93 @@ TEST_F(GpuViewTest, TvSplitTvSplitMerge) {
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
   EXPECT_EQ(seg_groups.size(), 2);
 }
+
+TEST_F(GpuViewTest, SplitMergeReductionSplitMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {12, 20};
+  DataType dtype = DataType::Float;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  // root domain : (i0, i2)
+  // logical domain : (3, i0/3, 4, i2/4)
+  auto tv2 = reshape(tv1, {12, 20}, {3, 4, 4, 5});
+  // root domain : (3, i0/3, 4, i2/4)
+  // logical domain : (3, i0/3*4, i2/4)
+  auto tv3 = reshape(tv2, {3, 4, 4, 5}, {3, 16, 5});
+  // root domain : (3, i0/3*4, i2/4)
+  // all the reshapes in this fusion, won't interfering with the reduction of
+  // [i0/3*4]
+  auto tv4 = sum(tv3, {1});
+  // root domain : (i0, i2)
+  // logical domain : (3, i0/3, 4, i2/4)
+  auto tv5 = reshape(tv1, {12, 20}, {3, 4, 4, 5});
+  // root domain : (3, i0/3, 4, i2/4)
+  // logical domain : (3, i0/3*4, i2/4)
+  auto tv6 = reshape(tv5, {3, 4, 4, 5}, {3, 16, 5});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv6);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have 1 segmented group
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 1);
+
+  testValidate(executor_cache.fusion(), {cg_outputs}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(GpuViewTest, SplitMergeReductionSplitMergeSplitMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {12, 32};
+  DataType dtype = DataType::Float;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  // root domain : (i0, i2)
+  // logical domain : (3, i0/3, 4, i2/4)
+  auto tv2 = reshape(tv1, {12, 32}, {3, 4, 4, 8});
+  // root domain : (3, i0/3, 4, i2/4)
+  // logical domain : (3, i0/3*4, i2/4)
+  auto tv3 = reshape(tv2, {3, 4, 4, 8}, {3, 16, 8});
+  // root domain : (3, i0/3*4, i2/4)
+  // the last reshape in this fusion merges {i0/3*4} with {2}, which is
+  // interfering with the reduction of [i0/3*4]
+  auto tv4 = sum(tv3, {1});
+  // root domain : (i0, i2)
+  // logical domain : (3, i0/3, 4, i2/4)
+  auto tv5 = reshape(tv1, {12, 32}, {3, 4, 4, 8});
+  // root domain : (3, i0/3, 4, i2/4)
+  // logical domain : (3, i0/3*4, i2/4)
+  auto tv6 = reshape(tv5, {3, 4, 4, 8}, {3, 16, 8});
+  // root domain : (3, i0/3*4, i2/4)
+  // logical domain : (3, i0/3*4, 2, i2/4/2)
+  auto tv7 = reshape(tv6, {3, 16, 8}, {3, 16, 2, 4});
+  // root domain : (3, i0/3*4, 2, i2/4/2)
+  // logical domain : (3, i0/3*4*2, i2/4/2)
+  auto tv8 = reshape(tv7, {3, 16, 2, 4}, {3, 32, 4});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv8);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have 2 segmented groups
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 2);
+
+  testValidate(executor_cache.fusion(), {cg_outputs}, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
