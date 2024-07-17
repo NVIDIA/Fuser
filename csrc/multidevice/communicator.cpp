@@ -214,7 +214,17 @@ Communicator::Communicator(
 #endif
 }
 
-Communicator::~Communicator() {
+void Communicator::cleanup() {
+  if (!is_available_) {
+    TORCH_WARN(
+        "The singleton Communicator isn't available. "
+        "This is likely because Communicator::cleanup was called more than "
+        "once or the instance wasn't successfully initialized.");
+    return;
+  }
+
+  store_ = nullptr;
+
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
   for (auto& [key, backend] : backends_) {
     // Call shutdown before destructing a ProcessGroupNCCL as instructed by
@@ -224,12 +234,21 @@ Communicator::~Communicator() {
     }
   }
 #endif
+  backends_.clear();
+
+  is_available_ = false;
 }
 
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
     const std::string& prefix) {
+  NVF_ERROR(
+      is_available(),
+      "The singleton Communicator isn't available. "
+      "This is likely because Communicator::cleanup has been called "
+      "or the instance wasn't successfully initialized.");
+
   CommunicatorBackend b = getBackend(backend);
   // generate a string key which is unique to the team
   // create the team and cache it
@@ -253,7 +272,7 @@ c10d::Backend* Communicator::getBackendForTeam(
           static_cast<int64_t>(team.size()));
     }();
 #else
-    backends_[team_key] = c10::make_intrusive<c10d::Backend>();
+    backends_[team_key] = nullptr;
 #endif
   }
   return backends_.at(team_key).get();

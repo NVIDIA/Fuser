@@ -312,7 +312,8 @@ bool isLowerableToCommunication(Expr* expr) {
       return false;
     }
     // We check whether the reduced axis is sharded on the input
-    const auto c2p_map = PairwiseRootDomainMap(in, out).mapConsumerToProducer();
+    const auto c2p_map =
+        PairwiseLogicalDomainMap(in, out).mapConsumerToProducer();
     auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
     return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
   } else {

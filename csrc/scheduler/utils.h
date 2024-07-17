@@ -32,6 +32,7 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+constexpr int64_t register_file_size_56k = (int64_t)56 * 4 * 1024;
 
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;

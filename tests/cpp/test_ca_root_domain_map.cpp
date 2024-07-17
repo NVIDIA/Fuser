@@ -8,18 +8,18 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <tests/cpp/utils.h>
 
 namespace nvfuser {
 
-using CaRootDomainMapTest = NVFuserTest;
+using CaLogicalDomainMapTest = NVFuserTest;
 
 namespace {
 
 void checkIdMapped(
-    ComputeAtRootDomainMap& root_map,
+    ComputeAtLogicalDomainMap& logical_map,
     TensorView* v0,
     IterDomain* id0,
     TensorView* v1,
@@ -27,7 +27,7 @@ void checkIdMapped(
     bool should_map) {
   if (should_map) {
     NVF_CHECK(
-        root_map.canMap(v0->domain(), id0, v1->domain(), id1),
+        logical_map.canMap(v0->domain(), id0, v1->domain(), id1),
         "Should be mappable: ",
         id0,
         " of ",
@@ -38,7 +38,7 @@ void checkIdMapped(
         v1);
   } else {
     NVF_CHECK(
-        !root_map.canMap(v0->domain(), id0, v1->domain(), id1),
+        !logical_map.canMap(v0->domain(), id0, v1->domain(), id1),
         "Should not be mappable: ",
         id0,
         " of ",
@@ -57,7 +57,7 @@ void checkIdMapped(
     TensorView* v1,
     const std::vector<IterDomain*>& root1,
     const std::vector<bool> should_map1) {
-  ComputeAtRootDomainMap map;
+  ComputeAtLogicalDomainMap map;
   map.build();
   NVF_ERROR(root0.size() == should_map0.size());
   NVF_ERROR(root1.size() == should_map1.size());
@@ -94,7 +94,7 @@ void checkIdMapped(
 
 } // namespace
 
-TEST_F(CaRootDomainMapTest, FusionRootMappingBasic_CUDA) {
+TEST_F(CaLogicalDomainMapTest, FusionRootMappingBasic_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -148,7 +148,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingBasic_CUDA) {
   checkIdMapped(tv4, tv4->getLogicalDomain(), tv5, tv5->getLogicalDomain());
 }
 
-TEST_F(CaRootDomainMapTest, FusionRootMappingRfactor_CUDA) {
+TEST_F(CaLogicalDomainMapTest, FusionRootMappingRfactor_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -232,7 +232,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingRfactor_CUDA) {
       {true, true, false});
 }
 
-TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency1_CUDA) {
+TEST_F(CaLogicalDomainMapTest, FusionRootMappingReductionDependency1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -259,7 +259,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency1_CUDA) {
       {true, false});
 }
 
-TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency2_CUDA) {
+TEST_F(CaLogicalDomainMapTest, FusionRootMappingReductionDependency2_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -293,7 +293,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency2_CUDA) {
   checkIdMapped(tv2, tv2->getLogicalDomain(), tv3, tv3->getLogicalDomain());
 }
 
-TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency3_CUDA) {
+TEST_F(CaLogicalDomainMapTest, FusionRootMappingReductionDependency3_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -322,7 +322,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency3_CUDA) {
       {true, false});
 }
 
-TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency4_CUDA) {
+TEST_F(CaLogicalDomainMapTest, FusionRootMappingReductionDependency4_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -367,7 +367,9 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency4_CUDA) {
 }
 
 // Reproducer of issue #749
-TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency5_CUDA_CUDA) {
+TEST_F(
+    CaLogicalDomainMapTest,
+    FusionRootMappingReductionDependency5_CUDA_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -425,7 +427,9 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency5_CUDA_CUDA) {
 }
 
 // Similar to RootMappingReductionDependency5 but with rFactor
-TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency6_CUDA_CUDA) {
+TEST_F(
+    CaLogicalDomainMapTest,
+    FusionRootMappingReductionDependency6_CUDA_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -500,7 +504,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingReductionDependency6_CUDA_CUDA) {
 }
 
 TEST_F(
-    CaRootDomainMapTest,
+    CaLogicalDomainMapTest,
     FusionRootMappingMultipleBroadcastWithNoCommonConsumer_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -535,7 +539,7 @@ TEST_F(
       {false, true});
 }
 
-TEST_F(CaRootDomainMapTest, FusionRootMappingBroadcastNonUniqueSize_CUDA) {
+TEST_F(CaLogicalDomainMapTest, FusionRootMappingBroadcastNonUniqueSize_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -622,7 +626,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingBroadcastNonUniqueSize_CUDA) {
       {true, false});
 }
 
-TEST_F(CaRootDomainMapTest, FusionRootMappingBroadcast_CUDA) {
+TEST_F(CaLogicalDomainMapTest, FusionRootMappingBroadcast_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -662,7 +666,7 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingBroadcast_CUDA) {
 }
 
 // Repro of issue #1950
-TEST_F(CaRootDomainMapTest, FusionRootMappingRepro1950_CUDA) {
+TEST_F(CaLogicalDomainMapTest, FusionRootMappingRepro1950_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto tv0 = makeSymbolicTensor(3);
@@ -687,10 +691,10 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingRepro1950_CUDA) {
   fusion.addOutput(tv5);
   fusion.addOutput(tv4);
 
-  ComputeAtRootDomainMap root_map;
-  root_map.build();
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build();
 
-  checkIdMapped(root_map, tv4, tv4->axis(-1), tv9, tv9->axis(-1), false);
+  checkIdMapped(logical_map, tv4, tv4->axis(-1), tv9, tv9->axis(-1), false);
 }
 
 // Step-1 to fix https://github.com/NVIDIA/Fuser/issues/1631
@@ -701,7 +705,9 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingRepro1950_CUDA) {
 // After fix, there are two persistent buffers and can be further
 // reduced to one with a following step-2 to fix the issue in resolution
 // points detection.
-TEST_F(CaRootDomainMapTest, FusionRootMappingConsumerMappedWithReductionInput) {
+TEST_F(
+    CaLogicalDomainMapTest,
+    FusionRootMappingConsumerMappedWithReductionInput) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -732,11 +738,11 @@ TEST_F(CaRootDomainMapTest, FusionRootMappingConsumerMappedWithReductionInput) {
   // tv8 is a consumer of the reduction output.
   // If tv9 is mapped with tv2, we can't map tv8 and tv9 because tv9 is in the
   // pre-reduction set through tv2 and tv8 is in the post-reduction set.
-  ComputeAtRootDomainMap root_map;
-  root_map.build();
-  checkIdMapped(root_map, tv2, tv2->axis(1), tv9, tv9->axis(1), true);
-  checkIdMapped(root_map, tv7, tv7->axis(1), tv8, tv8->axis(1), false);
-  checkIdMapped(root_map, tv7, tv7->axis(1), tv9, tv9->axis(1), false);
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build();
+  checkIdMapped(logical_map, tv2, tv2->axis(1), tv9, tv9->axis(1), true);
+  checkIdMapped(logical_map, tv7, tv7->axis(1), tv8, tv8->axis(1), false);
+  checkIdMapped(logical_map, tv7, tv7->axis(1), tv9, tv9->axis(1), false);
 }
 
 } // namespace nvfuser

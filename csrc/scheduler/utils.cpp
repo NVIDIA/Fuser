@@ -13,9 +13,9 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/mma_utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -560,8 +560,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
 
-  ComputeAtRootDomainMap root_map;
-  root_map.build();
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build();
 
   auto all_tvs = ir_utils::allTvs(fusion);
 
@@ -584,7 +584,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       }
       bool consumer_mappable = true;
       auto mappable_roots =
-          root_map.getMappableDims(producer->domain(), consumer->domain());
+          logical_map.getMappableDims(producer->domain(), consumer->domain());
 
       auto p_logical = producer->getLogicalDomain();
 
@@ -1361,8 +1361,8 @@ void FindAllMappedDims::setUp() {
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   auto from_id = mapped_root_ids_.at(from);
-  PairwiseRootDomainMap root_map(to, from);
-  auto c2p_map = root_map.mapConsumerToProducer();
+  PairwiseLogicalDomainMap logical_map(to, from);
+  auto c2p_map = logical_map.mapConsumerToProducer();
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
@@ -1376,8 +1376,8 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
 
 void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   auto from_id = mapped_logical_ids_.at(from);
-  PairwiseRootDomainMap root_map(from, to);
-  auto p2c_map = root_map.mapProducerToConsumer();
+  PairwiseLogicalDomainMap logical_map(from, to);
+  auto p2c_map = logical_map.mapProducerToConsumer();
   auto c_it = p2c_map.find(from_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
@@ -1491,7 +1491,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
 
   FindAllMappedDims all_mapped_root_dims(
       reference_tv, inner_most_id, inner_only, vectorize_pass);
-  MaxRootDomainInfoSpanningTree tree(reference_tv);
+  MaxLogicalDomainInfoSpanningTree tree(reference_tv);
   tree.traverse(&all_mapped_root_dims);
 
   auto vectorizable_dims = all_mapped_root_dims.get();
@@ -1754,7 +1754,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
 //! Propagate current transformations on from_tv to all graphs
 void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos) {
   TransformPropagator propagator(from_tv, pos);
-  MaxRootDomainInfoSpanningTree(from_tv, nullptr).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(from_tv, nullptr).traverse(&propagator);
 }
 
 namespace {
@@ -1897,7 +1897,7 @@ void BoundedDirectionalTransformPropagator::propagate(
   // Run transform propagation using the custom selector.
   SetSelector selector(included_tvs);
   TransformPropagator propagator(from_tv, pos);
-  MaxRootDomainInfoSpanningTree(from_tv, &selector).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(from_tv, &selector).traverse(&propagator);
 
   // Propagate parallel type if requested by option parameters.
   if (options.propagate_parallel_type) {
@@ -2412,7 +2412,7 @@ void promoteProducerMemoryTypes(
     auto c2p_exact_map = BestEffortReplay(
                              producer->getLoopDomain(),
                              consumer->getLoopDomain(),
-                             PairwiseRootDomainMap(producer, consumer)
+                             PairwiseLogicalDomainMap(producer, consumer)
                                  .mapBroadcast(false)
                                  .mapConsumerToProducer())
                              .getReplay();
