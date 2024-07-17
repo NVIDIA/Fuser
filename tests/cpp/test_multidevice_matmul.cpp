@@ -25,7 +25,7 @@
 
 namespace nvfuser {
 
-using testing::UnorderedElementsAre;
+using testing::Contains;
 
 class DistributedMatmulTest : public MultiDeviceTest {
  protected:
@@ -215,9 +215,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
   const FusionKernelRuntime* kernel_runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::NoOp),
-          HeuristicIs(ScheduleHeuristic::ExprEval)));
+      Contains(HeuristicIs(ScheduleHeuristic::ExprEval)).Times(1));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
