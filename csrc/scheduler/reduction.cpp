@@ -1103,6 +1103,9 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
   // still use min vectorization factor
   // TODO: consider using max vectorization factor
   int64_t vectorize_factor = min_vectorize_factor;
+    for (auto pair : vectorization_factor_map) {
+    vectorize_factor = std::max(vectorize_factor, pair.second);
+  }
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
