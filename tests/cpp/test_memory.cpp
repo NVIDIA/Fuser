@@ -61,7 +61,7 @@ TEST_P(MemoryTest, LoadCache) {
   tv1->split(0, 4);
   tv1->split(0, 32);
   TransformPropagatorWithCheck propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   // Parallelize LoadStoreOps. Other TensorViews don't support vectorization.
   tv1->axis(0)->parallelize(ParallelType::BIDx);
@@ -132,7 +132,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   tv_a2->split(0, 4);
   tv_a2->split(0, 32);
   TransformPropagatorWithCheck propagator(tv_a2);
-  MaxRootDomainInfoSpanningTree(tv_a2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv_a2).traverse(&propagator);
 
   tv_a2->axis(0)->parallelize(ParallelType::BIDx);
   tv_a2->axis(1)->parallelize(ParallelType::TIDx);

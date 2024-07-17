@@ -85,7 +85,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
       return true;
     }
 
-    auto pairwise_map = PairwiseRootDomainMap(producer, consumer);
+    auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
     auto c2p =
         BestEffortReplay::replayPasC(producer, consumer, -1, pairwise_map)
             .getReplay();
@@ -320,8 +320,9 @@ class PredicateChcker : public IterVisitor {
         expr->toString());
 
     for (auto i : c10::irange(tv_inputs.size())) {
-      const auto root_p2c = PairwiseRootDomainMap(tv_inputs[i], tv_outputs[i])
-                                .mapProducerToConsumer();
+      const auto root_p2c =
+          PairwiseLogicalDomainMap(tv_inputs[i], tv_outputs[i])
+              .mapProducerToConsumer();
       for (auto entry : root_p2c) {
         auto p_id = entry.first;
         auto c_id = entry.second;
