@@ -1127,15 +1127,15 @@ bool checkReductionPattern(
   // Ensure that the reduction operations share the same axes in their root
   // domains
   FusionGuard fg(fusion);
-  ComputeAtLogicalDomainMap root_map;
-  root_map.build(true);
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build(true);
 
   // Helper function to check the pattern equivalence for a list of
   // TensorViews
   auto checkPattern = [&](const std::vector<TensorView*>& rtvs) -> bool {
     for (const auto it : c10::irange(1, rtvs.size())) {
       if (!registry_utils::checkPatternEquivalence(
-              rtvs[it - 1], rtvs[it], root_map)) {
+              rtvs[it - 1], rtvs[it], logical_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedule_heuristic,
             "Un-mapped multi-reduction: ",

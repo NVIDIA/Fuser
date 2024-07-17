@@ -560,8 +560,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
 
-  ComputeAtLogicalDomainMap root_map;
-  root_map.build();
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build();
 
   auto all_tvs = ir_utils::allTvs(fusion);
 
@@ -584,7 +584,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       }
       bool consumer_mappable = true;
       auto mappable_roots =
-          root_map.getMappableDims(producer->domain(), consumer->domain());
+          logical_map.getMappableDims(producer->domain(), consumer->domain());
 
       auto p_logical = producer->getLogicalDomain();
 
@@ -1361,8 +1361,8 @@ void FindAllMappedDims::setUp() {
 
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   auto from_id = mapped_root_ids_.at(from);
-  PairwiseLogicalDomainMap root_map(to, from);
-  auto c2p_map = root_map.mapConsumerToProducer();
+  PairwiseLogicalDomainMap logical_map(to, from);
+  auto c2p_map = logical_map.mapConsumerToProducer();
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
@@ -1376,8 +1376,8 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
 
 void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   auto from_id = mapped_logical_ids_.at(from);
-  PairwiseLogicalDomainMap root_map(from, to);
-  auto p2c_map = root_map.mapProducerToConsumer();
+  PairwiseLogicalDomainMap logical_map(from, to);
+  auto p2c_map = logical_map.mapProducerToConsumer();
   auto c_it = p2c_map.find(from_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;

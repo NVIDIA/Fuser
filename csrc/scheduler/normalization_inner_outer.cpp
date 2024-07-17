@@ -317,6 +317,36 @@ struct PersistentBufferStorageParams {
   bool project_to_input = false;
 };
 
+// Prioritize moving buffers used by outer broadcast tensors to shared memory
+// because:
+// (1) They are reused in every iteration of the outer loop, has lower IO.
+// (2) Load occurs before the outer loop. Temporary register usage won't
+//     increase register pressure since the loop is the high-pressure region.
+std::vector<TensorView*> sortProjectableBufferInputs(
+    const std::vector<TensorView*>& projectable_buffer_inputs,
+    const std::vector<TensorView*>& outer_broadcast_tvs) {
+  // mark whether the buffer is used by outer broadcast tensors
+  std::unordered_map<TensorView*, bool> is_used_by_outer_bcast;
+  for (auto buffer : projectable_buffer_inputs) {
+    is_used_by_outer_bcast[buffer] = std::any_of(
+        outer_broadcast_tvs.begin(),
+        outer_broadcast_tvs.end(),
+        [&buffer](TensorView* tv) {
+          return DependencyCheck::isDependencyOf(buffer, tv);
+        });
+  }
+
+  // sort based on [is_used_by_outer_bcast]
+  std::vector<TensorView*> sorted_buffer = projectable_buffer_inputs;
+  std::sort(
+      sorted_buffer.begin(),
+      sorted_buffer.end(),
+      [&](TensorView* a, TensorView* b) {
+        return is_used_by_outer_bcast[a] && !is_used_by_outer_bcast[b];
+      });
+  return sorted_buffer;
+}
+
 PersistentBufferStorageParams getPersistentBufferStorageParams(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -367,7 +397,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       InnerOuterPersistentKernelScheduler::threads_per_block_max);
   int64_t available_smem =
       (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
-  int64_t available_regs = scheduler_utils::register_file_size_full;
+  int64_t available_regs = scheduler_utils::register_file_size_56k;
   buffer_params.smem_overhead = smem_overhead;
 
   // (1) init the buffer_params by putting all the persistent tensors in
@@ -384,8 +414,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   // (3) Relocate buffers to shared memory until the buffer size in registers is
   // within the allowable limit.
+  // (3.1) Sort the candidate persistent buffers
   const auto buffers = buffer_params.project_to_input
-      ? persistent_buffer_info.projectable_buffer_inputs
+      ? sortProjectableBufferInputs(
+            persistent_buffer_info.projectable_buffer_inputs,
+            outer_broadcast_tvs)
       : persistent_buffer_info.persistent_buffers;
 
   // (3.2) Before this loop, all buffers are in registers.
