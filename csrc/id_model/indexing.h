@@ -85,8 +85,8 @@ class TensorIndexer {
   void setupAllocationDomains(const std::vector<Expr*>& exprs);
 
   // Get the list of predicates of a given tensor appearing in a given
-  // expr as a consumer. Each predicate corresponds ot a domain of the
-  // tensor, which is by default one of the logical domain but can be
+  // expr as a consumer. Each predicate corresponds to a domain of the
+  // tensor, which is by default one of the logical domains but can be
   // an intermediate domain with contiguous indexing.
   std::vector<PredicateInfo> getInlinePredicates(
       TensorView* tv,

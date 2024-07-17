@@ -1023,7 +1023,6 @@ std::vector<PredicateInfo> TensorIndexer::getInlinePredicates(
 
   std::vector<PredicateInfo> info_vec;
   info_vec.reserve(predicate_domains.size());
-  std::unordered_set<ValGroup> already_indexed_domains;
 
   // Follow the same approach as Index::getReferenceRootPredicates.
   for (const auto& predicate_domain : predicate_domains) {

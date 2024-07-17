@@ -2513,7 +2513,7 @@ TEST_F(PredicateIndexingTest, ReductionRfactor) {
           if (is_init) {
             return tv->fusion()->trueVal();
           } else {
-            // Predicaing the logical domains can result in wrong
+            // Predicating the logical domains can result in wrong
             // outputs since the split may not be divisible, allowing
             // out-of-bounds accesses to the input
             // global-memory tensor. Instead, its root domain should be

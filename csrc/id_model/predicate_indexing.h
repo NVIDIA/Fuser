@@ -13,7 +13,7 @@
 
 namespace nvfuser {
 
-// Get the domains to prediate for a given tensor used as a consumer
+// Get the domains to predicate for a given tensor used as a consumer
 // of a given expr.
 std::vector<IterDomain*> getPredicateDomains(
     TensorView* consumer_tv,
