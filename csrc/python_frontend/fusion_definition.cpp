@@ -566,36 +566,22 @@ State FusionDefinition::recordingState(size_t index) const {
 }
 
 std::vector<Tensor> FusionDefinition::tensors() {
-  // Filter Tensor states
+  // Filter TensorView states
   std::vector<State> tensor_states;
   std::copy_if(
       recording_state_.begin(),
       recording_state_.end(),
       std::back_inserter(tensor_states),
-      [](const State& s) { return s.stype == serde::StateType::Tensor; });
-
-  // Collect all active values in CPP Fusion
-  // Add to set for membership check.
-  std::vector<Val*> all_vals = userSchedule()->schedule->usedMathVals();
-  std::unordered_set<Val*> all_vals_set(all_vals.begin(), all_vals.end());
-
-  // Gather all Tensor states that exist in CPP Fusion.
-  // DynamicTransform mutates CPP Fusion values, destroying some Tensor states.
-  std::vector<State> active_states;
-  std::copy_if(
-      tensor_states.begin(),
-      tensor_states.end(),
-      std::back_inserter(active_states),
-      [&](State& s) {
-        return all_vals_set.count(getFusionState(s.index)) != 0;
+      [this](const State& s) {
+        return s.stype == serde::StateType::Tensor;
       });
 
-  // Reconstruct Tensors given active Tensor states
+  // Reconstruct Tensors
   std::vector<Tensor> all_tensors;
-  all_tensors.reserve(active_states.size());
+  all_tensors.reserve(tensor_states.size());
   std::transform(
-      active_states.begin(),
-      active_states.end(),
+      tensor_states.begin(),
+      tensor_states.end(),
       std::back_inserter(all_tensors),
       [this](const State& s) {
         return Tensor(
