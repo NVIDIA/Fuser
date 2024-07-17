@@ -616,13 +616,6 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   return ss.str();
 }
 
-Val* DynamicTransformConcretizer::maybeConcretized(Val* v) const {
-  if (symbolic_to_concretized_map_.count(v) != 0) {
-    return symbolic_to_concretized_map_.at(v);
-  }
-  return nullptr;
-}
-
 void DynamicTransformConcretizer::concretize() {
   // Concretize all dynamic reshape ops
   concretizeReshape();
@@ -1361,6 +1354,13 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   }
 
   return is_concretized;
+}
+
+Val* DynamicTransformConcretizer::maybeConcretized(Val* v) const {
+  if (symbolic_to_concretized_map_.count(v) != 0) {
+    return symbolic_to_concretized_map_.at(v);
+  }
+  return nullptr;
 }
 
 DynamicTransformInitialInfo DynamicTransform::getInitialInfo(Fusion* fusion) {
