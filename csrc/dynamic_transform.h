@@ -289,9 +289,9 @@ class DynamicTransformConcretizer : public OptOutMutator {
     concretize();
   }
 
-  //! Return registered replacement for old value. If a replacement does not
-  //! exist, return nullptr.
-  Val* maybeNewVal(Val*);
+  //! Return registered replacement for symbolic value. If a replacement does
+  //! not exist, return nullptr.
+  Val* maybeConcretized(Val*) const;
 
  private:
   void concretize();
@@ -323,7 +323,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
   void registerConcretization(Val* old_val, Val* new_val) {
-    val_map_.emplace(old_val, new_val);
+    symbolic_to_concretized_map_.emplace(old_val, new_val);
     checkConcretizedUses(old_val, new_val);
     registerMutation(old_val, new_val);
   }
@@ -348,7 +348,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
  private:
   const DynamicTransformConcretizationInfo* info_;
 
-  std::unordered_map<Val*, Val*> val_map_;
+  //! Map all original symbolic values to new concretized values
+  std::unordered_map<Val*, Val*> symbolic_to_concretized_map_;
 };
 
 class DynamicTransform {

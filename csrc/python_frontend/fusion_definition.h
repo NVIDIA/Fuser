@@ -171,10 +171,6 @@ class NVF_API FusionDefinition : public FusionState {
   //! Exit Python Context Manager -- Triggers Fusion IR build if it is not
   //! cached
   NVF_API void finalizeDefinition();
-  //! Composite operations can create hidden TensorViews in the CPP fusion
-  //! These TensorViews are not visible from python definition. This function
-  //! finds and adds them to FusionDefinition
-  void findHiddenTensorViews(Fusion* fusion);
   //! Setup user scheduling of a fusion
   //! Copies fusion object and sets up FusionGuard
   NVF_API void setupSchedule(const at::ArrayRef<c10::IValue>& inputs);
@@ -256,6 +252,12 @@ class NVF_API FusionDefinition : public FusionState {
   FusionCache* fusionCache() const;
   //! Return a prescheduled Fusion object
   Fusion* preschedFusion();
+  //! Composite operations can create hidden TensorViews in the CPP fusion
+  //! These TensorViews are not visible from python definition. This function
+  //! finds and adds them to FusionDefinition
+  void findHiddenTensorViews(Fusion* fusion);
+  //! Update Symbolic FusionStates after DynamicTransform pass
+  void updateSymbolicStates(const DynamicTransformConcretizer& concretizer);
 
   //! Holds the defined maximum length of a FusionDefinition in order to
   //! prevent a run away error. The user should feel free to increase this

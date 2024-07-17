@@ -148,6 +148,27 @@ void FusionDefinition::findHiddenTensorViews(Fusion* fusion) {
   }
 }
 
+void FusionDefinition::updateSymbolicStates(
+    const DynamicTransformConcretizer& concretizer) {
+  for (const State& s : recording_state_) {
+    // Only update Tensor and Scalar states
+    if (s.stype != serde::StateType::Tensor &&
+        s.stype != serde::StateType::Scalar) {
+      continue;
+    }
+
+    Val* new_value = concretizer.maybeConcretized(getFusionState(s.index));
+
+    // Skip replacement if unnecessary
+    if (new_value == nullptr) {
+      continue;
+    }
+
+    // Update symbolic states with new concretized values
+    setFusionState(s.index, new_value);
+  }
+}
+
 void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
@@ -171,21 +192,7 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // Concretize fusion
   DynamicTransformConcretizer concretizer =
       DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
-
-  for (const State& s : recording_state_) {
-    // Only update Tensor and Scalar states
-    if (s.stype == serde::StateType::Vector) {
-      continue;
-    }
-    Val* new_val = concretizer.maybeNewVal(getFusionState(s.index));
-
-    // Skip replacement if unnecessary
-    if (new_val == nullptr) {
-      continue;
-    }
-
-    setFusionState(s.index, new_val);
-  }
+  updateSymbolicStates(concretizer);
 
   // Create runtime info for schedulers
   Fusion* user_schedule_fusion = user_sched_->schedule.get();

@@ -616,9 +616,9 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   return ss.str();
 }
 
-Val* DynamicTransformConcretizer::maybeNewVal(Val* v) {
-  if (val_map_.count(v) != 0) {
-    return val_map_.at(v);
+Val* DynamicTransformConcretizer::maybeConcretized(Val* v) const {
+  if (symbolic_to_concretized_map_.count(v) != 0) {
+    return symbolic_to_concretized_map_.at(v);
   }
   return nullptr;
 }
@@ -838,7 +838,8 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // would fail at this point. So we skip checkConcretizedUses here and
     // perform it later in mutate(TensorView*).
 
-    val_map_.emplace(incomplete_out_tv, concrete_reshape_out_tv);
+    symbolic_to_concretized_map_.emplace(
+        incomplete_out_tv, concrete_reshape_out_tv);
 
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(
         incomplete_out_tv, concrete_reshape_out_tv);
@@ -881,7 +882,7 @@ void DynamicTransformConcretizer::concretizeExpand() {
           symbolic_out_tv->definition()->input(0)->as<TensorView>();
       TensorView* concretized_tv = set(inp_tv);
 
-      val_map_.emplace(symbolic_out_tv, concretized_tv);
+      symbolic_to_concretized_map_.emplace(symbolic_out_tv, concretized_tv);
 
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           symbolic_out_tv, concretized_tv);
