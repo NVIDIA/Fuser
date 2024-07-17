@@ -2896,7 +2896,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     indent() << "for(nvfuser_index_t " << gen_index;
-    if (loop->iter_domain()->isParallelized()) {
+    if (loop->iter_domain()->isParallelized() ||
+        loop->circularBufferLoopStage() !=
+            CircularBufferLoopStage::NotApplicable) {
       code_ << " = " << gen_start << "; ";
     } else {
       // Do not start at  the start of the ID when not parallelized. Instead,

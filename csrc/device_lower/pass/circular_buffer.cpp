@@ -503,12 +503,12 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         requireEpilogue(circular_buffer_load_exprs_)) {
       stop = IrBuilder::subExpr(
           circular_buffer_loop_->stop(),
-          GpuLower::current()->kernel()->oneVal());
+          SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
     } else if (loop_type_ == CircularBufferLoopStage::Epilog) {
       NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
       start = IrBuilder::subExpr(
           circular_buffer_loop_->stop(),
-          GpuLower::current()->kernel()->oneVal());
+          SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
     }
 
     cloned_top_level_loop_ = IrBuilder::create<ForLoop>(
