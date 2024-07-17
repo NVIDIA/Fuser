@@ -746,7 +746,7 @@ TEST_F(NVFuserTest, FusionIndexing18_CUDA) {
   tv4->split(0, 4);
   auto tv5 = tv4->rFactor({1});
 
-  MaxRootDomainInfoSpanningTree tree(tv5);
+  MaxLogicalDomainInfoSpanningTree tree(tv5);
   TransformPropagator tp(tv5);
   tree.traverse(&tp);
 

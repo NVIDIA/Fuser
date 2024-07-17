@@ -397,7 +397,7 @@ Val* PredicateCompute::getInlinePredicate(
   bool non_zero_start_found = false;
   for (const auto& pred_info : pred_info_vec) {
     if (pred_type == PredicateType::ReductionWrite) {
-      const auto& consumer_ids = pred_info.rootIds();
+      const auto& consumer_ids = pred_info.predicatedDomains();
       bool pred_for_reduction_axis = false;
       for (auto consumer_id : consumer_ids) {
         if (consumer_id->isReduction()) {
@@ -489,7 +489,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     NVF_ERROR(pred_info.startPredicate() != nullptr);
     NVF_ERROR(pred_info.stopPredicate() != nullptr);
 
-    const auto& root_ids = pred_info.rootIds();
+    const auto& root_ids = pred_info.predicatedDomains();
 
     bool add_pred = false;
 

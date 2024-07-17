@@ -24,12 +24,12 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <options.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
