@@ -107,7 +107,7 @@ TEST_F(ResizeTest, Pad3) {
   tv4->split(0, 32);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -228,7 +228,7 @@ TEST_F(ResizeTest, Pad6) {
   tv4->split(0, 32);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -269,7 +269,7 @@ TEST_F(ResizeTest, Pad7) {
   tv3->reorder({{1, 2}});
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   inlineMost();
 
@@ -315,7 +315,7 @@ TEST_F(ResizeTest, Pad8) {
   tv4->split(0, 128);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -590,7 +590,7 @@ TEST_F(ResizeTest, Cat3) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -631,7 +631,7 @@ TEST_F(ResizeTest, Cat4) {
   tv2->split(0, 128);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
@@ -674,7 +674,7 @@ TEST_F(ResizeTest, Cat5) {
   tv4->split(0, 128);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -722,7 +722,7 @@ TEST_F(ResizeTest, Cat6) {
   tv3->merge(0);
   tv3->split(0, 4);
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   inlineMost();
 
@@ -773,7 +773,7 @@ TEST_F(ResizeTest, Cat7) {
     concat_tv->split(0, 128);
 
     TransformPropagator propagator(concat_tv);
-    MaxRootDomainInfoSpanningTree(concat_tv).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(concat_tv).traverse(&propagator);
 
     inlineMost();
 
@@ -1021,7 +1021,8 @@ TEST_F(ResizeTest, Slice4) {
   tv5->setMemoryType(MemoryType::Global);
   SetSelector tv5_rf_selector({tv1, tv3, tv5, tv5_cache});
   TransformPropagator tv5_rf_tp(tv5_rf);
-  MaxRootDomainInfoSpanningTree(tv5_rf, &tv5_rf_selector).traverse(&tv5_rf_tp);
+  MaxLogicalDomainInfoSpanningTree(tv5_rf, &tv5_rf_selector)
+      .traverse(&tv5_rf_tp);
   inlineMost(std::vector<TensorView*>{tv1, tv3, tv5_rf});
   tv5_rf->axis(0)->parallelize(ParallelType::BIDx);
   tv5_rf->axis(1)->parallelize(ParallelType::TIDx);
@@ -1034,7 +1035,8 @@ TEST_F(ResizeTest, Slice4) {
   tv6->setMemoryType(MemoryType::Global);
   SetSelector tv6_rf_selector({tv2, tv4, tv6, tv6_cache});
   TransformPropagator tv6_rf_tp(tv6_rf);
-  MaxRootDomainInfoSpanningTree(tv6_rf, &tv6_rf_selector).traverse(&tv6_rf_tp);
+  MaxLogicalDomainInfoSpanningTree(tv6_rf, &tv6_rf_selector)
+      .traverse(&tv6_rf_tp);
   inlineMost(std::vector<TensorView*>{tv2, tv4, tv6_rf});
   tv6_rf->axis(0)->parallelize(ParallelType::BIDx);
   tv6_rf->axis(1)->parallelize(ParallelType::TIDx);
@@ -1096,7 +1098,7 @@ TEST_F(ResizeTest, Slice5) {
   // tv1 to tv3 through tv0, which should work as both tensors are
   // sliced in the same way.
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -2640,7 +2642,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual2) {
   tv1->split(0, 128);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -2691,7 +2693,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual3) {
   tv1->split(0, 128);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -2940,7 +2942,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   tv4->reorder({{1, -1}});
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::Unswitch);

@@ -17,7 +17,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <linked_hash_map.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 
@@ -147,7 +147,7 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
   }
 
   std::unordered_map<IterDomain*, IterDomain*> in_logical_to_out_root =
-      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
+      PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
 
   Layout preferred_out_layout;
   for (const auto i : c10::irange(preferred_in_layout.size())) {

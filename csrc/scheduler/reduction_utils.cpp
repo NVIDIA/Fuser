@@ -366,7 +366,7 @@ void propagateTransformation(
     const std::unordered_set<TensorView*>& boundaryNodesSet) {
   InternalBoundarySelector ibSelector(boundaryNodesSet);
   TransformPropagator propagator(reference_tv);
-  MaxRootDomainInfoSpanningTree(reference_tv, &ibSelector)
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &ibSelector)
       .traverse(&propagator);
 }
 

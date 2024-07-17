@@ -28,8 +28,8 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -876,7 +876,7 @@ TEST_F(GpuViewTest, FusionFlattenAfterUnsqueezeOutput) {
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionComputeAtRootDomainMapWithView) {
+TEST_F(GpuViewTest, FusionComputeAtLogicalDomainMapWithView) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -899,17 +899,17 @@ TEST_F(GpuViewTest, FusionComputeAtRootDomainMapWithView) {
   auto tv5 = add(tv3, tv4);
   fusion.addOutput(tv5);
 
-  ComputeAtRootDomainMap map;
+  ComputeAtLogicalDomainMap map;
   map.build();
 
   // It's not possible to compute tv1 at the -1 position of
-  // t2. ComputeAtRootDomainMap should tell that by not mapping the
+  // t2. ComputeAtLogicalDomainMap should tell that by not mapping the
   // second axis.
   auto tv1_tv2_mappable_dims =
       map.getMappableDims(tv1->domain(), tv2->domain());
   NVF_CHECK(
       tv1_tv2_mappable_dims.find(tv1->axis(1)) == tv1_tv2_mappable_dims.end(),
-      "Invalid ComputeAtRootDomainMap. Domain should not be mappable: ",
+      "Invalid ComputeAtLogicalDomainMap. Domain should not be mappable: ",
       tv1->axis(1)->toString());
 }
 
@@ -1344,7 +1344,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
 
   {
     TransformPropagator propagator(tv4);
-    MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   }
 
   for (auto i : c10::irange(tv5->nDims() - 1)) {
@@ -1359,7 +1359,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
 
   {
     TransformPropagator propagator(tv5);
-    MaxRootDomainInfoSpanningTree spanning_tree(tv5);
+    MaxLogicalDomainInfoSpanningTree spanning_tree(tv5);
     spanning_tree.traverse(&propagator);
     scheduler_utils::parallelizeAllLike(tv5);
 
@@ -1407,7 +1407,7 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
   {
     TransformPropagator propagator(tv4);
-    MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   }
 
   tv5->split(1, 128);
@@ -1420,7 +1420,7 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
   {
     TransformPropagator propagator(tv5_rf);
-    MaxRootDomainInfoSpanningTree spanning_tree(tv5_rf);
+    MaxLogicalDomainInfoSpanningTree spanning_tree(tv5_rf);
     spanning_tree.traverse(&propagator);
     scheduler_utils::parallelizeAllLike(tv5_rf);
 
@@ -1939,7 +1939,7 @@ TEST_F(GpuViewTest, FusionReshapeMapping) {
   tv6->axis(2)->parallelize(ParallelType::TIDx);
 
   TransformPropagator propagator(tv6);
-  MaxRootDomainInfoSpanningTree spanning_tree(tv6);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(tv6);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv6);
 
@@ -1975,7 +1975,7 @@ TEST_F(GpuViewTest, FusionLowerDivisibleSplits) {
   tv2->merge(0)->merge(0)->merge(0)->split(0, 4)->split(0, 8, false);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree spanning_tree(tv2);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(tv2);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv2);
 
