@@ -708,33 +708,32 @@ TEST_F(SwizzleTest, Transpose1) {
 
   std::vector<IterDomain*> dim0{tv1->axis(0), tv2->axis(1)};
   std::vector<IterDomain*> dim1{tv1->axis(1), tv2->axis(0)};
-
   AbstractTensor loop{dim0, dim1};
+
   loop.split(1, 32);
   loop.split(0, 32);
   loop.reorder({{1, 2}});
   loop.merge(0);
+  for (auto id : loop[0].as<std::vector>()) {
+    id->parallelize(ParallelType::BIDx);
+  }
   // BIDx, 32, 32
 
   auto smem_alloc = loop.unzip()[0];
   smem_alloc.swizzle(SwizzleType::XOR, 1, 2);
+  tv1->setAllocationDomain(smem_alloc.as<IterDomain*>(), true);
 
   std::swap(loop[1][1], loop[2][1]);
   loop.merge(1);
   loop.split(1, 256);
-  // BIDx, 4, TIDx
-
-  for (auto id : loop[0].as<std::vector>()) {
-    id->parallelize(ParallelType::BIDx);
-  }
   for (auto id : loop[2].as<std::vector>()) {
     id->parallelize(ParallelType::TIDx);
   }
+  // BIDx, 4, TIDx
 
   auto ub = loop.unzip();
   tv1->setLoopDomain(ub[0].as<IterDomain*>());
   tv2->setLoopDomain(ub[1].as<IterDomain*>());
-  tv1->setAllocationDomain(smem_alloc.as<IterDomain*>(), true);
 
   inlineMost();
 
