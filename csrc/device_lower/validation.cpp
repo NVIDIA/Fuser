@@ -553,6 +553,9 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::validateVectorize");
   FusionGuard fg(fusion);
 
+  std::cout << "\nvalidateAndCollectVectorizeInfo" << std::endl;
+  fusion->printMath();
+
   std::vector<Val*> used_vals = fusion->usedMathVals();
   for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;

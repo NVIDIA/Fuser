@@ -92,14 +92,18 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
 
   auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tvs.at(0));
 
-  const int64_t vectorization_factor =
+  const auto& [min_vectorize_factor, vectorization_factor_map] =
       vectorize_helper::getVectorizationFactor(
           runtime_info,
           reduced_tv,
           data_cache,
-          reduced_tv->nDims() - properties.inner_most_dimension_ndims)
-          .first;
-
+          reduced_tv->nDims() - properties.inner_most_dimension_ndims);
+  // Use max vectorization factor
+  int64_t vectorization_factor = min_vectorize_factor;
+  for (auto pair : vectorization_factor_map) {
+    vectorization_factor = std::max(vectorization_factor, pair.second);
+  }
+  
   // Minimum required multi reduction factor.
   const int64_t min_multi_reduction_factor = vectorization_factor *
       normalization_scheduler_utils::PreferredLaunchConfig::kMinBdimx;
@@ -658,6 +662,7 @@ std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
       prop.vectorize_factor,
       prop.project_persistent_buffers,
       prop.index_type);
+  rparams->vectorization_factor_map = prop.vectorization_factor_map;
   return rparams;
 }
 

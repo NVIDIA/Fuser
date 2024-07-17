@@ -856,6 +856,8 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristics");
   FusionGuard fg(fusion);
 
+  std::cout << "\n=================getInnerOuterPersistentHeuristics=================" << std::endl;
+
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -899,6 +901,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // Use max vectorization factor
   int64_t vectorize_factor = min_vectorize_factor;
   for (auto pair : vectorization_factor_map) {
+    std::cout << "vectorization_factor_map tv: " << pair.first->toString() << " : " << pair.second << std::endl;
     vectorize_factor = std::max(vectorize_factor, pair.second);
   }
   auto persistent_buffer_info_entry =
@@ -1064,6 +1067,7 @@ void scheduleInnerOuterPersistentKernel(
     const ReductionParams& rparams) {
   FUSER_PERF_SCOPE("scheduleInnerOuterPersistentKernel");
 
+  std::cout << "\n========================scheduleInnerOuterPersistentKernel========================" << std::endl;
   FusionGuard fg(fusion);
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
@@ -1138,6 +1142,7 @@ void scheduleInnerOuterPersistentKernel(
   const auto& selected_tvs_inner =
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
 
+  std::cout << "\ngetUnrolledOrVectorizedInputsOutputs for inner tv" << std::endl;
   const auto& unrolled_vectorized_tvs =
       reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
           inner_reference_tv,
@@ -1167,6 +1172,8 @@ void scheduleInnerOuterPersistentKernel(
         {outer_reduction_tvs[i]}, {cached_gmem[i]});
     reduction_scheduler_utils::propagateTransformation(
         outer_reference_tvs[i], boundaryNodesSet);
+    std::cout << "\ngetUnrolledOrVectorizedInputsOutputs for outer tv" << std::endl;
+    reduction_scheduler_utils::reorderVectorizationAxisToLast(outer_reference_tvs[i]);
     const auto& unrolled_vectorized_tvs =
         reduction_scheduler_utils::getUnrolledOrVectorizedInputsOutputs(
             outer_reference_tvs[i],
@@ -1189,6 +1196,7 @@ void scheduleInnerOuterPersistentKernel(
   // is guaranteed to be smaller or equal to input vectorization factor.
   if (rparams.vectorization_factor_tmp_gmem_write > 1) {
     for (auto tv : cached_gmem) {
+      std::cout << "cached_gmem: " << tv->toString() << std::endl;
       NVF_ERROR(
           rparams.vectorization_factor_tmp_gmem_write <=
               rparams.unroll_factor_inner_reduction,
@@ -1207,6 +1215,7 @@ void scheduleInnerOuterPersistentKernel(
   // seperately.
   if (rparams.vectorization_factor_outer > 1) {
     for (auto tv : cached_gmem_reload) {
+      std::cout << "cached_gmem_reload: " << tv->toString() << std::endl;
       auto output_tvs = ir_utils::outputTvsOf(tv);
       NVF_ERROR(
           !output_tvs.empty(),

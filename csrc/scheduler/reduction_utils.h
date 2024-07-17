@@ -113,5 +113,8 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
     const std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>&
         cached_outputs,
     const int64_t vectorization_factor);
+
+// Reorder tv axes to put vectorization axis as the last axis
+void reorderVectorizationAxisToLast(TensorView* tv);    
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

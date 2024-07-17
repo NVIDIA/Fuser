@@ -1093,15 +1093,18 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
 
-  const auto vectorize_factor =
+  const auto& [min_vectorize_factor, vectorization_factor_map] =
       vectorize_helper::getVectorizationFactor(
           runtime_info,
           reduced_tv,
           data_cache,
           vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-              reduction_tv, reduced_tv, properties.inner_most_dimension_ndims))
-          .first;
-
+              reduction_tv, reduced_tv, properties.inner_most_dimension_ndims));
+  // Use max vectorization factor
+  int64_t vectorize_factor = min_vectorize_factor;
+  for (auto pair : vectorization_factor_map) {
+    vectorize_factor = std::max(vectorize_factor, pair.second);
+  }
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
   int64_t max_dtype_size = 1;
@@ -1133,6 +1136,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       max_dtype_size,
       vectorize_factor);
   heuristic->cparams.index_type = runtime_info.getIndexType();
+  heuristic->vectorization_factor_map = vectorization_factor_map;
   return heuristic;
 }
 
@@ -1140,7 +1144,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
-
+  std::cout << "\n ========================== Scheduling reduction  ==========================" << std::endl;
   bool unroll = rparams.isUnrolled();
 
   // Cache inputs if unrolled
