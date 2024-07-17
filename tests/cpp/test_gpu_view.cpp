@@ -2450,7 +2450,7 @@ TEST_F(GpuViewTest, OutputAliasIntermediate) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  auto seg_groups =
+  const std::vector<SegmentedGroup*>& seg_groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
   int n_no_op = 0, n_norm = 0;
   for (auto sg : seg_groups) {
