@@ -149,7 +149,7 @@ void FusionDefinition::findHiddenTensorViews(Fusion* fusion) {
 }
 
 void FusionDefinition::updateSymbolicStates(
-    const DynamicTransformConcretizer& concretizer) {
+    const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map) {
   for (const State& s : recording_state_) {
     // Only update Tensor and Scalar states
     if (s.stype != serde::StateType::Tensor &&
@@ -157,15 +157,15 @@ void FusionDefinition::updateSymbolicStates(
       continue;
     }
 
-    Val* new_value = concretizer.maybeConcretized(getFusionState(s.index));
+    Val* old_value = getFusionState(s.index);
 
     // Skip replacement if unnecessary
-    if (new_value == nullptr) {
+    if (symbolic_to_concretized_map.count(old_value) == 0) {
       continue;
     }
 
     // Update symbolic states with new concretized values
-    setFusionState(s.index, new_value);
+    setFusionState(s.index, symbolic_to_concretized_map.at(old_value));
   }
 }
 
@@ -190,11 +190,12 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
   // Concretize fusion
-  DynamicTransformConcretizer concretizer =
+  std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
       DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
+
   // Update symbolic values to their new concretized values.
   // Users will access concretized values in schedule function.
-  updateSymbolicStates(concretizer);
+  updateSymbolicStates(symbolic_to_concrete_map);
 
   // Create runtime info for schedulers
   Fusion* user_schedule_fusion = user_sched_->schedule.get();
@@ -574,9 +575,7 @@ std::vector<Tensor> FusionDefinition::tensors() {
       recording_state_.begin(),
       recording_state_.end(),
       std::back_inserter(tensor_states),
-      [this](const State& s) {
-        return s.stype == serde::StateType::Tensor;
-      });
+      [this](const State& s) { return s.stype == serde::StateType::Tensor; });
 
   // Reconstruct Tensors
   std::vector<Tensor> all_tensors;

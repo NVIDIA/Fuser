@@ -616,6 +616,84 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   return ss.str();
 }
 
+//! Concretize a symbolic fusion with concrete transformation info
+class DynamicTransformConcretizer : public OptOutMutator {
+ public:
+  DynamicTransformConcretizer(
+      Fusion* fusion,
+      const DynamicTransformConcretizationInfo* info)
+      : info_(info) {
+    NVF_ERROR(
+        fusion == info->fusion(),
+        "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
+    FusionGuard fg(fusion);
+    concretize();
+  }
+
+  //! Return map from original symbolic value to new concrete value.
+  std::unordered_map<Val*, Val*> getSymbolicToConcretizedMap() {
+    return symbolic_to_concretized_map_;
+  }
+
+ private:
+  void concretize();
+
+  //! Concretize a single reshape which has a non-empty input tensor
+  TensorView* concretizeNonEmptyReshape(
+      TensorView* inp_tv,
+      TensorView* incomplete_out_tv,
+      const AnalyzeViewResult& view_analysis);
+
+  //! Concretize a single reshape given that we know that numel=0.
+  //! The symbolic sizes are the actual sizes 0 or 1, or -1 if the size of a
+  //! given reshaped dimension is greater than 1.
+  TensorView* concretizeEmptyReshape(
+      TensorView* inp_tv,
+      TensorView* incomplete_out_tv,
+      const std::vector<int64_t>& symbolic_sizes);
+
+  void concretizeReshape();
+
+  void concretizeResize();
+
+  void concretizeExpand();
+
+  void concretizeEmptyExtents();
+
+  void concretizeFactoryOutputs();
+
+  //! Use this instead of calling registerMutation directly, since it will also
+  //! check that the concretized value is a valid input to all of its uses.
+  void registerConcretization(Val* old_val, Val* new_val) {
+    symbolic_to_concretized_map_.emplace(old_val, new_val);
+    checkConcretizedUses(old_val, new_val);
+    registerMutation(old_val, new_val);
+  }
+
+  //! Check uses of old_val to ensure that new_val does not violate
+  //! assumptions. This is currently only used to check that inputs to SqueezeOp
+  //! are marked broadcast during concretization.
+  void checkConcretizedUses(Val* old_val, Val* new_val) const;
+
+  using OptOutMutator::mutate;
+
+  void mutate(TensorView* tv) final;
+
+  void mutate(TensorDomain* td) final;
+
+  void mutate(Expr* expr) final;
+
+  //! Concretizes the root domain of a symbolic consumer tensor from
+  //! its producer domains. Returns true if any root ID is concretized.
+  bool propagateFromProducerToConsumer(TensorView* consumer);
+
+ private:
+  const DynamicTransformConcretizationInfo* info_;
+
+  //! Map all original symbolic values to new concretized values
+  std::unordered_map<Val*, Val*> symbolic_to_concretized_map_;
+};
+
 void DynamicTransformConcretizer::concretize() {
   // Concretize all dynamic reshape ops
   concretizeReshape();
@@ -1356,13 +1434,6 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   return is_concretized;
 }
 
-Val* DynamicTransformConcretizer::maybeConcretized(Val* v) const {
-  if (symbolic_to_concretized_map_.count(v) != 0) {
-    return symbolic_to_concretized_map_.at(v);
-  }
-  return nullptr;
-}
-
 DynamicTransformInitialInfo DynamicTransform::getInitialInfo(Fusion* fusion) {
   DynamicTransformInitialInfoBuilder builder(fusion);
   return builder.getInfo();
@@ -1381,14 +1452,14 @@ void DynamicTransform::concretizeFusion(
       fusion, KernelArgumentHolder::createKernelArgumentHolder(aten_inputs));
 }
 
-DynamicTransformConcretizer DynamicTransform::concretizeFusion(
+std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
     Fusion* fusion,
     const KernelArgumentHolder& args) {
   ExpressionEvaluator expr_eval = executor_utils::bindInputs(args, fusion);
   auto initial_info = getInitialInfo(fusion);
   DynamicTransformConcretizationInfo info(&initial_info, &expr_eval);
   DynamicTransformConcretizer concretizer(fusion, &info);
-  return concretizer;
+  return concretizer.getSymbolicToConcretizedMap();
 }
 
 size_t DynamicTransformConcretizationInfo::hash() const {

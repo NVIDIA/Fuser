@@ -257,7 +257,8 @@ class NVF_API FusionDefinition : public FusionState {
   //! finds and adds them to FusionDefinition
   void findHiddenTensorViews(Fusion* fusion);
   //! Update Symbolic FusionStates after DynamicTransform pass
-  void updateSymbolicStates(const DynamicTransformConcretizer& concretizer);
+  void updateSymbolicStates(
+      const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map);
 
   //! Holds the defined maximum length of a FusionDefinition in order to
   //! prevent a run away error. The user should feel free to increase this
