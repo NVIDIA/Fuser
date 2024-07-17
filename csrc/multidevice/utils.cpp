@@ -157,12 +157,6 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
       PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
   for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
     auto p2c_map_it = p2c_map.find(p_id);
-    if (p2c_map_it == p2c_map.end()) {
-      std::cout << "Offending id " << p_id->toString() << std::endl;
-      std::cout << "Error here " << consumer->definition()->toString()
-                << std::endl;
-      std::cout << "Producer " << producer->toString() << std::endl;
-    }
     NVF_ERROR(
         p2c_map_it != p2c_map.end(),
         "the producer ",
@@ -232,7 +226,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
     // HACK: MLP ATtention test only shards the outermost logical
     // axis is DID parallelized.
     // TODO: why is there an empty tv?
-    if (tv->getLogicalDomain().size() > 0 && ref->axis(0)->isDeviceDim()) {
+    if (!tv->getLogicalDomain().empty() && ref->axis(0)->isDeviceDim()) {
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
   }
