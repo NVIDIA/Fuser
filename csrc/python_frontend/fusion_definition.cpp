@@ -192,6 +192,8 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // Concretize fusion
   DynamicTransformConcretizer concretizer =
       DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
+  // Update symbolic values to their new concretized values.
+  // Users will access concretized values in schedule function.
   updateSymbolicStates(concretizer);
 
   // Create runtime info for schedulers
