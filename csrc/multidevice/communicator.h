@@ -72,6 +72,9 @@ class Communicator {
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;
+  ~Communicator() = delete;
+  // As said in `getInstance`, the user of this class is supposed to call this
+  // method to clean up the singleton. This obviously can only be called once.
   void cleanup();
 
   // returns if distributed config is available

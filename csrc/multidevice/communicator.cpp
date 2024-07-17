@@ -215,6 +215,14 @@ Communicator::Communicator(
 }
 
 void Communicator::cleanup() {
+  if (!is_available_) {
+    TORCH_WARN(
+        "The singleton Communicator wasn't available before the cleanup. "
+        "This is likely because Communicator::cleanup was called more than "
+        "once or the instance wasn't successfully initialized.");
+    return;
+  }
+
   store_ = nullptr;
 
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
@@ -227,6 +235,8 @@ void Communicator::cleanup() {
   }
 #endif
   backends_.clear();
+
+  is_available_ = false;
 }
 
 c10d::Backend* Communicator::getBackendForTeam(
