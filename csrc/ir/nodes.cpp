@@ -3670,18 +3670,18 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
       all_exprs.push_back(def);
     }
     all_exprs.insert(
-        all_exprs.back(), back->uses().begin(), back->uses().end());
+        all_exprs.end(), back->uses().begin(), back->uses().end());
     for (auto e : all_exprs) {
       std::vector<Val*> all_ids;
-      all_ids.insert(all_ids.back(), e->inputs().begin(), e->inputs().end());
-      all_ids.insert(all_ids.back(), e->outputs().begin(), e->outputs().end());
+      all_ids.insert(all_ids.end(), e->inputs().begin(), e->inputs().end());
+      all_ids.insert(all_ids.end(), e->outputs().begin(), e->outputs().end());
       for (auto id : ir_utils::filterByType<IterDomain>(all_ids)) {
         if (!discovered_ids.has(id) && !pending.has(id)) {
           pending.pushBack(id);
         }
       }
       for (auto in : e->inputs()) {
-        for (auto out : e->inputs()) {
+        for (auto out : e->outputs()) {
           out2in.emplace(out->as<IterDomain>(), in->as<IterDomain>());
         }
       }
