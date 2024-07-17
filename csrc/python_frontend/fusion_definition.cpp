@@ -186,6 +186,9 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
 
+  // Add TensorViews created by composite operations to Python FusionDefinition.
+  findHiddenTensorViews(user_sched_->schedule.get());
+
   KernelArgumentHolder args =
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
@@ -204,9 +207,6 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
       args,
       /*precomuted_values=*/nullptr,
       ir_utils::allTvs(user_schedule_fusion));
-
-  // Add TensorViews from CPP Fusion to Python FusionDefinition
-  findHiddenTensorViews(user_sched_->schedule.get());
 
   // Manually setting the fusion guard as there is not a good way of using a
   // guard in a local scope across the schedule function
