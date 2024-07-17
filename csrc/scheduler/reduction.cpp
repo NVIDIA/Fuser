@@ -953,13 +953,13 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
 
     // Use root domain map to check the reduction ops have the same axes
     FusionGuard fg(fusion);
-    ComputeAtLogicalDomainMap root_map;
-    root_map.build(true);
+    ComputeAtLogicalDomainMap logical_map;
+    logical_map.build(true);
 
     // red_ops.size()>1 checked before
     for (size_t it = 1; it < reduction_tvs.size(); it++) {
       if (!registry_utils::checkPatternEquivalence(
-              reduction_tvs[it - 1], reduction_tvs[it], root_map)) {
+              reduction_tvs[it - 1], reduction_tvs[it], logical_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
             heuristicType(),
             "Un-mapped multi-reduction: ",
