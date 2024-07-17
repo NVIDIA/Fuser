@@ -217,7 +217,7 @@ Communicator::Communicator(
 void Communicator::cleanup() {
   if (!is_available_) {
     TORCH_WARN(
-        "The singleton Communicator wasn't available before the cleanup. "
+        "The singleton Communicator isn't available. "
         "This is likely because Communicator::cleanup was called more than "
         "once or the instance wasn't successfully initialized.");
     return;
@@ -243,6 +243,12 @@ c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
     const std::string& prefix) {
+  NVF_ERROR(
+      is_available(),
+      "The singleton Communicator isn't available. "
+      "This is likely because Communicator::cleanup has been called "
+      "or the instance wasn't successfully initialized.");
+
   CommunicatorBackend b = getBackend(backend);
   // generate a string key which is unique to the team
   // create the team and cache it
