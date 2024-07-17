@@ -319,11 +319,6 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
     const std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>&
         cached_outputs,
     const int64_t vectorization_factor) {
-  std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
-  for (auto [k, v] : vectorization_factor_map) {
-    std::cout << k->toString() << " : " << v << ", name= " << k->name()
-              << std::endl;
-  }
 
   NVF_ERROR(
       reference_tv->axis(-1)->getParallelType() == ParallelType::Vectorize,
@@ -341,10 +336,6 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
         it != vectorization_factor_map.end(),
         "Can't find tv in vectorization_factor_map: ",
         tv->toString());
-    if (it == vectorization_factor_map.end()) {
-      std::cout << "Not found in vectorization_factor_map: " << tv->toString()
-                << ", name= " << tv->name() << std::endl;
-    }
     return it->second;
   };
 
@@ -375,11 +366,6 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
         int64_t allowed_vectorization_factor =
             getAllowedVectFactor(producer_tvs.at(0));
         if (allowed_vectorization_factor < vectorization_factor) {
-          std::cout << "Adjusting cached_input factor for "
-                    << cached_input->toString()
-                    << "\n input: " << producer_tvs[0]->toString() << " to "
-                    << " from " << vectorization_factor << " to "
-                    << allowed_vectorization_factor << std::endl;
           cached_input->split(-1, allowed_vectorization_factor);
           cached_input->axis(-1)->parallelize(ParallelType::Vectorize);
         }
@@ -400,10 +386,6 @@ std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
               output) != vectorizable_inputs_outputs.end()) {
         int64_t allowed_vectorization_factor = getAllowedVectFactor(old_output);
         if (allowed_vectorization_factor < vectorization_factor) {
-          std::cout << "Adjusting output factor for " << output->toString()
-                    << "\n old_output: " << old_output->toString() << " to "
-                    << " from " << vectorization_factor << " to "
-                    << allowed_vectorization_factor << std::endl;
           output->split(-1, allowed_vectorization_factor);
           output->axis(-1)->parallelize(ParallelType::Vectorize);
         }
@@ -436,9 +418,6 @@ void multiReductionInliner(
     propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
   }
 
-  std::cout
-      << "\ngetUnrolledOrVectorizedInputsOutputs from multiReductionInliner"
-      << std::endl;
   const auto& unrolled_vectorized_tvs = getUnrolledOrVectorizedInputsOutputs(
       reference_tv,
       vectorization_factor_map,

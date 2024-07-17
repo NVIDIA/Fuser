@@ -1144,7 +1144,6 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
-  std::cout << "\n ========================== Scheduling reduction  ==========================" << std::endl;
   bool unroll = rparams.isUnrolled();
 
   // Cache inputs if unrolled
