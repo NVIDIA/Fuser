@@ -398,12 +398,25 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  std::vector<std::vector<at::Tensor>> input_tensors(1);
   const auto scattered_axis = communication->scatteredAxis();
   NVF_ERROR(
       scattered_axis >= 0,
       "scattered_axis is expected to be non-negative: ",
-      scattered_axis)
+      scattered_axis);
+// reduce_scatter primitive in c10d induces extra buffering time to copy the
+// user's input tensors to an internal source buffer. It is therefore always
+// preferable to use _reduce_scatter_base (which does not perform any extra
+// copy) when the tensors are stored contiguously (i.e., when
+// scattered_axis==0). Note however than only nccl supports
+// _reduce_scatter_base, not ucc.
+#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
+  if (scattered_axis == 0 &&
+      backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
+    return backend->_reduce_scatter_base(
+        output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
+  }
+#endif
+  std::vector<std::vector<at::Tensor>> input_tensors(1);
   input_tensors[0] = at::split(input_tensor, /*split_size=*/1, scattered_axis);
 
   std::vector<at::Tensor> output_tensors({output_tensor});

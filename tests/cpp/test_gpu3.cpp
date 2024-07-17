@@ -31,8 +31,8 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -384,7 +384,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplitVectorize2_CUDA) {
   tv3->split(0, 8, false);
   tv3->split(1, 4);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3, {tv1, tv2});
@@ -464,7 +464,7 @@ TEST_F(NVFuserTest, FusionIntermediateTensorVectorize_CUDA) {
 
     tv3->split(-1, 4);
     TransformPropagatorWithCheck propagator(tv3);
-    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv1->computeAt(tv3, -2);
 
@@ -970,7 +970,7 @@ TEST_F(NVFuserTest, FusionTestGridComm2_CUDA) {
   tv4->split(0, 2);
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv3->computeAt(tv4, 1);
 
@@ -1320,7 +1320,7 @@ TEST_F(NVFuserTest, FusionContigIndexingWithBroadcast_CUDA) {
 
   tv3->merge(0);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv2->setMemoryType(MemoryType::Local);
 
@@ -1371,7 +1371,7 @@ TEST_F(NVFuserTest, FusionVectorizeContigIndexValidationFail2_CUDA) {
   tv4->merge(0, 1);
   tv4->split(0, 4);
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv0->computeAt(tv4, -2);
   tv1->computeAt(tv4, -2);
@@ -1417,7 +1417,7 @@ TEST_F(NVFuserTest, FusionVectorizeContigIndexWithBroadcast_CUDA) {
   // transformations. It would create temporary IterDomains, and the
   // validation should still be able to detect vectorization by 4 is valid.
   // TransformPropagatorWithCheck propagator(tv3);
-  // MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  // MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv2->merge(1, 2);
   tv2->merge(0, 1);
@@ -1840,9 +1840,7 @@ TEST_F(NVFuserTest, FusionSimpleCpAsync_CUDA) {
   // requires ampere+ GPU
   if (!deviceMajorMinorCheck(8)) {
     ASSERT_THAT(
-        [&]() {
-          fe.compileFusion(&fusion, {t0, t1});
-        },
+        [&]() { fe.compileFusion(&fusion, {t0, t1}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
             "Reason: LoadStoreOpType::CpAsync requires Ampere")));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
@@ -1975,7 +1973,7 @@ TEST_F(NVFuserTest, FusionPropagateParallelTypesToSiblings_CUDA) {
 
   tv_avg->split(0, 128);
   TransformPropagatorWithCheck propagator(tv_avg);
-  MaxRootDomainInfoSpanningTree(tv_avg).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv_avg).traverse(&propagator);
 
   tv_avg->axis(0)->parallelize(ParallelType::BIDx);
   tv_avg->axis(1)->parallelize(ParallelType::TIDx);
@@ -2019,8 +2017,8 @@ TEST_F(NVFuserTest, FusionPropagateParallelTypesToSiblings_CUDA) {
   testValidate(fe.kernel(), outputs, {t0}, {t0.mean({0})}, __LINE__, __FILE__);
 }
 
-// Test ExactRootDomainMap
-TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
+// Test ExactLogicalDomainMap
+TEST_F(NVFuserTest, FusionExactLogicalDomainMap_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2038,7 +2036,7 @@ TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
   fusion.addOutput(tv5);
   fusion.addOutput(tv6);
 
-  const auto exact_map = ExactRootDomainMap(&fusion);
+  const auto exact_map = ExactLogicalDomainMap(&fusion);
 
   // In the exact mapping, the broadcast domain introduced at tv2 is
   // only mapped with the another one in tv3, which is just transposed
@@ -2097,7 +2095,7 @@ TEST_F(NVFuserTest, FusionIncompleteConcreteID_CUDA) {
   tv6->merge(0);
 
   TransformPropagatorWithCheck propagator(tv6);
-  MaxRootDomainInfoSpanningTree(tv6).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv6).traverse(&propagator);
 
   tv0->computeAt(tv6, -1, ComputeAtMode::MostInlined);
   tv1->computeAt(tv6, -1, ComputeAtMode::MostInlined);
@@ -2158,7 +2156,7 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
   // iV25{4}]
 
   TransformPropagatorWithCheck propagator(reduction_tv);
-  MaxRootDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
   auto rfactor_tv = ir_utils::rFactorHelper(reduction_tv, {4});
   scheduler_utils::parallelizeAllLike(rfactor_tv);
 
@@ -2889,7 +2887,7 @@ TEST_F(NVFuserTest, FusionTransformPropagateSibling_CUDA) {
   auto var_sum_rf = ir_utils::rFactorHelper(tvs.var_sum, {1, 4});
 
   TransformPropagatorWithCheck propagator(var_sum_rf);
-  MaxRootDomainInfoSpanningTree(var_sum_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(var_sum_rf).traverse(&propagator);
 
   auto rf_tvs = ir_utils::producerTvsOf(tvs.var_sum);
 
@@ -2948,8 +2946,8 @@ TEST_F(NVFuserTest, FusionTransformPropagateSelectorSibling_CUDA) {
   } selector2(tv0);
 
   TransformPropagatorWithCheck propagator(var_sum_rf);
-  MaxRootDomainInfoSpanningTree good_path(var_sum_rf, &selector1);
-  MaxRootDomainInfoSpanningTree bad_path(var_sum_rf, &selector2);
+  MaxLogicalDomainInfoSpanningTree good_path(var_sum_rf, &selector1);
+  MaxLogicalDomainInfoSpanningTree bad_path(var_sum_rf, &selector2);
 
   auto rf_tvs = ir_utils::producerTvsOf(tvs.var_sum);
 
@@ -2986,7 +2984,7 @@ TEST_F(NVFuserTest, FusionTransformPropagatePosition_CUDA) {
   tv0->merge(2);
   tv0->merge(0);
   TransformPropagatorWithCheck propagator(tv0);
-  MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator);
 
   NVF_CHECK(tv1->nDims() == 4);
 }
@@ -3091,7 +3089,7 @@ TEST_F(NVFuserTest, FusionTransformPropagatorSelector_CUDA) {
   } selector(tv0, tv3);
 
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2, &selector).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2, &selector).traverse(&propagator);
 
   NVF_CHECK(tv0->nDims() == 2);
   NVF_CHECK(tv1->nDims() == 1);
@@ -3115,14 +3113,14 @@ TEST_F(NVFuserTest, FusionTransformPropagatorPos_CUDA) {
   tv1->split(-1, 5);
 
   TransformPropagatorWithCheck propagator(tv1, 2);
-  MaxRootDomainInfoSpanningTree(tv1, 2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1, 2).traverse(&propagator);
 
   auto expect = makeConcreteTensor({22, 105});
   expect->split(0, 2);
   NVF_CHECK(TransformReplay::fullSelfMatching(expect, tv0));
 }
 
-TEST_F(NVFuserTest, FusionMaxRootDomainInfoSpanningTreePrintTwice_CUDA) {
+TEST_F(NVFuserTest, FusionMaxLogicalDomainInfoSpanningTreePrintTwice_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -3157,7 +3155,7 @@ TEST_F(NVFuserTest, FusionMaxRootDomainInfoSpanningTreePrintTwice_CUDA) {
   printer1.ss << std::endl;
   printer2.ss << std::endl;
 
-  MaxRootDomainInfoSpanningTree path(tv1);
+  MaxLogicalDomainInfoSpanningTree path(tv1);
   path.traverse(&printer1);
   path.traverse(&printer2);
 
@@ -3187,11 +3185,11 @@ TEST_F(NVFuserTest, FusionTransformPropagatorNoOverwrite_CUDA) {
   tv2->split(1, 2);
   tv2->split(0, 4);
 
-  MaxRootDomainInfoSpanningTree path1(tv2);
+  MaxLogicalDomainInfoSpanningTree path1(tv2);
   TransformPropagatorWithCheck propagator1(tv2);
   path1.traverse(&propagator1);
 
-  MaxRootDomainInfoSpanningTree path2(tv0);
+  MaxLogicalDomainInfoSpanningTree path2(tv0);
   TransformPropagatorWithCheck propagator2(tv0);
   path2.traverse(&propagator2);
 
@@ -3272,7 +3270,7 @@ TEST_F(NVFuserTest, FusionSkipReplay_CUDA) {
     tv3->split(1, 2, false);
 
     TransformPropagatorWithCheck propagator(tv3);
-    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
   }
 
   {
@@ -3289,7 +3287,7 @@ TEST_F(NVFuserTest, FusionSkipReplay_CUDA) {
     tv0->split(1, 2, false);
 
     TransformPropagatorWithCheck propagator(tv0);
-    MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator);
   }
 }
 
@@ -3416,7 +3414,7 @@ TEST_F(NVFuserTest, FusionInsertMagicZero1_CUDA) {
   tv2->merge(0);
 
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv0->computeAt(tv2, 1);
 
@@ -4075,7 +4073,7 @@ TEST_F(NVFuserTest, FusionMergeBroadcastingTrivialReduction1_CUDA) {
 
   tv0->merge(0);
 
-  MaxRootDomainInfoSpanningTree tree(tv0);
+  MaxLogicalDomainInfoSpanningTree tree(tv0);
   TransformPropagatorWithCheck tp(tv0);
   tree.traverse(&tp);
 
@@ -4179,7 +4177,7 @@ TEST_F(NVFuserTest, FusionReplayTrivialReductionAndBroadcast2_CUDA) {
 
   tv0->merge(-2, -1)->merge(-2, -1)->split(0, 4);
 
-  MaxRootDomainInfoSpanningTree tree(tv0);
+  MaxLogicalDomainInfoSpanningTree tree(tv0);
   TransformPropagatorWithCheck tp(tv0);
   tree.traverse(&tp);
 
@@ -4627,7 +4625,7 @@ TEST_F(NVFuserTest, FusionSqueezeTransformPropagation_CUDA) {
   tv3->merge(0);
   tv3->merge(0);
 
-  MaxRootDomainInfoSpanningTree tree(tv3);
+  MaxLogicalDomainInfoSpanningTree tree(tv3);
   TransformPropagatorWithCheck tp(tv3);
   tree.traverse(&tp);
 
@@ -4656,7 +4654,7 @@ TEST_F(NVFuserTest, FusionSqueezeInlining_CUDA) {
   tv0->split(0, 128);
 
   {
-    MaxRootDomainInfoSpanningTree tree(tv0);
+    MaxLogicalDomainInfoSpanningTree tree(tv0);
     TransformPropagatorWithCheck tp(tv0);
     tree.traverse(&tp);
     NVF_CHECK(tv2->nDims() == 2);
@@ -4667,7 +4665,7 @@ TEST_F(NVFuserTest, FusionSqueezeInlining_CUDA) {
   {
     // The propagation here should be a no-op, I am adding it here just to test
     // if transformation propagation works for squeeze on both direction.
-    MaxRootDomainInfoSpanningTree tree(tv2);
+    MaxLogicalDomainInfoSpanningTree tree(tv2);
     TransformPropagatorWithCheck tp(tv2);
     tree.traverse(&tp);
     NVF_CHECK(tv2->nDims() == 2);
@@ -5002,7 +5000,7 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
   const int vec_factor = 4;
   tv1->split(-1, vec_factor);
 
-  MaxRootDomainInfoSpanningTree tree(tv1);
+  MaxLogicalDomainInfoSpanningTree tree(tv1);
   TransformPropagator tp(tv1);
   tree.traverse(&tp);
 
@@ -5185,7 +5183,7 @@ TEST_F(NVFuserTest, FusionIssue2163ReproInvalidAlias_CUDA) {
   ref->split(-1, 8);
   ref->reorder({{0, 1}, {1, 0}, {2, 2}});
   TransformPropagator propagator(ref);
-  MaxRootDomainInfoSpanningTree(ref).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(ref).traverse(&propagator);
 
   // Don't inline the innermost axes
   std::unordered_set<IterDomain*> uninlinable;
@@ -5388,7 +5386,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford1_CUDA) {
 
   tv1->split(1, 4);
 
-  MaxRootDomainInfoSpanningTree tree(tv1);
+  MaxLogicalDomainInfoSpanningTree tree(tv1);
   TransformPropagator tp(tv1);
   tree.traverse(&tp);
 
@@ -5458,7 +5456,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford2_CUDA) {
 
   tv1->reorder({{-2, 1}});
 
-  MaxRootDomainInfoSpanningTree tree(tv1);
+  MaxLogicalDomainInfoSpanningTree tree(tv1);
   TransformPropagator tp(tv1);
   tree.traverse(&tp);
 
@@ -5953,7 +5951,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
     tv2->split(0, 256);
     tv2->split(0, 1024);
 
-    MaxRootDomainInfoSpanningTree tree(tv2);
+    MaxLogicalDomainInfoSpanningTree tree(tv2);
     TransformPropagator tp(tv2);
     tree.traverse(&tp);
 
@@ -7848,7 +7846,7 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
   tv1->axis(1)->parallelize(ParallelType::TIDx);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv9->axis(-1)->parallelize(ParallelType::Vectorize);
 

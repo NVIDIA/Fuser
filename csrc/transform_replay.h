@@ -127,7 +127,7 @@ namespace nvfuser {
 
 class TensorDomain;
 class TensorView;
-class RootDomainMap;
+class LogicalDomainMap;
 
 struct TransformReplayOptions {
   // In theory, it makes more sense to have skip_target_swizzle = true by
@@ -203,7 +203,7 @@ class NVF_API TransformReplay {
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       TransformReplayOptions opt = {});
 
   // Replay producer as consumer, returns {replayed_consumer_domain,
@@ -219,7 +219,7 @@ class NVF_API TransformReplay {
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       TransformReplayOptions opt = {});
 
   // Self replay.
@@ -269,7 +269,7 @@ class NVF_API TransformReplay {
 };
 
 class NVF_API TransformPropagator
-    : public MaxRootDomainInfoSpanningTree::Propagator {
+    : public MaxLogicalDomainInfoSpanningTree::Propagator {
  protected:
   std::unordered_map<TensorView*, int64_t> replayed_pos_;
 
@@ -281,7 +281,7 @@ class NVF_API TransformPropagator
 };
 
 struct MostInlinedTransformPropagator
-    : public MaxRootDomainInfoSpanningTree::Propagator {
+    : public MaxLogicalDomainInfoSpanningTree::Propagator {
   void propagateC2P(TensorView* from, TensorView* to) override;
   void propagateP2C(TensorView* from, TensorView* to) override;
   void propagateSibling(TensorView* from, TensorView* to) override;

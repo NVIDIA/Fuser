@@ -10,10 +10,10 @@
 #include <device_lower/utils.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/utils.h>
 
 #include <c10/util/irange.h>
@@ -79,7 +79,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
 
   std::vector<IterDomain*> shard_additions;
   std::vector<IterDomain*> shard_deletions;
-  auto rootmap = PairwiseRootDomainMap(input, output).mapBroadcast(false);
+  auto rootmap = PairwiseLogicalDomainMap(input, output).mapBroadcast(false);
   const auto c2p_map = rootmap.mapConsumerToProducer();
 
   for (IterDomain* out_root : output->getMaybeRootDomain()) {
@@ -154,7 +154,7 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
   // over producer's iterdomain and compare sharding type with consumer's
   // iterdomain
   const auto p2c_map =
-      PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
+      PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
   for (auto p_id : TensorDomain::noReductions(producer->getLogicalDomain())) {
     auto p2c_map_it = p2c_map.find(p_id);
     NVF_ERROR(
@@ -215,8 +215,6 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-namespace {
-
 void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
@@ -227,138 +225,13 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   }
 }
 
-// TODO: We can either reshard the inputs of a resharding expression or
-// the outputs. Currently, we reshard the outputs when there is only one
-// input, otherwise we reshard the inputs. This heuristic should be smarter
-// and attempt to minimize communication.
-bool shouldReshardAfter(Expr* expr) {
-  return expr->inputs().size() == 1;
-}
-
-void insertReshardingBefore(Fusion* fusion) {
-  // Remove this after we refactor this as a pre-segmenter pass.
-  FusionGuard fg(fusion);
-  for (auto expr : fusion->exprs()) {
-    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr)) {
-      continue;
-    }
-    NVF_ERROR(
-        ir_utils::isTvOp(expr),
-        "Non-tv op is not supported yet: ",
-        expr->toString());
-    NVF_ERROR(
-        expr->outputs().size() == 1,
-        "multi-output expressions are not supported");
-
-    auto output = expr->outputs().at(0)->as<TensorView>();
-    std::unordered_set<TensorView*> inputs;
-    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output)) {
-        inputs.insert(input);
-      }
-    }
-
-    // Reshard each input of expr to match output if necessary
-    std::vector<TensorView*> new_inputs;
-    for (auto input : inputs) {
-      // TODO: reuse cacheAfter?
-      // TODO: here we should add a mechanism to potentially reuse the
-      // inserted resharding accross all the consumer of the resharded tensor.
-      // This way we could avoid wasteful resharding set insertion.
-      TensorView* new_input = set(input);
-      new_inputs.push_back(new_input);
-      expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
-    }
-    shardAllLike(output, new_inputs);
-  }
-}
-
-void insertReshardingsAfter(Fusion* fusion) {
-  // Remove this after we refactor this as a pre-segmenter pass.
-  FusionGuard fg(fusion);
-  // Iterate backwards over fusion expressions. Reshard after will
-  // replace expressions that occur downstream from the current expression.
-  // This will ensure we don't process an expression that has been deleted.
-  auto exprs = fusion->exprs();
-  for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
-    Expr* expr = *it;
-    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr)) {
-      continue;
-    }
-    NVF_ERROR(
-        ir_utils::isTvOp(expr),
-        "Non-tv op is not supported yet: ",
-        expr->toString());
-    NVF_ERROR(
-        expr->outputs().size() == 1,
-        "multi-output expressions are not supported");
-
-    auto output = expr->outputs().at(0)->as<TensorView>();
-    std::unordered_set<TensorView*> inputs;
-    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output)) {
-        inputs.insert(input);
-      }
-    }
-
-    // Insert resharding set after the expr and update
-    // output of expr to match input's sharding.
-    // input [expr] output [set] new_output
-    if (!inputs.empty()) {
-      TensorView* input = *inputs.begin();
-      TensorView* new_output = set(output);
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
-      // Update shardings new_output takes output's sharding,
-      // output takes input's sharding
-      shardAllLike(output, {new_output});
-      shardAllLike(input, {output});
-    }
-  }
-}
-
+namespace {
 void setShardedAllocationDomain(TensorView* tv) {
   if (!tv->hasAllocation()) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 }
-
 } // namespace
-
-void propagateShardings(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
-    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    if (inputs.empty()) {
-      continue;
-    }
-    TensorView* input_with_mesh = nullptr;
-    for (auto tv : inputs) {
-      NVF_CHECK(
-          tv->hasDeviceMesh(),
-          "Tensor ",
-          tv->toString(),
-          " should be assigned a DeviceMesh");
-      if (input_with_mesh == nullptr) {
-        input_with_mesh = tv;
-      }
-    }
-
-    std::vector<TensorView*> outputs_without_mesh;
-    for (auto tv : outputs) {
-      if (!tv->hasDeviceMesh()) {
-        outputs_without_mesh.push_back(tv);
-      }
-    }
-    shardAllLike(input_with_mesh, outputs_without_mesh);
-  }
-}
-
-void insertReshardings(Fusion* fusion) {
-  // shouldReshardAfter selects whether insertReshardingAfter or
-  // insertReshardingBefore is used.
-  insertReshardingsAfter(fusion);
-  insertReshardingBefore(fusion);
-}
 
 void insertShardedAxisReordering(Fusion* fusion) {
   auto exprs = fusion->exprs();

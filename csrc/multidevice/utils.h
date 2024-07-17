@@ -73,6 +73,8 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer);
 // Returns whether a resharding expr reshards an inner axis
 bool isInnerResharding(Expr* expr);
 
+void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs);
+
 // Returns the devices involved in an expr
 std::set<DeviceIdxType> involvedDevices(Expr* expr);
 
@@ -83,19 +85,6 @@ int64_t requestedNumberOfDevices(Fusion*);
 // remove the multi-device scheduling annotations
 void unshard(Fusion*);
 void unshard(TensorView*);
-
-// TODO: Re-implement a robust and smatert sharding propagation pass.
-// Very simple sharding propagation pass that identifies tvs without
-// a DeviceMesh and shards it like its first producer tv with a sharding.
-// This assumes that all global inputs are sharded.
-// This cannot be done when the Op is inserted into the fusion, because
-// the multidevice shcheduling hasn't been applied.
-void propagateShardings(Fusion* fusion);
-
-// Runs through the fusion and inserts a resharding Set Op after
-// any resharding Expr that is not directly lowerable to a series of
-// communications
-void insertReshardings(Fusion* fusion);
 
 // This can only run after the insertResharding passes.
 // Assumes all resharding ops are either a set or reduction.

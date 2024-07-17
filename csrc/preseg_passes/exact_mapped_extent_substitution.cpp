@@ -7,9 +7,9 @@
 // clang-format on
 #include <debug.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <options.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
-#include <root_domain_map.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -30,7 +30,7 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
   // map non-const extents to const extents
   std::unordered_map<Val*, Val*> replacement_map;
 
-  const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+  const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
   // Loop over each exact root domain set
   for (const auto& set_ptr : mapped_sets.disjointSets()) {
     // (1) pick a const extent
@@ -77,16 +77,16 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
 
 void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "ExactRootDomainMap before " << name() << ":" << std::endl;
-    const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+    debug() << "ExactLogicalDomainMap before " << name() << ":" << std::endl;
+    const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
     debug() << mapped_sets.toString() << std::endl;
   }
 
   exactMappedExtentSubstitution(fusion);
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "ExactRootDomainMap after " << name() << ":" << std::endl;
-    const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+    debug() << "ExactLogicalDomainMap after " << name() << ":" << std::endl;
+    const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
     debug() << mapped_sets.toString() << std::endl;
   }
 }
