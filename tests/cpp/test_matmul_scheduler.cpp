@@ -3190,17 +3190,18 @@ class MultiMatmulSchedulerMatchTest
     b_k_inner = std::get<1>(GetParam());
 
     MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.cta_tile = GemmTile(256, 128, 32);
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.supported_vec_size = {8, 8, 4};
     params.tile_sizes = gemm_tile;
-    params.async_gmem_load_operands = true;
     params.circular_buffer_options.circular_buffer_smem_write = true;
     params.circular_buffer_options.circular_buffer_smem_read = true;
     params.circular_buffer_options.smem_circular_buffer_stage = 4;
+    params.async_gmem_load_operands =
+        params.circular_buffer_options.smem_circular_buffer_stage > 1;
   }
 
   std::pair<TensorView*, TensorView*> getInputTVs(
@@ -3209,8 +3210,8 @@ class MultiMatmulSchedulerMatchTest
       int K,
       bool a_m_inner,
       bool b_k_inner) {
-    auto tv0 = makeContigConcreteTensor({M, K}, DataType::Half);
-    auto tv1 = makeContigConcreteTensor({K, N}, DataType::Half);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
 
     if (a_m_inner) {
       tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
@@ -3237,42 +3238,129 @@ class MultiMatmulSchedulerMatchTest
     return {t0, t1};
   }
 
-  void compareTVs(TensorView* tv_orig, TensorView* tv_new) const {
-#define EXPECT_EQ_TENS(a, b)                                      \
-  EXPECT_EQ(a, b) << "when comparing\n    " << tv_new->toString() \
-                  << "\nto original TensorView\n    " << tv_orig->toString();
-    EXPECT_EQ_TENS(tv_new->nDims(), tv_orig->nDims());
-    return;
-    EXPECT_EQ_TENS(
-        tv_new->getComputeAtPosition(), tv_orig->getComputeAtPosition());
+  // Recursively compare scalar values
+  void compareScalars(Val* v_orig, Val* v_new) {
+    std::stringstream suffix_ss;
+    suffix_ss << " when comparing new scalar " << v_new->toInlineString()
+              << " to original scalar " << v_orig->toInlineString();
+    std::string suffix = suffix_ss.str();
+    ASSERT_TRUE(v_orig->isScalar()) << suffix;
+    ASSERT_TRUE(v_new->isScalar()) << suffix;
+
+    EXPECT_EQ(v_new->isConst(), v_orig->isConst()) << suffix;
+    if (v_orig->isConst()) {
+      EXPECT_EQ(v_new->value(), v_orig->value()) << suffix;
+      return;
+    }
+
+    ASSERT_EQ(v_new->definition() == nullptr, v_orig->definition() == nullptr);
+    if (v_orig->definition() == nullptr) {
+      if (Val* v_orig_cloned = cloner_->clone(v_orig)) {
+        EXPECT_TRUE(v_orig_cloned == v_new) << suffix;
+      }
+    } else {
+      Expr* def_orig = v_orig->definition();
+      Expr* def_new = v_new->definition();
+      ASSERT_TRUE(def_orig->sameOp(def_new)) << suffix;
+      ASSERT_EQ(def_orig->attributes().size(), def_new->attributes().size())
+          << suffix;
+      ASSERT_EQ(def_orig->inputs().size(), def_new->inputs().size()) << suffix;
+      for (size_t i : c10::irange(def_orig->inputs().size())) {
+        compareScalars(def_orig->input(i), def_new->input(i));
+      }
+    }
+  }
+
+  void compareIDs(IterDomain* id_orig, IterDomain* id_new) {
+    std::stringstream suffix_ss;
+    suffix_ss << " when comparing new IterDomain " << id_new->toString()
+              << " to original IterDomain " << id_orig->toString();
+    std::string suffix = suffix_ss.str();
+    EXPECT_EQ(id_orig->getIterType(), id_new->getIterType()) << suffix;
+    EXPECT_EQ(id_orig->getParallelType(), id_new->getParallelType()) << suffix;
+    EXPECT_EQ(id_orig->hasExpandedExtent(), id_new->hasExpandedExtent())
+        << suffix;
+    EXPECT_EQ(id_orig->isMmaSwizzled(), id_new->isMmaSwizzled()) << suffix;
+    compareScalars(
+        id_orig->getMaybeExpandedExtent(), id_new->getMaybeExpandedExtent());
+
+    ASSERT_EQ(id_new->definition() == nullptr, id_orig->definition() == nullptr)
+        << suffix;
+    if (id_orig->definition() == nullptr) {
+      if (Val* id_orig_cloned = cloner_->clone(id_orig)) {
+        EXPECT_TRUE(id_orig_cloned->sameAs(id_new)) << suffix;
+      }
+    } else {
+      Expr* def_orig = id_orig->definition();
+      Expr* def_new = id_new->definition();
+      ASSERT_TRUE(def_orig->sameOp(def_new))
+          << "def_orig\n  " << def_orig->toString()
+          << "is not the same as def_new\n  " << def_new->toString() << suffix;
+      ASSERT_EQ(def_orig->attributes().size(), def_new->attributes().size())
+          << suffix;
+      ASSERT_EQ(def_orig->inputs().size(), def_new->inputs().size()) << suffix;
+      for (size_t i : c10::irange(def_orig->inputs().size())) {
+        compareIDs(
+            def_orig->input(i)->as<IterDomain>(),
+            def_new->input(i)->as<IterDomain>());
+      }
+    }
+  }
+
+  void compareTVs(TensorView* tv_orig, TensorView* tv_new) {
+    std::stringstream suffix_ss;
+    suffix_ss << " when comparing new TensorView " << tv_new->toString()
+              << " to original TensorView " << tv_orig->toString();
+    std::string suffix = suffix_ss.str();
+
+    EXPECT_EQ(tv_new->nDims(), tv_orig->nDims()) << suffix;
+    EXPECT_EQ(tv_new->hasSwizzleOp(), tv_orig->hasSwizzleOp()) << suffix;
+    EXPECT_EQ(tv_orig->shouldPromoteReuse(), tv_new->shouldPromoteReuse())
+        << suffix;
+    EXPECT_EQ(tv_orig->getMemoryType(), tv_new->getMemoryType()) << suffix;
+    // TODO: enable these checks once circular buffering and inlining are
+    // implemented EXPECT_EQ tv_new->getComputeAtPosition(),
+    // tv_orig->getComputeAtPosition()) << suffix;
+    // EXPECT_EQ(tv_orig->isCircularBuffered(), tv_new->isCircularBuffered()) <<
+    // suffix; EXPECT_EQ(tv_orig->circularBufferDepth(),
+    // tv_new->circularBufferDepth()) << suffix;
 
     // Inspect loop domain
     for (size_t i : c10::irange(tv_orig->nDims())) {
       IterDomain* id_orig = tv_orig->axis((int64_t)i);
       IterDomain* id_new = tv_new->axis((int64_t)i);
-      EXPECT_EQ_TENS(id_orig->getIterType(), id_new->getIterType());
-      EXPECT_EQ_TENS(id_orig->getParallelType(), id_new->getParallelType());
+      compareIDs(id_orig, id_new);
     }
 
-    // TODO: inspect loop transforms
+    // Inspect allocation domain
+    ASSERT_EQ(tv_new->hasAllocation(), tv_orig->hasAllocation()) << suffix;
+    if (tv_orig->hasAllocation()) {
+      const std::vector<IterDomain*>& alloc_orig =
+          tv_orig->getAllocationDomain();
+      const std::vector<IterDomain*>& alloc_new =
+          tv_new->getMaybeAllocationDomain();
+      ASSERT_EQ(alloc_new.size(), alloc_orig.size()) << suffix;
+      for (size_t i : c10::irange(alloc_orig.size())) {
+        compareIDs(alloc_orig[i], alloc_new[i]);
+      }
+    }
 
     // Inspect definition. If it's a LoadStoreOp, check that the op type and
     // cache_op match
-    EXPECT_EQ_TENS(
-        tv_new->definition() == nullptr, tv_orig->definition() == nullptr);
+    EXPECT_EQ(tv_new->definition() == nullptr, tv_orig->definition() == nullptr)
+        << suffix;
     if (auto* lsop_orig = dynamic_cast<LoadStoreOp*>(tv_orig->definition())) {
       auto lsop_new = dynamic_cast<LoadStoreOp*>(tv_new->definition());
-      ASSERT_TRUE(lsop_new != nullptr);
-      EXPECT_EQ_TENS(lsop_new->opType(), lsop_orig->opType());
-      EXPECT_EQ_TENS(lsop_new->cacheOp(), lsop_orig->cacheOp());
+      ASSERT_TRUE(lsop_new != nullptr) << suffix;
+      EXPECT_EQ(lsop_new->opType(), lsop_orig->opType()) << suffix;
+      EXPECT_EQ(lsop_new->cacheOp(), lsop_orig->cacheOp()) << suffix;
     }
-#undef EXPECT_EQ_TENS
   }
 
-  void compareSchedules() const {
+  void compareSchedules() {
     // clone fusion for scheduling with original matmul scheduler
     Fusion new_fusion;
-    IrCloner cloner = Fusion::copy(fusion, &new_fusion);
+    cloner_ = std::make_unique<IrCloner>(Fusion::copy(fusion, &new_fusion));
 
     // Schedule fusion with original matmul scheduler
     scheduleMatmul(fusion, params);
@@ -3284,6 +3372,7 @@ class MultiMatmulSchedulerMatchTest
     auto getTensorsToCompare = [](Fusion* fusion) {
       std::vector<TensorView*> tvs;
 
+      NVF_ERROR(fusion->inputs().size(), 2);
       for (int64_t i : {0, 1}) { // A and B
         TensorView* operand = fusion->inputs().at(i)->as<TensorView>();
 
@@ -3296,7 +3385,6 @@ class MultiMatmulSchedulerMatchTest
       return tvs;
     };
     std::vector<TensorView*> orig_compare_tvs = getTensorsToCompare(fusion);
-
     std::vector<TensorView*> new_compare_tvs = getTensorsToCompare(&new_fusion);
 
     // Compare each TensorView
@@ -3319,6 +3407,10 @@ class MultiMatmulSchedulerMatchTest
       optimization_guard_;
 
   DisableOptionsGuard option_guard_;
+
+  // This is used to clone from original to new Fusion using the unscheduled
+  // Fusion.
+  std::unique_ptr<IrCloner> cloner_;
 };
 
 TEST_P(MultiMatmulSchedulerMatchTest, MatchSimpleMatmul) {

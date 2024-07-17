@@ -36,6 +36,9 @@ constexpr bool isPowOf2(int64_t x) {
 }
 
 inline IterDomain* representativeId(const AbstractId& abs_id) {
+  if (abs_id.is<IterDomain*>()) {
+    return abs_id.as<IterDomain*>();
+  }
   NVF_ERROR(abs_id.is<ValGroupAndItsGraph>());
   return representativeId(abs_id.as<ValGroupAndItsGraph>().group);
 }
@@ -62,79 +65,52 @@ inline void checkConcreteStaticDim(const AbstractId& abs_id) {
       id->toString());
 }
 
-//! Given a base AbstractMatmulTensor, perform a shared memory swizzle on it.
-//!
-//! Since some tensors might be missing in the actual tensors we plan to
-//! apply this schedule to, we cannot just look at the two innermost
-//! dimensions. Instead, the roles of those two inner dimensions should be
-//! provided, and we will find the two inner-most dimensions with those roles.
-//!
-//! apply_swizzle indicates whether we should apply AbstractTensor::swizzle.
-//! This should only be done when the tensors we will apply this schedule to
-//! reside in shared memory.
-// NOTE: legacy=false by default here since DispatchLegacySwizzle does not
-// support swizzle of two ValGroups
-template <bool legacy = false>
-mma_utils::AbstractMatmulTensor swizzleSharedMemory(
-    const mma_utils::AbstractMatmulTensor& abten,
-    const std::vector<MatmulDimRole>& inner_dim_roles,
-    int64_t data_type_size,
-    bool apply_swizzle) {
-  // Find x and y dimensions
-  int64_t x_dim = -1, y_dim = -1;
-  for (int64_t pos = (int64_t)abten.size() - 1; pos >= 0; --pos) {
-    if (std::find_if(
-            inner_dim_roles.begin(),
-            inner_dim_roles.end(),
-            [pos, &abten](MatmulDimRole role) {
-              return abten.hasTag(pos, role);
-            }) != inner_dim_roles.end()) {
-      if (y_dim == -1) {
-        y_dim = pos;
-      } else if (x_dim == -1) {
-        x_dim = pos;
-        break;
-      }
+//! Automatically generates the shared memory swizzled data layout
+//!  for matmul mainloop and epilogue.
+//! The shared mem data layout is always 2D currently, and this utility
+//!  function assumes that the shared_mem_tv has the following structure:
+//!  [tile_row, tile_col, ***skip***] where the parameter `skip` is the number
+//!  of reduction domains to be skipped. The IDs of tile_row and tile_col are
+//!  the ones being swizzled.
+//! If the input tensorview is not stored in shared memory, the function will
+//! skip the actual swizzle. This is used to help the domain mapping between
+//! mma_result and the epilogue tensor.
+//! Returns the domain with swizzle. For the case of legacy swizzle, this
+//! domain must be set as loop domain. For the case of new swizzle, this domain
+//! must be set as allocation domain.
+template <bool legacy = true>
+AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
+  // Set skip to skip all consecutive reduction domains starting from the
+  //  innermost dimension.
+  AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
+  int64_t skip = 0;
+  for (int64_t i = (int64_t)swizzle_domain.size() - 1; i >= 0; --i) {
+    if (swizzle_domain[i]->isReduction()) {
+      skip++;
+    } else {
+      break;
     }
   }
-  NVF_ERROR(
-      x_dim != -1 && y_dim != -1,
-      "Could not find inner dims with provided roles");
-
-  mma_utils::AbstractMatmulTensor swizzle_domain = abten;
 
   // Check that the innermost 2 dimensions are concrete and static
   //  sized so that the swizzle function can be defined.
-  checkConcreteStaticDim(swizzle_domain[x_dim]);
-  checkConcreteStaticDim(swizzle_domain[y_dim]);
+  NVF_ERROR(
+      (int64_t)swizzle_domain.size() >= 2 + skip,
+      "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
+      shared_mem_tv->toString());
+  checkConcreteStaticDim(swizzle_domain[-2 - skip].as<IterDomain*>());
+  checkConcreteStaticDim(swizzle_domain[-1 - skip].as<IterDomain*>());
 
   // Extract the constant sizes of the swizzled tile
-  auto abstractIdConstantExtent = [](const AbstractId& abs_id) {
-    if (abs_id.is<IterDomain*>()) {
-      return abs_id.as<IterDomain*>()->extent()->evaluate().as<int64_t>();
-    } else if (abs_id.is<ValGroupAndItsGraph>()) {
-      auto vgg = abs_id.as<ValGroupAndItsGraph>();
-      for (Val* v : *vgg.group) {
-        // Not all the IDs in this group might have the same constant extent,
-        // so check them until we find one that does.
-        PolymorphicValue ext = v->as<IterDomain>()->extent()->evaluate();
-        if (!ext.hasValue()) {
-          continue;
-        }
-        return ext.as<int64_t>();
-      }
-      NVF_ERROR(
-          false, "Could not find IterDomain in group with constant extent");
-    }
-    NVF_ERROR(false, "Could not convert AbstractId to concrete IterDomain");
-    return 0l;
-  };
-  const int64_t tile_size_x = abstractIdConstantExtent(swizzle_domain[x_dim]);
-  const int64_t tile_size_y = abstractIdConstantExtent(swizzle_domain[y_dim]);
+  const int64_t tile_size_x =
+      swizzle_domain[-2 - skip]->extent()->evaluate().as<int64_t>();
+  const int64_t tile_size_y =
+      swizzle_domain[-1 - skip]->extent()->evaluate().as<int64_t>();
 
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
   // (i.e. float)
+  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
   NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
   // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
@@ -410,19 +386,15 @@ mma_utils::AbstractMatmulTensor swizzleSharedMemory(
   int64_t num_gigarows = n_rows / repeated_pattern_size;
   int64_t num_gigabanks = g; // also = num_megabanks / repeated_pattern_size
 
-  //    x    y
   //   -2   -1
   // [row, col]
   if (repeated_pattern_size > 1) {
-    swizzle_domain.split(x_dim, repeated_pattern_size);
-    y_dim++;
+    swizzle_domain.split(-2 - skip, repeated_pattern_size);
   }
-  swizzle_domain.split(y_dim, n_cols);
-  //       x        x+1        y       y+1
+  swizzle_domain.split(-1 - skip, n_cols);
   //      -4         -3       -2        -1
   // [gigarow id, gigarow, matrix id, matrix]
-  swizzle_domain.split(y_dim, num_gigabanks);
-  //       x       x+1         y       y+1        y+2
+  swizzle_domain.split(-2 - skip, num_gigabanks);
   //      -5        -4        -3        -2         -1
   // [gigarow id, gigarow, y outer, gigabank id, matrix]
   // Note that megabanks inside a gigabank are not contiguous, so the gigabank
@@ -470,13 +442,10 @@ mma_utils::AbstractMatmulTensor swizzleSharedMemory(
    * num_gigabanks gigarows. This partition creates square dimensions, making
    * the swizzle implementation easier */
 
-  //       x       x+1         y       y+1        y+2
   //      -5        -4        -3        -2         -1
   // [gigarow id, gigarow, y outer, gigabank id, matrix]
-  int axis_of_gigarow_id = repeated_pattern_size > 1 ? x_dim : x_dim + 1;
-  swizzle_domain.split(axis_of_gigarow_id, num_gigabanks);
-  y_dim++;
-  //      x    x+1    x+2        y       y+1        y+2
+  int axis_of_gigarow_id = repeated_pattern_size > 1 ? -5 : -4;
+  swizzle_domain.split(axis_of_gigarow_id - skip, num_gigabanks);
   //     -6     -5     -4       -3        -2         -1
   // [wave id, wave, gigarow, y outer, gigabank id, matrix]
 
@@ -498,42 +467,29 @@ mma_utils::AbstractMatmulTensor swizzleSharedMemory(
   // applying the swizzle, and this check is to detect and handle this
   // specific case. We should remove this special handling when we fix our CA
   // mapping.
-  if (apply_swizzle) {
-    int axis_of_gigarow_id = repeated_pattern_size > 1 ? x_dim + 1 : x_dim + 2;
+  if (shared_mem_tv->getMemoryType() == MemoryType::Shared) {
+    int axis_of_gigarow_id = repeated_pattern_size > 1 ? -5 : -4;
     using SwizzleTypeMaybeLegacy =
         std::conditional_t<legacy, Swizzle2DType, SwizzleType>;
     if (isPowOf2(num_gigabanks)) {
       swizzle_domain.swizzle(
-          SwizzleTypeMaybeLegacy::XOR, axis_of_gigarow_id, y_dim + 1);
+          SwizzleTypeMaybeLegacy::XOR, axis_of_gigarow_id - skip, -2 - skip);
     } else {
       swizzle_domain.swizzle(
-          SwizzleTypeMaybeLegacy::CyclicShift, axis_of_gigarow_id, y_dim + 1);
+          SwizzleTypeMaybeLegacy::CyclicShift,
+          axis_of_gigarow_id - skip,
+          -2 - skip);
     }
   }
 
   if (repeated_pattern_size > 1) {
-    swizzle_domain.merge(x_dim);
-    //      x      x+1        y          y+1     y+2
-    //     -5       -4       -3           -2      -1
-    // [waves, gigarow, y outer, gigabank id, matrix]
-    y_dim--;
+    swizzle_domain.merge(-6 - skip);
   }
-  swizzle_domain.merge(x_dim);
-  y_dim--;
-
-  //    x        y          y+1     y+2
-  //   -4       -3           -2      -1
-  // [wgr, y outer, gigabank id, matrix]
+  swizzle_domain.merge(-5 - skip);
 
   // merge back tile_size_y
-  swizzle_domain.merge(y_dim);
-  //    x       y     y+2
-  //   -3      -2      -1
-  // [wgr, yo_gid, matrix]
-  swizzle_domain.merge(y_dim);
-  //    x        y
-  //   -3       -2
-  // [wgr, yo_gid_matrix]
+  swizzle_domain.merge(-3 - skip);
+  swizzle_domain.merge(-2 - skip);
 
   return swizzle_domain;
 }
@@ -645,9 +601,7 @@ class MultipleMatmulScheduler {
 
     // schedule epilogue
 
-    fusion_->printMath();
-
-    // setUpInlining();
+    setUpInlining();
 
     // set up circular buffering. This must come after everything up to
     // mma_result is scheduled, since everything in the main loop will need to
@@ -1232,56 +1186,27 @@ class MultipleMatmulScheduler {
   // Note that the cache op and LoadStoreOpType are already set during
   // defineOperandCaches().
   void scheduleOperandSmemLoads() {
-    blockTileTensors(acw_smems_);
-    blockTileTensors(bcw_smems_);
-
-    auto setupSwizzle = [&](mma_utils::AbstractMatmulTensor& abten,
-                            const std::vector<TensorView*>& gmem_operands,
-                            const std::vector<MatmulDimRole>& inner_dims) {
-      abten = schedule_.tiled;
-      // get max datatype size of all A or B operands
-      int64_t max_dtype_size = 0;
-      for (TensorView* operand : gmem_operands) {
-        max_dtype_size =
-            std::max(max_dtype_size, dataTypeSize(operand->dtype()));
-      }
-      swizzleSharedMemory(
-          abten,
-          inner_dims,
-          max_dtype_size,
-          /*apply_swizzle=*/true);
-    };
-    setupSwizzle(schedule_.acw_smem, as_, {MatmulDimRole::M, MatmulDimRole::K});
-    setupSwizzle(schedule_.bcw_smem, bs_, {MatmulDimRole::N, MatmulDimRole::K});
-
-    applyAbstractTransforms(schedule_.acw_smem, acw_smems_);
-    applyAbstractTransforms(schedule_.bcw_smem, bcw_smems_);
-
-    parallelizeTensors(acw_smems_);
-    parallelizeTensors(bcw_smems_);
-  }
-
-  void swizzleAllSharedMemory() {
-    if (params_.use_smem_epilogue) {
-      // Transform mma_result through the epilogue swizzle without actually
-      // swizzling the axes. This is done to enable the domains
-      // are mapped between mma_result and smem_epilogue.
-      schedule_.mma_result = swizzleSharedMemory(
-          schedule_.tiled,
-          {MatmulDimRole::M, MatmulDimRole::N},
-          dataTypeSize(mma_results_.front()->dtype()),
-          /*apply_swizzle=*/false);
-      // Also apply to smem_epilogue, and now apply the swizzle
-      schedule_.smem_epilogue = swizzleSharedMemory(
-          schedule_.tiled,
-          {MatmulDimRole::M, MatmulDimRole::N},
-          dataTypeSize(smem_epilogues_.front()->dtype()),
-          /*apply_swizzle=*/true);
-    } else {
-      schedule_.mma_result = schedule_.tiled;
-    }
-
-    // TODO: swizzle operand smem
+    auto scheduleOperandBranch =
+        [&](const std::vector<TensorView*>& gmem_operands,
+            const std::vector<TensorView*>& smem_operands,
+            const int64_t vec_size) {
+          blockTileTensors(smem_operands);
+          for (TensorView* tv : smem_operands) {
+            if (params_.promote_prologue_smem_reuse) {
+              tv->promoteReuse();
+            }
+            mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
+            auto swizzled_dom = swizzleSharedMemory(tv);
+            tv->setLoopDomain(swizzled_dom.as<IterDomain*>());
+            tv->setHasSwizzleOp();
+            tv->merge(-2);
+            mma_utils::scheduleContiguousVectorLoad(
+                tv, params_.tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
+          }
+          // parallelizeTensors(smem_operands);
+        };
+    scheduleOperandBranch(as_, acw_smems_, params_.supported_vec_size.a);
+    scheduleOperandBranch(bs_, bcw_smems_, params_.supported_vec_size.a);
   }
 
   void scheduleWarpTileWithReduction() {
@@ -1382,6 +1307,7 @@ class MultipleMatmulScheduler {
   }
 
   void setUpInlining() {
+    inlineMost();
     /*
     // auto inline for all tensors except register tensors
     inlineMost(ir_utils::allTvsExcept(fusion_, {acr, bcr, ab, bb}));
