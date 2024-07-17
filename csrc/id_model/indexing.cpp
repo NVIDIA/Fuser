@@ -16,6 +16,7 @@
 #include <id_model/indexing.h>
 #include <id_model/indexing_traversal.h>
 #include <id_model/indexing_utils.h>
+#include <id_model/predicate_indexing.h>
 #include <id_model/to_string.h>
 #include <id_model/utils.h>
 #include <index_compute.h>
@@ -31,23 +32,6 @@
 namespace nvfuser {
 
 namespace {
-
-// Get the promotion domain of a given loop domain.
-IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
-  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
-  const auto& loop_promotion_map = id_model.loopPromotionMap();
-  const auto& loop_group = loop_graph.toGroup(loop_id);
-
-  auto loop_promotion_map_it = loop_promotion_map.find(loop_group);
-  NVF_ERROR(
-      loop_promotion_map_it != loop_promotion_map.end(),
-      "No loop promotion found: ",
-      loop_id->toString(),
-      ". Loop group: ",
-      nvfuser::toString(loop_group));
-
-  return loop_promotion_map_it->second;
-}
 
 // True if a given domain is a loop domain of a given tensor and its
 // loop is partitioned with respect to the memory type of the tensor
@@ -347,7 +331,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       // not be necessary to use the promotion domain.
       // TODO: Add tests
       if (is_loop && !allocation_domain->isBroadcast()) {
-        promotion_domain = getLoopPromotion(allocation_domain, id_model);
+        promotion_domain = indexing_utils::getLoopPromotion(allocation_domain, id_model);
       } else {
         promotion_domain = allocation_domain;
       }
@@ -859,8 +843,8 @@ void TensorIndexer::buildLoopIndexMap() {
 
 bool TensorIndexer::shouldUseZeroIndex(const ValGroup& loop_group) const {
   // Trivial loop
-  auto promotion_id =
-      getLoopPromotion(loop_group->front()->as<IterDomain>(), id_model_);
+  auto promotion_id = indexing_utils::getLoopPromotion(
+      loop_group->front()->as<IterDomain>(), id_model_);
   if (promotion_id->isBroadcast() ||
       simplifyExpr(promotion_id->extent())->isOneInt()) {
     return true;
@@ -1059,7 +1043,7 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   }
 
   for (auto& loop_id : loop_domains) {
-    loop_id = getLoopPromotion(loop_id, id_model_);
+    loop_id = indexing_utils::getLoopPromotion(loop_id, id_model_);
   }
 
   return loop_domains;
@@ -1168,6 +1152,61 @@ void TensorIndexer::setupAllocationDomains(const std::vector<Expr*>& exprs) {
   AllocationDomainSetup alloc_setup;
   alloc_setup.setup(exprs);
   alloc_info_ = std::move(alloc_setup.tv_alloc_info_map);
+}
+
+std::vector<PredicateInfo> TensorIndexer::getInlinePredicates(
+    TensorView* tv,
+    const Expr* expr,
+    const std::vector<ForLoop*>& for_loops) const {
+  const auto& zero_val = tv->fusion()->zeroVal();
+
+  const std::vector<IterDomain*>& predicate_domains =
+      getPredicateDomains(tv, expr);
+
+  const IndexingInfo& index_info = computeIndex(
+      expr, traversalGraph().toGroups(predicate_domains), for_loops, false);
+
+  const auto& index_map = index_info.index_map;
+
+  std::vector<PredicateInfo> info_vec;
+  info_vec.reserve(predicate_domains.size());
+  std::unordered_set<ValGroup> already_indexed_domains;
+
+  // Follow the same approach as Index::getReferenceRootPredicates.
+  for (const auto& predicate_domain : predicate_domains) {
+    auto idx_it = index_map.find(traversalGraph().toGroup(predicate_domain));
+    NVF_ERROR(
+        idx_it != index_map.end(),
+        "Index not found for ",
+        predicate_domain->toString());
+
+    Val* idx = idx_it->second;
+
+    // Generate predicates as follows:
+    //
+    // (idx + start_offset) >= 0 &&
+    // (idx + stop_offset) < extent.
+
+    PredicateInfo info;
+    // For now, just set zero for both start and stop offsets by
+    // assuming the domain is not partial.
+    NVF_ERROR(!predicate_domain->maybePartial());
+    info.start_offset_ = tv->fusion()->zeroVal();
+    info.stop_offset_ = tv->fusion()->zeroVal();
+
+    info.start_predicate_ = SimplifyingIrBuilder::geExpr(
+        SimplifyingIrBuilder::addExpr(idx, info.start_offset_), zero_val);
+
+    info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
+        SimplifyingIrBuilder::addExpr(idx, info.stop_offset_),
+        predicate_domain->extent());
+
+    info.predicated_domains_ = {predicate_domain};
+
+    info_vec.emplace_back(info);
+  }
+
+  return info_vec;
 }
 
 } // namespace nvfuser

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <id_model/indexing_utils.h>
 #include <id_model/predicate_indexing.h>
 
@@ -23,7 +24,9 @@ std::vector<IterDomain*> getPredicateDomains(
       ? consumer_tv->getMaybeRootDomain()
       : consumer_tv->getLogicalDomain();
 
-  // Broadcast domains should not need to be predicated
+  // Broadcast domains should not need to be predicated. Note that
+  // unlike indexing for TensorIndex, reduction doamins do need to be
+  // indexed to guard the access to the producer tensor
   predicate_domains.erase(
       std::remove_if(
           predicate_domains.begin(),

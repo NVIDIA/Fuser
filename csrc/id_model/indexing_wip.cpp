@@ -20,24 +20,6 @@ namespace nvfuser {
 
 using namespace indexing_utils;
 
-// This is a temporary copy.
-// Get the promotion domain of a given loop domain.
-IterDomain* getLoopPromotion(IterDomain* loop_id, const IdModel& id_model) {
-  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
-  const auto& loop_promotion_map = id_model.loopPromotionMap();
-  const auto& loop_group = loop_graph.toGroup(loop_id);
-
-  auto loop_promotion_map_it = loop_promotion_map.find(loop_group);
-  NVF_ERROR(
-      loop_promotion_map_it != loop_promotion_map.end(),
-      "No loop promotion found: ",
-      loop_id->toString(),
-      ". Loop group: ",
-      nvfuser::toString(loop_group));
-
-  return loop_promotion_map_it->second;
-}
-
 std::pair<std::deque<ValGroup>, std::deque<Val*>> TensorIndexer::
     getContigDomainsAndStrides(
         const std::vector<IterDomain*>& allocation_domains,
@@ -205,7 +187,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getPredicateIndexReplacementMap(
   return replacement_map;
 }
 
-std::vector<PredicateInfo> TensorIndexer::getPredicates(
+std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
     TensorView* tv,
     const Expr* expr,
     const std::vector<ForLoop*>& for_loops,

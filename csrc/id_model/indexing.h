@@ -91,7 +91,19 @@ class TensorIndexer {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
 
-  std::vector<PredicateInfo> getPredicates(
+  // Traverse exprs and set allocation info for each tensor
+  void setupAllocationDomains(const std::vector<Expr*>& exprs);
+
+  // Get the list of predicates of a given tensor appearing in a given
+  // expr as a consumer. Each predicate corresponds ot a domain of the
+  // tensor, which is by default one of the logical domain but can be
+  // an intermediate domain with contiguous indexing.
+  std::vector<PredicateInfo> getInlinePredicates(
+      TensorView* tv,
+      const Expr* expr,
+      const std::vector<ForLoop*>& for_loops) const;
+
+  std::vector<PredicateInfo> getPredicatesWIP(
       TensorView* tv,
       const Expr* expr,
       const std::vector<ForLoop*>& for_loops,
@@ -103,9 +115,6 @@ class TensorIndexer {
       const std::vector<IterDomain*>& index_domains,
       const Expr* expr,
       const std::vector<ForLoop*>& loops);
-
-  // Traverse exprs and set allocation info for each tensor
-  void setupAllocationDomains(const std::vector<Expr*>& exprs);
 
   static bool isSupported(Fusion* fusion);
 

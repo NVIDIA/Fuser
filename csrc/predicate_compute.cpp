@@ -384,9 +384,9 @@ Val* PredicateCompute::getInlinePredicate(
 
   std::vector<PredicateInfo> pred_info_vec;
   if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") &&
-      TensorIndexer::isSupported(GpuLower::current()->kernel())) {
+      GpuLower::current()->isTensorIndexerEnabled()) {
     pred_info_vec =
-        gpu_lower->tensorIndexer().getPredicates(out_tv, expr, loops, false);
+        gpu_lower->tensorIndexer().getPredicatesWIP(out_tv, expr, loops, false);
   } else {
     pred_info_vec = Index::getReferenceRootPredicates(
         out_tv, loops, rotated_loops, nullptr);
@@ -493,7 +493,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
        (!is_unswitch &&
         hasEnableOptionArgument(
             EnableOption::IdModel, "vectorize_predicate")))) {
-    ref_pred_info = gpu_lower->tensorIndexer().getPredicates(
+    ref_pred_info = gpu_lower->tensorIndexer().getPredicatesWIP(
         out_tv, tv_expr, for_loops_, is_unswitch);
   } else {
     ref_pred_info = Index::getReferenceRootPredicates(

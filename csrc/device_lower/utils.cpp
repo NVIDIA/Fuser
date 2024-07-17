@@ -922,8 +922,6 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   return layout;
 }
 
-// Returns true if expr is an expression that initializes a reduction
-// buffer.
 bool isReductionInitExpr(const Expr* expr) {
   // False if its output isn't a TensorView
   if (!ir_utils::isTvOp(expr)) {
