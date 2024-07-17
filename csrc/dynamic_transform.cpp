@@ -616,74 +616,12 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   return ss.str();
 }
 
-//! Concretize a symbolic fusion with concrete transformation info
-class DynamicTransformConcretizer : public OptOutMutator {
- public:
-  DynamicTransformConcretizer(
-      Fusion* fusion,
-      const DynamicTransformConcretizationInfo* info)
-      : info_(info) {
-    NVF_ERROR(
-        fusion == info->fusion(),
-        "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
-    FusionGuard fg(fusion);
-    concretize();
+Val* DynamicTransformConcretizer::maybeNewVal(Val* v) {
+  if (val_map_.count(v) != 0) {
+    return val_map_.at(v);
   }
-
- private:
-  void concretize();
-
-  //! Concretize a single reshape which has a non-empty input tensor
-  TensorView* concretizeNonEmptyReshape(
-      TensorView* inp_tv,
-      TensorView* incomplete_out_tv,
-      const AnalyzeViewResult& view_analysis);
-
-  //! Concretize a single reshape given that we know that numel=0.
-  //! The symbolic sizes are the actual sizes 0 or 1, or -1 if the size of a
-  //! given reshaped dimension is greater than 1.
-  TensorView* concretizeEmptyReshape(
-      TensorView* inp_tv,
-      TensorView* incomplete_out_tv,
-      const std::vector<int64_t>& symbolic_sizes);
-
-  void concretizeReshape();
-
-  void concretizeResize();
-
-  void concretizeExpand();
-
-  void concretizeEmptyExtents();
-
-  void concretizeFactoryOutputs();
-
-  //! Use this instead of calling registerMutation directly, since it will also
-  //! check that the concretized value is a valid input to all of its uses.
-  void registerConcretization(Val* old_val, Val* new_val) {
-    checkConcretizedUses(old_val, new_val);
-    registerMutation(old_val, new_val);
-  }
-
-  //! Check uses of old_val to ensure that new_val does not violate
-  //! assumptions. This is currently only used to check that inputs to SqueezeOp
-  //! are marked broadcast during concretization.
-  void checkConcretizedUses(Val* old_val, Val* new_val) const;
-
-  using OptOutMutator::mutate;
-
-  void mutate(TensorView* tv) final;
-
-  void mutate(TensorDomain* td) final;
-
-  void mutate(Expr* expr) final;
-
-  //! Concretizes the root domain of a symbolic consumer tensor from
-  //! its producer domains. Returns true if any root ID is concretized.
-  bool propagateFromProducerToConsumer(TensorView* consumer);
-
- private:
-  const DynamicTransformConcretizationInfo* info_;
-};
+  return nullptr;
+}
 
 void DynamicTransformConcretizer::concretize() {
   // Concretize all dynamic reshape ops
@@ -900,6 +838,8 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // would fail at this point. So we skip checkConcretizedUses here and
     // perform it later in mutate(TensorView*).
 
+    val_map_.emplace(incomplete_out_tv, concrete_reshape_out_tv);
+
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(
         incomplete_out_tv, concrete_reshape_out_tv);
 
@@ -940,6 +880,9 @@ void DynamicTransformConcretizer::concretizeExpand() {
       TensorView* inp_tv =
           symbolic_out_tv->definition()->input(0)->as<TensorView>();
       TensorView* concretized_tv = set(inp_tv);
+
+      val_map_.emplace(symbolic_out_tv, concretized_tv);
+
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           symbolic_out_tv, concretized_tv);
     }
@@ -1437,13 +1380,14 @@ void DynamicTransform::concretizeFusion(
       fusion, KernelArgumentHolder::createKernelArgumentHolder(aten_inputs));
 }
 
-void DynamicTransform::concretizeFusion(
+DynamicTransformConcretizer DynamicTransform::concretizeFusion(
     Fusion* fusion,
     const KernelArgumentHolder& args) {
   ExpressionEvaluator expr_eval = executor_utils::bindInputs(args, fusion);
   auto initial_info = getInitialInfo(fusion);
   DynamicTransformConcretizationInfo info(&initial_info, &expr_eval);
-  concretizeFusion(fusion, &info);
+  DynamicTransformConcretizer concretizer(fusion, &info);
+  return concretizer;
 }
 
 size_t DynamicTransformConcretizationInfo::hash() const {

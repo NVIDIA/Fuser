@@ -169,7 +169,23 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
       KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
 
   // Concretize fusion
-  DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
+  DynamicTransformConcretizer concretizer =
+      DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
+
+  for (const State& s : recording_state_) {
+    // Only update Tensor and Scalar states
+    if (s.stype == serde::StateType::Vector) {
+      continue;
+    }
+    Val* new_val = concretizer.maybeNewVal(getFusionState(s.index));
+
+    // Skip replacement if unnecessary
+    if (new_val == nullptr) {
+      continue;
+    }
+
+    setFusionState(s.index, new_val);
+  }
 
   // Create runtime info for schedulers
   Fusion* user_schedule_fusion = user_sched_->schedule.get();

@@ -1084,12 +1084,16 @@ class TestScheduleOps(TestCase):
                 bias_shape = fd.define_vector([S0, S1, S2, S3], dtype=DataType.Int)
 
                 tv1 = fd.ops.abs(x)
-                x_reshape = fd.ops.reshape(tv1, new_shape=bias_shape)
-                y = fd.ops.add(x_reshape, bias)
+                self.x_reshape = fd.ops.reshape(tv1, new_shape=bias_shape)
+                y = fd.ops.add(self.x_reshape, bias)
                 fd.add_output(y)
 
             def schedule(self):
                 assert len(fd.sched.tensors()) == 5
+                assert (
+                    fd.sched.to_string(self.x_reshape)
+                    == "T5_l[ iS27{2}rf, iS28{( ceilDiv(( i0 * i1 ), 2) )}rf, iS30{3}rf, iS31{( ceilDiv(i2, 3) )}rf ]"
+                )
 
                 # Apply selected scheduler
                 _apply_scheduler_helper(fd.sched, SchedulerHeuristic.pointwise)
