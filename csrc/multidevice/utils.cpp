@@ -217,36 +217,6 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   }
 }
 
-namespace {
-void setShardedAllocationDomain(TensorView* tv) {
-  if (!tv->hasAllocation()) {
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-  }
-}
-} // namespace
-
-void setShardedAllocationDomain(Fusion* fusion) {
-  for (Expr* expr : fusion->exprs()) {
-    if (!isResharding(expr)) {
-      continue;
-    }
-    for (TensorView* tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      for (auto c : tv->getContiguity()) {
-        if (c.has_value()) {
-          NVF_CHECK(
-              c.value(),
-              "Resharding expression input must be contiguous: ",
-              expr);
-        }
-      }
-      setShardedAllocationDomain(tv);
-    }
-    for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      setShardedAllocationDomain(tv);
-    }
-  }
-}
-
 int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
   for (auto tv : ir_utils::allTvs(fusion)) {
