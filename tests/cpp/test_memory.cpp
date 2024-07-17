@@ -61,7 +61,7 @@ TEST_P(MemoryTest, LoadCache) {
   tv1->split(0, 4);
   tv1->split(0, 32);
   TransformPropagatorWithCheck propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   // Parallelize LoadStoreOps. Other TensorViews don't support vectorization.
   tv1->axis(0)->parallelize(ParallelType::BIDx);
@@ -132,7 +132,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   tv_a2->split(0, 4);
   tv_a2->split(0, 32);
   TransformPropagatorWithCheck propagator(tv_a2);
-  MaxRootDomainInfoSpanningTree(tv_a2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv_a2).traverse(&propagator);
 
   tv_a2->axis(0)->parallelize(ParallelType::BIDx);
   tv_a2->axis(1)->parallelize(ParallelType::TIDx);
@@ -1140,7 +1140,7 @@ TEST_F(TMAIndexingTest, DefineBoxByRotation3) {
           ::testing::HasSubstr("must be divisible by 23")));
 }
 
-TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
+TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1178,6 +1178,60 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
   EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
   ASSERT_TRUE(XorFinder::findXor(fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(6, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  // Schedule like this:
+  // 0   1   2   3   4   5
+  //  \   \ /   /     \ /
+  //   \   6   /       7
+  //    \ /   /
+  //     8   /
+  //      \ /
+  //       9
+  // where 1 and 5 are bulk IDs. This way, [merge 1, 2 -> 6] is a "striding
+  // split", and [merge 0, 6 -> 8] and [merge 4, 5 -> 7] are "boxing splits".
+  tv0->merge(1);
+  tv0->merge(0);
+  tv0->merge(-2);
+  tv0->merge(0);
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->reorder({{1, -2}});
+    tv->merge(-2);
+    tv->flatten(0, -2);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3, 5, 7, 11, 32}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 3);
+  TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1623,9 +1677,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       &fusion, cg_outputs, {t0, items_of_16_bytes}, {t0}, __LINE__, __FILE__);
 
   EXPECT_THAT(
-      [&]() {
-        fe.runFusion({t0, items_of_16_bytes / 2});
-      },
+      [&]() { fe.runFusion({t0, items_of_16_bytes / 2}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "The expected bytes must be a multiple of 16 bytes, but ")));
 }

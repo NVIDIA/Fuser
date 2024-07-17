@@ -382,7 +382,7 @@ Val* PredicateCompute::getInlinePredicate(
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
-  std::vector<RootPredicateInfo> pred_info_vec;
+  std::vector<PredicateInfo> pred_info_vec;
   if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") &&
       TensorIndexer::isSupported(GpuLower::current()->kernel())) {
     pred_info_vec =
@@ -404,7 +404,7 @@ Val* PredicateCompute::getInlinePredicate(
   bool non_zero_start_found = false;
   for (const auto& pred_info : pred_info_vec) {
     if (pred_type == PredicateType::ReductionWrite) {
-      const auto& consumer_ids = pred_info.rootIds();
+      const auto& consumer_ids = pred_info.predicatedDomains();
       bool pred_for_reduction_axis = false;
       for (auto consumer_id : consumer_ids) {
         if (consumer_id->isReduction()) {
@@ -483,7 +483,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   auto out_tv = ir_utils::getTvOutput(tv_expr);
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
-  std::vector<RootPredicateInfo> ref_pred_info;
+  std::vector<PredicateInfo> ref_pred_info;
   bool is_unswitch = unrolled_loop_->iter_domain()->getParallelType() ==
           ParallelType::Unswitch ||
       unrolled_loop_->iter_domain()->getParallelType() == ParallelType::Unroll;
@@ -512,7 +512,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     NVF_ERROR(pred_info.startPredicate() != nullptr);
     NVF_ERROR(pred_info.stopPredicate() != nullptr);
 
-    const auto& root_ids = pred_info.rootIds();
+    const auto& root_ids = pred_info.predicatedDomains();
 
     bool add_pred = false;
 

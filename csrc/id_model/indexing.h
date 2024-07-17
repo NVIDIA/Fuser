@@ -14,7 +14,7 @@
 #include <type.h>
 #include <val_graph_visitor.h>
 
-// Just for RootPredicateInfo. Should be moved to its own header file
+// Just for PredicateInfo. Should be moved to its own header file
 #include <index_compute.h>
 
 #include <unordered_map>
@@ -91,7 +91,7 @@ class TensorIndexer {
     return id_model_.idGraph(IdMappingMode::ALMOSTEXACT);
   }
 
-  std::vector<RootPredicateInfo> getPredicates(
+  std::vector<PredicateInfo> getPredicates(
       TensorView* tv,
       const Expr* expr,
       const std::vector<ForLoop*>& for_loops,

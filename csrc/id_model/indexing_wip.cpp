@@ -205,7 +205,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getPredicateIndexReplacementMap(
   return replacement_map;
 }
 
-std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
+std::vector<PredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
     const std::vector<ForLoop*>& for_loops,
@@ -279,7 +279,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
         return covered_domains;
       };
 
-  std::vector<RootPredicateInfo> info_vec;
+  std::vector<PredicateInfo> info_vec;
   info_vec.reserve(predicate_domains.size() + non_divisible_splits.size());
   std::unordered_set<ValGroup> already_indexed_domains;
 
@@ -323,7 +323,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
               << idx->toInlineString() << ", unswitch? : " << is_unswitch
               << std::endl;
 
-    RootPredicateInfo info;
+    PredicateInfo info;
     // For now, just set zero for both start and stop offsets
     info.start_offset_ = zero_val;
     info.stop_offset_ = zero_val;
@@ -343,13 +343,13 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
       info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
           SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
           predicate_domain->extent());
-      info.root_ids_ = {predicate_domain};
+      info.predicated_domains_ = {predicate_domain};
     } else {
       info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
           SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
           contig_domain_group->front()->as<IterDomain>()->extent());
-      info.root_ids_ = getCoveredPredicatedDomains(contig_domain_group);
-      VERBOSE() << "Contig covered root: " << toDelimitedString(info.root_ids_)
+      info.predicated_domains_ = getCoveredPredicatedDomains(contig_domain_group);
+      VERBOSE() << "Contig covered root: " << toDelimitedString(info.predicated_domains_)
                 << std::endl;
     }
 
@@ -372,7 +372,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
 
       IterDomain* non_divisible_domain = split_to_predicate->in();
 
-      RootPredicateInfo info;
+      PredicateInfo info;
       info.start_offset_ = zero_val;
       info.start_predicate_ = non_divisible_domain->fusion()->trueVal();
       info.stop_offset_ = zero_val;
@@ -390,7 +390,7 @@ std::vector<RootPredicateInfo> TensorIndexer::getPredicates(
           SimplifyingIrBuilder::ltExpr(idx, non_divisible_domain->extent());
       VERBOSE() << "Precicate: " << info.stop_predicate_->toInlineString()
                 << std::endl;
-      info.root_ids_ = {non_divisible_domain};
+      info.predicated_domains_ = {non_divisible_domain};
       info_vec.emplace_back(info);
     }
   }

@@ -857,7 +857,7 @@ TEST_F(IndexingTestDraft, Indexing18) {
   // // tv4[(5*13//3)*(7*11//2), 3, 2]
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   inlineAllAt(tv4, 1, false);
   fusion.printKernel();
   // std::cout<<tv4->definition()->toString()<<std::endl;
@@ -907,7 +907,7 @@ TEST_F(IndexingTestDraft, Indexing19) {
   // tv10[7*11*13//5//3, 3, 5]
 
   TransformPropagatorWithCheck propagator(tv10);
-  MaxRootDomainInfoSpanningTree(tv10).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv10).traverse(&propagator);
 
   std::vector<TensorView*> tensors_to_inline{tv1, tv2, tv4, tv6, tv8};
   for (auto tensor : tensors_to_inline) {
@@ -949,7 +949,7 @@ TEST_F(IndexingTestDraft, Indexing20) {
   // [3, 3*5//2]
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   // tv0->tv1->tv2(b)->tv4->tv5(b)->tv7
 
@@ -1089,7 +1089,7 @@ TEST_F(IndexingTestDraft, InlineBroadcastIndexing0) {
   tv4->split(0, 32);
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv2->inlineAt(1);
   tv3->inlineAt(1);
@@ -1235,7 +1235,7 @@ TEST_F(IndexingTestDraft, IndexSplitMerge) {
   tv3->merge(1);
   tv3->split(1, 5);
 
-  MaxRootDomainInfoSpanningTree tree(tv3);
+  MaxLogicalDomainInfoSpanningTree tree(tv3);
   TransformPropagator tp(tv3);
   tree.traverse(&tp);
 
@@ -1330,7 +1330,7 @@ TEST_F(IndexingTestDraft, Reshape1) {
   fusion.addOutput(tv5);
 
   TransformPropagator propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
 
   inlineMost();
 

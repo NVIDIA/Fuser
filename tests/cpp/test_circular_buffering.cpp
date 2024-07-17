@@ -33,7 +33,7 @@ TEST_F(CircularBufferingTest, CircularBuffering1) {
   tv3->split(-1, 128);
   tv3->split(-1, 32);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
 
@@ -70,7 +70,7 @@ TEST_F(CircularBufferingTest, CircularBuffering2) {
   tv3->split(-1, 128);
   tv3->split(-1, 32);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, -1);
 
@@ -109,7 +109,7 @@ TEST_F(CircularBufferingTest, CircularBuffering3) {
   tv3->split(-1, 128);
   tv3->split(-1, 32);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
 
@@ -157,7 +157,7 @@ TEST_F(CircularBufferingTest, CircularBuffering4) {
   tv3->split(-1, 32);
   tv3->split(-1, 8);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 2);
   tv2->computeAt(tv3, -1);
@@ -198,7 +198,7 @@ TEST_F(CircularBufferingTest, CircularBuffering5) {
   tv2->split(-1, 32);
   tv2->split(-1, 8);
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv0->computeAt(tv2, 2);
   tv1->computeAt(tv2, -1);
@@ -241,7 +241,7 @@ TEST_F(CircularBufferingTest, CircularBuffering6) {
   tv3->split(-2, 4);
   tv3->split(-2, 2);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
   tv2->computeAt(tv3, -1);
@@ -278,7 +278,7 @@ TEST_F(CircularBufferingTest, CircularBuffering7) {
   tv2->split(-1, 128);
   tv2->split(-1, 4);
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv1->computeAt(tv2, 2);
 
@@ -318,7 +318,7 @@ TEST_F(CircularBufferingTest, CircularBuffering8) {
   tv4->split(0, 32);
   tv4->split(0, 4);
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv0->computeAt(tv4, 1);
   tv1->computeAt(tv4, 1);
@@ -359,7 +359,7 @@ TEST_F(CircularBufferingTest, CircularBuffering9) {
   out->split(0, 32);
   out->split(0, 4);
   TransformPropagatorWithCheck propagator(out);
-  MaxRootDomainInfoSpanningTree(out).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(out).traverse(&propagator);
 
   tv2->setMemoryType(MemoryType::Shared);
 
@@ -427,7 +427,7 @@ TEST_F(CircularBufferingTest, SmemBlockGemmCacheCircularBuffer) {
   auto tv6_rf = tv6->rFactor({-1});
 
   TransformPropagatorWithCheck propagator(tv6_rf);
-  MaxRootDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
 
   tv0->computeAt(tv6, 3);
   tv1->computeAt(tv6, 3);
@@ -699,7 +699,7 @@ TEST_F(CircularBufferingTest, UnswitchRepro) {
   tv2->split(-1, 8);
   tv2->split(0, 1, false);
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv1->inlineAt(2);
 
