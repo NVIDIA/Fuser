@@ -3204,13 +3204,12 @@ class MultiMatmulSchedulerMatchTest
         params.circular_buffer_options.smem_circular_buffer_stage > 1;
   }
 
-  std::pair<TensorView*, TensorView*> getInputTVs(
-      int M,
-      int N,
-      int K,
-      bool a_m_inner,
-      bool b_k_inner,
-      bool broadcasted = false) {
+  void SetUp() {
+    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  }
+
+  // Get A and B in shapes [M, K] and [K, N] with allocation domains set.
+  std::pair<TensorView*, TensorView*> getInputTVs() {
     auto tv0 = makeContigTensor(2, DataType::Half);
     auto tv1 = makeContigTensor(2, DataType::Half);
 
@@ -3220,6 +3219,22 @@ class MultiMatmulSchedulerMatchTest
 
     if (b_k_inner) {
       tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+    }
+    return {tv0, tv1};
+  }
+
+  // Get A and B in already-broadcasted shapes [M, K, 1] and [1, K, N],
+  // possibly with allocation domains sset
+  std::pair<TensorView*, TensorView*> getBroadcastInputTVs() {
+    auto tv0 = makeContigConcreteTensor({-1, -1, 1}, DataType::Half);
+    auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::Half);
+
+    if (a_m_inner) {
+      tv0->setAllocationDomain({tv0->axis(2), tv0->axis(1), tv0->axis(0)}, true);
+    }
+
+    if (b_k_inner) {
+      tv1->setAllocationDomain({tv1->axis(2), tv1->axis(1), tv1->axis(0)}, true);
     }
     return {tv0, tv1};
   }
@@ -3420,11 +3435,7 @@ class MultiMatmulSchedulerMatchTest
 };
 
 TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmul) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-
-  const int M = 128, N = 256, K = 512;
-
-  auto [tv0, tv1] = getInputTVs(M, N, K, a_m_inner, b_k_inner);
+  auto [tv0, tv1] = getInputTVs();
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -3438,12 +3449,8 @@ TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmul) {
 
 // In this example the inputs are already broadcasted to [M K N]
 TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmulBroadcastedInputs) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-
-  const int M = 128, N = 256, K = 512;
-
   auto [tv0, tv1] =
-      getInputTVs(M, N, K, a_m_inner, b_k_inner, /*broadcasted=*/true);
+      getBroadcastInputTVs();
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -3451,6 +3458,120 @@ TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmulBroadcastedInputs) {
   auto tv2 = fusedMultiplySum(tv0, tv1, {1});
 
   fusion->addOutput(tv2);
+
+  compareSchedules();
+}
+
+TEST_P(MultiMatmulSchedulerMatchTest, TransposeToLinear) {
+  auto [tv0, tv1] = getInputTVs();
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = transpose(tv1); // [N, K]
+  auto tv3 = linear(tv0, tv2);
+
+  fusion->addOutput(tv3);
+
+  compareSchedules();
+}
+
+TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias0d) {
+  auto [tv0, tv1] = getInputTVs();
+
+  auto tv2 = makeContigTensor(0, DataType::Half);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = transpose(tv1); // [N, K]
+  auto tv4 = linear(tv0, tv3, tv2);
+
+  fusion->addOutput(tv4);
+
+  compareSchedules();
+}
+
+TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias1d) {
+  auto [tv0, tv1] = getInputTVs();
+
+  auto tv2 = makeContigTensor(1, DataType::Half);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = transpose(tv1); // [N, K]
+  auto tv4 = linear(tv0, tv3, tv2);
+
+  fusion->addOutput(tv4);
+
+  compareSchedules();
+}
+
+TEST_P(MultiMatmulSchedulerMatchTest, MatmulFloatBias1d) {
+  auto [tv0, tv1] = getInputTVs();
+
+  auto tv2 = makeContigTensor(1, DataType::Float);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = transpose(tv1); // [N, K]
+  auto tv4 = linear(tv0, tv3);
+  // The "linear" op requires bias to have same dtype as A and B, so instead we
+  // add it manually ourselves here.
+  auto tv5 = add(tv4, tv2);
+
+  fusion->addOutput(tv5);
+
+  compareSchedules();
+}
+
+TEST_P(MultiMatmulSchedulerMatchTest, MatmulBias2d) {
+  auto [tv0, tv1] = getInputTVs();
+
+  auto tv2 = makeContigTensor(2, DataType::Half);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = transpose(tv1); // [N, K]
+  auto tv4 = linear(tv0, tv3, tv2);
+
+  fusion->addOutput(tv4);
+
+  compareSchedules();
+}
+
+TEST_P(MultiMatmulSchedulerMatchTest, MatmulSinEpilogue) {
+  auto [tv0, tv1] = getInputTVs();
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+  auto tv3 = sin(tv2);
+
+  fusion->addOutput(tv3);
+
+  compareSchedules();
+}
+
+TEST_P(MultiMatmulSchedulerMatchTest, MatmulSinPrologue) {
+  auto [tv0, tv1] = getInputTVs();
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = sin(tv1);
+  auto tv3 = castOp(tv1->dtype(), tv2);
+  auto tv4 = matmul(tv0, tv3);
+
+  fusion->addOutput(tv4);
 
   compareSchedules();
 }
