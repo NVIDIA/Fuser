@@ -158,6 +158,7 @@ void FusionDefinition::finalizeSchedule(
   }
 
   FusionGuard::setCurFusion(prev_fusion_);
+  user_sched_->runtime_info.reset();
   prev_fusion_ = nullptr;
   user_sched_ = nullptr;
 }
