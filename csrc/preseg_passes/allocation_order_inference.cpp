@@ -125,7 +125,7 @@ void mapAllocationDomain(
         return mapped_ids.has(it) || it->isReduction();
       });
 
-  auto mapped_id_iter = mapped_ids.begin();
+  auto mapped_id_iter = mapped_ids.rbegin();
   auto unmapped_id_iter = unmapped_ids.begin();
   // initialize new target allocation domain with nullptr
   std::vector<IterDomain*> target_alloc_domain(
@@ -171,7 +171,7 @@ void mapAllocationDomain(
       target_alloc_domain.end(),
       [&mapped_ids](IterDomain* it) { return mapped_ids.has(it); });
   // appending mapped ids at the end of target_alloc_domain.
-  std::copy(mapped_ids.begin(), mapped_ids.rend(), unmapped_ids_vec_end);
+  std::copy(mapped_ids.begin(), mapped_ids.end(), unmapped_ids_vec_end);
 #endif
 
   // skip trivial allocation domain
