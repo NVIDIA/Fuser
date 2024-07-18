@@ -130,7 +130,7 @@ class CircularBufferFusionInspector : private IterVisitor {
   using IterVisitor::handle;
 
   void handle(TensorView* tv) final {
-    if (!(tv->isCircularBuffered() || tv->isCircularBuffered())) {
+    if (!tv->isCircularBuffered()) {
       return;
     }
 
@@ -230,9 +230,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         index,
         start,
         stop,
-        gpu_lower->kernel()->oneVal(),
-        false,
-        nullptr,
+        /*step=*/gpu_lower->kernel()->oneVal(),
+        /*vectorize=*/false,
+        /*vectorize_shift=*/nullptr,
         circular_buffer_loop_->isUnrollRequired(),
         loop_type_);
 
