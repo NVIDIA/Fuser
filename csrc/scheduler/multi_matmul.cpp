@@ -594,6 +594,7 @@ class MultipleMatmulScheduler {
     // instruction inputs)
 
     // schedule mma instruction output (mma_result)
+    scheduleMmaResults();
 
     // schedule smem_epilogue
 
@@ -974,12 +975,14 @@ class MultipleMatmulScheduler {
   // depending on the value of params_.grid_swizzle_factor, if the TV has both
   // M and N dimensions, we perform a 2D swizzle of the outer dimensions Mo and
   // No.
-  void blockTileTensors(const std::vector<TensorView*>& tvs) {
+  std::vector<std::vector<MatmulDimRole>> blockTileTensors(
+      const std::vector<TensorView*>& tvs) {
     if (canonical_dim_ordering_.empty()) {
       canonical_dim_ordering_ =
           mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, *graph_);
     }
 
+    std::vector<std::vector<MatmulDimRole>> all_merged_roles;
     for (TensorView* tv : tvs) {
       // Find dimensions in canonical_dim_ordering_ that exist in tv's loop
       // domain. Reorder those according to the canonical dim ordering then
@@ -1024,6 +1027,8 @@ class MultipleMatmulScheduler {
 
       swizzleBlockTiles(tv, merged_roles);
 
+      all_merged_roles.push_back(merged_roles);
+
       if (params_.splitk_factor > 1) {
         // Outer K dimension in tv is in same position found in merged_roles
         for (size_t i : c10::irange(merged_roles.size())) {
@@ -1033,29 +1038,7 @@ class MultipleMatmulScheduler {
         }
       }
     }
-
-    // TODO: merge batch dimensions with outermost M/N dimension here, unless
-    // splitk_factor=1. See https://github.com/NVIDIA/Fuser/pull/2140
-
-    // We could have M before N or N before M. Whichever is first (outer) will
-    // be parallelized as BIDy and the other will be BIDx.
-    /*
-    bool hasBIDy = false;
-    for (size_t i : c10::irange(schedule_.tiled.size())) {
-      // Note that block tiles might be swizzled, in which case a dimension
-      // might have both M and N tags
-      if (schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::M) ||
-          schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::N)) {
-        if (hasBIDy) {
-          parallelize(schedule_.tiled[i], ParallelType::BIDx);
-          break;
-        } else {
-          parallelize(schedule_.tiled[i], ParallelType::BIDy);
-          hasBIDy = true;
-        }
-      }
-    }
-    */
+    return all_merged_roles;
   }
 
   // Schedule the loads of all operands from global memory to shared memory.
@@ -1087,58 +1070,136 @@ class MultipleMatmulScheduler {
     scheduleOperandBranch(bs_, bcw_smems_, params_.supported_vec_size.b);
   }
 
-  void schedulePrologue() {
-    // No (cross-CTA) split-K
-    //   mma_result      [..., iMo iNo rKo rKwo iMwo iNwo iMw iNw iMin iNin
-    //   rKin] smem_epilogue   (unscheduled, same as original or current
-    //   mma_result) splitk_sum      (nullptr)
-    //
-    // With split-K
-    //   mma_result   [... iMo iNo iKf  rKg rKwo iMwo iNwo iMw iNw iMin iNin
-    //   rKin] splitk_sum   [... iMo iNo rKf  iMi  iNi]
+  void scheduleMmaResults() {
+    auto all_merged_roles = blockTileTensors(mma_results_);
+    for (size_t i : c10::irange(mma_results_.size())) {
+      TensorView*& mma_result = mma_results_[i];
+      std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
-    // Schedule prolog:
-    // ------------------------------------------------------------------
-    auto schedulePrologueBranch = [&](const std::vector<TensorView*>&
-                                          shared_mem_tvs,
-                                      int64_t vec_size) {
-      for (TensorView* shared_mem_tv : shared_mem_tvs) {
-        shared_mem_tv->setMemoryType(MemoryType::Shared);
+      const int64_t num_splitk_dims = params_.splitk_factor > 1 ? 1 : 0;
+      const int64_t num_device_dims = numDeviceDims(mma_result);
+      // Subtract 6 for the [Mo, No, Ko, Mi, Ni, Ki]
+      const int64_t num_local_batch_dims =
+          mma_result->nDims() - num_device_dims - 6 - num_splitk_dims;
+      const int64_t num_device_and_batch_dims =
+          num_device_dims + num_local_batch_dims;
 
-        // The following line allows us to reclaim the memory allocated to
-        // shared_mem_tv and reuse it for the epilogue, introducing one block
-        // sync if needed. This is not done by default as we do not insert new
-        // syncs unless requested to do so. If smem is not used for the
-        // epilogue, this call will have no effect.
-        if (params_.promote_prologue_smem_reuse) {
-          shared_mem_tv->promoteReuse();
-        }
-
-        NVF_ERROR(
-            false,
-            "orderTiledConcreteIdAsMaybeAllocationDomain not implemented for AbstractTensor yet");
-        mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(shared_mem_tv);
-
-        // Swizzle the shared memory data layout
-        // auto swizzled_dom = swizzleSharedMemory(shared_mem_tv);
-        // shared_mem_tv->setLoopDomain(swizzled_dom.as<IterDomain*>());
-        NVF_ERROR(false, "fix swizzleSharedMemory for prologue");
-
-        shared_mem_tv->setHasSwizzleOp();
-
-        // Assuming we are always vectorizing smem write by 128b at the moment:
-        //   TODO: would need a data-type and alignment dependent interface
-        //    to support non-vectorizable shapes.
-        shared_mem_tv->merge(-2);
-        mma_utils::scheduleContiguousVectorLoad(
-            shared_mem_tv,
-            params_.tile_sizes,
-            vec_size,
-            /*vectorize=*/vec_size > 1);
+      // do split-K rFactor to define splitk_sum and smem_epilogue
+      if (params_.splitk_factor != 1) {
+        TensorView* splitk_sum = mma_result;
+        mma_result = splitk_sum->rFactor({-4, -1});
+        splitk_sums_.push_back(splitk_sum);
       }
-    };
-    schedulePrologueBranch(acw_smems_, params_.supported_vec_size.a);
-    schedulePrologueBranch(bcw_smems_, params_.supported_vec_size.b);
+
+      // At this point we have the following schedule:
+      //   No split-K
+      //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
+      //   Split-K
+      //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+      //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
+
+      if (params_.use_smem_epilogue) {
+        // Note that for split-K
+        //   splitk_sum = sum(mma_result)
+        // becomes
+        //   smem_epilogue = set(mma_result)
+        //   splitk_sum = sum(smem_epilogue)
+        smem_epilogues_.push_back(mma_result->cacheAfter());
+        // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
+
+        // Transform mma_result through the epilogue swizzle without actually
+        // swizzling the axes. This is done to enable the domains
+        // are mapped between mma_result and smem_epilogue.
+        auto swizzled_dom = swizzleSharedMemory(mma_result);
+        mma_result->setLoopDomain(swizzled_dom.as<IterDomain*>());
+      }
+      // Schedule warp tile
+      // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
+      mma_utils::scheduleWarpTileWithReduction(mma_result, params_.tile_sizes);
+
+      // This does a split-reorder-merge swizzle of the last two M and N
+      // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->
+      // [WarpGroup128, N3, M2, N2, Ro, R4, R2] Before
+      //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin iNin
+      //   rKin]
+      // After
+      //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
+      //                              iNw iMino iNino iMin2 iNin2 rKino rKin4
+      //                              rKin2]
+      mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
+
+      // Parallelization strategy:
+      // Here the top two rows indicate how we can index each axis. The third
+      // row is what it represents: note that a suffix i means inner and o means
+      // outer here. The fourth row is the parallelization strategy:
+      //   - i means iterate (produce one value per element i.e. don't reduce)
+      //   - r means reduce this dimension
+      //   - B: block
+      //   - T: thread
+      //   - S: serial. This will become a for loop in the generated kernel
+      //   - iMMA: uncontracted axis in an MMA tensor core operation.
+      //   - rMMA: contract in an MMA tensor core operation.
+      //
+      // With split-K:
+      //   mma_result
+      //     nbatch +   1    2    3    4    5    6   7   8
+      //              -15  -14  -13  -12  -11  -10  -9  -8
+      //     [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw     ...
+      //          iBx iBy  iBz   rS   rS  iTz  iTy  iS  iS
+      //                              9    10    11    12    13    14    15
+      //                             -7    -6    -5    -4    -3    -2    -1
+      //                    ...   iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
+      //                            iTx  iMMA  iMMA  iMMA  rMMA  rMMA  rMMA
+      //   smem_epilogue   (unscheduled, same as original mma_result)
+      //   splitk_sum      (nullptr)
+      //
+      // Without split-K:
+      //   mma_result
+      //     nbatch +   1   2    3    4    5   6   7    8
+      //              -14 -13  -12  -11  -10  -9  -8   -7
+      //     [... iMo iNo rKg rKwo iMwo iNwo iMw iNw iMino
+      //    (iBz) iBx iBy  rS   rS  iTz  iTy  iS  iS  iTx
+      //                                   9    10    11     12    13    14
+      //                                  -6    -5    -4     -3    -2    -1
+      //                               iNino iMin2 iNin2  rKino rKin4 rKin2]
+      //                                iMMA  iMMA  iMMA   rMMA  rMMA  rMMA
+      //   smem_epilogue   (unscheduled, same as original mma_result)
+      //   splitk_sum
+      //     [... iMo iNo rKf  iMi  iNi]
+
+      // When we have both batch dims and splitk, parallelize splitk only.
+      // If we only have batch dim, parallelize the batch dim.
+      if (params_.splitk_factor > 1) {
+        mma_result->axis(num_device_and_batch_dims + 2)
+            ->parallelize(ParallelType::BIDz);
+      } else if (num_local_batch_dims > 0) {
+        mma_result->axis(num_device_dims)->parallelize(ParallelType::BIDz);
+      }
+      switch (params_.cta_order) {
+        case MatmulParams::TileRasterizationOrder::RowMajor:
+          mma_result->axis(num_device_and_batch_dims)
+              ->parallelize(ParallelType::BIDx);
+          mma_result->axis(num_device_and_batch_dims + 1)
+              ->parallelize(ParallelType::BIDy);
+          break;
+        case MatmulParams::TileRasterizationOrder::ColumnMajor:
+          mma_result->axis(num_device_and_batch_dims)
+              ->parallelize(ParallelType::BIDy);
+          mma_result->axis(num_device_and_batch_dims + 1)
+              ->parallelize(ParallelType::BIDx);
+          break;
+        default:
+          NVF_ERROR(
+              false,
+              "Invalid TileRasterizationOrder passed to Matmul scheduler");
+      }
+
+      // parallelize Mwo, Nwo by thread
+      mma_result->axis(merged_roles.size() + 1)
+          ->parallelize(ParallelType::TIDz);
+      mma_result->axis(merged_roles.size() + 2)
+          ->parallelize(ParallelType::TIDy);
+    }
   }
 
   void setUpInlining() {
