@@ -198,6 +198,10 @@ struct RecordFunctor {
     return outputs_.size();
   }
 
+  const std::vector<State>& outputs() const {
+    return outputs_;
+  }
+
   serde::RecordType recordType() const {
     return record_type_;
   }

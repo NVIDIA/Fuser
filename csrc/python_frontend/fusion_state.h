@@ -16,6 +16,7 @@ namespace nvfuser::python_frontend {
 struct RecordFunctor;
 
 struct State {
+  State() : index(0), stype(serde::StateType::None), parent(nullptr) {}
   State(size_t _index, serde::StateType _stype, const RecordFunctor* _parent = nullptr)
       : index(_index), stype(_stype), parent(_parent) {}
 

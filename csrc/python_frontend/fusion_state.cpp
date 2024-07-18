@@ -86,6 +86,15 @@ void FusionState::addRecord(RecordFunctor* record) {
   FUSER_PERF_SCOPE("FusionContainer::addRecord");
   recording_.emplace_back(record);
   num_recording_states_ += record->numOutputs();
+  for(const auto& out : record->outputs()) {
+    if (out.index < recording_state_.size()) {
+      recording_state_.at(out.index).parent = record;
+    } else { 
+      // NOTE: This condition might occur during deserialization
+      recording_state_.resize(out.index + 1);
+      recording_state_.at(out.index) = out;
+    }
+  }
 }
 
 Fusion* FusionState::fusion() {
