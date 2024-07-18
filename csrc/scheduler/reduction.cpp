@@ -564,7 +564,8 @@ struct OuterReduHeuristicParas {
     // reduction where all SMs are used except the last wave.
     float f_wave = (float)gidim / (float)sm_count;
     float sm_efficiency = f_wave / std::ceil(f_wave);
-    if (sm_efficiency >= 0.9f) {
+    if (sm_efficiency >= 0.9f &&
+        iter_unroll_factor >= grid_hp.iter_unroll_factor) {
       return true;
     }
 
@@ -1022,16 +1023,6 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       max_input_dtype_size,
       max_unroll,
       vectorize_factor);
-
-  // Block reduction rarelly uses all SMs due to the SM count is not pow2 but
-  // most popular inner dim sizes are pow2. Trading SMs for lower communication
-  // cost doesn't work well when reduction size is large and the fused ops are
-  // computationaly expensive. For these cases, we should avoid using block
-  // reduction. Here 16K is used based on the test of gelu backward.
-  const int64_t thereshold_to_avoid_block_reduction = 16384;
-  if (total_reduction_numel >= thereshold_to_avoid_block_reduction) {
-    return heuristicParaToSchedulerPara(grid_hp);
-  }
 
   // block reduction heuristic
   const int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
