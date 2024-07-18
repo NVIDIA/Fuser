@@ -1091,7 +1091,7 @@ class MultipleMatmulScheduler {
           }
         };
     scheduleOperandBranch(as_, acw_smems_, params_.supported_vec_size.a);
-    scheduleOperandBranch(bs_, bcw_smems_, params_.supported_vec_size.a);
+    scheduleOperandBranch(bs_, bcw_smems_, params_.supported_vec_size.b);
   }
 
   void schedulePrologue() {
