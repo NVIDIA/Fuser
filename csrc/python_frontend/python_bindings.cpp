@@ -73,7 +73,7 @@ Vector define_vector_fn(
           " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
       Scalar out = self.defineScalar();
       self.defineRecord(new ScalarRecord(
-          {self.recordingState(out())}, py::cast<int64_t>(item), DataType::Int));
+          {self.recordingState(out())}, py::cast<int64_t>(item), DataType::Int, true));
       args.emplace_back(out);
     } else if (py::isinstance<Scalar>(item)) {
       args.emplace_back(py::cast<Scalar>(item));

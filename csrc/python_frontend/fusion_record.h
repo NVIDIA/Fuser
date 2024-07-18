@@ -1792,12 +1792,14 @@ struct ScalarRecord : RecordFunctor {
   ScalarRecord(
       std::vector<State> _outputs,
       PolymorphicValue value,
-      std::optional<PrimDataType> dtype)
+      std::optional<PrimDataType> dtype,
+      bool inline_def = false)
       : RecordFunctor(
             {},
             std::move(_outputs),
             "define_scalar",
-            serde::RecordType::Scalar),
+            serde::RecordType::Scalar,
+            inline_def),
         value_(
             dtype.has_value() ? castToDtype(std::move(value), dtype.value())
                               : std::move(value)),
@@ -1849,15 +1851,13 @@ struct ScalarRecord : RecordFunctor {
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    if (value_.hasValue()) {
+    if (inline_def_) {
+      NVF_CHECK(value_.hasValue(), "Only ScalarRecords with values support inline definitions!");
       if (value_.is<bool>()) {
+        NVF_CHECK(dtype_ == PrimDataType::Bool, "A ScalarRecord for Bool inline definition not have a matching data type!");
         os << ((bool)value_ ? "True" : "False");
-      } else if (value_.is<std::complex<double>>()) {
-        os << std::showpoint << std::real(value_.as<std::complex<double>>())
-           << "+" << std::showpoint
-           << std::imag(value_.as<std::complex<double>>()) << "j";
       } else if (value_.is<double>()) {
+        NVF_CHECK(dtype_ == PrimDataType::Double, "A ScalarRecord for Double inline definition not have a matching data type!");
         if (std::isinf(value_.as<double>())) {
           if (std::signbit(value_.as<double>())) {
             os << "float(\"-inf\")";
@@ -1870,18 +1870,46 @@ struct ScalarRecord : RecordFunctor {
           os << std::showpoint << value_.as<double>();
         }
       } else if (value_.is<int64_t>()) {
+        NVF_CHECK(dtype_ == PrimDataType::Int, "A ScalarRecord for Int inline definition not have a matching data type!");
         os << value_;
       } else {
-        NVF_CHECK(false, "Unsupported dtype.");
+        NVF_ERROR(false, "A ScalarRecord with an unsupported inline definition type!");
       }
     } else {
-      os << "None";
-    }
-
-    os << ", dtype=" << dtypeToPyString(dtype_);
-
-    if (close_function) {
-      os << ")";
+      RecordFunctor::print(os, false);
+      if (value_.hasValue()) {
+        if (value_.is<bool>()) {
+          os << ((bool)value_ ? "True" : "False");
+        } else if (value_.is<std::complex<double>>()) {
+          os << std::showpoint << std::real(value_.as<std::complex<double>>())
+             << "+" << std::showpoint
+             << std::imag(value_.as<std::complex<double>>()) << "j";
+        } else if (value_.is<double>()) {
+          if (std::isinf(value_.as<double>())) {
+            if (std::signbit(value_.as<double>())) {
+              os << "float(\"-inf\")";
+            } else {
+              os << "float(\"inf\")";
+            }
+          } else if (std::isnan(value_.as<double>())) {
+            os << "float(\"nan\")";
+          } else {
+            os << std::showpoint << value_.as<double>();
+          }
+        } else if (value_.is<int64_t>()) {
+          os << value_;
+        } else {
+          NVF_CHECK(false, "Unsupported dtype.");
+        }
+      } else {
+        os << "None";
+      }
+     
+      os << ", dtype=" << dtypeToPyString(dtype_);
+     
+      if (close_function) {
+        os << ")";
+      }
     }
   }
 
