@@ -147,6 +147,9 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
 }
 } // namespace
 
+FusionExecutor::FusionExecutor()
+    : communicator_(&Communicator::getInstance()) {}
+
 std::unique_ptr<PrecomputedValues>& FusionExecutor::
     evaluatorPrecomputedValues() {
   if (!evaluator_precomputed_values_) {
