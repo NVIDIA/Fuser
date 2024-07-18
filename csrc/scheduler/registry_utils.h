@@ -21,7 +21,7 @@ namespace registry_utils {
 bool checkPatternEquivalence(
     TensorView* out_tv0,
     TensorView* out_tv1,
-    const ComputeAtLogicalDomainMap& root_map);
+    const ComputeAtLogicalDomainMap& logical_map);
 
 // Reusing some code from lowering specifically in lower_trivial_broadcast.cpp
 // ConcretizedBroadcastDomains::maybeNonUniquelyConcretized this checks if
