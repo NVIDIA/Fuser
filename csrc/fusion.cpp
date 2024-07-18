@@ -818,6 +818,11 @@ void Fusion::aliasOutputToInput(
     output = castOp(input->getDataType().value(), output);
   }
 
+  if (output->isFusionInput()) {
+    // ensure that codegen produce a write operation on the buffer.
+    output = set(output);
+  }
+
   NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
