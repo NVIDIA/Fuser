@@ -118,7 +118,7 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
     auto tv0 = makeSymbolicTensor({-1, 1, 1, -1});
     fusion.addInput(tv0);
     // tv1 has more non-broadcast iter domain and dominates output memory format
-    auto tv1 = makeSymbolicTensor({-1, -1, -1, 1});
+    auto tv1 = makeSymbolicTensor({-1, -1, -1, -1});
     fusion.addInput(tv1);
     auto tv2 = add(tv0, tv1);
     fusion.addOutput(tv2);
@@ -140,6 +140,30 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
     // original order {1, 0, 2} as inner entries in its allocation domain.
     EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(3, 1, 0, 2));
     EXPECT_THAT(getAllocationDomainPermutation(tv3), ElementsAre(3, 1, 0, 2));
+  }
+  {
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    // Testing propagation between two tensors
+    // tv0 has more non-broadcast iter domain and dominates output memory format
+    auto tv0 = makeSymbolicTensor({1, -1, -1, -1});
+    fusion.addInput(tv0);
+    auto tv1 = makeSymbolicTensor({-1, 1, 1, 1});
+    fusion.addInput(tv1);
+    auto tv2 = add(tv0, tv1)
+    fusion.addOutput(tv2);
+
+    // since tv0->axis(0) is a broadcast, and tv2->axis(0) is not exact map.
+    // The mapping of inner dimensions stops here.
+    // tv2 will have output allocation order as {0, 2, 3, 1}.
+    std::vector<IterDomain*> tv0_alloc = {
+        tv0->axis(3), tv0->axis(2), tv0->axis(0), tv0->axis(1)};
+    tv0->setAllocationDomain(tv0_alloc, true);
+
+    preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2});
+    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(0, 2, 3, 1));
   }
 }
 
@@ -305,5 +329,6 @@ TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
   EXPECT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
   EXPECT_TRUE(ref_out.allclose(cg_outputs[0]));
 }
+
 
 } // namespace nvfuser
