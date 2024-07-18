@@ -2702,12 +2702,14 @@ struct VectorRecord : RecordFunctor {
   VectorRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      PrimDataType dtype)
+      PrimDataType dtype,
+      bool inline_def = false)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "define_vector",
-            serde::RecordType::Vector),
+            serde::RecordType::Vector,
+            inline_def),
         dtype_(dtype) {}
   ~VectorRecord() override = default;
   RecordFunctor* clone() final {
@@ -2747,28 +2749,43 @@ struct VectorRecord : RecordFunctor {
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
-    bool first_output = true;
-    for (auto& output : outputs_) {
-      if (first_output) {
-        first_output = false;
-      } else {
-        os << ", ";
+    if (inline_def_) {
+      bool first_arg = true;
+      NVF_CHECK(outputs_.size() == 1, "VectorRecord's does not have 1 output!");
+      os << "[";
+      for (auto& arg : args_) {
+        if (first_arg) {
+          first_arg = false;
+        } else {
+          os << ", ";
+        }
+        os << arg;
       }
-      os << output;
-    }
-    os << " = fd." << name_ << "([";
-    bool first_arg = true;
-    for (auto& arg : args_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
+      os << "]";
+    } else {
+      bool first_output = true;
+      for (auto& output : outputs_) {
+        if (first_output) {
+          first_output = false;
+        } else {
+          os << ", ";
+        }
+        os << output;
       }
-      os << arg;
-    }
-    os << "], dtype=" << dtypeToPyString(dtype_);
-    if (close_function) {
-      os << ")";
+      os << " = fd." << name_ << "([";
+      bool first_arg = true;
+      for (auto& arg : args_) {
+        if (first_arg) {
+          first_arg = false;
+        } else {
+          os << ", ";
+        }
+        os << arg;
+      }
+      os << "], dtype=" << dtypeToPyString(dtype_);
+      if (close_function) {
+        os << ")";
+      }
     }
   }
 
