@@ -325,5 +325,4 @@ TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
   EXPECT_TRUE(ref_out.allclose(cg_outputs[0]));
 }
 
-
 } // namespace nvfuser

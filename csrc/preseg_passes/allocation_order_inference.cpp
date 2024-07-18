@@ -29,7 +29,9 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 
 // Note [ Allocation Order Mapping ]
 //
-// Map allocation domain from ref to target's logical domain to construct a new allocation domain for target. The objective is to set target with the similar inner most dimensions in storage to facilitate larger vectorization factor.
+// Map allocation domain from ref to target's logical domain to construct a new
+// allocation domain for target. The objective is to set target with the similar
+// inner most dimensions in storage to facilitate larger vectorization factor.
 //
 // The propagation rule explained in an example, given inputs:
 //   ref's allocation domain
@@ -37,7 +39,10 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 //   target's logical domain
 //     {iS3[i3], iS4[i4], ir5[i1], iS6[i5], iS7[i2], ir8[1]}
 //
-// 1. we project iter domains from refs' allocation domain to targets' logical domains, starting from the fast iter domains, until we fail to find an exact map. (sharp-edge 0: we exclude mapping from iteration id on ref to reduction id on target to avoid unnecessary re-ordering which exposes #2202).
+// 1. we project iter domains from refs' allocation domain to targets' logical
+// domains, starting from the fast iter domains, until we fail to find an exact
+// map. (sharp-edge 0: we exclude mapping from iteration id on ref to reduction
+// id on target to avoid unnecessary re-ordering which exposes #2202).
 //   we go through iS2[i2] (mapped)
 //              -> ir1[i1] (continue since it's)
 //              -> iS0[i0] (break, since there's no mapping)
@@ -50,8 +55,8 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 //   (sharp-edge 1: if target_logical_domain[i] is a reduction and is not
 //   mapped, we keep the reduction iter domain in the original position.) Push
 //   the front of unmapped_id_vec to the end of target allocation domain, if
-//   unmapped_id_vec isn't empty yet; Otherwise, push the rfront of mapped_ids at
-//   the end of target allocation domain.
+//   unmapped_id_vec isn't empty yet; Otherwise, push the rfront of mapped_ids
+//   at the end of target allocation domain.
 //
 // Note: we could be using a simplified logic below,
 // See issue https://github.com/NVIDIA/Fuser/issues/2202
@@ -71,7 +76,8 @@ void mapAllocationDomain(
   const ValGraph& val_graph = id_model.idGraph(IdMappingMode::EXACT);
 
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
-  // reverse ref_alloc_domain, so a range based loop would iterate through from fast to slow dimensions
+  // reverse ref_alloc_domain, so a range based loop would iterate through from
+  // fast to slow dimensions
   std::reverse(ref_alloc_domain.begin(), ref_alloc_domain.end());
   const std::vector<IterDomain*>& target_logical_domain =
       target->getLogicalDomain();
@@ -124,7 +130,8 @@ void mapAllocationDomain(
         return mapped_ids.has(it) || it->isReduction();
       });
 
-  // iterate through reverse order, so the entries iterate from slow to fast dimensions
+  // iterate through reverse order, so the entries iterate from slow to fast
+  // dimensions
   auto mapped_id_iter = mapped_ids.rbegin();
   auto unmapped_id_iter = unmapped_ids.begin();
   // initialize new target allocation domain with nullptr
@@ -212,7 +219,9 @@ void mapAllocationDomain(
 // propagation rule:
 //   Given a reference TensorView `ref` and a target TensorView `target`, we try
 //   to map iter domain in `ref->getMaybeAllocationDomain()` to
-//   `target->getLogicalDomain()`, which would gives `target` similar inner most dimensions as with `ref`. For details on the propagation rule see Note [ Allocation Order Mapping ]
+//   `target->getLogicalDomain()`, which would gives `target` similar inner most
+//   dimensions as with `ref`. For details on the propagation rule see Note [
+//   Allocation Order Mapping ]
 void inferenceAllocationOrder(
     Fusion* fusion,
     const std::vector<TensorView*>& srcs,
