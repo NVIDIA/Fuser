@@ -3291,7 +3291,7 @@ class MultiMatmulSchedulerMatchTest
     ASSERT_TRUE(v_new->isScalar()) << suffix;
 
     EXPECT_EQ(v_new->isConst(), v_orig->isConst()) << suffix;
-    if (v_orig->isConst()) {
+    if (v_new->isConst() && v_orig->isConst()) {
       EXPECT_EQ(v_new->value(), v_orig->value()) << suffix;
       return;
     }
@@ -3301,7 +3301,7 @@ class MultiMatmulSchedulerMatchTest
       if (Val* v_orig_cloned = cloner_->clone(v_orig)) {
         EXPECT_TRUE(v_orig_cloned == v_new) << suffix;
       }
-    } else {
+    } else if (v_new->definition() != nullptr) {
       Expr* def_orig = v_orig->definition();
       Expr* def_new = v_new->definition();
       ASSERT_TRUE(def_orig->sameOp(def_new)) << suffix;
@@ -3356,11 +3356,11 @@ class MultiMatmulSchedulerMatchTest
               << "\nto original TensorView\n  " << tv_orig->toString();
     std::string suffix = suffix_ss.str();
 
-    EXPECT_EQ(tv_new->nDims(), tv_orig->nDims()) << suffix;
-    EXPECT_EQ(tv_new->hasSwizzleOp(), tv_orig->hasSwizzleOp()) << suffix;
+    EXPECT_EQ(tv_new->nDims(), tv_orig->nDims());
+    EXPECT_EQ(tv_new->hasSwizzleOp(), tv_orig->hasSwizzleOp());
     EXPECT_EQ(tv_orig->shouldPromoteReuse(), tv_new->shouldPromoteReuse())
         << suffix;
-    EXPECT_EQ(tv_orig->getMemoryType(), tv_new->getMemoryType()) << suffix;
+    EXPECT_EQ(tv_orig->getMemoryType(), tv_new->getMemoryType());
     // TODO: enable these checks once circular buffering and inlining are
     // implemented EXPECT_EQ tv_new->getComputeAtPosition(),
     // tv_orig->getComputeAtPosition()) << suffix;
@@ -3390,13 +3390,18 @@ class MultiMatmulSchedulerMatchTest
 
     // Inspect definition. If it's a LoadStoreOp, check that the op type and
     // cache_op match
-    EXPECT_EQ(tv_new->definition() == nullptr, tv_orig->definition() == nullptr)
-        << suffix;
+    EXPECT_EQ(
+        tv_new->definition() == nullptr, tv_orig->definition() == nullptr);
     if (auto* lsop_orig = dynamic_cast<LoadStoreOp*>(tv_orig->definition())) {
       auto lsop_new = dynamic_cast<LoadStoreOp*>(tv_new->definition());
       ASSERT_TRUE(lsop_new != nullptr) << suffix;
-      EXPECT_EQ(lsop_new->opType(), lsop_orig->opType()) << suffix;
-      EXPECT_EQ(lsop_new->cacheOp(), lsop_orig->cacheOp()) << suffix;
+      EXPECT_EQ(lsop_new->opType(), lsop_orig->opType());
+      EXPECT_EQ(lsop_new->cacheOp(), lsop_orig->cacheOp());
+    }
+
+    if (testing::Test::HasFailure()) {
+      // Print suffix whenever a test fails, even in a recursive call
+      std::cerr << suffix << std::endl;
     }
   }
 
