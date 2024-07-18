@@ -555,13 +555,16 @@ struct OuterReduHeuristicParas {
       const {
     NVF_ERROR(
         grdim == 1,
-        "Only support compare block reduction heuristic with grid not vice versa");
-    // use block reduction if its SM usage >= 90%.
-    // block reduction avoids the overhead of inter-block data exchange through
-    // global memory. it is faster than grid reduction even not all SMs are
-    // used. However, when reduction size is very large (>=16K) and fused ops
-    // have high computation cost (tanh in gelu bwd), it may be slower than grid
-    // reduction where all SMs are used except the last wave.
+        "Only support compare block reduction heuristic with grid reduction not vice versa");
+
+    // use block reduction if its SM usage >= 90% and its iter_unroll_factor is
+    // equal or larger than grid reduction. These two conditions ensure high SM
+    // usage efficient global memory access. The corresponding block reduction
+    // avoids the overhead of inter-block data exchange through global memory.
+    // It is faster than grid reduction even not all SMs are used.
+    // TODO: if we know the fusion is memory bound (e.g. pure reduction), we can
+    // use a lower threshold. For computation bound (e.g. gelu bwd), relaxing
+    // the threshold leads to regression.
     float f_wave = (float)gidim / (float)sm_count;
     float sm_efficiency = f_wave / std::ceil(f_wave);
     if (sm_efficiency >= 0.9f &&
@@ -576,8 +579,7 @@ struct OuterReduHeuristicParas {
       return true;
     }
 
-    // block reduction can't use 90% of SMs and grid reduction uses more blocks,
-    // then use grid reduction.
+    // use grid reduction
     return false;
   }
 };
@@ -1025,12 +1027,11 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       vectorize_factor);
 
   // block reduction heuristic
-  const int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
   auto block_hp = getBlockOuterReduction(
       (int64_t)vectorize_factor,
       device_multiprocessor_count,
       max_unroll,
-      max_threads_per_block,
+      (int64_t)dev_prop->maxThreadsPerBlock,
       total_iteration_numel,
       total_reduction_numel);
 
