@@ -3592,29 +3592,47 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulSinPrologue) {
   compareSchedules();
 }
 
+std::string printMatchTestParams(
+    const testing::TestParamInfo<MultiMatmulSchedulerMatchTestParams>& info) {
+  std::ostringstream os;
+  os << "amin" << std::get<0>(info.param);
+  os << "bkin" << std::get<1>(info.param);
+  os << "va" << std::get<2>(info.param);
+  os << "vb" << std::get<3>(info.param);
+  os << "vepi" << std::get<4>(info.param);
+  os << "smep" << std::get<5>(info.param);
+  os << "sk" << std::get<6>(info.param);
+  return os.str();
+}
+
+// Test combinations that mostly affect operand loading
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    Operands,
     MultiMatmulSchedulerMatchTest,
     testing::Combine(
         testing::Bool(), // a_m_inner
         testing::Bool(), // b_k_inner
         testing::Values(8, 2), // vec_size_a
         testing::Values(8, 2), // vec_size_b
+        testing::Values(4), // vec_size_epilogue
+        testing::Values(true), // use_smem_epilogue
+        testing::Values(1, 2) // splitk_factor
+        ),
+    printMatchTestParams);
+
+// Test combinations that mostly affect epilogue
+INSTANTIATE_TEST_SUITE_P(
+    Epilogue,
+    MultiMatmulSchedulerMatchTest,
+    testing::Combine(
+        testing::Values(false), // a_m_inner
+        testing::Values(false), // b_k_inner
+        testing::Values(8), // vec_size_a
+        testing::Values(8), // vec_size_b
         testing::Values(4, 2), // vec_size_epilogue
         testing::Bool(), // use_smem_epilogue
         testing::Values(1, 2) // splitk_factor
         ),
-    [](const testing::TestParamInfo<MultiMatmulSchedulerMatchTestParams>&
-           info) {
-      std::ostringstream os;
-      os << "amin" << std::get<0>(info.param);
-      os << "bkin" << std::get<1>(info.param);
-      os << "va" << std::get<2>(info.param);
-      os << "vb" << std::get<3>(info.param);
-      os << "vepi" << std::get<4>(info.param);
-      os << "smep" << std::get<5>(info.param);
-      os << "sk" << std::get<6>(info.param);
-      return os.str();
-    });
+    printMatchTestParams);
 
 } // namespace nvfuser
