@@ -321,16 +321,6 @@ std::vector<Val*> producerValsOf(const std::vector<Val*>& vals);
 // code.
 std::vector<Val*> consumerValsOf(const std::vector<Val*>& vals);
 
-// Return all (not only direct) consumers of vals, this function can be used on
-// any vals and will return consumers through Exprs.
-//
-// Warning: returned val's are not guaranteed to be between fusion inputs and
-// outputs. This function simply uses val->definition() or val->uses() which is
-// limited to not go through fusion inputs/outputs, but if on a path that isn't
-// strictly between fusion inputs/outputs, it could effectively return dead
-// code.
-std::unordered_set<Val*> allConsumerValsOf(const Val* val);
-
 // Return immediate producers of tv, this function will return all immediate
 // producers of tv through Exprs.
 //
