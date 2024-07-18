@@ -99,13 +99,15 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
           data_cache,
           reduced_tv->nDims() - properties.inner_most_dimension_ndims);
   // Use max vectorization factor
-  int64_t vectorization_factor = min_vectorize_factor;
-  for (auto pair : vectorization_factor_map) {
-    vectorization_factor = std::max(vectorization_factor, pair.second);
+  int64_t vectorize_factor = min_vectorize_factor;
+  if(std::getenv("USE_MAIN") == nullptr) {
+    for (auto pair : vectorization_factor_map) {
+      vectorize_factor = std::max(vectorize_factor, pair.second);
+    }
   }
   
   // Minimum required multi reduction factor.
-  const int64_t min_multi_reduction_factor = vectorization_factor *
+  const int64_t min_multi_reduction_factor = vectorize_factor *
       normalization_scheduler_utils::PreferredLaunchConfig::kMinBdimx;
 
   const int64_t required_sm_per_norm = ceilDiv(
@@ -133,7 +135,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
     // Don't try to be persistent unless at least 4-way vectorized
     // as register usage is hard to control
     // TODO: Is this necessary for block persistence as well?
-    if (vectorization_factor < 4) {
+    if (vectorize_factor < 4) {
       scheduler_debug_utils::canScheduleRejectReason(
           heuristicType(), "not enough vectorized");
       return false;
@@ -144,7 +146,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
         normalization_scheduler_utils::getGridOuterNormalizationParams(
             properties.total_reduction_numel,
             properties.total_iteration_numel,
-            vectorization_factor,
+            vectorize_factor,
             persistent_buffer_size);
 
     if (!cross_grid_params.has_value()) {
@@ -177,7 +179,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
 
   const int64_t max_used_sms = is_cross_grid
       ? ceilDiv(
-            ceilDiv(properties.total_iteration_numel, vectorization_factor),
+            ceilDiv(properties.total_iteration_numel, vectorize_factor),
             cross_grid_params->launch_params.bdimx()) *
           cross_grid_params->launch_params.gdimy()
       : ceilDiv(
@@ -232,7 +234,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
   // TODO: Revisit
   if (is_cross_grid &&
       (properties.total_iteration_numel %
-           (vectorization_factor * cross_grid_params->launch_params.bdimx() *
+           (vectorize_factor * cross_grid_params->launch_params.bdimx() *
             cross_grid_params->launch_params.gdimx()) !=
        0) &&
       device_prop->major == 7) {

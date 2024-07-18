@@ -519,10 +519,11 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
   // Use max vectorization factor
   int64_t vectorize_factor = min_vectorize_factor;
-  for (auto pair : vectorization_factor_map) {
-    vectorize_factor = std::max(vectorize_factor, pair.second);
+  if(std::getenv("USE_MAIN") == nullptr) {
+    for (auto pair : vectorization_factor_map) {
+      vectorize_factor = std::max(vectorize_factor, pair.second);
+    }
   }
-
   // check if there is enough register and shared memory for persistence
   const auto buffer_params = getPersistentBufferStorageParams(
       fusion, runtime_info, data_cache, reduction_tvs, vectorize_factor);
@@ -931,8 +932,10 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
               ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
   // Use max vectorization factor
   int64_t vectorize_factor = min_vectorize_factor;
-  for (auto pair : vectorization_factor_map) {
-    vectorize_factor = std::max(vectorize_factor, pair.second);
+  if(std::getenv("USE_MAIN") == nullptr) {
+    for (auto pair : vectorization_factor_map) {
+      vectorize_factor = std::max(vectorize_factor, pair.second);
+    }
   }
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(

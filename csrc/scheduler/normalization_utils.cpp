@@ -984,9 +984,12 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // Use max vectorization factor
   int64_t vectorize_factor = min_vectorize_factor;
-  for (auto pair : vectorization_factor_map) {
-    vectorize_factor = std::max(vectorize_factor, pair.second);
+  if(std::getenv("USE_MAIN") == nullptr) {
+    for (auto pair : vectorization_factor_map) {
+      vectorize_factor = std::max(vectorize_factor, pair.second);
+    }
   }
+
 
   // (4) info about persistent buffer
   auto persistent_buffer_info_entry =

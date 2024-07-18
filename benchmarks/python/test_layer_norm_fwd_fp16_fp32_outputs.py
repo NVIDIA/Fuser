@@ -12,6 +12,7 @@ import numpy as np
 
 def layernorm_fwd_fp16_fp32_outputs_fusion(
     fd: FusionDefinition,
+    n_fp16_output: int,
     dtype: DataType,
     eps: float = 1e-5,
 ) -> None:
@@ -49,11 +50,19 @@ def layernorm_fwd_fp16_fp32_outputs_fusion(
 
     if dtype in PROMOTE_DTYPES:
         T28 = fd.ops.cast(T28, dtype=dtype)
+    # add more fp16 outputs
+    if n_fp16_output == 2:
+        fd.add_output(fd.ops.cast(T26, dtype=dtype))
+    if n_fp16_output == 4:
+        T30 = fd.ops.add(T24, T26)
+        fd.add_output(fd.ops.cast(T26, dtype=dtype))
+        fd.add_output(fd.ops.cast(T24, dtype=dtype))
+        fd.add_output(fd.ops.cast(T30, dtype=dtype))
 
-    fd.add_output(T19) # save x-mean
-    fd.add_output(T28)
-    fd.add_output(T4)
-    fd.add_output(T14)
+    fd.add_output(T19) # 2D, fp32, save x-mean
+    fd.add_output(T28) # 2D, fp16
+    fd.add_output(T4)  # 1D, fp32, no need to be vectorized
+    fd.add_output(T14) # 1D, fp32, no need to be vectorized
 
 
 def layernorm_fwd_fp16_fp32_outputs(inputs: list):  # [in_tensor, weights, bias]
@@ -77,10 +86,12 @@ def layernorm_fwd_fp16_fp32_outputs_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FP16_DTYPES)
+@pytest.mark.parametrize("n_fp16_output", [1, 2, 4])
 def test_layernorm_fwd_fp16_fp32_outputs_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
+    n_fp16_output: int,
     disable_validation: bool,
     disable_benchmarking: bool,
     eps: float = 1e-5,
@@ -95,7 +106,7 @@ def test_layernorm_fwd_fp16_fp32_outputs_nvf_benchmark(
     ]
 
     with FusionDefinition() as fd:
-        layernorm_fwd_fp16_fp32_outputs_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
+        layernorm_fwd_fp16_fp32_outputs_fusion(fd, n_fp16_output, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
         eager_output = layernorm_fwd_fp16_fp32_outputs(inputs)
