@@ -226,7 +226,7 @@ FusionSchedules::FusionSchedules(int64_t fusion_id)
       scheds_lock(),
       fusion_id_{fusion_id} {
   auto_gen_schedules = std::make_unique<FusionExecutorCache>(
-      std::make_unique<Fusion>(), /*communicator=*/nullptr, fusion_id);
+      std::make_unique<Fusion>(), fusion_id);
 }
 
 Fusion* FusionSchedules::preschedFusion() {

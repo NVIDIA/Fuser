@@ -132,7 +132,6 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
       fec_.try_emplace(
           hu,
           std::make_unique<Fusion>(*hu->fusion_to_execute()),
-          /*communicator=*/nullptr,
           /*fusion_id=*/0,
           !params_.skip_auto_scheduling);
     }

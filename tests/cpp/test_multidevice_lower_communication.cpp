@@ -70,7 +70,7 @@ TEST_P(LowerGatherTest, ) {
       at::randn({in_mesh.size(), kTensorSize}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
-  FusionExecutorCache fec(std::move(fusion), communicator_);
+  FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
 
@@ -111,7 +111,7 @@ TEST_P(LowerScatterTest, ) {
   at::Tensor unsharded_tensor =
       at::randn({out_mesh.size(), kTensorSize}, tensor_options);
 
-  FusionExecutorCache fec(std::move(fusion), communicator_);
+  FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({unsharded_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
 
@@ -154,7 +154,7 @@ TEST_P(LowerSendRecvTest, ) {
       at::randn({in_mesh.size(), kTensorSize}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
-  FusionExecutorCache fec(std::move(fusion), communicator_);
+  FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
 
@@ -193,7 +193,7 @@ TEST_F(LowerCollectiveTest, Allgather) {
       at::randn({num_devices, kTensorSize}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
-  FusionExecutorCache fec(std::move(fusion), communicator_);
+  FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
 
@@ -220,7 +220,7 @@ TEST_F(LowerCollectiveTest, Broadcast) {
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
 
-  FusionExecutorCache fec(std::move(fusion), communicator_);
+  FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
 
@@ -249,7 +249,7 @@ TEST_F(LowerCollectiveTest, Reduce) {
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
-  FusionExecutorCache fec(std::move(fusion), communicator_);
+  FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
 
@@ -278,7 +278,7 @@ TEST_F(LowerCollectiveTest, Allreduce) {
       at::randn({num_devices, kTensorSize}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
-  FusionExecutorCache fec(std::move(fusion), communicator_);
+  FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
 
@@ -305,7 +305,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
       at::randn({num_devices, num_devices, kTensorSize}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
-  FusionExecutorCache fec(std::move(fusion), communicator_);
+  FusionExecutorCache fec(std::move(fusion));
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   assertIsCompiledToHostIrContainer(fec);
 

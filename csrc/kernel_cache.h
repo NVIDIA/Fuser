@@ -102,7 +102,6 @@ class FusionKernelRuntime {
       const KernelArgumentHolder& inputs,
       const serde::FusionKernelRuntime* serde_buffer = nullptr,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
-      Communicator* communicator = nullptr,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
       int64_t runtime_id = 0,
@@ -304,8 +303,6 @@ class FusionKernelRuntime {
   float kernel_time_ms_ = 0;
 
   std::mutex mutex_;
-
-  Communicator* communicator_ = nullptr;
 
   // ID of fusion in python frontend fusion cache, which maps to a single
   // FusionExecutorCache.
@@ -515,7 +512,6 @@ class FusionExecutorCache {
   //! fusion executor is taking the ownership of `fusion`
   NVF_API explicit FusionExecutorCache(
       std::unique_ptr<Fusion> fusion,
-      Communicator* communicator = nullptr,
       int64_t fusion_id = 0,
       bool auto_schedule = true);
 
@@ -755,8 +751,6 @@ class FusionExecutorCache {
 
   //! Initial concretization info
   std::optional<DynamicTransformInitialInfo> initial_info_ = std::nullopt;
-
-  Communicator* communicator_ = nullptr;
 
   // ID of fusion in python frontend fusion cache, which maps to a single
   // FusionExecutorCache.

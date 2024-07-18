@@ -44,7 +44,7 @@ std::vector<at::Tensor> allocOutputSpace(
     Fusion* fusion,
     const c10::Device& device);
 
-class FusionExecutor {
+class FusionExecutor : public NonCopyable {
  public:
   struct GlobalBufferInfo {
     TensorView* tv = nullptr;
@@ -56,12 +56,7 @@ class FusionExecutor {
     bool is_profile_buffer = false;
   };
 
-  explicit FusionExecutor(Communicator* communicator = nullptr)
-      : communicator_(communicator) {}
-  FusionExecutor(const FusionExecutor&) = delete;
-  FusionExecutor& operator=(const FusionExecutor&) = delete;
-  FusionExecutor(FusionExecutor&&) = default;
-  FusionExecutor& operator=(FusionExecutor&&) = default;
+  FusionExecutor();
 
   // Unsafe compilation that's useful for debugging kernels, iterating over
   // slight modifications of a generated kernel
