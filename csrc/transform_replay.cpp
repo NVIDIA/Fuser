@@ -703,6 +703,11 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     used_IDs.emplace(it->second);
   }
 
+  // pay attention to consumer pos, it should be the actual replayed axis,
+  // otherwise further replay may lead to error where the mapped ID is missing.
+  // see https://github.com/NVIDIA/Fuser/issues/2593
+  int64_t consumer_pos = (int64_t)new_IDs.size();
+
   // Add axes in (2)
   for (auto p_id : producer->getLoopDomain()) {
     auto it = replay_CasP.getReplay().find(p_id);
@@ -720,8 +725,6 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       }
     }
   }
-
-  int64_t consumer_pos = (int64_t)new_IDs.size();
 
   // Add axes in (3)
   for (auto id : consumer->getLoopDomain()) {

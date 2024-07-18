@@ -3338,4 +3338,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::arg("heuristic"));
 }
+
+void cleanup() {
+  Communicator::getInstance().cleanup();
+}
+
 } // namespace nvfuser::python_frontend
