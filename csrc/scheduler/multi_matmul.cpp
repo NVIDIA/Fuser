@@ -813,31 +813,6 @@ class MultipleMatmulScheduler {
     // Get new permissive graph
     ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::PERMISSIVE);
 
-    // Update AbstractTensors
-    for (mma_utils::AbstractMatmulTensor& abten : {std::ref(schedule_.tiled)}) {
-      for (AbstractId& abs_id : abten.domain) {
-        ValGroupAndItsGraph& vgg = abs_id.as<ValGroupAndItsGraph>();
-        bool replaced_group = false;
-        for (Val* v : *vgg.group) {
-          try {
-            vgg.group = new_graph.toGroup(v);
-          } catch (...) {
-            // new_graph.toGroup() might not be able to find v. This happens
-            // when we replace a domain using rFactor for example. In such
-            // cases, we move on and try other IDs in the group.
-            continue;
-          }
-          replaced_group = true;
-          break;
-        }
-        NVF_ERROR(
-            replaced_group,
-            "Failed to replace group used in AbstractTensor containing ",
-            vgg.group->front()->toString());
-        vgg.graph = &new_graph;
-      }
-    }
-
     // Update id_roles_
     std::unordered_map<ValGroup, MatmulDimRole> new_id_roles;
     for (auto& [k, v] : id_roles_) {
@@ -852,64 +827,20 @@ class MultipleMatmulScheduler {
     id_model_ = std::move(new_id_model);
   }
 
-  // Gets canonical dim ordering then uses it to canonicalize each tensor in the
-  // fusion, then create tiles and swizzle their ordering.
-  void scheduleTiling() {
-    std::vector<ValGroup> canonical_dim_ordering =
-        mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, *graph_);
-
-    schedule_.tiled.domain.reserve(canonical_dim_ordering.size());
-    for (const ValGroup& vg : canonical_dim_ordering) {
-      schedule_.tiled.domain.push_back(ValGroupAndItsGraph{vg, graph_});
-      // Tag each dimension with a MatmulDimRole
-      auto it = id_roles_.find(vg);
-      NVF_ERROR(it != id_roles_.end());
-      schedule_.tiled.tags.push_back({it->second});
-    }
-
-    mma_utils::mergeCanonicalAbstractTensor(schedule_.tiled);
-
-    mma_utils::makeTile(
-        schedule_.tiled, params_.tile_sizes.cta_tile.toVector());
-
-    swizzleBlockTiles();
-
-    // TODO: merge batch dimensions with outermost M/N dimension here, unless
-    // splitk_factor=1. See https://github.com/NVIDIA/Fuser/pull/2140
-
-    // We could have M before N or N before M. Whichever is first (outer) will
-    // be parallelized as BIDy and the other will be BIDx.
-    bool hasBIDy = false;
-    for (size_t i : c10::irange(schedule_.tiled.size())) {
-      // Note that block tiles might be swizzled, in which case a dimension
-      // might have both M and N tags
-      if (schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::M) ||
-          schedule_.tiled.hasTag((int64_t)i, MatmulDimRole::N)) {
-        if (hasBIDy) {
-          parallelize(schedule_.tiled[i], ParallelType::BIDx);
-          break;
-        } else {
-          parallelize(schedule_.tiled[i], ParallelType::BIDy);
-          hasBIDy = true;
-        }
-      }
-    }
-  }
-
-  void swizzleBlockTiles() {
+  // Updates outer_dim_roles if we introduce a new dimension
+  void swizzleBlockTiles(
+      TensorView* tv,
+      std::vector<MatmulDimRole>& outer_dim_roles) {
     if (params_.grid_swizzle_factor != 1) {
       // Find position of outer M and N dims in schedule_.tiled
       int64_t Mo_pos = -1, No_pos = -1;
-      for (size_t i : c10::irange(3)) {
-        if (schedule_.tiled.getTag((int64_t)i) == MatmulDimRole::M) {
+      for (size_t i : c10::irange(outer_dim_roles.size())) {
+        if (outer_dim_roles[i] == MatmulDimRole::M) {
           Mo_pos = (int64_t)i;
-        } else if (schedule_.tiled.getTag((int64_t)i) == MatmulDimRole::N) {
+        } else if (outer_dim_roles[i] == MatmulDimRole::N) {
           No_pos = (int64_t)i;
         }
       }
-      NVF_ERROR(
-          Mo_pos != -1 && No_pos != -1,
-          "Could not determine outer M and N dimensions");
 
       int factor = std::max(1, params_.grid_swizzle_factor); // must be >=1
       switch (params_.cta_order) {
@@ -918,13 +849,22 @@ class MultipleMatmulScheduler {
           // reorder [I1, factor, I2/factor]
           // merge   [I1*factor, I2/factor]
           // where I1 and I2 are the outer M and N dimensions, respectively
-          schedule_.tiled.split(No_pos, factor);
-          // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
-          if (No_pos < Mo_pos) {
-            Mo_pos++;
+          if (No_pos >= 0) {
+            tv->split(No_pos, factor);
+            // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
+            if (No_pos < Mo_pos) {
+              Mo_pos++;
+            }
+            tv->reorder({{No_pos, No_pos + 1}});
+            if (Mo_pos >= 0) {
+              tv->merge(Mo_pos, No_pos);
+            } else {
+              // M is missing, so we skip the merge above. In this case we
+              // should update the dim roles to reflect the new split axis.
+              outer_dim_roles.insert(
+                  outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
+            }
           }
-          schedule_.tiled.reorder({{No_pos, No_pos + 1}});
-          schedule_.tiled.merge(Mo_pos, No_pos);
           break;
 
         case MatmulParams::TileRasterizationOrder::ColumnMajor:
@@ -932,84 +872,22 @@ class MultipleMatmulScheduler {
           // reorder [I1/factor, I2, factor]
           // merge   [I1/factor, I2*factor]
           // where I1 and I2 are the outer M and N dimensions, respectively
-          schedule_.tiled.split(Mo_pos, factor);
-          // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
-          if (No_pos > Mo_pos) {
-            No_pos++;
+          if (Mo_pos >= 0) {
+            tv->split(Mo_pos, factor);
+            // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
+            if (No_pos > Mo_pos) {
+              No_pos++;
+            }
+            if (No_pos >= 0) {
+              tv->reorder({{Mo_pos + 1, No_pos}});
+              tv->merge(Mo_pos + 1, No_pos);
+            } else {
+              // N is missing, so we skip the merge above. In this case we
+              // should update the dim roles to reflect the new split axis.
+              outer_dim_roles.insert(
+                  outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
+            }
           }
-          schedule_.tiled.reorder({{Mo_pos + 1, No_pos}});
-          schedule_.tiled.merge(Mo_pos + 1, No_pos);
-      }
-    }
-  }
-
-  void doSplitKRFactor() {
-    // Find Ko dimension in schedule_.tiled by looking at tags
-    int64_t Ko_dim = -1;
-    int64_t Ki_dim = -1;
-    for (size_t dim : c10::irange(schedule_.tiled.size())) {
-      if (schedule_.tiled.getTag((int64_t)dim) == MatmulDimRole::K) {
-        if (Ko_dim == -1) {
-          Ko_dim = (int64_t)dim;
-        } else {
-          NVF_ERROR(Ki_dim == -1, "Expected exactly two K dimensions");
-          Ki_dim = (int64_t)dim;
-        }
-      }
-    }
-    NVF_ERROR(Ko_dim != -1, "Could not find outer K dimension");
-
-    // Split Ko -> [rKf, rKg]
-    schedule_.tiled.split(Ko_dim, params_.splitk_factor, /*inner*/ false);
-    // After splitting Ko we have Kf_dim = Ko_dim and Kg_dim = Kf_dim + 1
-    int64_t Kf_dim = Ko_dim;
-    Ki_dim++;
-    parallelize(schedule_.tiled[Kf_dim], ParallelType::BIDz);
-
-    // We need to apply the transforms here so that we can perform rFactor
-    if (params_.splitk_factor != 1) {
-      applyAbstractTransforms(schedule_.tiled, mma_results_);
-    }
-
-    // Unswizzle mma result in shared memory
-    // Note that if we are using split-K, we will set up this buffer after
-    // rfactoring the matmul, between the MmaOp and the ReductionOp, in order to
-    // take advantage of unswizzling during the grid reduction. If
-    // params_smem_epilogue is false it just points to mma_result.
-    smem_epilogues_ = mma_results_;
-
-    for (TensorView*& mma_result : mma_results_) {
-      if (params_.splitk_factor != 1) {
-        // rFactor converts
-        //   mma_result = mma(A, B, {/*Kf*/-5, /*Kg*/-4, /*Ki*/-1});
-        // to
-        //   intermediate = mma(A, B, {-4, -1});
-        //   final_sum = sum(intermediate, {/*Kf*/-3});
-        // and the method returns "intermediate". We need mma_result to refer to
-        // the actual MmaOp output, so here we reassign that to the
-        // intermediate.
-        TensorView* splitk_sum = mma_result;
-        mma_result = rFactor(splitk_sum, {Kf_dim, Ki_dim});
-        splitk_sums_.push_back(splitk_sum);
-      }
-
-      // At this point we have the following schedule:
-      //   No split-K
-      //     mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
-      //   Split-K
-      //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
-      //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
-
-      if (params_.use_smem_epilogue) {
-        // Note that for split-K
-        //   splitk_sum = sum(mma_result)
-        // becomes
-        //   smem_epilogue = set(mma_result)
-        //   splitk_sum = sum(smem_epilogue)
-        TensorView* smem_epilogue = cacheAfter(mma_result);
-        smem_epilogue->setMemoryType(MemoryType::Shared);
-        smem_epilogues_.push_back(smem_epilogue);
-        // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
       }
     }
   }
@@ -1151,10 +1029,7 @@ class MultipleMatmulScheduler {
 
       mma_utils::makeTile(tv, params_.tile_sizes.cta_tile, merged_roles);
 
-      if (axis_roles.count(MatmulDimRole::M) > 0 &&
-          axis_roles.count(MatmulDimRole::N)) {
-        // swizzleBlockTiles(tv, axis_roles);
-      }
+      swizzleBlockTiles(tv, merged_roles);
 
       if (params_.splitk_factor > 1) {
         // Outer K dimension in tv is in same position found in merged_roles
@@ -1209,56 +1084,14 @@ class MultipleMatmulScheduler {
             tv->setLoopDomain(swizzled_dom.as<IterDomain*>());
             tv->setHasSwizzleOp();
             tv->merge(-2);
+            // NOTE: this splits and parallelizes the inner dimension as
+            //   TIDz, TIDy, TIDx, V
             mma_utils::scheduleContiguousVectorLoad(
                 tv, params_.tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
           }
-          // parallelizeTensors(smem_operands);
         };
     scheduleOperandBranch(as_, acw_smems_, params_.supported_vec_size.a);
     scheduleOperandBranch(bs_, bcw_smems_, params_.supported_vec_size.a);
-  }
-
-  void scheduleWarpTileWithReduction() {
-    // Assumes
-    // [M, N, K]
-    auto cta_tile = params_.tile_sizes.cta_tile;
-    auto warp_tile = params_.tile_sizes.warp_tile;
-    auto instruction_tile = params_.tile_sizes.instruction_tile;
-
-    // Do not split K dimension of CTA tile into multiple warp tiles
-    NVF_CHECK(
-        cta_tile.k == warp_tile.k,
-        "CTA tile and warp tile must have same K dimension");
-
-    // Check that schedule_.mma_result has M, N, K as the inner dims
-    // TODO: Handle cases where these dimensions are permuted
-    NVF_ERROR(schedule_.mma_result.hasTag(-1, MatmulDimRole::K));
-    NVF_ERROR(schedule_.mma_result.hasTag(-2, MatmulDimRole::N));
-    NVF_ERROR(schedule_.mma_result.hasTag(-3, MatmulDimRole::M));
-
-    NVF_ERROR(constDimSize(schedule_.mma_result[-3]) == cta_tile.m);
-    NVF_ERROR(constDimSize(schedule_.mma_result[-2]) == cta_tile.n);
-    NVF_ERROR(constDimSize(schedule_.mma_result[-1]) == cta_tile.k);
-
-    //       -3   -2  -1
-    //[...    M,   N,  K]
-    // Distribute warp tile:
-    schedule_.mma_result.split(-3, warp_tile.m);
-    schedule_.mma_result.split(-2, warp_tile.n);
-
-    //  -5   -4   -3   -2   -1
-    // [Mwo  Mw  Nwo   Nw   K]
-    schedule_.mma_result.split(-4, instruction_tile.m);
-    schedule_.mma_result.split(-2, instruction_tile.n);
-    schedule_.mma_result.split(-1, instruction_tile.k);
-
-    //   -8  -7 -6 -5 -4 -3  -2 -1
-    // [Mwo Mw Mi Nwo Nw Ni Kwo Ki]
-
-    schedule_.mma_result.reorder(
-        {{-7, -5}, {-6, -3}, {-5, -6}, {-3, -2}, {-2, -8}, {-8, -7}});
-    //   -8  -7 -6  -5 -4 -3 -2 -1
-    // [Kwo Mwo Nwo Mw Nw Mi Ni Ki]
   }
 
   void schedulePrologue() {
@@ -1373,35 +1206,6 @@ class MultipleMatmulScheduler {
     }
   }
 
-  void parallelize(const ValGroup& vg, ParallelType pt) {
-    parallelization_map_.emplace(vg, pt);
-  }
-
-  void parallelize(const AbstractId& abs_id, ParallelType pt) {
-    NVF_ERROR(abs_id.is<ValGroupAndItsGraph>());
-    const ValGroup& vg = abs_id.as<ValGroupAndItsGraph>().group;
-    parallelize(vg, pt);
-  }
-
-  // Assumes tv has all loop transforms applied. Looks up each loop domain in
-  // parallelization_map_ and applies parallelizations if found.
-  void parallelizeTensor(TensorView* tv) {
-    for (IterDomain* id : tv->getLoopDomain()) {
-      ValGroup vg = graph_->toGroup(id);
-      auto it = parallelization_map_.find(vg);
-      if (it == parallelization_map_.end()) {
-        continue;
-      }
-      id->parallelize(it->second);
-    }
-  }
-
-  void parallelizeTensors(const std::vector<TensorView*>& tvs) {
-    for (TensorView* tv : tvs) {
-      parallelizeTensor(tv);
-    }
-  }
-
  private:
   Fusion* fusion_;
   const MatmulParams& params_;
@@ -1419,35 +1223,6 @@ class MultipleMatmulScheduler {
 
   std::vector<TensorView*> as_, bs_, acw_smems_, bcw_smems_, acrs_, bcrs_, abs_,
       bbs_, mma_results_, splitk_sums_, smem_epilogues_;
-
-  // This holds the abstract schedules for
-  struct AbstractSchedules {
-    // This is the base tiling layout for all tensors in the fusion
-    mma_utils::AbstractMatmulTensor tiled;
-
-    // shared memory operand loads
-    mma_utils::AbstractMatmulTensor acw_smem, bcw_smem;
-    // register loads from smem using ldmatrix
-    mma_utils::AbstractMatmulTensor acr, bcr;
-    // register buffers after the load from smem, through prologue and up until
-    // the mma instruction
-    mma_utils::AbstractMatmulTensor ab, bb;
-    // register buffer holding the result tile
-    mma_utils::AbstractMatmulTensor mma_result;
-    // Shared memory unswizzling buffer
-    mma_utils::AbstractMatmulTensor smem_epilogue;
-    // result tile summed across CTAs in split-K
-    mma_utils::AbstractMatmulTensor splitk_sum;
-    // all tensors holding epilogue computation, epilogue inputs, and outputs.
-    mma_utils::AbstractMatmulTensor epilogue;
-  } schedule_;
-
-  // This mapping allows us to set parallelization during abstract scheduling,
-  // then later apply it in a standardized way. Once we have applied transforms
-  // to a TensorView we need only to look up the ValGroup of each of its loop
-  // domains in this map to determine the parallelization to use. This is
-  // implemented in parallelizeTensor(tv).
-  std::unordered_map<ValGroup, ParallelType> parallelization_map_;
 };
 
 } // namespace
