@@ -73,6 +73,7 @@ void mapAllocationDomain(
   const ValGraph& val_graph = id_model.idGraph(IdMappingMode::EXACT);
 
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
+  std::reverse(ref_alloc_domain.begin(), ref_alloc_domain.end());
   const std::vector<IterDomain*>& target_logical_domain =
       target->getLogicalDomain();
 
@@ -92,12 +93,12 @@ void mapAllocationDomain(
   for (auto* ref_id : ref_alloc_domain) {
     // skip when no ValGroup for ref_id to map.
     if (!val_graph.hasGroup(ref_id)) {
-      continue;
+      break;
     }
     const ValGroup& vg = val_graph.toGroup(ref_id);
     // skip when no mapping ValGroup found in target_logical_domain.
     if (vg_id_map.count(vg) == 0) {
-      continue;
+      break;
     }
     IterDomain* id = vg_id_map[vg];
     // sharp-edges 0
@@ -106,6 +107,10 @@ void mapAllocationDomain(
       continue;
     }
     mapped_ids.pushBack(id);
+  }
+
+  if (mapped_ids.empty()) {
+    return;
   }
 
   // removing mapped ids and reduction ids to create unmapped_ids.
@@ -120,7 +125,7 @@ void mapAllocationDomain(
         return mapped_ids.has(it) || it->isReduction();
       });
 
-  auto mapped_id_iter = mapped_ids.begin();
+  auto mapped_id_iter = mapped_ids.rbegin();
   auto unmapped_id_iter = unmapped_ids.begin();
   // initialize new target allocation domain with nullptr
   std::vector<IterDomain*> target_alloc_domain(
@@ -146,15 +151,18 @@ void mapAllocationDomain(
   for (auto* ref_id : ref_alloc_domain) {
     // skip when no ValGroup for ref_id to map.
     if (!val_graph.hasGroup(ref_id)) {
-      continue;
+      break;
     }
     const ValGroup& vg = val_graph.toGroup(ref_id);
     // skip when no mapping ValGroup found in target_logical_domain.
     if (vg_id_map.count(vg) == 0) {
-      continue;
+      break;
     }
     IterDomain* id = vg_id_map[vg];
     mapped_ids.pushBack(id);
+  }
+  if (mapped_ids.empty()) {
+    return;
   }
   std::vector<IterDomain*> target_alloc_domain = target_logical_domain;
   // removing mapped ids.
@@ -163,7 +171,7 @@ void mapAllocationDomain(
       target_alloc_domain.end(),
       [&mapped_ids](IterDomain* it) { return mapped_ids.has(it); });
   // appending mapped ids at the end of target_alloc_domain.
-  std::copy(mapped_ids.begin(), mapped_ids.end(), unmapped_ids_vec_end);
+  std::copy(mapped_ids.rbegin(), mapped_ids.rend(), unmapped_ids_vec_end);
 #endif
 
   // skip trivial allocation domain
