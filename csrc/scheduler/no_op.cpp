@@ -33,7 +33,7 @@ bool allOutputsArePointerArithmetics(Fusion* fusion) {
   const AliasAnalysisResult analysis = findAliases(
       fusion,
       /*can_override_empty_allocation_domain=*/false,
-      /*allow_output_alias_intermediate=*/false);
+      /*may_alias_intermediate=*/false);
   auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   return std::all_of(
       out_tvs.begin(), out_tvs.end(), [&analysis](TensorView* out) {
