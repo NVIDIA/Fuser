@@ -394,7 +394,8 @@ class PredicateIndexValidator : public kir::IrVisitor {
       Args... args) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
-        EnableOption::IdModel, {"inline_predicate"});
+        EnableOption::IdModel,
+        {"inline_predicate", "unswitch_predicate", "vectorize_predicate"});
 
     // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
@@ -2663,13 +2664,18 @@ TEST_F(PredicateIndexingTest, SimpleUnroll) {
     //
     // So, the unswitch predicate should look like:
     //
-    // blockIdx.x * 4 * 128 + threadId.x >= 0 &&
+    // (blockIdx.x * 4 + 0) * 128 + threadId.x >= 0 &&
     // (blockIdx.x * 4 + 3) * 128 + threadId.x < tv0.logical_size[0]
+    //
+    // Note that "+ 0" remains since a symboic Val is just replaced
+    // with zero.
     Val* getUnswitchPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
       auto start_idx = addExpr(
           mulExpr(
-              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              IrBuilder::addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  tv->fusion()->zeroVal()),
               tv->axis(2)->extent()),
           loop_indices.at(2));
       auto stop_idx = addExpr(
@@ -2679,6 +2685,89 @@ TEST_F(PredicateIndexingTest, SimpleUnroll) {
                   subExpr(tv->axis(1)->extent(), tv->fusion()->oneVal())),
               tv->axis(2)->extent()),
           loop_indices.at(2));
+
+      return andExpr(
+          geExpr(start_idx, tv->fusion()->zeroVal()),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Simple unswitch fusion. Unlike SimpleUnroll, it has multiple
+// domains whose loop indices need to be adjusted.
+TEST_F(PredicateIndexingTest, SimpleUnswitch) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv0->cacheAfter();
+  tv1->cacheAfter();
+
+  tv2->flatten();
+  // For TIDx
+  tv2->split(0, 128);
+  // For serial
+  tv2->split(0, 8);
+  // For unswitch
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unswitch);
+  tv2->axis(3)->parallelize(ParallelType::TIDx);
+
+  // T3_l[ iS27{( ceilDiv(( ceilDiv(( ceilDiv(i0, 128) ), 8) ), 4) )}, iS28{4},
+  // iS26{8}, iS24{128} ] ca_pos( 4 ) T4_l[ iS15{( ceilDiv(( ceilDiv((
+  // ceilDiv(i2, 128) ), 8) ), 4) )}, iS16{4}, iS14{8}, iS12{128} ] ca_pos( 4 )
+  // T2_g[ iblockIdx.x9{( ceilDiv(( ceilDiv(( ceilDiv(i0, 128) ), 8) ), 4) )},
+  // iUS10{4}, iS8{8}, ithreadIdx.x6{128} ] ca_pos( 4 ) produce_pos( 4 )
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    // The unswitch predicate should look like:
+    //
+    // (((blockIdx.x * 4 + 0) * 8 + 0) * 128 + threadId.x >= 0 &&
+    // (((blockIdx.x * 4 + 3) * 8 + 7) * 128 + threadId.x < tv0.logical_size[0]
+    Val* getUnswitchPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto start_idx = addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(
+                      IrBuilder::addExpr(
+                          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                          tv->fusion()->zeroVal()),
+                      tv->axis(2)->extent()),
+                  tv->fusion()->zeroVal()),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+      auto stop_idx = addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(
+                      IrBuilder::addExpr(
+                          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                          subExpr(
+                              tv->axis(1)->extent(), tv->fusion()->oneVal())),
+                      tv->axis(2)->extent()),
+                  subExpr(tv->axis(2)->extent(), tv->fusion()->oneVal())),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
 
       return andExpr(
           geExpr(start_idx, tv->fusion()->zeroVal()),
@@ -2729,11 +2818,13 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
     Val* getInlinePredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
 
-      auto start_idx = mulExpr(
-          addExpr(
-              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
-              loop_indices.at(1)),
-          tv->axis(2)->extent());
+      auto start_idx = IrBuilder::addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  loop_indices.at(1)),
+              tv->axis(2)->extent()),
+          tv->fusion()->zeroVal());
       auto stop_idx = addExpr(
           mulExpr(
               addExpr(
@@ -2742,7 +2833,7 @@ TEST_F(PredicateIndexingTest, SimpleVectorize) {
               tv->axis(2)->extent()),
           subExpr(tv->axis(2)->extent(), createInt(1)));
 
-      // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) >= 0 ) &&
+      // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 0 )>= 0 ) &&
       // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 3 ) < ( (( ((
       // getMetaData(T0) )).logical_size ))[0] ) ) )
       return andExpr(
@@ -2813,7 +2904,8 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
                   loop_indices.at(1)),
               tv->axis(3)->extent()),
           loop_indices.at(3));
-      auto start_idx = mulExpr(common_idx, tv->axis(2)->extent());
+      auto start_idx = IrBuilder::addExpr(
+          mulExpr(common_idx, tv->axis(2)->extent()), tv->fusion()->zeroVal());
       auto stop_idx = addExpr(
           mulExpr(common_idx, tv->axis(2)->extent()),
           subExpr(tv->axis(2)->extent(), createInt(1)));
