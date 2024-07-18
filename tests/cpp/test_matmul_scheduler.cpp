@@ -3173,7 +3173,12 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
 
 using MultiMatmulSchedulerMatchTestParams = std::tuple<
     bool, // a_m_inner
-    bool // b_k_inner
+    bool, // b_k_inner
+    int64_t, // vec_size_a
+    int64_t, // vec_size_b
+    int64_t, // vec_size_epilogue
+    bool, // smem_epilogue
+    int64_t // splitk_factor
     >;
 
 class MultiMatmulSchedulerMatchTest
@@ -3188,6 +3193,11 @@ class MultiMatmulSchedulerMatchTest
 
     a_m_inner = std::get<0>(GetParam());
     b_k_inner = std::get<1>(GetParam());
+    vec_size_a = std::get<2>(GetParam());
+    vec_size_b = std::get<3>(GetParam());
+    vec_size_epilogue = std::get<4>(GetParam());
+    smem_epilogue = std::get<5>(GetParam());
+    splitk_factor = std::get<6>(GetParam());
 
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(256, 128, 32);
@@ -3195,13 +3205,15 @@ class MultiMatmulSchedulerMatchTest
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.supported_vec_size = {8, 8, 4};
+    params.supported_vec_size = {vec_size_a, vec_size_b, vec_size_epilogue};
     params.tile_sizes = gemm_tile;
     params.circular_buffer_options.circular_buffer_smem_write = true;
     params.circular_buffer_options.circular_buffer_smem_read = true;
     params.circular_buffer_options.smem_circular_buffer_stage = 4;
     params.async_gmem_load_operands =
         params.circular_buffer_options.smem_circular_buffer_stage > 1;
+    params.use_smem_epilogue = smem_epilogue;
+    params.splitk_factor = splitk_factor;
   }
 
   void SetUp() {
@@ -3421,6 +3433,9 @@ class MultiMatmulSchedulerMatchTest
   MatmulParams params;
   Fusion* fusion = nullptr;
   bool a_m_inner = false, b_k_inner = false;
+  int64_t vec_size_a, vec_size_b, vec_size_epilogue;
+  bool smem_epilogue;
+  int64_t splitk_factor;
 
  private:
   std::unique_ptr<Fusion> fusion_ptr_;
@@ -3580,27 +3595,25 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulSinPrologue) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     MultiMatmulSchedulerMatchTest,
-    testing::Combine(testing::Bool(), testing::Bool()),
+    testing::Combine(
+        testing::Bool(), // a_m_inner
+        testing::Bool(), // b_k_inner
+        testing::Values(8, 2), // vec_size_a
+        testing::Values(8, 2), // vec_size_b
+        testing::Values(4, 2), // vec_size_epilogue
+        testing::Bool(), // use_smem_epilogue
+        testing::Values(1, 2) // splitk_factor
+        ),
     [](const testing::TestParamInfo<MultiMatmulSchedulerMatchTestParams>&
            info) {
       std::ostringstream os;
-      bool is_default = true;
-      auto nonDefaultOption = [&](std::string name) {
-        if (!is_default) {
-          os << "_";
-        }
-        os << name;
-        is_default = false;
-      };
-      if (std::get<0>(info.param)) {
-        nonDefaultOption("AMin");
-      }
-      if (std::get<1>(info.param)) {
-        nonDefaultOption("BKin");
-      }
-      if (is_default) {
-        os << "default";
-      }
+      os << "amin" << std::get<0>(info.param);
+      os << "bkin" << std::get<1>(info.param);
+      os << "va" << std::get<2>(info.param);
+      os << "vb" << std::get<3>(info.param);
+      os << "vepi" << std::get<4>(info.param);
+      os << "smep" << std::get<5>(info.param);
+      os << "sk" << std::get<6>(info.param);
       return os.str();
     });
 
