@@ -3243,6 +3243,24 @@ class MultiMatmulSchedulerMatchTest
     return {tv0, tv1};
   }
 
+  // Get A and B in shapes [Batch, M, K] and [Batch, K, N] with allocation
+  // domains set.
+  std::pair<TensorView*, TensorView*> getBatchInputTVs() {
+    auto tv0 = makeContigTensor(3, DataType::Half);
+    auto tv1 = makeContigTensor(3, DataType::Half);
+
+    if (a_m_inner) {
+      tv0->setAllocationDomain(
+          {tv0->axis(0), tv0->axis(2), tv0->axis(1)}, true);
+    }
+
+    if (b_k_inner) {
+      tv1->setAllocationDomain(
+          {tv1->axis(0), tv1->axis(2), tv1->axis(1)}, true);
+    }
+    return {tv0, tv1};
+  }
+
   // Get A and B in already-broadcasted shapes [M, K, 1] and [1, K, N],
   // possibly with allocation domains sset
   std::pair<TensorView*, TensorView*> getBroadcastInputTVs() {
@@ -3287,8 +3305,8 @@ class MultiMatmulSchedulerMatchTest
     suffix_ss << " when comparing new scalar " << v_new->toInlineString()
               << " to original scalar " << v_orig->toInlineString();
     std::string suffix = suffix_ss.str();
-    ASSERT_TRUE(v_orig->isScalar()) << suffix;
-    ASSERT_TRUE(v_new->isScalar()) << suffix;
+    EXPECT_TRUE(v_orig->isScalar()) << suffix;
+    EXPECT_TRUE(v_new->isScalar()) << suffix;
 
     EXPECT_EQ(v_new->isConst(), v_orig->isConst()) << suffix;
     if (v_new->isConst() && v_orig->isConst()) {
@@ -3296,20 +3314,24 @@ class MultiMatmulSchedulerMatchTest
       return;
     }
 
-    ASSERT_EQ(v_new->definition() == nullptr, v_orig->definition() == nullptr);
+    EXPECT_EQ(v_new->definition() == nullptr, v_orig->definition() == nullptr);
     if (v_orig->definition() == nullptr) {
       if (Val* v_orig_cloned = cloner_->clone(v_orig)) {
         EXPECT_TRUE(v_orig_cloned == v_new) << suffix;
       }
-    } else if (v_new->definition() != nullptr) {
+    } else if (
+        v_new->definition() != nullptr && v_orig->definition() != nullptr) {
       Expr* def_orig = v_orig->definition();
       Expr* def_new = v_new->definition();
-      ASSERT_TRUE(def_orig->sameOp(def_new)) << suffix;
-      ASSERT_EQ(def_orig->attributes().size(), def_new->attributes().size())
+      EXPECT_TRUE(def_orig->sameOp(def_new)) << suffix;
+      EXPECT_EQ(def_orig->attributes().size(), def_new->attributes().size())
           << suffix;
-      ASSERT_EQ(def_orig->inputs().size(), def_new->inputs().size()) << suffix;
+      EXPECT_EQ(def_orig->inputs().size(), def_new->inputs().size()) << suffix;
       for (size_t i : c10::irange(def_orig->inputs().size())) {
-        compareScalars(def_orig->input(i), def_new->input(i));
+        if (!testing::Test::HasFailure() && i < def_orig->inputs().size() &&
+            i < def_new->inputs().size()) {
+          compareScalars(def_orig->input(i), def_new->input(i));
+        }
       }
     }
   }
@@ -3327,7 +3349,7 @@ class MultiMatmulSchedulerMatchTest
     compareScalars(
         id_orig->getMaybeExpandedExtent(), id_new->getMaybeExpandedExtent());
 
-    ASSERT_EQ(id_new->definition() == nullptr, id_orig->definition() == nullptr)
+    EXPECT_EQ(id_new->definition() == nullptr, id_orig->definition() == nullptr)
         << suffix;
     if (id_orig->definition() == nullptr) {
       if (Val* id_orig_cloned = cloner_->clone(id_orig)) {
@@ -3336,16 +3358,19 @@ class MultiMatmulSchedulerMatchTest
     } else {
       Expr* def_orig = id_orig->definition();
       Expr* def_new = id_new->definition();
-      ASSERT_TRUE(def_orig->sameOp(def_new))
+      EXPECT_TRUE(def_orig->sameOp(def_new))
           << "def_orig\n  " << def_orig->toString()
           << "is not the same as def_new\n  " << def_new->toString() << suffix;
-      ASSERT_EQ(def_orig->attributes().size(), def_new->attributes().size())
+      EXPECT_EQ(def_orig->attributes().size(), def_new->attributes().size())
           << suffix;
-      ASSERT_EQ(def_orig->inputs().size(), def_new->inputs().size()) << suffix;
+      EXPECT_EQ(def_orig->inputs().size(), def_new->inputs().size()) << suffix;
       for (size_t i : c10::irange(def_orig->inputs().size())) {
-        compareIDs(
-            def_orig->input(i)->as<IterDomain>(),
-            def_new->input(i)->as<IterDomain>());
+        if (!testing::Test::HasFailure() && i < def_orig->inputs().size() &&
+            i < def_new->inputs().size()) {
+          compareIDs(
+              def_orig->input(i)->as<IterDomain>(),
+              def_new->input(i)->as<IterDomain>());
+        }
       }
     }
   }
@@ -3356,10 +3381,8 @@ class MultiMatmulSchedulerMatchTest
               << "\nto original TensorView\n  " << tv_orig->toString();
     std::string suffix = suffix_ss.str();
 
-    EXPECT_EQ(tv_new->nDims(), tv_orig->nDims());
     EXPECT_EQ(tv_new->hasSwizzleOp(), tv_orig->hasSwizzleOp());
-    EXPECT_EQ(tv_orig->shouldPromoteReuse(), tv_new->shouldPromoteReuse())
-        << suffix;
+    EXPECT_EQ(tv_orig->shouldPromoteReuse(), tv_new->shouldPromoteReuse());
     EXPECT_EQ(tv_orig->getMemoryType(), tv_new->getMemoryType());
     // TODO: enable these checks once circular buffering and inlining are
     // implemented EXPECT_EQ tv_new->getComputeAtPosition(),
@@ -3369,6 +3392,7 @@ class MultiMatmulSchedulerMatchTest
     // tv_new->circularBufferDepth()) << suffix;
 
     // Inspect loop domain
+    ASSERT_EQ(tv_new->nDims(), tv_orig->nDims()) << suffix;
     for (size_t i : c10::irange(tv_orig->nDims())) {
       IterDomain* id_orig = tv_orig->axis((int64_t)i);
       IterDomain* id_new = tv_new->axis((int64_t)i);
@@ -3397,6 +3421,12 @@ class MultiMatmulSchedulerMatchTest
       ASSERT_TRUE(lsop_new != nullptr) << suffix;
       EXPECT_EQ(lsop_new->opType(), lsop_orig->opType());
       EXPECT_EQ(lsop_new->cacheOp(), lsop_orig->cacheOp());
+    } else if (
+        auto* rop_orig = dynamic_cast<ReductionOp*>(tv_orig->definition())) {
+      auto rop_new = dynamic_cast<ReductionOp*>(tv_new->definition());
+      EXPECT_EQ(
+          rop_new->serialGridReductionRequested(),
+          rop_orig->serialGridReductionRequested());
     }
 
     if (testing::Test::HasFailure()) {
@@ -3428,6 +3458,10 @@ class MultiMatmulSchedulerMatchTest
         NVF_ERROR(operand->uses()[0]->isA<LoadStoreOp>());
         TensorView* op_smem = operand->uses()[0]->output(0)->as<TensorView>();
         tvs.push_back(op_smem);
+      }
+
+      for (MmaOp* mma : ir_utils::getOpsOfType<MmaOp>(fusion)) {
+        tvs.push_back(mma->out()->as<TensorView>());
       }
 
       return tvs;
@@ -3603,6 +3637,19 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatmulSinPrologue) {
   auto tv4 = matmul(tv0, tv3);
 
   fusion->addOutput(tv4);
+
+  compareSchedules();
+}
+
+TEST_P(MultiMatmulSchedulerMatchTest, BatchMatmul) {
+  auto [tv0, tv1] = getBatchInputTVs();
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+
+  fusion->addOutput(tv2);
 
   compareSchedules();
 }
