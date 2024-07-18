@@ -3230,11 +3230,13 @@ class MultiMatmulSchedulerMatchTest
     auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::Half);
 
     if (a_m_inner) {
-      tv0->setAllocationDomain({tv0->axis(2), tv0->axis(1), tv0->axis(0)}, true);
+      tv0->setAllocationDomain(
+          {tv0->axis(2), tv0->axis(1), tv0->axis(0)}, true);
     }
 
     if (b_k_inner) {
-      tv1->setAllocationDomain({tv1->axis(2), tv1->axis(1), tv1->axis(0)}, true);
+      tv1->setAllocationDomain(
+          {tv1->axis(2), tv1->axis(1), tv1->axis(0)}, true);
     }
     return {tv0, tv1};
   }
@@ -3449,8 +3451,7 @@ TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmul) {
 
 // In this example the inputs are already broadcasted to [M K N]
 TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmulBroadcastedInputs) {
-  auto [tv0, tv1] =
-      getBroadcastInputTVs();
+  auto [tv0, tv1] = getBroadcastInputTVs();
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -3583,13 +3584,23 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<MultiMatmulSchedulerMatchTestParams>&
            info) {
       std::ostringstream os;
+      bool is_default = true;
+      auto nonDefaultOption = [&](std::string name) {
+        if (!is_default) {
+          os << "_";
+        }
+        os << name;
+        is_default = false;
+      };
       if (std::get<0>(info.param)) {
-        os << "AMinner_";
+        nonDefaultOption("AMin");
       }
       if (std::get<1>(info.param)) {
-        os << "BKinner_";
+        nonDefaultOption("BKin");
       }
-      os << "_";
+      if (is_default) {
+        os << "default";
+      }
       return os.str();
     });
 
