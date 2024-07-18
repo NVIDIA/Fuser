@@ -77,121 +77,17 @@ std::pair<std::deque<ValGroup>, std::deque<Val*>> TensorIndexer::
   return {contig_alloc_groups, contig_strides};
 }
 
-std::unordered_map<Val*, Val*> TensorIndexer::getPredicateIndexReplacementMap(
-    TensorView* tv,
-    const std::vector<ForLoop*>& for_loops,
-    bool is_start_predicate,
-    bool is_unswitch,
-    const std::unordered_map<ValGroup, Val*>& index_map,
-    const ValGraph& traversal_graph) const {
-  std::unordered_map<Val*, Val*> replacement_map;
-
-  auto replace_for_unswitch =
-      [&](ForLoop* fl, IterDomain* loop_id, bool within_unswitch) -> Val* {
-    // Don't replace thread indices even when unswitched
-    if (fl->iter_domain()->isThread() ||
-        (fl->iter_domain()->getParallelType() != ParallelType::Vectorize &&
-         !within_unswitch && !predicateAtEnd(fl))) {
-      return nullptr;
-    } else {
-      return is_start_predicate
-          ? fl->fusion()->zeroVal()
-          : SimplifyingIrBuilder::subExpr(
-                fl->simplifiedStop(), fl->fusion()->oneVal());
-    }
-  };
-
-  auto replace_for_double_buffering = [&](ForLoop* fl,
-                                          Val* original_index) -> Val* {
-    auto db_axis =
-        GpuLower::current()->circularBufferInfo().getCircularBufferAxis(tv);
-    if (db_axis == nullptr ||
-        !id_model_.idGraph(IdMappingMode::LOOP)
-             .disjointValSets()
-             .strictAreMapped(fl->iter_domain(), db_axis)) {
-      return nullptr;
-    }
-
-    // The prologue loop does not need to be changed
-    if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
-      return nullptr;
-    }
-
-    auto stage_depth =
-        (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            fl->iter_domain());
-    return SimplifyingIrBuilder::addExpr(
-        original_index,
-        SimplifyingIrBuilder::create<Val>(stage_depth - 1L, DataType::Index));
-  };
-
-  bool within_unswitch = false;
-
-  for (const auto fl : for_loops) {
-    auto parallel_type = fl->iter_domain()->getParallelType();
-
-    if (parallel_type == ParallelType::Unswitch ||
-        parallel_type == ParallelType::Unroll) {
-      within_unswitch = is_unswitch;
-    }
-
-    auto loop_id = getLoopPromotion(fl->iter_domain(), id_model_);
-    NVF_ERROR(
-        !loop_id->maybePartial(),
-        "Partial loop not supported: ",
-        fl->toString());
-    auto loop_index_it = index_map.find(traversal_graph.toGroup(loop_id));
-    if (loop_index_it == index_map.end()) {
-      // The index map is built from the tensor loop domains. There
-      // can be for-loops that are not part of this tensor, e.g, a
-      // tensor inlined into a higher dimensional tensor.
-      continue;
-    }
-    Val* loop_index = loop_index_it->second;
-
-    // If it's already const scalar, no replacment should be necessary
-    if (loop_index->isConst()) {
-      continue;
-    }
-
-    Val* replacement = loop_index;
-
-    // Trivial loop. Note that not all trivial loops should just use
-    // the start index for predication. For example, a vectorized loop
-    // is trivial, but its predicate should use `vec_factor - 1` as
-    // its index. This is taken care after this.
-    if (fl->isTrivial()) {
-      replacement = fl->start();
-    }
-
-    auto unswitched_index = replace_for_unswitch(fl, loop_id, within_unswitch);
-    if (unswitched_index != nullptr) {
-      replacement = unswitched_index;
-    }
-
-    // Adjustment for double buffering
-    auto db_index = replace_for_double_buffering(fl, replacement);
-    if (db_index != nullptr) {
-      replacement = db_index;
-    }
-
-    if (replacement != loop_index) {
-      auto inserted = replacement_map.emplace(loop_index, replacement).second;
-      NVF_ERROR(
-          inserted, "Duplicate replacement attempted: ", loop_id->toString());
-      VERBOSE() << "Replacing initial index: " << loop_index->toInlineString()
-                << " with " << replacement->toInlineString() << std::endl;
-    }
-  }
-
-  return replacement_map;
-}
-
 std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
     TensorView* tv,
     const Expr* expr,
     const std::vector<ForLoop*>& for_loops,
-    bool is_unswitch) {
+    ForLoop* unswitched_loop) const {
+  bool is_unswitch = unswitched_loop != nullptr &&
+      (unswitched_loop->iter_domain()->getParallelType() ==
+           ParallelType::Unswitch ||
+       unswitched_loop->iter_domain()->getParallelType() ==
+           ParallelType::Unroll);
+
   if (is_unswitch) {
     VERBOSE() << "get unswitch predicates of " << tv->toString() << " in "
               << expr->toString();
@@ -231,11 +127,25 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
       is_unswitch);
   const auto& index_map = index_info.index_map;
 
-  auto replacement_map_start = getPredicateIndexReplacementMap(
-      tv, for_loops, true, is_unswitch, index_map, traversalGraph());
+  const std::unordered_map<Val*, Val*> replacement_map_start =
+      getPredicateIndexReplacementMap(
+          tv,
+          for_loops,
+          index_map,
+          traversalGraph(),
+          id_model_,
+          /*is_start_predicate=*/true,
+          unswitched_loop);
 
-  auto replacement_map_stop = getPredicateIndexReplacementMap(
-      tv, for_loops, false, is_unswitch, index_map, traversalGraph());
+  const std::unordered_map<Val*, Val*> replacement_map_stop =
+      getPredicateIndexReplacementMap(
+          tv,
+          for_loops,
+          index_map,
+          traversalGraph(),
+          id_model_,
+          /*is_start_predicate=*/false,
+          unswitched_loop);
 
   auto non_divisible_splits = getNonDivisibleConsumerDomainsToPredicate(tv);
 
@@ -330,9 +240,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
       info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
           SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
           contig_domain_group->front()->as<IterDomain>()->extent());
-      info.predicated_domains_ = getCoveredPredicatedDomains(contig_domain_group);
-      VERBOSE() << "Contig covered root: " << toDelimitedString(info.predicated_domains_)
-                << std::endl;
+      info.predicated_domains_ =
+          getCoveredPredicatedDomains(contig_domain_group);
+      VERBOSE() << "Contig covered root: "
+                << toDelimitedString(info.predicated_domains_) << std::endl;
     }
 
     info_vec.emplace_back(info);

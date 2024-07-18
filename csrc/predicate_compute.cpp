@@ -385,8 +385,13 @@ Val* PredicateCompute::getInlinePredicate(
   std::vector<PredicateInfo> pred_info_vec;
   if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") &&
       GpuLower::current()->isTensorIndexerEnabled()) {
-    pred_info_vec =
-        gpu_lower->tensorIndexer().getPredicatesWIP(out_tv, expr, loops, false);
+    if (getenv("NEW")) {
+      pred_info_vec =
+          gpu_lower->tensorIndexer().getPredicates(out_tv, expr, loops);
+    } else {
+      pred_info_vec =
+          gpu_lower->tensorIndexer().getPredicatesWIP(out_tv, expr, loops);
+    }
   } else {
     pred_info_vec = Index::getReferenceRootPredicates(
         out_tv, loops, rotated_loops, nullptr);
@@ -483,7 +488,8 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   auto out_tv = ir_utils::getTvOutput(tv_expr);
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
-  const ParallelType parallel_type = unrolled_loop_->iter_domain()->getParallelType();
+  const ParallelType parallel_type =
+      unrolled_loop_->iter_domain()->getParallelType();
 
   // For the sake of predicate generation, unswitch and unroll can be
   // handled in the same way. Note that !is_unswitch means this is for
@@ -499,8 +505,13 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
        (!is_unswitch &&
         hasEnableOptionArgument(
             EnableOption::IdModel, "vectorize_predicate")))) {
-    ref_pred_info = gpu_lower->tensorIndexer().getPredicatesWIP(
-        out_tv, tv_expr, for_loops_, is_unswitch);
+    if (getenv("NEW")) {
+      ref_pred_info = gpu_lower->tensorIndexer().getPredicates(
+          out_tv, tv_expr, for_loops_, unrolled_loop_);
+    } else {
+      ref_pred_info = gpu_lower->tensorIndexer().getPredicatesWIP(
+          out_tv, tv_expr, for_loops_, unrolled_loop_);
+    }
   } else {
     ref_pred_info = Index::getReferenceRootPredicates(
         out_tv, for_loops_, rotated_loop_, unrolled_loop_);
