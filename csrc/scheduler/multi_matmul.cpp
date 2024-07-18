@@ -1155,6 +1155,15 @@ class MultipleMatmulScheduler {
           axis_roles.count(MatmulDimRole::N)) {
         // swizzleBlockTiles(tv, axis_roles);
       }
+
+      if (params_.splitk_factor > 1) {
+        // Outer K dimension in tv is in same position found in merged_roles
+        for (size_t i : c10::irange(merged_roles.size())) {
+          if (merged_roles[i] == MatmulDimRole::K) {
+            tv->split((int64_t)i, params_.splitk_factor, /*inner*/ false);
+          }
+        }
+      }
     }
 
     // TODO: merge batch dimensions with outermost M/N dimension here, unless
