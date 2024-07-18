@@ -414,15 +414,34 @@ SdpfaFwdResult sdpfa_fwd(
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
 
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool has_device_dim = (query_domain.size() == 5);
+  if (has_device_dim) {
+    NVF_CHECK(
+        query_domain[0]->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+    NVF_CHECK(
+        key_domain[0]->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+    NVF_CHECK(
+        value_domain[0]->isDeviceDim(),
+        "Only suport DID parallelization on outermost axis");
+  }
+
+  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
+  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
+  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
+
   NVF_CHECK(
-      query_domain.size() == 4 && key_domain.size() == 4 &&
-          value_domain.size() == 4,
+      concrete_query_size == 4 && concrete_key_size == 4 &&
+          concrete_value_size == 4,
       "Expected query, key, and value to be 4D but got: ",
-      query_domain.size(),
+      concrete_query_size,
       " ",
-      key_domain.size(),
+      concrete_key_size,
       " ,and ",
-      value_domain.size());
+      concrete_value_size);
 
   NVF_CHECK(
       !dropout_p || dropout_p->isScalar(),
@@ -470,9 +489,12 @@ SdpfaFwdResult sdpfa_fwd(
       IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
   // Create a new Tensorview for cum_seq_q, cum_seq_k of shape (N + 1)
+  auto batch_idx = has_device_dim ? 1 : 0;
   auto newForCumulativeSeq = [&]() -> TensorView* {
     IterDomain* batch_id = ops::newOutputIterDomain(
-        {query_domain.front(), key_domain.front(), value_domain.front()});
+        {query_domain.at(batch_idx),
+         key_domain.at(batch_idx),
+         value_domain.at(batch_idx)});
     IterDomain* resized_batch_id = IterDomain::resize(
         batch_id,
         IrBuilder::create<Val>(0, DataType::Index),
@@ -492,8 +514,8 @@ SdpfaFwdResult sdpfa_fwd(
   TensorView* cum_seq_q = newForCumulativeSeq();
   TensorView* cum_seq_k = newForCumulativeSeq();
 
-  Val* query_seq_len = IrBuilder::create<Val>(DataType::Int);
-  Val* key_seq_len = IrBuilder::create<Val>(DataType::Int);
+  TensorView* query_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
+  TensorView* key_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
 
   // Scalar tensors of int64_t dtype.
   TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
@@ -551,8 +573,8 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* log_sumexp,
     TensorView* cum_seq_q,
     TensorView* cum_seq_k,
-    Val* query_seq_len,
-    Val* key_seq_len,
+    TensorView* query_seq_len,
+    TensorView* key_seq_len,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,

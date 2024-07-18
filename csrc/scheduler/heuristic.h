@@ -42,10 +42,10 @@ class HeuristicParams : public PolymorphicBase {
 
   HeuristicParams() = default;
   HeuristicParams(std::string tag, PrimDataType index_type)
-      : tag(std::move(tag)), cparams({.index_type = index_type}){};
+      : tag(std::move(tag)), cparams({.index_type = index_type}) {};
   HeuristicParams(std::string tag, KernelIndexMode index_mode)
       : tag(std::move(tag)),
-        cparams({.index_type = indexModeToDtype(index_mode)}){};
+        cparams({.index_type = indexModeToDtype(index_mode)}) {};
 };
 
 } // namespace nvfuser

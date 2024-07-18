@@ -463,8 +463,8 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // resolved broadcast iterdomain is `i2`/`b2`, which would give clear_pos=1.
   // So we'll skip all from_ids with index < clear_pos. see issue:
   // https://github.com/NVIDIA/Fuser/issues/1567#issuecomment-1894605385
-  PairwiseRootDomainMap root_map(to, from);
-  auto c2p_map = root_map.mapConsumerToProducer();
+  PairwiseLogicalDomainMap logical_map(to, from);
+  auto c2p_map = logical_map.mapConsumerToProducer();
 
   // Id's in consumer to clear from the mapped set due to broadcast
   // concretization.
@@ -531,8 +531,8 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   // T3[i1, i2] = T2
   // Then i1 and i2 are contiguous in both T0 and T3, but due to the sum on T1
   // we will have removed i1.
-  PairwiseRootDomainMap root_map(from, to);
-  auto p2c_map = root_map.mapProducerToConsumer();
+  PairwiseLogicalDomainMap logical_map(from, to);
+  auto p2c_map = logical_map.mapProducerToConsumer();
   std::vector<IterDomain*> consumer_root_ids;
 
   // Id's in producer to clear from the mapped set due to reductions.
@@ -934,8 +934,9 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     return break_point;
   }
 
-  const auto c2p = PairwiseRootDomainMap(reduction_producer, reduction_consumer)
-                       .mapConsumerToProducer();
+  const auto c2p =
+      PairwiseLogicalDomainMap(reduction_producer, reduction_consumer)
+          .mapConsumerToProducer();
 
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs

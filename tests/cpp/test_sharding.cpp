@@ -12,6 +12,10 @@
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/make_resharding_contiguous.h>
+#include <preseg_passes/propagate_shardings.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -59,7 +63,8 @@ TEST_F(ShardingTest, PropagateSharding) {
   fusion.addOutput(c);
 
   // Expected behavior: a's shardings propagate to c.
-  propagateShardings(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(&fusion);
   std::vector<TensorView*> tvs = {c};
   EXPECT_TRUE(getTvsWithDifferentSharding(a, tvs).empty());
 }
@@ -100,10 +105,14 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
   fusion.addInput(b);
   fusion.addOutput(d);
 
-  propagateShardings(&fusion);
-  insertReshardings(&fusion);
-  insertShardedAxisReordering(&fusion);
-  setShardedAllocationDomain(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::MakeReshardingContiguousPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
       for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {

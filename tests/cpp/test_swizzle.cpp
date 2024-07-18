@@ -185,13 +185,13 @@ TEST_F(SwizzleTest, SwizzleMapping) {
   tv1->computeAt(tv2, -1);
 
   // Check BestEffortReplay behavior with skip swizzles option on.
-  PairwiseRootDomainMap root_map(tv1, tv2);
+  PairwiseLogicalDomainMap logical_map(tv1, tv2);
 
   // Check producer to consumer map,
   //  i.e. unswizzled tensor to swizzled tensor map
   //----------------------------------------------------------
   auto p2c_disjoint_id_map =
-      BestEffortReplay::replayCasP(tv2, tv1, -1, root_map)
+      BestEffortReplay::replayCasP(tv2, tv1, -1, logical_map)
           .getIterDomainEquivalence();
   // P2C map should exist and both the x and y map should
   //  map to the output of the swizzle op.
@@ -207,7 +207,7 @@ TEST_F(SwizzleTest, SwizzleMapping) {
   //  i.e. swizzled tensor to unswizzled tensor map
   //----------------------------------------------------------
   auto c2p_disjoint_id_map =
-      BestEffortReplay::replayPasC(tv1, tv2, -1, root_map)
+      BestEffortReplay::replayPasC(tv1, tv2, -1, logical_map)
           .getIterDomainEquivalence();
 
   auto swizzle_op = tv2->axis(-1)->definition()->as<Swizzle2D>();
@@ -641,7 +641,7 @@ TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {
   tv0->merge(0);
 
   TransformPropagatorWithCheck propagator(tv0);
-  MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator);
 
   auto exprs = StmtSort::getExprsBetween(
       {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()},

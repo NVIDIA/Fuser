@@ -4343,6 +4343,121 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    def test_reshape_dynamic(self):
+        inputs = [
+            32,
+            torch.randn((192,), dtype=torch.float32, device="cuda:0").as_strided(
+                (4, 8, 6), (48, 6, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            S0 = fd.define_scalar(None, dtype=DataType.Int)
+            T1 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            S2 = fd.define_scalar(1, dtype=DataType.Int)
+            S3 = fd.ops.mul(S2, S0)
+            S4 = fd.ops.signbit(S3)
+            S5 = fd.define_scalar(False, dtype=DataType.Bool)
+            S6 = fd.ops.ne(S4, S5)
+            S7 = fd.define_scalar(192, dtype=DataType.Int)
+            S8 = fd.ops.fmod(S7, S3)
+            S9 = fd.ops.cast(S8, dtype=DataType.Int)
+            S10 = fd.define_scalar(0, dtype=DataType.Int)
+            S11 = fd.ops.ne(S9, S10)
+            S12 = fd.ops.bitwise_and(S6, S11)
+            S13 = fd.define_scalar(192, dtype=DataType.Int)
+            S14 = fd.ops.reciprocal(S3)
+            S15 = fd.ops.mul(S13, S14)
+            S16 = fd.ops.cast(S12, dtype=DataType.Int)
+            S17 = fd.ops.sub(S15, S16)
+            V18 = fd.define_vector([S0, S17], dtype=DataType.Int)
+            T19 = fd.ops.reshape(T1, new_shape=V18)
+            T20 = fd.ops.sum(T19, dims=[1], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T20)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    # Test that we do not hit segfaults when replacing an empty tensor that has multiple uses
+    # https://github.com/NVIDIA/Fuser/issues/2545
+    def test_remove_empty_issue_2545(self):
+        inputs = [
+            torch.randint(0, 10, (2,), dtype=torch.int64, device="cuda:0").as_strided(
+                (2,), (1,)
+            ),
+            torch.randint(0, 10, (0,), dtype=torch.int64, device="cuda:0").as_strided(
+                (0,), (1,)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1],
+                contiguity=[True],
+                dtype=DataType.Int,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            S2 = fd.define_scalar(0, dtype=DataType.Int)
+            T3 = fd.ops.lt(T0, S2)
+            S4 = fd.define_scalar(5, dtype=DataType.Int)
+            S5 = fd.define_scalar(0, dtype=DataType.Int)
+            T6 = fd.ops.where(T3, S4, S5)
+            T7 = fd.ops.add(T0, T6)
+            S8 = fd.define_scalar(0, dtype=DataType.Int)
+            T9 = fd.ops.add(T7, S8)
+            T10 = fd.ops.cat([T1, T9], dim=0)
+            S11 = fd.define_scalar(0, dtype=DataType.Int)
+            T12 = fd.ops.add(T10, S11)
+            T13 = fd.ops.cat([T1, T12], dim=0)
+            S14 = fd.define_scalar(5, dtype=DataType.Int)
+            T15 = fd.ops.add(T10, S14)
+            T16 = fd.ops.cat([T13, T15], dim=0)
+            S17 = fd.define_scalar(10, dtype=DataType.Int)
+            T18 = fd.ops.add(T10, S17)
+            fd.add_output(T18)
+            fd.add_output(T16)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_returning_aliased_outputs(self):
+        inputs = [torch.randn((1, 2, 3, 4), dtype=torch.float32, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition):
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            S1 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T2 = fd.ops.gt(T0, S1)
+            S3 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T4 = fd.ops.where(T2, T0, S3)
+            fd.add_output(T4)
+            fd.add_output(T4, T0)
+            fd.add_output(T4)
+            fd.add_output(T0)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        num_out = len(nvf_out)
+        self.assertEqual(num_out, 3)
+        for i in range(num_out):
+            self.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
+
 
 if __name__ == "__main__":
     run_tests()
