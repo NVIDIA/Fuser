@@ -152,7 +152,7 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
     fusion.addInput(tv0);
     auto tv1 = makeSymbolicTensor({-1, 1, 1, 1});
     fusion.addInput(tv1);
-    auto tv2 = add(tv0, tv1)
+    auto tv2 = add(tv0, tv1);
     fusion.addOutput(tv2);
 
     // since tv0->axis(0) is a broadcast, and tv2->axis(0) is not exact map.
