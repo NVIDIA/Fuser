@@ -3669,8 +3669,7 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
     if (def != nullptr) {
       all_exprs.push_back(def);
     }
-    all_exprs.insert(
-        all_exprs.end(), back->uses().begin(), back->uses().end());
+    all_exprs.insert(all_exprs.end(), back->uses().begin(), back->uses().end());
     for (auto e : all_exprs) {
       std::vector<Val*> all_ids;
       all_ids.insert(all_ids.end(), e->inputs().begin(), e->inputs().end());

@@ -25,7 +25,7 @@ namespace nvfuser {
 struct IndexingInfo {
   std::vector<IterDomain*> loop_domains;
   // Indexing traversal path from loop domains
-  ExprPath traversal_path;
+  ExprPath<ExprGroup> traversal_path;
   // Index mappings of ID groups along the traversal path
   std::unordered_map<ValGroup, Val*> index_map;
 };
