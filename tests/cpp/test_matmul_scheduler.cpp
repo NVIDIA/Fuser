@@ -3209,7 +3209,8 @@ class MultiMatmulSchedulerMatchTest
       int N,
       int K,
       bool a_m_inner,
-      bool b_k_inner) {
+      bool b_k_inner,
+      bool broadcasted = false) {
     auto tv0 = makeContigTensor(2, DataType::Half);
     auto tv1 = makeContigTensor(2, DataType::Half);
 
@@ -3228,13 +3229,18 @@ class MultiMatmulSchedulerMatchTest
       int N,
       int K,
       bool a_m_inner,
-      bool b_k_inner) {
+      bool b_k_inner,
+      bool broadcasted = false) {
     const auto options =
         at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0 /*device*/);
     auto t0 = a_m_inner ? at::randn({M, K}, options).as_strided({M, K}, {1, M})
                         : at::randn({M, K}, options);
     auto t1 = b_k_inner ? at::randn({K, N}, options).as_strided({K, N}, {1, K})
                         : at::randn({K, N}, options);
+    if (broadcasted) {
+      t0 = t0.unsqueeze(-1);
+      t1 = t1.unsqueeze(0);
+    }
     return {t0, t1};
   }
 
@@ -3413,7 +3419,7 @@ class MultiMatmulSchedulerMatchTest
   std::unique_ptr<IrCloner> cloner_;
 };
 
-TEST_P(MultiMatmulSchedulerMatchTest, MatchSimpleMatmul) {
+TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmul) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
 
   const int M = 128, N = 256, K = 512;
@@ -3428,8 +3434,25 @@ TEST_P(MultiMatmulSchedulerMatchTest, MatchSimpleMatmul) {
   fusion->addOutput(tv2);
 
   compareSchedules();
+}
 
-  // TODO: once the schedules match, add compileFusion and testValidate
+// In this example the inputs are already broadcasted to [M K N]
+TEST_P(MultiMatmulSchedulerMatchTest, SimpleMatmulBroadcastedInputs) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+
+  const int M = 128, N = 256, K = 512;
+
+  auto [tv0, tv1] =
+      getInputTVs(M, N, K, a_m_inner, b_k_inner, /*broadcasted=*/true);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {1});
+
+  fusion->addOutput(tv2);
+
+  compareSchedules();
 }
 
 INSTANTIATE_TEST_SUITE_P(
