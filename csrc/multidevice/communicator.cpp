@@ -215,6 +215,15 @@ Communicator::Communicator(
 }
 
 void Communicator::cleanup() {
+  static bool cleaned_up = false;
+  if (cleaned_up) {
+    TORCH_WARN(
+        "The singleton Communicator has already been cleaned up. This is "
+        "likely because Communicator::cleanup was called more than once");
+    return;
+  }
+  cleaned_up = true;
+
   store_ = nullptr;
 
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
