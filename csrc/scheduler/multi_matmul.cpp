@@ -718,42 +718,35 @@ class MultipleMatmulScheduler {
       mma_results_.push_back(mma->out()->as<TensorView>());
     }
 
-    // Use cp.async as requested in scheduler params.
-    LoadStoreOpType load_op = LoadStoreOpType::Set;
-    CacheOp cache_op_a = CacheOp::Unspecified;
-    CacheOp cache_op_b = CacheOp::Unspecified;
-    if (params_.async_gmem_load_operands) {
-      load_op = LoadStoreOpType::CpAsync;
-      auto getCacheOp = [](int64_t vec_size, TensorView* operand) -> CacheOp {
-        int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
-        NVF_CHECK(
-            vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
-            "Unsupported async vectorization size ",
-            vec_size,
-            " = ",
-            vec_bytes,
-            " bytes for operand ",
-            operand->toString(),
-            " which has data type ",
-            operand->dtype(),
-            ". Size must be 4, 8, or 16 bytes. ",
-            "MatmulParams::async_gmem_load_operands should be set to false in this case.");
-        return vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
-      };
-      for (TensorView* a : as_) {
-        cache_op_a = getCacheOp(params_.supported_vec_size.a, a);
-      }
-      for (TensorView* b : bs_) {
-        cache_op_b = getCacheOp(params_.supported_vec_size.b, b);
-      }
-    }
+    LoadStoreOpType load_op = params_.async_gmem_load_operands
+        ? LoadStoreOpType::CpAsync
+        : LoadStoreOpType::Set;
 
     auto cacheOperandsToSmem = [&](const std::vector<TensorView*>& operands,
                                    std::vector<TensorView*>& smem_operands,
-                                   CacheOp cache_op) {
+                                   int64_t vec_size) {
+      // Use cp.async as requested in scheduler params.
       smem_operands.resize(operands.size(), nullptr);
       for (size_t i : c10::irange(operands.size())) {
         TensorView* operand = operands[i];
+        CacheOp cache_op = CacheOp::Unspecified;
+        if (params_.async_gmem_load_operands) {
+          int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
+          NVF_CHECK(
+              vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
+              "Unsupported async vectorization size ",
+              vec_size,
+              " = ",
+              vec_bytes,
+              " bytes for operand ",
+              operand->toString(),
+              " which has data type ",
+              operand->dtype(),
+              ". Size must be 4, 8, or 16 bytes. ",
+              "MatmulParams::async_gmem_load_operands should be set to false in this case.");
+          cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
+        };
+
         NVF_ERROR(operand->uses().size() == 1);
         smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
         smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
@@ -770,8 +763,8 @@ class MultipleMatmulScheduler {
         smem_operands[i]->setMemoryType(MemoryType::Shared);
       }
     };
-    cacheOperandsToSmem(as_, acw_smems_, cache_op_a);
-    cacheOperandsToSmem(bs_, bcw_smems_, cache_op_b);
+    cacheOperandsToSmem(as_, acw_smems_, params_.supported_vec_size.a);
+    cacheOperandsToSmem(bs_, bcw_smems_, params_.supported_vec_size.b);
 
     // We add two LoadStore operators to the inputs of our fusions. The first
     // one is for a read from global memory and the second one (below) is for a
