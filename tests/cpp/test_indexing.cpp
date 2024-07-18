@@ -330,7 +330,10 @@ class PredicateIndexValidator : public kir::IrVisitor {
   }
 
   template <typename... Args>
-  static void validate(Fusion* fusion, bool enable_contig_indexing, Args... args) {
+  static void validate(
+      Fusion* fusion,
+      bool enable_contig_indexing,
+      Args... args) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::IdModel, {"inline_predicate"});
@@ -2558,6 +2561,144 @@ TEST_F(PredicateIndexingTest, ReductionRfactor) {
   };
 
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Same fusion as IndexingTest.SimpleVectorize
+TEST_F(PredicateIndexingTest, SimpleVectorize) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(0, 4);
+  tv2->split(0, 128);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+  tv2->axis(2)->parallelize(ParallelType::Vectorize);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  scheduler_utils::parallelizeAllLike(tv2, ir_utils::allTvs(&fusion));
+
+  // T1_l[ iblockIdx.x9{( ceilDiv(( ceilDiv(i0, 4) ), 128) )},
+  // ithreadIdx.x10{128}, iV8{4} ] ca_pos( 2 ) T2_g[ iblockIdx.x5{( ceilDiv((
+  // ceilDiv(i0, 4) ), 128) )}, ithreadIdx.x6{128}, iV4{4} ] ca_pos( 2 )
+  // produce_pos( 2 )
+
+  // Both tv1 and tv2 are vectorized. Their predicates are the same as
+  // this is a simple memcpy.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto start_idx = mulExpr(
+          addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              loop_indices.at(1)),
+          tv->axis(2)->extent());
+      auto stop_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  loop_indices.at(1)),
+              tv->axis(2)->extent()),
+          subExpr(tv->axis(2)->extent(), createInt(1)));
+
+      // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) >= 0 ) &&
+      // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 3 ) < ( (( ((
+      // getMetaData(T0) )).logical_size ))[0] ) ) )
+      return andExpr(
+          geExpr(start_idx, tv->fusion()->zeroVal()),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Same as IndexingTest.NonInnermostVectorize
+TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  // For vectorized store
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Vectorize
+  tv3->split(0, 4);
+  // Serial
+  tv3->split(0, 2);
+  // TIDx
+  tv3->split(0, 128);
+
+  tv3->reorder({{-1, -2}});
+
+  TransformPropagator propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3, ir_utils::allTvs(&fusion));
+
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+  tv3->axis(2)->parallelize(ParallelType::Vectorize);
+
+  // T1_l[ iblockIdx.x20{( ceilDiv(( ceilDiv(( ceilDiv(i0, 4) ), 2) ), 128) )},
+  // ithreadIdx.x21{128}, iV17{4}, iS19{2} ] T2_l[ iblockIdx.x14{( ceilDiv((
+  // ceilDiv(( ceilDiv(i0, 4) ), 2) ), 128) )}, ithreadIdx.x15{128}, iS11{4},
+  // iS13{2} ] T3_g[ iblockIdx.x8{( ceilDiv(( ceilDiv(( ceilDiv(i0, 4) ), 2) ),
+  // 128) )}, ithreadIdx.x9{128}, iV5{4}, iS7{2} ]
+
+  // Check the vectorized tensors, i.e., tv1 and tv3. The vectorized domain is
+  // not innermost. Make sure only the vectorized domain is predicated with
+  // (extent - 1).
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getPredicate(TensorView* tv) const override {
+      if (tv->name() != 1 && tv->name() != 3) {
+        return nullptr;
+      }
+
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto common_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  loop_indices.at(1)),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+      auto start_idx = mulExpr(common_idx, tv->axis(2)->extent());
+      auto stop_idx = addExpr(
+          mulExpr(common_idx, tv->axis(2)->extent()),
+          subExpr(tv->axis(2)->extent(), createInt(1)));
+
+      return andExpr(
+          geExpr(start_idx, tv->fusion()->zeroVal()),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 } // namespace nvfuser

@@ -38,7 +38,6 @@ std::vector<IterDomain*> getPredicateDomains(
   // reduction domains do not need to be predicated. In fact, if it's
   // a Local tensor, no predicate is necessary at all
   if (lower_utils::isReductionInitExpr(expr)) {
-    VERBOSE() << "Reduction init expr: " << expr->toString();
     if (consumer_tv->getMemoryType() == MemoryType::Local) {
       return {};
     } else {
