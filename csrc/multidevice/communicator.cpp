@@ -215,14 +215,6 @@ Communicator::Communicator(
 }
 
 void Communicator::cleanup() {
-  if (!is_available_) {
-    TORCH_WARN(
-        "The singleton Communicator isn't available. "
-        "This is likely because Communicator::cleanup was called more than "
-        "once or the instance wasn't successfully initialized.");
-    return;
-  }
-
   store_ = nullptr;
 
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
