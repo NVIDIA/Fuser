@@ -389,15 +389,58 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   return false;
 }
 
+namespace {
+
+bool isSplitOnly(ViewOp* view_op) {
+  for (auto expr : StmtSort::getExprsTo(
+           {view_op->out()->getLogicalDomain().begin(),
+            view_op->out()->getLogicalDomain().end()})) {
+    if (!expr->isA<Split>()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace
+
 // Returns if view interferes with how we want to treat the reference, being at
 // least a 2D reduction schedule but maybe a 3D reduction schedule.
-bool reductionInterferingView(
-    Fusion* fusion,
-    const ComputeAtMap& ca_map,
-    TensorView* reduction_reference) {
+bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference) {
   // Make sure the view doesn't interfere with how we'll want to schedule
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.
+
+  // Only needs to check tvs not used by reduction, e.g. T1 = view(T0),
+  // Tx = SomeOps(T1), T3 = reduction(Tx), T4 = view(Tx). In this case, T3 has
+  // the same logical domain as T1, don't need to check `T1 = view(T0)`.
+  // However, T4 is not used by T3, so need to check `T4 = view(Tx)`. See test
+  // GpuViewTest.ReshapeReductionSilbingReshape.
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  std::vector<ViewOp*> view_ops_not_used_by_reduction;
+  bool all_views_are_split_only = true;
+  for (auto view : ir_utils::getViewOps(fusion)) {
+    auto view_tv = view->out();
+    // Task 1: Record views not used by reduction
+    if (!std::any_of(
+            reduction_tvs.begin(),
+            reduction_tvs.end(),
+            [&view_tv](TensorView* red_tv) {
+              return DependencyCheck::isDependencyOf(view_tv, red_tv);
+            })) {
+      view_ops_not_used_by_reduction.push_back(view);
+    }
+    // Task 2: Check if all view ops are split only
+    if (!isSplitOnly(view)) {
+      all_views_are_split_only = false;
+    }
+  }
+  // If all view ops are used by reduction or all view ops are split only, no
+  // need to check. They won't lead to the merge of reduction Id with iteration
+  // Id.
+  if (view_ops_not_used_by_reduction.empty() || all_views_are_split_only) {
+    return false;
+  }
 
   // Utility to take dimensions out of the vector that we've already
   // processed or don't want to process.
@@ -414,8 +457,11 @@ bool reductionInterferingView(
 
   std::vector<IterDomain*> dims = reduction_reference->getLogicalDomain();
 
-  // The disjoint groups we need for this scheduler
-  std::vector<std::vector<IterDomain*>> groups;
+  // Each vector of IDs is a group of coalesced_ids, they will be merged into
+  // one ID during the reduction schedule. If the view op involves merging IDs
+  // in different group of coalesced_ids, it would break the reduction
+  // scheduler.
+  std::vector<std::vector<IterDomain*>> vect_of_coalesced_ids;
 
   // Do this three times as we could have a 3D scheduler at maximum
   for (auto dimension : c10::irange(3)) {
@@ -442,60 +488,113 @@ bool reductionInterferingView(
 
     // Don't add empty group (would happen if it's a 2D scheduler not 3D)
     if (!current_dims.empty()) {
-      groups.push_back(current_dims);
+      vect_of_coalesced_ids.push_back(current_dims);
       dims = remove_dims(dims, processed);
     }
   }
 
   NVF_ERROR(dims.empty(), "Error processing ", dims, " in registry.cpp.");
 
-  // Make sure groups are disjoint based on view
+  // Check if any view op could merge IDs in different coalesced_ids.
+  // (1) Build the exact graph
+  IdModel id_model(fusion, false, false, false);
+  id_model.buildExactGraph();
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+  auto disjoint_sets = graph.disjointValSets();
+  // keep track of split IDs, each unordered_set in the vector stores
+  // connected split IDs. For example, if we have:
+  // I0 -> I1, I2
+  // I3 -> I4, I5
+  // I5 -> I6, I7
+  // There are 2 groups: [I0, I1, I2] and [I3, I4, I5, I6, I7]
+  // when a merge op is found, e.g. I9 = I8 * I7, we need to map
+  // I9 with I8 and all the IDs in [I3, I4, I5, I6, I7].
+  std::vector<std::unordered_set<IterDomain*>> ids_in_connected_splits;
 
-  auto disjoint_rfactor_sets = scheduler_utils::disjointLogicalSets(fusion);
-  auto disjoint_set_information = scheduler_utils::getDisjointLogicalSetsOf(
-      fusion, reduction_reference, disjoint_rfactor_sets);
+  // Here we can't directly find IterDomain since they may be in different
+  // reshape ops. ValGroup groups IDs in different tvs.
+  auto findIdSet = [&](IterDomain* id) {
+    auto id_vgroup = graph.toGroup(id);
+    return std::find_if(
+        ids_in_connected_splits.begin(),
+        ids_in_connected_splits.end(),
+        [&](const std::unordered_set<IterDomain*>& id_set) {
+          return std::any_of(
+              id_set.begin(), id_set.end(), [&](IterDomain* set_id) {
+                return graph.toGroup(set_id) == id_vgroup;
+              });
+        });
+  };
 
-  // Convert id's in groups to disjoint_set_ids of disjoint_set_information
-  std::vector<std::vector<int64_t>> disjoint_groups;
-
-  for (const auto& group : groups) {
-    std::vector<int64_t> disjoint_id_sets;
-    for (auto id : group) {
-      auto find_it = std::find(
-          reduction_reference->getLogicalDomain().begin(),
-          reduction_reference->getLogicalDomain().end(),
-          id);
-      NVF_ERROR(
-          find_it != reduction_reference->getLogicalDomain().end(),
-          "Issue with view analysis on reduction like schedule, with reference: ",
-          reduction_reference->toString());
-      auto logical_pos = std::distance(
-          reduction_reference->getLogicalDomain().begin(), find_it);
-      NVF_ERROR(
-          logical_pos <
-              (int64_t)disjoint_set_information.disjoint_set_ids.size(),
-          "Error computing disjoint group on the logical domain of ",
-          reduction_reference->toString());
-      disjoint_id_sets.push_back(
-          disjoint_set_information.disjoint_set_ids[logical_pos]);
-    }
-    disjoint_groups.push_back(disjoint_id_sets);
+  // val group for reduction tv's root IDs
+  std::unordered_set<ValGroup> ref_root_groups;
+  for (auto id : reduction_reference->getMaybeRootDomain()) {
+    ref_root_groups.insert(graph.toGroup(id));
   }
 
-  // Make sure there's no intersection between the groups, otherwise view
-  // will interfere with the schedule. TODO: Make this better complexity,
-  // since it should be relatively small int vectors of a small total nDims,
-  // not too worried about it now.
+  // Loop over each view and process the IDs
+  for (auto view : view_ops_not_used_by_reduction) {
+    auto tv = view->out();
+    for (auto expr : StmtSort::getExprsTo(
+             {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
+      if (auto merge = dynamic_cast<Merge*>(expr)) {
+        // if the output of the merge op and one of the reduction tv's root ID
+        // are in the same valGroup. It won't cause the merge of an iter dim
+        // with a redu dim when replayed on the reduction tv. We can skip this
+        // transform, further transforms using this ID can still be captured and
+        // mapped since it it a root ID of the reduction tv. See tests
+        // GpuViewTest.SplitMergeReductionSplitMerge and
+        // GpuViewTest.SplitMergeReductionSplitMergeSplitMerge
+        if (ref_root_groups.count(graph.toGroup(merge->out())) > 0) {
+          continue;
+        }
+        auto id1 = merge->inner();
+        auto id2 = merge->outer();
+        disjoint_sets.mapEntries(id1, merge->out());
+        disjoint_sets.mapEntries(id2, merge->out());
+        // if merged id comes from a set of connected splits, map it with all
+        // other IDs in the set
+        for (auto merged_id : {id1, id2}) {
+          auto it = findIdSet(merged_id);
+          if (it != ids_in_connected_splits.end()) {
+            for (auto id : *it) {
+              disjoint_sets.mapEntries(id, merge->out());
+            }
+          }
+        }
+      }
+      // For split, directly map the inner and outer IDs leads to false
+      // positive e.g. the frist reshape in group norm, since only merge op can
+      // cause the merge of IDs in different coalesced_ids.
+      // If the split ID is in a set of connected splits, map all other IDs to
+      // the same set, otherwise create a new set.
+      else if (auto split = dynamic_cast<Split*>(expr)) {
+        auto split_id = split->in();
+        auto it = findIdSet(split_id);
+        if (it != ids_in_connected_splits.end()) {
+          it->insert(split->inner());
+          it->insert(split->outer());
+        } else {
+          ids_in_connected_splits.push_back(
+              {split_id, split->inner(), split->outer()});
+        }
+      }
+    }
+  }
 
-  for (auto first_dim_i : c10::irange(disjoint_groups.size())) {
-    for (auto second_dim_i = first_dim_i + 1;
-         second_dim_i < disjoint_groups.size();
-         ++second_dim_i) {
-      auto first_group = disjoint_groups[first_dim_i];
-      auto second_group = disjoint_groups[second_dim_i];
-      for (auto first_disjoint_id : first_group) {
-        for (auto second_disjoint_id : second_group) {
-          if (first_disjoint_id == second_disjoint_id) {
+  // check if there are any mapped IDs in different coalesced_ids
+  // For each group of coalesced_ids, check with other groups
+  for (auto index_i : c10::irange(vect_of_coalesced_ids.size())) {
+    for (auto index_j : c10::irange(vect_of_coalesced_ids.size())) {
+      if (index_i == index_j) {
+        continue;
+      }
+      const auto& coalesced_ids_1 = vect_of_coalesced_ids.at(index_i);
+      const auto& coalesced_ids_2 = vect_of_coalesced_ids.at(index_j);
+      // For each id in group_1, check with other ids in group_2
+      for (auto id_1 : coalesced_ids_1) {
+        for (auto id_2 : coalesced_ids_2) {
+          if (disjoint_sets.strictAreMapped(id_1, id_2)) {
             return true;
           }
         }

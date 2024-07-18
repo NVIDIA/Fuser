@@ -908,8 +908,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
 
     // Reduction scheduler simply uses reduction_tvs[0] as the reference, if
     // that changes, this needs to be changed.
-    if (registry_utils::reductionInterferingView(
-            fusion, ca_map, reduction_tvs[0])) {
+    if (registry_utils::reductionInterferingView(fusion, reduction_tvs[0])) {
       scheduler_debug_utils::canScheduleRejectReason(
           heuristicType(), "View may interfere with reduction scheduling.");
       return false;

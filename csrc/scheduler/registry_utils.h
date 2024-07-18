@@ -55,10 +55,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map);
 
 // Returns if view interferes with how we want to treat the reference, being
 // at least a 2D reduction schedule but maybe a 3D reduction schedule.
-bool reductionInterferingView(
-    Fusion* fusion,
-    const ComputeAtMap& ca_map,
-    TensorView* reduction_reference);
+bool reductionInterferingView(Fusion* fusion, TensorView* reduction_reference);
 
 // Check inputs, outputs and intermediates
 // Intermediates are contiguous, so strides are not necessary
