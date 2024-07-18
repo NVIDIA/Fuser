@@ -1439,16 +1439,17 @@ DynamicTransformInitialInfo DynamicTransform::getInitialInfo(Fusion* fusion) {
   return builder.getInfo();
 }
 
-void DynamicTransform::concretizeFusion(
+std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
     Fusion* fusion,
     const DynamicTransformConcretizationInfo* info) {
   DynamicTransformConcretizer concretizer(fusion, info);
+  return concretizer.getSymbolicToConcretizedMap();
 }
 
-void DynamicTransform::concretizeFusion(
+std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
     Fusion* fusion,
     const std::vector<c10::IValue>& aten_inputs) {
-  concretizeFusion(
+  return concretizeFusion(
       fusion, KernelArgumentHolder::createKernelArgumentHolder(aten_inputs));
 }
 
@@ -1458,8 +1459,7 @@ std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
   ExpressionEvaluator expr_eval = executor_utils::bindInputs(args, fusion);
   auto initial_info = getInitialInfo(fusion);
   DynamicTransformConcretizationInfo info(&initial_info, &expr_eval);
-  DynamicTransformConcretizer concretizer(fusion, &info);
-  return concretizer.getSymbolicToConcretizedMap();
+  return concretizeFusion(fusion, &info);
 }
 
 size_t DynamicTransformConcretizationInfo::hash() const {
