@@ -3178,7 +3178,9 @@ using MultiMatmulSchedulerMatchTestParams = std::tuple<
     int64_t, // vec_size_b
     int64_t, // vec_size_epilogue
     bool, // smem_epilogue
-    int64_t // splitk_factor
+    int64_t, // splitk_factor
+    bool, // cta_order_col_major
+    int64_t // grid_swizzle_factor
     >;
 
 class MultiMatmulSchedulerMatchTest
@@ -3198,6 +3200,8 @@ class MultiMatmulSchedulerMatchTest
     vec_size_epilogue = std::get<4>(GetParam());
     smem_epilogue = std::get<5>(GetParam());
     splitk_factor = std::get<6>(GetParam());
+    cta_order_col_major = std::get<7>(GetParam());
+    grid_swizzle_factor = std::get<8>(GetParam());
 
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(256, 128, 32);
@@ -3214,6 +3218,10 @@ class MultiMatmulSchedulerMatchTest
         params.circular_buffer_options.smem_circular_buffer_stage > 1;
     params.use_smem_epilogue = smem_epilogue;
     params.splitk_factor = splitk_factor;
+    params.cta_order = cta_order_col_major
+        ? MatmulParams::TileRasterizationOrder::ColumnMajor
+        : MatmulParams::TileRasterizationOrder::RowMajor;
+    params.grid_swizzle_factor = grid_swizzle_factor;
   }
 
   void SetUp() {
@@ -3344,8 +3352,8 @@ class MultiMatmulSchedulerMatchTest
 
   void compareTVs(TensorView* tv_orig, TensorView* tv_new) {
     std::stringstream suffix_ss;
-    suffix_ss << " when comparing new TensorView " << tv_new->toString()
-              << " to original TensorView " << tv_orig->toString();
+    suffix_ss << " when comparing new TensorView\n  " << tv_new->toString()
+              << "\nto original TensorView\n  " << tv_orig->toString();
     std::string suffix = suffix_ss.str();
 
     EXPECT_EQ(tv_new->nDims(), tv_orig->nDims()) << suffix;
@@ -3436,6 +3444,8 @@ class MultiMatmulSchedulerMatchTest
   int64_t vec_size_a, vec_size_b, vec_size_epilogue;
   bool smem_epilogue;
   int64_t splitk_factor;
+  bool cta_order_col_major;
+  int64_t grid_swizzle_factor;
 
  private:
   std::unique_ptr<Fusion> fusion_ptr_;
@@ -3602,6 +3612,8 @@ std::string printMatchTestParams(
   os << "vepi" << std::get<4>(info.param);
   os << "smep" << std::get<5>(info.param);
   os << "sk" << std::get<6>(info.param);
+  os << "col" << std::get<7>(info.param);
+  os << "swiz" << std::get<8>(info.param);
   return os.str();
 }
 
@@ -3616,7 +3628,9 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(8, 2), // vec_size_b
         testing::Values(4), // vec_size_epilogue
         testing::Values(true), // use_smem_epilogue
-        testing::Values(1, 2) // splitk_factor
+        testing::Values(1, 2), // splitk_factor
+        testing::Bool(), // cta_order_col_major
+        testing::Values(1, 2) // grid_swizzle_factor
         ),
     printMatchTestParams);
 
@@ -3631,7 +3645,9 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(8), // vec_size_b
         testing::Values(4, 2), // vec_size_epilogue
         testing::Bool(), // use_smem_epilogue
-        testing::Values(1, 2) // splitk_factor
+        testing::Values(1, 2), // splitk_factor
+        testing::Values(false), // cta_order_col_major
+        testing::Values(1) // grid_swizzle_factor
         ),
     printMatchTestParams);
 
