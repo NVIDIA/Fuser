@@ -1131,9 +1131,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     }
   }
   // set cached outputs of group 2 to shared memory
-  for (auto pair : cached_outputs) {
-    auto cached_output = pair.first;
-    auto output = pair.second;
+  for (auto [cached_output, output, _] : cached_outputs) {
     if (group2_and_cached_inputs.count(output) > 0) {
       cached_output->setMemoryType(MemoryType::Shared);
     }

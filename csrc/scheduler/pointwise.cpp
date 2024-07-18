@@ -450,7 +450,8 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
           largest_out,
           data_cache,
           break_point,
-          logical_reorder_map));
+          logical_reorder_map)
+          .first);
 
   if (vectorize_factor == 1) {
     params->vectorize = false;
@@ -902,8 +903,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   for (auto cached_input : cached_inputs) {
     inner_most_tensors.erase(cached_input);
   }
-  for (auto entry : cached_outputs) {
-    auto output = entry.second;
+  for (auto [_0, output, _2] : cached_outputs) {
     inner_most_tensors.erase(output);
   }
   inlineMost(inner_most_tensors);

@@ -1093,13 +1093,21 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
 
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          reduction_tv, reduced_tv, properties.inner_most_dimension_ndims));
-
+  const auto& [min_vectorize_factor, vectorization_factor_map] =
+      vectorize_helper::getVectorizationFactor(
+          runtime_info,
+          reduced_tv,
+          data_cache,
+          vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+              reduction_tv, reduced_tv, properties.inner_most_dimension_ndims));
+  // still use min vectorization factor
+  // TODO: consider using max vectorization factor
+  int64_t vectorize_factor = min_vectorize_factor;
+  if(std::getenv("USE_MAIN") == nullptr) {
+    for (auto pair : vectorization_factor_map) {
+      vectorize_factor = std::max(vectorize_factor, pair.second);
+    }
+  }
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
   int64_t max_dtype_size = 1;
@@ -1131,6 +1139,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       max_dtype_size,
       vectorize_factor);
   heuristic->cparams.index_type = runtime_info.getIndexType();
+  heuristic->vectorization_factor_map = vectorization_factor_map;
   return heuristic;
 }
 
@@ -1138,7 +1147,6 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
-
   bool unroll = rparams.isUnrolled();
 
   // Cache inputs if unrolled
@@ -1200,8 +1208,6 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   NVF_ERROR(
       reference_tv != nullptr && reduction_tv != nullptr,
       "Need these two tensor views to finish the scheduling.");
-  const bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
 
   // allow iter domain grouped reduction for block and grid outer reductions.
   // TODO: the var name is confusing, should rename
@@ -1214,14 +1220,18 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       (has_welford
            ? rparams.cross_grid_inner_reduction && rparams.persistent_kernel
            : rparams.cross_block_inner_reduction);
+  const int64_t vectorization_factor = rparams.fastest_dim
+      ? rparams.unroll_factor_inner_reduction
+      : rparams.unroll_factor_iter_dom;
 
   reduction_scheduler_utils::multiReductionInliner(
       fusion,
       reduction_tv,
       reference_tv,
       unroll,
-      vectorize,
+      vectorization_factor,
       use_iter_grouped_reduction,
+      rparams.vectorization_factor_map,
       reduction_tvs,
       cached_inputs,
       cached_outputs);

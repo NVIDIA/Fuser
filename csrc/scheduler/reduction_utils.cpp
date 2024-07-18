@@ -281,20 +281,9 @@ TensorView* scheduleReductionTV(
   // In the case of outer grid persistence, make sure the vectorized
   // domain placed at the innermost position.
   // TODO: Why isn't this the case by default?
-  if (is_outer_grid_persistence) {
-    int64_t vec_id_cur_pos = -1;
-    std::unordered_map<int64_t, int64_t> vec_reorder_map;
-    for (const auto i : c10::irange(reduction_rf_tv->nDims())) {
-      auto id = reduction_rf_tv->axis(i);
-      if (id->getParallelType() == ParallelType::Vectorize) {
-        vec_id_cur_pos = i;
-        vec_reorder_map[i] = -1;
-      } else if (vec_id_cur_pos >= 0) {
-        vec_reorder_map[i] = i - 1;
-      }
-    }
-    NVF_ERROR(vec_id_cur_pos != -1, "Vectorized ID not found");
-    reduction_rf_tv->reorder(vec_reorder_map);
+  // also happened for outer reduction.
+  if (!rparams.fastest_dim) {
+    reorderVectorizationAxisToLast(reduction_rf_tv);
   }
 
   return reduction_rf_tv;
@@ -323,16 +312,104 @@ std::vector<int64_t> addBackBroadcasts(
   return axes;
 }
 
+std::unordered_set<TensorView*> getUnrolledOrVectorizedInputsOutputs(
+    TensorView* reference_tv,
+    const std::unordered_map<TensorView*, int64_t>& vectorization_factor_map,
+    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>&
+        cached_outputs,
+    const int64_t vectorization_factor) {
+
+  NVF_ERROR(
+      reference_tv->axis(-1)->getParallelType() == ParallelType::Vectorize,
+      "Last dim of reference_tv should be vectorized, tv: ",
+      reference_tv->toString());
+  // vectorization_factor_map stores TensorView* from the original fusion,
+  // scheduler works on a cloned fusion, tv->name() is used to find the
+  // corresponding TensorView*.
+  auto getAllowedVectFactor = [&vectorization_factor_map](TensorView* tv) {
+    auto it = std::find_if(
+        vectorization_factor_map.begin(),
+        vectorization_factor_map.end(),
+        [&tv](const auto& pair) { return pair.first->name() == tv->name(); });
+    NVF_ERROR(
+        it != vectorization_factor_map.end(),
+        "Can't find tv in vectorization_factor_map: ",
+        tv->toString());
+    return it->second;
+  };
+
+  // Find all tensor views that should have unroll or vectorization
+  std::unordered_set<TensorView*> unrolled_vectorized_tvs;
+
+  auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
+
+  // Grab all tensor views that should be vectorized
+  auto vectorizable_inputs_outputs =
+      scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
+
+  auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
+
+  for (auto cached_input : cached_inputs) {
+    if (vectorization_factor > 1 &&
+        cached_input->axis(-1)->getParallelType() == ParallelType::Serial) {
+      auto producer_tvs = ir_utils::producerTvsOf(cached_input);
+      if (producer_tvs.size() == 1 &&
+          vectorizable_expr(cached_input->definition()) &&
+          std::find(
+              vectorizable_inputs_outputs.begin(),
+              vectorizable_inputs_outputs.end(),
+              producer_tvs[0]) != vectorizable_inputs_outputs.end()) {
+        // adjust vectorization factor and parallelize the axis.
+        // Its transform is different from the reference tv after adjusting,
+        // propagateParallelization won't parallelize last axis.
+        int64_t allowed_vectorization_factor =
+            getAllowedVectFactor(producer_tvs.at(0));
+        if (allowed_vectorization_factor < vectorization_factor) {
+          cached_input->split(-1, allowed_vectorization_factor);
+          cached_input->axis(-1)->parallelize(ParallelType::Vectorize);
+        }
+        unrolled_vectorized_tvs.emplace(cached_input);
+      }
+    } else {
+      unrolled_vectorized_tvs.emplace(cached_input);
+    }
+  }
+
+  for (auto [_, output, old_output] : cached_outputs) {
+    if (vectorization_factor > 1 &&
+        output->axis(-1)->getParallelType() == ParallelType::Serial) {
+      if (vectorizable_expr(output->definition()) &&
+          std::find(
+              vectorizable_inputs_outputs.begin(),
+              vectorizable_inputs_outputs.end(),
+              output) != vectorizable_inputs_outputs.end()) {
+        int64_t allowed_vectorization_factor = getAllowedVectFactor(old_output);
+        if (allowed_vectorization_factor < vectorization_factor) {
+          output->split(-1, allowed_vectorization_factor);
+          output->axis(-1)->parallelize(ParallelType::Vectorize);
+        }
+        unrolled_vectorized_tvs.emplace(output);
+      }
+    } else {
+      unrolled_vectorized_tvs.emplace(output);
+    }
+  }
+  return unrolled_vectorized_tvs;
+}
+
 void multiReductionInliner(
     Fusion* fusion,
     TensorView* reduction_tv,
     TensorView* reference_tv,
     const bool unroll,
-    const bool vectorize,
+    const int64_t vectorization_factor,
     const bool use_grouped_reduction,
+    const std::unordered_map<TensorView*, int64_t>& vectorization_factor_map,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
-    std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
+    std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>
+        cached_outputs,
     std::vector<TensorView*> dummy_outputs) {
   // Propagate transformations before we rfactor the other reductions
   propagateTransformation(reference_tv);
@@ -341,16 +418,21 @@ void multiReductionInliner(
     propagateRFactor(reference_tv, reduction_tv, reduction_tvs);
   }
 
+  const auto& unrolled_vectorized_tvs = getUnrolledOrVectorizedInputsOutputs(
+      reference_tv,
+      vectorization_factor_map,
+      cached_inputs,
+      cached_outputs,
+      vectorization_factor);
+
   reduction_scheduler_utils::propagateParallelization(
       fusion,
       reduction_tv,
       reference_tv,
       unroll,
-      vectorize,
       use_grouped_reduction,
       reduction_tvs,
-      cached_inputs,
-      cached_outputs);
+      unrolled_vectorized_tvs);
 
   // Remove dummy outputs as they can inadvertently affect CA positions
   for (auto output : dummy_outputs) {
@@ -411,11 +493,9 @@ void propagateParallelization(
     TensorView* reduction_tv,
     TensorView* reference_tv,
     const bool unroll,
-    const bool vectorize,
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
-    const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    const std::unordered_set<TensorView*>& unrolled_vectorized_tvs,
     const std::vector<TensorView*>& selected_tvs) {
   // Propagate parallelization except vectorization and unrolling
   scheduler_utils::parallelizeAllLike(
@@ -426,56 +506,13 @@ void propagateParallelization(
           {ParallelType::Unroll,
            ParallelType::Vectorize,
            ParallelType::MisalignedVectorize}));
-
   if (unroll) {
-    // Find all tensor views that should have unroll or vectorization
-    std::unordered_set<TensorView*> are_unrolled;
-
-    auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
-
-    // Grab all tensor views that should be vectorized
-    auto vectorizable_inputs_outputs =
-        scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
-
-    auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
-
-    for (auto cached_input : cached_inputs) {
-      if (vectorize) {
-        auto producer_tvs = ir_utils::producerTvsOf(cached_input);
-        if (producer_tvs.size() == 1 &&
-            vectorizable_expr(cached_input->definition()) &&
-            std::find(
-                vectorizable_inputs_outputs.begin(),
-                vectorizable_inputs_outputs.end(),
-                producer_tvs[0]) != vectorizable_inputs_outputs.end()) {
-          are_unrolled.emplace(cached_input);
-        }
-      } else {
-        are_unrolled.emplace(cached_input);
-      }
-    }
-
-    for (auto cached_output_pair : cached_outputs) {
-      auto output = cached_output_pair.second;
-      if (vectorize) {
-        if (vectorizable_expr(output->definition()) &&
-            std::find(
-                vectorizable_inputs_outputs.begin(),
-                vectorizable_inputs_outputs.end(),
-                output) != vectorizable_inputs_outputs.end()) {
-          are_unrolled.emplace(output);
-        }
-      } else {
-        are_unrolled.emplace(output);
-      }
-    }
-
-    if (!are_unrolled.empty()) {
+    if (!unrolled_vectorized_tvs.empty()) {
       // Propagate vectorization/unrolling to those tensors that need it
       scheduler_utils::parallelizeAllLike(
           reference_tv,
           -1,
-          {are_unrolled.begin(), are_unrolled.end()},
+          {unrolled_vectorized_tvs.begin(), unrolled_vectorized_tvs.end()},
           {ParallelType::Unroll,
            ParallelType::Vectorize,
            ParallelType::MisalignedVectorize});
@@ -487,7 +524,7 @@ void propagateParallelization(
     // In the case of outer grid persistence, replace Vector with Group
 
     for (auto tv : rfactor_and_reduction_tvs) {
-      if (are_unrolled.count(tv) == 0) {
+      if (unrolled_vectorized_tvs.count(tv) == 0) {
         for (const auto i : c10::irange(tv->nDims())) {
           auto id = tv->axis(i);
           if (use_grouped_reduction &&
@@ -935,6 +972,23 @@ std::string toString(ReductionType reduction_type) {
 std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
   os << toString(reduction_type);
   return os;
+}
+
+// Reorder tv axes to put vectorization axis as the last axis
+void reorderVectorizationAxisToLast(TensorView* tv) {
+  int64_t vec_id_cur_pos = -1;
+  std::unordered_map<int64_t, int64_t> vec_reorder_map;
+  for (const auto i : c10::irange(tv->nDims())) {
+    auto id = tv->axis(i);
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      vec_id_cur_pos = i;
+      vec_reorder_map[i] = -1;
+    } else if (vec_id_cur_pos >= 0) {
+      vec_reorder_map[i] = i - 1;
+    }
+  }
+  NVF_ERROR(vec_id_cur_pos != -1, "Vectorized ID not found");
+  tv->reorder(vec_reorder_map);
 }
 
 } // namespace reduction_scheduler_utils

@@ -795,7 +795,8 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
 
 } // namespace
 
-int64_t getVectorizationFactor(
+std::pair<int64_t, std::unordered_map<TensorView*, int64_t>>
+getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicSummary* data_cache,
@@ -820,30 +821,34 @@ int64_t getVectorizationFactor(
                     reference_tv, logical_reorder_map));
           });
 
+  std::unordered_map<TensorView*, int64_t> tv_to_vectorization_factor;
+
   if (vectorizable_inputs_outputs.empty()) {
-    return 1;
+    return std::make_pair(1, tv_to_vectorization_factor);
   }
 
   // break point is beyond the range of vectorize_maps_entry, no vectorization.
   if (break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())) {
-    return 1;
+    return std::make_pair(1, tv_to_vectorization_factor);
   }
 
-  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  int64_t min_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
+    int64_t my_vect_factor = SchedulerRuntimeInfo::max_alignment_size_in_byte;
     // factor <= max_factor / dtype_size
     const auto dtype_size =
         dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
-    max_vec_size = std::min(
-        max_vec_size,
+    my_vect_factor = std::min(
+        my_vect_factor,
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
 
     // factor <= alignment / dtype_size
     int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
     NVF_ERROR(alignment_size % dtype_size == 0);
-    max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
+    my_vect_factor = std::min(my_vect_factor, alignment_size / dtype_size);
 
     // factor <= projected_extent
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
@@ -854,7 +859,7 @@ int64_t getVectorizationFactor(
       // TODO: Instead of competely disabling vectorization for all
       // tensors, just disable the problematic tensor and keep the
       // other tensors vectorized
-      return 1;
+      my_vect_factor = 1;
     }
     auto inner_size_opt =
         runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
@@ -862,12 +867,14 @@ int64_t getVectorizationFactor(
         inner_size_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size.");
 
-    max_vec_size = std::min(
+    my_vect_factor = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
-        max_vec_size);
+        my_vect_factor);
+    tv_to_vectorization_factor.insert({inp_or_out, my_vect_factor});
+    min_vec_size = std::min(min_vec_size, my_vect_factor);
   }
 
-  return max_vec_size;
+  return std::make_pair(min_vec_size, tv_to_vectorization_factor);
 }
 
 int64_t getVectorizationFactorTransposeGroup(

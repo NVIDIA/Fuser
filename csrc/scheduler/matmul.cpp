@@ -1227,7 +1227,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
             .propagateToBoundary());
     smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
 
-    for (auto [dc, d] : cached_outputs) {
+    for (auto [dc, d, _] : cached_outputs) {
       // Schedule output tensor differently for better global memory access
       // pattern.
       scheduleOutputTensor(
@@ -1239,7 +1239,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
           d, -1, {smem_epilogue});
     }
   } else {
-    for (auto [dc, d] : cached_outputs) {
+    for (auto [dc, d, _] : cached_outputs) {
       scheduler_utils::BoundedDirectionalTransformPropagator::forward(
           mma_result,
           -1,

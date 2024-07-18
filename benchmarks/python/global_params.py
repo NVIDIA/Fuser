@@ -14,11 +14,15 @@ BENCHMARK_MODE = os.getenv("BENCHMARK_MODE")
 if not BENCHMARK_MODE:
     BENCHMARK_MODE = "nightly"
 
+# fp16 data types
+FP16_DTYPES = [torch.float16]
+
 # Datatypes to benchmark
 FLOAT_DTYPES = [torch.float32]
 # Run only one of float16 / bfloat16.
 if DEVICE_PROPERTIES["gpu_compute_capability_major"] >= 8:
     FLOAT_DTYPES.append(torch.bfloat16)
+    FP16_DTYPES.append(torch.bfloat16)
 else:
     FLOAT_DTYPES.append(torch.float16)
 

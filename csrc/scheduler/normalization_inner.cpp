@@ -1094,6 +1094,7 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
   rparams->fastest_dim = true;
   rparams->project_persistent_buffers = prop.project_persistent_buffers;
   rparams->cparams.index_type = prop.index_type;
+  rparams->vectorization_factor_map = prop.vectorization_factor_map;
 
   // specific heuristics for different cases
   if (prop.max_persistent_buffer_size > scheduler_utils::register_file_size) {

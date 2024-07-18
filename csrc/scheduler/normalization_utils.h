@@ -234,6 +234,8 @@ struct PersistentKernelProperties {
   PrimDataType index_type;
   bool has_exp_op;
   std::vector<TensorView*> persistent_buffers;
+  // map from TensorView to its max allowed vectorization factor
+  std::unordered_map<TensorView*, int64_t> vectorization_factor_map;
   std::string toString() const {
     std::stringstream ss;
     ss << "===== Persistent Kernel Properties ========\n"
@@ -286,7 +288,8 @@ void beforeSchedule(
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
-    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
+    std::vector<std::tuple<TensorView*, TensorView*, TensorView*>>&
+        cached_outputs);
 
 // schedule a reduction tv, used by all persistent schedulers.
 // will group reduction ops for OuterPersistentKernelScheduler with multiple
