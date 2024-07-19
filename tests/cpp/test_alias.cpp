@@ -1407,9 +1407,9 @@ TEST_F(AliasTest, InplaceUpdate) {
 
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  at::Tensor out_tensor = at::randn({2, 3}).cuda();
+  at::Tensor out_tensor = in_tensor + 1;
   fec.runFusionWithInputs({in_tensor, out_tensor});
-  EXPECT_TRUE(out_tensor.allclose(in_tensor));
+  EXPECT_TRUE(out_tensor.equal(in_tensor));
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(
