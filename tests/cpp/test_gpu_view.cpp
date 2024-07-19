@@ -2445,8 +2445,7 @@ TEST_F(GpuViewTest, GroupNormOriginal) {
   EXPECT_THAT(
       seg_groups, Contains(HeuristicIs(ScheduleHeuristic::PointWise)).Times(1));
   EXPECT_THAT(
-      seg_groups,
-      Contains(HeuristicIs(ScheduleHeuristic::Reduction)).Times(1));
+      seg_groups, Contains(HeuristicIs(ScheduleHeuristic::Reduction)).Times(1));
 
   testValidate(
       executor_cache.fusion(),
