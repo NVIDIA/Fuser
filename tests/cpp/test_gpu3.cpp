@@ -8332,7 +8332,6 @@ TEST_F(NVFuserTest, DecoupledDomains2) {
     return domain.as<IterDomain*>();
   };
 
-
   auto logical_domain = schedule();
   auto root_domain = schedule();
   auto allocation_domain = schedule();
