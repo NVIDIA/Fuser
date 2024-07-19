@@ -1195,9 +1195,9 @@ class MultipleMatmulScheduler {
       }
 
       // parallelize Mwo, Nwo by thread
-      mma_result->axis(merged_roles.size() + 1)
+      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims + 1)
           ->parallelize(ParallelType::TIDz);
-      mma_result->axis(merged_roles.size() + 2)
+      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims + 2)
           ->parallelize(ParallelType::TIDy);
     }
   }
@@ -1266,7 +1266,7 @@ class MultipleMatmulScheduler {
   IdModel id_model_;
   // Permissive graph of id_model_, which we modify at times using e.g.
   // AbstractTensor.split or by mapping vals in cacheAfter and rFactor
-  ValGraph* graph_;
+  ValGraph* graph_ = nullptr;
   std::vector<mma_utils::MatmulPattern> patterns_;
   std::vector<MmaOp*> mma_ops_;
   mma_utils::DimRolesMap id_roles_;
