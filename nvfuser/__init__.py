@@ -61,10 +61,10 @@ class FusionDefinition(_C._FusionDefinition):
         try:
             self._finalize_definition()
         except Exception as err:
-            logger.exception(self.getReproErrorString("defining", inputs=None))
-            raise err
+            logger.exception(self.getReproErrorString("defining"))
+            raise
 
-    def getReproErrorString(self, section: str, inputs: list):
+    def getReproErrorString(self, section: str, inputs: list | None = None):
         msg = (
             f"An error occurred while {section} nvFuser FusionDefinition {self.id()}.\n"
             "If you believe this is a bug or need assistance, please file an issue at "
