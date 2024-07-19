@@ -121,11 +121,15 @@ class AbstractGetReference {
     return std::string();
   }
 
+  // Returns the inline predicate of a given tensor.
   virtual Val* getInlinePredicate(TensorView* tv) const {
     return nullptr;
   }
 
-  virtual Val* getUnswitchPredicate(TensorView* tv) const {
+  // Returns the outer predicate of a given tensor. This only matters
+  // when tv is unswitched or unrolled. Note that if it's vectorized,
+  // the predicate is still inlined.
+  virtual Val* getOuterPredicate(TensorView* tv) const {
     return nullptr;
   }
 
@@ -338,9 +342,9 @@ class PredicateIndexValidator : public kir::IrVisitor {
 
     validateInlinePredicate(out_ti, inline_ite->predicate()->value());
 
-    // If there's an other IfThenElse in the scope stack, assume
-    // that's an unswitch/unroll predicate. Only the innermost one is
-    // considered.
+    // If there's an other IfThenElse in the scope stack, validate the
+    // predicate as well. The predicate should be for unswitch/unroll
+    // loops. Only the innermost one is considered.
     for (auto it = scope_exprs_.rbegin(); it != scope_exprs_.rend(); ++it) {
       auto ite = dynamic_cast<kir::IfThenElse*>(*it);
       if (ite == nullptr) {
@@ -350,8 +354,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
         continue;
       }
 
-      // Unswich predicate detected
-      validateUnswitchPredicate(out_ti, ite->predicate()->value());
+      validateOuterPredicate(out_ti, ite->predicate()->value());
       break;
     }
 
@@ -373,12 +376,12 @@ class PredicateIndexValidator : public kir::IrVisitor {
     // If no ref is obtained, skip validation
   }
 
-  void validateUnswitchPredicate(kir::TensorIndex* ti, Val* actual) {
+  void validateOuterPredicate(kir::TensorIndex* ti, Val* actual) {
     TensorView* tv = ti->view();
-    Val* ref = get_ref_.getUnswitchPredicate(tv);
+    Val* ref = get_ref_.getOuterPredicate(tv);
     if (ref != nullptr) {
       EXPECT_TRUE(actual->sameAs(ref))
-          << "Validation failure of unswitch predicate for "
+          << "Validation failure of outer predicate for "
           << ti->view()->toString() << "\nRef: " << ref->toInlineString()
           << "\nActual: " << actual->toInlineString();
       return;
@@ -2669,7 +2672,7 @@ TEST_F(PredicateIndexingTest, SimpleUnroll) {
     //
     // Note that "+ 0" remains since a symboic Val is just replaced
     // with zero.
-    Val* getUnswitchPredicate(TensorView* tv) const override {
+    Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
       auto start_idx = addExpr(
           mulExpr(
@@ -2743,7 +2746,7 @@ TEST_F(PredicateIndexingTest, SimpleUnswitch) {
     //
     // (((blockIdx.x * 4 + 0) * 8 + 0) * 128 + threadId.x >= 0 &&
     // (((blockIdx.x * 4 + 3) * 8 + 7) * 128 + threadId.x < tv0.logical_size[0]
-    Val* getUnswitchPredicate(TensorView* tv) const override {
+    Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
       auto start_idx = addExpr(
           mulExpr(
