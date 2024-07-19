@@ -216,7 +216,7 @@ class CircularBufferInfo {
   bool isCircularBufferedIterDomain(IterDomain* id);
 
   //! Get the number of circular buffer stages for the given axis,
-  //!  the number of stages will be 2 in the case of double buffer loop.
+  //!  the number of stages will be 2 in the case of circular buffer loop.
   int64_t getStageDepthFor(IterDomain* circular_buffered_id);
 
  private:

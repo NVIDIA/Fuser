@@ -799,8 +799,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
         // Register mbarrier object to be used with new LoadStoreOp
         // from prolog loop
+        NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
         GpuLower::current()->ldstMBarrierIndexMap().emplace(
-            new_ldst, mbarrier_arrive_tx_->mbarrier());
+            new_ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
 
         // If last cloned scope is the cloned_top_level_loop body, then add
         // mbarrier::arriveExpectTx and new loadStoreOp.
@@ -898,8 +899,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
         // Register mbarrier object to be used with LoadStoreOp
         //  from main loop
+        NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
         GpuLower::current()->ldstMBarrierIndexMap().emplace(
-            ldst, mbarrier_arrive_tx_->mbarrier());
+            ldst, mbarrier_arrive_tx_->mbarrier()->as<kir::TensorIndex>());
 
         // Construct mBarrier::wait for current stage
         NVF_ERROR(

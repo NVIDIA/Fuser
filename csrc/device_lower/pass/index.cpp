@@ -1464,21 +1464,17 @@ void IndexLowering::handle(const kir::MBarrierWait* mwait) {
 }
 
 void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
-  // If LoadStoreOp has a smem TV in ldstMBarrierTokenMap then it is a part
-  //  of circular buffer loop, and it has been already handled by double buffer
-  //  pass - kir nodes for arrive/expect tx and wait are added in their proper
-  //  scopes.
-  // Otherwise, add these nodes here, at this stage.
+  // If LoadStoreOp has a smem TV in ldstMBarrierTokenMap, then it is a part
+  // of a circular buffer loop. The kir nodes for arrive_expect_tx and
+  // mbarrier_wait are added by the circular buffer pass. Otherwise, those
+  // nodes are added here.
   bool is_circular_buffered =
       (GpuLower::current()->ldstMBarrierIndexMap().count(ldst) != 0);
 
   if (is_circular_buffered) {
-    Val* mbarrier = GpuLower::current()->ldstMBarrierIndexMap()[ldst];
-    NVF_ERROR(
-        mbarrier->isA<kir::TensorIndex>(),
-        "Expected TensorIndex for double buffer");
-    Val* mbarrier_index =
-        lower_utils::u32IndexScalarSmemTv(mbarrier->as<kir::TensorIndex>());
+    kir::TensorIndex* mbarrier =
+        GpuLower::current()->ldstMBarrierIndexMap().at(ldst);
+    Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
     auto [in, _] = Index::getCpAsyncBulkGmemIndex(
@@ -1491,8 +1487,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
             ->withPredicate(ldst->predicate());
     pushBack(new_ldst);
 
-    // register new LoadStoreOp with mbarrier index
-    GpuLower::current()->ldstMBarrierIndexMap()[new_ldst] = mbarrier_index;
+    // register new LoadStoreOp with mbarrier
+    GpuLower::current()->ldstMBarrierIndexMap()[new_ldst] = mbarrier;
 
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {

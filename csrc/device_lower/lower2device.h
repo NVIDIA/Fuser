@@ -242,11 +242,12 @@ class GpuLower : public NonCopyable {
     return mbarrier_token_smem_alloc_set_;
   }
 
-  std::unordered_map<const Expr*, Val*>& ldstMBarrierIndexMap() {
+  std::unordered_map<const Expr*, kir::TensorIndex*>& ldstMBarrierIndexMap() {
     return ldst_mbarrier_index_map_;
   }
 
-  const std::unordered_map<const Expr*, Val*>& ldstMBarrierIndexMap() const {
+  const std::unordered_map<const Expr*, kir::TensorIndex*>&
+  ldstMBarrierIndexMap() const {
     return ldst_mbarrier_index_map_;
   }
 
@@ -394,7 +395,7 @@ class GpuLower : public NonCopyable {
 
   // Keep track what mbarrier object is used in load/store operation that
   // requires such synchronization, required by indexing pass
-  std::unordered_map<const Expr*, Val*> ldst_mbarrier_index_map_;
+  std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map_;
 
   Fusion* fusion_ = nullptr;
 
