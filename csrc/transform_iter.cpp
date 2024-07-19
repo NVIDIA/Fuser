@@ -7,7 +7,7 @@
 // clang-format on
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <c10/util/irange.h>
@@ -954,7 +954,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
     const TensorView* consumer,
     const TensorView* producer,
     int64_t producer_compute_at_axis,
-    const RootDomainMap& root_map,
+    const LogicalDomainMap& logical_map,
     bool skip_consumer_swizzle,
     bool skip_producer_swizzle,
     bool skip_resize) {
@@ -992,7 +992,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
     }
   }
 
-  const auto p2c_root_map = root_map.mapProducerToConsumer(
+  const auto p2c_logical_map = logical_map.mapProducerToConsumer(
       producer->domain(), consumer->domain(), producer_CA_root_ids);
 
   // See FusionAdvancedComputeAt7 for an example of the forwarding logic
@@ -1001,7 +1001,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
   auto consumer_replay = BestEffortReplay(
       consumer->getLoopDomain(),
       producer_CA_ids,
-      p2c_root_map,
+      p2c_logical_map,
       forwarding_info.consumer_forwarding_map,
       forwarding_info.producer_forwarding_map,
       skip_consumer_swizzle,
@@ -1016,12 +1016,12 @@ BestEffortReplay BestEffortReplay::replayCasP(
 }
 
 // Runs a best effort replay that ignores broadcast axes that appear in
-// consumer that are not mapped to producer in root_map.
+// consumer that are not mapped to producer in logical_map.
 BestEffortReplay BestEffortReplay::replayPasC(
     const TensorView* producer,
     const TensorView* consumer,
     int64_t consumer_compute_at_axis,
-    const RootDomainMap& root_map,
+    const LogicalDomainMap& logical_map,
     bool skip_producer_swizzle,
     bool skip_consumer_swizzle,
     bool skip_resize) {
@@ -1049,7 +1049,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
     }
   }
 
-  const auto c2p_root_map = root_map.mapConsumerToProducer(
+  const auto c2p_logical_map = logical_map.mapConsumerToProducer(
       consumer->domain(), producer->domain(), consumer_CA_root_ids);
 
   ForwardingInfo forwarding_info(producer, consumer);
@@ -1060,7 +1060,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
   auto producer_replay = BestEffortReplay(
       producer->getLoopDomain(),
       consumer_CA_ids,
-      c2p_root_map,
+      c2p_logical_map,
       forwarding_info.producer_forwarding_map,
       forwarding_info.consumer_forwarding_map,
       skip_producer_swizzle,

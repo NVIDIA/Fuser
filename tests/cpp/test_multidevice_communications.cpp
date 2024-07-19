@@ -37,20 +37,23 @@ class CommunicationTest
       c10d::ReduceOp::RedOpType::SUM;
   const DeviceMesh full_mesh_;
   const Team all_ranks_;
-  c10d::Backend* backend_;
+  c10d::Backend* backend_ = nullptr;
 };
 
 CommunicationTest::CommunicationTest()
     : full_mesh_(DeviceMesh::createForNumDevices(communicator_->size())),
-      all_ranks_(full_mesh_.vector()),
-      backend_(communicator_->getBackendForTeam(all_ranks_, GetParam())) {}
+      all_ranks_(full_mesh_.vector()) {}
 
 void CommunicationTest::SetUp() {
   MultiDeviceTest::SetUp();
 
-  if (!communicator_->isBackendAvailable(GetParam())) {
-    GTEST_SKIP() << "Backend not available";
+  const CommunicatorBackend backend_type = GetParam();
+  if (!communicator_->isBackendAvailable(backend_type)) {
+    GTEST_SKIP() << "Backend not available: " << backend_type;
   }
+  // getBackendForTeam throws an error if the requested backend type isn't
+  // available. Therefore, we call it after the isBackendAvailable check.
+  backend_ = communicator_->getBackendForTeam(all_ranks_, backend_type);
 }
 
 void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
@@ -184,9 +187,6 @@ TEST_P(CommunicationTest, Broadcast) {
 }
 
 TEST_P(CommunicationTest, SendRecv) {
-  if (GetParam() == CommunicatorBackend::ucc) {
-    GTEST_SKIP() << "Disabling because of UCC hangs, see issue #2091";
-  }
   if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }

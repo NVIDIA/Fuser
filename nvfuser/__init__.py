@@ -155,9 +155,14 @@ class FusionDefinition(_C._FusionDefinition):
                 "If you believe this is a bug or need assistance, please file an issue at "
                 "https://github.com/NVIDIA/Fuser/issues/new\n"
             )
+            msg += "Here's a script to reproduce the error:\n" "```python\n"
+            msg += "# CUDA devices:\n"
+            for i in range(torch.cuda.device_count()):
+                msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
             msg += (
-                f"Here's a script to reproduce the error:\n"
-                "```python\n"
+                f"# torch version: {torch.__version__}\n"
+                f"# cuda version: {torch.version.cuda}\n"
+                f"# nvfuser version: {version()}\n"
                 "import torch\n"
                 "from nvfuser import FusionDefinition, DataType\n"
                 f"{self}"
