@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cmath>
+
 #include <gtest/gtest.h>
 
 #include <executor.h>
@@ -26,17 +28,20 @@
 
 namespace nvfuser {
 
-constexpr int B = 4, E = 128, H = 4, S = 32;
-constexpr double kDropoutProb = 0.0, kSdpaProb = 0.1, kSdpaScale = 1e-3;
+int64_t D = 1
+constexpr int64_t B = 2, E = 768, H = 12, S = 1024;
+constexpr double kDropoutProb = 0.1, kSdpaProb = 0.1, kSdpaScale = 1e-3;
+// Note:
+// https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
+constexpr double scale = 0.02;
 
 class DistributedTransformerTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<DataType> {
  protected:
   DistributedTransformerTest()
-      : D(communicator_->size()),
-        optimization_guard_(false),
-        allocation_order_guard_(false) {
+      : optimization_guard_(false), allocation_order_guard_(false) {
+    D = communicator_->size();
     NVF_CHECK(E % H == 0);
     NVF_CHECK(H % D == 0);
     NVF_CHECK(E % D == 0);
@@ -53,9 +58,6 @@ class DistributedTransformerTest
       .use_fusion_executor_cache = true,
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
-
- public:
-  const int D; // number of devices
 
  private:
   // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
@@ -99,7 +101,7 @@ void validate(
     // BFloat16 error is quite high, but the program has been verified with
     // double precision to be logically correct.
     double atol = 3.0 * (i + 1);
-    double rtol = 1e-5;
+    double rtol = 1.6e-2; // Default for pytorch bfloat16
     auto all_close = out[i]
                          .to(expected_out[i].dtype())
                          .allclose(
@@ -108,7 +110,7 @@ void validate(
                              atol,
                              /*equal_nan=*/true);
 
-    if (true) {
+    if (!all_close) {
       auto error = (out[i].to(expected_out[i].dtype()) - expected_out[i]).abs();
       auto max_error = error.max().item().to<double>();
       auto max_relative_error =
@@ -135,10 +137,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> reference_mlp(
     at::Tensor b1,
     at::ScalarType at_dtype) {
   at::manual_seed(0);
-  auto linear1 = at::matmul(x, w0.transpose(1, 0)).add(b0).to(at::kFloat);
+  auto linear1 = at::matmul(x, w0).add(b0).to(at::kFloat);
   auto gelu = at::gelu(linear1, "tanh");
-  auto linear2 =
-      at::matmul(gelu.to(at_dtype), w1.transpose(1, 0)).add(b1).to(at::kFloat);
+  auto linear2 = at::matmul(gelu.to(at_dtype), w1).add(b1).to(at::kFloat);
   auto dropout = at::dropout(linear2, kDropoutProb, true);
   return std::make_tuple(linear1, gelu, linear2, dropout);
 }
@@ -178,8 +179,7 @@ std::tuple<TensorView*, TensorView*, TensorView*, TensorView*> mlp(
     DeviceMesh& mesh,
     DataType dtype) {
   // Linear #1
-  TensorView* w0_t = transpose(w0, 2, 1);
-  TensorView* matmul1 = matmul(x, w0_t);
+  TensorView* matmul1 = matmul(x, w0);
   TensorView* b0_bcast = broadcast(b0, {false, true, false});
   TensorView* linear1 = add(matmul1, b0_bcast);
   // GeLU
@@ -187,8 +187,7 @@ std::tuple<TensorView*, TensorView*, TensorView*, TensorView*> mlp(
   TensorView* gelu = tanh_gelu(linear1_);
   TensorView* gelu_ = castOp(dtype, gelu);
   // Linear #2
-  TensorView* w1_t = transpose(w1, 1, 2);
-  TensorView* local_matmul2 = matmul(gelu_, w1_t);
+  TensorView* local_matmul2 = matmul(gelu_, w1);
   TensorView* matmul2 = sum(local_matmul2, {0}); // Allreduce
   TensorView* bcast_bias = broadcast(b1, {true, false});
   TensorView* linear2 = add(matmul2, bcast_bias);
@@ -219,8 +218,7 @@ std::tuple<TensorView*, TensorView*, TensorView*, TensorView*> mha(
     TensorView* b1,
     Fusion* fusion,
     DeviceMesh& mesh,
-    DataType dtype,
-    int D) {
+    DataType dtype) {
   // Linear 1
   TensorView* mm = matmul(x, w0);
   TensorView* proj_bias_bcast = broadcast(b0, {false, true, false});
@@ -279,7 +277,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(D);
 
   TensorView* tvx = makeContigTensor(2, dtype);
   TensorView* tvw0 = makeContigTensor(3, dtype);
@@ -304,19 +302,19 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
   auto x = at::randn({B * S, E}, options);
-  auto w0 = at::randn({4 * E, E}, options);
-  auto b0 = at::randn({4 * E}, options);
-  auto w1 = at::randn({E, 4 * E}, options);
-  auto b1 = at::randn({E}, options);
+  auto w0 = at::randn({E, 4 * E}, options) * scale;
+  auto b0 = at::randn({4 * E}, options) * scale;
+  auto w1 = at::randn({4 * E, E}, options) * scale;
+  auto b1 = at::randn({E}, options) * scale;
 
   auto [linear1, gelu, linear2, dropout] =
       reference_mlp(x, w0, b0, w1, b1, at_dtype);
 
   std::vector<c10::IValue> inputs = {
       x,
-      shardTensor(w0, 0, mesh),
+      shardTensor(w0, 1, mesh),
       shardTensor(b0, 0, mesh),
-      shardTensor(w1, 1, mesh),
+      shardTensor(w1, 0, mesh),
       b1};
 
   std::vector<at::Tensor> expected_outputs = {
@@ -336,7 +334,7 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   auto dtype = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(D);
   at::ScalarType at_dtype = data_type_to_aten(dtype);
 
   TensorView* tvx = makeContigConcreteTensor({B * S, E}, dtype);
@@ -344,12 +342,6 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   TensorView* tvb0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
   TensorView* tvw1 = makeContigConcreteTensor({D, E / D, E}, dtype);
   TensorView* tvb1 = makeContigConcreteTensor({E}, dtype);
-  // TODO: failing in p2c_map
-  // TensorView* x = makeContigTensor(2, dtype);
-  // TensorView* w0 = makeContigTensor(3, dtype);
-  // TensorView* b0 = makeContigTensor(2, dtype);
-  // TensorView* w1 = makeContigTensor(3, dtype);
-  // TensorView* b1 = makeContigTensor(1, dtype);
 
   fusion->addInput(tvx);
   fusion->addInput(tvw0);
@@ -358,7 +350,7 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   fusion->addInput(tvb1);
 
   auto [tvqkv, tvsdpa, tvlinear2, tvdropout] =
-      mha(tvx, tvw0, tvb0, tvw1, tvb1, fusion.get(), mesh, dtype, D);
+      mha(tvx, tvw0, tvb0, tvw1, tvb1, fusion.get(), mesh, dtype);
 
   fusion->addOutput(tvqkv);
   fusion->addOutput(tvsdpa);
@@ -367,11 +359,11 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
-  auto x = at::randn({B * S, E}, options) / 10.0;
-  auto w0 = at::randn({E, 3 * E}, options) / 10.0;
-  auto b0 = at::randn({3 * E}, options) / 10.0;
-  auto w1 = at::randn({E, E}, options);
-  auto b1 = at::randn({E}, options);
+  auto x = at::randn({B * S, E}, options);
+  auto w0 = at::randn({E, 3 * E}, options) * scale;
+  auto b0 = at::randn({3 * E}, options) * scale;
+  auto w1 = at::randn({E, E}, options) * scale;
+  auto b1 = at::randn({E}, options) * scale;
 
   auto [m, sdpa, y_proj, y_dropout] =
       reference_mha(x, w0, b0, w1, b1, at_dtype);
@@ -399,18 +391,13 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   validate(expected_outputs, out);
 };
 
-TEST_F(DistributedTransformerTest, Forward) {
-  auto dtype = DataType::Half;
+TEST_P(DistributedTransformerTest, Forward) {
+  auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  auto mesh = DeviceMesh::createForNumDevices(D);
 
-  // TensorView* x = makeContigTensor(2, DataType::Float);
-  // TensorView* mha_w0 = makeContigTensor(3, dtype);
-  // TensorView* mha_b0 = makeContigTensor(2, dtype);
-  // TensorView* mha_w1 = makeContigTensor(3, dtype);
-  // TensorView* mha_b1 = makeContigTensor(1, dtype);
   TensorView* x = makeContigConcreteTensor({B * S, E}, DataType::Float);
   TensorView* mha_w0 = makeContigConcreteTensor({D, E, 3 * E / D}, dtype);
   TensorView* mha_b0 = makeContigConcreteTensor({D, 3 * E / D}, dtype);
@@ -437,9 +424,8 @@ TEST_F(DistributedTransformerTest, Forward) {
 
   auto ln_1 = layer_norm(x, norm_shape, nullptr, nullptr, eps_ptr);
   auto mha_in = castOp(dtype, ln_1.output);
-  auto mha__ =
-      mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, fusion.get(), mesh, dtype, D);
-  auto mha_out = std::get<3>(mha__);
+  auto mha_out = std::get<3>(
+      mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, fusion.get(), mesh, dtype));
   auto resid_1 = add(x, mha_out);
   auto ln_2 = layer_norm(resid_1, norm_shape, nullptr, nullptr, eps_ptr);
   auto mlp_in = castOp(dtype, ln_2.output);
@@ -448,8 +434,8 @@ TEST_F(DistributedTransformerTest, Forward) {
   auto resid_2 = add(resid_1, mlp_out);
 
   fusion->addOutput(ln_1.output);
-  fusion->addOutput(std::get<2>(mha__));
-  fusion->addOutput(ln_2.output);
+  fusion->addOutput(mha_out);
+  fusion->addOutput(resid_1);
   fusion->addOutput(mlp_out);
   fusion->addOutput(resid_2);
 
@@ -459,32 +445,33 @@ TEST_F(DistributedTransformerTest, Forward) {
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
-  auto x_ = at::randn({B * S, E}, options).to(at::kFloat) / 10.0;
-  auto mha_w0_ = at::randn({E, 3 * E}, options) / 10.0;
-  auto mha_b0_ = at::randn({3 * E}, options) / 10.0;
-  auto mha_w1_ = at::randn({E, E}, options);
-  auto mha_b1_ = at::randn({E}, options);
+  auto x_ = at::randn({B * S, E}, options).to(at::kFloat);
+  auto mha_w0_ = at::randn({E, 3 * E}, options) * scale;
+  auto mha_b0_ = at::randn({3 * E}, options) * scale;
+  auto mha_w1_ = at::randn({E, E}, options) * scale;
+  auto mha_b1_ = at::randn({E}, options) * scale;
 
-  auto mlp_w0_ = at::randn({4 * E, E}, options);
-  auto mlp_b0_ = at::randn({4 * E}, options);
-  auto mlp_w1_ = at::randn({E, 4 * E}, options);
-  auto mlp_b1_ = at::randn({E}, options);
+  auto mlp_w0_ = at::randn({E, 4 * E}, options) * scale;
+  auto mlp_b0_ = at::randn({4 * E}, options) * scale;
+  auto mlp_w1_ = at::randn({4 * E, E}, options) * scale;
+  auto mlp_b1_ = at::randn({E}, options) * scale;
 
   auto at_weight = c10::optional<at::Tensor>();
   auto at_bias = c10::optional<at::Tensor>();
   auto ln_1_ = std::get<0>(
       at::native_layer_norm(x_, norm_shape, at_weight, at_bias, kEps));
-
-  auto mha_out__ = reference_mha(
-      ln_1_.to(at_dtype), mha_w0_, mha_b0_, mha_w1_, mha_b1_, at_dtype);
-  auto mha_out_ = std::get<3>(mha_out__);
+  auto mha_out_ = std::get<3>(reference_mha(
+      ln_1_.to(at_dtype), mha_w0_, mha_b0_, mha_w1_, mha_b1_, at_dtype));
   auto resid1_ = mha_out_ + x_;
+
   auto ln_2_ = std::get<0>(
       at::native_layer_norm(resid1_, norm_shape, at_weight, at_bias, kEps));
-
   auto mlp_out_ = std::get<3>(reference_mlp(
       ln_2_.to(at_dtype), mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_, at_dtype));
   auto at_out = resid1_ + mlp_out_;
+
+  std::vector<at::Tensor> expected_outputs = {
+      ln_1_, mha_out_, resid1_, mlp_out_, at_out};
 
   std::vector<c10::IValue> inputs = {
       x_,
@@ -496,18 +483,16 @@ TEST_F(DistributedTransformerTest, Forward) {
           .contiguous(),
       shardTensor(mha_w1_, 0, mesh),
       mha_b1_,
-      shardTensor(mlp_w0_, 0, mesh),
+      shardTensor(mlp_w0_, 1, mesh),
       shardTensor(mlp_b0_, 0, mesh),
-      shardTensor(mlp_w1_, 1, mesh),
+      shardTensor(mlp_w1_, 0, mesh),
       mlp_b1_};
-
-  std::vector<at::Tensor> expected_outputs = {
-      ln_1_, std::get<2>(mha_out__), ln_2_, mlp_out_, at_out};
 
   at::manual_seed(0);
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
+
   validate(expected_outputs, outputs);
 }
 
