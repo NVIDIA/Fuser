@@ -119,7 +119,15 @@ class AbstractGetReference {
     return std::string();
   }
 
-  virtual Val* getPredicate(TensorView* tv) const {
+  // Returns the inline predicate of a given tensor.
+  virtual Val* getInlinePredicate(TensorView* tv) const {
+    return nullptr;
+  }
+
+  // Returns the outer predicate of a given tensor. This only matters
+  // when tv is unswitched or unrolled. Note that if it's vectorized,
+  // the predicate is still inlined.
+  virtual Val* getOuterPredicate(TensorView* tv) const {
     return nullptr;
   }
 
@@ -284,25 +292,55 @@ class PredicateIndexValidator : public kir::IrVisitor {
     auto out_ti = expr->output(0)->as<kir::TensorIndex>();
 
     NVF_ERROR(!scope_exprs_.empty());
-    auto inline_predicate = dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
+    auto inline_ite = dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
     NVF_ERROR(
-        inline_predicate != nullptr,
+        inline_ite != nullptr,
         "No inline predicate detected: ",
         expr->toString());
 
-    validate(out_ti, inline_predicate->predicate()->value());
+    validateInlinePredicate(out_ti, inline_ite->predicate()->value());
+
+    // If there's an other IfThenElse in the scope stack, validate the
+    // predicate as well. The predicate should be for unswitch/unroll
+    // loops. Only the innermost one is considered.
+    for (auto it = scope_exprs_.rbegin(); it != scope_exprs_.rend(); ++it) {
+      auto ite = dynamic_cast<kir::IfThenElse*>(*it);
+      if (ite == nullptr) {
+        continue;
+      }
+      if (ite == inline_ite) {
+        continue;
+      }
+
+      validateOuterPredicate(out_ti, ite->predicate()->value());
+      break;
+    }
 
     get_ref_.clearForLoops();
     get_ref_.clearCircularBufferInfo();
   }
 
-  void validate(kir::TensorIndex* ti, Val* actual) {
+  void validateInlinePredicate(kir::TensorIndex* ti, Val* actual) {
     TensorView* tv = ti->view();
-    Val* ref = get_ref_.getPredicate(tv);
+    Val* ref = get_ref_.getInlinePredicate(tv);
     if (ref != nullptr) {
       EXPECT_TRUE(actual->sameAs(ref))
-          << "Validation failure of " << ti->view()->toString()
-          << "\nRef: " << ref->toInlineString()
+          << "Validation failure of inline predicate for "
+          << ti->view()->toString() << "\nRef: " << ref->toInlineString()
+          << "\nActual: " << actual->toInlineString();
+      return;
+    }
+
+    // If no ref is obtained, skip validation
+  }
+
+  void validateOuterPredicate(kir::TensorIndex* ti, Val* actual) {
+    TensorView* tv = ti->view();
+    Val* ref = get_ref_.getOuterPredicate(tv);
+    if (ref != nullptr) {
+      EXPECT_TRUE(actual->sameAs(ref))
+          << "Validation failure of outer predicate for "
+          << ti->view()->toString() << "\nRef: " << ref->toInlineString()
           << "\nActual: " << actual->toInlineString();
       return;
     }
@@ -314,7 +352,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
   static void validate(Fusion* fusion, Args... args) {
     EnableOptionsGuard enable_options_guard;
     EnableOptionsGuard::getCurOptions().set(
-        EnableOption::IdModel, {"inline_predicate"});
+        EnableOption::IdModel, {"inline_predicate", "unswitch_predicate"});
 
     // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
@@ -2427,7 +2465,7 @@ TEST_F(PredicateIndexingTest, SimplePointwise1) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getPredicate(TensorView* tv) const override {
+    Val* getInlinePredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
 
       auto i0_idx = divExpr(
@@ -2479,7 +2517,7 @@ TEST_F(PredicateIndexingTest, ReductionRfactor) {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getPredicate(TensorView* tv) const override {
+    Val* getInlinePredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
 
       bool is_init = tv->nDims() > (int64_t)for_loops_.size();
@@ -2533,6 +2571,303 @@ TEST_F(PredicateIndexingTest, ReductionRfactor) {
         default:
           return nullptr;
       }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as IndexingTest.SimpleUnroll
+TEST_F(PredicateIndexingTest, SimpleUnroll) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  [[maybe_unused]] auto tv0_cache = tv0->cacheAfter();
+  [[maybe_unused]] auto tv1_cache = tv1->cacheAfter();
+
+  tv2->flatten();
+  // For TIDx
+  tv2->split(0, 128);
+  // For unroll
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unroll);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    // T2 should look like:
+    //
+    // T2_g[ iblockIdx.x7{( ceilDiv(( ceilDiv(i0, 128) ), 4) )},
+    // iUR8{4}, ithreadIdx.x6{128} ] ca_pos( 3 ) produce_pos( 3 )
+    //
+    // So, the unswitch predicate should look like:
+    //
+    // (blockIdx.x * 4 + 0) * 128 + threadId.x >= 0 &&
+    // (blockIdx.x * 4 + 3) * 128 + threadId.x < tv0.logical_size[0]
+    //
+    // Note that "+ 0" remains since a symboic Val is just replaced
+    // with zero.
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto start_idx = addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  tv->fusion()->zeroVal()),
+              tv->axis(2)->extent()),
+          loop_indices.at(2));
+      auto stop_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  subExpr(tv->axis(1)->extent(), tv->fusion()->oneVal())),
+              tv->axis(2)->extent()),
+          loop_indices.at(2));
+
+      return andExpr(
+          geExpr(start_idx, tv->fusion()->zeroVal()),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+}
+
+// Simple unswitch fusion. Unlike SimpleUnroll, it has multiple
+// domains whose loop indices need to be adjusted.
+TEST_F(PredicateIndexingTest, SimpleUnswitch) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv0->cacheAfter();
+  tv1->cacheAfter();
+
+  tv2->flatten();
+  // For TIDx
+  tv2->split(0, 128);
+  // For serial
+  tv2->split(0, 8);
+  // For unswitch
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unswitch);
+  tv2->axis(3)->parallelize(ParallelType::TIDx);
+
+  // T3_l[ iS27{( ceilDiv(( ceilDiv(( ceilDiv(i0, 128) ), 8) ), 4) )}, iS28{4},
+  // iS26{8}, iS24{128} ] ca_pos( 4 ) T4_l[ iS15{( ceilDiv(( ceilDiv((
+  // ceilDiv(i2, 128) ), 8) ), 4) )}, iS16{4}, iS14{8}, iS12{128} ] ca_pos( 4 )
+  // T2_g[ iblockIdx.x9{( ceilDiv(( ceilDiv(( ceilDiv(i0, 128) ), 8) ), 4) )},
+  // iUS10{4}, iS8{8}, ithreadIdx.x6{128} ] ca_pos( 4 ) produce_pos( 4 )
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    // The unswitch predicate should look like:
+    //
+    // (((blockIdx.x * 4 + 0) * 8 + 0) * 128 + threadId.x >= 0 &&
+    // (((blockIdx.x * 4 + 3) * 8 + 7) * 128 + threadId.x < tv0.logical_size[0]
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto start_idx = addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(
+                      IrBuilder::addExpr(
+                          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                          tv->fusion()->zeroVal()),
+                      tv->axis(2)->extent()),
+                  tv->fusion()->zeroVal()),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+      auto stop_idx = addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(
+                      IrBuilder::addExpr(
+                          mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                          subExpr(
+                              tv->axis(1)->extent(), tv->fusion()->oneVal())),
+                      tv->axis(2)->extent()),
+                  subExpr(tv->axis(2)->extent(), tv->fusion()->oneVal())),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+
+      return andExpr(
+          geExpr(start_idx, tv->fusion()->zeroVal()),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as IndexingTest.SimpleVectorize
+TEST_F(PredicateIndexingTest, SimpleVectorize) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(0, 4);
+  tv2->split(0, 128);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+  tv2->axis(2)->parallelize(ParallelType::Vectorize);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  inlineMost();
+
+  scheduler_utils::parallelizeAllLike(tv2, ir_utils::allTvs(&fusion));
+
+  // T1_l[ iblockIdx.x9{( ceilDiv(( ceilDiv(i0, 4) ), 128) )},
+  // ithreadIdx.x10{128}, iV8{4} ] ca_pos( 2 ) T2_g[ iblockIdx.x5{( ceilDiv((
+  // ceilDiv(i0, 4) ), 128) )}, ithreadIdx.x6{128}, iV4{4} ] ca_pos( 2 )
+  // produce_pos( 2 )
+
+  // Both tv1 and tv2 are vectorized. Their predicates are the same as
+  // this is a simple memcpy.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto start_idx = IrBuilder::addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  loop_indices.at(1)),
+              tv->axis(2)->extent()),
+          tv->fusion()->zeroVal());
+      auto stop_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  loop_indices.at(1)),
+              tv->axis(2)->extent()),
+          subExpr(tv->axis(2)->extent(), createInt(1)));
+
+      // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 0 )>= 0 ) &&
+      // ( ( ( ( ( blockIdx.x * 128 ) + threadIdx.x ) * 4 ) + 3 ) < ( (( ((
+      // getMetaData(T0) )).logical_size ))[0] ) ) )
+      return andExpr(
+          geExpr(start_idx, tv->fusion()->zeroVal()),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same as IndexingTest.NonInnermostVectorize
+TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  // For vectorized store
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Vectorize
+  tv3->split(0, 4);
+  // Serial
+  tv3->split(0, 2);
+  // TIDx
+  tv3->split(0, 128);
+
+  tv3->reorder({{-1, -2}});
+
+  TransformPropagator propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3, ir_utils::allTvs(&fusion));
+
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+  tv3->axis(2)->parallelize(ParallelType::Vectorize);
+
+  // T1_l[ iblockIdx.x20{( ceilDiv(( ceilDiv(( ceilDiv(i0, 4) ), 2) ), 128) )},
+  // ithreadIdx.x21{128}, iV17{4}, iS19{2} ] T2_l[ iblockIdx.x14{( ceilDiv((
+  // ceilDiv(( ceilDiv(i0, 4) ), 2) ), 128) )}, ithreadIdx.x15{128}, iS11{4},
+  // iS13{2} ] T3_g[ iblockIdx.x8{( ceilDiv(( ceilDiv(( ceilDiv(i0, 4) ), 2) ),
+  // 128) )}, ithreadIdx.x9{128}, iV5{4}, iS7{2} ]
+
+  // Check the vectorized tensors, i.e., tv1 and tv3. The vectorized domain is
+  // not innermost. Make sure only the vectorized domain is predicated with
+  // (extent - 1).
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      if (tv->name() != 1 && tv->name() != 3) {
+        return nullptr;
+      }
+
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto common_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+                  loop_indices.at(1)),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+      auto start_idx = IrBuilder::addExpr(
+          mulExpr(common_idx, tv->axis(2)->extent()), tv->fusion()->zeroVal());
+      auto stop_idx = addExpr(
+          mulExpr(common_idx, tv->axis(2)->extent()),
+          subExpr(tv->axis(2)->extent(), createInt(1)));
+
+      return andExpr(
+          geExpr(start_idx, tv->fusion()->zeroVal()),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
     }
   };
 

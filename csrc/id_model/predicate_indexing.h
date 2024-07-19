@@ -19,4 +19,19 @@ std::vector<IterDomain*> getPredicateDomains(
     TensorView* consumer_tv,
     const Expr* expr);
 
+// Get a replace map for predicate indexing of a given tensor appearing
+// in a given loop-nest.
+//
+// The unswitched_loop parameter is an optional ForLoop that is used
+// when this predicate is for an unswitched, unrolled or vectorized
+// loop.
+std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
+    TensorView* tv,
+    const std::vector<ForLoop*>& for_loops,
+    const std::unordered_map<ValGroup, Val*>& index_map,
+    const ValGraph& traversal_graph,
+    const IdModel& id_model,
+    bool is_start_predicate,
+    ForLoop* unswitched_loop = nullptr);
+
 } // namespace nvfuser
