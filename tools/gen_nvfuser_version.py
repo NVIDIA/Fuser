@@ -22,6 +22,7 @@ def get_sha() -> str:
 
         # assume the $NVFUSER_VERSION is in sha form
         if nvfuser_version := os.environ.get("NVFUSER_VERSION"):
+            assert len(nvfuser_version) < 11, f"The NVFUSER_VERSION should be in sha form"
             return nvfuser_version
         return UNKNOWN
 
