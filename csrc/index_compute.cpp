@@ -2649,6 +2649,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
          {"coordinate", coordinate}},
         ss.str());
   }
+
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
 
   Val* expected_bytes = SimplifyingIrBuilder::maybeCastExpr(

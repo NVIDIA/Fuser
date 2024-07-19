@@ -125,7 +125,7 @@ class AbstractGetReference {
   // add them here since the function signature doesn't need to change.
   std::vector<ForLoop*> for_loops_;
   CircularBufferLoopStage circular_buffer_loop_stage_ =
-      CircularBufferLoopStage::Main;
+      CircularBufferLoopStage::NotApplicable;
 };
 
 template <typename GetReference>

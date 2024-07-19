@@ -178,17 +178,15 @@ ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
 
   Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
   Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
-  Val* loop_stop =
-      SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index);
+  Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
   IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
-  Val* loop_step = IrBuilder::create<Val>(1L, PrimDataType::Index);
 
   ForLoop* loop = IrBuilder::create<ForLoop>(
       loop_domain_builder.build(),
       loop_index,
       loop_start,
       loop_stop,
-      loop_step,
+      /*step=*/GpuLower::current()->kernel()->oneVal(),
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
@@ -516,9 +514,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         index,
         start,
         stop,
-        GpuLower::current()->kernel()->oneVal(),
-        false,
-        nullptr,
+        /*step=*/GpuLower::current()->kernel()->oneVal(),
+        /*vectorize=*/false,
+        /*vectorize_shift=*/nullptr,
         circular_buffer_loop_->isUnrollRequired(),
         loop_type_);
 
@@ -1133,6 +1131,7 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
 
     // Construct for loop, a body for if expression
     ForLoop* loop = createStagesForLoop(circular_buffer_loop_);
+    NVF_ERROR(loop->simplifiedStop() == loop->stop());
 
     // Construct loop body with:
     // - mBarriers' initializations for each element in smem array for
@@ -1141,7 +1140,7 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
     for (const Expr* ldst : circular_buffer_load_exprs_) {
       if (GpuLower::current()->ldstMBarrierMap().count(ldst) != 0) {
         TensorView* all_mbarriers =
-            GpuLower::current()->ldstMBarrierMap()[ldst];
+            GpuLower::current()->ldstMBarrierMap().at(ldst);
         kir::TensorIndex* stage_mbarrier =
             IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
         kir::MBarrierInit* mbarrier_init =
@@ -1221,6 +1220,7 @@ class CpAsyncBulkPostEpilogue {
 
     // Construct for loop, a body for if expression
     ForLoop* loop = createStagesForLoop(circular_buffer_loop_);
+    NVF_ERROR(loop->simplifiedStop() == loop->stop());
 
     // Construct loop body with:
     // - mBarriers' invalidation for each element in smem array for
