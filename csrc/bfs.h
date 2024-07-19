@@ -94,21 +94,17 @@ inline std::string toString(const std::variant<ExprT, ValT>& n) {
   }
 }
 
-// Traversal for finding the shortest path from ValTs to another
-// ValTs. The algorithm is based on the standard BFS traversal,
-// however, since ValGraph is not an undirected graph, the
-// dependencies of ValTs and ExprTs need to be
-// satisfied. Specifically, when visiting an ExprT, either its
-// inputs or outputs must be visited before. Similarly, when visiting
-// a ValT, there must be at least one defining ExprT or one
-// use ExprT that is already visited.
-//
-// The main use case is tensor indexing, where a typical traversal
-// would be from loop domains to allocation domains. Some
-// indexing-specific specialization would be needed, for example,
-// dependencies with broadcast domains can be ignored as their index
-// is always just zero. The indexing shortest-path traversal would be
-// implemented by subclassing this class.
+// Traversal for finding the shortest path from given vals to another
+// vals. For now, the vals are either Val* if we want to traverse IR nodes,
+// or ValGroup if we want to traverse ValGraph. However, this algorithm is
+// implement as a class template so in the future, we can extend it to support
+// other types of vals and exprs. The algorithm is based on the standard BFS
+// traversal, however, the traversal graph is treated as an undirected graph, so
+// the traversal direction can be both forward and backward. The dependencies of
+// vals and exprs need to be satisfied. Specifically, when visiting an expr,
+// either its inputs or outputs must be visited before. Similarly, when visiting
+// a val, there must be at least one defining expr or one use expr that is
+// already visited.
 template <
     typename ExprT,
     typename ValT,
@@ -233,7 +229,8 @@ class BFS {
     }
 
     // At this point, we have the reverse path, but it may have multiple exprs
-    // that need to be filtered out. Let's say there are domains 0, 1 and 2, and
+    // that need to be filtered out. For example, if we are traversing
+    // IterDomain transformations, let's say there are domains 0, 1 and 2, and
     // domains 1 and 2 are merged to produce domain 3, and then domains
     // 0 and 3 are merged to produce domain 4.
     //
@@ -304,7 +301,7 @@ class BFS {
     // Recall that the final path needs to be reversed, so instead of
     // finding the last appearance of each node, the final path can be
     // obtained by first reversing the current path and then only taking
-    // the first appearance of each ExprT. Or, more simply, we can
+    // the first appearance of each expr. Or, more simply, we can
     // just use VectorOfUniqueEntries with the reverse iterator.
     //
     // See the BFS2 test for a concrete example.
@@ -371,8 +368,8 @@ class BFS {
     return std::nullopt;
   }
 
-  // Check if a ValT is ready to visit. Either its defining or use
-  // ExprT must have its dependency satisfied. If ready because
+  // Check if a val is ready to visit. Either its defining or use
+  // expr must have its dependency satisfied. If ready because
   // there's a visited defining expr, return Direction::Forward and
   // the defining expr. If ready because there's a visited use expr, return
   // Direction::Backward and the use expr.
@@ -393,10 +390,8 @@ class BFS {
     // Check if any def is visited
     decltype(auto) def = definition_(v);
     if (!def.empty()) {
-      auto it = std::find_if(
-          def.begin(),
-          def.end(),
-          [&](const ExprT& def_e) -> bool {
+      auto it =
+          std::find_if(def.begin(), def.end(), [&](const ExprT& def_e) -> bool {
             return isDependencySatisfied(def_e);
           });
       if (it != def.end()) {
