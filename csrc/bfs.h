@@ -120,17 +120,17 @@ class BFS {
   virtual ~BFS() = default;
 
  protected:
-  BFS(const DefinitionT& definition,
-      const UsesT& uses,
-      const InputsT& inputs,
-      const OutputsT& outputs,
+  BFS(DefinitionT definition,
+      UsesT uses,
+      InputsT inputs,
+      OutputsT outputs,
       std::vector<NodeType> from,
       std::vector<NodeType> to,
       bool require_all_to_visited = true)
-      : definition_(definition),
-        uses_(uses),
-        inputs_(inputs),
-        outputs_(outputs),
+      : definition_(std::move(definition)),
+        uses_(std::move(uses)),
+        inputs_(std::move(inputs)),
+        outputs_(std::move(outputs)),
         from_(std::move(from)),
         to_(std::move(to)),
         require_all_to_visited_(require_all_to_visited) {}
@@ -366,7 +366,6 @@ class BFS {
           outputs.end(),
           std::back_inserter(prev_nodes),
           [&](const ValT& output) -> bool { return isVisited(output); });
-
       return std::make_pair(Direction::Backward, prev_nodes);
     }
 
@@ -478,10 +477,10 @@ class BFS {
   }
 
  protected:
-  const DefinitionT& definition_;
-  const UsesT& uses_;
-  const InputsT& inputs_;
-  const OutputsT& outputs_;
+  const DefinitionT definition_;
+  const UsesT uses_;
+  const InputsT inputs_;
+  const OutputsT outputs_;
   const std::vector<NodeType> from_;
   const std::vector<NodeType> to_;
   std::deque<NodeType> to_visit_;
