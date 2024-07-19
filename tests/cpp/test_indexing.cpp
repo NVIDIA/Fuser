@@ -29,6 +29,7 @@
 namespace nvfuser {
 
 using IndexingTest = NVFuserTest;
+using PredicateIndexingTest = NVFuserTest;
 
 namespace {
 
@@ -75,6 +76,21 @@ Val* xorExpr(Args&&... args) {
   return IrBuilder::bitwiseXorExpr(std::forward<Args>(args)...);
 }
 
+template <typename... Args>
+Val* andExpr(Args&&... args) {
+  return SimplifyingIrBuilder::logicalAndExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* geExpr(Args&&... args) {
+  return SimplifyingIrBuilder::geExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* ltExpr(Args&&... args) {
+  return SimplifyingIrBuilder::ltExpr(std::forward<Args>(args)...);
+}
+
 Val* createInt(int64_t i) {
   return IrBuilder::create<Val>(i, DataType::Index);
 }
@@ -103,6 +119,10 @@ class AbstractGetReference {
     return std::string();
   }
 
+  virtual Val* getPredicate(TensorView* tv) const {
+    return nullptr;
+  }
+
   void setForLoops(const std::vector<ForLoop*>& for_loops) {
     for_loops_ = for_loops;
   }
@@ -124,7 +144,8 @@ class AbstractGetReference {
   // These could be getLinearIndex parameters, but it's just easier to
   // add them here since the function signature doesn't need to change.
   std::vector<ForLoop*> for_loops_;
-  CircularBufferLoopStage circular_buffer_loop_stage_;
+  CircularBufferLoopStage circular_buffer_loop_stage_ =
+      CircularBufferLoopStage::NotApplicable;
 };
 
 template <typename GetReference>
@@ -231,6 +252,98 @@ class IndexValidator : public kir::IrVisitor {
   GetReference get_ref_;
 };
 
+template <typename GetReference>
+class PredicateIndexValidator : public kir::IrVisitor {
+ public:
+  PredicateIndexValidator(const GpuLower& lower, GetReference&& get_ref)
+      : get_ref_(std::move(get_ref)) {}
+
+  using kir::IrVisitor::dispatch;
+  using kir::IrVisitor::handle;
+
+  void dispatch(Expr* expr) override {
+    if (!ir_utils::isTvOp(expr)) {
+      kir::IrVisitor::dispatch(expr);
+      return;
+    }
+
+    get_ref_.setForLoops(for_loops_);
+
+    if (auto loop_it = std::find_if(
+            for_loops_.begin(),
+            for_loops_.end(),
+            [](ForLoop* fl) {
+              return fl->circularBufferLoopStage() !=
+                  CircularBufferLoopStage::NotApplicable;
+            });
+        loop_it != for_loops_.end()) {
+      auto loop = *loop_it;
+      get_ref_.setCircularBufferInfo(loop->circularBufferLoopStage());
+    }
+
+    auto out_ti = expr->output(0)->as<kir::TensorIndex>();
+
+    NVF_ERROR(!scope_exprs_.empty());
+    auto inline_predicate = dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
+    NVF_ERROR(
+        inline_predicate != nullptr,
+        "No inline predicate detected: ",
+        expr->toString());
+
+    validate(out_ti, inline_predicate->predicate()->value());
+
+    get_ref_.clearForLoops();
+    get_ref_.clearCircularBufferInfo();
+  }
+
+  void validate(kir::TensorIndex* ti, Val* actual) {
+    TensorView* tv = ti->view();
+    Val* ref = get_ref_.getPredicate(tv);
+    if (ref != nullptr) {
+      EXPECT_TRUE(actual->sameAs(ref))
+          << "Validation failure of " << ti->view()->toString()
+          << "\nRef: " << ref->toInlineString()
+          << "\nActual: " << actual->toInlineString();
+      return;
+    }
+
+    // If no ref is obtained, skip validation
+  }
+
+  template <typename... Args>
+  static void validate(Fusion* fusion, Args... args) {
+    EnableOptionsGuard enable_options_guard;
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IdModel, {"inline_predicate"});
+
+    // Disable simplifications to make the pattern matching of sameAs work
+    DisableOptionsGuard disable_options_guard;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
+    DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
+    // Magic zero is not yet supported
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+    DisableOptionsGuard::getCurOptions().set(
+        DisableOption::PredicateElimination);
+
+    GpuLower lower(fusion);
+
+    kir::Kernel* kernel = nullptr;
+    // Suppress warnings due to using dynamic register tensors
+    testing::internal::CaptureStderr();
+    kernel = lower.run();
+    testing::internal::GetCapturedStderr();
+
+    PredicateIndexValidator<GetReference> validator(
+        lower, GetReference(lower.tensorIndexer(), args...));
+
+    FusionGuard fg(kernel);
+    validator.handle(kernel->topLevelExprs());
+  }
+
+ private:
+  GetReference get_ref_;
+};
+
 } // namespace
 
 // Simple pointwise test with no parallelization
@@ -249,7 +362,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv1->inlineAt(1);
 
@@ -339,7 +452,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
   tv3->split(0, 4);
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
@@ -578,7 +691,7 @@ TEST_F(IndexingTest, Reshape) {
   fusion.addOutput(tv5);
 
   TransformPropagator propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
 
   inlineMost();
 
@@ -694,7 +807,7 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   // The first merge of the logical domains should be a trivial merge,
   // i.e., a merge with a extent-one domain. Thus, the indexing
@@ -755,7 +868,7 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
   tv3->flatten();
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   inlineMost();
 
@@ -825,7 +938,7 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   // [4, i0*i1/4]
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   for (auto tv : ir_utils::allTvs(&fusion)) {
     tv->inlineAt(-2);
@@ -939,7 +1052,7 @@ TEST_F(IndexingTest, MultiDevice2D) {
   tv1->split(0, num_devices, false);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
@@ -982,7 +1095,7 @@ TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
   tv1->split(0, num_devices, false);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
@@ -1123,7 +1236,7 @@ TEST_F(IndexingTest, SimpleVectorize) {
   tv2->axis(2)->parallelize(ParallelType::Vectorize);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -1192,7 +1305,7 @@ TEST_F(IndexingTest, NonInnermostVectorize) {
   tv3->reorder({{-1, -2}});
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
@@ -1257,7 +1370,7 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
   tv3->merge(1);
   tv3->split(1, 5);
 
-  MaxRootDomainInfoSpanningTree tree(tv3);
+  MaxLogicalDomainInfoSpanningTree tree(tv3);
   TransformPropagator tp(tv3);
   tree.traverse(&tp);
 
@@ -1368,7 +1481,7 @@ TEST_F(IndexingTest, SimpleUnroll) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -1425,7 +1538,7 @@ TEST_F(IndexingTest, InlinedUnroll) {
   tv4->split(0, 1);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -1674,7 +1787,7 @@ TEST_F(IndexingTest, DoubleBuffering1) {
   tv3->split(-1, 128);
   tv3->split(-1, 32);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv1->inlineAt(-2);
   tv2->inlineAt(-2);
@@ -1781,7 +1894,7 @@ TEST_F(IndexingTest, DoubleBuffering4) {
   tv3->split(-1, 32);
   tv3->split(-1, 8);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 2);
   tv2->computeAt(tv3, -1);
@@ -1888,7 +2001,7 @@ TEST_F(IndexingTest, DoubleBuffering6) {
   tv3->split(-2, 4);
   tv3->split(-2, 2);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
   tv2->computeAt(tv3, -1);
@@ -2035,7 +2148,7 @@ TEST_F(IndexingTest, CircularBuffering1) {
   tv3->split(-1, 128);
   tv3->split(-1, 32);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv1->inlineAt(-2);
   tv2->inlineAt(-2);
@@ -2155,7 +2268,7 @@ TEST_F(IndexingTest, CircularBuffering2) {
   tv3->split(-2, 4);
   tv3->split(-2, 2);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
   tv2->computeAt(tv3, -1);
@@ -2288,6 +2401,142 @@ TEST_F(IndexingTest, CircularBuffering2) {
   };
 
   IndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as IndexingTest.SimplePointwise1
+TEST_F(PredicateIndexingTest, SimplePointwise1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->flatten();
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(1);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto i0_idx = divExpr(
+          addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              loop_indices.at(1)),
+          tv->getLogicalDomain().at(1)->extent());
+
+      auto i1_idx = modExpr(
+          addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              loop_indices.at(1)),
+          tv->getLogicalDomain().at(1)->extent());
+
+      Val* zero = tv->fusion()->zeroVal();
+      Val* cond = tv->fusion()->trueVal();
+      cond = andExpr(
+          andExpr(
+              andExpr(
+                  andExpr(cond, geExpr(i0_idx, zero)),
+                  ltExpr(i0_idx, tv->getLogicalDomain().at(0)->extent())),
+              geExpr(i1_idx, zero)),
+          ltExpr(i1_idx, tv->getLogicalDomain().at(1)->extent()));
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+}
+
+// Testing predicate indexing with an rfactor reduction
+TEST_F(PredicateIndexingTest, ReductionRfactor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {1});
+  fusion.addOutput(tv1);
+
+  tv1->split(1, 4, false);
+  tv1->rFactor({1});
+
+  inlineMost();
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      bool is_init = tv->nDims() > (int64_t)for_loops_.size();
+
+      switch (tv->name()) {
+        case 1: {
+          // T1_g[ iS10{i0}, rS11{( ceilDiv(i2, 4) )} ]
+          //
+          // If this is the initialization of the buffer, only iS10
+          // should be predicated. If not, rS11 should also be predicated.
+          auto is10_pred = andExpr(
+              geExpr(loop_indices.at(0), tv->fusion()->zeroVal()),
+              ltExpr(
+                  loop_indices.at(0), tv->getLogicalDomain().at(0)->extent()));
+          if (is_init) {
+            return is10_pred;
+          } else {
+            return andExpr(
+                andExpr(
+                    is10_pred,
+                    geExpr(loop_indices.at(1), tv->fusion()->zeroVal())),
+                ltExpr(
+                    loop_indices.at(1),
+                    tv->getLogicalDomain().at(1)->extent()));
+          }
+        }
+        case 2: {
+          // T2_l[ iS6{i0}, rS8{4}rf, iS9{( ceilDiv(i2, 4) )}rf ]
+          //
+          // The initialization block should not be predicated at all.
+          if (is_init) {
+            return tv->fusion()->trueVal();
+          } else {
+            // Predicating the logical domains can result in wrong
+            // outputs since the split may not be divisible, allowing
+            // out-of-bounds accesses to the input
+            // global-memory tensor. Instead, its root domain should be
+            // used as predicate domains.
+            auto is6_pred = andExpr(
+                geExpr(loop_indices.at(0), tv->fusion()->zeroVal()),
+                ltExpr(
+                    loop_indices.at(0), tv->getRootDomain().at(0)->extent()));
+            auto root_idx = addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2));
+            return andExpr(
+                andExpr(is6_pred, geExpr(root_idx, tv->fusion()->zeroVal())),
+                ltExpr(root_idx, tv->getRootDomain().at(1)->extent()));
+          }
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
 }
 
 } // namespace nvfuser

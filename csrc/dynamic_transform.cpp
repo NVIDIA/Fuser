@@ -1214,7 +1214,7 @@ static bool hasTrivialReduction(
     TensorView* out,
     std::vector<int64_t>& reduction_axes) {
   bool has_trivial_reduction = false;
-  PairwiseRootDomainMap p2c_map(in, out);
+  PairwiseLogicalDomainMap p2c_map(in, out);
   // We need to map broadcasts in order to detect reductions of broadcasts
   p2c_map.mapBroadcast(true);
   auto p2c = p2c_map.mapProducerToConsumer();
@@ -1303,14 +1303,14 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
   std::vector<std::unordered_map<IterDomain*, IterDomain*>> c2p_maps;
   bool is_factory_output = true;
   for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
-    PairwiseRootDomainMap root_map(producer, consumer);
+    PairwiseLogicalDomainMap logical_map(producer, consumer);
     // We map symbolic domains here regardless of whether their extents match.
     // This is safe because we are propagating from a producer which should have
     // already been concretized. The consumer might have a different extent
     // which will be equivalent to (but not necessarily sameAs) the producer's,
     // and we just want to use its IterType to concretize the consumer ID.
-    root_map.mapSymbolic(true);
-    c2p_maps.push_back(root_map.mapConsumerToProducer());
+    logical_map.mapSymbolic(true);
+    c2p_maps.push_back(logical_map.mapConsumerToProducer());
     is_factory_output = false;
   }
 

@@ -132,7 +132,7 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
       fec_.try_emplace(
           hu,
           std::make_unique<Fusion>(*hu->fusion_to_execute()),
-          0,
+          /*fusion_id=*/0,
           !params_.skip_auto_scheduling);
     }
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
@@ -226,6 +226,10 @@ void handleWithExpressionEvaluator(
 
 void HostIrExecutor::handle(SliceOp* slice_op) {
   return handleWithExpressionEvaluator(slice_op, expr_evaluator_);
+}
+
+void HostIrExecutor::handle(MatmulOp* matmul_op) {
+  return handleWithExpressionEvaluator(matmul_op, expr_evaluator_);
 }
 
 } // namespace hir

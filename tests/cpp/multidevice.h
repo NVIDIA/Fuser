@@ -15,18 +15,10 @@
 
 namespace nvfuser {
 
+// Used to clean up the Communicator singleton.
 class MultiDeviceTestEnvironment : public testing::Environment {
  public:
-  ~MultiDeviceTestEnvironment() override {}
-  void SetUp() override;
   void TearDown() override;
-
-  static Communicator* getCommunicator() {
-    return communicator_;
-  }
-
- private:
-  static Communicator* communicator_;
 };
 
 class MultiDeviceTest : public NVFuserTest {

@@ -8,6 +8,8 @@
 #include <benchmarks/cpp/utils.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <cuda_utils.h>
+
+#include <fusion_profiler.h>
 #include <scheduler/all_schedulers.h>
 #include <tests/cpp/utils.h>
 
@@ -199,26 +201,16 @@ int64_t runBenchmarkIterations(
 
   // Sync everything up before we start
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
 
-  if (!segmented) {
-    auto executor_instance = compile_log.fusion_executor;
-    executor_instance->setMeasureKernelTimeFlag(true);
-    for (auto _ : benchmark_state) {
-      clearL2Cache();
-      auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-      benchmark_state.SetIterationTime(
-          executor_instance->kernelTimeMs() / 1000.0);
-    }
-  } else {
-    CudaKernelTimer timer;
-    for (auto _ : benchmark_state) {
-      clearL2Cache();
-      timer.restart();
-      auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
-      benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
-    }
+  for (auto _ : benchmark_state) {
+    clearL2Cache();
+    auto cg_outputs = fusion_executor_cache->runFusionWithInputs(aten_inputs);
+    benchmark_state.SetIterationTime(
+        FusionProfiler::profile().kernel_time_ms / 1000.0);
   }
 
+  ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
@@ -243,18 +235,22 @@ int64_t runBenchmarkIterations(
   auto lparams = toString(fusion_executor->lastLaunchParams());
   benchmark_state.SetLabel(lparams);
 
-  fusion_executor->setMeasureKernelTimeFlag(true);
-
   // Sync everything up before we start
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());
+  ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
 
   for (auto _ : benchmark_state) {
     clearL2Cache();
+    FusionProfiler::start();
+    FusionProfiler::createSegments(1);
     auto cg_outputs = fusion_executor->runFusion(
         aten_inputs, launch_constraints, compile_params);
-    benchmark_state.SetIterationTime(fusion_executor->kernelTimeMs() / 1000.0);
+    FusionProfiler::stop();
+    benchmark_state.SetIterationTime(
+        FusionProfiler::profile().kernel_time_ms / 1000.0);
   }
 
+  ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
   // Sync everything up before we're finished, don't want to run ahead on the
   // cpu while benchmarking.
   NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceSynchronize());

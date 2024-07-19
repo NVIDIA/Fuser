@@ -29,8 +29,8 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -94,7 +94,7 @@ TEST_F(NVFuserTest, FusionIrGraphGenerator_CUDA) {
   tv6->merge(0);
   tv6->split(0, 4);
   TransformPropagatorWithCheck propagator(tv6);
-  MaxRootDomainInfoSpanningTree(tv6).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv6).traverse(&propagator);
 
   tv4->axis(2)->parallelize(ParallelType::BIDy);
   tv6->axis(0)->parallelize(ParallelType::BIDx);
@@ -154,7 +154,7 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
 
     tv3->split(0, 4);
     TransformPropagatorWithCheck propagator(tv3);
-    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv2->axis(1)->parallelize(ParallelType::Unroll);
@@ -195,7 +195,7 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
     // tv3 [i0outer, i0inner{4}, i1, i2]
     TransformPropagatorWithCheck propagator(tv3);
-    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(1)->parallelize(ParallelType::BIDx);
 
@@ -237,7 +237,7 @@ TEST_F(NVFuserTest, FusionCopy_CUDA) {
     tv3->split(-1, 4);
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
     TransformPropagatorWithCheck propagator(tv3);
-    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv3->axis(-1)->parallelize(ParallelType::TIDx);
@@ -312,7 +312,7 @@ TEST_F(NVFuserTest, FusionMove_CUDA) {
     tv3->split(-1, 4);
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
     TransformPropagatorWithCheck propagator(tv3);
-    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv3->axis(-1)->parallelize(ParallelType::TIDx);
@@ -807,7 +807,7 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   tv2->reorder({{0, 1}, {1, 0}});
   // I0*I1*I2o{4}i{2}, [I0*I1*I2o{4}o, I2i]
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -849,7 +849,7 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
   tv2 = tv2->reorder({{0, 1}, {1, 0}, {3, 2}});
   //[I0i{4}*I1, I0o, I2i{2}, I2o]
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -887,7 +887,7 @@ TEST_F(NVFuserTest, FusionCodeGen2_CUDA) {
   tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
   // I0o, I0i{4}, I1, I2]
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
@@ -940,7 +940,7 @@ TEST_F(NVFuserTest, FusionSimplePWise_CUDA) {
   tv3->split(0, 128);
   tv3->split(0, 4);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
@@ -997,7 +997,7 @@ TEST_F(NVFuserTest, FusionSimplePWiseDtypeComplex_CUDA) {
   tv3->split(0, 128);
   tv3->split(0, 4);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
@@ -1047,7 +1047,7 @@ TEST_F(NVFuserTest, FusionExecKernel_CUDA) {
   tv3->split(0, 128);
   tv3->split(0, 4);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
