@@ -2922,4 +2922,280 @@ TEST_F(PredicateIndexingTest, NonInnermostVectorize) {
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
 }
 
+// Same fusion as IndexingTest.DoubleBuffering1
+TEST_F(PredicateIndexingTest, DoubleBuffering1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 32);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv1->inlineAt(-2);
+  tv2->inlineAt(-2);
+
+  tv3->axis(-2)->parallelize(ParallelType::BIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv1->circularBuffer(/*number_of_stages=*/2);
+
+  // T1_s[ iS12{( ceilDiv(i0, 128) )}, iblockIdx.x14{( ceilDiv(128, 32) )},
+  // ithreadIdx.x15{32} ] ca_pos( 2 ) T2_l[ iS8{( ceilDiv(i0, 128) )},
+  // iblockIdx.x10{( ceilDiv(128, 32) )}, ithreadIdx.x11{32} ] ca_pos( 2 )
+  // produce_pos( 2 ) T3_g[ iS4{( ceilDiv(i0, 128) )}, iblockIdx.x6{(
+  // ceilDiv(128, 32) )}, ithreadIdx.x7{32} ] produce_pos( 2 )
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      // All other tensors are just predicated as usual
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      // No epilog for this fusion
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      auto circular_buffer_index = for_loops_.at(0)->index();
+
+      if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
+        // bidx.x * 32 + tid.x >= 0 &&
+        // bidx.x * 32 + tid.x < N
+        auto idx = addExpr(
+            mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+            loop_indices.at(2));
+        return andExpr(
+            geExpr(idx, tv->fusion()->zeroVal()),
+            ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
+      } else {
+        // (i + 1) * 128 + bidx.x * 32 + tid.x >= 0 &&
+        // (i + 1) * 128 + bidx.x * 32 + tid.x < N
+        auto idx = addExpr(
+            mulExpr(
+                addExpr(circular_buffer_index, tv->fusion()->oneVal()),
+                createInt(128)),
+            addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
+        return andExpr(
+            geExpr(idx, tv->fusion()->zeroVal()),
+            ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Same fusion ad IndexingTest.CircularBuffering1
+TEST_F(PredicateIndexingTest, CircularBuffering1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 32);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv1->inlineAt(-2);
+  tv2->inlineAt(-2);
+
+  tv3->axis(-2)->parallelize(ParallelType::BIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv1->circularBuffer(/*number_of_stages=*/4);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  // T1_s[ iS12{( ceilDiv(i0, 128) )}, iblockIdx.x14{( ceilDiv(128, 32) )},
+  // ithreadIdx.x15{32} ] ca_pos( 2 ) T2_l[ iS8{( ceilDiv(i0, 128) )},
+  // iblockIdx.x10{( ceilDiv(128, 32) )}, ithreadIdx.x11{32} ] ca_pos( 2 )
+  // produce_pos( 2 ) T3_g[ iS4{( ceilDiv(i0, 128) )}, iblockIdx.x6{(
+  // ceilDiv(128, 32) )}, ithreadIdx.x7{32} ] produce_pos( 2 )
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      // All other tensors are just predicated as usual
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      // No epilog for this fusion
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      auto circular_buffer_index = for_loops_.at(0)->index();
+
+      Val* idx = nullptr;
+      if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
+        // i * 128 + bidx.x * 32 + tid.x >= 0 &&
+        // i * 128 + bidx.x * 32 + tid.x < N
+        idx = addExpr(
+            mulExpr(circular_buffer_index, createInt(128)),
+            addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
+      } else {
+        // (i + 3) * 128 + bidx.x * 32 + tid.x >= 0 &&
+        // (i + 3) * 128 + bidx.x * 32 + tid.x < N
+        idx = addExpr(
+            mulExpr(
+                addExpr(circular_buffer_index, createInt(3)), createInt(128)),
+            addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
+      }
+
+      return andExpr(
+          geExpr(idx, tv->fusion()->zeroVal()),
+          ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Same fusion as IndexingTest.CircularBuffering2. Combination of
+// circular buffering and unrolling
+TEST_F(PredicateIndexingTest, CircularBuffering2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = set(tv1);
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 16);
+  tv3->split(-2, 4);
+  tv3->split(-2, 2);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv0->computeAt(tv3, 1);
+  tv2->computeAt(tv3, -1);
+
+  tv3->axis(2)->parallelize(ParallelType::Unroll);
+  tv3->axis(4)->parallelize(ParallelType::TIDx);
+
+  tv2->circularBuffer(/*number_of_stages=*/4);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  // T1_s[ iS20{( ceilDiv(i0, 128) )}, iS24{( ceilDiv(( ceilDiv(128, 16) ), 4)
+  // )}, iS26{( ceilDiv(4, 2) )}, iS27{2}, iS23{16} ] ca_pos( 1 ) T2_l[ iS12{(
+  // ceilDiv(i0, 128) )}, iS16{( ceilDiv(( ceilDiv(128, 16) ), 4) )}, iS18{(
+  // ceilDiv(4, 2) )}, iS19{2}, iS15{16} ] ca_pos( 5 ) produce_pos( 1 ) T3_g[
+  // iS4{( ceilDiv(i0, 128) )}, iS8{( ceilDiv(( ceilDiv(128, 16) ), 4) )},
+  // iUR10{( ceilDiv(4, 2) )}, iS11{2}, ithreadIdx.x7{16} ] produce_pos( 5 )
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      // All other tensors are just predicated as usual
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      // No epilog for this fusion
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      auto circular_buffer_index = for_loops_.at(0)->index();
+
+      Val* idx = nullptr;
+      if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
+        // i * 128 + bidx.x * 32 + tid.x >= 0 &&
+        // i * 128 + bidx.x * 32 + tid.x < N
+        idx = addExpr(
+            mulExpr(circular_buffer_index, createInt(128)),
+            addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
+      } else {
+        // (i + 3) * 128 + bidx.x * 32 + tid.x >= 0 &&
+        // (i + 3) * 128 + bidx.x * 32 + tid.x < N
+        idx = addExpr(
+            mulExpr(
+                addExpr(circular_buffer_index, createInt(3)), createInt(128)),
+            addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2)));
+      }
+
+      return andExpr(
+          geExpr(idx, tv->fusion()->zeroVal()),
+          ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+}
+
 } // namespace nvfuser

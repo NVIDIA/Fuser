@@ -94,8 +94,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     }
   };
 
-  auto replace_for_double_buffering = [&](ForLoop* fl,
-                                          Val* original_index) -> Val* {
+  auto replace_for_circular_buffering = [&](ForLoop* fl,
+                                            Val* original_index) -> Val* {
     auto db_axis =
         GpuLower::current()->circularBufferInfo().getCircularBufferAxis(tv);
     if (db_axis == nullptr ||
@@ -168,7 +168,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     }
 
     // Adjustment for double buffering
-    if (auto db_index = replace_for_double_buffering(fl, replacement)) {
+    if (auto db_index = replace_for_circular_buffering(fl, replacement)) {
       replacement = db_index;
     }
 
