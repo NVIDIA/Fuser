@@ -565,7 +565,7 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
 }
 
 void LoopIndexingAnalysis::run() {
-  // Collect consumer id's for view rfactor traversal.
+  // Collect consumer id's for view producer projection traversal.
   all_consumer_id_vals_ = DependencyCheck::getAllValsBetween(
       {consumer_tv_->getMaybeRootDomain().begin(),
        consumer_tv_->getMaybeRootDomain().end()},

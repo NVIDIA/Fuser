@@ -176,18 +176,18 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
     std::vector<IterDomain*> all_ids = ir_utils::allIDsOf(tv);
 
     // Check if this domain is a consumer of a view-like operation
-    const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
+    const bool view_like_domain = tv->domain()->hasViewLikeProducerProjection();
 
     for (auto id : all_ids) {
-      // Check if this id is a view like rfactor id
-      if (view_like_domain && id->isRFactorProduct()) {
+      // Check if this id is a view like producer projection id
+      if (view_like_domain && id->isProducerProjection()) {
         // If the tensor domain is a view like domain, and the iteration
-        // domain is marked as an rfactor product and is in the rfactor
-        // domain, it's a view like rfactor iteration domain
+        // domain is marked as an producer projection and is in the logical
+        // domain, it's a view like producer projection iteration domain
         const auto& logical_domain = tv->domain()->logical();
         if (std::find(logical_domain.begin(), logical_domain.end(), id) !=
             logical_domain.end()) {
-          view_rfactor_ids_.emplace(id);
+          view_producer_projection_ids_.emplace(id);
         }
       }
 

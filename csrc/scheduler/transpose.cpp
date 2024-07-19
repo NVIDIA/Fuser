@@ -189,7 +189,7 @@ class DomainMap : public pointwise_utils::DomainMap {
 
   // Note that this may not be able to find any reference if any
   // tensor in the group is only connected with an input through
-  // rfactor or gather-like indexing ops. It is because
+  // producer projection or gather-like indexing ops. It is because
   // isValidReference is based a backward traversal, so there may not
   // be a traversal path to an input. This type of analysis is
   // expected to be possible much more easily with the new indexing
@@ -257,7 +257,7 @@ class DomainMap : public pointwise_utils::DomainMap {
         tv);
     auto replay_exprs = StmtSort::getExprsBetween(
         {mapped_id}, {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-    // Project the root id to loop id. Similar to projectIdToRFactor.
+    // Project the root id to loop id. Similar to projectIdToLogical.
     for (auto expr : replay_exprs) {
       if (expr->isA<Split>()) {
         // Split with factor one is not supposed to be here, reshape would map
@@ -961,7 +961,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // width. In the example above, we are looking at 2*3*65536/2, 2*4*7.
   //
   // Currently there's limitation on our iter domain mapping. Since we can only
-  // do it on rfactor/root domain, we cannot map across `split` domains. So the
+  // do it on logical/root domain, we cannot map across `split` domains. So the
   // example above will only have vectorization size of 2 and 4 repsectively for
   // the merge virtual innermost dimensions, rather than considering the split
   // and merged i2/2 & 2.

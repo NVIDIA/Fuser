@@ -407,7 +407,7 @@ NVF_API TensorView* broadcast(
     const std::vector<bool>& is_broadcast_dim);
 
 // Expands input based on provided sizes. expand_sizes should be larger than
-// the input's root domain (really rfactor) and will broadcast on inner
+// the input's logical domain and will broadcast on inner
 // dimensions. expand_sizes should be -1 for any dimension that should remain a
 // symbolic size. For dimensions that remain broadcast after the expand should
 // be set to 1, any dimension being expanded must be marked as a broadcast in

@@ -386,7 +386,7 @@ void propagateRFactor(
       continue;
     }
     if (reference_tv->axis(i)->isReduction() &&
-        reference_tv->axis(i)->isRFactorProduct()) {
+        reference_tv->axis(i)->isProducerProjection()) {
       non_broadcast_rfactor_axes_ir.insert(non_broadcast_pos_ir);
     }
     non_broadcast_pos_ir++;

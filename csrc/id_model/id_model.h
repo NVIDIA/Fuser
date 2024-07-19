@@ -147,8 +147,8 @@ class IdModel : public PolymorphicBase {
   }
 
   // TODO: Seems a bit unfortunate that this isn't IterDomain local information.
-  const std::unordered_set<IterDomain*>& viewRfactorIds() const {
-    return view_rfactor_ids_;
+  const std::unordered_set<IterDomain*>& viewProducerProjectionIds() const {
+    return view_producer_projection_ids_;
   }
 
   std::string toString() const;
@@ -282,7 +282,7 @@ class IdModel : public PolymorphicBase {
   // multiple definitions due to replays.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_definitions_;
 
-  std::unordered_set<IterDomain*> view_rfactor_ids_;
+  std::unordered_set<IterDomain*> view_producer_projection_ids_;
 
   // Promotion domain for each loop group
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;

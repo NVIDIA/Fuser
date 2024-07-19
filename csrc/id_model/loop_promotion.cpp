@@ -268,9 +268,9 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
   std::unordered_map<ValGroup, IterDomain*> iel_promotion_map;
 
   // This should probably work just on terminating inputs, as we shouldn't be
-  // able to modify a broadcast domain between root and rfactor which would be
-  // required to resolve a non input broadcast domain. But for now leaving it as
-  // traversal on all broadcast groups.
+  // able to modify a broadcast domain on the producer projection path which
+  // would be required to resolve a non input broadcast domain. But for now
+  // leaving it as traversal on all broadcast groups.
   //
 
   // We first visit all broadcast root domains. If a broadcast is
@@ -655,7 +655,7 @@ namespace {
 
 // Returns for each ValGroup in provided IdGraph what the input ValGroups are
 // traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
-// at RFactor ValGroups.
+// at logical ValGroups.
 std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
     const ValGraph& graph) {
   // Map from an exact iter domain group, to all the exact iter domain groups it
@@ -761,13 +761,13 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
       continue;
     }
 
-    // If this domain is a view rfactor domain and a terminal domain,
-    // it is guaranteed to represent this loop group because all the
+    // If this domain is a view producer projection domain and a terminal
+    // domain, it is guaranteed to represent this loop group because all the
     // domains merged into this loop_id must be non-broadcast
     // domains. A concrete example can be found in test
-    // LoopPromotionWithViewRFactor1.
-    if (id_model_.viewRfactorIds().find(loop_id) !=
-        id_model_.viewRfactorIds().end()) {
+    // LoopPromotionWithViewProducerProjection1.
+    if (id_model_.viewProducerProjectionIds().find(loop_id) !=
+        id_model_.viewProducerProjectionIds().end()) {
       return loop_id;
     }
 

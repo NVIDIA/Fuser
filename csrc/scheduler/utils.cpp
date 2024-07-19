@@ -1108,23 +1108,24 @@ std::vector<TensorView*> getViewTVs(Fusion* fusion) {
   return view_tvs;
 }
 
-std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion) {
-  std::vector<TensorView*> tvs_with_rfactor;
+std::vector<TensorView*> getTVsWithNonReductionProducerProjection(
+    Fusion* fusion) {
+  std::vector<TensorView*> tvs_with_producer_projection;
   auto fusion_vals = fusion->usedMathVals();
   std::copy_if(
       ir_utils::filterByType<TensorView>(fusion_vals).begin(),
       ir_utils::filterByType<TensorView>(fusion_vals).end(),
-      std::back_inserter(tvs_with_rfactor),
+      std::back_inserter(tvs_with_producer_projection),
       [](TensorView* tv) {
         return tv->hasRoot() &&
             std::none_of(
                    tv->getLogicalDomain().begin(),
                    tv->getLogicalDomain().end(),
                    [](auto id) {
-                     return id->isReduction() && id->isRFactorProduct();
+                     return id->isReduction() && id->isProducerProjection();
                    });
       });
-  return tvs_with_rfactor;
+  return tvs_with_producer_projection;
 }
 
 // Reset inputs and outputs to global memory, everything else to local.
@@ -1263,7 +1264,7 @@ IterDomain* projectIdToRoot(
 // Take the inner most root id from innerMostAllocDim and project it to the
 // logical domain if the provided domain is on the logical domain. If vectorize,
 // will not project if not following the inner most path.
-IterDomain* projectIdToRFactor(
+IterDomain* projectIdToLogical(
     TensorView* tv,
     IterDomain* reference_id,
     bool inner_only,
@@ -1355,7 +1356,7 @@ FindAllMappedDims::FindAllMappedDims(
 void FindAllMappedDims::setUp() {
   mapped_root_ids_[starting_tv_] =
       projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
-  mapped_logical_ids_[starting_tv_] = projectIdToRFactor(
+  mapped_logical_ids_[starting_tv_] = projectIdToLogical(
       starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
@@ -1382,7 +1383,7 @@ void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
     mapped_logical_ids_[to] =
-        projectIdToRFactor(to, c_it->second, inner_only_, vectorize_pass_);
+        projectIdToLogical(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_logical_ids_[to] = nullptr;
@@ -1505,7 +1506,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     // At this moment, vectorization through resize is not
     // supported. This is not required currently as we always insert
     // cacheBefore, but just in case.
-    if (ir_utils::hasResizedRfactor(output_tv)) {
+    if (ir_utils::hasResizedProducerProjection(output_tv)) {
       continue;
     }
     if (hasInnerDim(output_tv, vectorizable_dims, vectorize_pass)) {
@@ -1526,7 +1527,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
       return std::any_of(
           e->outputs().begin(), e->outputs().end(), [](Val* out) -> bool {
             if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
-              return ir_utils::hasResizedRfactor(out_tv);
+              return ir_utils::hasResizedProducerProjection(out_tv);
             }
             return false;
           });
@@ -1601,7 +1602,7 @@ DisjointLogicalSetInfo getDisjointLogicalSetsOf(
           disjoint_group_ids.begin(),
           disjoint_group_ids.end(),
           [](int i) { return i == -1; }),
-      "Failed to generate the rfactor disjoint groups of the reference ",
+      "Failed to generate the logical disjoint groups of the reference ",
       of->toString());
 
   NVF_ERROR(
@@ -1611,7 +1612,7 @@ DisjointLogicalSetInfo getDisjointLogicalSetsOf(
           [](const VectorOfUniqueEntries<IterDomain*>* ptr) {
             return ptr == nullptr;
           }),
-      "Failed to generate the rfactor disjoint groups of the reference ",
+      "Failed to generate the logical disjoint groups of the reference ",
       of->toString());
 
   info.disjoint_sets_of_ref = disjoint_set_of_id;
@@ -1640,7 +1641,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
 
   std::vector<BroadcastMultiple> multiples(ref_root_domain.size());
 
-  auto disjoint_logical_sets = disjointLogicalSets(fusion);
+  auto disjoint_logical_sets = disjointProducerProjectionSets(fusion);
   auto disjoint_set_information = scheduler_utils::getDisjointLogicalSetsOf(
       fusion, reference_tv, disjoint_logical_sets, logical_reorder_map);
 
@@ -1978,7 +1979,7 @@ void BoundedDirectionalTransformPropagator::bothWays(
   propagate(from, pos, included_tvs, *options);
 }
 
-DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion) {
+DisjointSets<IterDomain*> disjointProducerProjectionSets(Fusion* fusion) {
   // Start from the exact iter domain graph of the fusion
   IterDomainGraph id_graph(fusion);
   auto disjoint_logical_ids = id_graph.exactNodes();
@@ -2048,7 +2049,7 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
       auto find_it =
           std::find(reordered_ids.begin(), reordered_ids.end(), split->in());
       if (find_it == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
+        // Transformations before logical domain, ignore those.
         continue;
       }
       auto pos = std::distance(reordered_ids.begin(), find_it);
@@ -2061,14 +2062,14 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
           std::find(reordered_ids.begin(), reordered_ids.end(), merge->inner());
       if (find_it_0 == reordered_ids.end() &&
           find_it_1 == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
+        // Transformations before logical domain, ignore those.
         continue;
       }
       NVF_ERROR(
           find_it_0 != reordered_ids.end() && find_it_1 != reordered_ids.end(),
           "Error in transformations of ",
           tv->toString(),
-          "\nTransformations before rfactor should not mix with transformations after rfactor.");
+          "\nTransformations before logical domain should not mix with transformations after logical domain.");
       auto pos0 = std::distance(reordered_ids.begin(), find_it_0);
       auto pos1 = std::distance(reordered_ids.begin(), find_it_1);
       if (pos0 > pos1) {
@@ -2086,7 +2087,7 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
       auto find_it =
           std::find(reordered_ids.begin(), reordered_ids.end(), resize->in());
       if (find_it == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
+        // Transformations before logical domain, ignore those.
         continue;
       }
       *find_it = resize->out();
@@ -2128,13 +2129,13 @@ std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
     return ret;
   }
   std::unordered_map<IterDomain*, int64_t> alloc_index;
-  std::unordered_map<IterDomain*, int64_t> rfactor_index;
+  std::unordered_map<IterDomain*, int64_t> logical_index;
   for (auto i : c10::irange((int64_t)alloc_dom.size())) {
     alloc_index[alloc_dom[i]] = i;
-    rfactor_index[logical_dom[i]] = i;
+    logical_index[logical_dom[i]] = i;
   }
   for (auto iter_dom : alloc_dom) {
-    ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
+    ret[logical_index[iter_dom]] = alloc_index[iter_dom];
   }
   return ret;
 }
@@ -2165,7 +2166,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
             disjoint_set_shared_ptr->vector().begin(),
             disjoint_set_shared_ptr->vector().end(),
             [](IterDomain* id) {
-              return id->isRFactorProduct() && id->definition() &&
+              return id->isProducerProjection() && id->definition() &&
                   !id->definition()->isA<Resize>();
             })) {
       continue;
@@ -2188,11 +2189,11 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     }
 
     std::unordered_map<int64_t, int64_t> old2new;
-    // Make sure rfactor dims we need are in domain, and reorder them in domain
+    // Make sure logical dims we need are in domain, and reorder them in domain
     // so they're consecutive starting from the left of domain. TODO: We could
     // improve this so that if there's transformations replayed after the
-    // rfactor dims we could try and pull those through the fusion instead of
-    // enforcing rfactor dims are in domain.
+    // logical dims we could try and pull those through the fusion instead of
+    // enforcing logical dims are in domain.
     for (auto logical_id : tv->getLogicalDomain()) {
       if (terminating_reshape_dims.find(logical_id) !=
           terminating_reshape_dims.end()) {
@@ -2260,7 +2261,7 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
       tvs.emplace_back(index_select->lookupTv(), consumer);
     } else if (auto select = dynamic_cast<SelectOp*>(consumer->definition())) {
       tvs.emplace_back(select->lookupTv(), consumer);
-    } else if (ir_utils::hasResizedRfactor(consumer)) {
+    } else if (ir_utils::hasResizedProducerProjection(consumer)) {
       // Exprs based on ResizeOp, e.g., slice
       auto producers = ir_utils::producerTvsOf(consumer);
       NVF_ERROR(

@@ -477,8 +477,9 @@ bool isTorchGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 
-// Check if a tensor is resized as part of its root to logical transformations
-bool hasResizedRfactor(const TensorView* tv);
+// Check if a tensor is resized as part of its producer projection
+// transformations
+bool hasResizedProducerProjection(const TensorView* tv);
 
 // Returns tvs that have symbolic axes
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
@@ -647,8 +648,8 @@ std::optional<std::vector<int64_t>> computePermutation(
   std::vector<int64_t> permutation;
   permutation.reserve(out.size());
   // O(n^2) is totally fine for the current use case of computing the
-  // root-to-rfactor permutation. If needed, this can be improved by making T
-  // hashable and/or comparable.
+  // producer projection permutation. If needed, this can be improved by making
+  // T hashable and/or comparable.
   for (const T& out_element : out) {
     permutation.push_back(std::distance(
         in.begin(), std::find(in.begin(), in.end(), out_element)));

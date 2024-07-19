@@ -809,7 +809,7 @@ std::string varName(const Val* val) {
   return name.str();
 }
 
-bool hasResizedRfactor(const TensorView* tv) {
+bool hasResizedProducerProjection(const TensorView* tv) {
   if (!tv->hasRoot()) {
     return false;
   }

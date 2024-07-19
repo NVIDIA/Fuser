@@ -190,7 +190,8 @@ bool rejectScheduleForMemoryPromotion(
         std::any_of(
             expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
               return output->isA<TensorView>() &&
-                  ir_utils::hasResizedRfactor(output->as<TensorView>());
+                  ir_utils::hasResizedProducerProjection(
+                         output->as<TensorView>());
             })) {
       if (rejectScheduleFusionInputRequirement(expr, schedule_strategy)) {
         return true;
@@ -283,9 +284,9 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   // transformations which could map to those views not on the input->output
   // path.
 
-  // Look through all definitions associated with producing rfactor outputs.
-  // Mark those as an active use of the logical, if two are detected, return
-  // true.
+  // Look through all definitions associated with producing producer projection
+  // outputs. Mark those as an active use of the logical, if two are detected,
+  // return true.
   for (const auto& disjoint_set_shared_ptr :
        ca_map.idGraph().exactNodes().disjointSets()) {
     // Make sure there's at least one logical domain in the set, otherwise we
@@ -293,7 +294,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
     if (!std::any_of(
             disjoint_set_shared_ptr->vector().begin(),
             disjoint_set_shared_ptr->vector().end(),
-            [](IterDomain* id) { return id->isRFactorProduct(); })) {
+            [](IterDomain* id) { return id->isProducerProjection(); })) {
       continue;
     }
 
@@ -302,60 +303,62 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
     auto unique_defs =
         ca_map.uniqueExactDefinitions(disjoint_set_shared_ptr->back());
 
-    // Iterate through the all the rfactor iter domains
-    for (auto id_rfactor_product : disjoint_set_shared_ptr->vector()) {
-      if (!id_rfactor_product->isRFactorProduct()) {
+    // Iterate through the all the producer projection iter domains
+    for (auto id_producer_projection : disjoint_set_shared_ptr->vector()) {
+      if (!id_producer_projection->isProducerProjection()) {
         continue;
       }
 
-      // Grab the rfactor definition
-      auto rfactor_def = id_rfactor_product->definition();
+      // Grab the producer projection definition
+      auto producer_projection_def = id_producer_projection->definition();
 
-      if (rfactor_def == nullptr) {
+      if (producer_projection_def == nullptr) {
         // Guard segfault if there isn't a definition for this iter domain
         continue;
       }
 
-      // rfactor_def can be Resize, but resize transformation is not
+      // producer_projection_def can be Resize, but resize transformation is not
       // replayed, so mismatch doesn't matter
-      if (rfactor_def->isA<Resize>()) {
+      if (producer_projection_def->isA<Resize>()) {
         continue;
       }
 
-      // If one output of the expression is an rfactor ID all of them should be
-      auto def_outs =
-          ir_utils::filterByType<IterDomain>(rfactor_def->outputs());
+      // If one output of the expression is an producer projection ID all of
+      // them should be
+      auto def_outs = ir_utils::filterByType<IterDomain>(
+          producer_projection_def->outputs());
       NVF_ERROR(
           std::all_of(
               def_outs.begin(),
               def_outs.end(),
-              [](IterDomain* id) { return id->isRFactorProduct(); }),
-          "This function does not support outputs of transformations with mismatching rfactor flags. ",
-          "If one output is rfactor all should be rfactor.");
+              [](IterDomain* id) { return id->isProducerProjection(); }),
+          "This function does not support outputs of transformations with mismatching producer projection flags. ",
+          "If one output is producer projection all should be producer projection.");
 
-      // If outputs are rfactor all the inputs should be as well. It doesn't
-      // make sense to have transforms on non-logical domains that produce
-      // logical domains.
-      auto def_inps = ir_utils::filterByType<IterDomain>(rfactor_def->inputs());
+      // If outputs are producer projection all the inputs should be as well. It
+      // doesn't make sense to have transforms on non-logical domains that
+      // produce logical domains.
+      auto def_inps =
+          ir_utils::filterByType<IterDomain>(producer_projection_def->inputs());
       NVF_ERROR(
           std::all_of(
               def_inps.begin(),
               def_inps.end(),
-              [](IterDomain* id) { return id->isRFactorProduct(); }),
-          "Inputs producing an logical domain, should be marked as rfactor but found:\n  ",
-          rfactor_def->toString());
+              [](IterDomain* id) { return id->isProducerProjection(); }),
+          "Inputs producing an logical domain, should be marked as producer projection but found:\n  ",
+          producer_projection_def->toString());
 
       // Check which definition in the unique exact definition set this
       // definition matches to:
       // TODO: Why does it need to check all unique defs? It actually
-      // only looks at those that are exact with rfactor_def and
+      // only looks at those that are exact with producer_projection_def and
       // adds those unique_defs, which are all exactly mapped, to the
       // unique_exact_use map. Since the objective of this analysis is
       // to find non-exact exprs using the same exact ID set, it seems
-      // it's just sufficient to register rfactor_def as a user of the
-      // exact set.
+      // it's just sufficient to register producer_projection_def as a user of
+      // the exact set.
       for (auto unique_def : unique_defs) {
-        if (ca_map.areExactExprs(rfactor_def, unique_def)) {
+        if (ca_map.areExactExprs(producer_projection_def, unique_def)) {
           // Check if we already have an expression that consumes an
           // equivalent of any of the input logical domains. If so and it's
           // not the already registered transformation, return true
@@ -374,8 +377,8 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
               unique_exact_uses[inp_disjoint_set] = unique_def;
             } else if (!ca_map.areExactExprs(
                            unique_exact_uses[inp_disjoint_set], unique_def)) {
-              // Two transformations that don't match on matching rfactor
-              // domains found, return true.
+              // Two transformations that don't match on matching producer
+              // projection domains found, return true.
               return true;
             }
           }
@@ -385,7 +388,8 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
       }
     }
   }
-  // No inconsistent rfactor uses found, we can safely transform this graph.
+  // No inconsistent producer projection uses found, we can safely transform
+  // this graph.
   return false;
 }
 
@@ -451,9 +455,10 @@ bool reductionInterferingView(
 
   // Make sure groups are disjoint based on view
 
-  auto disjoint_rfactor_sets = scheduler_utils::disjointLogicalSets(fusion);
+  auto disjoint_producer_projection_sets =
+      scheduler_utils::disjointProducerProjectionSets(fusion);
   auto disjoint_set_information = scheduler_utils::getDisjointLogicalSetsOf(
-      fusion, reduction_reference, disjoint_rfactor_sets);
+      fusion, reduction_reference, disjoint_producer_projection_sets);
 
   // Convert id's in groups to disjoint_set_ids of disjoint_set_information
   std::vector<std::vector<int64_t>> disjoint_groups;
@@ -960,7 +965,7 @@ bool SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
   // reduction scheduler should be able to schedule the gather
   // output TVs. This mapping can be PERMISSIVE as the broadcast IDs
   // may be concretized. ExactLogicalDomainMap may be enough as
-  // broadcasts should not be removed by rfactor exprs.
+  // broadcasts should not be removed by producer projection exprs.
 
   // Consider reusing a CA map
   ComputeAtMap ca_map(fusion);

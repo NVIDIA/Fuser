@@ -1400,7 +1400,7 @@ void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
       new_logical.size() == old_tv->getLogicalDomain().size(),
       "New TV ",
       new_tv->toString(),
-      " has rfactor of length ",
+      " has logical domain of length ",
       new_logical.size(),
       " but expected ",
       old_tv->getLogicalDomain().size());
@@ -2294,22 +2294,22 @@ IterDomainBuilder::IterDomainBuilder(const IterDomain* id)
       stop_offset_(id->stopOffset()),
       parallel_type_(id->getParallelType()),
       iter_type_(id->getIterType()),
-      is_rfactor_domain_(id->isRFactorProduct()),
+      is_producer_projection_(id->isProducerProjection()),
       is_padded_dimension_(id->hasPaddingToMultipleOfWarp()),
       padded_to_size_(id->getMaybeSizeAfterPadding()),
       is_mma_swizzled_(id->isMmaSwizzled()) {}
 
 IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
-  is_rfactor_domain_ = false;
+  is_producer_projection_ = false;
   is_padded_dimension_ = false;
   padded_to_size_ = std::nullopt;
   is_mma_swizzled_ = false;
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::resetRfactor() {
-  return is_rfactor_domain(false);
+IterDomainBuilder& IterDomainBuilder::resetProducerProjection() {
+  return is_producer_projection(false);
 }
 
 IterDomainBuilder& IterDomainBuilder::start(Val* _start) {
@@ -2343,9 +2343,9 @@ IterDomainBuilder& IterDomainBuilder::iter_type(IterType _iter_type) {
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::is_rfactor_domain(
-    bool _is_rfactor_domain) {
-  is_rfactor_domain_ = _is_rfactor_domain;
+IterDomainBuilder& IterDomainBuilder::is_producer_projection(
+    bool _is_producer_projection) {
+  is_producer_projection_ = _is_producer_projection;
   return *this;
 }
 
@@ -2381,7 +2381,7 @@ IterDomain::IterDomain(
     Val* stop_offset,
     ParallelType parallel_type,
     IterType iter_type,
-    bool is_rfactor_domain,
+    bool is_producer_projection,
     bool is_padded_dimension,
     std::optional<int64_t> padded_to_size,
     bool is_mma_swizzled)
@@ -2394,16 +2394,16 @@ IterDomain::IterDomain(
                                  : stop_offset),
       parallel_type_(parallel_type),
       iter_type_(iter_type),
-      is_rfactor_domain_(is_rfactor_domain),
+      is_producer_projection_(is_producer_projection),
       is_padded_dimension_(is_padded_dimension),
       padded_to_size_(padded_to_size),
       is_mma_swizzled_(is_mma_swizzled) {
-  // NOTE: We previously asserted !(isRFactorProduct() && isBroadcast()), i.e.
-  // that an IterDomain could not be both a broadcast and an logical domain.
-  // However, since the introduction of the resize op, we now have a legitimate
-  // case where this may be true; namely, whenever we resize an IterDomain to
-  // size 1, we will mark it as Broadcast, but the resize must lie between root
-  // and rfactor.
+  // NOTE: We previously asserted !(isProducerProjection() && isBroadcast()),
+  // i.e. that an IterDomain could not be both a broadcast and an logical
+  // domain. However, since the introduction of the resize op, we now have a
+  // legitimate case where this may be true; namely, whenever we resize an
+  // IterDomain to size 1, we will mark it as Broadcast, but the resize must be
+  // on the path of producer projection.
 
   NVF_ERROR(
       extent->dtype() == DataType::Index,
@@ -2440,7 +2440,7 @@ IterDomain::IterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args)
           args.stop_offset_,
           args.parallel_type_,
           args.iter_type_,
-          args.is_rfactor_domain_,
+          args.is_producer_projection_,
           args.is_padded_dimension_,
           args.padded_to_size_,
           args.is_mma_swizzled_) {}
@@ -2455,7 +2455,7 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
       stop_offset_(ir_cloner->clone(src->stop_offset_)),
       parallel_type_(src->parallel_type_),
       iter_type_(src->iter_type_),
-      is_rfactor_domain_(src->is_rfactor_domain_),
+      is_producer_projection_(src->is_producer_projection_),
       is_padded_dimension_(src->is_padded_dimension_),
       padded_to_size_(src->padded_to_size_),
       is_mma_swizzled_(src->is_mma_swizzled_) {}
@@ -2480,13 +2480,13 @@ bool IterDomain::sameAs(const Statement* other) const {
   // stop_offset_
   // parallel_type_
   // iter_type_
-  // is_rfactor_domain_
+  // is_producer_projection_
   // is_padded_dimension_
   // padded_to_size_
   // is_mma_swizzled_
 
-  // Do not take is_rfactor_domain_ into account. IterDomain's are
-  // considered the same if they are rfactor or not.
+  // Do not take is_producer_projection_ into account. IterDomain's are
+  // considered the same if they are producer projection or not.
 
   // TODO: Consider managing them as attributes
 
@@ -2520,7 +2520,7 @@ std::string IterDomain::toString(int indent_size) const {
     ss << " ex " << expandedExtent()->toInlineString();
   }
   ss << "}";
-  if (isRFactorProduct()) {
+  if (isProducerProjection()) {
     ss << "rf";
   }
   if (hasPaddingToMultipleOfWarp()) {
@@ -2534,9 +2534,9 @@ std::string IterDomain::toInlineString(int indent_size) const {
 }
 
 // Returns a new IterDomain matching properties of this except for
-// is_rfactor_domain_
-IterDomain* IterDomain::cloneWithoutRFactor() const {
-  auto cloned = IterDomainBuilder(this).resetRfactor().build();
+// is_producer_projection_
+IterDomain* IterDomain::cloneWithoutProducerProjection() const {
+  auto cloned = IterDomainBuilder(this).resetProducerProjection().build();
 
   return cloned;
 }
@@ -2548,7 +2548,7 @@ IterDomain* IterDomain::cloneWithoutRFactor() const {
       domains.begin(),
       domains.end(),
       std::back_inserter(cloned_domains),
-      [](auto id) { return id->cloneWithoutRFactor(); });
+      [](auto id) { return id->cloneWithoutProducerProjection(); });
   return cloned_domains;
 }
 
@@ -2560,7 +2560,7 @@ IterDomain* IterDomain::cloneWithoutRFactor() const {
 IterDomain* IterDomain::merge(
     IterDomain* outer,
     IterDomain* inner,
-    bool rfactor_domain) {
+    bool producer_projection) {
   NVF_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match. ",
@@ -2617,7 +2617,7 @@ IterDomain* IterDomain::merge(
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
-          .is_rfactor_domain(rfactor_domain)
+          .is_producer_projection(producer_projection)
           .build();
 
   IrBuilder::createInContainer<Merge>(
@@ -2630,7 +2630,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
     Val* factor,
     bool inner_split,
-    bool rfactor_domain) {
+    bool producer_projection) {
   NVF_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
@@ -2650,7 +2650,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
                                                      : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
-          .is_rfactor_domain(rfactor_domain)
+          .is_producer_projection(producer_projection)
           .build();
 
   // inner loop IterDomain
@@ -2662,7 +2662,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
                                                       : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
-          .is_rfactor_domain(rfactor_domain)
+          .is_producer_projection(producer_projection)
           .build();
 
   IrBuilder::createInContainer<Split>(
@@ -2679,8 +2679,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
       true);
 
   split_out.second->iter_type_ = IterType::Stride;
-  split_out.first->is_rfactor_domain_ = true;
-  split_out.second->is_rfactor_domain_ = true;
+  split_out.first->is_producer_projection_ = true;
+  split_out.second->is_producer_projection_ = true;
   return split_out;
 }
 
@@ -2747,7 +2747,7 @@ IterDomain* IterDomain::resize(
     IterDomain* in,
     Val* left_expansion,
     Val* right_expansion,
-    bool mark_as_rfactor,
+    bool mark_as_producer_projection,
     std::optional<IterType> iter_type_opt) {
   NVF_CHECK(
       left_expansion->isIntegralScalar(),
@@ -2855,7 +2855,7 @@ IterDomain* IterDomain::resize(
           // Set immediate constant size of 1 if resize produces broadcast
           iter_type == IterType::Broadcast ? in->fusion()->oneVal()
                                            : resized_id_size)
-          .is_rfactor_domain(mark_as_rfactor)
+          .is_producer_projection(mark_as_producer_projection)
           .iter_type(iter_type)
           .build();
 
@@ -3236,7 +3236,7 @@ std::string TensorDomain::toString(const int indent_size, const bool loop_only)
     }
     ss << "," << std::endl;
     indent(ss, indent_size + 1)
-        << "rfactor=[ " << toDelimitedString(logical()) << " ]";
+        << "logical=[ " << toDelimitedString(logical()) << " ]";
     if (!allocation_domain_.empty()) {
       ss << "," << std::endl;
       indent(ss, indent_size + 1)
@@ -3298,16 +3298,16 @@ bool TensorDomain::hasSymbolicAxis() const {
          });
 }
 
-bool TensorDomain::hasViewLikeRFactor() const {
+bool TensorDomain::hasViewLikeProducerProjection() const {
   if (!hasRoot()) {
-    // Can't have view like rfactor if there is no logical domain
+    // Can't have view like producer projection if there is no logical domain
     return false;
   }
 
-  // If there's an logical domain and no rfactor product is a reduction, this is
-  // a view like rfactor
+  // If there's an logical domain and no producer projection product is a
+  // reduction, this is a view like producer projection
   return std::none_of(logical().begin(), logical().end(), [](IterDomain* id) {
-    return (id->isReduction() || id->isStride()) && id->isRFactorProduct();
+    return (id->isReduction() || id->isStride()) && id->isProducerProjection();
   });
 }
 
@@ -3579,19 +3579,20 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
   std::vector<IterDomain*> new_root_domain;
   new_root_domain.reserve(inp_domain.size());
   for (auto i : c10::irange((int64_t)inp_domain.size())) {
-    bool is_rfactor_dim = i >= start_dim && i <= end_dim;
+    bool is_producer_projection = i >= start_dim && i <= end_dim;
     auto inp_id = inp_domain[i];
-    auto out_id = IterDomainBuilder(inp_id)
-                      .is_rfactor_domain(is_rfactor_dim)
-                      .extent(
-                          (is_rfactor_dim && inp_id->hasExpandedExtent())
-                              ? inp_id->expandedExtent()
-                              : inp_id->extent())
-                      .iter_type(
-                          (is_rfactor_dim && inp_id->isBroadcast())
-                              ? IterType::Iteration
-                              : inp_id->getIterType())
-                      .build();
+    auto out_id =
+        IterDomainBuilder(inp_id)
+            .is_producer_projection(is_producer_projection)
+            .extent(
+                (is_producer_projection && inp_id->hasExpandedExtent())
+                    ? inp_id->expandedExtent()
+                    : inp_id->extent())
+            .iter_type(
+                (is_producer_projection && inp_id->isBroadcast())
+                    ? IterType::Iteration
+                    : inp_id->getIterType())
+            .build();
     new_root_domain.push_back(out_id);
   }
 
@@ -3607,7 +3608,7 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
         IterDomainBuilder(
             merged_id->container()->zeroVal(),
             mul(merged_id->extent(), new_root_domain[i]->extent()))
-            .is_rfactor_domain(true)
+            .is_producer_projection(true)
             .build();
     IrBuilder::create<Merge>(new_merged_id, merged_id, new_root_domain[i]);
     merged_id = new_merged_id;

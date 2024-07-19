@@ -144,7 +144,7 @@ TEST_F(GpuViewTest, FusionViewAsRealOutput) {
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionReshapeRfactorExtentReplacement) {
+TEST_F(GpuViewTest, FusionReshapeLogicalExtentReplacement) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1991,7 +1991,7 @@ TEST_F(GpuViewTest, FusionLowerDivisibleSplits) {
   // [7] split(0, z, false) [6]->in->definition
   // [6] split(1, y, false) [5]->in->definition
   // [5] split(2, x, false) [3]->inner->definition
-  // RFactor of tv2
+  // logical of tv2
   // [4] merge(0)           [3]->outer->definition
   // [3] merge(0)           [2]->outer->definition
   // [2] merge(0)           [1]->in->definition

@@ -57,7 +57,7 @@ class ReplayRFactor : public ReplayTransformations {
  private:
   // Perform the update of the logical domain by replacing "replace0" with
   // "with0" and if not nullptr "with1", also removes "replace1" if not nullptr.
-  void updateRFactorDomain(
+  void updateLogicalDomain(
       IterDomain* replace0,
       IterDomain* replace1,
       IterDomain* with0,
@@ -119,8 +119,8 @@ class ReplayRFactor : public ReplayTransformations {
     bool static_logical_outputs = static_logical_ids_.count(s->outer()) ||
         static_logical_ids_.count(s->inner());
 
-    // Manually replay the split, making reduction = false and rfactor = true
-    // outer IterDomain
+    // Manually replay the split, making reduction = false and
+    // producer_projection = true outer IterDomain
     IterDomain* ido =
         IterDomainBuilder(
             s->container()->zeroVal(),
@@ -128,7 +128,7 @@ class ReplayRFactor : public ReplayTransformations {
             .iter_type(
                 rfactor_axes_.count(s->outer()) ? IterType::Reduction
                                                 : IterType::Iteration)
-            .is_rfactor_domain(static_logical_outputs)
+            .is_producer_projection(static_logical_outputs)
             .build();
 
     // inner IterDomain
@@ -139,7 +139,7 @@ class ReplayRFactor : public ReplayTransformations {
             .iter_type(
                 rfactor_axes_.count(s->inner()) ? IterType::Reduction
                                                 : IterType::Iteration)
-            .is_rfactor_domain(static_logical_outputs)
+            .is_producer_projection(static_logical_outputs)
             .build();
 
     // Generate the split node
@@ -157,7 +157,7 @@ class ReplayRFactor : public ReplayTransformations {
     id_map_[s->inner()] = idi;
 
     if (static_logical_ids_.count(s->in())) {
-      updateRFactorDomain(s->in(), nullptr, s->outer(), s->inner());
+      updateLogicalDomain(s->in(), nullptr, s->outer(), s->inner());
     }
   }
 
@@ -194,7 +194,7 @@ class ReplayRFactor : public ReplayTransformations {
     IterDomain* merged_id =
         IterDomainBuilder(m->container()->zeroVal(), merged_id_size)
             .iter_type(iter_type)
-            .is_rfactor_domain(static_logical_ids_.count(m->out()))
+            .is_producer_projection(static_logical_ids_.count(m->out()))
             .build();
 
     IrBuilder::createInContainer<Merge>(
@@ -210,14 +210,14 @@ class ReplayRFactor : public ReplayTransformations {
     id_map_[m->out()] = merged_id;
 
     // Similar to split replay above, check if output needs to be marked as
-    // rfactor indicating this transofrmation is static.
+    // producer projection indicating this transofrmation is static.
     if (static_logical_ids_.count(m->inner()) ||
         static_logical_ids_.count(m->outer())) {
       NVF_ERROR(
           static_logical_ids_.count(m->inner()) ==
               static_logical_ids_.count(m->outer()),
           "If one input to a merge is a static logical id, the other must be as well.");
-      updateRFactorDomain(m->outer(), m->inner(), m->out(), nullptr);
+      updateLogicalDomain(m->outer(), m->inner(), m->out(), nullptr);
     }
   }
 
@@ -241,7 +241,7 @@ class ReplayRFactor : public ReplayTransformations {
   std::unordered_set<IterDomain*> static_logical_ids_;
 
  public:
-  // The updated domain matching the producer's logical domain. This rfactor
+  // The updated domain matching the producer's logical domain. This logical
   // domain is relative to the iter domains in the origianl_domain and must be
   // updated to grab the mapped id's later.
   std::vector<IterDomain*> logical_domain_;
@@ -354,7 +354,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
         new_producer_root[i] = IterDomainBuilder(id->start(), id->extent())
                                    .stop_offset(id->stopOffset())
                                    .iter_type(IterType::Reduction)
-                                   .is_rfactor_domain(true)
+                                   .is_producer_projection(true)
                                    .build();
         // If this is not an rfactor root, but a reduction root, it should be
         // turned into an iteration domain
@@ -363,7 +363,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
                                    .stop_offset(id->stopOffset())
                                    .build();
       } else {
-        new_producer_root[i] = id->cloneWithoutRFactor();
+        new_producer_root[i] = id->cloneWithoutProducerProjection();
       }
       original_to_producer_root_map[id] = new_producer_root[i++];
     }
@@ -383,14 +383,14 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       {all_id_deps_of_logical.begin(), all_id_deps_of_logical.end()});
 
   // Replay producer dimensions.
-  ReplayRFactor replay_rfactor(
+  ReplayRFactor replay_producer_projection(
       original_td,
       original_to_producer_root_map,
       rfactor_axes,
       static_logical_ids);
 
   std::unordered_map<IterDomain*, IterDomain*> original_to_producer_id_map =
-      replay_rfactor.getReplay();
+      replay_producer_projection.getReplay();
 
   std::vector<IterDomain*> new_producer_domain(original_td->nDims(), nullptr);
   {
@@ -399,7 +399,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
       auto replayed_id_it = original_to_producer_id_map.find(orig_id);
       NVF_ERROR(
           replayed_id_it != original_to_producer_id_map.end(),
-          "Error during rfactor replay, missing an axis.");
+          "Error during producer projection replay, missing an axis.");
       auto replayed_id = replayed_id_it->second;
       replayed_id->parallelize(orig_id->getParallelType());
       if (orig_id->hasPaddingToMultipleOfWarp()) {
@@ -412,10 +412,11 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   // Specify the logical domain of the producer which will match the consumer
   // root domain.
   std::vector<IterDomain*> new_producer_logical_domain;
-  new_producer_logical_domain.reserve(replay_rfactor.logical_domain_.size());
+  new_producer_logical_domain.reserve(
+      replay_producer_projection.logical_domain_.size());
   std::transform(
-      replay_rfactor.logical_domain_.begin(),
-      replay_rfactor.logical_domain_.end(),
+      replay_producer_projection.logical_domain_.begin(),
+      replay_producer_projection.logical_domain_.end(),
       std::back_inserter(new_producer_logical_domain),
       [&](IterDomain* id) {
         auto replayed_id_it = original_to_producer_id_map.find(id);

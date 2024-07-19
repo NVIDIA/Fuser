@@ -1163,7 +1163,7 @@ TensorView* castIntermediateValueInCompleteFusion(
     std::vector<IterDomain*> new_logical_domain(
         no_reduction_logical_domain.size());
     for (const auto& dom : no_reduction_logical_domain) {
-      new_logical_domain[i++] = dom->cloneWithoutRFactor();
+      new_logical_domain[i++] = dom->cloneWithoutProducerProjection();
     }
 
     // Create the actual domain and tv.
@@ -1851,7 +1851,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     }
 
     for (const auto& id : logical) {
-      if (id->isRFactorProduct()) {
+      if (id->isProducerProjection()) {
         // Create new symbolic extents for logical iterDomains
         auto domain_extent = (!tv_is_concrete)
             ? IrBuilder::create<Val>(DataType::Index)
@@ -1862,7 +1862,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
                                          .resetSchedulingParams()
                                          .build());
       } else {
-        new_logical_domain.push_back(id->cloneWithoutRFactor());
+        new_logical_domain.push_back(id->cloneWithoutProducerProjection());
       }
     }
 
@@ -4139,7 +4139,8 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
       to_visit.push_back(id->getMaybeExpandedExtent());
     }
     if (tv->domain()->hasRoot()) {
-      // traverse from root to logical and inspect all Expr attrs and outputs
+      // traverse producer projection transformations and inspect all Expr attrs
+      // and outputs
       std::vector<Val*> all_vals;
       for (const auto id_expr : StmtSort::getExprsBetween(
                {tv->getRootDomain().begin(), tv->getRootDomain().end()},

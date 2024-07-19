@@ -58,7 +58,7 @@ class DomainMap {
 
   Fusion* fusion_ = nullptr;
   ComputeAtMap ca_map_;
-  std::vector<TensorView*> tvs_with_rfactor_;
+  std::vector<TensorView*> tvs_with_producer_projection_;
 };
 
 // Returns number of non-reduction/non-broadcas/non-device dims in logical

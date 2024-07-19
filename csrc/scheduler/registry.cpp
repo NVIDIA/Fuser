@@ -63,7 +63,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
               TensorDomain::noReductions(input_tv->getMaybeAllocationDomain()));
       if (alloc_perm_opt.has_value()) {
         // Save the strides in order of allocation domain in case the
-        // allocation domain is a permutation of RFactor domain
+        // allocation domain is a permutation of logical domain
         std::vector<int64_t> orig_sizes = alloc_sizes.vec();
         std::vector<int64_t> orig_strides = alloc_strides.vec();
         std::vector<int64_t> ordered_sizes, ordered_strides;

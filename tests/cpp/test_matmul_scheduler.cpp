@@ -2837,7 +2837,7 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
-  // This has rfactor: {N, K}
+  // This has logical domain: {N, K}
   auto tv1t = transpose(tv1);
   // [M, N, K]
   auto tv0b = broadcast(tv0, {false, true, false});

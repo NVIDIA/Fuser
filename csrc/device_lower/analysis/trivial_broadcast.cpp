@@ -94,9 +94,9 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
   // Propagate broadcast origin info from producers to consumers
   for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
     std::unordered_set<IterDomain*> producer_broadcasts;
-    // This assumes there's no merged broadcast axes between root and rfactor
-    // domains which is not possible at the moment. If this assumption is ever
-    // invalidated we would need to manaually propagate root IDs to rfactor IDs.
+    // This assumes there's no merged broadcast axes on the producer projection
+    // path which is not possible at the moment. If this assumption is ever
+    // invalidated we would need to manaually propagate root IDs to logical IDs.
     for (auto producer_id : producer->getLogicalDomain()) {
       if (producer_id->isBroadcast()) {
         producer_broadcasts.insert(producer_id);

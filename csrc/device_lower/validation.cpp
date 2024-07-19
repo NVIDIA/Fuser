@@ -1077,7 +1077,8 @@ void validateLookupTV(Fusion* fusion) {
 void validateResize(Fusion* fusion) {
   auto fusion_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
-    // Make sure resize is only used as part of root to logical transformations
+    // Make sure resize is only used as part of producer projection
+    // transformations
     auto rf_to_loop_exprs = StmtSort::getExprsBetween(
         {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
         {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
@@ -1089,7 +1090,7 @@ void validateResize(Fusion* fusion) {
             [](Expr* expr) { return expr->isA<Resize>(); }),
         "Invalid use of resize detected with ",
         tv->toString(),
-        ". Resize may only be used as part of root to logical transformations.");
+        ". Resize may only be used as part of producer projection transformations.");
   }
 }
 

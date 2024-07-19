@@ -180,7 +180,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
     auto rf_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), new_size)
             .iter_type(IterType::Symbolic)
-            .is_rfactor_domain(true)
+            .is_producer_projection(true)
             .build();
     logical_domain.at(i) = rf_id;
   }
@@ -295,7 +295,7 @@ TensorView* squeeze(
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
-      out_domain.push_back(id->cloneWithoutRFactor());
+      out_domain.push_back(id->cloneWithoutProducerProjection());
     }
   }
 
@@ -367,7 +367,7 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
   std::vector<IterDomain*> out_root;
   out_root.reserve(inp_domain.size());
   for (const auto id : inp_domain) {
-    out_root.emplace_back(id->cloneWithoutRFactor());
+    out_root.emplace_back(id->cloneWithoutProducerProjection());
   }
 
   std::vector<IterDomain*> out_logical;
@@ -536,11 +536,11 @@ TensorView* pad(
     auto right_pad = normalized_pad_widths.at(idx * 2 + 1);
     if (idx < num_non_padded_dims ||
         (left_pad->isZeroInt() && right_pad->isZeroInt())) {
-      out_root_id = inp_root_id->cloneWithoutRFactor();
+      out_root_id = inp_root_id->cloneWithoutProducerProjection();
       out_rf_id = out_root_id;
     } else {
       out_root_id =
-          IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
+          IterDomainBuilder(inp_root_id).is_producer_projection(true).build();
       // Expand the root domain and mark it as a logical domain
       out_rf_id = IterDomain::resize(
           out_root_id, left_pad, right_pad, true, iter_type_opt);
@@ -624,9 +624,9 @@ TensorView* cat(
     concat_ext = SimplifyingIrBuilder::addExpr(concat_ext, input_dim_extent);
   }
 
-  // For each of the input tensors, create a new rfactor tensor by
-  // padding the concat dim. Padding is used here as it effectively
-  // embeds the resizing information of the concat operation.
+  // For each of the input tensors, create a new tensor by padding the concat
+  // dim. Padding is used here as it effectively embeds the resizing information
+  // of the concat operation.
 
   Val* left_pad = FusionGuard::getCurFusion()->zeroVal();
   Val* right_pad = concat_ext;
@@ -782,12 +782,12 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     if (range.start->isZeroInt() && range.stop->sameAs(inp_root_size) &&
         range.step->isOneInt()) {
       // This dim doesn't need slicing
-      out_root_id = inp_root_id->cloneWithoutRFactor();
+      out_root_id = inp_root_id->cloneWithoutProducerProjection();
       out_rf_id = out_root_id;
     } else {
       // Clip the start and stop values to the extent of the input
       out_root_id =
-          IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
+          IterDomainBuilder(inp_root_id).is_producer_projection(true).build();
       out_rf_id = IterDomain::resize(
           out_root_id,
           SimplifyingIrBuilder::negExpr(range.start),

@@ -50,12 +50,13 @@ void ReplayTransformations::handle(Split* s) {
       "Transform traversal failed, modified a node but it was not a loop node.");
 
   // Replay the split onto mapped
-  NVF_ERROR(s->outer()->isRFactorProduct() == s->inner()->isRFactorProduct());
+  NVF_ERROR(
+      s->outer()->isProducerProjection() == s->inner()->isProducerProjection());
   auto outs = IterDomain::split(
       mapped,
       s->factor(),
       s->innerSplit(),
-      replay_rfactor_ && s->outer()->isRFactorProduct());
+      replay_producer_projection_ && s->outer()->isProducerProjection());
   // Remove mapped from the loop IDs
   loop_ids_.erase(mapped);
 
@@ -128,7 +129,7 @@ void ReplayTransformations::handle(Merge* m) {
   auto out = IterDomain::merge(
       id_outer_mapped,
       id_inner_mapped,
-      replay_rfactor_ && m->out()->isRFactorProduct());
+      replay_producer_projection_ && m->out()->isProducerProjection());
 
   // Remove inputs from the loop IDs
   loop_ids_.erase(id_outer_mapped);
@@ -258,7 +259,7 @@ void ReplayTransformations::handle(Resize* exp) {
         mapped,
         exp->leftExpand(),
         exp->rightExpand(),
-        replay_rfactor_ && exp->out()->isRFactorProduct());
+        replay_producer_projection_ && exp->out()->isProducerProjection());
   }
 
   loop_ids_.erase(mapped);
@@ -389,13 +390,13 @@ BestEffortReplay::BestEffortReplay(
   std::vector<Expr*> replay_exprs =
       StmtSort::getExprsTo({replay_domain.begin(), replay_domain.end()});
 
-  // Track which id's in replay have to be replayed to guarantee root to logical
-  // transformations. The iteration domains in the logical axes don't have
-  // to be used in a matching expression in target, so we want to exclude those.
-  // Only the iteration domains [root_domains, logical) domains have to be used
-  // in matching transformation to guarantee logical domain is consistent.
-  // However, if any logical id was used to produce the logical domain, we need
-  // transformations on them to match the target exactly.
+  // Track which id's in replay have to be replayed to guarantee producer
+  // projection transformations. The iteration domains in the logical axes don't
+  // have to be used in a matching expression in target, so we want to exclude
+  // those. Only the iteration domains [root_domains, logical) domains have to
+  // be used in matching transformation to guarantee logical domain is
+  // consistent. However, if any logical id was used to produce the logical
+  // domain, we need transformations on them to match the target exactly.
   std::unordered_set<IterDomain*> replay_logical_ids;
 
   // Track which expressions iteration domains are used, they should only be
@@ -405,16 +406,18 @@ BestEffortReplay::BestEffortReplay(
     for (auto id : ir_utils::filterByType<IterDomain>(replay_expr->inputs())) {
       NVF_ERROR(
           replay_id2expr_map.find(id) == replay_id2expr_map.end(),
-          "Error trying to map rfactor root domain during replay.",
+          "Error trying to map ",
+          replay_expr->toString(),
+          " during replay.",
           " An IterDomain was found to be used in more than one expression.");
 
       replay_id2expr_map[id] = replay_expr;
     }
 
-    // Only want to forward rfactor in map
+    // Only want to forward producer projection in map
     auto out_ids = ir_utils::filterByType<IterDomain>(replay_expr->outputs());
     if (std::any_of(out_ids.begin(), out_ids.end(), [](IterDomain* id) {
-          return id->isRFactorProduct();
+          return id->isProducerProjection();
         })) {
       auto inp_ids = ir_utils::filterByType<IterDomain>(replay_expr->inputs());
       replay_logical_ids.insert(inp_ids.begin(), inp_ids.end());
@@ -442,7 +445,7 @@ BestEffortReplay::BestEffortReplay(
   }
 
   std::string err_str(
-      "Error during replay, a transformation was called that conflicts with an rfactor call.");
+      "Error during replay, a transformation was called that conflicts with an producer projection call.");
 
   bool any_target_expr_contains_broadcast_id = false;
 
@@ -495,8 +498,8 @@ BestEffortReplay::BestEffortReplay(
 
     // Map target_expr inputs to replay domain directly
     for (const auto t_i : c10::irange(target_id_inps.size())) {
-      // There might not be a mapping, that could be okay (depends on rfactor
-      // checking).
+      // There might not be a mapping, that could be okay (depends on producer
+      // projection checking).
       auto it = target2replay_id_map_.find(target_id_inps[t_i]);
       if (it != target2replay_id_map_.end()) {
         replay_inps[t_i] = getReplayForwardedId(it->second);
@@ -511,12 +514,12 @@ BestEffortReplay::BestEffortReplay(
         replay_inps.end(),
         [&replay_logical_ids](IterDomain* id) {
           return id == nullptr ? false
-                               : id->isRFactorProduct() &&
+                               : id->isProducerProjection() &&
                   (replay_logical_ids.find(id) != replay_logical_ids.end());
         });
 
-    // If some replay id inputs are part of rfactor, make sure all target
-    // expression inputs map to a replay input
+    // If some replay id inputs are part of producer projection, make sure all
+    // target expression inputs map to a replay input
     if (replay_has_logical_inp) {
       bool no_missing_exprs = std::none_of(
           replay_inps.begin(),
@@ -528,11 +531,11 @@ BestEffortReplay::BestEffortReplay(
               return replay_id2expr_map.find(id) == replay_id2expr_map.end();
             }
           });
-      // View operation creates a TensorView with rfactor. After view, broadcast
-      // operation adds iterDomains for any size-1 dimensions. Therefore, the
-      // target domain (broadcast) may contain broadcast ids that are not
-      // present in the replay domain (view). In this case, we skip any target
-      // expressions that contain broadcast ids.
+      // View operation creates a TensorView with producer projection. After
+      // view, broadcast operation adds iterDomains for any size-1 dimensions.
+      // Therefore, the target domain (broadcast) may contain broadcast ids that
+      // are not present in the replay domain (view). In this case, we skip any
+      // target expressions that contain broadcast ids.
       NVF_ERROR(
           no_missing_exprs || any_target_expr_contains_broadcast_id, err_str);
     }
@@ -973,7 +976,7 @@ BestEffortReplay BestEffortReplay::replayCasP(
       producer->getLoopDomain().begin() + producer_compute_at_axis);
   producer_CA_ids = TensorDomain::noReductions(producer_CA_ids);
 
-  // If producer has an rfactor, that's what will match to the consumer
+  // Producer's logical domain is what will match to the consumer
   std::vector<IterDomain*> producer_logical = producer->getLogicalDomain();
 
   // Figure out all inputs required to generate the compute_at dimensions. We
@@ -1056,7 +1059,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
 
   // Instead of replaying from the root, lets try to play forward the history
   // of producer if they match ops on consumer. Enforce if we modify an
-  // rfactor axis that those ops must match.
+  // logical axis that those ops must match.
   auto producer_replay = BestEffortReplay(
       producer->getLoopDomain(),
       consumer_CA_ids,

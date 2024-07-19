@@ -111,7 +111,8 @@ bool canIgnoreIndexedInputDomainID(
 } // namespace
 
 DomainMap::DomainMap(Fusion* fusion) : fusion_(fusion), ca_map_(fusion) {
-  tvs_with_rfactor_ = scheduler_utils::getTVsWithNonReductionRFactor(fusion);
+  tvs_with_producer_projection_ =
+      scheduler_utils::getTVsWithNonReductionProducerProjection(fusion);
 }
 
 // Determine if all IterDomains in input are mapped to the given tensor
@@ -178,7 +179,7 @@ void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
     std::unordered_set<IterDomain*>& in_ids,
     const std::vector<IterDomain*>& ids) const {
   // Use ComputeAtMap::getAllDisjointSetProducers to grab all producer
-  // IDs through rfactor exprs
+  // IDs through producer projection exprs
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       exact_sets;
   std::for_each(ids.begin(), ids.end(), [&](IterDomain* id) {

@@ -499,7 +499,7 @@ SdpfaFwdResult sdpfa_fwd(
         batch_id,
         IrBuilder::create<Val>(0, DataType::Index),
         IrBuilder::create<Val>(1, DataType::Index),
-        /*mark_as_rfactor=*/true);
+        /*mark_as_producer_projection=*/true);
 
     return IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(

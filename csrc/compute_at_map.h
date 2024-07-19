@@ -117,8 +117,8 @@ class IterDomainGraph {
     return all_ids_;
   }
 
-  const std::unordered_set<IterDomain*>& rfactorIds() const {
-    return rfactor_ids_;
+  const std::unordered_set<IterDomain*>& producerProjectionIds() const {
+    return producer_projection_ids_;
   }
 
   // Returns if first and second are expressions through which the provided
@@ -141,7 +141,10 @@ class IterDomainGraph {
  private:
   void build(Fusion* fusion);
 
-  void initializeId(IterDomain* id, bool is_rfactor_id, bool is_loop_id);
+  void initializeId(
+      IterDomain* id,
+      bool is_producer_projection,
+      bool is_loop_id);
 
   // Checks if exprsMap then if forward will map outputs else inputs in exact
   // and permissive map.
@@ -166,9 +169,9 @@ class IterDomainGraph {
 
   VectorOfUniqueEntries<IterDomain*> all_ids_;
 
-  // This used to only have non-reduction rfactor IDs. Changed to
-  // include reduction rfactor IDs as well at PR #2562
-  std::unordered_set<IterDomain*> rfactor_ids_;
+  // This used to only have non-reduction producer projection IDs. Changed to
+  // include reduction producer projection IDs as well at PR #2562
+  std::unordered_set<IterDomain*> producer_projection_ids_;
 
   std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
       self_mapping_info_ = std::nullopt;
@@ -252,12 +255,12 @@ class ComputeAtMap {
   // Prints mapping information, forwards to an internal IterDomainGraph
   std::string toString() const;
 
-  // Returns if the provided ID is an rfactor id
-  bool isRfactor(IterDomain* ref_id) const;
+  // Returns if the provided ID is an producer projection id
+  bool isProducerProjection(IterDomain* ref_id) const;
 
-  // Returns all logical domains in rfactor_concrete_count_reset_domains_ that
-  // are in the disjoint set of the provided IterDomain. This will be every
-  // rfactor ID the provided ID "depends" on in the map.
+  // Returns all logical domains in that are in the disjoint set of the provided
+  // IterDomain. This will be every logical ID the provided ID "depends" on in
+  // the map.
   std::vector<IterDomain*> getLogicalDomainsOfIdGroup(
       IterDomain* ref_id,
       IdMappingMode mode) const;
@@ -322,7 +325,7 @@ class ComputeAtMap {
   // exact sets that are inputs required to construct the exact concrete id of
   // of_id.
   VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-  getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor = true);
+  getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_logical = true);
 
   // Build id_graph_
   void build(Fusion* fusion);

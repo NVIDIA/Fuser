@@ -44,7 +44,7 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 // iteration id on ref to reduction id on target to avoid unnecessary
 // re-ordering which exposes #2202).
 //   mapped_ids {ir5[i1], iS7[i2]}
-// 2. remove all projected ids and reduction iter domains from target's rfactor
+// 2. remove all projected ids and reduction iter domains from target's logical
 // domain:
 //   unmapped_ids {iS3[i3], iS4[i4], iS6[i5]}
 // 3. iterating through unmodified target's logical domain to construct target
@@ -60,7 +60,7 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 // 1. we project iter domains from targets' logical domain which has an exact
 // map to ref's allocation domain.
 //   mapped_ids {ir5[i1], iS7[i2]}
-// 2. remove all projected iter domains from target's rfactor
+// 2. remove all projected iter domains from target's logical
 // domain:
 //   unmapped_ids {iS3[i3], iS4[i4], iS6[i5], ir8[1]}
 // 3. append mapped_ids at the end of unmapped_id_vec.

@@ -116,7 +116,7 @@ TEST_F(NVFuserTest, FusionMergeDims_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionReorderAsRFactor_CUDA) {
+TEST_F(NVFuserTest, FusionReorderAsLogical_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -163,7 +163,8 @@ TEST_F(NVFuserTest, FusionDisjointViewSet_CUDA) {
   auto tv3 = add(tv2, tv1);
   fusion->addOutput(tv3);
 
-  auto disjoint_exact = scheduler_utils::disjointLogicalSets(fusion.get());
+  auto disjoint_exact =
+      scheduler_utils::disjointProducerProjectionSets(fusion.get());
 
   NVF_ERROR(disjoint_exact.strictAreMapped(tv0->axis(1), tv0->axis(2)));
 }
