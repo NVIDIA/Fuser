@@ -26,8 +26,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
 
   // Materialize the alias-enabling allocation domain.
   for (TensorView* tv : ir_utils::allTvs(fusion)) {
-    TensorView* aliased_io = analysis.getNearestAliasedIo(tv);
-    if (aliased_io == nullptr) {
+    if (analysis.getNearestAliasedIo(tv) == nullptr) {
       continue;
     }
 

@@ -415,8 +415,7 @@ void AliasAnalysisResult::add(
 
 TensorView* AliasAnalysisResult::getNearestAliasedIo(
     const TensorView* alias) const {
-  const auto i = alias_to_root_.find(alias);
-  return i == alias_to_root_.end() ? nullptr : i->second;
+  return getOrDefault(alias_to_root_, alias);
 }
 
 namespace {
@@ -482,8 +481,8 @@ void AliasAnalysisResult::finalize(
   // in group norm to a no-op.
   bool stop_at_view =
       may_alias_intermediate && outputInterferingReduction(fusion);
-  for (auto [alias, root_and_layout] : alias_to_source_) {
-    auto [root, preferred_layout] = root_and_layout;
+  for (auto [alias, source_and_layout] : alias_to_source_) {
+    auto [root, preferred_layout] = source_and_layout;
     if (!isOpsToStop(alias->definition(), stop_at_view)) {
       while (root != nullptr && !root->isFusionInput() &&
              !root->isFusionOutput()) {

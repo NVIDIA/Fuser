@@ -8,6 +8,8 @@
 
 #include <alias_analysis.h>
 #include <ir/utils.h>
+#include <multidevice/lower_communication.h>
+#include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
 #include <scheduler/no_op.h>
@@ -45,6 +47,12 @@ bool allOutputsArePointerArithmetics(Fusion* fusion) {
 //! Check if the no-op heuristics apply in given fusion
 bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (fusion->isNoOp()) {
+    return true;
+  }
+
+  const std::vector<Expr*>& exprs = fusion->exprs();
+  if (exprs.size() == 1 && isResharding(exprs[0]) &&
+      isLowerableToCommunication(exprs[0])) {
     return true;
   }
 
@@ -104,6 +112,10 @@ bool NoOpScheduler::canScheduleRunTime(
 }
 
 void NoOpScheduler::schedule(Fusion* fusion) {
+  if (scheduler_utils::isResharding(fusion)) {
+    return;
+  }
+
   markAliases(fusion);
 }
 

@@ -13,7 +13,6 @@
 
 #include <fusion.h>
 #include <ir/interface_nodes.h>
-#include <visibility.h>
 
 namespace nvfuser {
 
@@ -24,7 +23,7 @@ struct Layout {
   // The size of `allocation_domain` and therefore the size of `contiguity`.
   int64_t size() const;
 
-  NVF_API std::string toString(int indent_size = 0) const;
+  std::string toString(int indent_size = 0) const;
 
   // Returns whether this layout is compliant with `required`. This is
   // uni-directional. For example, `contiguity=[t,t]` is compliant with
@@ -65,9 +64,9 @@ class AliasAnalysisResult {
       bool can_override_empty_allocation_domain,
       bool can_alias_intermediate);
 
-  // Returns the preferred layout. If `alias` is not in `preferred_layout_`,
+  // Returns the preferred layout. If `alias` is not in `alias_to_source_`,
   // returns the `TensorView`'s initial layout.
-  NVF_API Layout preferredLayout(const Val* alias) const;
+  Layout preferredLayout(const Val* alias) const;
 
   std::string toString(int indent_size) const;
 
