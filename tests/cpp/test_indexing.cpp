@@ -376,6 +376,30 @@ class PredicateIndexValidator : public kir::IrVisitor {
     // If no ref is obtained, skip validation
   }
 
+  void compareRecursively(Val* x, Val* y) {
+    std::cout << "Checking " << x->toInlineString() << ", "
+              << y->toInlineString() << std::endl;
+    if (x->sameAs(y)) {
+      std::cout << "Same: " << x->toString() << " (" << x->dtype()
+                << ")"
+                   ", "
+                << y->toString() << " (" << y->dtype() << ")" << std::endl;
+    } else if (x->definition() != nullptr) {
+      auto x_def = x->definition();
+      auto y_def = y->definition();
+      NVF_ERROR(y_def != nullptr);
+      NVF_ERROR(x_def->inputs().size() == y_def->inputs().size());
+      for (auto i : c10::irange(x->definition()->inputs().size())) {
+        std::cout << "Checking input " << i << std::endl;
+        compareRecursively(x_def->input(i), y_def->input(i));
+      }
+    } else {
+      std::cout << "Not same: " << x->toString() << " (" << x->dtype() << ") "
+                << ", " << y->toString() << " (" << y->dtype() << ") "
+                << std::endl;
+    }
+  }
+
   void validateOuterPredicate(kir::TensorIndex* ti, Val* actual) {
     TensorView* tv = ti->view();
     Val* ref = get_ref_.getOuterPredicate(tv);
@@ -384,6 +408,9 @@ class PredicateIndexValidator : public kir::IrVisitor {
           << "Validation failure of outer predicate for "
           << ti->view()->toString() << "\nRef: " << ref->toInlineString()
           << "\nActual: " << actual->toInlineString();
+      if (!actual->sameAs(ref)) {
+        compareRecursively(actual, ref);
+      }
       return;
     }
 
@@ -3137,18 +3164,17 @@ TEST_F(PredicateIndexingTest, CircularBuffering2) {
   fusion.printMath();
   fusion.printKernel();
 
-  // T1_s[ iS20{( ceilDiv(i0, 128) )}, iS24{( ceilDiv(( ceilDiv(128, 16) ), 4)
-  // )}, iS26{( ceilDiv(4, 2) )}, iS27{2}, iS23{16} ] ca_pos( 1 ) T2_l[ iS12{(
-  // ceilDiv(i0, 128) )}, iS16{( ceilDiv(( ceilDiv(128, 16) ), 4) )}, iS18{(
-  // ceilDiv(4, 2) )}, iS19{2}, iS15{16} ] ca_pos( 5 ) produce_pos( 1 ) T3_g[
-  // iS4{( ceilDiv(i0, 128) )}, iS8{( ceilDiv(( ceilDiv(128, 16) ), 4) )},
-  // iUR10{( ceilDiv(4, 2) )}, iS11{2}, ithreadIdx.x7{16} ] produce_pos( 5 )
+  // T2_l[ iS12{( ceilDiv(i0, 128) )}, iS16{( ceilDiv(( ceilDiv(128, 16) ), 4)
+  // )}, iS18{( ceilDiv(4, 2) )}, iS19{2}, iS15{16} ] ca_pos( 5 ) produce_pos( 1
+  // )
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    Val* getInlinePredicate(TensorView* tv) const override {
+    // The inline predicates are mostly the same as
+    // CircularBuffering1. Validates only the unswitch predicates.
+    Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
 
       // Don't care tensors outside circular buffered loops
@@ -3158,40 +3184,96 @@ TEST_F(PredicateIndexingTest, CircularBuffering2) {
       }
 
       // All other tensors are just predicated as usual
-      if (tv->name() != 1) {
+      if (tv->name() != 2) {
         return nullptr;
       }
 
-      // No epilog for this fusion
+      // Circular buffer tensor itself should not appear in Epilogue as
+      // a consumer
       NVF_ERROR(
           circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
           circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
 
-      auto circular_buffer_index = for_loops_.at(0)->index();
+      auto circular_buffer_index = for_loops_.at(1)->index();
 
-      Val* idx = nullptr;
+      auto zero = tv->fusion()->zeroVal();
+      auto one = tv->fusion()->oneVal();
+
+      // The base index is:
+      //
+      // i0 * 128 + ((i1 * 4 + (i2 * 2 + i3)) * 16 + tidx)
+      //
+      // Here, i1 and i2 correspond to the circular buffer loop and
+      // the unroll loop, respectively.
+
+      Val* start_idx = nullptr;
+      Val* stop_idx = nullptr;
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-        // i * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // i * 128 + bidx.x * 32 + tid.x < N
-        idx = addExpr(
-            mulExpr(circular_buffer_index, createInt(128)),
+        // Start index: i0 * 128 + ((i1 * 4 + (0 * 2 + 0)) * 16 +
+        // tidx)
+        // Stop index: i0 * 128 + ((i1 * 4 + (1 * 2 + 1)) * 16 + tidx)
+        start_idx = addExpr(
+            mulExpr(loop_indices.at(0), createInt(128)),
             addExpr(
-                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
-                loop_indices.at(2)));
+                mulExpr(
+                    addExpr(
+                        mulExpr(circular_buffer_index, createInt(4)),
+                        IrBuilder::addExpr(
+                            IrBuilder::mulExpr(zero, tv->axis(3)->extent()),
+                            zero)),
+                    tv->axis(4)->extent()),
+                loop_indices.at(4)));
+        stop_idx = addExpr(
+            mulExpr(loop_indices.at(0), createInt(128)),
+            addExpr(
+                mulExpr(
+                    addExpr(
+                        mulExpr(circular_buffer_index, createInt(4)),
+                        addExpr(
+                            mulExpr(
+                                subExpr(tv->axis(2)->extent(), one),
+                                tv->axis(3)->extent()),
+                            one)),
+                    tv->axis(4)->extent()),
+                loop_indices.at(4)));
       } else {
-        // (i + 3) * 128 + bidx.x * 32 + tid.x >= 0 &&
-        // (i + 3) * 128 + bidx.x * 32 + tid.x < N
-        idx = addExpr(
-            mulExpr(
-                addExpr(circular_buffer_index, createInt(3)), createInt(128)),
+        NVF_ERROR(circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+        // Start index: i0 * 128 + (((i1 + 3) * 4 + (0 * 2 + 0)) * 16 +
+        // tidx)
+        // Stop index: i0 * 128 + (((i1 + 3) * 4 + (1 * 2 + 1)) * 16 + tidx)
+        start_idx = addExpr(
+            mulExpr(loop_indices.at(0), createInt(128)),
             addExpr(
-                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
-                loop_indices.at(2)));
+                mulExpr(
+                    addExpr(
+                        mulExpr(
+                            addExpr(circular_buffer_index, createInt(3)),
+                            createInt(4)),
+                        IrBuilder::addExpr(
+                            IrBuilder::mulExpr(zero, tv->axis(3)->extent()),
+                            zero)),
+                    tv->axis(4)->extent()),
+                loop_indices.at(4)));
+        stop_idx = addExpr(
+            mulExpr(loop_indices.at(0), createInt(128)),
+            addExpr(
+                mulExpr(
+                    addExpr(
+                        mulExpr(
+                            addExpr(circular_buffer_index, createInt(3)),
+                            createInt(4)),
+                        addExpr(
+                            mulExpr(
+                                subExpr(tv->axis(2)->extent(), one),
+                                tv->axis(3)->extent()),
+                            one)),
+                    tv->axis(4)->extent()),
+                loop_indices.at(4)));
       }
 
       return andExpr(
-          geExpr(idx, tv->fusion()->zeroVal()),
-          ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
+          geExpr(start_idx, zero),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
     }
   };
 
