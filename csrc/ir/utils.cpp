@@ -826,14 +826,12 @@ void validateDomainEquivalence(
       "Duplicated entry is detected in dom1: ",
       toDelimitedString(dom1));
 
-  std::vector<Val*> dom0_val(dom0.begin(), dom0.end());
-  std::vector<Val*> dom1_val(dom1.begin(), dom1.end());
-  auto forward_exprs = DependencyCheck::getAllExprsBetween(dom0_set, dom1_val);
-  auto backward_exprs = DependencyCheck::getAllExprsBetween(dom1_set, dom0_val);
+  auto exprs = IRBFS::getExprsBetween(
+      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()});
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  auto next = [&frontier](Expr* expr, bool forward) {
+  for (auto [expr, direction] : exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -844,7 +842,7 @@ void validateDomainEquivalence(
         }));
     std::vector<Val*> from;
     std::vector<Val*> to;
-    if (forward) {
+    if (direction == Direction::Forward) {
       from = expr->inputs();
       to = expr->outputs();
     } else {
@@ -867,12 +865,6 @@ void validateDomainEquivalence(
           ". Input not seen before: ",
           id->toString());
     }
-  };
-  for (Expr* expr : forward_exprs) {
-    next(expr, true);
-  }
-  for (auto it = backward_exprs.rbegin(); it != backward_exprs.rend(); it++) {
-    next(*it, false);
   }
 
   // Remove symbolic IDs that appear both in frontier and in dom1_set. These IDs
