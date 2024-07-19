@@ -15,8 +15,10 @@
 namespace nvfuser::preseg_passes {
 
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
-  const AliasAnalysisResult analysis =
-      findAliases(fusion, /*can_override_empty_allocation_domain=*/true);
+  const AliasAnalysisResult analysis = findAliases(
+      fusion,
+      /*can_override_empty_allocation_domain=*/true,
+      /*may_alias_intermediate=*/true);
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Alias analysis result:" << std::endl;
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
