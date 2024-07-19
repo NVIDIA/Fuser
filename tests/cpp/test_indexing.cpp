@@ -2568,7 +2568,7 @@ TEST_F(PredicateIndexingTest, ReductionRfactor) {
     Val* getInlinePredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
 
-      bool is_init = tv->nDims() > for_loops_.size();
+      bool is_init = tv->nDims() > (int64_t)for_loops_.size();
 
       switch (tv->name()) {
         case 1: {

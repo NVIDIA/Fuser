@@ -20,6 +20,7 @@
 #include <ops/utils.h>
 #include <options.h>
 #include <scheduler/cache_policy_refiner.h>
+#include <scheduler/mma_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <type.h>
@@ -398,31 +399,6 @@ class TMASimpleLdstTest
   }
 };
 
-// Assuming the tile of tv is currently scheduled as a 1D flat dim placed at
-// position -1, schedule the TMA swizzle for it.
-void scheduleTMASwizzle(TensorView* tv, int64_t swizzle_size) {
-  // split as core matrices of 8 x 16B
-  tv->split(-1, core_matrix_width_bytes / dataTypeSize(tv->dtype()));
-  tv->split(-2, 8);
-  // [N, 8, 16B]
-  // swizzle the inner dim of rows of different core matrices
-  tv->split(-3, swizzle_size);
-  tv->split(-2, swizzle_size);
-  // [N/swizzle_size, swizzle_size, 8/swizzle_size, swizzle_size, 16B]
-  tv->swizzle(SwizzleType::XOR, -4, -2);
-}
-
-void markAllDimsExceptFirstAsBulk(const TensorView* tv) {
-  bool skip = true;
-  for (auto id : tv->getLoopDomain()) {
-    if (skip) {
-      skip = false;
-      continue;
-    }
-    id->parallelize(ParallelType::Bulk);
-  }
-}
-
 void parallelizeAllDimsExceptFirstAsTIDx(TensorView* tv) {
   tv->flatten(1);
   tv->axis(1)->parallelize(ParallelType::TIDx);
@@ -433,7 +409,6 @@ void scheduleTile(
     std::vector<int64_t> tile_sizes,
     MmaInputSmemSwizzle swizzle) {
   const int64_t dim = tile_sizes.size();
-  const int64_t swizzle_size = getBytesFromSwizzle(swizzle) / 16;
 
   for (auto tv : tvs) {
     NVF_ERROR(
@@ -457,7 +432,10 @@ void scheduleTile(
     // ...]
     tv->axis(0)->parallelize(ParallelType::BIDx);
     if (swizzle != MmaInputSmemSwizzle::None) {
-      scheduleTMASwizzle(tv, swizzle_size);
+      // In our implementation of swizzling, we work on 2D box where the
+      // inner-dim is the size of the swizzle in Bytes (at most).
+      tv->split(-1, tile_sizes[dim - 1]);
+      tv->swizzleTMABox(swizzle);
     }
   }
 }
@@ -478,7 +456,8 @@ TEST_P(TMASimpleLdstTest, Load) {
 
   scheduleTile({tv1, tv2}, tile, swizzle);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  markAllDimsExceptFirstAsBulk(tv1);
+  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+      tv1, 1 /* skip the first ID*/);
   parallelizeAllDimsExceptFirstAsTIDx(tv2);
 
   auto options =
@@ -511,50 +490,6 @@ class TMALoadTestWithABroadcastDim
     NVFuserTest::SetUp();
   }
 
-  void schedule(TensorView* tv) {
-    // We move the broadcast dim to be the left most.
-    moveInnerBroadcastLeft(tv);
-
-    // {B, N, K}
-    // {B, NO, N_dim, K}
-    tv->split(-2, tv->axis(-2)->extent());
-
-    if (swizzle == MmaInputSmemSwizzle::None) {
-      return;
-    }
-    // {B, NO, N_dim, KO, KI (32/64/128)}
-    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
-
-    // {B, NO, KO, N_dim, KI }
-    tv->reorder({{2, 3}, {3, 2}});
-
-    // {B, NO * KO, N_dim, KI}
-    tv->merge(1);
-
-    // {B, NO * KO, N_dim_O, N_128/(32, 64, 128),  KI}
-    tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
-
-    // {B, NO * KO, N_dim_O, N_128/(32, 64, 128),  KIO, KII}
-    tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
-
-    // split N_dim_O by N/16 N =swizzle size (32/64/128)
-    // {B, NO * KO, N_dim_O/(swizzle_size/16), N_128/(32, 64, 128),  KIO, KII}
-    tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
-
-    tv->swizzle(SwizzleType::XOR, -4, -2);
-  }
-
-  void markAllDimsExceptFirstTwoAsBulk(const TensorView* tv) {
-    int skip = 0;
-    for (auto id : tv->getLoopDomain()) {
-      if (skip < 2) {
-        skip++;
-        continue;
-      }
-      id->parallelize(ParallelType::Bulk);
-    }
-  }
-
   TMALoadTestWithABroadcastDim() {
     dtype = std::get<1>(GetParam());
     swizzle = std::get<2>(GetParam());
@@ -576,11 +511,27 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  schedule(tv1);
-  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  markAllDimsExceptFirstTwoAsBulk(tv1);
+  moveInnerBroadcastLeft(tv1);
+  moveInnerBroadcastLeft(tv2);
 
-  schedule(tv2);
+  // [B, K, N] -> [B, KO, K8, N]
+  tv1->split(-2, 8);
+  tv2->split(-2, 8);
+  // [B, KO, K8, N] ->  [B, KO, K8, NO, NI ]
+  tv1->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+  tv2->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+  // [B, KO, K8, NO, NI ] -> [B, KO, NO, K8, NI ] (Box: K8, NI)
+  tv1->reorder({{-2, -3}});
+  tv2->reorder({{-2, -3}});
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    tv1->swizzleTMABox(swizzle);
+    tv2->swizzleTMABox(swizzle);
+  }
+  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+      tv1, 3 /* skip the first three IDs*/);
+
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+
   // Naively parallelize an outer dim of tv2.
   // We use a single CTA. Inputs are small enough not to error out.
   tv2->axis(2)->parallelize(ParallelType::TIDx);
@@ -626,7 +577,7 @@ TEST_P(TMASimpleLdstTest, Store) {
 
   scheduleTile({tv1, tv2}, tile, swizzle);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  markAllDimsExceptFirstAsBulk(tv2);
+  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv2, 1);
   parallelizeAllDimsExceptFirstAsTIDx(tv1);
 
   auto options =
@@ -1164,7 +1115,8 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain1) {
   tv0->setAllocationDomain(tv0->getLoopDomain(), true);
   scheduleTile({tv1, tv2}, {128, items_of_32_bytes}, MmaInputSmemSwizzle::B32);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  markAllDimsExceptFirstAsBulk(tv1);
+  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+      tv1, 1 /* skip the first ID*/);
   parallelizeAllDimsExceptFirstAsTIDx(tv2);
 
   auto options =
