@@ -351,7 +351,7 @@ class AllocationInserter : public kir::ExprMutator {
       if (out_tv->isCircularBuffered()) {
         circular_buffer_depth =
             std::max(circular_buffer_depth, out_tv->circularBufferDepth());
-      } 
+      }
 
       // Write information to GPULower
       writeInfoToGPULower(allocation, alloc_expr);
@@ -389,8 +389,8 @@ class AllocationInserter : public kir::ExprMutator {
       if (circular_buffer_depth > 1) {
         // Create and allocate a memory barrier. If this is a circular buffer,
         // then allocate an array of mbarier objects. mbarrier::init and
-        // mbarrier::inval will be updated in double buffering pass, but we add
-        // them here to handle shared memory correctly in alias memory pass.
+        // mbarrier::inval will be updated in circular buffering pass, but we
+        // add them here to handle shared memory correctly in alias memory pass.
         TensorView* mbarrier =
             TensorViewBuilder()
                 .shape(std::vector<int64_t>{circular_buffer_depth})
@@ -399,7 +399,7 @@ class AllocationInserter : public kir::ExprMutator {
                 .build();
         mbarrier->setMemoryType(MemoryType::Shared);
 
-        // The wait condition for mbarrier is 1 thread and the expected
+        // The wait condition for mbarrier is a single thread and the expected
         // number of transaction bytes
         kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
             mbarrier, expr->container()->oneVal(DataType::UInt32));
@@ -412,8 +412,8 @@ class AllocationInserter : public kir::ExprMutator {
         kir::MBarrierInvalidate* mbarrier_inval =
             IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
 
-        // For double/circular buffers we need to prepare a placeholder for the
-        // tokens created by 'MBarrierArriveExpectTx' IR node The tokens are
+        // For circular buffers we need to prepare a placeholder for the
+        // tokens created by 'MBarrierArriveExpectTx' IR node. The tokens are
         // placed in shared memory and used by threads in a block.
         TensorView* mbarrier_tokens =
             TensorViewBuilder()
@@ -427,7 +427,7 @@ class AllocationInserter : public kir::ExprMutator {
             mbarrier_tokens, MemoryType::Shared);
 
         // NOTE: Block sync ir node is not added here. It will be added in the
-        // double buffering pass
+        // circular buffering pass
         registerInsertBefore(expr, mbarrier_tokens_alloc, expr_scope);
         registerInsertBefore(expr, mbarrier_alloc, expr_scope);
         registerInsertBefore(expr, mbarrier_init, expr_scope);
@@ -443,7 +443,7 @@ class AllocationInserter : public kir::ExprMutator {
         GpuLower::current()->ldstMBarrierTokenMap()[mbarrier_inval] =
             mbarrier_tokens;
         // Keep track of kir::Allocate for mBarrier and token objects,
-        //  to simplify double buffering pass logic
+        //  to simplify circular buffering pass logic
         GpuLower::current()->mBarrierTokenSmemAllocSet().insert(mbarrier_alloc);
         GpuLower::current()->mBarrierTokenSmemAllocSet().insert(
             mbarrier_tokens_alloc);
