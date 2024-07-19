@@ -71,7 +71,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   // - predicateAtEnd returns true
   // - Within an unswitch/unroll loop
   //
-  // Use N-1 instead of i but not when it's thread paralellized so
+  // Use N-1 instead of i but not when it's thread parallelized so
   // that each thread or block can take different paths. This may not
   // be optimal for TID, though, as it might result in thread
   // divergence.
