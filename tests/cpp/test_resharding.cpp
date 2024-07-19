@@ -18,6 +18,7 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/utils.h>
 
 #include <algorithm>
@@ -318,7 +319,8 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   }
   EXPECT_GT(num_inner_reshardings, 0);
 
-  insertShardedAxisReordering(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
       EXPECT_FALSE(isInnerResharding(expr));
@@ -371,7 +373,8 @@ TEST_P(ReshardingTest, Insert) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::InsertReshardingsPass>::runPass(fusion_.get());
-  insertShardedAxisReordering(fusion_.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(fusion_.get());
   validate();
 }
 

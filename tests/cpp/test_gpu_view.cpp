@@ -2344,6 +2344,41 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
   testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {12, 20};
+  DataType dtype = DataType::Float;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  // root domain : (i0, i2)
+  // logical domain : (3, i0/3, 4, i2/4)
+  auto tv2 = reshape(tv1, {12, 20}, {3, 4, 4, 5});
+  // root domain : (3, i0/3, 4, i2/4)
+  // logical domain : (3, i0/3*4, i2/4)
+  auto tv3 = reshape(tv2, {3, 4, 4, 5}, {3, 16, 5});
+  // root domain : (3, i0/3*4, i2/4)
+  auto tv4 = mul(tv3, tv3);
+  // root domain : (i0, i2)
+  // logical domain : (3, i0/3, 4, i2/4)
+  auto tv5 = reshape(tv1, {12, 20}, {3, 4, 4, 5});
+  // root domain : (3, i0/3, 4, i2/4)
+  // logical domain : (3, i0/3*4, i2/4)
+  auto tv6 = reshape(tv5, {3, 4, 4, 5}, {3, 16, 5});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv6);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+
+  testValidate(executor_cache.fusion(), {cg_outputs}, {t0}, __LINE__, __FILE__);
+}
+
 using ReductionAxes = std::vector<int64_t>;
 class ViewReductionTest : public NVFuserFixtureParamTest<ReductionAxes> {};
 
