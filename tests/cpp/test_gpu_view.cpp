@@ -49,7 +49,7 @@
 
 namespace nvfuser {
 
-using namespace at::indexing;
+using testing::UnorderedElementsAre;
 
 using GpuViewTest = NVFuserTest;
 
@@ -2378,6 +2378,63 @@ TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(executor_cache.fusion(), {cg_outputs}, {t0}, __LINE__, __FILE__);
+}
+
+// segmented into 2 kernels: pointwise and reduction
+TEST_F(GpuViewTest, GroupNormOriginal) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  const std::vector<int64_t> input_shape_wb = {C};
+  const std::vector<int64_t> group_shape_wb = {G, C / G};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  auto tv2 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  // pointwise ops, e.g. cast
+  auto tv3 = castOp(DataType::Float, tv0);
+  // reshape from {N, C, H, W} to {N, G, C / G, H, W}
+  auto tv4 = reshape(tv3, input_shape, group_shape);
+  // normalization
+  auto tv5 = sum(tv4, {-1, -2, -3});
+  auto tv6 = broadcast(tv5, {false, false, true, true, true});
+  auto tv7 = div(tv4, tv6);
+  // reshape back to {N, C, H, W}
+  auto tv8 = reshape(tv7, group_shape, input_shape);
+  // pointwise ops, e.g. scale, bias, cast
+  auto tv9 = broadcast(tv1, {true, false, true, true});
+  auto tv10 = broadcast(tv2, {true, false, true, true});
+  auto tv11 = mul(tv8, tv9);
+  auto tv12 = add(tv11, tv10);
+  auto tv13 = castOp(dtype, tv12);
+  fusion->addOutput(tv13);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_wb = at::TensorOptions()
+                        .dtype(data_type_to_aten(DataType::Float))
+                        .device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto tw = at::randn(input_shape_wb, options_wb);
+  auto tb = at::randn(input_shape_wb, options_wb);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  // should expect 1 after adding a pre-segment pass to move reshape to input
+  // and output.
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::PointWise),
+          HeuristicIs(ScheduleHeuristic::Reduction)));
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
 }
 
 using ReductionAxes = std::vector<int64_t>;

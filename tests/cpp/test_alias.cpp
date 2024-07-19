@@ -1269,24 +1269,15 @@ TEST_F(AliasTest, ReuseBuffer_AliasAcrossSegments) {
   at::Tensor t1 = at::randn({65}, options);
   at::Tensor t2 = at::randn({128, 65}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion));
+  FusionExecutorCache fec(std::move(fusion));
   // Make a copy of `t0` because `t0` will be in-place updated.
   at::Tensor original_t0 = t0.clone();
-  std::vector<at::Tensor> outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2});
+  std::vector<at::Tensor> outputs = fec.runFusionWithInputs({t0, t1, t2});
   testValidate(
-      executor_cache.fusion(),
-      outputs,
-      {original_t0, t1, t2},
-      __LINE__,
-      __FILE__);
+      fec.fusion(), outputs, {original_t0, t1, t2}, __LINE__, __FILE__);
 
   EXPECT_EQ(
-      executor_cache.getMostRecentKernelRuntime()
-          ->fusionSegments()
-          ->groups()
-          .size(),
-      2)
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups().size(), 2)
       << "segmentation didn't happen as expected";
 
   auto t3 = original_t0.add(1.0);
@@ -1633,6 +1624,41 @@ TEST_F(AliasTest, QKVSplitBackprop) {
   testValidate(fec.fusion(), out_tensors, in_tensors, __LINE__, __FILE__);
 
   EXPECT_TRUE(out_tensors[2].is_alias_of(out_tensors[1]));
+}
+
+TEST_F(AliasTest, Bookend_Issue2375) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t n = 2, c = 128, h = 16, w = 16, g = 32;
+  const DataType dtype = DataType::Half;
+  const std::vector<int64_t> input_shape = {n, g, c / g, h, w};
+  const std::vector<int64_t> output_shape = {n, c, h, w};
+
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = sum(tv2, {-1, -2, -3});
+  auto tv4 = broadcast(tv3, {false, false, true, true, true});
+  auto tv5 = div(tv2, tv4);
+  auto tv6 = castOp(dtype, tv5);
+  auto tv7 = reshape(tv6, input_shape, output_shape);
+  fusion->addOutput(tv7);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs({t0});
+  testValidate(fec.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+
+  EXPECT_THAT(
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::InnerPersistent)));
 }
 
 } // namespace nvfuser
