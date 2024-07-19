@@ -499,17 +499,6 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! Then [I0, I1, I8, I9] is equivalent to [I6, I7, I2, I3]. [I0, I1, I2, I3] is
 //! equivalent to [I6, I7, I8, I9]. But [I0, I1, I8, I3] is NOT equivalent to
 //! [I6, I7, I2, I9]
-//!
-//! Please note that there are still limitations in validateDomainEquivalence
-//! that there are valid cases that will be rejected by this function. For
-//! example, if we have the following structure:
-//!    I0.........I0
-//!   /  \       /  \.
-//! I0/4  4    I0/5  5
-//! then [I0/4, 4] and [I0/5, 5] are equivalent, but validateDomainEquivalence
-//! will reject this case. This is because our IR visitor is only capable of
-//! traversing the IR in a single direction. We should lift this limitation in
-//! the future.
 NVF_API void validateDomainEquivalence(
     const std::vector<IterDomain*>& dom0,
     const std::vector<IterDomain*>& dom1);
