@@ -38,7 +38,11 @@ bool allOutputsArePointerArithmetics(Fusion* fusion) {
       /*may_alias_intermediate=*/false);
   auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   return std::all_of(
-      out_tvs.begin(), out_tvs.end(), [&analysis](TensorView* out) {
+      out_tvs.begin(), out_tvs.end(), [&analysis, fusion](TensorView* out) {
+        // Check out is not an inplace update target.
+        if (fusion->getOutputAlias(out).type == AllocationType::ReuseBuffer) {
+          return false;
+        }
         auto val = analysis.getNearestAliasedIo(out);
         while (val != nullptr) {
           if (val->isFusionInput()) {
