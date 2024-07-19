@@ -87,8 +87,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     std::vector<Expr*> alias_only_uses_requires_segment;
     for (Expr* e : aliased_io->uses()) {
       if (used_by_non_aliases.count(e) == 0) {
-        if (LoadStoreOp* use =
-                dynamic_cast<LoadStoreOp*>(e)) {
+        if (LoadStoreOp* use = dynamic_cast<LoadStoreOp*>(e)) {
           if (use->opType() == LoadStoreOpType::SegmenterSet) {
             continue;
           }

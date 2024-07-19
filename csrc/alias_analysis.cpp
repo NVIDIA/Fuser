@@ -441,7 +441,6 @@ bool isGlobalTensor(const TensorView* tv) {
          });
 }
 
-
 // Returns true if the output tv's definition op may cause segmentation.
 // Only considered view op interfering with reduction.
 // TODO: other ops?
