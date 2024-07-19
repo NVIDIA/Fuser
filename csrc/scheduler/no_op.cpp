@@ -38,8 +38,10 @@ bool allOutputsArePointerArithmetics(Fusion* fusion) {
       /*may_alias_intermediate=*/false);
   auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   return std::all_of(
-      out_tvs.begin(), out_tvs.end(), [&analysis](TensorView* out) {
-        return analysis.getNearestAliasedIo(out) != nullptr;
+      out_tvs.begin(), out_tvs.end(), [&analysis, fusion](TensorView* out) {
+        // Check out has an alias and out is not an inplace update target.
+        return analysis.getNearestAliasedIo(out) != nullptr &&
+            fusion->getOutputAlias(out).type != AllocationType::ReuseBuffer;
       });
 }
 } // namespace
