@@ -188,7 +188,7 @@ void HostIrExecutor::handle(Wait* wait) {
 
 namespace {
 
-void allConsumerValsOf_helper(
+void allConsumerValsOfHelper(
     Val* val,
     std::unordered_set<Val*>& visisted_vals) {
   if (visisted_vals.find(val) != visisted_vals.end()) {
@@ -196,7 +196,7 @@ void allConsumerValsOf_helper(
   }
   for (Val* consumer : ir_utils::consumerValsOf(val)) {
     visisted_vals.insert(consumer);
-    allConsumerValsOf_helper(consumer, visisted_vals);
+    allConsumerValsOfHelper(consumer, visisted_vals);
   }
 }
 
@@ -210,7 +210,7 @@ void allConsumerValsOf_helper(
 // code.
 std::unordered_set<Val*> allConsumerValsOf(Val* val) {
   std::unordered_set<Val*> consumer_vals;
-  allConsumerValsOf_helper(val, consumer_vals);
+  allConsumerValsOfHelper(val, consumer_vals);
   return consumer_vals;
 }
 
