@@ -84,45 +84,43 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   for (TensorView* aliased_io : aliased_ios) {
     // Divide the users of aliased_io into two groups according to
     // `used_by_non_aliases`.
-    std::vector<Expr*> users_used_by_non_aliases;
-    std::vector<Expr*> users_used_only_by_aliases;
+    std::vector<Expr*> alias_only_uses_requires_segment;
     for (Expr* e : aliased_io->uses()) {
-      if (used_by_non_aliases.count(e)) {
-        users_used_by_non_aliases.push_back(e);
-      } else {
-        users_used_only_by_aliases.push_back(e);
+      if (used_by_non_aliases.count(e) == 0) {
+        if (LoadStoreOp* use =
+                dynamic_cast<LoadStoreOp*>(e)) {
+          if (use->opType() == LoadStoreOpType::SegmenterSet) {
+            continue;
+          }
+        }
+        alias_only_uses_requires_segment.push_back(e);
       }
     }
 
     // If all users are used by non-alias outputs, do nothing. Adding
     // segment_set around unlikely creates more no-op regions.
-    if (users_used_only_by_aliases.empty()) {
+    if (alias_only_uses_requires_segment.empty()) {
       continue;
     }
 
-    // If all users are used by aliases, put a `segment_set` before it.
-    if (users_used_by_non_aliases.empty()) {
-      if (aliased_io->isFusionInput()) {
-        // A `segment_set` before a fusion input is useless.
+    if (aliased_io->isFusionInput()) {
+      // A `segment_set` before a fusion input is useless.
+      continue;
+    }
+    // Rarely, if `aliased_io` is already defined by `segment_set`, don't
+    // create another `segment_set`.
+    if (LoadStoreOp* def =
+            dynamic_cast<LoadStoreOp*>(aliased_io->definition())) {
+      if (def->opType() == LoadStoreOpType::SegmenterSet) {
         continue;
       }
-      // Rarely, if `aliased_io` is already defined by `segment_set`, don't
-      // create another `segment_set`.
-      if (LoadStoreOp* def =
-              dynamic_cast<LoadStoreOp*>(aliased_io->definition())) {
-        if (def->opType() == LoadStoreOpType::SegmenterSet) {
-          continue;
-        }
-      }
-      aliased_io->cacheBefore(LoadStoreOpType::SegmenterSet);
-      continue;
     }
 
     // Some users of `aliased_io` are used by non-aliases, and some are used
     // only by aliases. We put a `segment_set` after `aliased_io` and redirect
     // the latter group to use the `segment_set`.
     TensorView* copy = segment_set(aliased_io);
-    for (Expr* e : users_used_only_by_aliases) {
+    for (Expr* e : alias_only_uses_requires_segment) {
       ir_utils::replaceValInExprInputs(e, aliased_io, copy);
     }
     if (aliased_io->isFusionOutput()) {

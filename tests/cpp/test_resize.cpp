@@ -1992,6 +1992,10 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
+  // alias analysis would give segmentation with no-op kernel
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   auto tv0 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
 
@@ -2028,6 +2032,10 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
 
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+
+  // alias analysis would give segmentation with no-op kernel
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
 
   // Set the problem size so that it can trigger the transpose
   // scheduler. The scheduler selection is validated below.
