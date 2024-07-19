@@ -827,7 +827,7 @@ void validateDomainEquivalence(
       toDelimitedString(dom1));
 
   auto exprs = IRBFS::getExprsBetween(
-      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()});
+      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 

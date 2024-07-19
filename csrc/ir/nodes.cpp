@@ -3670,7 +3670,8 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
       }
       auto path = IRBFS::getExprsBetween(
           {all_domains[i]->begin(), all_domains[i]->end()},
-          {all_domains[j]->begin(), all_domains[j]->end()});
+          {all_domains[j]->begin(), all_domains[j]->end()},
+          false);
       for (auto [expr, _] : path) {
         discovered_ids.pushBack(
             ir_utils::filterByType<IterDomain>(expr->outputs()));

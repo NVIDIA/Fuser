@@ -125,13 +125,15 @@ class BFS {
       const InputsT& inputs,
       const OutputsT& outputs,
       std::vector<NodeType> from,
-      std::vector<NodeType> to)
+      std::vector<NodeType> to,
+      bool require_all_to_visited = true)
       : definition_(definition),
         uses_(uses),
         inputs_(inputs),
         outputs_(outputs),
         from_(std::move(from)),
-        to_(std::move(to)) {}
+        to_(std::move(to)),
+        require_all_to_visited_(require_all_to_visited) {}
 
   // Traverse from from_ to to_, recording each taken
   // path to generate the shortest path after the travesal
@@ -181,7 +183,7 @@ class BFS {
       to_visit_.insert(to_visit_.end(), not_ready_.begin(), not_ready_.end());
     }
 
-    if (!allToNodesVisited()) {
+    if (require_all_to_visited_ && !allToNodesVisited()) {
       std::stringstream ss;
       for (const auto& to : to_) {
         if (!isVisited(to)) {
@@ -198,7 +200,9 @@ class BFS {
   // Find the shortest path from the from_ to to_. This
   // must be only used once traversal is completed.
   virtual ExprPath getShortestExprPath() {
-    NVF_ERROR(allToNodesVisited(), "Traveral is either not done or failed");
+    NVF_ERROR(
+        !require_all_to_visited_ || allToNodesVisited(),
+        "Traveral is either not done or failed");
 
     ExprPath path;
 
@@ -220,11 +224,12 @@ class BFS {
       }
 
       auto prev_nodes_it = prev_nodes_.find(node);
-      NVF_ERROR(prev_nodes_it != prev_nodes_.end());
-
-      const Direction dir = prev_nodes_it->second.first;
-      for (const auto& prev_node : prev_nodes_it->second.second) {
-        to_visit.emplace_back(prev_node, dir);
+      NVF_ERROR(!require_all_to_visited_ || prev_nodes_it != prev_nodes_.end());
+      if (prev_nodes_it != prev_nodes_.end()) {
+        const Direction dir = prev_nodes_it->second.first;
+        for (const auto& prev_node : prev_nodes_it->second.second) {
+          to_visit.emplace_back(prev_node, dir);
+        }
       }
     }
 
@@ -483,6 +488,7 @@ class BFS {
   std::unordered_set<NodeType> visited_;
   std::unordered_map<NodeType, std::pair<Direction, std::vector<NodeType>>>
       prev_nodes_;
+  bool require_all_to_visited_ = true;
 };
 
 } // namespace nvfuser
