@@ -58,7 +58,25 @@ class FusionDefinition(_C._FusionDefinition):
         return self._setup_definition()
 
     def __exit__(self, type, value, traceback):
-        self._finalize_definition()
+        try:
+            self._finalize_definition()
+        except Exception as err:
+            msg = (
+                f"An error occurred while defining nvFuser FusionDefinition {self.id()}.\n"
+                "If you believe this is a bug or need assistance, please file an issue at "
+                "https://github.com/NVIDIA/Fuser/issues/new\n"
+            )
+            msg += (
+                f"Here's a script to reproduce the error:\n"
+                "```python\n"
+                "from nvfuser import FusionDefinition, DataType\n"
+                f"{self}"
+                "with FusionDefinition() as fd:\n"
+                f"    nvfuser_fusion_id{self.id()}(fd)\n"
+            )
+            msg += "```\n"
+            logger.exception(msg)
+            raise err
 
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
