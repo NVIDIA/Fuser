@@ -84,6 +84,15 @@ class TensorIndexer {
   // Traverse exprs and set allocation info for each tensor
   void setupAllocationDomains(const std::vector<Expr*>& exprs);
 
+  // Get the list of predicates of a given tensor appearing in a given
+  // expr as a consumer. Each predicate corresponds to a domain of the
+  // tensor, which is by default one of the logical domains but can be
+  // an intermediate domain with contiguous indexing.
+  std::vector<PredicateInfo> getInlinePredicates(
+      TensorView* tv,
+      const Expr* expr,
+      const std::vector<ForLoop*>& for_loops) const;
+
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.

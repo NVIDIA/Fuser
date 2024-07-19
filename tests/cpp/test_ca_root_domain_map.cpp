@@ -19,7 +19,7 @@ using CaLogicalDomainMapTest = NVFuserTest;
 namespace {
 
 void checkIdMapped(
-    ComputeAtLogicalDomainMap& root_map,
+    ComputeAtLogicalDomainMap& logical_map,
     TensorView* v0,
     IterDomain* id0,
     TensorView* v1,
@@ -27,7 +27,7 @@ void checkIdMapped(
     bool should_map) {
   if (should_map) {
     NVF_CHECK(
-        root_map.canMap(v0->domain(), id0, v1->domain(), id1),
+        logical_map.canMap(v0->domain(), id0, v1->domain(), id1),
         "Should be mappable: ",
         id0,
         " of ",
@@ -38,7 +38,7 @@ void checkIdMapped(
         v1);
   } else {
     NVF_CHECK(
-        !root_map.canMap(v0->domain(), id0, v1->domain(), id1),
+        !logical_map.canMap(v0->domain(), id0, v1->domain(), id1),
         "Should not be mappable: ",
         id0,
         " of ",
@@ -691,10 +691,10 @@ TEST_F(CaLogicalDomainMapTest, FusionRootMappingRepro1950_CUDA) {
   fusion.addOutput(tv5);
   fusion.addOutput(tv4);
 
-  ComputeAtLogicalDomainMap root_map;
-  root_map.build();
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build();
 
-  checkIdMapped(root_map, tv4, tv4->axis(-1), tv9, tv9->axis(-1), false);
+  checkIdMapped(logical_map, tv4, tv4->axis(-1), tv9, tv9->axis(-1), false);
 }
 
 // Step-1 to fix https://github.com/NVIDIA/Fuser/issues/1631
@@ -738,11 +738,11 @@ TEST_F(
   // tv8 is a consumer of the reduction output.
   // If tv9 is mapped with tv2, we can't map tv8 and tv9 because tv9 is in the
   // pre-reduction set through tv2 and tv8 is in the post-reduction set.
-  ComputeAtLogicalDomainMap root_map;
-  root_map.build();
-  checkIdMapped(root_map, tv2, tv2->axis(1), tv9, tv9->axis(1), true);
-  checkIdMapped(root_map, tv7, tv7->axis(1), tv8, tv8->axis(1), false);
-  checkIdMapped(root_map, tv7, tv7->axis(1), tv9, tv9->axis(1), false);
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build();
+  checkIdMapped(logical_map, tv2, tv2->axis(1), tv9, tv9->axis(1), true);
+  checkIdMapped(logical_map, tv7, tv7->axis(1), tv8, tv8->axis(1), false);
+  checkIdMapped(logical_map, tv7, tv7->axis(1), tv9, tv9->axis(1), false);
 }
 
 } // namespace nvfuser

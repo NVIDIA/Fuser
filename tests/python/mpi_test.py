@@ -34,7 +34,7 @@ class MultiDeviceModel(FusionDefinition):
         self.sched._set_device_mesh(self.t0, mesh)
         self.sched._set_device_mesh(self.t1, mesh)
         self.sched._set_device_mesh(self.t2, mesh)
-        self.sched._parallelize(self.t0, 0, nvfuser.ParallelType.mesh_x)
+        self.sched.parallelize(self.t0, 0, nvfuser.ParallelType.mesh_x)
 
 
 fn = MultiDeviceModel()

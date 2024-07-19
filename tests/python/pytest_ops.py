@@ -15,7 +15,7 @@ from pytest_opinfos import opinfos
 from pytest_utils import ArgumentType, is_tensor, requiresJAX
 from typing import Callable
 
-from nvfuser import FusionDefinition
+from nvfuser import FusionCache, FusionDefinition
 
 
 def is_pre_volta():
@@ -190,8 +190,10 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
 # TODO Maybe only test a single dtype
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
-    clear_cuda_cache()
     for sample in op.sample_input_generator(op, dtype):
+        # clear cache for each sample
+        FusionCache.reset()
+        clear_cuda_cache()
         with pytest.raises(
             RuntimeError, match=r"Attempting to add to a completed definition"
         ):

@@ -108,13 +108,11 @@ bool parseEnv(
   }
 
   // retrieves master port
-  env = std::getenv("MASTER_PORT");
-  if (env) {
+  if ((env = std::getenv("MASTER_PORT")) != nullptr) {
     master_port = std::atoi(env);
   } else {
-    TORCH_WARN(
-        "the environment variable MASTER_PORT "
-        "has not been specified. Set to default");
+    LOG(INFO) << "The environment variable MASTER_PORT has not been specified. "
+              << "Set the master port to default: " << master_port;
   }
 
   return true;
@@ -176,7 +174,7 @@ Communicator::Communicator(
       size_(0),
       local_rank_(0),
       local_size_(0),
-      master_port_(0),
+      master_port_(c10d::TCPStoreOptions::kDefaultPort),
       ucc_available_(false),
       nccl_available_(false) {
   // retrieves rank and communicator size
@@ -199,9 +197,7 @@ Communicator::Communicator(
                            master_addr_ == gethostbyname(hostname)->h_name) &&
         local_rank_ == server_local_rank;
   }
-  constexpr int comm_master_port_default =
-      c10d::TCPStoreOptions::kDefaultPort; // 29500
-  store_opts.port = master_port_ ? master_port_ : comm_master_port_default;
+  store_opts.port = master_port_;
   store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
 #endif
 
@@ -214,7 +210,18 @@ Communicator::Communicator(
 #endif
 }
 
-Communicator::~Communicator() {
+void Communicator::cleanup() {
+  static bool cleaned_up = false;
+  if (cleaned_up) {
+    TORCH_WARN(
+        "The singleton Communicator has already been cleaned up. This is "
+        "likely because Communicator::cleanup was called more than once");
+    return;
+  }
+  cleaned_up = true;
+
+  store_ = nullptr;
+
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
   for (auto& [key, backend] : backends_) {
     // Call shutdown before destructing a ProcessGroupNCCL as instructed by
@@ -224,12 +231,21 @@ Communicator::~Communicator() {
     }
   }
 #endif
+  backends_.clear();
+
+  is_available_ = false;
 }
 
 c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
     const std::string& prefix) {
+  NVF_ERROR(
+      is_available(),
+      "The singleton Communicator isn't available. "
+      "This is likely because Communicator::cleanup has been called "
+      "or the instance wasn't successfully initialized.");
+
   CommunicatorBackend b = getBackend(backend);
   // generate a string key which is unique to the team
   // create the team and cache it
