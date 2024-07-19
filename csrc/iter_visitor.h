@@ -555,7 +555,11 @@ class DeadCodeRemover : BackwardVisitor {
 
 struct IRDefinitions {
   decltype(auto) operator()(Val* val) const {
-    return std::array<Expr*, 1>{val->definition()};
+    auto def = val->definition();
+    if (def == nullptr) {
+      return std::vector<Expr*>{};
+    }
+    return std::vector<Expr*>{val->definition()};
   }
 };
 

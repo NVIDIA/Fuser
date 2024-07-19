@@ -3651,37 +3651,35 @@ void TensorDomain::setAllocationDomain(
 }
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
-  VectorOfUniqueEntries<IterDomain*> pending;
-  for (const auto& domain :
-       {logical_domain_, root_domain_, allocation_domain_, loop_domain_}) {
-    pending.pushBack(domain);
-  }
+  std::array<const std::vector<IterDomain*>*, 4> all_domains = {
+      &logical_domain_, &root_domain_, &allocation_domain_, &loop_domain_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
-  std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+  for (auto domain : all_domains) {
+    discovered_ids.pushBack(*domain);
+  }
 
-  // Find all IDs along definition-uses chain with DFS
-  while (!pending.empty()) {
-    auto back = pending.back();
-    pending.popBack();
-    discovered_ids.pushBack(back);
-    std::vector<const Expr*> all_exprs;
-    auto def = back->definition();
-    if (def != nullptr) {
-      all_exprs.push_back(def);
+  // We only care about IDs on the shortest path between domains
+  std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+  for (auto i : c10::irange(all_domains.size() - 1)) {
+    if (all_domains[i]->empty()) {
+      continue;
     }
-    all_exprs.insert(all_exprs.end(), back->uses().begin(), back->uses().end());
-    for (auto e : all_exprs) {
-      std::vector<Val*> all_ids;
-      all_ids.insert(all_ids.end(), e->inputs().begin(), e->inputs().end());
-      all_ids.insert(all_ids.end(), e->outputs().begin(), e->outputs().end());
-      for (auto id : ir_utils::filterByType<IterDomain>(all_ids)) {
-        if (!discovered_ids.has(id) && !pending.has(id)) {
-          pending.pushBack(id);
-        }
+    for (auto j : c10::irange(i + 1, all_domains.size())) {
+      if (all_domains[j]->empty()) {
+        continue;
       }
-      for (auto in : e->inputs()) {
-        for (auto out : e->outputs()) {
-          out2in.emplace(out->as<IterDomain>(), in->as<IterDomain>());
+      auto path = IRBFS::getExprsBetween(
+          {all_domains[i]->begin(), all_domains[i]->end()},
+          {all_domains[j]->begin(), all_domains[j]->end()});
+      for (auto [expr, _] : path) {
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->outputs()));
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->inputs()));
+        for (auto in : expr->inputs()) {
+          for (auto out : expr->outputs()) {
+            out2in.emplace(out->as<IterDomain>(), in->as<IterDomain>());
+          }
         }
       }
     }

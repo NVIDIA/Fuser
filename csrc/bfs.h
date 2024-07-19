@@ -183,7 +183,7 @@ class BFS {
 
       // Something was processed. Redo the traversal.
       to_visit_.insert(to_visit_.end(), not_ready_.begin(), not_ready_.end());
-    };
+    }
 
     if (!allToNodesVisited()) {
       std::stringstream ss;
@@ -337,7 +337,7 @@ class BFS {
   virtual std::optional<std::pair<Direction, std::vector<NodeType>>> isReady(
       const ExprT& expr) const {
     // Either all inputs or all outputs must have been visited
-    auto inputs = inputs_(expr);
+    decltype(auto) inputs = inputs_(expr);
     if (!inputs.empty() &&
         std::all_of(
             inputs.begin(), inputs.end(), [&](const ValT& input) -> bool {
@@ -352,7 +352,7 @@ class BFS {
       return std::make_pair(Direction::Forward, prev_nodes);
     }
 
-    auto outputs = outputs_(expr);
+    decltype(auto) outputs = outputs_(expr);
     if (!outputs.empty() &&
         std::all_of(
             outputs.begin(), outputs.end(), [&](const ValT& output) -> bool {
@@ -380,24 +380,26 @@ class BFS {
       const ValT& v) const {
     // In the case of Val, requires just one def or use expr.
     // Check if any use is visited
-    if (!uses_(v).empty()) {
+    decltype(auto) uses = uses_(v);
+    if (!uses.empty()) {
       auto it = std::find_if(
-          uses_(v).begin(), uses_(v).end(), [&](const ExprT& use_e) -> bool {
+          uses.begin(), uses.end(), [&](const ExprT& use_e) -> bool {
             return isDependencySatisfied(use_e);
           });
-      if (it != uses_(v).end()) {
+      if (it != uses.end()) {
         return std::make_pair(Direction::Backward, std::vector<NodeType>{*it});
       }
     }
     // Check if any def is visited
-    if (!definition_(v).empty()) {
+    decltype(auto) def = definition_(v);
+    if (!def.empty()) {
       auto it = std::find_if(
-          definition_(v).begin(),
-          definition_(v).end(),
+          def.begin(),
+          def.end(),
           [&](const ExprT& def_e) -> bool {
             return isDependencySatisfied(def_e);
           });
-      if (it != definition_(v).end()) {
+      if (it != def.end()) {
         return std::make_pair(Direction::Forward, std::vector<NodeType>{*it});
       }
     }
