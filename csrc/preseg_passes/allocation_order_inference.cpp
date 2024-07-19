@@ -35,18 +35,18 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 //
 // The propagation rule explained in an example, given inputs:
 //   ref's allocation domain
-//     {iS9[i5], iS0[i0], ir1[i1], iS2[i2]}
+//     {iS9[i5], iS0[i0], iS1[i1], iS2[i2]}
 //   target's logical domain
-//     {iS3[i3], iS4[i4], ir5[i1], iS6[i5], iS7[i2], ir8[1]}
+//     {iS3[i3], iS4[i4], iS5[i1], iS6[i5], iS7[i2], ir8[1]}
 //
 // 1. we project iter domains from refs' allocation domain to targets' logical
 // domains, starting from the fast iter domains, until we fail to find an exact
 // map. (sharp-edge 0: we exclude mapping from iteration id on ref to reduction
 // id on target to avoid unnecessary re-ordering which exposes #2202).
 //   we go through iS2[i2] (mapped)
-//              -> ir1[i1] (continue since it's)
+//              -> iS1[i1] (mapped)
 //              -> iS0[i0] (break, since there's no mapping)
-//   mapped_ids  {iS7[i2], ir5[i1]}
+//   mapped_ids  {iS7[i2], iS5[i1]}
 // 2. remove all projected ids and reduction iter domains from target's rfactor
 // domain:
 //   unmapped_ids {iS3[i3], iS4[i4], iS6[i5]}
@@ -62,13 +62,13 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 // See issue https://github.com/NVIDIA/Fuser/issues/2202
 // 1. we project iter domains from targets' logical domain which has an exact
 // map to ref's allocation domain.
-//   mapped_ids {iS7[i2], ir5[i1]}
+//   mapped_ids {iS7[i2], iS5[i1]}
 // 2. remove all projected iter domains from target's rfactor
 // domain:
 //   unmapped_ids {iS3[i3], iS4[i4], iS6[i5], ir8[1]}
 // 3. append reversed mapped_ids at the end of unmapped_id_vec.
 //   target_alloc_domain
-//   {iS3[i3], iS4[i4], iS6[i5], ir8[1], ir5[i1], iS7[i2]}
+//   {iS3[i3], iS4[i4], iS6[i5], ir8[1], iS5[i1], iS7[i2]}
 void mapAllocationDomain(
     const IdModel& id_model,
     const TensorView* ref,
