@@ -147,6 +147,9 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
 }
 } // namespace
 
+FusionExecutor::FusionExecutor()
+    : communicator_(&Communicator::getInstance()) {}
+
 std::unique_ptr<PrecomputedValues>& FusionExecutor::
     evaluatorPrecomputedValues() {
   if (!evaluator_precomputed_values_) {
@@ -270,7 +273,7 @@ void FusionExecutor::compileFusion(
     return;
   }
 
-  const auto& exprs = fusion->exprs();
+  const std::vector<Expr*>& exprs = fusion->exprs();
   if (std::all_of(exprs.begin(), exprs.end(), [](Expr* e) {
         return isResharding(e) && isLowerableToCommunication(e);
       })) {
@@ -332,6 +335,17 @@ void FusionExecutor::compileFusion(
     fusion->printMath();
   }
 
+  //! Force index_type to int and disable magic zero if we detect that the
+  //! kernel contains any TMA memory operations.
+  bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
+    return ir_utils::isCpAsyncBulk(e);
+  });
+
+  // Disable magic zero if there are any TMA operations in Fusion
+  if (has_cp_async_bulk) {
+    compile_params.enable_magic_zero = false;
+  }
+
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
   // arguments.
@@ -343,6 +357,12 @@ void FusionExecutor::compileFusion(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
+    NVF_ERROR(
+        !has_cp_async_bulk ||
+            (compile_params.index_type.value() == PrimDataType::Int32),
+        "Compilation with int64 is requested but int32 is required because ",
+        "of TMA operations.");
+
   } else if (arg_index_type == PrimDataType::Int) {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
@@ -350,6 +370,13 @@ void FusionExecutor::compileFusion(
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
+    NVF_ERROR(
+        !has_cp_async_bulk,
+        "Compilation with int64 is required based on input arguments, but ",
+        "int32 is required because of TMA operations.");
+  } else if (has_cp_async_bulk) {
+    // TMA operations require 32-bit indexing.
+    compile_params.index_type = PrimDataType::Int32;
   }
 
   c10::DeviceGuard dg(options_.device);
@@ -1940,23 +1967,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     expr_eval.bind(inputs[i], *args[i]);
   }
 
-  const bool measure_kernel_time = measure_kernel_time_ ||
-      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
-
-  // It's important to determine the input bytes processed prior
-  // to pushing the outputs into the arg struct.  Otherwise,
-  // the outputs will also be included with inputs when determining
-  // the input bytes accessed.
-  if (measure_kernel_time) {
-    inputBytesProcessed(args);
-  }
-
   if (isExpressionEvaluated(fusion())) {
     outputs = evaluateFusionOutputs(args, outputs, expr_eval);
-    if (measure_kernel_time) {
-      outputBytesProcessed(outputs);
-    }
     if (isProfilerEnabled()) {
       auto& sprof = FusionProfiler::segment(group_id_);
       sprof.stopKernel();
@@ -1989,9 +2001,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       if (work != nullptr) {
         work->wait();
       }
-    }
-    if (measure_kernel_time) {
-      outputBytesProcessed(outputs);
     }
     return outputs;
   }
@@ -2144,10 +2153,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   executor_utils::CudaKernelTimer timer(stream);
 
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
-    if (measure_kernel_time) {
-      timer.init();
-    }
-
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     recomputeArgs(*executor_entry, expr_eval, kernel());
@@ -2181,10 +2186,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               << ", occupancy=" << oss.str() << std::endl;
     }
 
-    if (measure_kernel_time) {
-      timer.start();
-    }
-
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
@@ -2213,23 +2214,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           stream,
           executor_entry->arg_ptrs.data()));
     }
-
-    if (measure_kernel_time) {
-      kernel_time_ms_ = timer.elapsed();
-    }
-  }
-
-  if (measure_kernel_time) {
-    outputBytesProcessed(outputs);
-
-    if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-        isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-      double gb_per_s =
-          ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
-          (double)1.0e9;
-      debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
-              << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
-    }
   }
 
   releaseZeroedMemory();
@@ -2248,47 +2232,27 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 }
 
 int64_t FusionExecutor::inputBytesProcessed(const KernelArgumentHolder& args) {
-  int64_t total_bytes = 0;
-  if (!bytes_processed_per_input_.has_value()) {
-    int64_t num_bytes = 0;
-    bytes_processed_per_input_ = std::vector<int64_t>(args.size(), 0);
-    // Figure how many bytes are inputs, outputs, and temporary buffers
-    for (auto i : c10::irange(args.size())) {
-      if (args[i]->is<at::Tensor>()) {
-        auto t = args[i]->as<at::Tensor>();
-        num_bytes = static_cast<int64_t>(t.storage().nbytes());
-        bytes_processed_per_input_.value().at(i) = num_bytes;
-        total_bytes += num_bytes;
-      }
-    }
-  } else {
-    for (auto bp : bytes_processed_per_input_.value()) {
-      total_bytes += bp;
+  int64_t num_bytes = 0;
+  // Figure how many bytes are inputs, outputs, and temporary buffers
+  for (auto i : c10::irange(args.size())) {
+    if (args[i]->is<at::Tensor>()) {
+      auto t = args[i]->as<at::Tensor>();
+      num_bytes += static_cast<int64_t>(t.storage().nbytes());
     }
   }
-  return total_bytes;
+  return num_bytes;
 }
 
 int64_t FusionExecutor::outputBytesProcessed(
     const std::vector<at::Tensor>& outputs) {
-  int64_t total_bytes = 0;
-  if (!bytes_processed_per_output_.has_value()) {
-    int64_t num_bytes = 0;
-    bytes_processed_per_output_ = std::vector<int64_t>(outputs.size(), 0);
-    for (auto i : c10::irange(outputs.size())) {
-      const auto& output = outputs.at(i);
-      // NOTE: this assumes that all output elements correspond to a single
-      // store
-      num_bytes = static_cast<int64_t>(output.storage().nbytes());
-      bytes_processed_per_output_.value().at(i) = num_bytes;
-      total_bytes += num_bytes;
-    }
-  } else {
-    for (auto bp : bytes_processed_per_output_.value()) {
-      total_bytes += bp;
-    }
+  int64_t num_bytes = 0;
+  for (auto i : c10::irange(outputs.size())) {
+    const auto& output = outputs.at(i);
+    // NOTE: this assumes that all output elements correspond to a single
+    // store
+    num_bytes += static_cast<int64_t>(output.storage().nbytes());
   }
-  return total_bytes;
+  return num_bytes;
 }
 
 void FusionExecutor::compileRtc(

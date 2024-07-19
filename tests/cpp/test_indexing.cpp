@@ -29,6 +29,7 @@
 namespace nvfuser {
 
 using IndexingTest = NVFuserTest;
+using PredicateIndexingTest = NVFuserTest;
 
 namespace {
 
@@ -46,6 +47,11 @@ Val* addExpr(Args&&... args) {
 }
 
 template <typename... Args>
+Val* subExpr(Args&&... args) {
+  return SimplifyingIrBuilder::subExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
 Val* mulExpr(Args&&... args) {
   return SimplifyingIrBuilder::mulExpr(std::forward<Args>(args)...);
 }
@@ -53,6 +59,11 @@ Val* mulExpr(Args&&... args) {
 template <typename... Args>
 Val* divExpr(Args&&... args) {
   return SimplifyingIrBuilder::divExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* ceilDivExpr(Args&&... args) {
+  return SimplifyingIrBuilder::ceilDivExpr(std::forward<Args>(args)...);
 }
 
 template <typename... Args>
@@ -65,25 +76,23 @@ Val* xorExpr(Args&&... args) {
   return IrBuilder::bitwiseXorExpr(std::forward<Args>(args)...);
 }
 
-void printAllIndices(
-    std::ostream& os,
-    Fusion* fusion,
-    const TensorIndexer& indexer) {
-  for (auto expr : fusion->exprs()) {
-    if (!ir_utils::isTvOp(expr)) {
-      continue;
-    }
+template <typename... Args>
+Val* andExpr(Args&&... args) {
+  return SimplifyingIrBuilder::logicalAndExpr(std::forward<Args>(args)...);
+}
 
-    os << "\n" << expr->toString();
-    for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      os << "Input: T" << input->name() << " -> "
-         << indexer.getLinearIndex(input, expr)->toInlineString() << std::endl;
-    }
-    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      os << "Output: T" << output->name() << " -> "
-         << indexer.getLinearIndex(output, expr)->toInlineString() << std::endl;
-    }
-  }
+template <typename... Args>
+Val* geExpr(Args&&... args) {
+  return SimplifyingIrBuilder::geExpr(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+Val* ltExpr(Args&&... args) {
+  return SimplifyingIrBuilder::ltExpr(std::forward<Args>(args)...);
+}
+
+Val* createInt(int64_t i) {
+  return IrBuilder::create<Val>(i, DataType::Index);
 }
 
 // AbstractGetReference and IndexValidator are used to validate
@@ -110,8 +119,33 @@ class AbstractGetReference {
     return std::string();
   }
 
+  virtual Val* getPredicate(TensorView* tv) const {
+    return nullptr;
+  }
+
+  void setForLoops(const std::vector<ForLoop*>& for_loops) {
+    for_loops_ = for_loops;
+  }
+
+  void clearForLoops() {
+    for_loops_.clear();
+  }
+
+  void clearCircularBufferInfo() {
+    circular_buffer_loop_stage_ = CircularBufferLoopStage::NotApplicable;
+  }
+
+  void setCircularBufferInfo(CircularBufferLoopStage loop_stage) {
+    circular_buffer_loop_stage_ = loop_stage;
+  }
+
  protected:
   const TensorIndexer& indexer_;
+  // These could be getLinearIndex parameters, but it's just easier to
+  // add them here since the function signature doesn't need to change.
+  std::vector<ForLoop*> for_loops_;
+  CircularBufferLoopStage circular_buffer_loop_stage_ =
+      CircularBufferLoopStage::NotApplicable;
 };
 
 template <typename GetReference>
@@ -129,6 +163,20 @@ class IndexValidator : public kir::IrVisitor {
       return;
     }
 
+    get_ref_.setForLoops(for_loops_);
+
+    if (auto loop_it = std::find_if(
+            for_loops_.begin(),
+            for_loops_.end(),
+            [](ForLoop* fl) {
+              return fl->circularBufferLoopStage() !=
+                  CircularBufferLoopStage::NotApplicable;
+            });
+        loop_it != for_loops_.end()) {
+      auto loop = *loop_it;
+      get_ref_.setCircularBufferInfo(loop->circularBufferLoopStage());
+    }
+
     auto out_ti = expr->output(0)->as<kir::TensorIndex>();
     for (auto inp : expr->inputs()) {
       if (inp->isA<kir::TensorIndex>()) {
@@ -140,6 +188,9 @@ class IndexValidator : public kir::IrVisitor {
         validate(out->as<kir::TensorIndex>());
       }
     }
+
+    get_ref_.clearForLoops();
+    get_ref_.clearCircularBufferInfo();
   }
 
   void validate(kir::TensorIndex* ti, kir::TensorIndex* out_ti = nullptr) {
@@ -149,7 +200,8 @@ class IndexValidator : public kir::IrVisitor {
     Val* ref = get_ref_.getLinearIndex(tv, maybe_consumer);
     if (ref != nullptr) {
       EXPECT_TRUE(actual->sameAs(ref))
-          << "Validation failure of " << ti->view()->toString()
+          << "Validation failure of " << ti->view()->toString() << " as "
+          << (out_ti != nullptr ? "producer" : "consumer")
           << "\nRef: " << ref->toInlineString()
           << "\nActual: " << actual->toInlineString();
       return;
@@ -159,7 +211,8 @@ class IndexValidator : public kir::IrVisitor {
     std::string ref_str = get_ref_.getLinearIndexString(tv, maybe_consumer);
     if (!ref_str.empty()) {
       EXPECT_EQ(actual->toInlineString(), ref_str)
-          << "Validation failure of " << ti->view()->toString()
+          << "Validation failure of " << ti->view()->toString() << " as "
+          << (out_ti != nullptr ? "producer" : "consumer")
           << "\nRef: " << ref_str << "\nActual: " << actual->toInlineString();
       return;
     }
@@ -199,6 +252,98 @@ class IndexValidator : public kir::IrVisitor {
   GetReference get_ref_;
 };
 
+template <typename GetReference>
+class PredicateIndexValidator : public kir::IrVisitor {
+ public:
+  PredicateIndexValidator(const GpuLower& lower, GetReference&& get_ref)
+      : get_ref_(std::move(get_ref)) {}
+
+  using kir::IrVisitor::dispatch;
+  using kir::IrVisitor::handle;
+
+  void dispatch(Expr* expr) override {
+    if (!ir_utils::isTvOp(expr)) {
+      kir::IrVisitor::dispatch(expr);
+      return;
+    }
+
+    get_ref_.setForLoops(for_loops_);
+
+    if (auto loop_it = std::find_if(
+            for_loops_.begin(),
+            for_loops_.end(),
+            [](ForLoop* fl) {
+              return fl->circularBufferLoopStage() !=
+                  CircularBufferLoopStage::NotApplicable;
+            });
+        loop_it != for_loops_.end()) {
+      auto loop = *loop_it;
+      get_ref_.setCircularBufferInfo(loop->circularBufferLoopStage());
+    }
+
+    auto out_ti = expr->output(0)->as<kir::TensorIndex>();
+
+    NVF_ERROR(!scope_exprs_.empty());
+    auto inline_predicate = dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
+    NVF_ERROR(
+        inline_predicate != nullptr,
+        "No inline predicate detected: ",
+        expr->toString());
+
+    validate(out_ti, inline_predicate->predicate()->value());
+
+    get_ref_.clearForLoops();
+    get_ref_.clearCircularBufferInfo();
+  }
+
+  void validate(kir::TensorIndex* ti, Val* actual) {
+    TensorView* tv = ti->view();
+    Val* ref = get_ref_.getPredicate(tv);
+    if (ref != nullptr) {
+      EXPECT_TRUE(actual->sameAs(ref))
+          << "Validation failure of " << ti->view()->toString()
+          << "\nRef: " << ref->toInlineString()
+          << "\nActual: " << actual->toInlineString();
+      return;
+    }
+
+    // If no ref is obtained, skip validation
+  }
+
+  template <typename... Args>
+  static void validate(Fusion* fusion, Args... args) {
+    EnableOptionsGuard enable_options_guard;
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IdModel, {"inline_predicate"});
+
+    // Disable simplifications to make the pattern matching of sameAs work
+    DisableOptionsGuard disable_options_guard;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::ExprSimplify);
+    DisableOptionsGuard::getCurOptions().set(DisableOption::IndexHoist);
+    // Magic zero is not yet supported
+    DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+    DisableOptionsGuard::getCurOptions().set(
+        DisableOption::PredicateElimination);
+
+    GpuLower lower(fusion);
+
+    kir::Kernel* kernel = nullptr;
+    // Suppress warnings due to using dynamic register tensors
+    testing::internal::CaptureStderr();
+    kernel = lower.run();
+    testing::internal::GetCapturedStderr();
+
+    PredicateIndexValidator<GetReference> validator(
+        lower, GetReference(lower.tensorIndexer(), args...));
+
+    FusionGuard fg(kernel);
+    validator.handle(kernel->topLevelExprs());
+  }
+
+ private:
+  GetReference get_ref_;
+};
+
 } // namespace
 
 // Simple pointwise test with no parallelization
@@ -217,7 +362,7 @@ TEST_F(IndexingTest, SimplePointwise1) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv1->inlineAt(1);
 
@@ -307,7 +452,7 @@ TEST_F(IndexingTest, SimplePointwise2) {
   tv3->split(0, 4);
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
@@ -546,7 +691,7 @@ TEST_F(IndexingTest, Reshape) {
   fusion.addOutput(tv5);
 
   TransformPropagator propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
 
   inlineMost();
 
@@ -662,7 +807,7 @@ TEST_F(IndexingTest, SimpleBroadcast2) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   // The first merge of the logical domains should be a trivial merge,
   // i.e., a merge with a extent-one domain. Thus, the indexing
@@ -723,7 +868,7 @@ TEST_F(IndexingTest, SimpleBroadcast3) {
   tv3->flatten();
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   inlineMost();
 
@@ -793,7 +938,7 @@ TEST_F(IndexingTest, SimpleBroadcast4) {
   // [4, i0*i1/4]
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   for (auto tv : ir_utils::allTvs(&fusion)) {
     tv->inlineAt(-2);
@@ -907,7 +1052,7 @@ TEST_F(IndexingTest, MultiDevice2D) {
   tv1->split(0, num_devices, false);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
@@ -950,7 +1095,7 @@ TEST_F(IndexingTest, MultiDevice2DLeafAllocation) {
   tv1->split(0, num_devices, false);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
@@ -1091,7 +1236,7 @@ TEST_F(IndexingTest, SimpleVectorize) {
   tv2->axis(2)->parallelize(ParallelType::Vectorize);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -1160,7 +1305,7 @@ TEST_F(IndexingTest, NonInnermostVectorize) {
   tv3->reorder({{-1, -2}});
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
@@ -1225,7 +1370,7 @@ TEST_F(IndexingTest, AlmostExactTraversalWithNonOneBroadcast) {
   tv3->merge(1);
   tv3->split(1, 5);
 
-  MaxRootDomainInfoSpanningTree tree(tv3);
+  MaxLogicalDomainInfoSpanningTree tree(tv3);
   TransformPropagator tp(tv3);
   tree.traverse(&tp);
 
@@ -1336,7 +1481,7 @@ TEST_F(IndexingTest, SimpleUnroll) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -1393,7 +1538,7 @@ TEST_F(IndexingTest, InlinedUnroll) {
   tv4->split(0, 1);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -1622,6 +1767,776 @@ TEST_F(IndexingTest, ResizePath) {
   };
 
   IndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as DoubleBufferingTest.DoubleBuffering1
+TEST_F(IndexingTest, DoubleBuffering1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 32);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv1->inlineAt(-2);
+  tv2->inlineAt(-2);
+
+  tv3->axis(-2)->parallelize(ParallelType::BIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv1->circularBuffer(/*number_of_stages=*/2);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      // No epilog for this fusion
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      switch (tv->name()) {
+        case 0: {
+          if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
+            return addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2));
+          } else if (
+              circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+            return addExpr(
+                mulExpr(
+                    addExpr(loop_indices.at(0), createInt(1)), createInt(128)),
+                addExpr(
+                    mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                    loop_indices.at(2)));
+          } else {
+            NVF_ERROR(
+                false,
+                "Unexpected circular buffer stage: ",
+                circular_buffer_loop_stage_);
+          }
+        }
+        case 1: {
+          if (as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              return loop_indices.at(2);
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return addExpr(
+                  loop_indices.at(2),
+                  mulExpr(
+                      modExpr(
+                          addExpr(loop_indices.at(0), createInt(1)),
+                          createInt(2)),
+                      tv->axis(2)->extent()));
+            }
+          } else {
+            NVF_ERROR(
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+            // There should be no read-ahead offset
+            return addExpr(
+                loop_indices.at(2),
+                mulExpr(
+                    modExpr(loop_indices.at(0), createInt(2)),
+                    tv->axis(2)->extent()));
+          }
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as DoubleBufferingTest.DoubleBuffering4
+TEST_F(IndexingTest, DoubleBuffering4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = set(tv1);
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 32);
+  tv3->split(-1, 8);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv0->computeAt(tv3, 2);
+  tv2->computeAt(tv3, -1);
+
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  tv3->axis(1)->parallelize(ParallelType::Unswitch);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv2->circularBuffer(/*number_of_stages=*/2);
+
+  // Check indices of:
+  // - Producer of the producer of the circular buffered tensor
+  // - Circular buffered tensor itself
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      switch (tv->name()) {
+        case 1: {
+          if (!as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              return loop_indices.at(3);
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return addExpr(
+                  mulExpr(
+                      addExpr(loop_indices.at(2), createInt(1)),
+                      tv->axis(3)->extent()),
+                  loop_indices.at(3));
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          } else {
+            return nullptr;
+          }
+        }
+        case 2: {
+          if (as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              return tv->fusion()->zeroVal();
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return modExpr(
+                  addExpr(loop_indices.at(2), createInt(1)), createInt(2));
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          } else {
+            if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return modExpr(loop_indices.at(2), createInt(2));
+            } else if (
+                circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Epilog) {
+              return modExpr(
+                  subExpr(tv->axis(2)->extent(), createInt(1)), createInt(2));
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          }
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as DoubleBufferingTest.DoubleBuffering6
+TEST_F(IndexingTest, DoubleBuffering6) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = set(tv1);
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 16);
+  tv3->split(-2, 4);
+  tv3->split(-2, 2);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv0->computeAt(tv3, 1);
+  tv2->computeAt(tv3, -1);
+
+  tv3->axis(2)->parallelize(ParallelType::Unroll);
+  tv3->axis(4)->parallelize(ParallelType::TIDx);
+
+  tv2->circularBuffer(/*number_of_stages=*/2);
+
+  // The circular buffered tensor, tv2, is inlined into tv3, which is
+  // unrolled. While tv2 is fully inlined, its allocation domain is
+  // [iUR10{( ceilDiv(4, 2) )}, iS11{2}, ithreadIdx.x7{16}] due to the
+  // unroll.
+
+  // tv1 allocation domain: iS24{( ceilDiv(( ceilDiv(128, 16) ), 4) )}, iS26{(
+  // ceilDiv(4, 2) )}, iS27{2}, iS23{16}
+
+  // Check indices of:
+  // - Producer of the producer of the circular buffered tensor
+  // - Circular buffered tensor itself
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      switch (tv->name()) {
+        case 1: {
+          if (!as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              return addExpr(
+                  addExpr(
+                      mulExpr(loop_indices.at(2), createInt(32)),
+                      mulExpr(loop_indices.at(3), createInt(16))),
+                  loop_indices.at(4));
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return addExpr(
+                  addExpr(
+                      addExpr(
+                          mulExpr(
+                              addExpr(loop_indices.at(1), createInt(1)),
+                              mulExpr(tv->axis(2)->extent(), createInt(32))),
+                          mulExpr(loop_indices.at(2), createInt(32))),
+                      mulExpr(loop_indices.at(3), createInt(16))),
+                  loop_indices.at(4));
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          } else {
+            return nullptr;
+          }
+        }
+        case 2: {
+          if (as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              return addExpr(
+                  mulExpr(loop_indices.at(2), createInt(2)),
+                  loop_indices.at(3));
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              auto base_offset = addExpr(
+                  mulExpr(loop_indices.at(2), tv->axis(3)->extent()),
+                  loop_indices.at(3));
+              // The size of the buffer is built without using
+              // SimplifyingIrBuilder. Using it here would result in
+              // using different dtypes (int64 vs nvfuser_index_t)
+              auto buffer_offset = mulExpr(
+                  modExpr(
+                      addExpr(loop_indices.at(1), createInt(1)), createInt(2)),
+                  IrBuilder::mulExpr(
+                      tv->axis(2)->extent(), tv->axis(3)->extent()));
+              return addExpr(base_offset, buffer_offset);
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          } else {
+            if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              auto base_offset = addExpr(
+                  mulExpr(loop_indices.at(2), tv->axis(3)->extent()),
+                  loop_indices.at(3));
+              auto buffer_offset = mulExpr(
+                  modExpr(loop_indices.at(1), createInt(2)),
+                  IrBuilder::mulExpr(
+                      tv->axis(2)->extent(), tv->axis(3)->extent()));
+              return addExpr(base_offset, buffer_offset);
+            } else if (
+                circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Epilog) {
+              auto base_offset = addExpr(
+                  mulExpr(loop_indices.at(2), tv->axis(3)->extent()),
+                  loop_indices.at(3));
+              auto buffer_offset = mulExpr(
+                  modExpr(
+                      subExpr(tv->axis(1)->extent(), createInt(1)),
+                      createInt(2)),
+                  IrBuilder::mulExpr(
+                      tv->axis(2)->extent(), tv->axis(3)->extent()));
+              return addExpr(base_offset, buffer_offset);
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          }
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as DoubleBuffering1 but with >2 stages
+TEST_F(IndexingTest, CircularBuffering1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 32);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv1->inlineAt(-2);
+  tv2->inlineAt(-2);
+
+  tv3->axis(-2)->parallelize(ParallelType::BIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  tv1->circularBuffer(/*number_of_stages=*/4);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      // No epilog for this fusion
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      switch (tv->name()) {
+        case 0: {
+          if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
+            // getLoopIndices returns the default index for each loop
+            // group. Since circular buffering reuses the same loop
+            // iter domain for the prologue, main and epilogue loops,
+            // the loop index may not be the true index. The index
+            // obtained from ForLoop should be always correct
+            auto circular_buffer_index = for_loops_.at(0)->index();
+            return addExpr(
+                mulExpr(
+                    circular_buffer_index,
+                    tv->axis(0)->definition()->as<Split>()->factor()),
+                addExpr(
+                    mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                    loop_indices.at(2)));
+          } else if (
+              circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+            return addExpr(
+                mulExpr(
+                    addExpr(loop_indices.at(0), createInt(3)), createInt(128)),
+                addExpr(
+                    mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                    loop_indices.at(2)));
+          } else {
+            NVF_ERROR(
+                false,
+                "Unexpected circular buffer stage: ",
+                circular_buffer_loop_stage_);
+          }
+        }
+        case 1: {
+          if (as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              return addExpr(
+                  loop_indices.at(2),
+                  mulExpr(for_loops_.at(0)->index(), tv->axis(2)->extent()));
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return addExpr(
+                  loop_indices.at(2),
+                  mulExpr(
+                      modExpr(
+                          addExpr(loop_indices.at(0), createInt(3)),
+                          createInt(4)),
+                      tv->axis(2)->extent()));
+            }
+          } else {
+            NVF_ERROR(
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+            // There should be no read-ahead offset
+            return addExpr(
+                loop_indices.at(2),
+                mulExpr(
+                    modExpr(loop_indices.at(0), createInt(4)),
+                    tv->axis(2)->extent()));
+          }
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as DoubleBuffering6 but with >2 stages
+TEST_F(IndexingTest, CircularBuffering2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = set(tv1);
+  auto tv3 = add(tv2, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv3);
+
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv3->split(-1, 128);
+  tv3->split(-1, 16);
+  tv3->split(-2, 4);
+  tv3->split(-2, 2);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  tv0->computeAt(tv3, 1);
+  tv2->computeAt(tv3, -1);
+
+  tv3->axis(2)->parallelize(ParallelType::Unroll);
+  tv3->axis(4)->parallelize(ParallelType::TIDx);
+
+  tv2->circularBuffer(/*number_of_stages=*/4);
+
+  // The circular buffered tensor, tv2, is inlined into tv3, which is
+  // unrolled. While tv2 is fully inlined, its allocation domain is
+  // [iUR10{( ceilDiv(4, 2) )}, iS11{2}, ithreadIdx.x7{16}] due to the
+  // unroll.
+
+  // tv1 allocation domain: iS24{( ceilDiv(( ceilDiv(128, 16) ), 4) )}, iS26{(
+  // ceilDiv(4, 2) )}, iS27{2}, iS23{16}
+
+  // Check indices of:
+  // - Producer of the producer of the circular buffered tensor
+  // - Circular buffered tensor itself
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+      auto consumer_tv = as_consumer ? tv : maybe_consumer;
+      std::vector<Val*> loop_indices = getLoopIndices(consumer_tv, indexer_);
+
+      // Don't care tensors outside circular buffered loops
+      if (circular_buffer_loop_stage_ ==
+          CircularBufferLoopStage::NotApplicable) {
+        return nullptr;
+      }
+
+      switch (tv->name()) {
+        case 1: {
+          if (!as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              auto buffer_offset = mulExpr(
+                  for_loops_.at(1)->index(),
+                  mulExpr(tv->axis(2)->extent(), createInt(32)));
+              return addExpr(
+                  addExpr(
+                      addExpr(
+                          buffer_offset,
+                          mulExpr(loop_indices.at(2), createInt(32))),
+                      mulExpr(loop_indices.at(3), createInt(16))),
+                  loop_indices.at(4));
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              return addExpr(
+                  addExpr(
+                      addExpr(
+                          mulExpr(
+                              addExpr(loop_indices.at(1), createInt(3)),
+                              mulExpr(tv->axis(2)->extent(), createInt(32))),
+                          mulExpr(loop_indices.at(2), createInt(32))),
+                      mulExpr(loop_indices.at(3), createInt(16))),
+                  loop_indices.at(4));
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          } else {
+            return nullptr;
+          }
+        }
+        case 2: {
+          if (as_consumer) {
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Prolog) {
+              auto buffer_offset = mulExpr(
+                  for_loops_.at(1)->index(),
+                  IrBuilder::mulExpr(
+                      tv->axis(2)->extent(), tv->axis(3)->extent()));
+              return addExpr(
+                  addExpr(
+                      mulExpr(loop_indices.at(2), createInt(2)),
+                      loop_indices.at(3)),
+                  buffer_offset);
+            } else if (
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              auto base_offset = addExpr(
+                  mulExpr(loop_indices.at(2), tv->axis(3)->extent()),
+                  loop_indices.at(3));
+              auto buffer_offset = mulExpr(
+                  modExpr(
+                      addExpr(loop_indices.at(1), createInt(3)), createInt(4)),
+                  IrBuilder::mulExpr(
+                      tv->axis(2)->extent(), tv->axis(3)->extent()));
+              return addExpr(base_offset, buffer_offset);
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          } else {
+            if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+              auto base_offset = addExpr(
+                  mulExpr(loop_indices.at(2), tv->axis(3)->extent()),
+                  loop_indices.at(3));
+              auto buffer_offset = mulExpr(
+                  modExpr(loop_indices.at(1), createInt(4)),
+                  IrBuilder::mulExpr(
+                      tv->axis(2)->extent(), tv->axis(3)->extent()));
+              return addExpr(base_offset, buffer_offset);
+            } else if (
+                circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Epilog) {
+              auto base_offset = addExpr(
+                  mulExpr(loop_indices.at(2), tv->axis(3)->extent()),
+                  loop_indices.at(3));
+              auto buffer_offset = mulExpr(
+                  modExpr(for_loops_.at(1)->index(), createInt(4)),
+                  IrBuilder::mulExpr(
+                      tv->axis(2)->extent(), tv->axis(3)->extent()));
+              return addExpr(base_offset, buffer_offset);
+            } else {
+              NVF_ERROR(
+                  false, "Unexpected stage: ", circular_buffer_loop_stage_);
+            }
+          }
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion);
+}
+
+// Same fusion as IndexingTest.SimplePointwise1
+TEST_F(PredicateIndexingTest, SimplePointwise1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->flatten();
+  tv2->split(0, 4);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(1);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto i0_idx = divExpr(
+          addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              loop_indices.at(1)),
+          tv->getLogicalDomain().at(1)->extent());
+
+      auto i1_idx = modExpr(
+          addExpr(
+              mulExpr(loop_indices.at(0), tv->axis(1)->extent()),
+              loop_indices.at(1)),
+          tv->getLogicalDomain().at(1)->extent());
+
+      Val* zero = tv->fusion()->zeroVal();
+      Val* cond = tv->fusion()->trueVal();
+      cond = andExpr(
+          andExpr(
+              andExpr(
+                  andExpr(cond, geExpr(i0_idx, zero)),
+                  ltExpr(i0_idx, tv->getLogicalDomain().at(0)->extent())),
+              geExpr(i1_idx, zero)),
+          ltExpr(i1_idx, tv->getLogicalDomain().at(1)->extent()));
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+}
+
+// Testing predicate indexing with an rfactor reduction
+TEST_F(PredicateIndexingTest, ReductionRfactor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {1});
+  fusion.addOutput(tv1);
+
+  tv1->split(1, 4, false);
+  tv1->rFactor({1});
+
+  inlineMost();
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      bool is_init = tv->nDims() > (int64_t)for_loops_.size();
+
+      switch (tv->name()) {
+        case 1: {
+          // T1_g[ iS10{i0}, rS11{( ceilDiv(i2, 4) )} ]
+          //
+          // If this is the initialization of the buffer, only iS10
+          // should be predicated. If not, rS11 should also be predicated.
+          auto is10_pred = andExpr(
+              geExpr(loop_indices.at(0), tv->fusion()->zeroVal()),
+              ltExpr(
+                  loop_indices.at(0), tv->getLogicalDomain().at(0)->extent()));
+          if (is_init) {
+            return is10_pred;
+          } else {
+            return andExpr(
+                andExpr(
+                    is10_pred,
+                    geExpr(loop_indices.at(1), tv->fusion()->zeroVal())),
+                ltExpr(
+                    loop_indices.at(1),
+                    tv->getLogicalDomain().at(1)->extent()));
+          }
+        }
+        case 2: {
+          // T2_l[ iS6{i0}, rS8{4}rf, iS9{( ceilDiv(i2, 4) )}rf ]
+          //
+          // The initialization block should not be predicated at all.
+          if (is_init) {
+            return tv->fusion()->trueVal();
+          } else {
+            // Predicating the logical domains can result in wrong
+            // outputs since the split may not be divisible, allowing
+            // out-of-bounds accesses to the input
+            // global-memory tensor. Instead, its root domain should be
+            // used as predicate domains.
+            auto is6_pred = andExpr(
+                geExpr(loop_indices.at(0), tv->fusion()->zeroVal()),
+                ltExpr(
+                    loop_indices.at(0), tv->getRootDomain().at(0)->extent()));
+            auto root_idx = addExpr(
+                mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+                loop_indices.at(2));
+            return andExpr(
+                andExpr(is6_pred, geExpr(root_idx, tv->fusion()->zeroVal())),
+                ltExpr(root_idx, tv->getRootDomain().at(1)->extent()));
+          }
+        }
+        default:
+          return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
 }
 
 } // namespace nvfuser

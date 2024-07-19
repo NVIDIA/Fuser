@@ -56,14 +56,22 @@ class TensorIndexer {
   // Get a linear index of a given tensor appearing in a given expr, either
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
-  Val* getLinearIndex(TensorView* tv, const Expr* expr) const;
+  //
+  // The actual for-loops are required for handling circular buffering
+  Val* getLinearIndex(
+      TensorView* tv,
+      const Expr* expr,
+      const std::vector<ForLoop*>& loops) const;
 
   // Get the index of a loop domain. Intended to be used only for testing.
   Val* getLoopIndex(IterDomain* loop_id) const;
 
   // Get the index of the given ID groups
-  std::vector<Val*> getIndexFor(const Expr* expr, const ValGroups& index_groups)
-      const;
+  std::vector<Val*> getIndexFor(
+      const Expr* expr,
+      bool as_consumer,
+      const ValGroups& index_groups,
+      const std::vector<ForLoop*>& loops) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
@@ -75,6 +83,15 @@ class TensorIndexer {
 
   // Traverse exprs and set allocation info for each tensor
   void setupAllocationDomains(const std::vector<Expr*>& exprs);
+
+  // Get the list of predicates of a given tensor appearing in a given
+  // expr as a consumer. Each predicate corresponds to a domain of the
+  // tensor, which is by default one of the logical domains but can be
+  // an intermediate domain with contiguous indexing.
+  std::vector<PredicateInfo> getInlinePredicates(
+      TensorView* tv,
+      const Expr* expr,
+      const std::vector<ForLoop*>& for_loops) const;
 
  private:
   // Build a map of loop groups to their index Vals. See the comment
@@ -94,14 +111,17 @@ class TensorIndexer {
   // Returns the index map as well as its traversal path of given
   // index domains appearing in a given expr. Used by
   // getIndexFor.
-  IndexingInfo computeIndex(const Expr* expr, const ValGroups& index_groups)
-      const;
+  IndexingInfo computeIndex(
+      const Expr* expr,
+      const ValGroups& index_groups,
+      const std::vector<ForLoop*>& for_loops) const;
 
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
   // index map, which is built for the Loop graph.
   std::unordered_map<ValGroup, Val*> getInitialIndexMap(
-      const std::vector<IterDomain*>& loop_domains) const;
+      const std::vector<IterDomain*>& loop_domains,
+      const std::vector<ForLoop*>& for_loops) const;
 
   // Get the loop domains of a given expr. Currently, they're always
   // the loop domains of a consumer tensor, but in the future this
@@ -128,7 +148,10 @@ class TensorIndexer {
   // predicates, and one index map would be sufficient for both
   // indices by using different replacement maps.
   std::unordered_map<Val*, Val*> getIndexReplacementMap(
+      const Expr* expr,
+      bool as_consumer,
       const std::vector<IterDomain*>& loop_domains,
+      const std::vector<ForLoop*>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
  private:

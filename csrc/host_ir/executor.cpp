@@ -132,7 +132,7 @@ void HostIrExecutor::handle(PostOnStream* post_ir) {
       fec_.try_emplace(
           hu,
           std::make_unique<Fusion>(*hu->fusion_to_execute()),
-          0,
+          /*fusion_id=*/0,
           !params_.skip_auto_scheduling);
     }
     outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
@@ -200,6 +200,36 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
       dispatch(expr);
     }
   }
+}
+
+namespace {
+
+void handleWithExpressionEvaluator(
+    Expr* expr,
+    ExpressionEvaluator& expr_evaluator) {
+  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    NVF_ERROR(
+        expr_evaluator.isKnown(input),
+        "input ",
+        input->toString(),
+        " of the expression ",
+        expr->toString(),
+        "must be precomputed before being retrieved");
+  }
+  for (auto output : expr->outputs()) {
+    expr_evaluator.bind(
+        output, expr_evaluator.evaluate(output), /*evaluate_validate=*/true);
+  }
+}
+
+} // namespace
+
+void HostIrExecutor::handle(SliceOp* slice_op) {
+  return handleWithExpressionEvaluator(slice_op, expr_evaluator_);
+}
+
+void HostIrExecutor::handle(MatmulOp* matmul_op) {
+  return handleWithExpressionEvaluator(matmul_op, expr_evaluator_);
 }
 
 } // namespace hir

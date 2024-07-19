@@ -382,8 +382,15 @@ Val* PredicateCompute::getInlinePredicate(
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
-  auto pred_info_vec =
-      Index::getReferenceRootPredicates(out_tv, loops, rotated_loops, nullptr);
+  std::vector<PredicateInfo> pred_info_vec;
+  if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") &&
+      GpuLower::current()->isTensorIndexerEnabled()) {
+    pred_info_vec =
+        gpu_lower->tensorIndexer().getInlinePredicates(out_tv, expr, loops);
+  } else {
+    pred_info_vec = Index::getReferenceRootPredicates(
+        out_tv, loops, rotated_loops, nullptr);
+  }
 
   std::vector<Val*> preds;
 
@@ -397,7 +404,7 @@ Val* PredicateCompute::getInlinePredicate(
   bool non_zero_start_found = false;
   for (const auto& pred_info : pred_info_vec) {
     if (pred_type == PredicateType::ReductionWrite) {
-      const auto& consumer_ids = pred_info.rootIds();
+      const auto& consumer_ids = pred_info.predicatedDomains();
       bool pred_for_reduction_axis = false;
       for (auto consumer_id : consumer_ids) {
         if (consumer_id->isReduction()) {
@@ -489,7 +496,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     NVF_ERROR(pred_info.startPredicate() != nullptr);
     NVF_ERROR(pred_info.stopPredicate() != nullptr);
 
-    const auto& root_ids = pred_info.rootIds();
+    const auto& root_ids = pred_info.predicatedDomains();
 
     bool add_pred = false;
 

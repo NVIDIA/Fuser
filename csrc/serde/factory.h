@@ -26,7 +26,7 @@ class Factory {
   // A function pointer that creates a BaseType object given a Buffer
   typedef std::function<BaseTypePtr(const SerdeBuffer*)> SerdeParser;
 
-  Factory(size_t num_parsers) : parsers_(num_parsers, nullptr){};
+  Factory(size_t num_parsers) : parsers_(num_parsers, nullptr) {};
 
   template <typename SerdeEnum>
   void registerParser(SerdeEnum serde_type, SerdeParser parser) {

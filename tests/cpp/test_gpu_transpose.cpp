@@ -296,9 +296,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeNoReference) {
   at::Tensor input1 = at::randn({1024, 1024}, options);
 
   EXPECT_THAT(
-      [&]() {
-        scheduleTranspose(&fusion, {input0, input1});
-      },
+      [&]() { scheduleTranspose(&fusion, {input0, input1}); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("reference tensor")));
 }
@@ -492,7 +490,7 @@ TEST_F(TransposeTest, FusionManualScheduleTransposeComplexDAG1) {
     // [BIDx, Unswitch, 32(N), 32(K)]
 
     // propagate to the entire DAG
-    MaxRootDomainInfoSpanningTree entire_dag(tv9);
+    MaxLogicalDomainInfoSpanningTree entire_dag(tv9);
     TransformPropagator tp(tv9);
     entire_dag.traverse(&tp);
     scheduler_utils::parallelizeAllLike(tv9);
@@ -528,7 +526,7 @@ TEST_F(TransposeTest, FusionManualScheduleTransposeComplexDAG1) {
     auto all_tvs_except_ref1_set = std::unordered_set<TensorView*>(
         all_tvs_except_ref1.begin(), all_tvs_except_ref1.end());
     SetSelector selector(all_tvs_except_ref1_set);
-    MaxRootDomainInfoSpanningTree tree(tv10, &selector);
+    MaxLogicalDomainInfoSpanningTree tree(tv10, &selector);
     TransformPropagator tp(tv10);
     tree.traverse(&tp);
     scheduler_utils::parallelizeAllLike(
@@ -557,7 +555,7 @@ TEST_F(TransposeTest, FusionManualScheduleTransposeComplexDAG1) {
     auto all_tvs_except2_set = std::unordered_set<TensorView*>(
         all_tvs_except2.begin(), all_tvs_except2.end());
     SetSelector selector(all_tvs_except2_set);
-    MaxRootDomainInfoSpanningTree tree(tv9, &selector);
+    MaxLogicalDomainInfoSpanningTree tree(tv9, &selector);
     TransformPropagator tp(tv9);
     tree.traverse(&tp);
     scheduler_utils::parallelizeAllLike(

@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <debug.h>
+#include <executor_kernel_arg.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <multidevice/communicator.h>
@@ -109,8 +110,8 @@ void FusionDefinition::finalizeDefinition() {
 void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
-  auto scheds = fusionCache()->queryFusionSchedules(id().value());
-  auto device = getCommonDeviceCUDA(inputs);
+  FusionSchedules* scheds = fusionCache()->queryFusionSchedules(id().value());
+  int8_t device = getCommonDeviceCUDA(inputs);
   NVF_CHECK(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
   NVF_CHECK(user_sched_ == nullptr, "Expected User Scheduler to be null!");
@@ -122,6 +123,20 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // members that represent tensors would refer to the IR objects in the
   // original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
+
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+
+  // Concretize fusion
+  DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
+
+  // Create runtime info for schedulers
+  Fusion* user_schedule_fusion = user_sched_->schedule.get();
+  user_sched_->runtime_info = std::make_unique<SchedulerRuntimeInfo>(
+      user_schedule_fusion,
+      args,
+      /*precomuted_values=*/nullptr,
+      ir_utils::allTvs(user_schedule_fusion));
 
   // Manually setting the fusion guard as there is not a good way of using a
   // guard in a local scope across the schedule function
@@ -135,15 +150,15 @@ void FusionDefinition::finalizeSchedule(
   // TODO: remove when multidevice executor integration is done natively
   Fusion* fusion = user_sched_->schedule.get();
   std::vector<TensorView*> tvs = ir_utils::allTvs(fusion);
-  static Communicator* comm = new Communicator();
   if (std::any_of(tvs.begin(), tvs.end(), [](Val* v) {
         return v->isA<TensorView>() && v->as<TensorView>()->hasDeviceMesh();
       })) {
     multidevice_executor_ = std::make_unique<MultiDeviceExecutor>(
-        std::make_unique<Fusion>(*fusion), *comm);
+        std::make_unique<Fusion>(*fusion), Communicator::getInstance());
   }
 
   FusionGuard::setCurFusion(prev_fusion_);
+  user_sched_->runtime_info.reset();
   prev_fusion_ = nullptr;
   user_sched_ = nullptr;
 }
@@ -204,14 +219,37 @@ std::vector<at::Tensor> FusionDefinition::execute(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
-      if (!user_sched.executor->isCompiled()) {
-        user_sched.executor->compileFusion(
-            user_sched.schedule.get(),
+
+      if (user_sched.heuristic_scheduler == nullptr) {
+        // Manual schedule
+        if (!user_sched.executor->isCompiled()) {
+          user_sched.executor->compileFusion(
+              user_sched.schedule.get(),
+              inputs,
+              user_sched.fusion_id_,
+              user_sched.device_id_);
+        }
+        outputs = user_sched.executor->runFusion(inputs);
+      } else {
+        // Automatic scheduler was used for UserSchedule.
+        // Pass launch and compile params to compileFusion and runFusion.
+        if (!user_sched.executor->isCompiled()) {
+          user_sched.executor->compileFusion(
+              user_sched.schedule.get(),
+              KernelArgumentHolder::createKernelArgumentHolder(
+                  inputs, getCommonDeviceCUDA(inputs)),
+              user_sched.heuristic_scheduler->params()->lparams,
+              user_sched.heuristic_scheduler->params()->cparams,
+              user_sched.heuristic_scheduler->heuristic(),
+              user_sched.fusion_id_,
+              user_sched.device_id_);
+        }
+        outputs = user_sched.executor->runFusion(
             inputs,
-            user_sched.fusion_id_,
-            user_sched.device_id_);
+            user_sched.heuristic_scheduler->params()->lparams,
+            user_sched.heuristic_scheduler->params()->cparams);
       }
-      outputs = user_sched.executor->runFusion(inputs);
+
       if (isProfilerEnabledWithCupti()) {
         FusionProfiler::segment(0).scheduler("user");
         FusionProfiler::stop();
@@ -245,6 +283,15 @@ std::string FusionDefinition::fusionIr() {
   std::stringstream ss;
   preschedFusion()->print(ss, false);
   return ss.str();
+}
+
+UserSchedule* FusionDefinition::userSchedule() {
+  NVF_CHECK(id().has_value(), "Invalid fusion definition!");
+
+  if (user_sched_ == nullptr) {
+    NVF_ERROR(false, "User schedule is not defined.");
+  }
+  return user_sched_;
 }
 
 std::string FusionDefinition::userScheduleIr() {

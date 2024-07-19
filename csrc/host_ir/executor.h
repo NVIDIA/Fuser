@@ -75,6 +75,8 @@ class HostIrExecutor final : public OptInDispatch {
   void handle(Communication* communication) override;
   void handle(Wait* wait) override;
   void handle(ForLoop* for_loop) override;
+  void handle(SliceOp* slice_op) override;
+  void handle(MatmulOp* matmul_op) override;
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
