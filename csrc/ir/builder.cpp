@@ -357,7 +357,7 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   } else if (lhs == nullptr) {
     return rhs;
   } else if (lhs->isConst()) {
-    return addExpr(rhs, lhs->value());
+    return addExpr(rhs, lhs->value(), lhs->dtype());
   } else if (rhs->isConst()) {
     return addExpr(lhs, rhs->value(), rhs->dtype());
   } else {
@@ -400,9 +400,9 @@ Val* SimplifyingIrBuilder::mulExpr(Val* lhs, Val* rhs) {
   } else if (lhs == nullptr) {
     return rhs;
   } else if (lhs->isConst()) {
-    return mulExpr(rhs, lhs->value());
+    return mulExpr(rhs, lhs->value(), lhs->dtype());
   } else if (rhs->isConst()) {
-    return mulExpr(lhs, rhs->value());
+    return mulExpr(lhs, rhs->value(), rhs->dtype());
   } else {
     return IrBuilder::mulExpr(lhs, rhs);
   }
