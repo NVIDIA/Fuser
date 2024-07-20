@@ -5,22 +5,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <torch/torch.h>
+
+#include <exceptions.h>
 #include <executor.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
-
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-
-#include <torch/torch.h>
 
 namespace nvfuser {
 
@@ -1101,6 +1102,9 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
 // transpose the dimension produced by take_along_axis. Currently not
 // supported by the transpose scheduler
 TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);

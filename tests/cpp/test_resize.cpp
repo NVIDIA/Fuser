@@ -23,11 +23,12 @@
 
 namespace nvfuser {
 
-class ResizeTest : public NVFuserTest {};
+using ResizeTest = NVFuserTest;
 
 using testing::Each;
 using testing::Not;
 using testing::Property;
+using testing::UnorderedElementsAre;
 
 // Simple pad test
 TEST_F(ResizeTest, Pad1) {
@@ -2000,7 +2001,8 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
       tv1,
       {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
        {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)}});
-  fusion->addOutput(tv2);
+  auto tv3 = add(tv2, tv2);
+  fusion->addOutput(tv3);
 
   std::vector<int64_t> shape({4, 8});
 
@@ -2011,14 +2013,11 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-
-  auto ref = t0.reshape({8, 4}).index(
-      {at::indexing::Slice(0, 2), at::indexing::Slice(0, 2)});
-
-  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+  EXPECT_FALSE(runtime->isSegmented());
 }
 
 // Make sure resize works with the transpose scheduler
@@ -2044,7 +2043,8 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
       {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(shape.at(0) - 1)},
        {IrBuilder::create<Val>(2L), IrBuilder::create<Val>(shape.at(1) - 2)}});
   auto tv3 = transpose(tv2, 0, 1);
-  fusion->addOutput(tv3);
+  auto tv5 = add(tv3, tv3);
+  fusion->addOutput(tv5);
   auto tv4 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion->addOutput(tv4);
 
@@ -2055,19 +2055,12 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-
-  auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
-  NVF_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
-      "Unexpected heuristic: ",
-      heuristic);
-
   testValidate(
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::Transpose)));
 }
 
 // When scheduling this test, the pointwise scheduler attempt to replay a Split

@@ -285,12 +285,6 @@ TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
 
 using AliasTest = NVFuserTest;
 
-namespace {
-MATCHER_P(HeuristicIs, heuristic, "") {
-  return arg->heuristic() == heuristic;
-}
-} // namespace
-
 TEST_F(AliasTest, View) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
