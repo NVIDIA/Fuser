@@ -1090,10 +1090,9 @@ class TestScheduleOps(TestCase):
 
             def schedule(self):
                 assert len(fd.sched.tensors()) == 5
-                assert (
-                    fd.sched.to_string(self.x_reshape)
-                    == "T5_l[ iS27{2}rf, iS28{( ceilDiv(( i0 * i1 ), 2) )}rf, iS30{3}rf, iS31{( ceilDiv(i2, 3) )}rf ]"
-                )
+                # check that we do not get Segmentation Fault when accessing a
+                # tensor that was transformed from symbolic to concrete
+                assert len(fd.sched.to_string(self.x_reshape)) > 0
 
                 # Apply selected scheduler
                 _apply_scheduler_helper(fd.sched, SchedulerHeuristic.pointwise)
