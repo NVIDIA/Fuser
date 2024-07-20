@@ -24,7 +24,6 @@
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <torch/torch.h>
 
-#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -34,11 +33,6 @@
 #include <vector>
 
 namespace nvfuser {
-
-// A gmock matcher for matching heuristics.
-MATCHER_P(HeuristicIs, heuristic, "") {
-  return arg->heuristic() == heuristic;
-}
 
 // Make s Stack used for TorchScript execution
 inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
