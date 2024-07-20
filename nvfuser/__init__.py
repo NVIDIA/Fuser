@@ -58,7 +58,71 @@ class FusionDefinition(_C._FusionDefinition):
         return self._setup_definition()
 
     def __exit__(self, type, value, traceback):
-        self._finalize_definition()
+        try:
+            self._finalize_definition()
+        except Exception as err:
+            logger.exception(self.getReproErrorString("defining"))
+            raise
+
+    def getReproErrorString(self, section: str, inputs: list | None = None):
+        msg = (
+            f"An error occurred while {section} nvFuser FusionDefinition {self.id()}.\n"
+            "If you believe this is a bug or need assistance, please file an issue at "
+            "https://github.com/NVIDIA/Fuser/issues/new\n"
+            f"Here's a script to reproduce the error:\n"
+            "```python\n"
+            "# CUDA devices:\n"
+        )
+        for i in range(torch.cuda.device_count()):
+            msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
+        msg += (
+            f"# torch version: {torch.__version__}\n"
+            f"# cuda version: {torch.version.cuda}\n"
+            f"# nvfuser version: {version()}\n"
+            "from nvfuser import FusionDefinition, DataType\n"
+            f"{self}"
+            "with FusionDefinition() as fd:\n"
+            f"    nvfuser_fusion_id{self.id()}(fd)\n"
+        )
+        if inputs is not None:
+            msg += "\ninputs = [\n"
+            for i in inputs:
+                if isinstance(i, torch.Tensor):
+                    # max linear index determines number of elements to generate
+                    sz = 1
+                    for szi, stri in zip(i.size(), i.stride()):
+                        if szi == 0:
+                            sz = 0
+                            break
+                        sz += (szi - 1) * stri
+                    if i.dtype.is_floating_point:
+                        msg += (
+                            f"    torch.randn(({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
+                    else:
+                        upper_bound = 2 if i.dtype == torch.bool else 10
+                        msg += (
+                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
+                else:
+                    input_as_string = str(i)
+                    # `nan` and `inf` are stringified as is, which are not
+                    # defined in Python. So we replace them with `float("nan")`
+                    # and `float("inf")`. `-inf` is replaced with
+                    # `-float("inf")`, which equals `float("-inf")`.
+                    input_as_string = re.sub(
+                        r"\binf\b", 'float("inf")', input_as_string
+                    )
+                    input_as_string = re.sub(
+                        r"\bnan\b", 'float("nan")', input_as_string
+                    )
+                    msg += f"    {input_as_string},\n"
+            msg += "]"
+            msg += "\nfd.execute(inputs)\n"
+        msg += "```\n"
+        return msg
 
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
@@ -150,64 +214,7 @@ class FusionDefinition(_C._FusionDefinition):
                 profile=profile,
             )
         except Exception as err:
-            msg = (
-                f"An error occurred while executing nvFuser FusionDefinition {self.id()}.\n"
-                "If you believe this is a bug or need assistance, please file an issue at "
-                "https://github.com/NVIDIA/Fuser/issues/new\n"
-            )
-            msg += "Here's a script to reproduce the error:\n" "```python\n"
-            msg += "# CUDA devices:\n"
-            for i in range(torch.cuda.device_count()):
-                msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
-            msg += (
-                f"# torch version: {torch.__version__}\n"
-                f"# cuda version: {torch.version.cuda}\n"
-                f"# nvfuser version: {version()}\n"
-                "import torch\n"
-                "from nvfuser import FusionDefinition, DataType\n"
-                f"{self}"
-                "with FusionDefinition() as fd:\n"
-                f"    nvfuser_fusion_id{self.id()}(fd)\n"
-                "\n"
-                "inputs = [\n"
-            )
-            for i in inputs:
-                if isinstance(i, torch.Tensor):
-                    # max linear index determines number of elements to generate
-                    sz = 1
-                    for szi, stri in zip(i.size(), i.stride()):
-                        if szi == 0:
-                            sz = 0
-                            break
-                        sz += (szi - 1) * stri
-                    if i.dtype.is_floating_point:
-                        msg += (
-                            f"    torch.randn(({sz},), dtype={i.dtype}, device='{i.device}')"
-                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                        )
-                    else:
-                        upper_bound = 2 if i.dtype == torch.bool else 10
-                        msg += (
-                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
-                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                        )
-                else:
-                    input_as_string = str(i)
-                    # `nan` and `inf` are stringified as is, which are not
-                    # defined in Python. So we replace them with `float("nan")`
-                    # and `float("inf")`. `-inf` is replaced with
-                    # `-float("inf")`, which equals `float("-inf")`.
-                    input_as_string = re.sub(
-                        r"\binf\b", 'float("inf")', input_as_string
-                    )
-                    input_as_string = re.sub(
-                        r"\bnan\b", 'float("nan")', input_as_string
-                    )
-                    msg += f"    {input_as_string},\n"
-            msg += "]"
-            msg += "\nfd.execute(inputs)\n"
-            msg += "```\n"
-            logger.exception(msg)
+            logger.exception(self.getReproErrorString("executing", inputs))
             raise
 
         return result
