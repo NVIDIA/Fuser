@@ -2979,10 +2979,7 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
   tv1->circularBuffer(/*number_of_stages=*/2);
 
   // T1_s[ iS12{( ceilDiv(i0, 128) )}, iblockIdx.x14{( ceilDiv(128, 32) )},
-  // ithreadIdx.x15{32} ] ca_pos( 2 ) T2_l[ iS8{( ceilDiv(i0, 128) )},
-  // iblockIdx.x10{( ceilDiv(128, 32) )}, ithreadIdx.x11{32} ] ca_pos( 2 )
-  // produce_pos( 2 ) T3_g[ iS4{( ceilDiv(i0, 128) )}, iblockIdx.x6{(
-  // ceilDiv(128, 32) )}, ithreadIdx.x7{32} ] produce_pos( 2 )
+  // ithreadIdx.x15{32} ] ca_pos( 2 )
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
@@ -3067,14 +3064,8 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
 
   tv1->circularBuffer(/*number_of_stages=*/4);
 
-  fusion.printMath();
-  fusion.printKernel();
-
   // T1_s[ iS12{( ceilDiv(i0, 128) )}, iblockIdx.x14{( ceilDiv(128, 32) )},
-  // ithreadIdx.x15{32} ] ca_pos( 2 ) T2_l[ iS8{( ceilDiv(i0, 128) )},
-  // iblockIdx.x10{( ceilDiv(128, 32) )}, ithreadIdx.x11{32} ] ca_pos( 2 )
-  // produce_pos( 2 ) T3_g[ iS4{( ceilDiv(i0, 128) )}, iblockIdx.x6{(
-  // ceilDiv(128, 32) )}, ithreadIdx.x7{32} ] produce_pos( 2 )
+  // ithreadIdx.x15{32} ] ca_pos( 2 )
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
@@ -3160,9 +3151,6 @@ TEST_F(PredicateIndexingTest, CircularBuffering2) {
   tv3->axis(4)->parallelize(ParallelType::TIDx);
 
   tv2->circularBuffer(/*number_of_stages=*/4);
-
-  fusion.printMath();
-  fusion.printKernel();
 
   // T2_l[ iS12{( ceilDiv(i0, 128) )}, iS16{( ceilDiv(( ceilDiv(128, 16) ), 4)
   // )}, iS18{( ceilDiv(4, 2) )}, iS19{2}, iS15{16} ] ca_pos( 5 ) produce_pos( 1
@@ -3270,6 +3258,72 @@ TEST_F(PredicateIndexingTest, CircularBuffering2) {
                     tv->axis(4)->extent()),
                 loop_indices.at(4)));
       }
+
+      return andExpr(
+          geExpr(start_idx, zero),
+          ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Unswitched double buffering
+TEST_F(PredicateIndexingTest, CircularBuffering3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv2);
+
+  tv2->split(0, 4);
+  tv2->split(0, 1);
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv1->inlineAt(-1);
+
+  // [I0/4/1, 1, 4]
+  //          ^  ^
+  //          |  +-- circular bufer
+  //          |
+  //          +-- unswitch
+  tv1->circularBuffer(/*number_of_stages=*/2);
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  // T1_l[ iS9{( ceilDiv(( ceilDiv(i0, 4) ), 1) )}, iUS10{1}, iS8{4} ] ca_pos( 3
+  // )
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    // The inline predicates are mostly the same as
+    // CircularBuffering1. Validates only the unswitch predicates.
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+
+      auto zero = tv->fusion()->zeroVal();
+
+      // The base index is:
+      //
+      // i0 * 4 + i2
+      //
+      // where i2 is the circular buffer index. The index if iS10 is
+      // not included as its extent is 1.
+
+      Val* start_idx = nullptr;
+      Val* stop_idx = nullptr;
+      // Start index: i0 * 4 + 0
+      // Stop index: i0 * 4 + 3
+      start_idx =
+          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(4)), zero);
+      stop_idx =
+          addExpr(mulExpr(loop_indices.at(0), createInt(4)), createInt(3));
 
       return andExpr(
           geExpr(start_idx, zero),
