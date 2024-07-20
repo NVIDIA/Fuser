@@ -56,8 +56,8 @@ class FusionExecutor : public NonCopyable {
     bool is_profile_buffer = false;
   };
 
-  explicit FusionExecutor(Communicator* communicator = nullptr)
-      : communicator_(communicator) {}
+  // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
+  NVF_API FusionExecutor();
 
   // Unsafe compilation that's useful for debugging kernels, iterating over
   // slight modifications of a generated kernel

@@ -53,4 +53,104 @@ std::vector<IterDomain*> getPredicateDomains(
   return predicate_domains;
 }
 
+std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
+    TensorView* tv,
+    const std::vector<ForLoop*>& for_loops,
+    const std::unordered_map<ValGroup, Val*>& index_map,
+    const ValGraph& traversal_graph,
+    const IdModel& id_model,
+    bool is_start_predicate,
+    ForLoop* unswitched_loop) {
+  std::unordered_map<Val*, Val*> replacement_map;
+
+  // For an iter domain of index i, it is valid to use N-1 instead of
+  // i, where N is the extent of the iter domain if either of the
+  // following conditions is satisfied:
+  //
+  // - Vectorized
+  // - predicateAtEnd returns true
+  // - Within an unswitch/unroll loop
+  //
+  // Use N-1 instead of i but not when it's thread parallelized so
+  // that each thread or block can take different paths. This may not
+  // be optimal for TID, though, as it might result in thread
+  // divergence.
+  //
+  // Also in the case of vectorization, instead of N-1, it's also
+  // valid to use 0 since the splits involved to create the iter
+  // domain are all guaranteed to be divisible.
+  auto predicate_at_end =
+      [&](ForLoop* fl, IterDomain* loop_id, bool within_unswitch) -> Val* {
+    // Don't replace thread indices even when unswitched
+    if (!fl->iter_domain()->isThread() &&
+        (fl->iter_domain()->getParallelType() == ParallelType::Vectorize ||
+         within_unswitch || lower_utils::predicateAtEnd(fl))) {
+      return is_start_predicate
+          ? fl->fusion()->zeroVal()
+          : SimplifyingIrBuilder::subExpr(
+                fl->simplifiedStop(), fl->fusion()->oneVal());
+    } else {
+      return nullptr;
+    }
+  };
+
+  // Inspect the for-loops from outer to inner and keep track of
+  // unswitching since it affects all inner loops
+  bool within_unswitch = false;
+  for (const auto fl : for_loops) {
+    auto parallel_type = fl->iter_domain()->getParallelType();
+
+    // Note that unswitched_loop may be a vectorized loop
+    if (fl == unswitched_loop && parallel_type != ParallelType::Vectorize) {
+      within_unswitch = true;
+    }
+
+    auto loop_id =
+        indexing_utils::getLoopPromotion(fl->iter_domain(), id_model);
+
+    NVF_ERROR(
+        !loop_id->maybePartial(),
+        "Partial loop not supported: ",
+        fl->toString());
+
+    auto loop_index_it = index_map.find(traversal_graph.toGroup(loop_id));
+
+    if (loop_index_it == index_map.end()) {
+      // The index map is built from the tensor loop domains. There
+      // can be for-loops that are not part of this tensor, e.g, a
+      // tensor inlined into a higher dimensional tensor.
+      continue;
+    }
+
+    Val* loop_index = loop_index_it->second;
+
+    // If it's already const scalar, no replacment should be necessary
+    if (loop_index->isConst()) {
+      continue;
+    }
+
+    Val* replacement = loop_index;
+
+    // Trivial loop. Note that not all trivial loops should just use
+    // the start index for predication. For example, a vectorized loop
+    // is trivial, but its predicate should use `vec_factor - 1` as
+    // its index. This is taken care after this.
+    if (fl->isTrivial()) {
+      replacement = fl->start();
+    }
+
+    if (auto idx = predicate_at_end(fl, loop_id, within_unswitch)) {
+      replacement = idx;
+    }
+
+    if (replacement != loop_index) {
+      auto inserted = replacement_map.emplace(loop_index, replacement).second;
+      NVF_ERROR(
+          inserted, "Duplicate replacement attempted: ", loop_id->toString());
+    }
+  }
+
+  return replacement_map;
+}
+
 } // namespace nvfuser

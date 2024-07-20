@@ -1007,10 +1007,11 @@ void TensorIndexer::setupAllocationDomains(const std::vector<Expr*>& exprs) {
   alloc_info_ = std::move(alloc_setup.tv_alloc_info_map);
 }
 
-std::vector<PredicateInfo> TensorIndexer::getInlinePredicates(
+std::vector<PredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<ForLoop*>& for_loops,
+    ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
 
   const std::vector<IterDomain*>& predicate_domains =
@@ -1020,6 +1021,26 @@ std::vector<PredicateInfo> TensorIndexer::getInlinePredicates(
       expr, traversalGraph().toGroups(predicate_domains), for_loops);
 
   const auto& index_map = index_info.index_map;
+
+  const std::unordered_map<Val*, Val*> replacement_map_start =
+      getPredicateIndexReplacementMap(
+          tv,
+          for_loops,
+          index_map,
+          traversalGraph(),
+          id_model_,
+          /*is_start_predicate=*/true,
+          /*unswitched_loop=*/unswitched_loop);
+
+  const std::unordered_map<Val*, Val*> replacement_map_stop =
+      getPredicateIndexReplacementMap(
+          tv,
+          for_loops,
+          index_map,
+          traversalGraph(),
+          id_model_,
+          /*is_start_predicate=*/false,
+          /*unswitched_loop=*/unswitched_loop);
 
   std::vector<PredicateInfo> info_vec;
   info_vec.reserve(predicate_domains.size());
@@ -1033,11 +1054,14 @@ std::vector<PredicateInfo> TensorIndexer::getInlinePredicates(
         predicate_domain->toString());
 
     Val* idx = idx_it->second;
+    Val* start_idx =
+        ir_utils::replaceValRecursively(idx, replacement_map_start);
+    Val* stop_idx = ir_utils::replaceValRecursively(idx, replacement_map_stop);
 
     // Generate predicates as follows:
     //
-    // (idx + start_offset) >= 0 &&
-    // (idx + stop_offset) < extent.
+    // (start_idx + start_offset) >= 0 &&
+    // (stop_idx + stop_offset) < extent.
 
     PredicateInfo info;
     // For now, just set zero for both start and stop offsets by
@@ -1047,10 +1071,10 @@ std::vector<PredicateInfo> TensorIndexer::getInlinePredicates(
     info.stop_offset_ = tv->fusion()->zeroVal();
 
     info.start_predicate_ = SimplifyingIrBuilder::geExpr(
-        SimplifyingIrBuilder::addExpr(idx, info.start_offset_), zero_val);
+        SimplifyingIrBuilder::addExpr(start_idx, info.start_offset_), zero_val);
 
     info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
-        SimplifyingIrBuilder::addExpr(idx, info.stop_offset_),
+        SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
         predicate_domain->extent());
 
     info.predicated_domains_ = {predicate_domain};

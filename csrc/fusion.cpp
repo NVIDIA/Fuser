@@ -21,6 +21,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 
 #include <iterator>
@@ -816,6 +817,11 @@ void Fusion::aliasOutputToInput(
 
   if (input->getDataType().value() != output->getDataType().value()) {
     output = castOp(input->getDataType().value(), output);
+  }
+
+  if (output->isFusionInput()) {
+    // ensure that codegen produce a write operation on the buffer.
+    output = set(output);
   }
 
   NVF_ERROR(
