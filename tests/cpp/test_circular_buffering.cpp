@@ -272,7 +272,8 @@ TEST_F(CircularBufferingTest, TmaCircularBuffering2d) {
       fe.compileFusion(fusion.get(), {t0}, {}, index32bit);
 
       std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
-      compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
+      compare<float>(
+          tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
       testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
     }
   }
@@ -339,7 +340,8 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingPointwise) {
       fe.compileFusion(fusion.get(), {t0, t1}, {}, index32bit);
 
       std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
-      testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
+      testValidate(
+          fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
     }
   }
 }
@@ -411,7 +413,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingPersistent) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   constexpr int64_t dim0 = 1024;
-  constexpr int64_t dim1 = 4096; 
+  constexpr int64_t dim1 = 4096;
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   constexpr int64_t correction = 0;
   constexpr int64_t reduction_axis = 1;
@@ -524,7 +526,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingPersistent) {
   std::vector<at::Tensor> cg_outputs = fe.runFusion({at_tv0});
 
   std::tuple<at::Tensor, at::Tensor> at_var_mean =
-     at::var_mean(at_tv0, {-1}, correction, keepdim);
+      at::var_mean(at_tv0, {-1}, correction, keepdim);
   at::Tensor at_var = std::get<0>(at_var_mean);
   at::Tensor at_mean = std::get<1>(at_var_mean);
   at::Tensor at_output = (at_tv0 - at_mean) / sqrt(at_var);

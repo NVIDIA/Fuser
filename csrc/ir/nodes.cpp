@@ -4661,9 +4661,6 @@ Val* ForLoop::simplifiedStop() const {
     if (stop()->isConstScalar()) {
       simplified_stop_ = stop();
     } else {
-      if (!GpuLower::hasCurrent()) {
-      std::cout << toString() << std::endl;
-      }
       simplified_stop_ =
           GpuLower::current()->commonScalarMap().hoistScalar(stop(), {});
     }

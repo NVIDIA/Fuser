@@ -948,9 +948,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
             IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
 
         // Construct mBarrier::wait for current stage
-        kir::MBarrierWait* mbarrier_wait =
-            createMbarrierWait(ldst, last_compute_stage);
-        cloned_scopes_.back()->push_back(mbarrier_wait);
+        mbarrier_wait_ = createMbarrierWait(ldst, last_compute_stage);
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
