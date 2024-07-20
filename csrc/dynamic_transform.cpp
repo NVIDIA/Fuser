@@ -630,11 +630,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
     concretize();
   }
 
-  //! Return map from original symbolic value to new concrete value.
-  std::unordered_map<Val*, Val*> getSymbolicToConcretizedMap() {
-    return symbolic_to_concretized_map_;
-  }
-
  private:
   void concretize();
 
@@ -665,7 +660,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
   void registerConcretization(Val* old_val, Val* new_val) {
-    symbolic_to_concretized_map_.emplace(old_val, new_val);
     checkConcretizedUses(old_val, new_val);
     registerMutation(old_val, new_val);
   }
@@ -689,9 +683,6 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
  private:
   const DynamicTransformConcretizationInfo* info_;
-
-  //! Map all original symbolic values to new concretized values
-  std::unordered_map<Val*, Val*> symbolic_to_concretized_map_;
 };
 
 void DynamicTransformConcretizer::concretize() {
@@ -909,8 +900,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // would fail at this point. So we skip checkConcretizedUses here and
     // perform it later in mutate(TensorView*).
 
-    symbolic_to_concretized_map_.emplace(
-        incomplete_out_tv, concrete_reshape_out_tv);
+    registerMutation(incomplete_out_tv, concrete_reshape_out_tv);
 
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(
         incomplete_out_tv, concrete_reshape_out_tv);
@@ -953,7 +943,7 @@ void DynamicTransformConcretizer::concretizeExpand() {
           symbolic_out_tv->definition()->input(0)->as<TensorView>();
       TensorView* concretized_tv = set(inp_tv);
 
-      symbolic_to_concretized_map_.emplace(symbolic_out_tv, concretized_tv);
+      registerMutation(symbolic_out_tv, concretized_tv);
 
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           symbolic_out_tv, concretized_tv);
@@ -1443,7 +1433,7 @@ std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
     Fusion* fusion,
     const DynamicTransformConcretizationInfo* info) {
   DynamicTransformConcretizer concretizer(fusion, info);
-  return concretizer.getSymbolicToConcretizedMap();
+  return concretizer.mutations_;
 }
 
 std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
