@@ -88,6 +88,15 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
        unswitched_loop->iter_domain()->getParallelType() ==
            ParallelType::Unroll);
 
+  {
+    CircularBufferInfo& info = GpuLower::current()->circularBufferInfo();
+    auto circular_buffer_axis = info.getCircularBufferAxis(tv);
+    if (circular_buffer_axis != nullptr) {
+      VERBOSE() << "Circular bufferred tensor: " << tv->toString() << " at "
+                << circular_buffer_axis->toString() << std::endl;
+    }
+  }
+
   if (is_unswitch) {
     VERBOSE() << "get unswitch predicates of " << tv->toString() << " in "
               << expr->toString();
@@ -96,18 +105,34 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
               << expr->toString();
   }
 
-  // For a double buffered tensor, use the predicate from the main
-  // loop only. The prologue loop is only for the first element, so it
-  // should be ignored. Double buffering may or may not create the
-  // eplogue loop, but irrespective of that we can just use the
-  // predicate of the main loop.
-  // TODO: Is this also the case for circular buffering?
-  if (is_unswitch) {
-    if (auto loop_stage = getCircularBufferLoopStage(
-            tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
-        loop_stage.has_value() &&
-        loop_stage.value() != CircularBufferLoopStage::Main) {
-      return {};
+  // If the tensor is both unswitched and circular buffered, it appears
+  // both in the prologue and main loops. Generating unswitch
+  // predicates may not work as expected since the prologue loop may
+  // only have an extent of one, i.e., a trivial loop, which means its
+  // loop index is replaced with zero, which may be removed by
+  // SimplyfingIrBuilder, so post-indexing replacement won't work. A
+  // WAR here is to just skip the prologue loop and only use the main
+  // loop for unswitched circular buffer loops.
+  bool within_unswitch = false;
+  auto circular_buffer_axis =
+      GpuLower::current()->circularBufferInfo().getCircularBufferAxis(tv);
+  if (is_unswitch && circular_buffer_axis != nullptr) {
+    for (auto fl : for_loops) {
+      if (fl == unswitched_loop) {
+        within_unswitch = true;
+      }
+      if (within_unswitch) {
+        if (id_model_.idGraph(IdMappingMode::LOOP)
+                .disjointValSets()
+                .strictAreMapped(fl->iter_domain(), circular_buffer_axis)) {
+          auto stage = fl->circularBufferLoopStage();
+          if (stage == CircularBufferLoopStage::Prolog) {
+            return {};
+          } else {
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -281,8 +306,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
           ir_utils::replaceValRecursively(idx_it->second, replacement_map_stop);
       info.stop_predicate_ =
           SimplifyingIrBuilder::ltExpr(idx, non_divisible_domain->extent());
-      VERBOSE() << "Precicate: " << info.stop_predicate_->toInlineString()
-                << std::endl;
       info.predicated_domains_ = {non_divisible_domain};
       info_vec.emplace_back(info);
     }
