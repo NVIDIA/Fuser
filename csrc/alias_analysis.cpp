@@ -9,7 +9,6 @@
 #include <vector>
 
 #include <alias_analysis.h>
-#include <compute_at_map.h>
 #include <dispatch.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
@@ -18,8 +17,6 @@
 #include <ir/utils.h>
 #include <linked_hash_map.h>
 #include <logical_domain_map.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/registry_utils.h>
 
 namespace nvfuser {
 
@@ -428,69 +425,18 @@ bool okToRelayout(
                                             : tv->getMaybeAllocationDomain());
   return new_layout.isCompliantWith({allocation, tv->getContiguity()});
 }
-
-// Returns true if the output tv's definition op may cause segmentation.
-// Only considered view op interfering with reduction.
-// TODO: other ops?
-bool outputInterferingReduction(Fusion* fusion) {
-  // output must be defined as view op
-  const auto& output_tvs =
-      ir_utils::filterByType<TensorView>(fusion->outputs());
-  if (std::none_of(
-          output_tvs.begin(), output_tvs.end(), [](TensorView* out_tv) {
-            return out_tv->definition()->isA<ViewOp>();
-          })) {
-    return false;
-  }
-
-  // fusion must have reduction tvs
-  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  if (reduction_tvs.empty()) {
-    return false;
-  }
-
-  ComputeAtMap ca_map(fusion);
-  if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
-    return true;
-  }
-
-  // check if view op interferes with reduction
-  auto ref_redu_tv =
-      reduction_scheduler_utils::getRepresentativeReductionTv(reduction_tvs);
-  if (registry_utils::reductionInterferingView(fusion, ca_map, ref_redu_tv)) {
-    return true;
-  }
-
-  return false;
-}
-
-// Stop at view op
-// TODO: other ops?
-bool isOpsToStop(const Expr* expr, bool stop_at_view) {
-  return stop_at_view && expr->isA<ViewOp>();
-}
-
 } // namespace
 
 void AliasAnalysisResult::finalize(
-    Fusion* fusion,
-    const bool can_override_empty_allocation_domain,
-    const bool may_alias_intermediate) {
-  // If allow output to alias intermediate, then we don't need to walk up
-  // the chain to find an input or output root. It changes the last reshape
-  // in group norm to a no-op.
-  bool stop_at_view =
-      may_alias_intermediate && outputInterferingReduction(fusion);
+    const bool can_override_empty_allocation_domain) {
   for (auto [alias, source_and_layout] : alias_to_source_) {
     auto [root, preferred_layout] = source_and_layout;
-    if (!isOpsToStop(alias->definition(), stop_at_view)) {
-      while (root != nullptr && !root->isFusionInput() &&
-             !root->isFusionOutput()) {
-        const auto i = alias_to_source_.find(root);
-        root = (i == alias_to_source_.end() ? nullptr : i->second.first);
-      }
+    // Walks up the `alias_to_source_` chain.
+    while (root != nullptr && !root->isFusionInput() &&
+           !root->isFusionOutput()) {
+      const auto i = alias_to_source_.find(root);
+      root = (i == alias_to_source_.end() ? nullptr : i->second.first);
     }
-
     if (root == nullptr) {
       continue;
     }
@@ -541,8 +487,7 @@ std::string AliasAnalysisResult::toString(const int indent_size) const {
 
 AliasAnalysisResult findAliases(
     Fusion* fusion,
-    const bool can_override_empty_allocation_domain,
-    const bool may_alias_intermediate) {
+    const bool can_override_empty_allocation_domain) {
   AliasAnalysisResult analysis;
   AliasFinder finder(analysis);
   // Fusion::exprs() computes and returns topological order.
@@ -554,9 +499,7 @@ AliasAnalysisResult findAliases(
     // results).
     finder.dispatch(expr);
   }
-
-  analysis.finalize(
-      fusion, can_override_empty_allocation_domain, may_alias_intermediate);
+  analysis.finalize(can_override_empty_allocation_domain);
   return analysis;
 }
 

@@ -25,10 +25,8 @@ void markAliases(Fusion* fusion) {
     fusion->printMath();
   }
 
-  const AliasAnalysisResult analysis = findAliases(
-      fusion,
-      /*can_override_empty_allocation_domain=*/false,
-      /*may_alias_intermediate=*/false);
+  const AliasAnalysisResult analysis =
+      findAliases(fusion, /*can_override_empty_allocation_domain=*/false);
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
     vlog("Alias analysis result:\n", analysis.toString(/*indent_size=*/1));
   }
