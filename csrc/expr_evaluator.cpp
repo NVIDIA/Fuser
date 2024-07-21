@@ -55,10 +55,10 @@ void validateValWithConcreteValue(
         actual_dtype);
     if (tv->isCpuScalar()) {
       NVF_CHECK(
-          t.is_meta() || is_cpu_scalar(t),
+          is_cpu_scalar(t) || is_meta_scalar(t),
           "Expected ",
           tv->toString(),
-          " to be bound to a CPU scalar tensor "
+          " to be bound to a CPU or meta scalar tensor "
           ", but got a tensor on device ",
           t.device(),
           " with ",

@@ -668,13 +668,13 @@ TEST_F(SDPATest, AttnFwdBwd) {
   v.retain_grad();
   attn.backward(grad_out);
 
-  // testValidate(
-  //     fusion.get(),
-  //     nvf_out,
-  //     {q, k, v, grad_out},
-  //     {attn, q.grad(), k.grad(), v.grad()},
-  //     __LINE__,
-  //     __FILE__);
+  testValidate(
+      fusion.get(),
+      nvf_out,
+      {q, k, v, grad_out},
+      {attn, q.grad(), k.grad(), v.grad()},
+      __LINE__,
+      __FILE__);
 }
 
 // TODO: Remove/update when https://github.com/NVIDIA/Fuser/issues/2563 is
