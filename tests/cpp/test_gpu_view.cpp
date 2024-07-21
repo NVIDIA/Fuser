@@ -1448,53 +1448,69 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
 // Make sure matching reshapes are segmented into the same kernel
 TEST_F(GpuViewTest, FusionReshapeMagicSchedule1) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   int x = 31, y = 65, z = 103;
 
   auto tv0 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
   auto tv1 = sin(tv0);
 
   auto tv2 = reshape(tv1, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv2);
+  // Without tv6, the complete fusion would be segmented to many pointwise
+  // kernels.
+  //
+  // This is for two reasons:
+  //
+  // 1. Without tv6, tv2's definition, reshape, would have to be segmented out
+  // by MarkAliasesPrepare. Therefore, the complete fusion can't be accepted as
+  // one kernel.
+  //
+  // 2. Because of that, the complete fusion would be
+  // decomposed into singletons, which the segmenter attempts to merge.
+  // The segmenter can't yet horizontally merge `tv1`, `tv4` and `tv5`, leading
+  // to many pointwise kernels.
+  //
+  // A similar trick is applied to several other FusionReshapeMagicSchedule
+  // tests to work around this segmenter limitation.
+  auto tv6 = add(tv2, tv2);
+  fusion->addOutput(tv6);
 
   auto tv3 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv3);
+  fusion->addInput(tv3);
 
   auto tv4 = reshape(tv3, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv4);
+  fusion->addOutput(tv4);
 
   // Link 0 and 3 together for reshape analysis done based on before the
   // reshapes actually happened.
   auto tv5 = add(tv0, tv3);
-  fusion.addOutput(tv5);
+  fusion->addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::Tensor t0 = at::randn({x, y, z}, options);
   at::Tensor t3 = at::randn({x, y, z}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
-  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
-  testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
 
 // Make sure reshapes of reshapes are correct
 TEST_F(GpuViewTest, FusionReshapeMagicSchedule2) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   int x = 31, y = 65, z = 103;
 
   auto tv0 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
   auto tv1 = sin(tv0);
 
@@ -1502,7 +1518,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule2) {
   auto tv3 = reshape(tv2, {x, y * z}, {x * y, z});
   auto tv4 = reshape(tv3, {x * y, z}, {y, x * z});
   auto tv5 = reshape(tv4, {y, x * z}, {x, y, z});
-  fusion.addOutput(tv5);
+  fusion->addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1512,52 +1528,52 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule2) {
   // this will be broken up into multiple kernels. This is due to the reference
   // check looking for all mappings to all input IDs.
   // TODO: Fix the reference check for this case
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Make sure broadcasts not on the reshape path that don't interfere with
 // reshape are segmented in one kernel and correctly trigger 2D pointwise
 // scheduling
 TEST_F(GpuViewTest, FusionReshapeMagicSchedule3) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   int w = 15, x = 31, y = 49, z = 65;
 
   auto tv0 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
   auto tv1 = sin(tv0);
 
   auto tv2 = reshape(tv1, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv2);
+  auto tv9 = add(tv2, tv2);
+  fusion->addOutput(tv9);
 
   auto tv3 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv3);
+  fusion->addInput(tv3);
 
   auto tv4 = reshape(tv3, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv4);
+  fusion->addOutput(tv4);
 
   // Link 0 and 3 together for reshape analysis done based on before the
   // reshapes actually happened.
   auto tv5 = add(tv0, tv3);
-  fusion.addOutput(tv5);
+  fusion->addOutput(tv5);
 
   // Broadcast on another branch to drive the pointwise reference to not be on
   // the reshape paths.
 
   auto tv6 = makeConcreteTensor({w, x, y, z});
-  fusion.addInput(tv6);
+  fusion->addInput(tv6);
   auto tv7 = broadcast(tv0, {true, false, false, false});
   auto tv8 = add(tv6, tv7);
   // tv8 should be the reference for the pointwise fusion. This broadcast
   // pattern doesn't interfere with the reshapes, so this should also be
   // scheduled as 2D.
-  fusion.addOutput(tv8);
+  fusion->addOutput(tv8);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1565,7 +1581,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule3) {
   at::Tensor t3 = at::randn({x, y, z}, options);
   at::Tensor t6 = at::randn({w, x, y, z}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion));
   // Collect the heuristic params
   executor_cache.profile(true);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3, t6});
@@ -1577,41 +1593,43 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule3) {
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(pparams->break_point == 1);
 
-  testValidate(&fusion, cg_outputs, {t0, t3, t6}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t3, t6}, __LINE__, __FILE__);
 }
 
 // Make sure broadcasts through reshapes when not conflicting with reshape are
 // segmented into one kernel and trigger 2D pointwise scheduler.
 TEST_F(GpuViewTest, FusionReshapeMagicSchedule4) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   int x = 31, y = 49, z = 65;
 
   auto tv0 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
   auto tv1 = sin(tv0);
 
   auto tv2 = reshape(tv1, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv2);
+  auto tv8 = add(tv2, tv2);
+  fusion->addOutput(tv8);
 
   auto tv3 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv3);
+  fusion->addInput(tv3);
 
   auto tv4 = makeConcreteTensor({x, 1, 1});
-  fusion.addInput(tv4);
+  fusion->addInput(tv4);
 
   auto tv5 = add(tv4, tv3);
 
   auto tv6 = reshape(tv5, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv6);
+  auto tv9 = add(tv6, tv6);
+  fusion->addOutput(tv9);
 
   // Link 0 and 3 together for reshape analysis done based on before the
   // reshapes actually happened.
   auto tv7 = add(tv0, tv3);
-  fusion.addOutput(tv7);
+  fusion->addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1619,7 +1637,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule4) {
   at::Tensor t3 = at::randn({x, y, z}, options);
   at::Tensor t4 = at::randn({x, 1, 1}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion));
   // Collect the heuristic params
   executor_cache.profile(true);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3, t4});
@@ -1631,7 +1649,8 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule4) {
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(pparams->break_point == 1);
 
-  testValidate(&fusion, cg_outputs, {t0, t3, t4}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t3, t4}, __LINE__, __FILE__);
 }
 
 // Make sure different reshapes that are consumed by the reference are segmented
@@ -2293,7 +2312,7 @@ TEST_F(GpuViewTest, ReshapeOfReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeContigTensor(2);
   fusion->addInput(tv0);
 
   auto tv1 = reshape(tv0, {4, 8}, {8, 4});
