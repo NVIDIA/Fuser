@@ -284,15 +284,15 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     for (auto idx : c10::irange(producer_logical.size())) {
       if (idx < 2) {
         // Map N, H from all producers to consumers
-        updatePairwiseRootDomainMap(
+        updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       } else if (idx == 2 && (producer_has_s == consumer_has_s)) {
         // producer/consumer[2] = L/S
-          updatePairwiseRootDomainMap(
+          updatePairwiseLogicalDomainMap(
           producer_logical.at(2), consumer_root.at(2));
       } else if (idx == 3 && (producer_has_e == consumer_has_e)) {
         // producer/consumer[3] = E/Ev
-          updatePairwiseRootDomainMap(
+          updatePairwiseLogicalDomainMap(
           producer_logical.at(3), consumer_root.at(3));
       }
     }

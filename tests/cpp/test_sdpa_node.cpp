@@ -644,7 +644,6 @@ TEST_F(SDPATest, AttnFwdBwd) {
   fusion->addOutput(sdpa_grad.grad_query);
   fusion->addOutput(sdpa_grad.grad_key);
   fusion->addOutput(sdpa_grad.grad_value);
-  fusion->addOutput(sdpa_fwd_out.query_seq_len);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options).set_requires_grad(true);
@@ -669,7 +668,7 @@ TEST_F(SDPATest, AttnFwdBwd) {
   attn.backward(grad_out);
 
   testValidate(
-      fusion.get(),
+      fec.fusion(),
       nvf_out,
       {q, k, v, grad_out},
       {attn, q.grad(), k.grad(), v.grad()},
