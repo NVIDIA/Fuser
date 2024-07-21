@@ -503,7 +503,7 @@ Val* getGridSyncBufferSize(
     const std::vector<ForLoop*>& for_loops,
     bool is_persistent) {
   // See the comment above for getGridCommWorkBufferSize.
-  Val* buffer_size = GpuLower::current()->kernel()->oneVal(DataType::Index);
+  Val* buffer_size = GpuLower::current()->kernel()->oneVal();
   for (auto pt : kParallelTypeBIDs) {
     auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
