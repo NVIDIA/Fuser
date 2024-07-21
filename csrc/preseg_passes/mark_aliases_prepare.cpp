@@ -33,6 +33,15 @@ std::pair<TensorView*, Expr*> findUseToSegment(
   }
 }
 
+bool isSegmentSet(Expr* e) {
+  if (LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(e)) {
+    if (ldst->opType() == LoadStoreOpType::SegmenterSet) {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace
 
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
@@ -112,32 +121,40 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     }
 
     auto insert_segment_set = [&]() {
+      // Put a `segment_set` after `use_of` and redirect aliasing users to
+      // use the `segment_set`.
+
+      // There are a few corner cases where we don't need to add a
+      // `segment_set`. If `use_of` is only used by aliases, ...
       if (static_cast<size_t>(std::distance(i, j)) == use_of->uses().size()) {
         // Put a `segment_set` before `use_of`.
         if (use_of->isFusionInput()) {
           // A `segment_set` before a fusion input is useless.
           return;
         }
-        // Rarely, if `aliased_io` is already defined by `segment_set`, don't
+
+        // Rarely, if `use_of` is already defined by `segment_set`, don't
         // create another `segment_set`.
-        if (LoadStoreOp* def =
-                dynamic_cast<LoadStoreOp*>(use_of->definition())) {
-          if (def->opType() == LoadStoreOpType::SegmenterSet) {
-            return;
-          }
+        if (isSegmentSet(use_of->definition())) {
+          return;
         }
-        use_of->cacheBefore(LoadStoreOpType::SegmenterSet);
-      } else {
-        // Some users of `use_of` are used by non-aliases, and some are used
-        // only by aliases. We put a `segment_set` after `use_of` and redirect
-        // the latter group to use the `segment_set`.
-        TensorView* copy = segment_set(use_of);
-        std::for_each(i, j, [&](const std::pair<TensorView*, Expr*>& use) {
-          ir_utils::replaceValInExprInputs(use.second, use_of, copy);
-        });
-        if (use_of->isFusionOutput()) {
-          fusion->replaceOutput(use_of, copy);
-        }
+      }
+
+      // Rarely, if `use_of` is already defined by `segment_set`, don't
+      // create another `segment_set`.
+      if (std::all_of(i, j, [](const std::pair<TensorView*, Expr*>& use) {
+            return isSegmentSet(use.second);
+          })) {
+        return;
+      }
+
+      // The general case.
+      TensorView* copy = segment_set(use_of);
+      std::for_each(i, j, [&](const std::pair<TensorView*, Expr*>& use) {
+        ir_utils::replaceValInExprInputs(use.second, use_of, copy);
+      });
+      if (use_of->isFusionOutput()) {
+        fusion->replaceOutput(use_of, copy);
       }
     };
     insert_segment_set();
