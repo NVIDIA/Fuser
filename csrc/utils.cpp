@@ -117,7 +117,7 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type) {
       opt_numel.value() == 1;
 }
 
-bool is_meta_scalar(const at::Tensor& tensor){
+bool is_meta_scalar(const at::Tensor& tensor) {
   return tensor.device().is_meta() && tensor.numel() == 1 && tensor.dim() == 0;
 }
 

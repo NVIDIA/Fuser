@@ -4399,12 +4399,15 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
   // Query and key seq len are of type c10::SymInt -> convert them to CPU scalar
   // tensors to support adding them as fusion outputs.
-  // We ignore cum_seq_q/k outputs since they are undefined tensors for non-nested tensors.
+  // We ignore cum_seq_q/k outputs since they are undefined tensors for
+  // non-nested tensors.
   return {
       output,
       log_sumexp,
-      at::scalar_tensor(*query_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
-      at::scalar_tensor(*key_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
+      at::scalar_tensor(
+          *query_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
+      at::scalar_tensor(
+          *key_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
       philox_seed,
       philox_offset,
       debug_attn_mask};

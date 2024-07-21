@@ -275,11 +275,15 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     //   grad_key = [N, H, S, E]
     //   grad_value = [N, H, S, Ev]
 
-    bool producer_has_s = producer_tv_->sameAs(op->key()) || producer_tv_->sameAs(op->value());
-    bool consumer_has_s = consumer_tv_->sameAs(op->grad_key()) || consumer_tv_->sameAs(op->grad_value());
+    bool producer_has_s =
+        producer_tv_->sameAs(op->key()) || producer_tv_->sameAs(op->value());
+    bool consumer_has_s = consumer_tv_->sameAs(op->grad_key()) ||
+        consumer_tv_->sameAs(op->grad_value());
 
-    bool producer_has_e = producer_tv_->sameAs(op->query()) || producer_tv_->sameAs(op->key());
-    bool consumer_has_e = consumer_tv_->sameAs(op->grad_query()) || consumer_tv_->sameAs(op->grad_key());
+    bool producer_has_e =
+        producer_tv_->sameAs(op->query()) || producer_tv_->sameAs(op->key());
+    bool consumer_has_e = consumer_tv_->sameAs(op->grad_query()) ||
+        consumer_tv_->sameAs(op->grad_key());
 
     for (auto idx : c10::irange(producer_logical.size())) {
       if (idx < 2) {
@@ -288,12 +292,12 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
             producer_logical.at(idx), consumer_root.at(idx));
       } else if (idx == 2 && (producer_has_s == consumer_has_s)) {
         // producer/consumer[2] = L/S
-          updatePairwiseLogicalDomainMap(
-          producer_logical.at(2), consumer_root.at(2));
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(2), consumer_root.at(2));
       } else if (idx == 3 && (producer_has_e == consumer_has_e)) {
         // producer/consumer[3] = E/Ev
-          updatePairwiseLogicalDomainMap(
-          producer_logical.at(3), consumer_root.at(3));
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(3), consumer_root.at(3));
       }
     }
     return dom_map;

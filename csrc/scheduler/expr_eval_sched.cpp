@@ -18,18 +18,16 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto exprs = fusion->exprs();
   if (exprs.size() > 1) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "Fusion must contain only a single expression.");
-  }
-  else if (exprs.front()->isOneOf<SdpaFwdOp, SdpaBwdOp>()){
+        heuristicType(), "Fusion must contain only a single expression.");
+  } else if (exprs.front()->isOneOf<SdpaFwdOp, SdpaBwdOp>()) {
     return true;
-  } else if (exprs.front()->isOneOf<LinearOp, MatmulOp>()){
-    if (!isOptionDisabled(DisableOption::MatmulExprEval)){
+  } else if (exprs.front()->isOneOf<LinearOp, MatmulOp>()) {
+    if (!isOptionDisabled(DisableOption::MatmulExprEval)) {
       return true;
     } else {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(),
-        "Matmul ATen evaluation was disabled by NVFUSER_DISABLE=matmul_expr_eval");
+      scheduler_debug_utils::canScheduleRejectReason(
+          heuristicType(),
+          "Matmul ATen evaluation was disabled by NVFUSER_DISABLE=matmul_expr_eval");
     }
   } else {
     scheduler_debug_utils::canScheduleRejectReason(
