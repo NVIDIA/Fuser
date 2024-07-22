@@ -8332,6 +8332,9 @@ TEST_F(NVFuserTest, DecoupledDomains2) {
     return domain.as<IterDomain*>();
   };
 
+  // Create a TensorView that, all the domains are transformed from a common
+  // topologically root IDs [I0, I1, I2, I3] separately, so that to traverse
+  // between any two domains, the traversal requires both forward and backward.
   auto logical_domain = schedule();
   auto root_domain = schedule();
   auto allocation_domain = schedule();
