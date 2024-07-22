@@ -54,7 +54,9 @@ void validateValWithConcreteValue(
         ", but got a tensor of dtype ",
         actual_dtype);
     // Intermediate tensorviews marked as CPU scalars will be created as meta
-    // tensors during compilation.
+    // tensors during compilation. For example, for fusions containing SDPA fwd
+    // and bwd, some outputs of the fwd op (philox seed, philox offset) are CPU
+    // scalars.
     if (tv->isCpuScalar()) {
       NVF_CHECK(
           is_cpu_scalar(t) || is_meta_scalar(t),
