@@ -334,12 +334,63 @@ std::size_t UnswitchPredicateKeyHash::operator()(
   return h;
 };
 
+namespace {
+
+// Return a predicate for the index of the main loop of ciruclar
+// buffering. nullptr is return if not relevant.
+//
+// Suppose the original loop is:
+//
+// for (i = 0; i < N; ++i) {
+//   if (idx(i) < logical_size) {
+//     ...
+//
+// When double buffering the loop, adds a prediate to the the main
+// loop when no epilogue is generated:
+//
+// for (i = 0; i < N; ++i) {
+//   if (idx(i+1) < logical_size && i + 1 < N) {
+//     ...
+//
+// The predicate of `i + 1 < N` is the one generated here. It's not
+// always required for correctness, but it would incur additional gmem
+// accesses without the predicate.
+Val* getCircularBufferPredicate(
+    const Expr* expr,
+    const std::vector<ForLoop*>& loops) {
+  ForLoop* fl = GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
+      ir_utils::getTvOutput(expr), loops);
+  // This only matters for the circular buffer main loop
+  if (fl == nullptr ||
+      fl->circularBufferLoopStage() != CircularBufferLoopStage::Main) {
+    return nullptr;
+  }
+
+  // Not necessary when there's an epilogue loop. Here, it is assumed
+  // that the extent of the main loop should be the same as the
+  // original iter domain extent if there's no epilogue
+  if (!fl->stop()->sameAs(fl->iter_domain()->extent())) {
+    return nullptr;
+  }
+
+  auto depth =
+      (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
+          fl->iter_domain());
+
+  return SimplifyingIrBuilder::ltExpr(
+      SimplifyingIrBuilder::addExpr(fl->index(), depth - 1, DataType::Index),
+      fl->stop());
+}
+
+} // namespace
+
 Val* PredicateCompute::getInlinePredicate(
     const Expr* expr,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops,
     Val* thread_pred,
-    PredicateType pred_type) {
+    PredicateType pred_type,
+    bool is_unswitched) {
   DEBUG_PRINT_SCOPE(
       "expr = ",
       expr,
@@ -368,8 +419,12 @@ Val* PredicateCompute::getInlinePredicate(
   auto out_tv = ir_utils::getTvOutput(expr);
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
-  if (gpu_lower->predicateElimination().canOmitPredicate(expr)) {
-    RECORD_AND_RETURN(thread_pred);
+  auto circular_buffer_pred = getCircularBufferPredicate(expr, loops);
+
+  if (is_unswitched ||
+      gpu_lower->predicateElimination().canOmitPredicate(expr)) {
+    RECORD_AND_RETURN(SimplifyingIrBuilder::logicalAndExpr(
+        thread_pred, circular_buffer_pred));
   }
 
   auto parallel_dom_pred =
@@ -379,7 +434,8 @@ Val* PredicateCompute::getInlinePredicate(
   // TMA handles out-of-bounds accesses in hardware, so parallel_dom_pred
   // itself is sufficient to predicate the accesses.
   if (ir_utils::isCpAsyncBulk(expr)) {
-    RECORD_AND_RETURN(parallel_dom_pred);
+    RECORD_AND_RETURN(SimplifyingIrBuilder::logicalAndExpr(
+        parallel_dom_pred, circular_buffer_pred));
   }
 
   std::vector<PredicateInfo> pred_info_vec;
@@ -436,6 +492,10 @@ Val* PredicateCompute::getInlinePredicate(
 
   if (thread_pred != nullptr) {
     preds.push_back(thread_pred);
+  }
+
+  if (circular_buffer_pred != nullptr) {
+    preds.push_back(circular_buffer_pred);
   }
 
   if (preds.empty()) {

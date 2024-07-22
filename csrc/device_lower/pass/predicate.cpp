@@ -179,9 +179,11 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
             for_loops_,
             rotated_loop_,
             pred->thread_pred(),
-            pred->predicate_type());
+            pred->predicate_type(),
+            lower_utils::isUnswitched(scope_exprs_, scope_));
       }
       case PredicateType::Vectorize: {
+        // TODO: Cirular buffer pred for vec
         std::vector<ForLoop*> outer_loops;
         ForLoop* vectorized_loop = nullptr;
         for (auto loop : for_loops_) {

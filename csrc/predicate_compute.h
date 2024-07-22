@@ -26,7 +26,8 @@ class PredicateCompute {
       const std::vector<ForLoop*>& loops,
       const std::unordered_set<ForLoop*>& rotated_loops,
       Val* thread_pred,
-      PredicateType pred_type);
+      PredicateType pred_type,
+      bool is_unswitched);
 };
 
 //! Parallelized domains may need to be predicated with threading

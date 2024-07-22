@@ -345,6 +345,11 @@ bool isReductionInitExpr(const Expr* expr);
 // value.
 bool predicateAtEnd(ForLoop* loop);
 
+// Check if the current scope is unswitched (or unrolled)
+bool isUnswitched(
+    const std::vector<Expr*>& scope_exprs,
+    const std::vector<Scope*>& scope_stack);
+
 } // namespace lower_utils
 
 } // namespace nvfuser

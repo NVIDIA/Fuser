@@ -84,15 +84,6 @@ void UnrollPass::dispatch(Expr* expr) {
       }
     }
 
-    // When this expr is in an unswitched block, only attach the
-    // thread predicate to the expr as thread predicates are not
-    // grouped to the unswitch predicate.
-    kir::Predicate* thread_pred_expr = nullptr;
-    if (unswitched_loop_) {
-      DEBUG_LOG("thread predicate in unswitched loop");
-      thread_pred_expr = IrBuilder::create<kir::Predicate>(thread_pred);
-    }
-
     non_trivial_pred_found_ = true;
 
     Expr* expr_with_predicate = expr;
@@ -100,10 +91,8 @@ void UnrollPass::dispatch(Expr* expr) {
     // Reduction may need a separate predicate for writes.
     if (!lower_utils::isReductionInitExpr(expr) &&
         out_tv->domain()->hasReduction()) {
-      const auto write_pred = unswitched_loop_
-          ? thread_pred_expr
-          : IrBuilder::create<kir::Predicate>(
-                PredicateType::ReductionWrite, expr, thread_pred);
+      kir::Predicate* write_pred = IrBuilder::create<kir::Predicate>(
+          PredicateType::ReductionWrite, expr, thread_pred);
       if (!unswitched_loop_) {
         DEBUG_LOG("Reduction write predicate.");
       }
@@ -113,10 +102,8 @@ void UnrollPass::dispatch(Expr* expr) {
     // For expr calling a device func with block sync, don't create
     // if-then-else but pass the predicate to the device func
     if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
-      const auto pred = unswitched_loop_
-          ? thread_pred_expr
-          : IrBuilder::create<kir::Predicate>(
-                PredicateType::Inline, expr, thread_pred);
+      kir::Predicate* pred = IrBuilder::create<kir::Predicate>(
+          PredicateType::Inline, expr, thread_pred);
       if (!unswitched_loop_) {
         DEBUG_LOG("Inline predicate.");
       }
@@ -138,9 +125,8 @@ void UnrollPass::dispatch(Expr* expr) {
     }
 
     if (pred == nullptr) {
-      pred = unswitched_loop_ ? thread_pred_expr
-                              : IrBuilder::create<kir::Predicate>(
-                                    PredicateType::Inline, expr, thread_pred);
+      pred = IrBuilder::create<kir::Predicate>(
+          PredicateType::Inline, expr, thread_pred);
       if (!unswitched_loop_) {
         DEBUG_LOG("Inline predicate.");
       }

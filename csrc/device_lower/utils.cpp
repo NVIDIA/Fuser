@@ -978,6 +978,36 @@ bool predicateAtEnd(ForLoop* loop) {
   return true;
 }
 
+bool isUnswitched(
+    const std::vector<Expr*>& scope_exprs,
+    const std::vector<Scope*>& scope_stack) {
+  for (auto scope_expr : scope_exprs) {
+    auto ite = dynamic_cast<kir::IfThenElse*>(scope_expr);
+    if (ite == nullptr) {
+      continue;
+    }
+
+    if (ite->predicate()->predicate_type() != PredicateType::Unswitch) {
+      continue;
+    }
+
+    if (std::any_of(
+            scope_stack.begin(),
+            scope_stack.end(),
+            [&](const Scope* scope) -> bool {
+              return scope == &ite->thenBody();
+            })) {
+      return true;
+    }
+
+    // At this point, an IfThenElse for unswitch is found but the
+    // current scope is under the else branch. It is possible that
+    // there's a nested unswitch/unroll, so keep going.
+  }
+
+  return false;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser
