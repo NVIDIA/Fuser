@@ -85,6 +85,7 @@ void OptOutMutator::mutate(Val* s) {}
 void OptOutMutator::mutate(NamedScalar* ns) {}
 
 void OptOutMutator::mutate(IterDomain* id) {
+  std::cout << "mutate IterDomain: " << id->toString() << std::endl;
   Val* start = maybeMutated(id->start());
   Val* extent = maybeMutated(id->extent());
   Val* expanded_extent = nullptr;
@@ -96,6 +97,7 @@ void OptOutMutator::mutate(IterDomain* id) {
       (!id->hasExpandedExtent() ||
        expanded_extent->sameAs(id->expandedExtent())) &&
       stop_offset->sameAs(id->stopOffset())) {
+    std::cout << "mutate IterDomain: done" << std::endl;
     return;
   }
   registerMutation(
@@ -106,10 +108,12 @@ void OptOutMutator::mutate(IterDomain* id) {
           .stop_offset(stop_offset)
           .expanded_extent(expanded_extent)
           .build());
+  std::cout << "mutate IterDomain: done" << std::endl;
 }
 
 void OptOutMutator::mutate(TensorDomain* td) {
   bool mutated = false;
+  std::cout << "mutate TensorDomain: " << td->toString() << std::endl;
 
   auto updateIdVec = [&](const std::vector<IterDomain*>& ids) {
     std::vector<IterDomain*> updated_ids;
@@ -130,11 +134,25 @@ void OptOutMutator::mutate(TensorDomain* td) {
       ? updateIdVec(td->allocation())
       : std::vector<IterDomain*>();
   std::vector<IterDomain*> domain = updateIdVec(td->loop());
-
+  std::cout << "mutate TensorDomain new domain: " << std::endl;
+  for(auto id : domain) {
+    std::cout << "id: " << id->toString() << std::endl;
+  }
+  for(auto id : root_dom) {
+    std::cout << "root_dom: " << id->toString() << std::endl;
+  }
+  for(auto id : logical_dom) {
+    std::cout << "logical_dom: " << id->toString() << std::endl;
+  }
+  for(auto id : allocation_dom) {
+    std::cout << "allocation_dom: " << id->toString() << std::endl;
+  }  
   if (!mutated) {
+    std::cout << "mutate TensorDomain: not mutated" << std::endl;
     return;
   }
 
+  std::cout << "mutate TensorDomain: createInContainer TensorDomain" << std::endl;
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,
@@ -142,14 +160,18 @@ void OptOutMutator::mutate(TensorDomain* td) {
       allocation_dom,
       domain,
       td->contiguity());
+  std::cout << "mutate TensorDomain: registerMutation" << std::endl;
   registerMutation(td, mutated_val);
+  std::cout << "mutate TensorDomain: done" << std::endl;
 }
 
 void OptOutMutator::mutate(TensorView* tv) {
+  std::cout << "mutate tv: " << tv->toString() << std::endl;
   TensorDomain* td = maybeMutated(tv->domain())->as<TensorDomain>();
   if (!tv->domain()->sameAs(td)) {
     tv->setDomain(td);
   }
+  std::cout << "mutate tv: done" << std::endl;
   // Don't register tv mutations as we just want to update the TD
 }
 
@@ -166,6 +188,7 @@ Expr* OptOutMutator::mutateExpr(
     bool replace_outputs,
     bool replace_inputs,
     bool replace_attrs) {
+  std::cout << "mutate Expr: " << op->toString() << std::endl;
   std::vector<Val*> mutated_outputs;
   mutated_outputs.reserve(op->outputs().size());
   for (auto output : op->outputs()) {
@@ -214,6 +237,7 @@ Expr* OptOutMutator::mutateExpr(
   }
 
   if (all_same) {
+    std::cout << "mutate expr: done" << std::endl;
     return op;
   }
 
@@ -224,6 +248,7 @@ Expr* OptOutMutator::mutateExpr(
       newObjectFunc(container, mutated_inputs, mutated_outputs, mutated_attrs);
   registerNewExpr(new_expr);
 
+  std::cout << "mutate expr: done" << std::endl;
   return new_expr;
 }
 
