@@ -186,6 +186,36 @@ void HostIrExecutor::handle(Wait* wait) {
   works_.erase(communication);
 }
 
+namespace {
+
+void allConsumerValsOfHelper(
+    Val* val,
+    std::unordered_set<Val*>& visisted_vals) {
+  if (visisted_vals.find(val) != visisted_vals.end()) {
+    return;
+  }
+  for (Val* consumer : ir_utils::consumerValsOf(val)) {
+    visisted_vals.insert(consumer);
+    allConsumerValsOfHelper(consumer, visisted_vals);
+  }
+}
+
+// Return all (not only direct) consumers of vals, this function can be used on
+// any vals and will return consumers through Exprs.
+//
+// Warning: returned val's are not guaranteed to be between fusion inputs and
+// outputs. This function simply uses val->definition() or val->uses() which is
+// limited to not go through fusion inputs/outputs, but if on a path that isn't
+// strictly between fusion inputs/outputs, it could effectively return dead
+// code.
+std::unordered_set<Val*> allConsumerValsOf(Val* val) {
+  std::unordered_set<Val*> consumer_vals;
+  allConsumerValsOfHelper(val, consumer_vals);
+  return consumer_vals;
+}
+
+} // namespace
+
 void HostIrExecutor::handle(ForLoop* for_loop) {
   NVF_ERROR(for_loop->start()->isConstInt());
   NVF_ERROR(for_loop->step()->isConstInt());
@@ -195,8 +225,13 @@ void HostIrExecutor::handle(ForLoop* for_loop) {
   auto stop = for_loop->stop()->value().as<int64_t>();
 
   for (auto i = start; i < stop; i += step) {
+    // invalidate i and its consumers before binding
+    expr_evaluator_.invalidate(for_loop->index());
+    for (auto consumer : allConsumerValsOf(for_loop->index())) {
+      expr_evaluator_.invalidate(consumer);
+    }
+    expr_evaluator_.bind(for_loop->index(), i);
     for (Expr* expr : for_loop->body().exprs()) {
-      expr_evaluator_.bind(for_loop->index(), i);
       dispatch(expr);
     }
   }

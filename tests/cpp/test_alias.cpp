@@ -1088,10 +1088,6 @@ TEST_F(AliasTest, SourceIsBothInputAndOutput) {
   EXPECT_EQ(in_tensor.data_ptr(), out_tensors[1].data_ptr());
 }
 
-MATCHER_P(HeuristicIs, heuristic, "") {
-  return arg->heuristic() == heuristic;
-}
-
 TEST_F(AliasTest, SegmentBoundary) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
