@@ -54,7 +54,7 @@ class OverlapTest : public MultiDeviceTest {
   int64_t num_devices_;
   int64_t my_device_index_;
   std::vector<int64_t> all_devices_;
-  at::Tensor ta_, tb_, tc_locally_reduced_, tc_, tc_expected_;
+  at::Tensor ta_, tb_, tc_unreduced_, tc_locally_reduced_, tc_, tc_expected_;
   // stores the backend
   c10d::Backend* world_communicator_;
 
@@ -81,6 +81,8 @@ class OverlapTest : public MultiDeviceTest {
     std::vector<int64_t> tb_unsharded_sizes = {
         1, num_devices_, params.K / num_devices_, params.N};
     std::vector<int64_t> tb_sizes = {1, 1, params.K / num_devices_, params.N};
+    std::vector<int64_t> tc_unreduced_sizes = {
+        params.S, 1, params.M / params.S, params.K / num_devices_, params.N};
     std::vector<int64_t> tc_locally_reduced_sizes = {
         params.S, 1, params.M / params.S, params.N};
     std::vector<int64_t> tc_sizes = {
@@ -103,6 +105,7 @@ class OverlapTest : public MultiDeviceTest {
     // We pre-allocate the output and some intermediate buffers so we do not
     // rely on torch allocator, which do not behave well with multi-stream
     // programming.
+    tc_unreduced_ = at::empty(tc_unreduced_sizes, options);
     tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, options);
     tc_ = at::empty(tc_sizes, options);
 
@@ -137,8 +140,14 @@ class OverlapTest : public MultiDeviceTest {
   void computeATen(
       at::Tensor ta_j,
       at::Tensor tb_j,
+      at::Tensor tc_unreduced_j,
       at::Tensor tc_locally_reduced_j) {
-    torch::matmul_out(tc_locally_reduced_j, ta_j, tb_j);
+    // at::matmul_out seem to allocate intermediate buffer, resulting in
+    // cudaMalloc with significant overheads in the execution trace. To have
+    // better control on allocation, we used those two unfused ATen ops, i.e.,
+    // pointiwise multiply and sum reduction.
+    at::mul_out(tc_unreduced_j, ta_j.unsqueeze(-1), tb_j.unsqueeze(-3));
+    at::sum_out(tc_locally_reduced_j, tc_unreduced_j, {-2});
   }
 };
 // clang-format off
@@ -204,6 +213,7 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
   for (auto j : c10::irange(params.S)) {
     // define the sliced tensors
     auto ta_j = getSlice(ta_, 0, j);
+    auto tc_unreduced_j = getSlice(tc_unreduced_, 0, j);
     auto tc_locally_reduced_j = getSlice(tc_locally_reduced_, 0, j);
     auto tc_j = getSlice(tc_, 0, j);
 
@@ -215,7 +225,7 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
     }
 
     // local compute
-    computeATen(ta_j, tb_, tc_locally_reduced_j);
+    computeATen(ta_j, tb_, tc_unreduced_j, tc_locally_reduced_j);
     // communication
     world_communicator_->_reduce_scatter_base(tc_j, tc_locally_reduced_j)
         ->wait();
