@@ -13,55 +13,62 @@
 
 namespace nvfuser {
 
-namespace {
-class CircularBufferingTest : public NVFuserTest {};
-} // anonymous namespace
+class TmaCircularBufferingTest : public NVFuserFixtureParamTest<int> {
+ protected:
+  int64_t number_of_stages = 1;
 
-template <typename data_type>
-void compare(int64_t tensor_dim, at::Tensor result, at::Tensor reference) {
-  at::Tensor reference_cpu_data = reference.cpu();
-  at::Tensor result_cpu_data = result.cpu();
-
-  auto reference_cpu = reference_cpu_data.accessor<data_type, 1>();
-  auto result_cpu = result_cpu_data.accessor<data_type, 1>();
-
-  constexpr double tolerance = 1e-5;
-  for (int64_t pos = 0; pos < tensor_dim; ++pos) {
-    if (fabs((double)result_cpu[pos] - (double)reference_cpu[pos]) >
-        tolerance) {
-      std::cout << "[" << pos << "] - result: " << result_cpu[pos]
-                << " | reference: " << reference_cpu[pos] << std::endl;
-    }
+  void SetUp() override {
+    number_of_stages = GetParam();
+    NVFuserTest::SetUp();
   }
-}
 
-template <typename data_type>
-void compare(
-    int64_t tensor_outer_dim,
-    int64_t tensor_inner_dim,
-    at::Tensor result,
-    at::Tensor reference) {
-  at::Tensor reference_cpu_data = reference.cpu();
-  at::Tensor result_cpu_data = result.cpu();
+  template <typename data_type>
+  void compare(int64_t tensor_dim, at::Tensor result, at::Tensor reference) {
+    at::Tensor reference_cpu_data = reference.cpu();
+    at::Tensor result_cpu_data = result.cpu();
 
-  auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
-  auto result_cpu = result_cpu_data.accessor<data_type, 2>();
+    auto reference_cpu = reference_cpu_data.accessor<data_type, 1>();
+    auto result_cpu = result_cpu_data.accessor<data_type, 1>();
 
-  constexpr double tolerance = 1e-5;
-  for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
-    for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
-      if (fabs(
-              (double)result_cpu[out_pos][in_pos] -
-              (double)result_cpu[out_pos][in_pos]) > tolerance) {
-        std::cout << "[" << out_pos << ", " << in_pos
-                  << "] - result: " << result_cpu[out_pos][in_pos]
-                  << " | ref: " << reference_cpu[out_pos][in_pos] << std::endl;
+    constexpr double tolerance = 1e-5;
+    for (int64_t pos = 0; pos < tensor_dim; ++pos) {
+      if (fabs((double)result_cpu[pos] - (double)reference_cpu[pos]) >
+          tolerance) {
+        std::cout << "[" << pos << "] - result: " << result_cpu[pos]
+                  << " | reference: " << reference_cpu[pos] << std::endl;
       }
     }
   }
-}
 
-TEST_F(CircularBufferingTest, TmaCircularBuffering1d) {
+  template <typename data_type>
+  void compare(
+      int64_t tensor_outer_dim,
+      int64_t tensor_inner_dim,
+      at::Tensor result,
+      at::Tensor reference) {
+    at::Tensor reference_cpu_data = reference.cpu();
+    at::Tensor result_cpu_data = result.cpu();
+
+    auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
+    auto result_cpu = result_cpu_data.accessor<data_type, 2>();
+
+    constexpr double tolerance = 1e-5;
+    for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
+      for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+        if (fabs(
+                (double)result_cpu[out_pos][in_pos] -
+                (double)result_cpu[out_pos][in_pos]) > tolerance) {
+          std::cout << "[" << out_pos << ", " << in_pos
+                    << "] - result: " << result_cpu[out_pos][in_pos]
+                    << " | ref: " << reference_cpu[out_pos][in_pos]
+                    << std::endl;
+        }
+      }
+    }
+  }
+};
+
+TEST_P(TmaCircularBufferingTest, SingleDim) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -90,7 +97,7 @@ TEST_F(CircularBufferingTest, TmaCircularBuffering1d) {
 
   // Double Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
-  tv2->circularBuffer(/*stage=*/3);
+  tv2->circularBuffer(number_of_stages);
 
   std::vector<int64_t> tensor_sizes = {10, 32, 50, 128};
   for (int64_t tensor_dim : tensor_sizes) {
@@ -108,7 +115,7 @@ TEST_F(CircularBufferingTest, TmaCircularBuffering1d) {
   }
 }
 
-TEST_F(CircularBufferingTest, TmaCircularBufferingUnroll) {
+TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -143,7 +150,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingUnroll) {
 
   // Double Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
-  tv2->circularBuffer(/*stage=*/3);
+  tv2->circularBuffer(number_of_stages);
 
   std::vector<int64_t> tensor_sizes = {10, 32, 50, 128};
   for (int64_t tensor_dim : tensor_sizes) {
@@ -161,7 +168,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingUnroll) {
   }
 }
 
-TEST_F(CircularBufferingTest, TmaCircularBufferingUnswitch) {
+TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -196,7 +203,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingUnswitch) {
 
   // Double Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
-  tv2->circularBuffer(/*stage=*/3);
+  tv2->circularBuffer(number_of_stages);
 
   std::vector<int64_t> tensor_sizes = {10, 32, 50, 128};
   for (int64_t tensor_dim : tensor_sizes) {
@@ -214,7 +221,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingUnswitch) {
   }
 }
 
-TEST_F(CircularBufferingTest, TmaCircularBuffering2d) {
+TEST_P(TmaCircularBufferingTest, MultiDim) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -256,7 +263,7 @@ TEST_F(CircularBufferingTest, TmaCircularBuffering2d) {
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->axis(-2)->parallelize(ParallelType::Bulk);
-  tv2->circularBuffer(/*stage=*/3);
+  tv2->circularBuffer(number_of_stages);
 
   std::vector<int64_t> outer_tensor_sizes = {10, 32, 50, 128};
   // NOTE: Multiple of 16 required for inner dimension
@@ -279,7 +286,7 @@ TEST_F(CircularBufferingTest, TmaCircularBuffering2d) {
   }
 }
 
-TEST_F(CircularBufferingTest, TmaCircularBufferingPointwise) {
+TEST_P(TmaCircularBufferingTest, Pointwise) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -314,11 +321,11 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingPointwise) {
   // Ciruclar Buffer with TMA loads
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(2)->parallelize(ParallelType::Bulk);
-  tv3->circularBuffer(/*stage=*/3);
+  tv3->circularBuffer(number_of_stages);
 
   // Ciruclar Buffer with set operation
   tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->circularBuffer(/*stage=*/3);
+  tv4->circularBuffer(number_of_stages);
 
   // split reference to parallelize TMA tile
   reference->split(-1, 32);
@@ -346,7 +353,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingPointwise) {
   }
 }
 
-TEST_F(CircularBufferingTest, TmaCircularBufferingReduction) {
+TEST_P(TmaCircularBufferingTest, Reduction) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -388,7 +395,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingReduction) {
   // Double Buffer with TMA loads
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
-  tv2->circularBuffer(/*stage=*/2);
+  tv2->circularBuffer(number_of_stages);
 
   std::vector<int64_t> outer_tensor_sizes = {10, 32, 50, 128};
   // NOTE: Multiple of 16 required for inner dimension
@@ -409,7 +416,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingReduction) {
   }
 }
 
-TEST_F(CircularBufferingTest, TmaCircularBufferingPersistent) {
+TEST_P(TmaCircularBufferingTest, Persistent) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   constexpr int64_t dim0 = 1024;
@@ -512,7 +519,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingPersistent) {
   // Apply circular buffer after computeAt
   x_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
   if (examples_per_cta > 1) {
-    x_cache_smem->circularBuffer(/*stages=*/2);
+    x_cache_smem->circularBuffer(number_of_stages);
   }
 
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
@@ -535,7 +542,7 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingPersistent) {
       fusion.get(), cg_outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
 }
 
-TEST_F(CircularBufferingTest, TmaCircularBufferingMatmul) {
+TEST_P(TmaCircularBufferingTest, Matmul) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -609,11 +616,11 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingMatmul) {
   tv1_cache_smem->axis(-2)->parallelize(ParallelType::Bulk);
   tv1_cache_smem->axis(-1)->parallelize(ParallelType::Bulk);
 
-  tv0_cache_local->circularBuffer(3);
-  tv1_cache_local->circularBuffer(3);
+  tv0_cache_local->circularBuffer(number_of_stages);
+  tv1_cache_local->circularBuffer(number_of_stages);
 
-  tv0_cache_smem->circularBuffer(3);
-  tv1_cache_smem->circularBuffer(3);
+  tv0_cache_smem->circularBuffer(number_of_stages);
+  tv1_cache_smem->circularBuffer(number_of_stages);
 
   constexpr int64_t K = 1024;
   std::vector<int64_t> M_tensor_sizes = {10, 32, 50, 128};
@@ -635,6 +642,17 @@ TEST_F(CircularBufferingTest, TmaCircularBufferingMatmul) {
     }
   }
 }
+
+// NOTE change upper limit; currently hitting segmentation fault
+// Test circular buffering from 2 to 8 stages
+INSTANTIATE_TEST_SUITE_P(
+    Hopper,
+    TmaCircularBufferingTest,
+    ::testing::Range(2, 3));
+
+namespace {
+class CircularBufferingTest : public NVFuserTest {};
+} // anonymous namespace
 
 TEST_F(CircularBufferingTest, CircularBuffering1) {
   Fusion fusion;
