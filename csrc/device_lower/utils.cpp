@@ -153,6 +153,7 @@ bool isTvOp(const Expr* expr) {
           MmaOp,
           LinearOp,
           SdpaFwdOp,
+          SdpaBwdOp,
           BroadcastOp,
           SqueezeOp,
           ExpandOp,

@@ -4270,8 +4270,6 @@ SdpaFwdOp::SdpaFwdOp(
     IrBuilderPasskey passkey,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* cum_seq_q,
-    TensorView* cum_seq_k,
     TensorView* query_seq_len,
     TensorView* key_seq_len,
     TensorView* philox_seed,
@@ -4286,8 +4284,6 @@ SdpaFwdOp::SdpaFwdOp(
     : Expr(passkey) {
   addOutput(output);
   addOutput(log_sumexp);
-  addOutput(cum_seq_q);
-  addOutput(cum_seq_k);
   addOutput(query_seq_len);
   addOutput(key_seq_len);
   addOutput(philox_seed);
@@ -4403,13 +4399,15 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
   // Query and key seq len are of type c10::SymInt -> convert them to CPU scalar
   // tensors to support adding them as fusion outputs.
+  // We ignore cum_seq_q/k outputs since they are undefined tensors for
+  // non-nested tensors.
   return {
       output,
       log_sumexp,
-      cum_seq_q,
-      cum_seq_k,
-      at::scalar_tensor(*query_seq_len.maybe_as_int(), at::dtype(at::kLong)),
-      at::scalar_tensor(*key_seq_len.maybe_as_int(), at::dtype(at::kLong)),
+      at::scalar_tensor(
+          *query_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
+      at::scalar_tensor(
+          *key_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
       philox_seed,
       philox_offset,
       debug_attn_mask};
@@ -4780,8 +4778,6 @@ SdpaBwdOp::SdpaBwdOp(
     TensorView* value,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* cum_seq_q,
-    TensorView* cum_seq_k,
     TensorView* max_q,
     TensorView* max_k,
     Val* dropout_p,
@@ -4799,8 +4795,6 @@ SdpaBwdOp::SdpaBwdOp(
   addInput(value);
   addInput(output);
   addInput(log_sumexp);
-  addInput(cum_seq_q);
-  addInput(cum_seq_k);
   addInput(max_q);
   addInput(max_k);
   addInput(dropout_p);
@@ -4829,10 +4823,6 @@ std::string SdpaBwdOp::toString(int indent_size) const {
   indent(ss, indent_size + 1)
       << "          logsum_exp = " << logsumexp()->toString() << ",\n";
   indent(ss, indent_size + 1)
-      << "          cum_seq_q = " << cum_seq_q()->toString() << ",\n";
-  indent(ss, indent_size + 1)
-      << "          cum_seq_k = " << cum_seq_k()->toString() << ",\n";
-  indent(ss, indent_size + 1)
       << "          max_q = " << max_q()->toString() << ",\n";
   indent(ss, indent_size + 1)
       << "          max_k = " << max_k()->toString() << ",\n";
@@ -4860,15 +4850,15 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
-  // cum_seq_q/k, max_q/k
+  // max_q/k
   std::vector<at::Tensor> bwd_inputs;
-  for (auto idx : c10::irange(10)) {
+  for (auto idx : c10::irange(8)) {
     bwd_inputs.emplace_back(inputs.at(idx).as<at::Tensor>());
   }
-  const auto dropout_p = inputs.at(10).as<double>();
-  const auto is_causal = inputs.at(11).as<bool>();
-  const auto philox_seed = inputs.at(12).as<at::Tensor>();
-  const auto philox_offset = inputs.at(13).as<at::Tensor>();
+  const auto dropout_p = inputs.at(8).as<double>();
+  const auto is_causal = inputs.at(9).as<bool>();
+  const auto philox_seed = inputs.at(10).as<at::Tensor>();
+  const auto philox_offset = inputs.at(11).as<at::Tensor>();
 
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
@@ -4884,11 +4874,12 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   };
 
   // Conmpute scale using original size of last dimension
-  double scale = inputs.size() > 14 ? inputs.back().as<double>()
+  double scale = inputs.size() > 12 ? inputs.back().as<double>()
                                     : 1.0 / std::sqrt(last_dim_size);
 
   // ATen reference:
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
+  // cum_seq_q/k are undefined tensors for non-nested input tensors.
   auto [grad_query, grad_key, grad_value] =
       at::_scaled_dot_product_flash_attention_backward(
           /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
@@ -4897,11 +4888,11 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
           /*value=*/pad_last_dim(bwd_inputs[3], 8),
           /*output=*/pad_last_dim(bwd_inputs[4], 8),
           /*logsumexp=*/bwd_inputs[5],
-          /*cum_seq_q=*/bwd_inputs[6],
-          /*cum_seq_k=*/bwd_inputs[7],
+          /*cum_seq_q=*/at::Tensor(),
+          /*cum_seq_k=*/at::Tensor(),
           // Note: ATen implementation expects max_q/max_k as scalars.
-          /*max_q=*/bwd_inputs[8].item<int64_t>(),
-          /*max_k=*/bwd_inputs[9].item<int64_t>(),
+          /*max_q=*/bwd_inputs[6].item<int64_t>(),
+          /*max_k=*/bwd_inputs[7].item<int64_t>(),
           /*dropout_p=*/dropout_p,
           /*is_causal=*/is_causal,
           /*philox_seed=*/philox_seed,
