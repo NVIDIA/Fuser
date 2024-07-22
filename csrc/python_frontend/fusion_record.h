@@ -2800,13 +2800,11 @@ struct SdpaFwdOpRecord : RecordFunctor {
         scale);
     fd.setFusionState(outputs_.at(0).index, output.output);
     fd.setFusionState(outputs_.at(1).index, output.log_sumexp);
-    fd.setFusionState(outputs_.at(2).index, output.cum_seq_q);
-    fd.setFusionState(outputs_.at(3).index, output.cum_seq_k);
-    fd.setFusionState(outputs_.at(4).index, output.query_seq_len);
-    fd.setFusionState(outputs_.at(5).index, output.key_seq_len);
-    fd.setFusionState(outputs_.at(6).index, output.philox_seed);
-    fd.setFusionState(outputs_.at(7).index, output.philox_offset);
-    fd.setFusionState(outputs_.at(8).index, output.debug_attn_mask);
+    fd.setFusionState(outputs_.at(2).index, output.query_seq_len);
+    fd.setFusionState(outputs_.at(3).index, output.key_seq_len);
+    fd.setFusionState(outputs_.at(4).index, output.philox_seed);
+    fd.setFusionState(outputs_.at(5).index, output.philox_offset);
+    fd.setFusionState(outputs_.at(6).index, output.debug_attn_mask);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {

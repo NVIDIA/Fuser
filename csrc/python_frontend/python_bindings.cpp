@@ -2927,8 +2927,6 @@ void initNvFuserPythonBindings(PyObject* module) {
         size_t ndims = query.dims;
         Tensor output = fd->defineTensor(ndims);
         Tensor log_sumexp = fd->defineTensor(ndims - 1);
-        Tensor cum_seq_q = fd->defineTensor(1);
-        Tensor cum_seq_k = fd->defineTensor(1);
         Tensor query_seq_len = fd->defineTensor(0);
         Tensor key_seq_len = fd->defineTensor(0);
         Tensor philox_seed = fd->defineTensor(0);
@@ -2954,8 +2952,6 @@ void initNvFuserPythonBindings(PyObject* module) {
              scale_state},
             {fd->recordingState(output()),
              fd->recordingState(log_sumexp()),
-             fd->recordingState(cum_seq_q()),
-             fd->recordingState(cum_seq_k()),
              fd->recordingState(query_seq_len()),
              fd->recordingState(key_seq_len()),
              fd->recordingState(philox_seed()),
@@ -2964,8 +2960,6 @@ void initNvFuserPythonBindings(PyObject* module) {
         return std::make_tuple(
             output,
             log_sumexp,
-            cum_seq_q,
-            cum_seq_k,
             query_seq_len,
             key_seq_len,
             philox_seed,
