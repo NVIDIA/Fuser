@@ -53,6 +53,8 @@ void validateValWithConcreteValue(
         value->dtype(),
         ", but got a tensor of dtype ",
         actual_dtype);
+    // Intermediate tensorviews marked as CPU scalars will be created as meta
+    // tensors during compilation.
     if (tv->isCpuScalar()) {
       NVF_CHECK(
           is_cpu_scalar(t) || is_meta_scalar(t),
