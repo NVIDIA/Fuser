@@ -152,6 +152,10 @@ class Backend : public torch::CustomClassHolder {
   }
 };
 
+struct TCPStoreOptions {
+  static constexpr uint16_t kDefaultPort = 0;
+};
+
 class TCPStore : public torch::CustomClassHolder {};
 
 } // namespace c10d

@@ -6,7 +6,9 @@
  */
 // clang-format on
 
-#include <csrc/validator_utils.h>
+#include <gmock/gmock-matchers.h>
+
+#include <validator_utils.h>
 
 namespace nvfuser {
 
@@ -178,6 +180,11 @@ void testValidate(
       err_msg,
       lparams,
       tolerances);
+}
+
+// A gmock matcher for matching heuristics.
+MATCHER_P(HeuristicIs, heuristic, "") {
+  return arg->heuristic() == heuristic;
 }
 
 } // namespace nvfuser

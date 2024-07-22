@@ -67,6 +67,7 @@ namespace nvfuser {
 class ContigIDs;
 class LoopIndexing;
 struct IndexFromIdGraph;
+class TensorIndexer;
 
 class IndexCompute : public BackwardVisitor {
  protected:
@@ -362,6 +363,7 @@ class IndexSwizzle : public IndexCompute {
 //! contigous indexing.
 class PredicateInfo {
   friend class Index;
+  friend class TensorIndexer;
 
  public:
   const auto& startPredicate() const {
