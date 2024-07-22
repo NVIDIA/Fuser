@@ -952,30 +952,13 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         // Construct mBarrier::wait for last stage
         LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
-        if (stage_depth == 2) {
-          // For double buffering, the epilogue for-loop is not created in the
-          // cuda kernel. Use the last index of circular buffer loop to wait for
-          // correct buffer.
-          Val* last_index = IrBuilder::subExpr(
-              circular_buffer_loop_->stop(),
-              GpuLower::current()->kernel()->oneVal());
-          Val* last_compute_stage = IrBuilder::modExpr(
-              last_index,
-              IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-          kir::MBarrierWait* mbarrier_wait =
-              createMbarrierWait(ldst, last_compute_stage);
-          cloned_scopes_.back()->push_back(mbarrier_wait);
-          break;
-        } else {
-          // Construct mBarrier::wait for current stage
-          Val* epilogue_compute_stage = IrBuilder::modExpr(
-              cloned_top_level_loop_->index(),
-              IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-          kir::MBarrierWait* mbarrier_wait =
-              createMbarrierWait(ldst, epilogue_compute_stage);
-          cloned_scopes_.back()->push_back(mbarrier_wait);
-          break;
-        }
+        // Construct mBarrier::wait for current stage
+        Val* epilogue_compute_stage = IrBuilder::modExpr(
+            cloned_top_level_loop_->index(),
+            IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+        kir::MBarrierWait* mbarrier_wait =
+            createMbarrierWait(ldst, epilogue_compute_stage);
+        cloned_scopes_.back()->push_back(mbarrier_wait);
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {

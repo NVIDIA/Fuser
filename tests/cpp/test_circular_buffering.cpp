@@ -255,12 +255,16 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   tv0->computeAt(tv1, 2);
 
   // Merge TMA tile and Parallelize
+  // [M/bod, N/bid, bod, bid] -> [M/bod, N/bid, bod * bid]
   reference->merge(-2, -1);
+  // [M/bod, N/bid, bod * bid] -> [M/bod, N/bid, (bod * bid) / 128, 128]
   reference->split(-1, 128);
+
+  // Parallelize
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
-  // Double Buffer with TMA loads
+  // Circular Buffer with TMA loads
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->axis(-2)->parallelize(ParallelType::Bulk);
