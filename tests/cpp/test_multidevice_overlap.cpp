@@ -9,6 +9,9 @@
 #include <c10/cuda/CUDAStream.h>
 #include <c10/util/ArrayRef.h>
 #include <fusion.h>
+#include <host_ir/container.h>
+#include <host_ir/executor.h>
+#include <host_ir/host_ir.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
@@ -50,6 +53,7 @@ class OverlapTest : public MultiDeviceTest {
 
   int64_t num_devices_;
   int64_t my_device_index_;
+  std::vector<int64_t> all_devices_;
   at::Tensor ta_, tb_, tc_locally_reduced_, tc_, tc_expected_;
   // stores the backend
   c10d::Backend* world_communicator_;
@@ -65,8 +69,9 @@ class OverlapTest : public MultiDeviceTest {
     // Setup the world communicators
     std::vector<int64_t> devices(num_devices_);
     std::iota(devices.begin(), devices.end(), 0);
+    all_devices_ = std::move(devices);
     world_communicator_ =
-        communicator_->getBackendForTeam(devices, params.backend_type);
+        communicator_->getBackendForTeam(all_devices_, params.backend_type);
 
     // Define I/O and intermediate Tensor shapes
     std::vector<int64_t> ta_unsharded_sizes = {
@@ -194,7 +199,7 @@ class OverlapTest : public MultiDeviceTest {
 //      the second is scattered. This is why we choose the layouts to be
 //      [S, sharded_axis, M, ...]
 // clang-format on
-TEST_F(OverlapTest, SimpleComputeComm) {
+TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams;
   for (auto j : c10::irange(params.S)) {
     // define the sliced tensors
@@ -223,6 +228,97 @@ TEST_F(OverlapTest, SimpleComputeComm) {
   }
 
   // validation
+  EXPECT_TRUE(tc_.allclose(tc_expected_, 1e-1, 1e-1))
+      << "Unexpected results, obtained:" << tc_
+      << "\n expected: " << tc_expected_;
+}
+
+TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
+  // returns tv[j:j+1,...]
+  auto getSymbolicSlice = [](TensorView* tv, Val* j) -> TensorView* {
+    Val* one = tv->container()->oneVal();
+    Slice range = {.start = j, .stop = add(j, one), .step = one};
+    std::vector<Slice> ranges(tv->nDims());
+    ranges.at(0) = range;
+    return slice(tv, ranges);
+  };
+
+  auto hic = std::make_unique<hir::HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  constexpr int64_t n_dims = 4;
+  TensorView* tva = makeSymbolicTensor(n_dims);
+  TensorView* tvb = makeSymbolicTensor(n_dims);
+  TensorView* tvc = makeSymbolicTensor(n_dims);
+  hic->addInput(tva);
+  hic->addInput(tvb);
+  hic->addInput(tvc);
+
+  auto* j =
+      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
+  auto* start = hic->zeroVal();
+  auto* stop = IrBuilder::create<Val>(params.S, DataType::Index);
+  auto* step = hic->oneVal();
+  auto* for_loop = IrBuilder::create<ForLoop>(
+      /*IterDomain=*/tva->axis(0),
+      /*index=*/j,
+      start,
+      stop,
+      step,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable);
+
+  TensorView* tva_j = getSymbolicSlice(tva, j);
+  TensorView* tvc_j = getSymbolicSlice(tvc, j);
+  TensorView* tvc_locally_reduced_j =
+      matmul(tva_j, tvb); // ideally we should use the preallocated global
+                          // buffer tc_locally_reduced, but ExpressionEvaluator
+                          // do not support preallocated output buffer.
+
+  // Setting the DeviceMesh of the communication's I/O is artificial but
+  // required at this point
+  DeviceMesh full_mesh(all_devices_);
+  tvc_j->setDeviceMesh(full_mesh);
+  tvc_locally_reduced_j->setDeviceMesh(full_mesh);
+
+  auto* communication = IrBuilder::create<Communication>(
+      CommunicationType::ReduceScatter,
+      /*out=*/tvc_j,
+      /*in=*/tvc_locally_reduced_j,
+      /*team=*/all_devices_,
+      /*(unused)root=*/-1,
+      RedOpType::SUM,
+      /*scattered_axis=*/0);
+  auto* wait = IrBuilder::create<hir::Wait>(communication);
+
+  // Slice and MatmulOp are present directly as Host IRs in the HostIrContainer.
+  // It means that they are going to be executed at the host level (actually,
+  // through ExpressionEvaluator). Alternatively, they could be embedded in a
+  // separate Fusion and be added to the HostIrConainter through
+  // PostOnStrean(HostUnit(.)), in which case the ops would be codegen-ed and
+  // compiled.
+  std::vector<Expr*> loop_body = {
+      tva_j->definition(),
+      tvc_j->definition(),
+      tvc_locally_reduced_j->definition(),
+      communication,
+      wait};
+  for (Expr* expr : loop_body) {
+    for_loop->body().push_back(expr);
+  }
+  hic->pushBackTopLevelExprs(for_loop);
+
+  // The following line is artificial but necessary to make
+  // tva_j->isProducerOf(tvc_locally_reduced_j) == true
+  hic->addOutput(tvc_locally_reduced_j);
+
+  hir::HostIrExecutor hie(std::move(hic), communicator_);
+  std::unordered_map<Val*, c10::IValue> inputs = {
+      {tva, ta_}, {tvb, tb_}, {tvc, tc_}};
+  hie.runWithInput(std::move(inputs));
+
   EXPECT_TRUE(tc_.allclose(tc_expected_, 1e-1, 1e-1))
       << "Unexpected results, obtained:" << tc_
       << "\n expected: " << tc_expected_;

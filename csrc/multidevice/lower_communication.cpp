@@ -233,8 +233,8 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
       c->inputs().size() == 1 && c->input(0)->isA<TensorView>() &&
           c->outputs().size() == 1 && c->output(0)->isA<TensorView>(),
       "I/O must be TensorViews");
-  TensorView* input_tv = c->input(0)->as<TensorView>();
-  TensorView* output_tv = c->output(0)->as<TensorView>();
+  auto* input_tv = c->input(0)->as<TensorView>();
+  auto* output_tv = c->output(0)->as<TensorView>();
   at::Tensor dummy;
 
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
