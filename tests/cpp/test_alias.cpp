@@ -1356,10 +1356,12 @@ TEST_F(AliasTest, SegmentMetaOps) {
   FusionGuard fg(fusion.get());
 
   TensorView* in = makeContigConcreteTensor({2, 3});
-  TensorView* permute_out = permute(in, {1, 0});
-  TensorView* compute_out = mul(in, in);
-  compute_out = add(compute_out, in);
+  TensorView* relu_out = relu(in);
+  TensorView* permute_out = permute(relu_out, {1, 0});
+  TensorView* compute_out = mul(relu_out, relu_out);
+  compute_out = add(compute_out, relu_out);
   fusion->addInput(in);
+  fusion->addOutput(relu_out);
   fusion->addOutput(permute_out);
   fusion->addOutput(compute_out);
 
@@ -1368,25 +1370,23 @@ TEST_F(AliasTest, SegmentMetaOps) {
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  at::Tensor permute_out_tensor = out_tensors[0];
-  EXPECT_TRUE(permute_out_tensor.is_alias_of(in_tensor));
+  // permute_out is an alias to relu_out
+  EXPECT_TRUE(out_tensors[0].is_alias_of(out_tensors[1]));
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
-  // MarkAliasesPrepare adds a `segment_set` between `in` and `permute`, which
-  // leads to three segments:
-  // 1. segment_set`, a no-op segment,
-  // 2. permute`, a no-op segment,
-  // 3. `mul` and `add`, a pointwise segment.
+  // MarkAliasesPrepare adds a `segment_set` between `relu_out` and `permute`,
+  // which leads to two segments:
+  // 1. `relu`, `set`, `mul` and `add`, a pointwise segment.
+  // 2. `permute`, a no-op segment,
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(ScheduleHeuristic::NoOp),
           HeuristicIs(ScheduleHeuristic::NoOp),
           HeuristicIs(ScheduleHeuristic::PointWise)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->heuristic() == ScheduleHeuristic::PointWise) {
       EXPECT_THAT(group->inputs(), SizeIs(1));
-      EXPECT_THAT(group->outputs(), SizeIs(1));
+      EXPECT_THAT(group->outputs(), SizeIs(2));
     }
   }
 }
