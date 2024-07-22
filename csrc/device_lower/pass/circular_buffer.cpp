@@ -673,8 +673,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     if (mbarrier_arrive_tx_ == nullptr || cloned_scopes_.size() > 1) {
       cloned_scopes_.back()->push_back(cloned_loop);
     } else {
-      // mbarrier::arriveExpectTx and TMA operations occur in prologue and main
-      // loops.
+      // mbarrier::arriveExpectTx and TMA load operations occur in prologue and
+      // main loops.
       //
       // Pseudo-code example:
       // if (elect_sync()) {
@@ -696,7 +696,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
       mbarrier_arrive_tx_ = nullptr;
     }
 
-    // mbarrier::wait occur in main and epilogue loops.
+    // mbarrier::wait occurs in main and epilogue loops.
     //
     // Pseudo-code example:
     //  mbarrier::wait(mbarriers[stage], mbarrier_tokens[stage]);
@@ -708,10 +708,12 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
   void dispatch(Expr* expr) final {
+    // skip expression if it is in exclude set
     if (exclude_.count(expr) > 0) {
       return;
     }
 
+    // Handle ForLoop and IfThenElse expr separately
     if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
@@ -769,7 +771,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         }
 
         // Handle cpAsyncBulk type LoadStoreOp that is registered with token
-        // smem TVs as it requires synchronization
         //
         // See AllocationInserter for details when and how token map is filled
         // with data
@@ -785,6 +786,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
         LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
+	// NOTE What happens with multiple ldst for different tens
+	// There should be a single mbarrier_arrive_tx_ for all ldst in cur
+	// stage.
         NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
         mbarrier_arrive_tx_ = createMbarrierArriveExpectTx(
             ldst, cloned_top_level_loop_->indexOrStartIfTrivial());
@@ -833,7 +837,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         }
 
         // Handle cpAsyncBulk type LoadStoreOp that is registered with token
-        // smem TVs as it requires synchronization
         //
         // See AllocationInserter for details when and how token map is filled
         // with data
@@ -887,10 +890,14 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         //  }
         //  mbarrier::wait(token[curr_stage])
         //
-        // Where mbarrier and token are smem arrays bound to the LoadStoreOp
+        // Where mbarrier and token are shared memory arrays bound to the 
+	// LoadStoreOp
 
         LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
+	// NOTE What happens with multiple ldst for different tens
+	// There should be a single mbarrier_arrive_tx_ for all ldst in cur
+	// stage.
         NVF_ERROR(mbarrier_arrive_tx_ == nullptr);
         mbarrier_arrive_tx_ =
             createMbarrierArriveExpectTx(ldst, current_load_stage_);
