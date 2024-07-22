@@ -192,6 +192,10 @@ Expr* OptOutMutator::mutateExpr(
   std::vector<Val*> mutated_outputs;
   mutated_outputs.reserve(op->outputs().size());
   for (auto output : op->outputs()) {
+    if(const auto tv = dynamic_cast<TensorView*>(output)) {
+      std::cout << "mutate Expr: tv " << tv->toString() << std::endl;
+      tv->printTransforms();
+    }
     mutated_outputs.emplace_back(
         replace_outputs ? maybeMutated(output) : output);
   }
