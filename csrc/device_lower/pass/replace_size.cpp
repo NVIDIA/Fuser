@@ -242,6 +242,8 @@ void replaceSymbolicSizes(Fusion* fusion) {
     }
   }
 
+  std::cout << "replaceSymbolicSizes tensor_dim_map size: " << tensor_dim_map.size() << std::endl;
+
   // Run mutation on the fusion with the tensor_dim_map
   ir_utils::replaceValue(fusion, tensor_dim_map);
 }
