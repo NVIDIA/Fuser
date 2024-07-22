@@ -150,15 +150,15 @@ TEST_F(AllocationOrderInferenceTest, BinaryOpPropagation) {
     auto tv2 = add(tv0, tv1);
     fusion.addOutput(tv2);
 
-    // since tv0->axis(0) is a broadcast, and tv2->axis(0) is not exact map.
-    // The mapping of inner dimensions stops here.
-    // tv2 will have output allocation order as {0, 2, 3, 1}.
+    // since tv0->axis(0) is a broadcast, and tv2->axis(0) is not exact map. The
+    // mapping would skip tv->axis(0) and continue mapping for the rest of iter
+    // domains. tv2 will have output allocation order as {0, 3, 2, 1}.
     std::vector<IterDomain*> tv0_alloc = {
         tv0->axis(3), tv0->axis(2), tv0->axis(0), tv0->axis(1)};
     tv0->setAllocationDomain(tv0_alloc, true);
 
     preseg_passes::inferenceAllocationOrder(&fusion, {tv0, tv1}, {tv2});
-    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(0, 2, 3, 1));
+    EXPECT_THAT(getAllocationDomainPermutation(tv2), ElementsAre(0, 3, 2, 1));
   }
 }
 
