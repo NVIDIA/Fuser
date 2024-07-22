@@ -93,9 +93,10 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   TransformPropagatorWithCheck propagator(reference);
   MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
 
+  // Set computeAt before applying circular buffer
   tv0->computeAt(tv1, 1);
 
-  // Double Buffer with TMA loads
+  // Circular Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(number_of_stages);
 

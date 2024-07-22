@@ -499,14 +499,18 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     } else if (
         loop_type_ == CircularBufferLoopStage::Main &&
         requireEpilogue(circular_buffer_load_exprs_)) {
-      stop = IrBuilder::subExpr(
+      Val* main_stop = IrBuilder::subExpr(
           circular_buffer_loop_->stop(),
           SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
+      stop = IrBuilder::maxExpr(
+          main_stop, GpuLower::current()->kernel()->oneVal());
     } else if (loop_type_ == CircularBufferLoopStage::Epilog) {
       NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
-      start = IrBuilder::subExpr(
+      Val* epilogue_start = IrBuilder::subExpr(
           circular_buffer_loop_->stop(),
           SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
+      start = IrBuilder::maxExpr(
+          epilogue_start, GpuLower::current()->kernel()->oneVal());
     }
 
     cloned_top_level_loop_ = IrBuilder::create<ForLoop>(
@@ -967,7 +971,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
           Val* epilogue_compute_stage = IrBuilder::modExpr(
               cloned_top_level_loop_->index(),
               IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-          // mbarrier_wait_ = createMbarrierWait(ldst, epilogue_compute_stage);
           kir::MBarrierWait* mbarrier_wait =
               createMbarrierWait(ldst, epilogue_compute_stage);
           cloned_scopes_.back()->push_back(mbarrier_wait);
