@@ -217,7 +217,7 @@ class CircularBufferInfo {
 
   //! Get the number of circular buffer stages for the given axis,
   //!  the number of stages will be 2 in the case of circular buffer loop.
-  unsigned int getStageDepthFor(IterDomain* circular_buffered_id);
+  unsigned int getStageDepthFor(IterDomain* circular_buffered_id) const;
 
  private:
   TvInfo& getTvInfo(const TensorView* tv);

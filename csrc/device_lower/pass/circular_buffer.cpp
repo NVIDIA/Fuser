@@ -214,7 +214,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         loop_type_ == CircularBufferLoopStage::Main &&
         requireEpilogue(circular_buffer_load_exprs_)) {
       stop = IrBuilder::subExpr(
-          circular_buffer_loop_->stop(), gpu_lower->kernel()->oneVal());
+          circular_buffer_loop_->stop(),
+          SimplifyingIrBuilder::create<Val>(
+              int64_t(stage_depth - 1), DataType::Index));
     } else if (loop_type_ == CircularBufferLoopStage::Epilog) {
       NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
       start = IrBuilder::subExpr(
@@ -689,7 +691,7 @@ bool CircularBufferInfo::isCircularBufferedIterDomain(IterDomain* id) {
 CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
     const TensorView* tv) {
   NVF_ERROR(
-      tv->isCircularBuffered() || tv->isCircularBuffered(),
+      tv->isCircularBuffered(),
       "Not a circular-buffered tensor: ",
       tv->toString());
   return map_[tv];
@@ -737,7 +739,7 @@ void CircularBufferInfo::setStageDepth(
 }
 
 IterDomain* CircularBufferInfo::getCircularBufferAxis(const TensorView* tv) {
-  if (!(tv->isCircularBuffered() || tv->isCircularBuffered())) {
+  if (!tv->isCircularBuffered()) {
     return nullptr;
   }
 
@@ -745,7 +747,7 @@ IterDomain* CircularBufferInfo::getCircularBufferAxis(const TensorView* tv) {
 }
 
 unsigned int CircularBufferInfo::getStageDepthFor(
-    IterDomain* circular_buffer_axis) {
+    IterDomain* circular_buffer_axis) const {
   auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
       circular_buffer_axis, IdMappingMode::LOOP);
 
