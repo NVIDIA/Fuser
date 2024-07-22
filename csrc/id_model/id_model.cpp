@@ -319,7 +319,7 @@ void IdModel::buildExactGraph() {
     } else {
       for (auto p_tv : tv_inputs) {
         for (auto c_tv : other_tv_outputs) {
-          auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
+          auto exact_c2p_root_map = PairwiseLogicalDomainMap(p_tv, c_tv)
                                         .mapBroadcast(false)
                                         .mapConsumerToProducer();
 
@@ -940,7 +940,7 @@ void IdModel::validateAndPropagatePType() {
 class SdpaFwdOp;
 
 bool hasUniformSiblings(Expr* expr) {
-  return !expr->isOneOf<SdpaFwdOp>();
+  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
 }
 
 } // namespace nvfuser
