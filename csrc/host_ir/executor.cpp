@@ -80,6 +80,7 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
   Stream* stream = set_current_stream->stream();
   StreamKey stream_key = stream;
+  // if stream points to an index, it represents the dynamic value of that index
   if (Val* index = stream->index(); index != nullptr) {
     auto value = expr_evaluator_.evaluate(index);
     NVF_ERROR(value.hasValue() && value.is<int64_t>());

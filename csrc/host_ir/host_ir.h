@@ -117,6 +117,9 @@ class PostOnStream : public Expr {
 
 class Stream : public Val {
  public:
+  // if index is provided, the IR represents the streams whose index is the
+  // dynamic value of that index. Otherwise, it statically represents a new
+  // Stream.
   Stream(IrBuilderPasskey passkey, Val* index = nullptr);
   Stream(const Stream* src, IrCloner* ir_cloner);
   bool sameAs(const Statement* other) const override;
