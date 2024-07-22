@@ -94,14 +94,15 @@ void mapAllocationDomain(
 
   // logic to preserve reduction iter domain in target to WAR #2202
 #if true
-  // mapping id between ref's allocation domain to target's logical domain
+  // mapping id between ref's allocation domain to target's logical domain,
+  // iterating from fast to slow loop
   for (auto* ref_id : ref_alloc_domain) {
-    // skip when no ValGroup for ref_id to map.
+    // break when no ValGroup for ref_id to map.
     if (!val_graph.hasGroup(ref_id)) {
       break;
     }
     const ValGroup& vg = val_graph.toGroup(ref_id);
-    // skip when no mapping ValGroup found in target_logical_domain.
+    // break when no mapping ValGroup found in target_logical_domain.
     if (vg_id_map.count(vg) == 0) {
       break;
     }
@@ -154,14 +155,15 @@ void mapAllocationDomain(
     }
   }
 #else
-  // mapping id between ref's allocation domain to target's logical domain
+  // mapping id between ref's allocation domain to target's logical domain,
+  // iterating from fast to slow loop
   for (auto* ref_id : ref_alloc_domain) {
-    // skip when no ValGroup for ref_id to map.
+    // break when no ValGroup for ref_id to map.
     if (!val_graph.hasGroup(ref_id)) {
       break;
     }
     const ValGroup& vg = val_graph.toGroup(ref_id);
-    // skip when no mapping ValGroup found in target_logical_domain.
+    // break when no mapping ValGroup found in target_logical_domain.
     if (vg_id_map.count(vg) == 0) {
       break;
     }
