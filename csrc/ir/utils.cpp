@@ -492,7 +492,7 @@ class ValReplacementMutator : private OptOutMutator {
     more_stmts.insert(more_stmts.end(), stmts.begin(), stmts.end());
 
     for (auto stmt : more_stmts) {
-      std::cout << "stmt: " << stmt->toString() << std::endl;
+      // std::cout << "stmt: " << stmt->toString() << std::endl;
       dispatchMutate(stmt);
     }
   }
