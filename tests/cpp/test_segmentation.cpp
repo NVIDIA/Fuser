@@ -714,8 +714,8 @@ TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
 
   TensorView* vanilla_in = makeContigConcreteTensor({2, 3});
   TensorView* in = relu(vanilla_in);
-  TensorView* seg_in = segment_set(in) TensorView* permute_out =
-      permute(seg_in, {1, 0});
+  TensorView* seg_in = segment_set(in);
+  TensorView* permute_out = permute(seg_in, {1, 0});
   TensorView* compute_out = mul(in, in);
   compute_out = add(compute_out, in);
   fusion->addInput(vanilla_in);
