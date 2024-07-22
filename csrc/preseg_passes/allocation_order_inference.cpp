@@ -41,8 +41,10 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 //
 // 1. we project iter domains from refs' allocation domain to targets' logical
 // domains, starting from the fast iter domains, until we fail to find an exact
-// map. (sharp-edge 0: we exclude mapping from iteration id on ref to reduction
-// id on target to avoid unnecessary re-ordering which exposes #2202).
+// map for a non trivial iter domain, note: we would skip no mapping for trivial
+// iter domains in refs. (sharp-edge 0: we exclude mapping from iteration id on
+// ref to reduction id on target to avoid unnecessary re-ordering which exposes
+// #2202).
 //   we go through iS2[i2] (mapped)
 //              -> iS1[i1] (mapped)
 //              -> iS0[i0] (break, since there's no mapping)
@@ -73,7 +75,7 @@ void mapAllocationDomain(
     const IdModel& id_model,
     const TensorView* ref,
     TensorView* target) {
-  const ValGraph& val_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
   std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
   // reverse ref_alloc_domain, so a range based loop would iterate through from
@@ -85,10 +87,10 @@ void mapAllocationDomain(
   // map target logical domain into ref's allocation domain
   nvfuser::VectorOfUniqueEntries<IterDomain*> mapped_ids;
 
-  std::unordered_map<ValGroup, IterDomain*> vg_id_map;
+  std::unordered_map<ValGroup, IterDomain*> exact_id_map;
   for (auto* id : target_logical_domain) {
-    if (val_graph.hasGroup(id)) {
-      vg_id_map[val_graph.toGroup(id)] = id;
+    if (exact_graph.hasGroup(id)) {
+      exact_id_map[exact_graph.toGroup(id)] = id;
     }
   }
 
@@ -97,16 +99,28 @@ void mapAllocationDomain(
   // mapping id between ref's allocation domain to target's logical domain,
   // iterating from fast to slow loop
   for (auto* ref_id : ref_alloc_domain) {
-    // break when no ValGroup for ref_id to map.
-    if (!val_graph.hasGroup(ref_id)) {
+    // no ValGroup for ref_id to map.
+    if (!exact_graph.hasGroup(ref_id)) {
+      // no mapping for trivial iter domains is skipped, since it doesn't block
+      // vectorization
+      if (ref_id->isBroadcast() || ref_id->isReduction()) {
+        continue;
+      }
+      // break when no mapping ValGroup found in target_logical_domain.
       break;
     }
-    const ValGroup& vg = val_graph.toGroup(ref_id);
-    // break when no mapping ValGroup found in target_logical_domain.
-    if (vg_id_map.count(vg) == 0) {
+    const ValGroup& vg = exact_graph.toGroup(ref_id);
+    // no mapping ValGroup found in target_logical_domain.
+    if (exact_id_map.count(vg) == 0) {
+      // no mapping for trivial iter domains is skipped, since it doesn't block
+      // vectorization
+      if (ref_id->isBroadcast() || ref_id->isReduction()) {
+        continue;
+      }
+      // break when no mapping ValGroup found in target_logical_domain.
       break;
     }
-    IterDomain* id = vg_id_map[vg];
+    IterDomain* id = exact_id_map[vg];
     // sharp-edges 0
     // avoid mapping a reduced dimension.
     if (!ref_id->isReduction() && id->isReduction()) {
@@ -158,16 +172,28 @@ void mapAllocationDomain(
   // mapping id between ref's allocation domain to target's logical domain,
   // iterating from fast to slow loop
   for (auto* ref_id : ref_alloc_domain) {
-    // break when no ValGroup for ref_id to map.
-    if (!val_graph.hasGroup(ref_id)) {
+    // no ValGroup for ref_id to map.
+    if (!exact_graph.hasGroup(ref_id)) {
+      // no mapping for trivial iter domains is skipped, since it doesn't block
+      // vectorization
+      if (ref_id->isBroadcast() || ref_id->isReduction()) {
+        continue;
+      }
+      // break when no mapping ValGroup found in target_logical_domain.
       break;
     }
-    const ValGroup& vg = val_graph.toGroup(ref_id);
-    // break when no mapping ValGroup found in target_logical_domain.
-    if (vg_id_map.count(vg) == 0) {
+    const ValGroup& vg = exact_graph.toGroup(ref_id);
+    // no mapping ValGroup found in target_logical_domain.
+    if (exact_id_map.count(vg) == 0) {
+      // no mapping for trivial iter domains is skipped, since it doesn't block
+      // vectorization
+      if (ref_id->isBroadcast() || ref_id->isReduction()) {
+        continue;
+      }
+      // break when no mapping ValGroup found in target_logical_domain.
       break;
     }
-    IterDomain* id = vg_id_map[vg];
+    IterDomain* id = exact_id_map[vg];
     mapped_ids.pushBack(id);
   }
   if (mapped_ids.empty()) {
@@ -265,7 +291,7 @@ void inferenceAllocationOrder(
     // high water mark for candidate of ref.
     int64_t non_bc_high_water_mark = 0;
     for (auto* tv : srcs) {
-      // skip when non-trivial iter domain count is missing.
+      // skip when non-trivial iter domains count is missing.
       if (non_trivial_iter_count.count(tv) == 0) {
         continue;
       }
