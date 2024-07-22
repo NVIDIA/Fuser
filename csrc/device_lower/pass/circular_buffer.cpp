@@ -148,18 +148,6 @@ class CircularBufferFusionInspector : private IterVisitor {
   CircularBufferInfo& db_info_;
 };
 
-// The epilogue loop is only created when the producer of a circular
-// buffer tensor is on smem, in which case it would otherwise require
-// an additional predicate to guard buffer overruns. When it's on
-// gmem, that isn't the case, so it does not need to create an
-// epilogue loop.
-bool requireEpilogue(const std::vector<Expr*>& exprs) {
-  return std::any_of(exprs.begin(), exprs.end(), [](const Expr* expr) {
-    return expr->input(0)->as<TensorView>()->getMemoryType() ==
-        MemoryType::Shared;
-  });
-}
-
 // Replicates circular buffer loops for Prologue, Main, and
 // Epilogue. Prologue only copies the load expressions of circular
 // buffered tensors, whereas Epilogue does any expression other than
@@ -210,15 +198,12 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       NVF_ERROR(start->isZeroInt());
       stop = SimplifyingIrBuilder::create<Val>(
           int64_t(stage_depth - 1), DataType::Index);
-    } else if (
-        loop_type_ == CircularBufferLoopStage::Main &&
-        requireEpilogue(circular_buffer_load_exprs_)) {
+    } else if (loop_type_ == CircularBufferLoopStage::Main) {
       stop = IrBuilder::subExpr(
           circular_buffer_loop_->stop(),
           SimplifyingIrBuilder::create<Val>(
               int64_t(stage_depth - 1), DataType::Index));
     } else if (loop_type_ == CircularBufferLoopStage::Epilog) {
-      NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
       start = IrBuilder::subExpr(
           circular_buffer_loop_->stop(),
           SimplifyingIrBuilder::create<Val>(
@@ -584,7 +569,9 @@ class CircularBufferInserter : private kir::ExprMutator {
       registerInsertAfter(circular_buffer_loop, cp_async_wait_all);
     }
 
-    if (requireEpilogue(loads)) {
+    // Epilogue loop. This used to be an option but changed to be
+    // always on to avoid extra memory accesses. See PR #2660 as well.
+    {
       // In the case where the main loop is trivial (for example, ldmatrix in
       // matmul kernel), we need to be careful when copying epilog loop. For
       // example, if the main loop is:

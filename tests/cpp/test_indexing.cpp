@@ -1852,10 +1852,7 @@ TEST_F(IndexingTest, DoubleBuffering1) {
         return nullptr;
       }
 
-      // No epilog for this fusion
-      NVF_ERROR(
-          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
-          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+      auto circular_buffer_index = for_loops_.at(0)->index();
 
       switch (tv->name()) {
         case 0: {
@@ -1867,7 +1864,8 @@ TEST_F(IndexingTest, DoubleBuffering1) {
               circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
             return addExpr(
                 mulExpr(
-                    addExpr(loop_indices.at(0), createInt(1)), createInt(128)),
+                    addExpr(circular_buffer_index, createInt(1)),
+                    createInt(128)),
                 addExpr(
                     mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                     loop_indices.at(2)));
@@ -1880,27 +1878,37 @@ TEST_F(IndexingTest, DoubleBuffering1) {
         }
         case 1: {
           if (as_consumer) {
+            NVF_ERROR(
+                circular_buffer_loop_stage_ ==
+                    CircularBufferLoopStage::Prolog ||
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
             if (circular_buffer_loop_stage_ ==
                 CircularBufferLoopStage::Prolog) {
               return loop_indices.at(2);
-            } else if (
-                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+            } else {
               return addExpr(
                   loop_indices.at(2),
                   mulExpr(
                       modExpr(
-                          addExpr(loop_indices.at(0), createInt(1)),
+                          addExpr(circular_buffer_index, createInt(1)),
                           createInt(2)),
                       tv->axis(2)->extent()));
             }
           } else {
             NVF_ERROR(
-                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
-            // There should be no read-ahead offset
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main ||
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Epilog);
+            if (circular_buffer_loop_stage_ ==
+                CircularBufferLoopStage::Epilog) {
+              // The epilogue loop has an extent of 1, so the loop
+              // index is replaced with the actual start value
+              circular_buffer_index =
+                  subExpr(tv->axis(0)->extent(), createInt(1));
+            }
             return addExpr(
                 loop_indices.at(2),
                 mulExpr(
-                    modExpr(loop_indices.at(0), createInt(2)),
+                    modExpr(circular_buffer_index, createInt(2)),
                     tv->axis(2)->extent()));
           }
         }
@@ -2213,10 +2221,7 @@ TEST_F(IndexingTest, CircularBuffering1) {
         return nullptr;
       }
 
-      // No epilog for this fusion
-      NVF_ERROR(
-          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
-          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+      auto circular_buffer_index = for_loops_.at(0)->index();
 
       switch (tv->name()) {
         case 0: {
@@ -2226,7 +2231,6 @@ TEST_F(IndexingTest, CircularBuffering1) {
             // iter domain for the prologue, main and epilogue loops,
             // the loop index may not be the true index. The index
             // obtained from ForLoop should be always correct
-            auto circular_buffer_index = for_loops_.at(0)->index();
             return addExpr(
                 mulExpr(
                     circular_buffer_index,
@@ -2238,7 +2242,8 @@ TEST_F(IndexingTest, CircularBuffering1) {
               circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
             return addExpr(
                 mulExpr(
-                    addExpr(loop_indices.at(0), createInt(3)), createInt(128)),
+                    addExpr(circular_buffer_index, createInt(3)),
+                    createInt(128)),
                 addExpr(
                     mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
                     loop_indices.at(2)));
@@ -2251,13 +2256,16 @@ TEST_F(IndexingTest, CircularBuffering1) {
         }
         case 1: {
           if (as_consumer) {
+            NVF_ERROR(
+                circular_buffer_loop_stage_ ==
+                    CircularBufferLoopStage::Prolog ||
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
             if (circular_buffer_loop_stage_ ==
                 CircularBufferLoopStage::Prolog) {
               return addExpr(
                   loop_indices.at(2),
-                  mulExpr(for_loops_.at(0)->index(), tv->axis(2)->extent()));
-            } else if (
-                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main) {
+                  mulExpr(circular_buffer_index, tv->axis(2)->extent()));
+            } else {
               return addExpr(
                   loop_indices.at(2),
                   mulExpr(
@@ -2268,12 +2276,12 @@ TEST_F(IndexingTest, CircularBuffering1) {
             }
           } else {
             NVF_ERROR(
-                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
-            // There should be no read-ahead offset
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Main ||
+                circular_buffer_loop_stage_ == CircularBufferLoopStage::Epilog);
             return addExpr(
                 loop_indices.at(2),
                 mulExpr(
-                    modExpr(loop_indices.at(0), createInt(4)),
+                    modExpr(circular_buffer_index, createInt(4)),
                     tv->axis(2)->extent()));
           }
         }
