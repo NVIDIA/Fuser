@@ -3389,12 +3389,11 @@ class MultiMatmulSchedulerMatchTest
     EXPECT_EQ(tv_new->hasSwizzleOp(), tv_orig->hasSwizzleOp());
     EXPECT_EQ(tv_orig->shouldPromoteReuse(), tv_new->shouldPromoteReuse());
     EXPECT_EQ(tv_orig->getMemoryType(), tv_new->getMemoryType());
-    // TODO: enable these checks once circular buffering and inlining are
-    // implemented EXPECT_EQ tv_new->getComputeAtPosition(),
-    // tv_orig->getComputeAtPosition()) << suffix;
-    // EXPECT_EQ(tv_orig->isCircularBuffered(), tv_new->isCircularBuffered()) <<
-    // suffix; EXPECT_EQ(tv_orig->circularBufferDepth(),
-    // tv_new->circularBufferDepth()) << suffix;
+    EXPECT_EQ(tv_new->getComputeAtPosition(), tv_orig->getComputeAtPosition());
+    EXPECT_EQ(tv_orig->isCircularBuffered(), tv_new->isCircularBuffered());
+    if (tv_orig->isCircularBuffered() && tv_new->isCircularBuffered()) {
+      EXPECT_EQ(tv_orig->circularBufferDepth(), tv_new->circularBufferDepth());
+    }
 
     // Inspect loop domain
     ASSERT_EQ(tv_new->nDims(), tv_orig->nDims()) << suffix;
@@ -3512,6 +3511,15 @@ class MultiMatmulSchedulerMatchTest
     NVF_ERROR(new_compare_tvs.size() == orig_compare_tvs.size());
     for (size_t i : c10::irange(new_compare_tvs.size())) {
       compareTVs(orig_compare_tvs[i], new_compare_tvs[i]);
+    }
+
+    // If there are no errors up to this point, then check that the generated
+    // kernels match
+    if (!testing::Test::HasFailure()) {
+      FusionExecutor fe_orig, fe_new;
+      fe_orig.compileFusion(fusion);
+      fe_new.compileFusion(&new_fusion);
+      ASSERT_EQ(fe_new.kernelString(), fe_orig.kernelString());
     }
   }
 
