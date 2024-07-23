@@ -147,6 +147,10 @@ class UnswitchPredicate {
       PolymorphicValue static_offset = 0L;
       //! List of dynamic predicates.
       std::vector<Val*> dynamic_preds;
+      //! Circular buffer loop stage if applicable. The predicate
+      //! generated in the main loop where no epilogue is generated
+      //! needs to be used.
+      CircularBufferLoopStage loop_stage = CircularBufferLoopStage::NotApplicable;
     };
     UnswitchPredicateKey predicate_key;
     Info start;
@@ -170,6 +174,7 @@ class UnswitchPredicate {
   void mergeUnswitchPredicateOffsets(
       Val* predicate,
       Val* offset,
+      CircularBufferLoopStage loop_stage,
       MergedPredicates::Info& merged_predicate_info,
       bool is_start);
 

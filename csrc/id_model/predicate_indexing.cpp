@@ -105,17 +105,6 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       return nullptr;
     }
 
-    // If this loop is also unswitched (or unrolled), it should use
-    // 0 and extent-1 for the start and stop indices.
-    if (within_unswitch) {
-      if (is_start_predicate) {
-        return fl->fusion()->zeroVal();
-      } else {
-        return SimplifyingIrBuilder::subExpr(
-            fl->iter_domain()->extent(), fl->fusion()->oneVal());
-      }
-    }
-
     // The prologue loop does not need to be changed
     if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
       return nullptr;

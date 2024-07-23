@@ -390,6 +390,10 @@ class PredicateInfo {
     return predicated_domains_;
   }
 
+  CircularBufferLoopStage loopStage() const {
+    return loop_stage_;
+  }
+
   //! Return a false RootPredicateInfo, i.e., both start and stop
   //! predicates are false.
   static PredicateInfo getFalseInfo();
@@ -405,6 +409,8 @@ class PredicateInfo {
   Val* stop_offset_ = nullptr;
   // Track which domains are covered by the generated predicates
   std::unordered_set<IterDomain*> predicated_domains_;
+
+  CircularBufferLoopStage loop_stage_ = CircularBufferLoopStage::NotApplicable;
 };
 
 // Simple interface for IndexCompute
