@@ -488,32 +488,6 @@ SdpfaFwdResult sdpfa_fwd(
   TensorView* log_sumexp =
       IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
-  // Create a new Tensorview for cum_seq_q, cum_seq_k of shape (N + 1)
-  auto batch_idx = has_device_dim ? 1 : 0;
-  auto newForCumulativeSeq = [&]() -> TensorView* {
-    IterDomain* batch_id = ops::newOutputIterDomain(
-        {query_domain.at(batch_idx),
-         key_domain.at(batch_idx),
-         value_domain.at(batch_idx)});
-    IterDomain* resized_batch_id = IterDomain::resize(
-        batch_id,
-        IrBuilder::create<Val>(0, DataType::Index),
-        IrBuilder::create<Val>(1, DataType::Index),
-        /*mark_as_rfactor=*/true);
-
-    return IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(
-            std::vector({batch_id}),
-            std::vector({resized_batch_id}),
-            std::vector({resized_batch_id}),
-            TensorDomain::getContiguityFilledWith(
-                std::vector({resized_batch_id}), true)),
-        DataType::Int);
-  };
-
-  TensorView* cum_seq_q = newForCumulativeSeq();
-  TensorView* cum_seq_k = newForCumulativeSeq();
-
   TensorView* query_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* key_seq_len = TensorViewBuilder().dtype(DataType::Int).build();
 
@@ -539,8 +513,6 @@ SdpfaFwdResult sdpfa_fwd(
   IrBuilder::create<SdpaFwdOp>(
       output,
       log_sumexp,
-      cum_seq_q,
-      cum_seq_k,
       query_seq_len,
       key_seq_len,
       philox_seed,
@@ -555,8 +527,6 @@ SdpfaFwdResult sdpfa_fwd(
   return {
       output,
       log_sumexp,
-      cum_seq_q,
-      cum_seq_k,
       query_seq_len,
       key_seq_len,
       philox_seed,
@@ -571,8 +541,6 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* value,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* cum_seq_q,
-    TensorView* cum_seq_k,
     TensorView* query_seq_len,
     TensorView* key_seq_len,
     Val* dropout_p,
@@ -627,8 +595,6 @@ SdpfaBwdResult sdpfa_bwd(
       value,
       output,
       log_sumexp,
-      cum_seq_q,
-      cum_seq_k,
       query_seq_len,
       key_seq_len,
       dropout_p,
