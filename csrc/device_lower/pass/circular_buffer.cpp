@@ -690,7 +690,7 @@ void CircularBufferInfo::setCircularBufferAxis(
   getTvInfo(tv).circular_buffer_axis = axis;
 
   // Also validate the stage consistency with CA map.
-  unsigned int stage_depth = 0;
+  int64_t stage_depth = 0;
   if (tv->isCircularBuffered()) {
     stage_depth = tv->circularBufferDepth();
   } else {
@@ -702,9 +702,7 @@ void CircularBufferInfo::setCircularBufferAxis(
   setStageDepth(axis, stage_depth);
 }
 
-void CircularBufferInfo::setStageDepth(
-    IterDomain* id,
-    unsigned int stage_depth) {
+void CircularBufferInfo::setStageDepth(IterDomain* id, int64_t stage_depth) {
   auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
       id, IdMappingMode::LOOP);
 
@@ -733,7 +731,7 @@ IterDomain* CircularBufferInfo::getCircularBufferAxis(const TensorView* tv) {
   return getTvInfo(tv).circular_buffer_axis;
 }
 
-unsigned int CircularBufferInfo::getStageDepthFor(
+int64_t CircularBufferInfo::getStageDepthFor(
     IterDomain* circular_buffer_axis) const {
   auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
       circular_buffer_axis, IdMappingMode::LOOP);
