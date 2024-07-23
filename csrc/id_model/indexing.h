@@ -25,7 +25,7 @@ namespace nvfuser {
 struct IndexingInfo {
   std::vector<IterDomain*> loop_domains;
   // Indexing traversal path from loop domains
-  ExprPath traversal_path;
+  ExprPath<ExprGroup> traversal_path;
   // Index mappings of ID groups along the traversal path
   std::unordered_map<ValGroup, Val*> index_map;
 };
@@ -83,6 +83,21 @@ class TensorIndexer {
 
   // Traverse exprs and set allocation info for each tensor
   void setupAllocationDomains(const std::vector<Expr*>& exprs);
+
+  // Get the list of predicates of a given tensor appearing in a given
+  // expr as a consumer. Each predicate corresponds to a domain of the
+  // tensor, which is by default one of the logical domains but can be
+  // an intermediate domain with contiguous indexing.
+  //
+  // An optional ForLoop parameter specifies a loop that is either
+  // unswitched/unrolled or vectorized, both of which are handled by
+  // UnswitchPredicate. For normal inline predicates, the parameter
+  // should be nullptr.
+  std::vector<PredicateInfo> getPredicates(
+      TensorView* tv,
+      const Expr* expr,
+      const std::vector<ForLoop*>& for_loops,
+      ForLoop* unswitched_loop = nullptr) const;
 
  private:
   // Build a map of loop groups to their index Vals. See the comment
