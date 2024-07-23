@@ -217,7 +217,7 @@ class CircularBufferInfo {
 
   //! Get the number of circular buffer stages for the given axis,
   //!  the number of stages will be 2 in the case of circular buffer loop.
-  unsigned int getStageDepthFor(IterDomain* circular_buffered_id);
+  int64_t getStageDepthFor(IterDomain* circular_buffered_id) const;
 
  private:
   TvInfo& getTvInfo(const TensorView* tv);
@@ -228,9 +228,7 @@ class CircularBufferInfo {
   //!  set,
   //! so this function will throw an error if trying to set different stage
   //! numbers to iterdomains that are loop mapped.
-  void setStageDepth(
-      IterDomain* circular_buffered_id,
-      unsigned int stage_depth);
+  void setStageDepth(IterDomain* circular_buffered_id, int64_t stage_depth);
 
  private:
   //! Keeps track of information for lowering circular buffered tensors
@@ -244,7 +242,7 @@ class CircularBufferInfo {
   //!  Currently for each disjoint set of loop mapped iterdomains,
   //! Only one stage depth is supported, so that the loops can indeed
   //! shared with the same prolog extent and main loop offset.
-  std::unordered_map<IterDomain*, unsigned int> stage_depth_;
+  std::unordered_map<IterDomain*, int64_t> stage_depth_;
 };
 
 } // namespace nvfuser
