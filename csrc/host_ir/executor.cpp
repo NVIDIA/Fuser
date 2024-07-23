@@ -194,8 +194,8 @@ void allConsumerValsOfHelper(
   if (visisted_vals.find(val) != visisted_vals.end()) {
     return;
   }
+  visisted_vals.insert(val);
   for (Val* consumer : ir_utils::consumerValsOf(val)) {
-    visisted_vals.insert(consumer);
     allConsumerValsOfHelper(consumer, visisted_vals);
   }
 }
