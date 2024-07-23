@@ -80,8 +80,6 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
 struct SdpfaFwdResult {
   TensorView* output = nullptr;
   TensorView* log_sumexp = nullptr;
-  TensorView* cum_seq_q = nullptr;
-  TensorView* cum_seq_k = nullptr;
   TensorView* query_seq_len = nullptr;
   TensorView* key_seq_len = nullptr;
   TensorView* philox_seed = nullptr;
@@ -115,8 +113,6 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* value,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* cum_seq_q,
-    TensorView* cum_seq_k,
     TensorView* query_seq_len,
     TensorView* key_seq_len,
     Val* dropout_p,

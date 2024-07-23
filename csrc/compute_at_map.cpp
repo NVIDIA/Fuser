@@ -344,7 +344,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   // Initialize a node for every iteration domain
   for (auto tv : ir_utils::allTvs(fusion)) {
     const auto& domain = tv->getLoopDomain();
-    auto all_ids = ir_utils::allIDsOf(tv);
+    auto all_ids = tv->domain()->allIDs();
 
     for (auto id : all_ids) {
       // Check if this id is an logical id in the logical domain
@@ -493,8 +493,8 @@ void IterDomainGraph::build(Fusion* fusion) {
           mapMaybeSwizzleOp(exact_nodes_, c_id);
         }
 
-        auto p_ids_vec = ir_utils::allIDsOf(p_tv);
-        auto c_ids_vec = ir_utils::allIDsOf(c_tv);
+        auto p_ids_vec = p_tv->domain()->allIDs();
+        auto c_ids_vec = c_tv->domain()->allIDs();
         std::unordered_set<IterDomain*> p_ids(
             p_ids_vec.begin(), p_ids_vec.end());
         std::unordered_set<IterDomain*> c_ids(
