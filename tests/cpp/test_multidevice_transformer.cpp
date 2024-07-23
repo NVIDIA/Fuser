@@ -97,11 +97,10 @@ void validate(
     std::vector<at::Tensor> out) {
   EXPECT_EQ(expected_out.size(), out.size());
   for (auto i : c10::irange(out.size())) {
-    std::cout << "Out size " << out[i].sizes() << " expected " << expected_out[i].sizes() << std::endl;
     // Note: Scaling tolerance up since the error accumulates across ops
     // BFloat16 error is quite high, but the program has been verified with
     // double precision to be logically correct.
-    double atol = 1.0 * (i + 1);
+    double atol = 0.05 * (i + 1);
     double rtol = 1.6e-2; // Default for pytorch bfloat16
     auto all_close = out[i]
                          .to(expected_out[i].dtype())
@@ -288,12 +287,12 @@ TEST_F(DistributedTransformerTest, MLP_Backward) {
   TensorView* matmul1_grad_b = sum(dropout_grad, {0});
 
   TensorView* matmul1_grad_x_ = castOp(DataType::Float, matmul1_grad_x);
-  TensorView* gelu_grad = tanh_gelu_backward(matmul1_grad_x_, linear0); 
+  TensorView* gelu_grad = tanh_gelu_backward(matmul1_grad_x_, linear0);
   TensorView* gelu_grad_f = castOp(dtype, gelu_grad);
-  
+
   TensorView* w0_t = transpose(w0, 1, 2);
   TensorView* matmul0_grad_x_partial = matmul(gelu_grad_f, w0_t);
-  TensorView* matmul0_grad_x = sum(matmul0_grad_x_partial, {0}); //allreduce
+  TensorView* matmul0_grad_x = sum(matmul0_grad_x_partial, {0}); // allreduce
   TensorView* grad_gelu_t = transpose(gelu_grad_f, 1, 2);
   TensorView* matmul0_grad_w_t = matmul(grad_gelu_t, x);
   TensorView* matmul0_grad_w = transpose(matmul0_grad_w_t, 1, 2);
@@ -307,58 +306,82 @@ TEST_F(DistributedTransformerTest, MLP_Backward) {
   fusion->addOutput(matmul0_grad_b);
   fusion->addOutput(matmul0_grad_x);
 
-
-  for (auto tv : {x, grad, mask, dropout_grad, matmul1_grad_x, matmul1_grad_b, matmul0_grad_x}) {
+  for (auto tv :
+       {x,
+        grad,
+        mask,
+        dropout_grad,
+        matmul1_grad_x,
+        matmul1_grad_b,
+        matmul0_grad_x}) {
     tv->setDeviceMesh(mesh);
   }
 
-  for (auto tv : {w0, b0, w1, matmul1_grad_x, matmul1_grad_w, matmul1_grad_w_t, gelu_grad,
-    matmul0_grad_w_t, matmul0_grad_w, matmul0_grad_x_partial, matmul0_grad_b}) {
+  for (auto tv :
+       {w0,
+        b0,
+        w1,
+        matmul1_grad_x,
+        matmul1_grad_w,
+        matmul1_grad_w_t,
+        gelu_grad,
+        matmul0_grad_w_t,
+        matmul0_grad_w,
+        matmul0_grad_x_partial,
+        matmul0_grad_b}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
   const auto options =
       at::TensorOptions().dtype(at_dtype).device(communicator_->device());
-  auto x_ = at::randn({B*S, E}, options);
-  auto grad_ = at::randn({B*S, E}, options).to(at::kFloat);
-  auto mask_ = at::randn({B*S, E}, options).lt(1.0 - kDropoutProb);
+  auto x_ = at::randn({B * S, E}, options);
+  auto grad_ = at::randn({B * S, E}, options).to(at::kFloat);
+  auto mask_ = at::randn({B * S, E}, options).lt(1.0 - kDropoutProb);
   auto mlp_w0_ = at::randn({E, 4 * E}, options) * scale;
   auto mlp_b0_ = at::randn({4 * E}, options) * scale;
   auto mlp_w1_ = at::randn({4 * E, E}, options) * scale;
 
   // recompute activations:
-  auto linear1_ = at::matmul(x_, mlp_w0_).add(mlp_b0_).to(at::kFloat);
-  auto gelu_ = at::gelu(linear1_, "tanh");
+  auto linear0_ = at::matmul(x_, mlp_w0_).add(mlp_b0_).to(at::kFloat);
+  auto gelu_ = at::gelu(linear0_, "tanh");
 
   auto dropout_grad_ = at::native_dropout_backward(grad_, mask_, kScale);
   auto dropout_grad_h_ = dropout_grad_.to(at_dtype);
-  auto matmul_grad_ = at::matmul(dropout_grad_h_, mlp_w1_.transpose(0,1));
-  auto matmul_grad_w_ = at::matmul(dropout_grad_h_.transpose(0,1), gelu_.to(at_dtype)).transpose(0,1);
-  auto matmul_grad_bias_ = at::sum(dropout_grad_, {0});
-  auto gelu_grad_ = at::gelu_backward(matmul_grad_.to(at::kFloat), gelu_, "tanh");
+  auto matmul1_grad_ = at::matmul(dropout_grad_h_, mlp_w1_.transpose(0, 1));
+  auto matmul1_grad_w_ =
+      at::matmul(dropout_grad_h_.transpose(0, 1), gelu_.to(at_dtype))
+          .transpose(0, 1);
+  auto matmul1_grad_bias_ = at::sum(dropout_grad_, {0});
+  auto gelu_grad_ =
+      at::gelu_backward(matmul1_grad_.to(at::kFloat), linear0_, "tanh");
   auto gelu_grad_h_ = gelu_grad_.to(at_dtype);
-  auto matmul1_grad_bias_ = at::sum(gelu_grad_, {0});
-  auto matmul1_grad_ = at::matmul(gelu_grad_h_, mlp_w0_.transpose(0, 1));
-  auto matmul1_grad_w_ = at::matmul(gelu_grad_h_.transpose(0,1), x_).transpose(0,1);
+  auto matmul0_grad_bias_ = at::sum(gelu_grad_, {0});
+  auto matmul0_grad_ = at::matmul(gelu_grad_h_, mlp_w0_.transpose(0, 1));
+  auto matmul0_grad_w_ =
+      at::matmul(gelu_grad_h_.transpose(0, 1), x_).transpose(0, 1);
 
-  std::vector<c10::IValue> inputs = {grad_, x_, mask_,
+  std::vector<c10::IValue> inputs = {
+      grad_,
+      x_,
+      mask_,
       shardTensor(mlp_w0_, 1, mesh),
       shardTensor(mlp_b0_, 0, mesh),
       shardTensor(mlp_w1_, 0, mesh)};
-  std::vector<at::Tensor> expected_outputs = {dropout_grad_, 
-    shardTensor(matmul_grad_w_, 0, mesh),
-    matmul_grad_bias_,
-    shardTensor(gelu_grad_, 1, mesh),
-    shardTensor(matmul1_grad_w_, 1, mesh),
-    shardTensor(matmul1_grad_bias_, 0, mesh),
-    matmul1_grad_};
+  std::vector<at::Tensor> expected_outputs = {
+      dropout_grad_,
+      shardTensor(matmul1_grad_w_, 0, mesh),
+      matmul1_grad_bias_,
+      shardTensor(gelu_grad_, 1, mesh),
+      shardTensor(matmul0_grad_w_, 1, mesh),
+      shardTensor(matmul0_grad_bias_, 0, mesh),
+      matmul0_grad_};
 
   at::manual_seed(0);
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
-
+  
   validate(expected_outputs, outputs);
 }
 
