@@ -243,8 +243,8 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   validate(expected_outputs, outputs);
 }
 
-TEST_F(DistributedTransformerTest, MLP_Backward) {
-  auto dtype = DataType::Half;
+TEST_P(DistributedTransformerTest, MLP_Backward) {
+  auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -253,9 +253,9 @@ TEST_F(DistributedTransformerTest, MLP_Backward) {
   TensorView* grad = makeContigTensor(2, DataType::Float);
   TensorView* x = makeContigTensor(2, dtype);
   TensorView* mask = makeContigTensor(2, DataType::Bool);
-  TensorView* w0 = makeContigTensor(3, dtype); // sharded
-  TensorView* b0 = makeContigTensor(2, dtype); // sharded
-  TensorView* w1 = makeContigTensor(3, dtype); // sharded
+  TensorView* w0 = makeContigTensor(3, dtype);
+  TensorView* b0 = makeContigTensor(2, dtype);
+  TensorView* w1 = makeContigTensor(3, dtype);
 
   fusion->addInput(grad);
   fusion->addInput(x);
