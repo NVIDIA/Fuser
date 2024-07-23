@@ -1340,14 +1340,13 @@ class MultipleMatmulScheduler {
   }
 
   void scheduleEpilogue() {
-    params_.use_smem_epilogue) {
+    if (params_.use_smem_epilogue) {
       for (auto [dc, d] : cached_outputs_) {
         // Schedule output tensor differently for better global memory access
         // pattern.
         NVF_ERROR(false, "TODO: implement scheduleOutputTensor");
-        //sche duleOutputTensor(
-   
-        a_ result, d, gemm_tile, params_.supported_vec_size.epilogue);
+        // scheduleOutputTensor(
+        // mma_result, d, gemm_tile, params_.supported_vec_size.epilogue);
         d->axis(-1)->parallelize(ParallelType::Vectorize);
 
         // Propagate output tensor transformations back to smem_epilogue
@@ -1372,17 +1371,16 @@ class MultipleMatmulScheduler {
       }
       for (auto [dc, d] : cached_outputs_) {
         // We might propagate an inner dimension that is not compatible with the
-        // output or bias-like inputs. In those cases, we will further split thi
-        // 
-    nsion with an outer unrolled loop to achieve the proper
+        // output or bias-like inputs. In those cases, we will further split
+        // this dimension with an outer unrolled loop to achieve the proper
         // vectorization as specified by params.supported_vec_size.epilogue.
         NVF_ERROR(d->axis(-1)->extent()->isConst());
         int64_t d_extent = d->axis(-1)->extent()->value().as<int64_t>();
         if (d_extent > params_.supported_vec_size.epilogue) {
           // Should always be a divisible split
           NVF_ERROR(d_extent % params_.supported_vec_size.epilogue == 0);
-          d->split(-1, 
-              params_.supported_vec_size.epilogue, /*inner_split=*/true);
+          d->split(
+              -1, params_.supported_vec_size.epilogue, /*inner_split=*/true);
           d->axis(-2)->parallelize(ParallelType::Unroll);
         }
         d->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -1402,11 +1400,9 @@ class MultipleMatmulScheduler {
     std::vector<TensorView*> cached_tvs;
 
     // Handling transformations in fusion input tvs with assigned EPILOGUE_INPUT
-    //  role by propagating fusion output transformations through cached views of
-
-    //     OGUE_INPUT fusion input tvs and by setting vectorization of the inn
-    //  r
-     iterdomain of these cached views
+    //  role by propagating fusion output transformations through cached views
+    //  of EPILOGUE_INPUT fusion input tvs and by setting vectorization of the
+    //  inner most iterdomain of these cached views
     if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
       auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
 
@@ -1423,11 +1419,10 @@ class MultipleMatmulScheduler {
 
       std::unordered_set<ParallelType> parallel_types = {};
       if (params_.use_smem_epilogue) {
-        //! In cases where smem epilogue feature is enabled, the vectorization of
-
-        //!        //!  domains will be propagated to fusion inputs that are epilogue inp
-        //!  ts,
-     may result in unaligned memory reads. Vectorization is
+        //! In cases where smem epilogue feature is enabled, the vectorization
+        //! of
+        //!  domains will be propagated to fusion inputs that are epilogue
+        //!  inputs, this may result in unaligned memory reads. Vectorization is
         //!  explicitly excluded form parallelization types to avoid this issue.
         //! This should be changed when vectorization analysis is available and
         //!  enabled for matmul scheduler.
@@ -1529,4 +1524,3 @@ void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams& params) {
 }
 
 } // namespace nvfuser
-    
