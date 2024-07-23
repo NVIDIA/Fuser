@@ -456,10 +456,6 @@ bool hasAnyReductionOps(Fusion* fusion) {
   return hasOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
 }
 
-bool hasAnyMatmulOps(Fusion* fusion) {
-  return hasOpsOfType<LinearOp, MmaOp, MatmulOp, SdpaFwdOp>(fusion);
-}
-
 namespace {
 
 class ValReplacementMutator : private OptOutMutator {
@@ -734,48 +730,6 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
       tv->definition()->as<ScatterOp>()->getIndexedID() == id;
 }
 
-std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
-  VectorOfUniqueEntries<Val*> all_vals;
-  const auto& root_domain = tv->getRootDomain();
-  const auto& logical_domain = tv->getLogicalDomain();
-  const auto& loop_domain = tv->getLoopDomain();
-  const auto& alloc_domain = tv->getAllocationDomain();
-  const auto& additional_ids = tv->domain()->additionalIDs();
-
-  std::array<const std::vector<IterDomain*>*, 5> domains{
-      &root_domain,
-      &logical_domain,
-      &loop_domain,
-      &alloc_domain,
-      &additional_ids};
-
-  for (auto dom0 : domains) {
-    if (dom0->empty()) {
-      continue;
-    }
-    for (auto dom1 : domains) {
-      if (dom1->empty()) {
-        continue;
-      }
-      auto all_vals_01 = DependencyCheck::getAllValsBetween(
-          {dom0->begin(), dom0->end()}, {dom1->begin(), dom1->end()});
-      all_vals.pushBack(all_vals_01);
-      // Getting all vals is not sufficient, because there might be broadcasting
-      // IDs newly created during schedule.
-      auto all_exprs = DependencyCheck::getAllExprsBetween(
-          {dom0->begin(), dom0->end()}, {dom1->begin(), dom1->end()});
-      for (auto expr : all_exprs) {
-        all_vals.pushBack(expr->inputs());
-        all_vals.pushBack(expr->outputs());
-      }
-    }
-  }
-
-  // Filter so we only have iteration domains (ignore Ints used in split)
-  auto all_ids = ir_utils::filterByType<IterDomain>(all_vals.vector());
-  return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
-}
-
 bool isIndexSelectLookupTv(const TensorView* tv) {
   for (auto expr : tv->uses()) {
     if (expr->isA<IndexSelectOp>()) {
@@ -872,14 +826,12 @@ void validateDomainEquivalence(
       "Duplicated entry is detected in dom1: ",
       toDelimitedString(dom1));
 
-  std::vector<Val*> dom0_val(dom0.begin(), dom0.end());
-  std::vector<Val*> dom1_val(dom1.begin(), dom1.end());
-  auto forward_exprs = DependencyCheck::getAllExprsBetween(dom0_set, dom1_val);
-  auto backward_exprs = DependencyCheck::getAllExprsBetween(dom1_set, dom0_val);
+  auto exprs = IRBFS::getExprsBetween(
+      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  auto next = [&frontier](Expr* expr, bool forward) {
+  for (auto [expr, direction] : exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -890,7 +842,7 @@ void validateDomainEquivalence(
         }));
     std::vector<Val*> from;
     std::vector<Val*> to;
-    if (forward) {
+    if (direction == Direction::Forward) {
       from = expr->inputs();
       to = expr->outputs();
     } else {
@@ -914,12 +866,6 @@ void validateDomainEquivalence(
           ". Input not seen before: ",
           v->toString());
     }
-  };
-  for (Expr* expr : forward_exprs) {
-    next(expr, true);
-  }
-  for (auto it = backward_exprs.rbegin(); it != backward_exprs.rend(); it++) {
-    next(*it, false);
   }
 
   // Remove symbolic IDs that appear both in frontier and in dom1_set. These IDs

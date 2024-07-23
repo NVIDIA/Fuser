@@ -29,8 +29,8 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -2582,9 +2582,27 @@ TEST_F(NVFuserTest, FusionWelfordSchedule_CUDA) {
       reduction_params->lparams);
 }
 
-namespace {
-void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
-  const int axis = red_axis;
+using WelfordReductionParams = std::tuple<DataType, int64_t, int64_t, int64_t>;
+using WelfordReduction = NVFuserFixtureParamTest<WelfordReductionParams>;
+TEST_P(WelfordReduction, Test) {
+  auto [dtype, rdim, odim, axis] = GetParam();
+
+  // TODO: original welford algorithm actually keeps a running sum of
+  // squares, i.e. M_{2n} in the
+  //       cf:
+  //       https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+  //       algorithm notation, and it can reach inf for large numbers
+  //       with half precision. skipping too large volumes for half for
+  //       nwo might need further numerical experiments to re-design
+  //       this.
+  if (rdim > 32768 &&
+      (dtype == DataType::Half || dtype == DataType::BFloat16)) {
+    GTEST_SKIP() << "Skipping large reduction dims (" << rdim
+                 << ") for half and bfloat16";
+  }
+
+  maybeClearAllocator();
+
   at::ScalarType aten_dtype = data_type_to_aten(dtype);
 
   Fusion fusion;
@@ -2670,57 +2688,27 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
       "validate welford",
       reduction_params->lparams);
 }
-} // namespace
-
-TEST_F(NVFuserTest, FusionWelfordShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::ComplexFloat,
-      DataType::ComplexDouble,
-      DataType::Double,
-      DataType::Float,
-      DataType::Half};
-
-  if (at::cuda::getDeviceProperties(0)->major >= 8) {
-    dtypes.insert(dtypes.end(), DataType::BFloat16);
-  }
-
-  std::vector<int> red_axis = {1, 0};
-  std::vector<int> output_dims = {160, 320};
-  std::vector<int64_t> red_dims;
-
-  // Tried to cut down the number iterations with just
-  // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
-    red_dims.push_back(i);
-  }
-
-  for (auto dtype : dtypes) {
-    for (auto& axis : red_axis) {
-      for (auto& odim : output_dims) {
-        for (auto& rdim : red_dims) {
-          // TODO: original welford algorithm actually keeps a running sum of
-          // squares, i.e. M_{2n} in the
-          //       cf:
-          //       https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
-          //       algorithm notation, and it can reach inf for large numbers
-          //       with half precision. skipping too large volumes for half for
-          //       nwo might need further numerical experiments to re-design
-          //       this.
-          if (rdim > 32768 &&
-              (dtype == DataType::Half || dtype == DataType::BFloat16)) {
-            continue;
-          }
-          // Shmoo tests can occupy a lot of memory due to allocating many
-          // different tensor sizes. So in order to avoid an OOM during this
-          // test, we manually clear the allocator after it's reached a certain
-          // threshold.
-          maybeClearAllocator();
-          testWelford(dtype, axis, odim, rdim);
-        }
-      }
-    }
-  }
-}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    WelfordReduction,
+    ::testing::Combine(
+        testing::ValuesIn(getFloatingDataTypes()), // data type
+        testing::ValuesIn(Pow2Vals1to1Million), // reduction dimension size
+        testing::Values(160, 320), // iteration dimension size
+        testing::Values(0, 1)), // reduction axis
+    // when using structured bindings within TestParamInfo,
+    // parentheses are required to avoid compile errors,
+    // see https://github.com/google/googletest/issues/3848
+    ([](const testing::TestParamInfo<WelfordReductionParams>& info)
+         -> std::string {
+      std::stringstream ss;
+      auto [dtype, rdim, odim, axis] = info.param;
+      ss << "dtype_" << dtype;
+      ss << "_redu_" << rdim;
+      ss << "_iter_" << odim;
+      ss << "_axis_" << axis;
+      return sanitizeTestName(ss.str());
+    }));
 
 namespace {
 void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {
@@ -3483,7 +3471,7 @@ TEST_F(NVFuserTest, FusionSimpleVectorizeUnroll_CUDA) {
   // [bidx, unswitch, vectorize{2}, unroll{2}, tidx]
 
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv3);
 
   tv0_cache->axis(2)->parallelize(ParallelType::Vectorize);
@@ -3903,7 +3891,7 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedPointwiseMergeSymbolicPass_CUDA) {
   tv2->split(-1, kNumElems);
   tv2->split(-1, kVecSize);
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   c0->computeAt(tv2, -2);
   c1->computeAt(tv2, -2);
@@ -3964,7 +3952,7 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedPointwiseMergeSymbolicFail_CUDA) {
   tv2->split(-1, kNumElems);
   tv2->split(-1, kVecSize);
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   c0->computeAt(tv2, -2);
   c1->computeAt(tv2, -2);
@@ -4628,7 +4616,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize6_CUDA) {
   tv4->split(0, 2);
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv0->computeAt(tv2, 2);
   tv3->computeAt(tv4, 2);
@@ -4702,7 +4690,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize8_CUDA) {
   tv3->split(2, 16);
   tv3->axis(-2)->parallelize(ParallelType::TIDx);
 
-  MaxRootDomainInfoSpanningTree tree(tv3);
+  MaxLogicalDomainInfoSpanningTree tree(tv3);
   TransformPropagator tp(tv3);
   tree.traverse(&tp);
   scheduler_utils::parallelizeAllLike(tv3);
@@ -4753,7 +4741,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize9_CUDA) {
 
   tv4->merge(0)->split(0, 4);
 
-  MaxRootDomainInfoSpanningTree tree(tv4);
+  MaxLogicalDomainInfoSpanningTree tree(tv4);
   TransformPropagator tp(tv4);
   tree.traverse(&tp);
 
@@ -4795,7 +4783,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize10_CUDA) {
   tv5->merge(0)->split(0, 4);
 
   TransformPropagatorWithCheck propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
 
   // tv2 has no CA
   tv3->computeAt(tv5, 1);
@@ -4845,7 +4833,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize11_CUDA) {
   tv5->merge(0)->split(0, 4)->split(0, 2);
 
   TransformPropagatorWithCheck propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
 
   tv2->computeAt(tv5, 1);
 
@@ -6093,7 +6081,7 @@ TEST_F(NVFuserTest, FusionSimpleWarp_CUDA) {
   tv1->split(1, 32);
   auto tv1_rf = tv1->rFactor({1});
   TransformPropagatorWithCheck propagator(tv1_rf);
-  MaxRootDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
   tv1_rf->axis(-1)->parallelize(ParallelType::TIDx);
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
@@ -6140,7 +6128,7 @@ TEST_F(NVFuserTest, FusionSimpleWarpPad_CUDA) {
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
   tv1->axis(-1)->padToMultipleOfWarp(32);
   TransformPropagatorWithCheck propagator(tv1_rf);
-  MaxRootDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
   tv0->axis(-1)->parallelize(ParallelType::TIDx);
   tv0->axis(-1)->padToMultipleOfWarp(32);
   tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
@@ -6189,7 +6177,7 @@ TEST_F(NVFuserTest, FusionWarpPadMergeSplit_CUDA) {
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
   tv1->axis(-1)->padToMultipleOfWarp();
   TransformPropagatorWithCheck propagator(tv1_rf);
-  MaxRootDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
   tv0->axis(-1)->parallelize(ParallelType::TIDx);
   tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
@@ -6231,7 +6219,7 @@ TEST_F(NVFuserTest, FusionSerialWarpReduction_CUDA) {
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
   tv1->axis(-1)->padToMultipleOfWarp();
   TransformPropagatorWithCheck propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
   tv0->axis(-1)->parallelize(ParallelType::TIDx);
   tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
@@ -6276,7 +6264,7 @@ TEST_F(NVFuserTest, FusionTrivialWarpReduction_CUDA) {
   tv1->axis(-2)->parallelize(ParallelType::TIDx);
   tv1->axis(-2)->padToMultipleOfWarp();
   TransformPropagatorWithCheck propagator(tv1_rf);
-  MaxRootDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
   tv0->axis(-2)->parallelize(ParallelType::TIDx);
   tv0_cache->axis(-2)->parallelize(ParallelType::TIDx);
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
@@ -6324,7 +6312,7 @@ TEST_F(NVFuserTest, FusionMultipleDimBinding_CUDA) {
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
   tv1->axis(-1)->padToMultipleOfWarp(32);
   TransformPropagatorWithCheck propagator(tv1_rf);
-  MaxRootDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
   tv0->axis(-1)->parallelize(ParallelType::TIDx);
   tv0->axis(-1)->padToMultipleOfWarp(32);
   tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
@@ -6404,7 +6392,7 @@ TEST_F(NVFuserTest, FusionWarpMutipleThreadDim_CUDA) {
   tv2_rf->axis(-1)->padToMultipleOfWarp();
 
   TransformPropagatorWithCheck propagator(tv2_rf);
-  MaxRootDomainInfoSpanningTree(tv2_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2_rf).traverse(&propagator);
 
   tv0->axis(-1)->parallelize(ParallelType::TIDx);
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
@@ -6451,7 +6439,7 @@ TEST_F(NVFuserTest, FusionWarpReduceUnrollOuterLoop_CUDA) {
   tv1->axis(-1)->padToMultipleOfWarp();
   tv1->axis(1)->parallelize(ParallelType::Unroll);
   TransformPropagatorWithCheck propagator(tv1_rf);
-  MaxRootDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1_rf).traverse(&propagator);
   tv0->axis(-1)->parallelize(ParallelType::TIDx);
   tv0->axis(1)->parallelize(ParallelType::Unroll);
   tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
@@ -7933,7 +7921,7 @@ TEST_F(NVFuserTest, FusionFloatPow_CUDA) {
   tv1->axis(1)->parallelize(ParallelType::TIDx);
 
   TransformPropagatorWithCheck propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv1, {tv2, tv3, tv4, tv5, tv6});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

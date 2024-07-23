@@ -25,9 +25,9 @@ namespace mma_utils {
 //! Utilities in this namespace facilitates scheduling matmul kernels with
 //!  hierarchichal tiling specified in MatMulTileOptions.
 
-//! A mapping from ValGroup pointers to MatmulDomain. The ValGroups should
+//! A mapping from ValGroup pointers to MatmulDimRole. The ValGroups should
 //! correspond to IterDomain groups from an IdModel's exact graph. This
-using DimRolesMap = std::unordered_map<ValGroup, MatmulDomain>;
+using DimRolesMap = std::unordered_map<ValGroup, MatmulDimRole>;
 
 //! Schedule utility for matmul prolog:
 //!   Use all the threads on a CTA tile to load matmul operands
@@ -71,7 +71,7 @@ void orderTiledConcreteIdAsMaybeAllocationDomain(TensorView* tv);
 
 //! Orders the leaf ID canonically, and merges dims of the same role
 //! The return value gives the role of each loop IterDomain in tv.
-std::vector<MatmulDomain> canonicalizeMmaTvOrdering(
+std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     TensorView* tv,
     const ValGraph& permissive_graph,
     const DimRolesMap& dim_roles,
@@ -195,7 +195,34 @@ class WarpMmaSwizzler {
   //! output and mma inputs are scheduled in scheduleOperandRead, which must be
   //! called before this function.
   static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
+
+  //! Function to schedule the load of the input operands of a
+  //! Mma op. This internally calls swizzleTMABox. This function
+  //! splits/tiles the inputs to correct 2D TMA boxes and calls the function
+  //! above. Please note that we currently do not fully support not splitting
+  //! the outer dimension. This only works when the inner-dimension is not
+  //! split, that is the inner dim is less or equal to the swizzle size (in
+  //! bytes). The outer dim here refers to the second ID from the end, so for
+  //! the input [B, N, K], N would be outer. Broadcast is always moved
+  //! outermost.
+  static void scheduleTMALoadForMma(
+      TensorView* tv,
+      MmaInputSmemSwizzle swizzle,
+      bool permute_outer_dim = true);
+
+  //! Parallelize all dims as bulk expect the first dims mentioned in the second
+  //! param.
+  static void parallelizeAsBulkSkippingFirstIDs(
+      TensorView* tv,
+      int64_t first_ids_to_skip);
 };
+
+//! Schedules the copy operation of output of a Mma op which resided in the
+//! shared memory to global memory. This assumes the outout of Mma in the
+//! shared memory is of the form [M, N].
+//! This is tiled to [MO(1), NO(1), MI(m), NI(n)]. The inner two dims are
+//! marked parallel type bulk.
+void scheduleTMAStoreForMmaOutput(TensorView* tv, int64_t m, int64_t n);
 
 void checkDimSize(
     TensorView* tv,
@@ -214,7 +241,8 @@ using ProblemIterDomains = std::array<IterDomain*, 3>;
 //! An alias for mapping between TensorView instance and its role in
 //!  matmul fusion definition, some roles can be assigned to more than
 //!  a single tv, for example input for beta scaling in epilogue
-using TensorRolesMap = std::unordered_map<MatmulRole, std::vector<TensorView*>>;
+using TensorRolesMap =
+    std::unordered_map<MatmulTensorRole, std::vector<TensorView*>>;
 
 //! An alias for storing data types of the tensors in the mma op
 //!  the order is A, B, OUTPUT
@@ -270,7 +298,7 @@ struct MatmulPattern {
   MmaOp* translateToMmaOp();
 
   //! Given an IdModel, map groups of IterDomains to dimension roles
-  //! (MatmulDomain). Note that ValGroup is a shared_ptr to a
+  //! (MatmulDimRole). Note that ValGroup is a shared_ptr to a
   //! VectorOfUniqueEntries<Val*>. We copy these as keys so that the returned
   //! object can safely outlive id_model.
   DimRolesMap getDimRoles(IdModel& id_model) const;
@@ -282,14 +310,14 @@ struct MatmulPattern {
 std::vector<MatmulPattern> findMatmulPatterns(Fusion* fusion);
 
 //! This is a vector of roles describing the inner dimension of each operand
-using MatmulOperandInnerDims = std::vector<MatmulDomain>;
+using MatmulOperandInnerDims = std::vector<MatmulDimRole>;
 
 using MatmulOperandInnerDimsOpt = DataWrapperOpt<MatmulOperandInnerDims>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
 using DimRolesMapOpt = DataWrapperOpt<DimRolesMap>;
 using TensorRolesMapOpt = DataWrapperOpt<TensorRolesMap>;
 
-using DomainsDesc = std::vector<MatmulDomain>;
+using DomainsDesc = std::vector<MatmulDimRole>;
 using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 
 //! Returns wrapped matmul input memory layout data, if supported, otherwise
@@ -337,7 +365,7 @@ TensorRolesMapOpt getTensorRoles(
 //!  epilogue does not increase occupancy.
 std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
-    const int smem_double_buffer_stage,
+    const int smem_circular_buffer_stage,
     const TensorRolesMap& tensor_roles,
     bool ignore_occupancy_drop = false);
 
@@ -345,7 +373,7 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
 //! as well as guarantees about prologue smem reuse.
 NVF_API std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
-    const int smem_double_buffer_stage,
+    const int smem_circular_buffer_stage,
     const MmaDataTypes& data_types,
     bool smem_a_reuse_guaranteed = false,
     bool smem_b_reuse_guaranteed = false,
@@ -400,6 +428,9 @@ std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
     const ValGraph& permissive_graph);
+
+//! Set the number_of_dims IDs from the end to swizzled.
+void setWarpMapped(TensorView* tv, int64_t number_of_dims);
 
 } // namespace mma_utils
 

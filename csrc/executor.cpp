@@ -14,12 +14,17 @@
 #include <driver_api.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
+#include <fusion_profiler.h>
 #include <global_allocator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
+#include <multidevice/communication.h>
+#include <multidevice/communicator.h>
+#include <multidevice/lower_communication.h>
+#include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <serde/utils.h>
@@ -142,6 +147,9 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
 }
 } // namespace
 
+FusionExecutor::FusionExecutor()
+    : communicator_(&Communicator::getInstance()) {}
+
 std::unique_ptr<PrecomputedValues>& FusionExecutor::
     evaluatorPrecomputedValues() {
   if (!evaluator_precomputed_values_) {
@@ -257,9 +265,38 @@ void FusionExecutor::compileFusion(
   NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
+  // TODO: refactor the options_ passed through
+  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+
   if (isExpressionEvaluated(fusion)) {
     fusion_ = std::make_unique<Fusion>(*fusion);
     return;
+  }
+
+  const std::vector<Expr*>& exprs = fusion->exprs();
+  if (std::all_of(exprs.begin(), exprs.end(), [](Expr* e) {
+        return isResharding(e) && isLowerableToCommunication(e);
+      })) {
+    host_ir_container_ = std::make_unique<hir::HostIrContainer>();
+    IrCloner cloner = Fusion::copy(fusion, host_ir_container_.get());
+    for (Expr* e : exprs) {
+      std::vector<Communication*> communications =
+          lowerCommunication(cloner.clone(e));
+      for (auto* communication : communications) {
+        host_ir_container_->pushBackTopLevelExprs(communication);
+      }
+    }
+    return;
+  }
+
+  // NOTE: Profiling needs to be started below the isExpressionEvaluated query
+  // given the conditional can exit early from compilation.
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id);
+    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
   }
 
   for (auto out : fusion->outputs()) {
@@ -298,8 +335,16 @@ void FusionExecutor::compileFusion(
     fusion->printMath();
   }
 
-  // TODO: refactor the options_ passed through
-  options_.device = c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex());
+  //! Force index_type to int and disable magic zero if we detect that the
+  //! kernel contains any TMA memory operations.
+  bool has_cp_async_bulk = std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
+    return ir_utils::isCpAsyncBulk(e);
+  });
+
+  // Disable magic zero if there are any TMA operations in Fusion
+  if (has_cp_async_bulk) {
+    compile_params.enable_magic_zero = false;
+  }
 
   // Set the index type of compile params if not already set. If set,
   // make sure the compile param type is valid with the given kernel
@@ -312,6 +357,12 @@ void FusionExecutor::compileFusion(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
+    NVF_ERROR(
+        !has_cp_async_bulk ||
+            (compile_params.index_type.value() == PrimDataType::Int32),
+        "Compilation with int64 is requested but int32 is required because ",
+        "of TMA operations.");
+
   } else if (arg_index_type == PrimDataType::Int) {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
@@ -319,6 +370,13 @@ void FusionExecutor::compileFusion(
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
+    NVF_ERROR(
+        !has_cp_async_bulk,
+        "Compilation with int64 is required based on input arguments, but ",
+        "int32 is required because of TMA operations.");
+  } else if (has_cp_async_bulk) {
+    // TMA operations require 32-bit indexing.
+    compile_params.index_type = PrimDataType::Int32;
   }
 
   c10::DeviceGuard dg(options_.device);
@@ -477,6 +535,9 @@ void FusionExecutor::compileFusion(
   if (isDebugDumpEnabled(DebugDumpOption::Sass)) {
     debug() << disassembledKernelSASS() << std::endl;
   }
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id).stopCompile();
+  }
 }
 
 namespace {
@@ -539,7 +600,7 @@ std::vector<int64_t> getContiguousStrides(
     if (expand_flags.at(i - 1)) {
       stride = 0;
     } else if (size == 0) {
-      // If the size is 0, the stride is 1
+      // If the size is 0, the stride is 1.
       stride = 1;
     } else {
       cur_stride *= size;
@@ -924,7 +985,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   for (const auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction() || id->isStride()) {
       continue;
-    } else if (id->isDeviceDim()) {
+    }
+
+    if (id->isDeviceDim()) {
       symbolic_sizes.push_back(id->container()->oneVal());
     } else {
       symbolic_sizes.push_back(id->getMaybeExpandedExtent());
@@ -1860,12 +1923,36 @@ std::vector<at::Tensor> FusionExecutor::evaluateFusionOutputs(
   return outputs;
 }
 
+namespace {
+at::Tensor findBufferForFusionOutput(
+    const std::vector<at::Tensor>& out_tensors,
+    const Val* fusion_out,
+    const Fusion* fusion) {
+  auto i =
+      std::find(fusion->outputs().begin(), fusion->outputs().end(), fusion_out);
+  NVF_ERROR(i != fusion->outputs().end());
+  auto index = std::distance(fusion->outputs().begin(), i);
+  return out_tensors[index];
+}
+} // namespace
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
+
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id_ >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
+    sprof.inputBytesAccessed(inputBytesProcessed(args));
+    sprof.scheduler(toString(heuristic_));
+    sprof.startKernel(args.getDeviceIndex());
+  }
 
   NVF_ERROR(isCompiled());
   NVF_ERROR(
@@ -1880,22 +1967,40 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     expr_eval.bind(inputs[i], *args[i]);
   }
 
-  const bool measure_kernel_time = measure_kernel_time_ ||
-      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
-
-  // It's important to determine the input bytes processed prior
-  // to pushing the outputs into the arg struct.  Otherwise,
-  // the outputs will also be included with inputs when determining
-  // the input bytes accessed.
-  if (measure_kernel_time) {
-    inputBytesProcessed(args);
+  if (isExpressionEvaluated(fusion())) {
+    outputs = evaluateFusionOutputs(args, outputs, expr_eval);
+    if (isProfilerEnabled()) {
+      auto& sprof = FusionProfiler::segment(group_id_);
+      sprof.stopKernel();
+      sprof.outputBytesAccessed(outputBytesProcessed(outputs));
+    }
+    return outputs;
   }
 
-  if (!hasCompiledKernel()) {
-    outputs = evaluateFusionOutputs(args, outputs, expr_eval);
-    if (measure_kernel_time) {
-      outputBytesProcessed(outputs);
+  if (host_ir_container_ != nullptr) {
+    if (outputs.empty()) {
+      std::vector<GlobalBufferInfo> output_info = getOutputBufferInfo(
+          args, expr_eval, PrimDataType::Int, host_ir_container_.get());
+      outputs = allocateOutputs(
+          host_ir_container_.get(), output_info, options_.device, expr_eval);
+    }
+    for (Expr* e : host_ir_container_->topLevelExprs()) {
+      NVF_ERROR(e->isA<Communication>());
+      auto* communication = e->as<Communication>();
+      c10d::Backend* backend =
+          communicator_->getBackendForTeam(communication->team(), std::nullopt);
+      auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
+      at::Tensor out_tensor = findBufferForFusionOutput(
+          outputs, communication->out(), host_ir_container_.get());
+      c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+          communication,
+          communicator_->deviceId(),
+          backend,
+          in_tensor,
+          out_tensor);
+      if (work != nullptr) {
+        work->wait();
+      }
     }
     return outputs;
   }
@@ -2048,10 +2153,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   executor_utils::CudaKernelTimer timer(stream);
 
   if (execute_kernel_ && !kernel()->topLevelExprs().empty()) {
-    if (measure_kernel_time) {
-      timer.init();
-    }
-
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     recomputeArgs(*executor_entry, expr_eval, kernel());
@@ -2085,10 +2186,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               << ", occupancy=" << oss.str() << std::endl;
     }
 
-    if (measure_kernel_time) {
-      timer.start();
-    }
-
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
@@ -2117,23 +2214,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           stream,
           executor_entry->arg_ptrs.data()));
     }
-
-    if (measure_kernel_time) {
-      kernel_time_ms_ = timer.elapsed();
-    }
-  }
-
-  if (measure_kernel_time) {
-    outputBytesProcessed(outputs);
-
-    if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-        isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-      double gb_per_s =
-          ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
-          (double)1.0e9;
-      debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
-              << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
-    }
   }
 
   releaseZeroedMemory();
@@ -2142,51 +2222,37 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     debug() << kernel()->profile().toString(profile_buffer);
   }
 
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::segment(group_id_);
+    sprof.stopKernel();
+    sprof.outputBytesAccessed(outputBytesProcessed(outputs));
+  }
+
   return outputs;
 }
 
 int64_t FusionExecutor::inputBytesProcessed(const KernelArgumentHolder& args) {
-  int64_t total_bytes = 0;
-  if (!bytes_processed_per_input_.has_value()) {
-    int64_t num_bytes = 0;
-    bytes_processed_per_input_ = std::vector<int64_t>(args.size(), 0);
-    // Figure how many bytes are inputs, outputs, and temporary buffers
-    for (auto i : c10::irange(args.size())) {
-      if (args[i]->is<at::Tensor>()) {
-        auto t = args[i]->as<at::Tensor>();
-        num_bytes = static_cast<int64_t>(t.storage().nbytes());
-        bytes_processed_per_input_.value().at(i) = num_bytes;
-        total_bytes += num_bytes;
-      }
-    }
-  } else {
-    for (auto bp : bytes_processed_per_input_.value()) {
-      total_bytes += bp;
+  int64_t num_bytes = 0;
+  // Figure how many bytes are inputs, outputs, and temporary buffers
+  for (auto i : c10::irange(args.size())) {
+    if (args[i]->is<at::Tensor>()) {
+      auto t = args[i]->as<at::Tensor>();
+      num_bytes += static_cast<int64_t>(t.storage().nbytes());
     }
   }
-  return total_bytes;
+  return num_bytes;
 }
 
 int64_t FusionExecutor::outputBytesProcessed(
     const std::vector<at::Tensor>& outputs) {
-  int64_t total_bytes = 0;
-  if (!bytes_processed_per_output_.has_value()) {
-    int64_t num_bytes = 0;
-    bytes_processed_per_output_ = std::vector<int64_t>(outputs.size(), 0);
-    for (auto i : c10::irange(outputs.size())) {
-      const auto& output = outputs.at(i);
-      // NOTE: this assumes that all output elements correspond to a single
-      // store
-      num_bytes = static_cast<int64_t>(output.storage().nbytes());
-      bytes_processed_per_output_.value().at(i) = num_bytes;
-      total_bytes += num_bytes;
-    }
-  } else {
-    for (auto bp : bytes_processed_per_output_.value()) {
-      total_bytes += bp;
-    }
+  int64_t num_bytes = 0;
+  for (auto i : c10::irange(outputs.size())) {
+    const auto& output = outputs.at(i);
+    // NOTE: this assumes that all output elements correspond to a single
+    // store
+    num_bytes += static_cast<int64_t>(output.storage().nbytes());
   }
-  return total_bytes;
+  return num_bytes;
 }
 
 void FusionExecutor::compileRtc(

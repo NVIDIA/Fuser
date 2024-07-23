@@ -17,7 +17,7 @@
 #include <device_lower/analysis/tma.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <device_lower/pass/allocation.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
@@ -29,10 +29,10 @@
 #include <ir/all_nodes.h>
 #include <kernel.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
 #include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
-#include <root_domain_map.h>
 #include <vectorization_info.h>
 #include <visibility.h>
 
@@ -173,8 +173,8 @@ class GpuLower : public NonCopyable {
     return divisible_splits_;
   }
 
-  DoubleBufferInfo& doubleBufferInfo() {
-    return double_buffer_info_;
+  CircularBufferInfo& circularBufferInfo() {
+    return circular_buffer_info_;
   }
 
   CommonScalarMap& commonScalarMap() {
@@ -328,7 +328,7 @@ class GpuLower : public NonCopyable {
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
-  DoubleBufferInfo double_buffer_info_;
+  CircularBufferInfo circular_buffer_info_;
   CommonScalarMap common_scalar_map_;
   FusedReductionInfo fused_reduction_info_;
   std::shared_ptr<const SyncMap> sync_map_;

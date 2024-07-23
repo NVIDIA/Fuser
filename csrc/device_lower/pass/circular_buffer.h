@@ -165,44 +165,44 @@
 
 namespace nvfuser {
 
-int64_t getDoubleBufferAxisPosition(const TensorView* tv);
+int64_t getCircularBufferAxisPosition(const TensorView* tv);
 
-IterDomain* getDoubleBufferAxis(const TensorView* tv);
+IterDomain* getCircularBufferAxis(const TensorView* tv);
 
-void validateDoubleBufferedTensor(const TensorView* tv);
+void validateCircularBufferedTensor(const TensorView* tv);
 
-class DoubleBufferPass {
+class CircularBufferPass {
  public:
-  //! Apply double buffering transformations
+  //! Apply circular buffering transformations
   static std::vector<Expr*> run(const std::vector<Expr*>& exprs);
 };
 
-class DoubleBufferInfo {
-  // Lowering information of double buffered tensors.
+class CircularBufferInfo {
+  // Lowering information of circular buffered tensors.
   struct TvInfo {
-    IterDomain* double_buffer_axis = nullptr;
+    IterDomain* circular_buffer_axis = nullptr;
     Val* original_alloc_size = nullptr;
   };
 
  public:
   void build(Fusion* fusion);
 
-  void setDoubleBufferAxis(const TensorView* tv, IterDomain* id);
+  void setCircularBufferAxis(const TensorView* tv, IterDomain* id);
 
-  IterDomain* getDoubleBufferAxis(const TensorView* tv);
+  IterDomain* getCircularBufferAxis(const TensorView* tv);
 
-  //! Get a loop that matches with a given double-buffer axis. If
+  //! Get a loop that matches with a given circular-buffer axis. If
   //! ignore_prologue is true, a matched loop is ignored if it's a
   //! prologue loop.
-  static ForLoop* getDoubleBufferLoop(
+  static ForLoop* getCircularBufferLoop(
       IterDomain* axis,
       const std::vector<ForLoop*>& loops,
       bool ignore_prologue = false);
 
-  //! Get a loop that matches with the double-buffer axis of a given
-  //! double-buffered tensor. If ignore_prologue is true, a matched
+  //! Get a loop that matches with the circular-buffer axis of a given
+  //! circular-buffered tensor. If ignore_prologue is true, a matched
   //! loop is ignored if it's a prologue loop.
-  ForLoop* getDoubleBufferLoop(
+  ForLoop* getCircularBufferLoop(
       const TensorView* tv,
       const std::vector<ForLoop*>& loops,
       bool ignore_prologue = false);
@@ -212,12 +212,12 @@ class DoubleBufferInfo {
   Val* getOriginalAllocSize(const TensorView* tv);
 
   //! Returns true if the iterdomain will be realized
-  //!  as a double buffer loop.
-  bool isDoubleBufferedIterDomain(IterDomain* id);
+  //!  as a circular buffer loop.
+  bool isCircularBufferedIterDomain(IterDomain* id);
 
   //! Get the number of circular buffer stages for the given axis,
-  //!  the number of stages will be 2 in the case of double buffer loop.
-  unsigned int getStageDepthFor(IterDomain* circular_buffered_id);
+  //!  the number of stages will be 2 in the case of circular buffer loop.
+  int64_t getStageDepthFor(IterDomain* circular_buffered_id) const;
 
  private:
   TvInfo& getTvInfo(const TensorView* tv);
@@ -228,23 +228,21 @@ class DoubleBufferInfo {
   //!  set,
   //! so this function will throw an error if trying to set different stage
   //! numbers to iterdomains that are loop mapped.
-  void setStageDepth(
-      IterDomain* circular_buffered_id,
-      unsigned int stage_depth);
+  void setStageDepth(IterDomain* circular_buffered_id, int64_t stage_depth);
 
  private:
-  //! Keeps track of information for lowering double buffered tensors
+  //! Keeps track of information for lowering circular buffered tensors
   std::unordered_map<const TensorView*, TvInfo> map_;
 
-  //! Keeps track of which concrete loop map is realizing double buffer
+  //! Keeps track of which concrete loop map is realizing circular buffer
   //!  iterdomains.
-  std::unordered_set<const IterDomain*> concrete_double_buffered_loop_id_;
+  std::unordered_set<const IterDomain*> concrete_circular_buffered_loop_id_;
 
-  //! Keeps track of double buffer loop stage depth.
+  //! Keeps track of circular buffer loop stage depth.
   //!  Currently for each disjoint set of loop mapped iterdomains,
   //! Only one stage depth is supported, so that the loops can indeed
   //! shared with the same prolog extent and main loop offset.
-  std::unordered_map<IterDomain*, unsigned int> stage_depth_;
+  std::unordered_map<IterDomain*, int64_t> stage_depth_;
 };
 
 } // namespace nvfuser

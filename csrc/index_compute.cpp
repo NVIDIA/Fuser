@@ -13,7 +13,7 @@
 #include <contiguity.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/magic_zero.h>
 #include <device_lower/pass/unroll.h>
 #include <device_lower/utils.h>
@@ -23,8 +23,8 @@
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <ops/arith.h>
-#include <root_domain_map.h>
 #include <swizzle.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -1112,7 +1112,7 @@ indexMapFromTV(
     const std::unordered_set<ForLoop*>& rotated_loops,
     ForLoop* alloc_loop,
     bool as_consumer,
-    ForLoop* double_buffer_loop) {
+    ForLoop* circular_buffer_loop) {
   bool within_alloc = false;
   if (alloc_loop == nullptr) {
     within_alloc = true;
@@ -1160,9 +1160,9 @@ indexMapFromTV(
       idx = SimplifyingIrBuilder::addExpr(idx, loop->step());
     }
 
-    if (loop == double_buffer_loop) {
+    if (loop == circular_buffer_loop) {
       const int64_t stage_depth =
-          GpuLower::current()->doubleBufferInfo().getStageDepthFor(
+          GpuLower::current()->circularBufferInfo().getStageDepthFor(
               loop->iter_domain());
       idx = SimplifyingIrBuilder::addExpr(
           idx,
@@ -1356,7 +1356,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
       producer_tv,
       consumer_tv,
       -1,
-      PairwiseRootDomainMap(producer_tv, consumer_tv));
+      PairwiseLogicalDomainMap(producer_tv, consumer_tv));
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
@@ -1394,7 +1394,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   const auto gpu_lower = GpuLower::current();
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
-  auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv);
+  auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv);
   // Resize ops can be and should be replayed.
   auto producer_replayed_as_consumer =
       TransformReplay::replayPasC(
@@ -1420,13 +1420,15 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
-                          .mapBroadcast(false)
-                          .mapConsumerToProducer();
+  auto c2p_logical_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+                             .mapBroadcast(false)
+                             .mapConsumerToProducer();
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLoopDomain(), consumer_tv->getLoopDomain(), c2p_root_map);
+      producer_tv->getLoopDomain(),
+      consumer_tv->getLoopDomain(),
+      c2p_logical_map);
 
   c2p_index_map = replay_producer_as_consumer.getReplay();
 
@@ -1569,12 +1571,12 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     }
   }
 
-  if (producer_tv->isDoubleBuffered() || producer_tv->isCircularBuffered()) {
-    auto db_loop = gpu_lower->doubleBufferInfo().getDoubleBufferLoop(
+  if (producer_tv->isCircularBuffered()) {
+    auto db_loop = gpu_lower->circularBufferInfo().getCircularBufferLoop(
         producer_tv, loops, true);
     if (db_loop != nullptr) {
-      const auto stage_depth =
-          (int64_t)gpu_lower->doubleBufferInfo().getStageDepthFor(
+      const int64_t stage_depth =
+          gpu_lower->circularBufferInfo().getStageDepthFor(
               db_loop->iter_domain());
       auto loop_index = db_loop->indexOrStartIfTrivial();
       if (rotated_loops.count(db_loop) > 0) {
@@ -1584,7 +1586,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
           loop_index,
           SimplifyingIrBuilder::create<Val>(stage_depth, DataType::Index));
       auto original_alloc_size =
-          gpu_lower->doubleBufferInfo().getOriginalAllocSize(producer_tv);
+          gpu_lower->circularBufferInfo().getOriginalAllocSize(producer_tv);
       auto db_strided_index =
           SimplifyingIrBuilder::mulExpr(db_switch_index, original_alloc_size);
       strided_inds.push_back(db_strided_index);
@@ -1720,7 +1722,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   // Replay producer to look like consumer so we can index on producer since
   // our loop nests look like consumer
   auto pairwise_map =
-      PairwiseRootDomainMap(producer_tv, consumer_tv).mapBroadcast(true);
+      PairwiseLogicalDomainMap(producer_tv, consumer_tv).mapBroadcast(true);
 
   TensorDomain* producerAsC = TransformReplay::replayPasC(
                                   producer_tv,
@@ -1735,13 +1737,15 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
-                          .mapBroadcast(false)
-                          .mapConsumerToProducer();
+  auto c2p_logical_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+                             .mapBroadcast(false)
+                             .mapConsumerToProducer();
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
-      producer_tv->getLoopDomain(), consumer_tv->getLoopDomain(), c2p_root_map);
+      producer_tv->getLoopDomain(),
+      consumer_tv->getLoopDomain(),
+      c2p_logical_map);
 
   auto c2p_map = replay_producer_as_consumer.getReplay();
 
@@ -1766,7 +1770,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   // If we add I1->I6 and I2->I7, the c2p map will no longer be injective, which
   // is not what we want.
   const auto p2c_map = invertOneToOneMap(c2p_map);
-  for (const auto& kv : PairwiseRootDomainMap(producer_tv, consumer_tv)
+  for (const auto& kv : PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                             .mapBroadcast(false)
                             .mapDifferentExtents(true)
                             .mapConsumerToProducer()) {
@@ -1980,25 +1984,25 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
   // This check was originally done in getConsumerStridedIndices, but
   // the number of strided index values depends on the loop where the
-  // consumer tensor is located. If it's double buffered and not in
+  // consumer tensor is located. If it's circular buffered and not in
   // the prologue loop, strided_inds ends up having one more
   // index, so it's just much simpler to check here before adding the
-  // additional index for double buffering.
+  // additional index for circular buffering.
   NVF_ERROR(
       strided_inds.size() == consumer_tv->getMaybeAllocationDomain().size());
 
-  if (consumer_tv->isDoubleBuffered() || consumer_tv->isCircularBuffered()) {
-    auto db_loop =
-        gpu_lower->doubleBufferInfo().getDoubleBufferLoop(consumer_tv, loops);
-    auto stage_depth = (int64_t)gpu_lower->doubleBufferInfo().getStageDepthFor(
+  if (consumer_tv->isCircularBuffered()) {
+    auto db_loop = gpu_lower->circularBufferInfo().getCircularBufferLoop(
+        consumer_tv, loops);
+    int64_t stage_depth = gpu_lower->circularBufferInfo().getStageDepthFor(
         db_loop->iter_domain());
     bool is_circular_buffer_loop = stage_depth > 2;
     bool is_prolog =
-        db_loop->doubleBufferLoopStage() == DoubleBufferLoopStage::Prolog;
+        db_loop->circularBufferLoopStage() == CircularBufferLoopStage::Prolog;
 
     Val* db_switch_index = nullptr;
 
-    // In double buffered we don't materialize the prolog loop as there will
+    // In circular buffered we don't materialize the prolog loop as there will
     //  be only one iteration. In circular buffer case we materialize the
     //  prolog loop as well covering the first N-1 iterations, N being the
     //  stage depth.
@@ -2028,7 +2032,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
       // Use the generated switching buffer index to access the buffer space.
       auto original_alloc_size =
-          gpu_lower->doubleBufferInfo().getOriginalAllocSize(consumer_tv);
+          gpu_lower->circularBufferInfo().getOriginalAllocSize(consumer_tv);
       auto db_strided_index =
           SimplifyingIrBuilder::mulExpr(db_switch_index, original_alloc_size);
       strided_inds.push_back(db_strided_index);
@@ -2092,7 +2096,21 @@ kir::TensorIndex* Index::getProducerIndex(
   if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
       GpuLower::current()->isTensorIndexerEnabled()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        producer, consumer->definition());
+        producer, consumer->definition(), loops);
+    if (generate_pointer) {
+      auto address_offset = index;
+      if (producer->getMemoryType() == MemoryType::Shared) {
+        auto producer_dt = producer->getDataType();
+        NVF_ERROR(producer_dt.has_value());
+        auto index_dt = index->getDataType();
+        NVF_ERROR(index_dt.has_value());
+        address_offset = SimplifyingIrBuilder::mulExpr(
+            address_offset,
+            IrBuilder::create<Val>(dataTypeSize(*producer_dt), *index_dt));
+      }
+      index = SimplifyingIrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(producer), address_offset);
+    }
   } else {
     index = getProducerStridedIndices(
         producer,
@@ -2181,7 +2199,21 @@ kir::TensorIndex* Index::getConsumerIndex(
   if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
       GpuLower::current()->isTensorIndexerEnabled()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        consumer, consumer->definition());
+        consumer, consumer->definition(), loops);
+    if (generate_pointer) {
+      auto address_offset = index;
+      if (consumer->getMemoryType() == MemoryType::Shared) {
+        auto consumer_dt = consumer->getDataType();
+        NVF_ERROR(consumer_dt.has_value());
+        auto index_dt = index->getDataType();
+        NVF_ERROR(index_dt.has_value());
+        address_offset = SimplifyingIrBuilder::mulExpr(
+            index,
+            IrBuilder::create<Val>(dataTypeSize(*consumer_dt), *index_dt));
+      }
+      index = SimplifyingIrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(consumer), address_offset);
+    }
   } else {
     index = getConsumerStridedIndices(
         consumer, loops, rotated_loops, override_index, generate_pointer);
@@ -2394,7 +2426,7 @@ std::unordered_map<IterDomain*, Val*> updateInitialLoopIndexMap(
 } // namespace
 
 // Returns predicates and the concrete (by loop map) root domains they cover
-std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
+std::vector<PredicateInfo> Index::getReferenceRootPredicates(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops,
@@ -2405,7 +2437,8 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
 
   const bool is_unswitch = unswitch_or_vec_loop != nullptr;
 
-  auto db_axis = gpu_lower->doubleBufferInfo().getDoubleBufferAxis(consumer_tv);
+  auto db_axis =
+      gpu_lower->circularBufferInfo().getCircularBufferAxis(consumer_tv);
 
   // Generate start and stop indexing from idgraph.
   //
@@ -2445,7 +2478,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
       non_divisible_splits.begin(),
       non_divisible_splits.end());
 
-  std::vector<RootPredicateInfo> pred_info_vec;
+  std::vector<PredicateInfo> pred_info_vec;
 
   for (const auto& contig_id_entry : contig_id_infos) {
     auto contig_id = contig_id_entry.id;
@@ -2470,7 +2503,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
       continue;
     }
 
-    RootPredicateInfo info;
+    PredicateInfo info;
 
     // The final predicates will look like:
     // (index + start_offset) >= 0 && (index + stop_offset) < extent.
@@ -2523,7 +2556,7 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
     info.stop_predicate_ = stop_pred;
 
     for (auto consumer_id : contig_id_entry.covered_ids) {
-      info.root_ids_.insert(consumer_id);
+      info.predicated_domains_.insert(consumer_id);
     }
     pred_info_vec.emplace_back(info);
   }
@@ -2531,8 +2564,8 @@ std::vector<RootPredicateInfo> Index::getReferenceRootPredicates(
   return pred_info_vec;
 }
 
-RootPredicateInfo RootPredicateInfo::getFalseInfo() {
-  RootPredicateInfo info;
+PredicateInfo PredicateInfo::getFalseInfo() {
+  PredicateInfo info;
   info.start_predicate_ = GpuLower::current()->kernel()->falseVal();
   info.stop_predicate_ = GpuLower::current()->kernel()->falseVal();
 
@@ -2597,7 +2630,8 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   ValGroups groups_to_index = tma_info.getTMADomain();
 
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-  auto indices_inner_to_outer = indexer.getIndexFor(ldst, groups_to_index);
+  auto indices_inner_to_outer =
+      indexer.getIndexFor(ldst, !is_load, groups_to_index, loops);
 
   int64_t dim = (int64_t)tma_info.dims().size();
   auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);

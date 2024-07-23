@@ -703,7 +703,8 @@ getOptionalInnerOuterPersistentBufferBatches(
   // time to tune as these un-vectorized small cases should be rare in real
   // world.
   if (inner_dim_numel <= 1024l) {
-    const int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    batch = std::min(batch, inner_dim_numel);
     return std::make_pair(
         batch, ceilDiv(inner_dim_numel, batch * vectorize_factor));
   }
@@ -1100,13 +1101,6 @@ bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
     return false;
   }
 
-  // Fusions handled by persistent schedulers cannot have matmul ops.
-  if (ir_utils::hasAnyMatmulOps(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "no support for matmul ops.");
-    return false;
-  }
-
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic,
@@ -1125,15 +1119,15 @@ bool checkReductionPattern(
   // Ensure that the reduction operations share the same axes in their root
   // domains
   FusionGuard fg(fusion);
-  ComputeAtRootDomainMap root_map;
-  root_map.build(true);
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build(true);
 
   // Helper function to check the pattern equivalence for a list of
   // TensorViews
   auto checkPattern = [&](const std::vector<TensorView*>& rtvs) -> bool {
     for (const auto it : c10::irange(1, rtvs.size())) {
       if (!registry_utils::checkPatternEquivalence(
-              rtvs[it - 1], rtvs[it], root_map)) {
+              rtvs[it - 1], rtvs[it], logical_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedule_heuristic,
             "Un-mapped multi-reduction: ",

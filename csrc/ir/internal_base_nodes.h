@@ -188,10 +188,6 @@ class NVF_API IterDomain : public Val {
     return getIterType() == IterType::GatherScatter;
   }
 
-  bool isGather() const {
-    return getIterType() == IterType::Gather;
-  }
-
   bool isStride() const {
     return getIterType() == IterType::Stride;
   }
@@ -576,6 +572,12 @@ class TensorDomain : public Val {
   const std::vector<IterDomain*>& loop() const {
     return loop_domain_;
   }
+
+  // Get all IDs that is on the shortest path between any of the domains
+  // (logical domain, root domain, loop domain, allocation domain) following
+  // definition and uses path. Return values are topologically ordered and
+  // unique.
+  std::vector<IterDomain*> allIDs() const;
 
   const std::vector<IterDomain*>& maybeAllocation() const {
     return hasAllocation() ? allocation_domain_ : logical();

@@ -16,8 +16,8 @@
 #include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
 #include <ops/arith.h>
-#include <root_domain_map.h>
 #include <transform_iter.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
@@ -464,6 +464,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Sin:
       return {in.as<at::Tensor>().sin()};
       break;
+    case UnaryOpType::Signbit:
+      return {signbit(in)};
+      break;
     case UnaryOpType::Cos:
       return {in.as<at::Tensor>().cos()};
       break;
@@ -595,6 +598,10 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Mod:
       NVF_CHECK(rhs != 0);
       return {lhs % rhs};
+      break;
+    case BinaryOpType::Fmod:
+      NVF_CHECK(rhs != 0);
+      return {fmod(lhs, rhs)};
       break;
     case BinaryOpType::CeilDiv:
       NVF_CHECK(rhs != 0);
@@ -2561,10 +2568,6 @@ IterDomain* IterDomain::merge(
       outer->toString(),
       ", Inner: ",
       inner->toString());
-  NVF_CHECK(
-      (outer->isGather() && inner->isGather()) ||
-          (!outer->isGather() && !inner->isGather()),
-      "Merging gather and non-gather domains is not supported.");
 
   NVF_CHECK(
       !outer->isStride() && !inner->isStride(),
@@ -2700,11 +2703,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
         "swizzling broadcast axes not yet supported");
   }
 
-  // TODO: gather and shift check on swizzle
-  NVF_ERROR(
-      !in_x->isGather() && !in_y->isGather(),
-      "Swizzled gather not yet supported");
-
   IterDomain* out_x = IterDomainBuilder(in_x).build();
 
   IterDomain* out_y = IterDomainBuilder(in_y).build();
@@ -2734,11 +2732,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
         !input->as<IterDomain>()->isBroadcast(),
         "swizzling broadcast axes not yet supported");
   }
-
-  // TODO: gather and shift check on swizzle
-  NVF_ERROR(
-      !in_x->isGather() && !in_y->isGather(),
-      "Swizzled gather not yet supported");
 
   IterDomain* out_x = IterDomainBuilder(in_x).build();
 
@@ -3666,6 +3659,61 @@ void TensorDomain::setAllocationDomain(
   contiguity_ = std::move(new_contiguity);
 }
 
+std::vector<IterDomain*> TensorDomain::allIDs() const {
+  std::array<const std::vector<IterDomain*>*, 4> all_domains = {
+      &logical_domain_, &root_domain_, &allocation_domain_, &loop_domain_};
+  VectorOfUniqueEntries<IterDomain*> discovered_ids;
+  for (auto domain : all_domains) {
+    discovered_ids.pushBack(*domain);
+  }
+
+  // We only care about IDs on the shortest path between domains
+  std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+  for (auto i : c10::irange(all_domains.size() - 1)) {
+    if (all_domains[i]->empty()) {
+      continue;
+    }
+    for (auto j : c10::irange(i + 1, all_domains.size())) {
+      if (all_domains[j]->empty()) {
+        continue;
+      }
+      auto path = IRBFS::getExprsBetween(
+          {all_domains[i]->begin(), all_domains[i]->end()},
+          {all_domains[j]->begin(), all_domains[j]->end()},
+          false);
+      for (auto [expr, _] : path) {
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->outputs()));
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->inputs()));
+        for (auto in : expr->inputs()) {
+          for (auto out : expr->outputs()) {
+            out2in.emplace(out->as<IterDomain>(), in->as<IterDomain>());
+          }
+        }
+      }
+    }
+  }
+
+  // Topological sort all IDs
+  std::list<IterDomain*> ids_to_be_sorted(
+      discovered_ids.begin(), discovered_ids.end());
+  VectorOfUniqueEntries<IterDomain*> sorted_ids;
+  while (!ids_to_be_sorted.empty()) {
+    auto it = ids_to_be_sorted.begin();
+    while (it != ids_to_be_sorted.end()) {
+      auto in_it = out2in.find(*it);
+      if (in_it == out2in.end() || sorted_ids.has(in_it->second)) {
+        sorted_ids.pushBack(*it);
+        it = ids_to_be_sorted.erase(it);
+      } else {
+        it++;
+      }
+    }
+  }
+  return sorted_ids.vector();
+}
+
 Split::Split(
     IrBuilderPasskey passkey,
     IterDomain* outer,
@@ -3982,7 +4030,6 @@ std::vector<PolymorphicValue> PadOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
-  double value = (double)inputs.at(1);
 
   std::vector<int64_t> pad_widths;
   auto pad_width_offset = getPadWidthInputOffset();
@@ -3995,7 +4042,18 @@ std::vector<PolymorphicValue> PadOp::evaluate(
     pad_widths.push_back(right_pad);
   }
 
-  return {at::pad(in, pad_widths, "constant", value)};
+  if (isComplexType(*out()->getDataType())) {
+    std::complex<double> value =
+        static_cast<std::complex<double>>(inputs.at(1));
+    auto real = at::real(in);
+    auto imag = at::imag(in);
+    auto padded_real = at::pad(real, pad_widths, "constant", value.real());
+    auto padded_imag = at::pad(imag, pad_widths, "constant", value.imag());
+    return {at::complex(padded_real, padded_imag)};
+  } else {
+    double value = static_cast<double>(inputs.at(1));
+    return {at::pad(in, pad_widths, "constant", value)};
+  }
 }
 
 SliceOp::SliceOp(
@@ -4276,10 +4334,8 @@ SdpaFwdOp::SdpaFwdOp(
     IrBuilderPasskey passkey,
     TensorView* output,
     TensorView* log_sumexp,
-    TensorView* cum_seq_q,
-    TensorView* cum_seq_k,
-    Val* query_seq_len,
-    Val* key_seq_len,
+    TensorView* query_seq_len,
+    TensorView* key_seq_len,
     TensorView* philox_seed,
     TensorView* philox_offset,
     TensorView* debug_attn_mask,
@@ -4292,8 +4348,6 @@ SdpaFwdOp::SdpaFwdOp(
     : Expr(passkey) {
   addOutput(output);
   addOutput(log_sumexp);
-  addOutput(cum_seq_q);
-  addOutput(cum_seq_k);
   addOutput(query_seq_len);
   addOutput(key_seq_len);
   addOutput(philox_seed);
@@ -4344,6 +4398,17 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   const auto dropout_p = inputs.at(3).as<double>();
   const auto is_causal = inputs.at(4).as<bool>();
 
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool handle_device_dim = false;
+  if (query.dim() == 5) {
+    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
+    handle_device_dim = true;
+    query = query.squeeze(0);
+    key = key.squeeze(0);
+    value = value.squeeze(0);
+  }
+
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
   const auto last_dim_size = query.sizes()[3];
@@ -4391,15 +4456,22 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     output = output.slice(-1, 0, last_dim_size);
   }
 
-  // Query and key seq len are of type c10::SymInt -> convert them to int for
-  // Polymorphic Value
+  // Add back the device dim axis for output.
+  if (handle_device_dim) {
+    output = output.unsqueeze(0);
+  }
+
+  // Query and key seq len are of type c10::SymInt -> convert them to CPU scalar
+  // tensors to support adding them as fusion outputs.
+  // We ignore cum_seq_q/k outputs since they are undefined tensors for
+  // non-nested tensors.
   return {
       output,
       log_sumexp,
-      cum_seq_q,
-      cum_seq_k,
-      *query_seq_len.maybe_as_int(),
-      *key_seq_len.maybe_as_int(),
+      at::scalar_tensor(
+          *query_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
+      at::scalar_tensor(
+          *key_seq_len.maybe_as_int(), at::device(at::kCPU).dtype(at::kLong)),
       philox_seed,
       philox_offset,
       debug_attn_mask};
@@ -4486,7 +4558,7 @@ ForLoop::ForLoop(
     bool vectorize,
     Val* vectorize_shift,
     bool unroll_required,
-    DoubleBufferLoopStage double_buffer_loop_stage)
+    CircularBufferLoopStage circular_buffer_loop_stage)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -4522,7 +4594,7 @@ ForLoop::ForLoop(
   addDataAttribute(vectorize);
   addAttribute(vectorize_shift);
   addDataAttribute(unroll_required);
-  addDataAttribute(double_buffer_loop_stage);
+  addDataAttribute(circular_buffer_loop_stage);
   // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
   // kernel IR does not need this feature.
   addDataAttribute(Scope(this));
@@ -4532,7 +4604,7 @@ ForLoop::ForLoop(
     IrBuilderPasskey passkey,
     IterDomain* iter_domain,
     Val* index,
-    DoubleBufferLoopStage double_buffer_loop_stage)
+    CircularBufferLoopStage circular_buffer_loop_stage)
     : ForLoop(
           passkey,
           iter_domain,
@@ -4544,14 +4616,14 @@ ForLoop::ForLoop(
               isParallelTypeVectorize(iter_domain->getParallelType()),
           nullptr,
           false,
-          double_buffer_loop_stage) {}
+          circular_buffer_loop_stage) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
     : ForLoop(
           passkey,
           iter_domain,
           GpuLower::current()->caMap()->getIndexVariable(iter_domain),
-          DoubleBufferLoopStage::NotApplicable) {}
+          CircularBufferLoopStage::NotApplicable) {}
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
     : ForLoop(
@@ -4564,7 +4636,7 @@ ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
           other->vectorize(),
           other->vectorize_shift(),
           other->isUnrollRequired(),
-          other->doubleBufferLoopStage()) {}
+          other->circularBufferLoopStage()) {}
 
 std::string ForLoop::toString(int indent_size) const {
   std::stringstream ss;
@@ -4758,5 +4830,151 @@ bool ForLoop::isGroup() const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
+
+SdpaBwdOp::SdpaBwdOp(
+    IrBuilderPasskey passkey,
+    TensorView* grad_query,
+    TensorView* grad_key,
+    TensorView* grad_value,
+    TensorView* grad_output,
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* output,
+    TensorView* log_sumexp,
+    TensorView* max_q,
+    TensorView* max_k,
+    Val* dropout_p,
+    Val* is_causal,
+    TensorView* philox_seed,
+    TensorView* philox_offset,
+    Val* scale)
+    : Expr(passkey) {
+  addOutput(grad_query);
+  addOutput(grad_key);
+  addOutput(grad_value);
+  addInput(grad_output);
+  addInput(query);
+  addInput(key);
+  addInput(value);
+  addInput(output);
+  addInput(log_sumexp);
+  addInput(max_q);
+  addInput(max_k);
+  addInput(dropout_p);
+  addInput(is_causal);
+  addInput(philox_seed);
+  addInput(philox_offset);
+  if (scale != nullptr) {
+    addInput(scale);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaBwdOp)
+
+std::string SdpaBwdOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << grad_query()->toString() << ",\n";
+  indent(ss, indent_size) << grad_key()->toString() << ",\n";
+  indent(ss, indent_size) << grad_value()->toString() << "\n";
+  indent(ss, indent_size + 1)
+      << " = sdpa_bwd(" << grad_attn()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << query()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          " << attn_out()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          logsum_exp = " << logsumexp()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          max_q = " << max_q()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          max_k = " << max_k()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          is_causal = " << is_causal()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          philox_seed = " << philox_seed()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          philox_offset = " << philox_offset()->toString() << ",\n";
+  if (scale() != nullptr) {
+    indent(ss, indent_size + 1)
+        << ",\n          scale = " << scale()->toInlineString();
+  }
+  indent(ss, indent_size + 1) << ")\n";
+  return ss.str();
+}
+
+std::string SdpaBwdOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // Backward tensor inputs: grad_input, query, key, value, output, logsumexp,
+  // max_q/k
+  std::vector<at::Tensor> bwd_inputs;
+  for (auto idx : c10::irange(8)) {
+    bwd_inputs.emplace_back(inputs.at(idx).as<at::Tensor>());
+  }
+  const auto dropout_p = inputs.at(8).as<double>();
+  const auto is_causal = inputs.at(9).as<bool>();
+  const auto philox_seed = inputs.at(10).as<at::Tensor>();
+  const auto philox_offset = inputs.at(11).as<at::Tensor>();
+
+  // Flash attention requires the last dimension to be padded to 8.
+  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
+  const auto last_dim_size = bwd_inputs[0].sizes()[3];
+  auto pad_last_dim = [last_dim_size](
+                          at::Tensor inp, int alignment_size) -> at::Tensor {
+    if (last_dim_size % alignment_size == 0) {
+      return inp;
+    }
+    auto pad_count = alignment_size - (last_dim_size % alignment_size);
+    auto padded_inp = at::pad(inp, {0, pad_count});
+    return padded_inp;
+  };
+
+  // Conmpute scale using original size of last dimension
+  double scale = inputs.size() > 12 ? inputs.back().as<double>()
+                                    : 1.0 / std::sqrt(last_dim_size);
+
+  // ATen reference:
+  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
+  // cum_seq_q/k are undefined tensors for non-nested input tensors.
+  auto [grad_query, grad_key, grad_value] =
+      at::_scaled_dot_product_flash_attention_backward(
+          /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
+          /*query=*/pad_last_dim(bwd_inputs[1], 8),
+          /*key=*/pad_last_dim(bwd_inputs[2], 8),
+          /*value=*/pad_last_dim(bwd_inputs[3], 8),
+          /*output=*/pad_last_dim(bwd_inputs[4], 8),
+          /*logsumexp=*/bwd_inputs[5],
+          /*cum_seq_q=*/at::Tensor(),
+          /*cum_seq_k=*/at::Tensor(),
+          // Note: ATen implementation expects max_q/max_k as scalars.
+          /*max_q=*/bwd_inputs[6].item<int64_t>(),
+          /*max_k=*/bwd_inputs[7].item<int64_t>(),
+          /*dropout_p=*/dropout_p,
+          /*is_causal=*/is_causal,
+          /*philox_seed=*/philox_seed,
+          /*philox_offset=*/philox_offset,
+          /*scale=*/scale);
+
+  // If the inputs were padded, slice the gradsto restore the original size
+  auto slice_last_dim = [last_dim_size](at::Tensor output) -> at::Tensor {
+    if (output.sizes()[3] != last_dim_size) {
+      return output;
+    }
+    return output.slice(-1, 0, last_dim_size);
+  };
+
+  return {
+      slice_last_dim(grad_query),
+      slice_last_dim(grad_key),
+      slice_last_dim(grad_value)};
+}
 
 } // namespace nvfuser

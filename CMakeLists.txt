@@ -97,7 +97,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/alias_memory.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/allocation.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/pass/double_buffer.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/circular_buffer.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/expr_sort.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/fusion_simplifier.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/grid_serialization.cpp
@@ -135,9 +135,12 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/container.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/executor.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/circular_buffer_indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/id_model_index_compute.cpp
   ${NVFUSER_SRCS_DIR}/id_model/indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/loop_promotion.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/predicate_indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/schedule.cpp
   ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
@@ -184,13 +187,17 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/remove_bcast_squeeze.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/insert_reshardings.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/make_resharding_contiguous.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/propagate_shardings.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/remove_bcast_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
-  ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
+  ${NVFUSER_SRCS_DIR}/logical_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
@@ -264,7 +271,7 @@ add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 if(NOT MSVC)
   target_compile_options(codegen_internal PRIVATE
     -Wall -Wno-unused-function
-    -Werror
+    # -Werror
   )
 endif()
 
@@ -497,7 +504,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_allocation_order_inference.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_double_buffering.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_evaluator.cpp
@@ -555,7 +562,7 @@ if(BUILD_TEST)
   target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 endif()
 
-function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND TEST_SRC ${NVFUSER_ROOT}/tests/cpp/utils.cpp)
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
@@ -572,7 +579,7 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
     codegen_internal
     ${ADDITIONAL_LINK}
     dynamic_type
-    GTest::gtest_main GTest::gmock
+    GTest::gtest GTest::gmock
     flatbuffers
     ${TORCH_LIBRARIES}
   )
@@ -582,6 +589,11 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
       -Wall -Wno-unused-function -Werror
     )
   endif()
+endfunction()
+
+function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+  list(APPEND ADDITIONAL_LINK "GTest::gtest_main")
+  add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
 endfunction()
 
 if(BUILD_TEST)
@@ -597,12 +609,15 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communicator.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_transformer.cpp
   )
-  add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
+  add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
 
   add_test(test_view "${NVFUSER_ROOT}/tests/cpp/test_gpu_view.cpp" "")
@@ -610,7 +625,7 @@ if(BUILD_TEST)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
-    ${NVFUSER_ROOT}/tests/cpp/test_combine_mul_sum.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_gpu_tensorcore.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp

@@ -569,7 +569,7 @@ TEST_F(Tutorial, Reshape) {
     // Here's how we propagate the transformations of reshape_output
     // to all other tensors in the fusion
     TransformPropagatorWithCheck propagator(reshape_output);
-    MaxRootDomainInfoSpanningTree(reshape_output).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(reshape_output).traverse(&propagator);
 
     // Now, all tensors, including those before the reshape op, should
     // be transformed to 2D tensors with an inner domain of extent
@@ -1308,7 +1308,7 @@ TEST_F(Tutorial, VectorizeStorePointwiseTMA) {
 
   // Transform Operations between cache operations and output reference
   TransformPropagator propagator(reference_tv);
-  MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
 
   // Propagate common parallel dimensions
   reference_tv->axis(1)->parallelize(ParallelType::BIDx);
@@ -1409,7 +1409,7 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
 
   // Transform Operations between cache operations and output reference
   TransformPropagator propagator(reference_tv);
-  MaxRootDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
 
   // Define Parallelization Schema
   // Intermediate Tensors

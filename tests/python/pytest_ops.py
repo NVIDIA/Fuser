@@ -7,14 +7,15 @@ import torch
 import pytest
 import numpy as np
 
+from benchmarks.python.core import clear_cuda_cache
 from pytest_fusion_definitions import default_fd_fn, parse_inputs_fusion_definition
 from pytest_framework import create_op_test
 from pytest_core import ReferenceType, OpInfo, SampleInput
 from pytest_opinfos import opinfos
-from pytest_utils import ArgumentType, is_tensor
+from pytest_utils import ArgumentType, is_tensor, requiresJAX
 from typing import Callable
 
-from nvfuser import FusionDefinition
+from nvfuser import FusionCache, FusionDefinition
 
 
 def is_pre_volta():
@@ -66,6 +67,7 @@ def torch_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInp
     )
 
 
+@requiresJAX
 def jax_correctness_test_fn(fd_fn: Callable, nvf_op: OpInfo, sample: SampleInput):
     with FusionDefinition() as fd:
         fd_fn(fd, nvf_op, *sample.args, **sample.kwargs)
@@ -146,12 +148,15 @@ def correctness_test_fn(
         return jax_correctness_test_fn(_fd_fn, nvf_op, sample)
     elif reference_type == ReferenceType.Python:
         return python_correctness_test_fn(_fd_fn, nvf_op, sample)
+    elif reference_type == ReferenceType.Numpy:
+        pytest.xfail("Numpy feference functions are not supported.")
     else:
-        return None
+        pytest.xfail("Reference function is not defined for this correctness test.")
 
 
-@create_op_test(tuple(op for op in opinfos if op.reference is not None))
+@create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_correctness(op: OpInfo, dtype: torch.dtype):
+    clear_cuda_cache()
     for sample in op.sample_input_generator(op, dtype):
         result = correctness_test_fn(op.reference_type, op, sample)
         if result is not None:
@@ -186,6 +191,9 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
 @create_op_test(tuple(op for op in opinfos if op.sample_input_generator is not None))
 def test_definition_op_in_schedule_error(op: OpInfo, dtype: torch.dtype):
     for sample in op.sample_input_generator(op, dtype):
+        # clear cache for each sample
+        FusionCache.reset()
+        clear_cuda_cache()
         with pytest.raises(
             RuntimeError, match=r"Attempting to add to a completed definition"
         ):
@@ -218,6 +226,7 @@ def _regex_escape_parenthesis(a: str) -> str:
 
 @create_op_test(tuple(op for op in opinfos if op.error_input_generator is not None))
 def test_errors(op: OpInfo, dtype: torch.dtype):
+    clear_cuda_cache()
     for sample, exception_type, exception_regex in op.error_input_generator(op, dtype):
         with pytest.raises(
             exception_type, match=_regex_escape_parenthesis(exception_regex)

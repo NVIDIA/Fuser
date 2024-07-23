@@ -155,7 +155,7 @@ class MaxInfoSpanningTree {
   virtual ~MaxInfoSpanningTree() = default;
 };
 
-// MaxRootDomainInfoSpanningTree is a subclass of MaxInfoSpanningTree which
+// MaxLogicalDomainInfoSpanningTree is a subclass of MaxInfoSpanningTree which
 // generates the maximum spanning tree that perserves the most amount of root
 // domain information from the reference tensor.
 //*
@@ -164,7 +164,7 @@ class MaxInfoSpanningTree {
 // level. This information is stored as a vector of `IDInfo`, where each
 // item in the vector corresponds to one ID in the reference tensor's root
 // domain.
-class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
+class NVF_API MaxLogicalDomainInfoSpanningTree : public MaxInfoSpanningTree {
  protected:
   // This is a struct storing how the information about a root ID in the
   // starting tensor is preserved during path-finding. If during path-finding,
@@ -235,23 +235,23 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
       int64_t loop_pos);
 
  public:
-  MaxRootDomainInfoSpanningTree(
+  MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
       std::shared_ptr<Information> reference_info,
       Selector* selector = nullptr)
       : MaxInfoSpanningTree(reference, reference_info, selector) {}
-  MaxRootDomainInfoSpanningTree(
+  MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
       Selector* selector = nullptr)
-      : MaxRootDomainInfoSpanningTree(
+      : MaxLogicalDomainInfoSpanningTree(
             reference,
             getReferenceIDInfo(reference),
             selector) {}
-  MaxRootDomainInfoSpanningTree(
+  MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
       int64_t loop_pos,
       Selector* selector = nullptr)
-      : MaxRootDomainInfoSpanningTree(
+      : MaxLogicalDomainInfoSpanningTree(
             reference,
             getReferenceIDInfo(reference, loop_pos),
             selector) {}

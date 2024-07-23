@@ -406,7 +406,7 @@ TEST_P(HostIrTest, ForLoops) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      DoubleBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -425,36 +425,34 @@ TEST_P(HostIrTest, ForLoops) {
   fusion->addInput(i);
   fusion->addInput(acc_in);
   fusion->addOutput(acc_out);
+  fusion->aliasOutputToInput(acc_out, acc_in, AllocationType::ReuseBuffer);
 
   FusionGuard::setCurFusion(hic.get());
 
+  auto buffer_input = makeContigConcreteTensor({1}, DataType::Int);
+  auto buffer_ouput = makeContigConcreteTensor({1}, DataType::Int);
+
   IrCloner ir_cloner(hic.get());
-  std::vector<Val*> post_on_stream_inputs = {index, ir_cloner.clone(acc_in)};
-  std::vector<Val*> post_on_stream_outputs = {ir_cloner.clone(acc_in)};
+  std::vector<Val*> post_on_stream_inputs = {index, buffer_input};
+  std::vector<Val*> post_on_stream_outputs = {buffer_ouput};
   auto* host_unit = IrBuilder::create<HostUnit>(std::move(fusion));
   auto* post_on_stream = IrBuilder::create<PostOnStream>(
       host_unit, post_on_stream_inputs, post_on_stream_outputs);
 
   for_loop->body().push_back(post_on_stream);
 
-  hic->addInput(post_on_stream->inputs().at(1));
-  hic->addOutput(post_on_stream->outputs().at(0));
+  hic->addInput(buffer_input);
   hic->pushBackTopLevelExprs(for_loop);
 
   HostIrExecutorParams params;
   auto [use_fusion_executor_cache] = GetParam();
-  if (!use_fusion_executor_cache) {
-    GTEST_SKIP()
-        << "not supported for now because of concretization issue, getting the error: dynamic_tvs.empty() INTERNAL ASSERT FAILED at /opt/pytorch/Fuser/csrc/device_lower/validation.cpp:187, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. Tensor with dynamic transform must be concretized before lowering: T1_l[ ?S2{( ( ( -( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ) ) + 10 ) + ( ( fmax(( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ), ( fmin(10, ( where(( ( i7 + 1 ) < 0 ), ( ( i7 + 1 ) + 10 ), ( i7 + 1 )) )) )) ) - 10 ) )}rf ], T3_g[ ?S4{( ( ( -( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ) ) + 10 ) + ( ( fmax(( fmax(0, ( where(( i7 < 0 ), ( i7 + 10 ), i7) )) ), ( fmin(10, ( where(( ( i7 + 1 ) < 0 ), ( ( i7 + 1 ) + 10 ), ( i7 + 1 )) )) )) ) - 10 ) )} ]";
-  }
   params.use_fusion_executor_cache = use_fusion_executor_cache;
   HostIrExecutor hie(std::move(hic), /*communicator=*/nullptr, params);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor acc_in_at = torch::tensor({kInitialValue}, options);
+  at::Tensor buffer_at = torch::tensor({kInitialValue}, options);
 
-  auto outputs =
-      hie.runWithInput({{post_on_stream->inputs().at(1), acc_in_at}});
+  hie.runWithInput({{buffer_input, buffer_at}});
 
   // Compute expected result for validation
   int64_t expected_result_data = kInitialValue;
@@ -463,7 +461,7 @@ TEST_P(HostIrTest, ForLoops) {
   }
   at::Tensor expected_result = torch::tensor({expected_result_data}, options);
 
-  EXPECT_TRUE(expected_result.equal(outputs.at(0)));
+  EXPECT_TRUE(expected_result.equal(buffer_at));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -475,9 +473,11 @@ INSTANTIATE_TEST_SUITE_P(
                                      : "useFusionExecutor";
     });
 
+using StreamTest = NVFuserTest;
+
 // The following test simply demonstrate how to change current CUDA stream in
 // the host program
-TEST_F(NVFuserTest, HostIrSetStream) {
+TEST_F(StreamTest, HostIrSetStream) {
   auto hic = std::make_unique<HostIrContainer>();
   auto stream = IrBuilder::createInContainer<Stream>(hic.get());
   auto set_stream =
@@ -488,6 +488,33 @@ TEST_F(NVFuserTest, HostIrSetStream) {
   setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
   hie.runWithInput({});
   EXPECT_NE(
+      c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+}
+
+// The following test simply demonstrate how to change current CUDA stream in
+// the host program
+TEST_F(StreamTest, HostIrDefaultStream) {
+  auto change_stream = [](bool use_default_stream) {
+    auto hic = std::make_unique<HostIrContainer>();
+    Stream* stream;
+    if (use_default_stream) {
+      stream = hic->getDefaultStream();
+    } else {
+      stream = IrBuilder::createInContainer<Stream>(hic.get());
+    }
+    auto set_stream =
+        IrBuilder::createInContainer<SetCurrentStream>(hic.get(), stream);
+    hic->pushBackTopLevelExprs(set_stream);
+    HostIrExecutor hie(std::move(hic));
+    hie.runWithInput({});
+  };
+
+  setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
+  change_stream(/*use_default_stream=*/false);
+  EXPECT_NE(
+      c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
+  change_stream(/*use_default_stream=*/true);
+  EXPECT_EQ(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
 }
 
@@ -603,6 +630,122 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "NIterations" << std::get<2>(info.param);
       return ss.str();
     });
+
+using SliceHostIrTestParams = bool;
+using SliceHostIrTest = NVFuserFixtureParamTest<SliceHostIrTestParams>;
+
+// The following test simply demonstrate how to change current CUDA stream in
+// the host program
+TEST_P(SliceHostIrTest, SlicingTensor) {
+  constexpr int64_t ndims = 2;
+  constexpr int64_t axis = 1;
+  constexpr int64_t start = 3;
+  constexpr int64_t stop = 13;
+  constexpr int64_t step = 1;
+  const std::vector<int64_t> input_sizes = {32, 32};
+
+  ASSERT_LT(axis, ndims);
+  ASSERT_LT(start, stop);
+  ASSERT_EQ(
+      step,
+      1); // only "1" is supported at the moment,
+          // https://github.com/NVIDIA/Fuser/blob/bad998ae277ffc2f43fdc28dca07d01d737a1623/csrc/ops/alias.cpp#L764
+  ASSERT_EQ(input_sizes.size(), ndims);
+
+  const bool put_slice_op_in_top_level_expr = GetParam();
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* tv = makeContigTensor(ndims);
+  auto* start_val = IrBuilder::create<Val>(start, DataType::Index);
+  auto* stop_val = IrBuilder::create<Val>(stop, DataType::Index);
+  auto* step_val = IrBuilder::create<Val>(step, DataType::Index);
+  Slice range = {.start = start_val, .stop = stop_val, .step = step_val};
+  std::vector<Slice> ranges(ndims);
+  ranges.at(axis) = range;
+  TensorView* sliced_tv = slice(tv, ranges);
+
+  hic->addInput(tv);
+  hic->addOutput(sliced_tv);
+
+  if (put_slice_op_in_top_level_expr) {
+    hic->pushBackTopLevelExprs(sliced_tv->definition());
+  }
+
+  HostIrExecutor hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  c10::IValue input = at::randn(input_sizes, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {hie.inputs().at(0), input}};
+
+  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+
+  // validate
+  at::Tensor input_aten = input.toTensor();
+  std::vector<at::indexing::TensorIndex> ranges_aten(
+      input_aten.dim(), at::indexing::Slice());
+  ranges_aten.at(axis) = at::indexing::Slice(start, stop, step);
+  auto ref_output = input_aten.index(ranges_aten);
+  if (put_slice_op_in_top_level_expr) {
+    EXPECT_TRUE(ref_output.equal(output));
+  } else {
+    EXPECT_EQ(output.numel(), 0);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    SliceHostIrTest,
+    testing::Bool(),
+    [](const testing::TestParamInfo<SliceHostIrTestParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "SliceOp";
+      if (!info.param) {
+        ss << "Not";
+      }
+      ss << "InTopLevelExpr";
+      return ss.str();
+    });
+
+using MatmulHostIrTest = NVFuserTest;
+
+TEST_F(MatmulHostIrTest, HostIr) {
+  constexpr int64_t H = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* a = makeContigTensor(3);
+  TensorView* b = makeContigTensor(3);
+  TensorView* c = matmul(a, b);
+
+  hic->addInput(a);
+  hic->addInput(b);
+  hic->addOutput(c);
+
+  hic->pushBackTopLevelExprs(c->definition());
+
+  HostIrExecutor hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  at::Tensor a_tensor = at::randn({H, M, K}, options);
+  at::Tensor b_tensor = at::randn({H, K, N}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {hie.inputs().at(0), a_tensor}, {hie.inputs().at(1), b_tensor}};
+
+  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+
+  // validate
+  auto ref_output = at::matmul(a_tensor, b_tensor);
+
+  EXPECT_TRUE(ref_output.allclose(output));
+}
 
 } // namespace hir
 

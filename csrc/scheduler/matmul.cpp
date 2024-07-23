@@ -671,13 +671,13 @@ void scheduleFusionInputsForEpilogue(
   //  role by propagating fusion output transformations through cached views of
   //  EPILOGUE_INPUT fusion input tvs and by setting vectorization of the inner
   //  most iterdomain of these cached views
-  if (tensor_roles.count(MatmulRole::EPILOGUE_INPUT)) {
-    auto& c_tvs = tensor_roles.at(MatmulRole::EPILOGUE_INPUT);
+  if (tensor_roles.count(MatmulTensorRole::EPILOGUE_INPUT)) {
+    auto& c_tvs = tensor_roles.at(MatmulTensorRole::EPILOGUE_INPUT);
 
     // The system supports only scenario where there is only one fusion output
     //  with assigned OUTPUT role, this condition is already verified so there
     //  is no need for an additional checks here
-    auto output_d = tensor_roles.at(MatmulRole::OUTPUT).front();
+    auto output_d = tensor_roles.at(MatmulTensorRole::OUTPUT).front();
     for (auto* c : c_tvs) {
       cached_tvs.push_back(c->cacheAfter());
     }
@@ -791,12 +791,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Core roles: there can be only one... TV with assigned core role
   const std::vector<TensorView*>& a_operands =
-      tensor_roles.at(MatmulRole::OPERAND_A);
+      tensor_roles.at(MatmulTensorRole::OPERAND_A);
   NVF_ERROR(
       a_operands.size() == 1, "We currently require exactly one A operand");
   TensorView* a = a_operands.front();
   const std::vector<TensorView*>& b_operands =
-      tensor_roles.at(MatmulRole::OPERAND_B);
+      tensor_roles.at(MatmulTensorRole::OPERAND_B);
   NVF_ERROR(
       b_operands.size() == 1, "We currently require exactly one B operand");
   TensorView* b = b_operands.back();
@@ -808,7 +808,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
   const bool has_fusion_c_roles =
-      (0 != tensor_roles.count(MatmulRole::EPILOGUE_INPUT));
+      (0 != tensor_roles.count(MatmulTensorRole::EPILOGUE_INPUT));
   const bool has_non_mma_input_tvs = has_epilogue && has_fusion_c_roles;
 
   // Including current tensor naming convention for reference,
@@ -1282,29 +1282,29 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       num_device_and_batch_dims + 6 + num_splitk_dims);
 
   // Propagate mma output swizzle and parallelization down the DAG
-  if (params.double_buffer_options.double_buffer_smem_write) {
+  if (params.circular_buffer_options.circular_buffer_smem_write) {
     NVF_ERROR(
-        params.double_buffer_options.smem_double_buffer_stage > 1,
+        params.circular_buffer_options.smem_circular_buffer_stage > 1,
         "Invalid buffer stage config")
-    if (params.double_buffer_options.smem_double_buffer_stage > 2) {
+    if (params.circular_buffer_options.smem_circular_buffer_stage > 2) {
       NVF_ERROR(
           params.async_gmem_load_operands,
           "Circular buffer only supports async load");
     }
 
     acw_smem->circularBuffer(
-        params.double_buffer_options.smem_double_buffer_stage);
+        params.circular_buffer_options.smem_circular_buffer_stage);
     bcw_smem->circularBuffer(
-        params.double_buffer_options.smem_double_buffer_stage);
+        params.circular_buffer_options.smem_circular_buffer_stage);
   }
 
-  if (params.double_buffer_options.double_buffer_smem_read) {
-    acr->doubleBuffer();
-    bcr->doubleBuffer();
+  if (params.circular_buffer_options.circular_buffer_smem_read) {
+    acr->circularBuffer(/*number_of_stages=*/2);
+    bcr->circularBuffer(/*number_of_stages=*/2);
   }
 
-  if (params.double_buffer_options.double_buffer_smem_read &&
-      params.double_buffer_options.double_buffer_smem_write) {
+  if (params.circular_buffer_options.circular_buffer_smem_read &&
+      params.circular_buffer_options.circular_buffer_smem_write) {
     // rotate Kg loop
     scheduler_utils::rotateLoop(
         mma_result,

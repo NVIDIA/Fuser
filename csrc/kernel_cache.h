@@ -97,7 +97,7 @@ void prepareRuntimeOrder(SegmentedFusion*, RuntimeWorkSpace&);
 //! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
-  NVF_API explicit FusionKernelRuntime(
+  explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
       const serde::FusionKernelRuntime* serde_buffer = nullptr,
@@ -337,7 +337,7 @@ class InputsIdLookup : public NonCopyable {
   //! constructor where maximum cache size is fixed during init
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init,cppcoreguidelines-avoid-magic-numbers)
   explicit InputsIdLookup(size_t max_cache_size = 100)
-      : max_cache_size_(max_cache_size){};
+      : max_cache_size_(max_cache_size) {}
 
   //! struct to hold return value for lookupId.
   struct IdLookupReturn {

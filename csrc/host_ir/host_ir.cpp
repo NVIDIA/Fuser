@@ -32,13 +32,26 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(HostUnit)
 
 std::string HostUnit::toString(int indent_size) const {
   std::stringstream ss;
+  ss << toInlineString(indent_size) << ": Inputs={";
+  std::for_each(
+      fusion_to_execute()->inputs().begin(),
+      fusion_to_execute()->inputs().end(),
+      [&ss](auto input) { ss << input->toString(0) << ", "; });
+  ss << "} -> Outputs={";
+  std::for_each(
+      fusion_to_execute()->outputs().begin(),
+      fusion_to_execute()->outputs().end(),
+      [&ss](auto output) { ss << output->toString(0) << ", "; });
+  ss << "}";
   fusion_->print(ss, false);
   return ss.str();
 }
 
 // TODO: implement better ?
 std::string HostUnit::toInlineString(int indent_size) const {
-  return toString(indent_size);
+  std::stringstream ss;
+  ss << "HostUnit" << name();
+  return ss.str();
 }
 
 // TODO: implement
@@ -78,21 +91,18 @@ PostOnStream::PostOnStream(
 NVFUSER_DEFINE_CLONE_AND_CREATE(PostOnStream)
 
 std::string PostOnStream::toString(int indent_size) const {
-  int indent_increment = 2;
   std::stringstream ss;
-  indent(ss, indent_size) << "PostOnStream the operation :{" << std::endl;
-  indent(ss, indent_size) << hostOpToPost();
-  indent(ss, indent_size) << std::endl << "}, taking inputs: {";
-  for (auto input : inputs()) {
-    indent(ss, indent_size + indent_increment)
-        << input->toString(indent_size + indent_increment) << std::endl;
-  }
-  indent(ss, indent_size) << "} and outputs: {" << std::endl;
-  for (auto output : outputs()) {
-    indent(ss, indent_size + indent_increment)
-        << output->toString(indent_size + indent_increment) << std::endl;
-  }
-  indent(ss, indent_size) << "}" << std::endl;
+  indent(ss, indent_size) << "PostOnStream ("
+                          << hostOpToPost()->toInlineString(0) << ", "
+                          << "Inputs:{";
+  std::for_each(inputs().begin(), inputs().end(), [&ss](auto input) {
+    ss << input->toString(0) << ", ";
+  });
+  ss << "}, Outputs:{";
+  std::for_each(outputs().begin(), outputs().end(), [&ss](auto output) {
+    ss << output->toString(0) << ", ";
+  });
+  ss << "})";
   return ss.str();
 }
 
@@ -106,18 +116,14 @@ bool PostOnStream::sameAs(const Statement* other) const {
   return false;
 }
 
-std::atomic<int64_t> Stream::running_counter_ = 0;
+Stream::Stream(IrBuilderPasskey passkey) : Val(passkey, ValType::Stream) {};
 
-Stream::Stream(IrBuilderPasskey passkey)
-    : Val(passkey, ValType::Stream), idx_(running_counter_++){};
-
-Stream::Stream(const Stream* src, IrCloner* ir_cloner)
-    : Val(src, ir_cloner), idx_(src->idx_){};
+Stream::Stream(const Stream* src, IrCloner* ir_cloner) : Val(src, ir_cloner) {};
 NVFUSER_DEFINE_CLONE(Stream)
 
 std::string Stream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "Stream " << idx_;
+  indent(ss, indent_size) << "Stream " << name();
   return ss.str();
 }
 
@@ -163,11 +169,8 @@ Wait::Wait(IrBuilderPasskey passkey, Communication* communication)
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
 
 std::string Wait::toString(int indent_size) const {
-  int indent_increment = 2;
   std::stringstream ss;
-  indent(ss, indent_size) << "Wait the communication :{" << std::endl;
-  ss << communication()->toString(indent_size + indent_increment) << std::endl;
-  indent(ss, indent_size) << "}";
+  indent(ss, indent_size) << "Wait Communication " << communication()->name();
   return ss.str();
 }
 

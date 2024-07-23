@@ -9,6 +9,13 @@
 #include <unistd.h>
 #include <mutex>
 
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/debug.h>
+#else
+#include <multidevice/c10d_mock.h>
+#endif
+#include <torch/cuda.h>
+
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <multidevice/utils.h>
@@ -16,12 +23,19 @@
 #include <options.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
-#include <torch/cuda.h>
 
 namespace nvfuser {
 
+void MultiDeviceTestEnvironment::TearDown() {
+  Communicator::getInstance().cleanup();
+}
+
 MultiDeviceTest::MultiDeviceTest() {
-  communicator_ = getOrCreateCommunicator();
+  // Enable logging in c10d so debug messages can be printed out via
+  // `TORCH_DISTRIBUTED_DEBUG`.
+  c10d::setDebugLevelFromEnvironment();
+
+  communicator_ = &Communicator::getInstance();
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
@@ -107,23 +121,33 @@ void MultiDeviceTest::SetUp() {
   }
 }
 
-/*static*/ at::Tensor MultiDeviceTest::shardTensor(
-    at::Tensor tensor,
-    TensorView* tv,
-    DeviceIdxType deviceId) {
+at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
   if (!isSharded(tv)) {
     return tensor;
   }
-  auto sharded_dim = getShardedAxis(tv);
-  auto i = tv->getDeviceMesh().idxOf(deviceId);
-  // TODO: returning slice 0 temporarily when device is not in the mesh.
-  i = (i < 0) ? 0 : i;
-  return tensor.slice(sharded_dim, i, i + 1).contiguous();
+  return shardTensor(tensor, getShardedAxis(tv), tv->getDeviceMesh());
 }
 
-/*static*/ Communicator* MultiDeviceTest::getOrCreateCommunicator() {
-  static Communicator* communicator = new Communicator();
-  return communicator;
+at::Tensor MultiDeviceTest::shardTensor(
+    at::Tensor tensor,
+    int64_t axis,
+    const DeviceMesh& mesh) {
+  const auto device_id = communicator_->deviceId();
+  auto i = mesh.idxOf(device_id);
+  auto extent = tensor.size(axis);
+  auto nslices = mesh.size();
+  NVF_CHECK(
+      extent % nslices == 0, "Sharded axis must be evenly divisble by mesh");
+  auto stride = extent / nslices;
+  // TODO: returning slice 0 temporarily when device is not in the mesh.
+  i = (i < 0) ? 0 : i;
+  auto slice = tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
+  // Temporary until https://github.com/NVIDIA/Fuser/issues/2563. Adds DIDx
+  // axis in front representing the sharded extent of the tensor.
+  if (stride > 1) {
+    slice = slice.unsqueeze(0);
+  }
+  return slice;
 }
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -155,8 +179,7 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
     if (!output_tv->getDeviceMesh().has(communicator_->deviceId())) {
       continue;
     }
-    auto ref_output = shardTensor(
-        ref_unsharded_outputs.at(i), output_tv, communicator_->deviceId());
+    auto ref_output = shardTensor(ref_unsharded_outputs.at(i), output_tv);
     auto obtained_output = outputs.at(i);
     EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
         << "Device " << communicator_->deviceId() << " has unexpected output "
@@ -173,8 +196,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   for (int i : c10::irange(fusion->inputs().size())) {
     ASSERT_TRUE(fusion->inputs().at(i)->isA<TensorView>());
     auto input_tv = fusion->inputs().at(i)->as<TensorView>();
-    auto input = shardTensor(
-        unsharded_inputs.at(i).toTensor(), input_tv, communicator_->deviceId());
+    auto input = shardTensor(unsharded_inputs.at(i).toTensor(), input_tv);
     inputs.push_back(input);
   }
 
@@ -193,12 +215,12 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   }
 
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::move(fusion), *communicator_, multi_device_executor_params);
+      std::move(fusion), *communicator_, host_ir_executor_params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
   }
-  outputs = runtime->runWithInput(inputs, l_params);
+  outputs = runtime->runWithInput(inputs);
 
   if (debug_print) {
     if (!communicator_->deviceId()) {
@@ -222,3 +244,9 @@ PipelineTest::PipelineTest() {
 }
 
 } // namespace nvfuser
+
+int main(int argc, char** argv) {
+  testing::InitGoogleTest(&argc, argv);
+  testing::AddGlobalTestEnvironment(new nvfuser::MultiDeviceTestEnvironment());
+  return RUN_ALL_TESTS();
+}
