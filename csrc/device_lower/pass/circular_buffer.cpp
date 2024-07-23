@@ -660,10 +660,12 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         ? cloned_top_level_loop_
         : IrBuilder::create<ForLoop>(fl);
 
+    for_loop_id_stack_.push_back(fl->iter_domain());
     cloned_scopes_.push_back(&cloned_loop->body());
 
     kir::IrVisitor::handle(fl);
 
+    for_loop_id_stack_.pop_back();
     cloned_scopes_.pop_back();
 
     // Skip if cloned loop is empty or there is not an active for-loop
@@ -811,7 +813,13 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
         // If last cloned scope is the cloned_top_level_loop body, then add
         // mbarrier::arriveExpectTx and new loadStoreOp.
-        if (cloned_scopes_.size() == 1) {
+        int64_t active_for_loops = std::count_if(
+            for_loop_id_stack_.begin(),
+            for_loop_id_stack_.end(),
+            [](IterDomain* id) {
+              return id->getParallelType() == ParallelType::Serial;
+            });
+        if (active_for_loops == 1) {
           kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
           Scope& body = if_expr->thenBody();
           body.push_back(mbarrier_arrive_tx_);
@@ -920,7 +928,13 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
         // If last cloned scope is the cloned_top_level_loop body, then add
         // mbarrier::arriveExpectTx and new loadStoreOp.
-        if (cloned_scopes_.size() == 1) {
+        int64_t active_for_loops = std::count_if(
+            for_loop_id_stack_.begin(),
+            for_loop_id_stack_.end(),
+            [](IterDomain* id) {
+              return id->getParallelType() == ParallelType::Serial;
+            });
+        if (active_for_loops == 1) {
           kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
           Scope& body = if_expr->thenBody();
           body.push_back(mbarrier_arrive_tx_);
@@ -951,14 +965,26 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
         // Construct mBarrier::wait for last stage
         LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-
-        // Construct mBarrier::wait for current stage
         Val* epilogue_compute_stage = IrBuilder::modExpr(
             cloned_top_level_loop_->index(),
             IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
-        kir::MBarrierWait* mbarrier_wait =
-            createMbarrierWait(ldst, epilogue_compute_stage);
-        cloned_scopes_.back()->push_back(mbarrier_wait);
+
+        int64_t active_for_loops = std::count_if(
+            for_loop_id_stack_.begin(),
+            for_loop_id_stack_.end(),
+            [](IterDomain* id) {
+              return id->getParallelType() == ParallelType::Serial;
+            });
+        if (active_for_loops == 1) {
+          cloned_scopes_.back()->push_back(
+              createMbarrierWait(ldst, epilogue_compute_stage));
+          break;
+        }
+
+        NVF_ERROR(
+            mbarrier_wait_ == nullptr,
+            "Expected mbarrier_wait to inactive for current TMA operation");
+        mbarrier_wait_ = createMbarrierWait(ldst, epilogue_compute_stage);
         break;
       }
       case CircularBufferLoopStage::NotApplicable: {
@@ -968,6 +994,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   }
 
  private:
+  // Track iterDomain associated with each for-loop
+  std::vector<IterDomain*> for_loop_id_stack_;
+
   // Mbarrier_Wait to add to cloned_top_level_loop
   kir::MBarrierWait* mbarrier_wait_ = nullptr;
 
