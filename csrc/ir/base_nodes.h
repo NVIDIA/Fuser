@@ -186,6 +186,10 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   IrContainer* ir_container_ = nullptr;
 };
 
+inline std::string toString(Statement* stmt) {
+  return stmt->toString();
+}
+
 //! A Val represents a "value." These are objects, like tensors, scalars, and
 //! memory locations, that are inputs and outputs of computations (represented
 //! by Exprs, below)

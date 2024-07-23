@@ -1287,10 +1287,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         NVF_ERROR(optype == LoadStoreOpType::Set);
         if (ldst->in()->isScalar()) {
           // Note:
-          //  Double buffered local tensors need indexed initialization,
+          //  Circular buffered local tensors need indexed initialization,
           //   so will need to use `arraySet` option.
           if (out_tv->getMemoryType() == MemoryType::Local &&
-              !(out_tv->isDoubleBuffered() || out_tv->isCircularBuffered())) {
+              !out_tv->isCircularBuffered()) {
             // Vectorized initialization, explicit type conversion is needed for
             // complex numbers
             indent() << genVariableName(out_tv) << ".set("
@@ -2895,20 +2895,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << "#pragma unroll 1\n";
     }
 
-    indent() << "for(nvfuser_index_t " << gen_index;
-    if (loop->iter_domain()->isParallelized()) {
-      code_ << " = " << gen_start << "; ";
-    } else {
-      // Do not start at  the start of the ID when not parallelized. Instead,
-      // start at 0. Predicates will protect buffers between 0 and ID->start(),
-      // however if we started at ID->start and extent == ID->start, we could
-      // have a "degenerate" loop (loop with no iterations). It may not be an
-      // issue to have a 0-sized loop, but all potential consequences haven't
-      // been covered. One example is WAR analysis which could incorrectly think
-      // a barrier inside a 0-sized loop actually provides protection.
-      code_ << " = 0; ";
-    }
-    code_ << gen_index << " < " << gen_stop << "; " << step_code.str() << ") ";
+    indent() << "for(nvfuser_index_t " << gen_index << " = " << gen_start
+             << "; " << gen_index << " < " << gen_stop << "; "
+             << step_code.str() << ") ";
     startBlock(true);
     kir::ConstIrVisitor::handle(loop);
     endBlock();

@@ -28,8 +28,8 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -47,9 +47,10 @@
 #include <iostream>
 
 namespace nvfuser {
+using testing::Contains;
+using testing::UnorderedElementsAre;
 
 using namespace at::indexing;
-
 using GpuViewTest = NVFuserTest;
 
 TEST_F(GpuViewTest, FusionViewDtypeSameSizeOutput) {
@@ -243,7 +244,8 @@ TEST_F(GpuViewTest, FusionReshapeFailMulitDimInference) {
 void reductionViewAddFusion(
     const std::vector<int64_t>& input_shape,
     const std::vector<int64_t>& output_shape,
-    bool reshape_before_reduction) {
+    const bool has_implicit_broadcast,
+    const bool reshape_before_reduction) {
   constexpr int kReductionAxis = -1;
 
   // Drop size for reduction axis from reshape_shape
@@ -260,37 +262,35 @@ void reductionViewAddFusion(
   }
 
   auto bias_shape = (reshape_before_reduction) ? input_shape : output_shape;
-  for (auto has_implicit_broadcast : {false, true}) {
-    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
-    TensorView* x = (has_implicit_broadcast)
-        ? makeConcreteTensor(input_shape)
-        : makeSymbolicTensor(input_shape.size());
-    TensorView* bias = (has_implicit_broadcast)
-        ? makeConcreteTensor(bias_shape)
-        : makeSymbolicTensor(bias_shape.size());
-    fusion.addInput(x);
-    fusion.addInput(bias);
+  TensorView* x = (has_implicit_broadcast)
+      ? makeConcreteTensor(input_shape)
+      : makeSymbolicTensor(input_shape.size());
+  TensorView* bias = (has_implicit_broadcast)
+      ? makeConcreteTensor(bias_shape)
+      : makeSymbolicTensor(bias_shape.size());
+  fusion.addInput(x);
+  fusion.addInput(bias);
 
-    auto tv1 =
-        (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
-    auto x_reshape = reshape(tv1, reshape_shape, output_shape);
-    auto y = (reshape_before_reduction) ? sum(x_reshape, {kReductionAxis})
-                                        : add(x_reshape, bias);
-    fusion.addOutput(y);
+  auto tv1 =
+      (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
+  auto x_reshape = reshape(tv1, reshape_shape, output_shape);
+  auto y = (reshape_before_reduction) ? sum(x_reshape, {kReductionAxis})
+                                      : add(x_reshape, bias);
+  fusion.addOutput(y);
 
-    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::Tensor at_x = at::randn(input_shape, options);
-    at::Tensor at_bias = at::randn(bias_shape, options);
-    std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  at::Tensor at_bias = at::randn(bias_shape, options);
+  std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
 
-    FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
-    auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+  FusionExecutorCache fusion_executor_cache(std::move(fusion_ptr));
+  auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
 
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
-  }
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 typedef std::vector<int64_t> shape_t;
@@ -368,33 +368,52 @@ std::vector<ReshapeExample> reshape_after_reduce_examples = {
     {{1, 27454, 1, 2}, {1, 3922, 1, 7}},
     {{1, 7844, 1, 7}, {1, 1961, 4}}};
 
-namespace {
-using ReshapeBeforeReduction = NVFuserFixtureParamTest<ReshapeExample>;
-TEST_P(ReshapeBeforeReduction, FusionReshapeBeforeReduction) {
-  const auto& [input_shape, output_shape] = GetParam();
-  maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
-  reductionViewAddFusion(
-      input_shape, output_shape, /*reshape_before_reduction=*/true);
-}
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    ReshapeBeforeReduction,
-    ::testing::ValuesIn(all_reshape_examples));
-} // namespace
+namespace ReshapeReduction {
 
-namespace {
-using ReshapeAfterReduction = NVFuserFixtureParamTest<ReshapeExample>;
-TEST_P(ReshapeAfterReduction, FusionReshapeAfterReduction) {
-  const auto& [input_shape, output_shape] = GetParam();
+struct ReshapeReductionParam {
+  ReshapeExample reshape_example;
+  bool has_implicit_broadcast;
+  bool reshape_before_reduction;
+};
+
+std::vector<ReshapeReductionParam> generateReshapeReductionParams() {
+  // For each reshape, test with and without implicit broadcast
+  int total_tests =
+      2 * (all_reshape_examples.size() + reshape_after_reduce_examples.size());
+  std::vector<ReshapeReductionParam> params;
+  params.reserve(total_tests);
+  for (auto reshape_before_reduction : {true, false}) {
+    const auto& examples = reshape_before_reduction
+        ? all_reshape_examples
+        : reshape_after_reduce_examples;
+    for (auto has_implicit_broadcast : {false, true}) {
+      for (const auto& re : examples) {
+        params.push_back(
+            {re, has_implicit_broadcast, reshape_before_reduction});
+      }
+    }
+  }
+  return params;
+}
+
+using ReshapeReduction = NVFuserFixtureParamTest<ReshapeReductionParam>;
+TEST_P(ReshapeReduction, FusionReshapeReduction) {
+  const auto& param = GetParam();
+  const auto& [input_shape, output_shape] = param.reshape_example;
   maybeClearAllocator(); // Shmoo tests can occupy a lot of memory
   reductionViewAddFusion(
-      input_shape, output_shape, /*reshape_before_reduction=*/false);
+      input_shape,
+      output_shape,
+      param.has_implicit_broadcast,
+      param.reshape_before_reduction);
 }
+
 INSTANTIATE_TEST_SUITE_P(
     ,
-    ReshapeAfterReduction,
-    ::testing::ValuesIn(reshape_after_reduce_examples));
-} // namespace
+    ReshapeReduction,
+    ::testing::ValuesIn(generateReshapeReductionParams()));
+
+} // namespace ReshapeReduction
 
 void persistentViewAddFusion(
     std::vector<int64_t>& input_shape,
@@ -858,7 +877,7 @@ TEST_F(GpuViewTest, FusionFlattenAfterUnsqueezeOutput) {
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionComputeAtRootDomainMapWithView) {
+TEST_F(GpuViewTest, FusionComputeAtLogicalDomainMapWithView) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -881,17 +900,17 @@ TEST_F(GpuViewTest, FusionComputeAtRootDomainMapWithView) {
   auto tv5 = add(tv3, tv4);
   fusion.addOutput(tv5);
 
-  ComputeAtRootDomainMap map;
+  ComputeAtLogicalDomainMap map;
   map.build();
 
   // It's not possible to compute tv1 at the -1 position of
-  // t2. ComputeAtRootDomainMap should tell that by not mapping the
+  // t2. ComputeAtLogicalDomainMap should tell that by not mapping the
   // second axis.
   auto tv1_tv2_mappable_dims =
       map.getMappableDims(tv1->domain(), tv2->domain());
   NVF_CHECK(
       tv1_tv2_mappable_dims.find(tv1->axis(1)) == tv1_tv2_mappable_dims.end(),
-      "Invalid ComputeAtRootDomainMap. Domain should not be mappable: ",
+      "Invalid ComputeAtLogicalDomainMap. Domain should not be mappable: ",
       tv1->axis(1)->toString());
 }
 
@@ -1326,7 +1345,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
 
   {
     TransformPropagator propagator(tv4);
-    MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   }
 
   for (auto i : c10::irange(tv5->nDims() - 1)) {
@@ -1341,7 +1360,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
 
   {
     TransformPropagator propagator(tv5);
-    MaxRootDomainInfoSpanningTree spanning_tree(tv5);
+    MaxLogicalDomainInfoSpanningTree spanning_tree(tv5);
     spanning_tree.traverse(&propagator);
     scheduler_utils::parallelizeAllLike(tv5);
 
@@ -1389,7 +1408,7 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
   {
     TransformPropagator propagator(tv4);
-    MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   }
 
   tv5->split(1, 128);
@@ -1402,7 +1421,7 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
   {
     TransformPropagator propagator(tv5_rf);
-    MaxRootDomainInfoSpanningTree spanning_tree(tv5_rf);
+    MaxLogicalDomainInfoSpanningTree spanning_tree(tv5_rf);
     spanning_tree.traverse(&propagator);
     scheduler_utils::parallelizeAllLike(tv5_rf);
 
@@ -1921,7 +1940,7 @@ TEST_F(GpuViewTest, FusionReshapeMapping) {
   tv6->axis(2)->parallelize(ParallelType::TIDx);
 
   TransformPropagator propagator(tv6);
-  MaxRootDomainInfoSpanningTree spanning_tree(tv6);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(tv6);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv6);
 
@@ -1957,7 +1976,7 @@ TEST_F(GpuViewTest, FusionLowerDivisibleSplits) {
   tv2->merge(0)->merge(0)->merge(0)->split(0, 4)->split(0, 8, false);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree spanning_tree(tv2);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(tv2);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv2);
 
@@ -2326,4 +2345,278 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
   testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {12, 20};
+  DataType dtype = DataType::Float;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  // root domain : (i0, i2)
+  // logical domain : (3, i0/3, 4, i2/4)
+  auto tv2 = reshape(tv1, {12, 20}, {3, 4, 4, 5});
+  // root domain : (3, i0/3, 4, i2/4)
+  // logical domain : (3, i0/3*4, i2/4)
+  auto tv3 = reshape(tv2, {3, 4, 4, 5}, {3, 16, 5});
+  // root domain : (3, i0/3*4, i2/4)
+  auto tv4 = mul(tv3, tv3);
+  // root domain : (i0, i2)
+  // logical domain : (3, i0/3, 4, i2/4)
+  auto tv5 = reshape(tv1, {12, 20}, {3, 4, 4, 5});
+  // root domain : (3, i0/3, 4, i2/4)
+  // logical domain : (3, i0/3*4, i2/4)
+  auto tv6 = reshape(tv5, {3, 4, 4, 5}, {3, 16, 5});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv6);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+
+  testValidate(executor_cache.fusion(), {cg_outputs}, {t0}, __LINE__, __FILE__);
+}
+
+// segmented into 2 kernels: pointwise and reduction
+TEST_F(GpuViewTest, GroupNormOriginal) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  const std::vector<int64_t> input_shape_wb = {C};
+  const std::vector<int64_t> group_shape_wb = {G, C / G};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  auto tv2 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  // pointwise ops, e.g. cast
+  auto tv3 = castOp(DataType::Float, tv0);
+  // reshape from {N, C, H, W} to {N, G, C / G, H, W}
+  auto tv4 = reshape(tv3, input_shape, group_shape);
+  // normalization
+  auto tv5 = sum(tv4, {-1, -2, -3});
+  auto tv6 = broadcast(tv5, {false, false, true, true, true});
+  auto tv7 = div(tv4, tv6);
+  // reshape back to {N, C, H, W}
+  auto tv8 = reshape(tv7, group_shape, input_shape);
+  // pointwise ops, e.g. scale, bias, cast
+  auto tv9 = broadcast(tv1, {true, false, true, true});
+  auto tv10 = broadcast(tv2, {true, false, true, true});
+  auto tv11 = mul(tv8, tv9);
+  auto tv12 = add(tv11, tv10);
+  auto tv13 = castOp(dtype, tv12);
+  fusion->addOutput(tv13);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_wb = at::TensorOptions()
+                        .dtype(data_type_to_aten(DataType::Float))
+                        .device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto tw = at::randn(input_shape_wb, options_wb);
+  auto tb = at::randn(input_shape_wb, options_wb);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  // should expect 1 after adding a pre-segment pass to move reshape to input
+  // and output.
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::PointWise),
+          HeuristicIs(ScheduleHeuristic::Reduction)));
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
+}
+
+TEST_F(GpuViewTest, OutputAliasIntermediate) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, G, C / G, H, W};
+  const std::vector<int64_t> output_shape = {N, C, H, W};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = sum(tv2, {-1, -2, -3});
+  auto tv4 = broadcast(tv3, {false, false, true, true, true});
+  auto tv5 = div(tv2, tv4);
+  auto tv6 = castOp(dtype, tv5);
+  auto tv7 = reshape(tv6, input_shape, output_shape);
+  fusion->addOutput(tv7);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.to(at::kFloat);
+  auto t2 = t1.sum({-1, -2, -3}).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+  auto t4 = t3.reshape(output_shape);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  const std::vector<SegmentedGroup*>& seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_THAT(
+      seg_groups, Contains(HeuristicIs(ScheduleHeuristic::NoOp)).Times(1));
+  EXPECT_THAT(
+      seg_groups,
+      Contains(HeuristicIs(ScheduleHeuristic::InnerPersistent)).Times(1));
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {t4}, __LINE__, __FILE__);
+}
+
+using ReductionAxes = std::vector<int64_t>;
+class ViewReductionTest : public NVFuserFixtureParamTest<ReductionAxes> {};
+
+TEST_P(ViewReductionTest, ReductionReshapeInputNoMergedIds) {
+  auto reduction_axes = GetParam();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, input_shape, group_shape);
+  auto tv3 = sum(tv2, {reduction_axes});
+  fusion->addOutput(tv3);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto ref = t1.sum({reduction_axes});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have only 1 segment group
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 1);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ViewReductionTest,
+    ::testing::Values(
+        std::vector<int64_t>{0},
+        std::vector<int64_t>{0, 1},
+        std::vector<int64_t>{0, 1, 2},
+        std::vector<int64_t>{-1},
+        std::vector<int64_t>{-1, -2},
+        std::vector<int64_t>{-1, -2, -3},
+        std::vector<int64_t>{0, 2, 4},
+        std::vector<int64_t>{1, 3}));
+
+class ViewNormalizationTest : public NVFuserFixtureParamTest<ReductionAxes> {};
+
+TEST_P(ViewNormalizationTest, NormalizationReshapeInputNoMergedIds) {
+  auto reduction_axes = GetParam();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  int ndims = (int)group_shape.size();
+  std::vector<bool> broadcast_tags(ndims, false);
+  for (auto axis : reduction_axes) {
+    int idx = axis < 0 ? ndims + axis : axis;
+    broadcast_tags[idx] = true;
+  }
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, input_shape, group_shape);
+  auto tv3 = sum(tv2, {reduction_axes});
+  auto tv4 = broadcast(tv3, broadcast_tags);
+  auto tv5 = div(tv2, tv4);
+  auto tv6 = castOp(dtype, tv5);
+  fusion->addOutput(tv6);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto t2 = t1.sum(reduction_axes);
+  for (int idx = 0; idx < ndims; idx++) {
+    if (broadcast_tags[idx]) {
+      t2 = t2.unsqueeze(idx);
+    }
+  }
+  auto t3 = t1 / t2;
+  auto ref = t3.to(at::kHalf);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have only 1 segment group
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 1);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ViewNormalizationTest,
+    ::testing::Values(
+        std::vector<int64_t>{0},
+        std::vector<int64_t>{0, 1},
+        std::vector<int64_t>{0, 1, 2},
+        std::vector<int64_t>{-1},
+        std::vector<int64_t>{-1, -2},
+        std::vector<int64_t>{-1, -2, -3},
+        std::vector<int64_t>{0, 2, 4},
+        std::vector<int64_t>{1, 3}));
+
+TEST_F(GpuViewTest, GroupNorm) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, input_shape, group_shape);
+  auto tv3 = sum(tv2, {-1, -2, -3});
+  auto tv4 = broadcast(tv3, {false, false, true, true, true});
+  auto tv5 = div(tv2, tv4);
+  auto tv6 = reshape(tv5, group_shape, input_shape);
+  auto tv7 = castOp(dtype, tv6);
+  fusion->addOutput(tv7);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto t2 = t1.sum({-1, -2, -3}).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1);
+  auto t3 = t1 / t2;
+  auto ref = t3.reshape(input_shape).to(at::kHalf);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have 2 segmented groups
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 2);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

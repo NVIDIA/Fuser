@@ -441,46 +441,6 @@ TEST_P(HopperRS, SingleTile) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
-void scheduleTMALoadWhereOuterDimIsSplit(
-    TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    DataType dtype) {
-  // We move the broadcast dim to be the left most.
-  moveInnerBroadcastLeft(tv);
-
-  if (swizzle == MmaInputSmemSwizzle::None) {
-    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
-    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
-    // memory. [K, M]
-    tv->split(-2, 8);
-    tv->split(-1, 8);
-    // [Ko, K8, Mo, M8]
-    tv->reorder({{-2, -3}});
-    // [Ko, Mo, K8, M8]
-    return;
-  }
-
-  // {B, K, N}
-  // {B, KO, 8, N}
-  //  We use 8 because it's 128 / getBytesFromSwizzle(swizzle)  *
-  //  getBytesFromSwizzle(swizzle) / 16
-  tv->split(-2, 8);
-
-  // {B, KO, KI(8), NO(2), NI(16)}
-  tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
-
-  // {B, NO, KO, KI(8), NI(16) }
-  tv->reorder({{2, 3}, {3, 2}});
-
-  // {B, NO, KO, KIO(2), KII(4),  NI(16) }
-  tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
-
-  // {B, NO, KO, KIO(2), KII(4),  NIO(2), NII(8) }
-  tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
-
-  tv->swizzle(SwizzleType::XOR, -4, -2);
-}
-
 TEST_P(HopperRS, SingleTileWithTMALoad) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -521,22 +481,8 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  scheduleTMALoadWhereOuterDimIsSplit(tv1, swizzle_b, dtype);
-  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-
-  int skip = 0;
-  int count = 3;
-  for (auto id : tv1->getLoopDomain()) {
-    if (skip < count) {
-      skip++;
-      continue;
-    }
-    id->parallelize(ParallelType::Bulk);
-  }
-
-  // This is stop the validation from complaining
-  // about IDs not being swizzled.
-  mma_utils::setWarpMapped(tv1, tv1->getLoopDomain().size());
+  moveInnerBroadcastLeft(tv1);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
 
   if (layout == MmaLayout::TT) {
     // [M, K, N] -> [M, N, K]
@@ -561,46 +507,81 @@ TEST_P(HopperRS, SingleTileWithTMALoad) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
-void scheduleTMALoadOuterDimNotSplit(
-    TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
-    DataType dtype) {
-  // We move the broadcast dim to be the left most.
-  moveInnerBroadcastLeft(tv);
+TEST_P(HopperRS, SingleTileWithTMALoadStore) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  if (swizzle == MmaInputSmemSwizzle::None) {
-    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
-    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
-    // memory. [K, M]
-    tv->split(-2, 8);
-    tv->split(-1, 8);
-    // [Ko, K8, Mo, M8]
-    tv->reorder({{-2, -3}});
-    // [Ko, Mo, K8, M8]
-    return;
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  auto tv3 = set(tv2);
+  tv2->setMemoryType(MemoryType::Shared);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  fusion.addOutput(tv3);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  moveInnerBroadcastLeft(tv1);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
   }
 
-  // {B, N, K}
-  // {B, NO, N_dim, K}
-  tv->split(-2, tv->axis(-2)->extent());
+  EXPECT_TRUE(tv2c->getMemoryType() == MemoryType::Local);
+  EXPECT_TRUE(tv2->getMemoryType() == MemoryType::Shared);
+  EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Global);
 
-  // {B, NO, N_dim, KO, KI (32/64/128)}
-  tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  // {B, NO, KO, N_dim, KI }
-  tv->reorder({{2, 3}, {3, 2}});
+  mma_utils::scheduleTMAStoreForMmaOutput(tv3, getM(macro), getN(macro));
 
-  // {B, NO, KO, N_dim_O, N_128/(32, 64, 128),  KI}
-  tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  // {B, NO, KO, N_dim_O, N_128/(32, 64, 128),  KIO, KII}
-  tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  // split N_dim_O by N/16 N =swizzle size (32/64/128)
-  // {B, NO, KO, N_dim_O/(swizzle_size/16), N_128/(32, 64, 128),  KIO, KII}
-  tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
-
-  tv->swizzle(SwizzleType::XOR, -4, -2);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
@@ -649,27 +630,7 @@ TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
 
   // In this case we don't split the outer dimension, thus having
   // fewer TMA loads.
-  scheduleTMALoadWhereOuterDimIsSplit(tv1, swizzle_b, dtype);
-  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-
-  int skip = 0;
-  int count = 3;
-  for (auto id : tv1->getLoopDomain()) {
-    if (skip < count) {
-      skip++;
-      continue;
-    }
-    id->parallelize(ParallelType::Bulk);
-  }
-
-  // This is stop the validation from complaining
-  // about IDs not being swizzled.
-  mma_utils::setWarpMapped(tv1, tv1->getLoopDomain().size());
-
-  if (layout == MmaLayout::TT) {
-    // [M, K, N] -> [M, N, K]
-    tv2c->reorder({{-1, -2}});
-  }
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b, /* don't split outer dim*/ false);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
@@ -846,6 +807,106 @@ TEST_P(HopperSS, SingleTile) {
 
   naivelyParallelize(tv0);
   naivelyParallelize(tv1);
+
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+
+  auto inputs = matmulAtInput3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_P(HopperSS, SingleTileWithTMALoad) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->smem copy
+  tv0 = set(tv0);
+  tv0->setMemoryType(MemoryType::Shared);
+  tv0->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  int axes = 0;
+  switch (layout) {
+    case MmaLayout::NT:
+      axes = 0;
+      break;
+    case MmaLayout::TT:
+    case MmaLayout::NN:
+      axes = 1;
+      break;
+    case MmaLayout::TN:
+      axes = 2;
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
+
+  // Reorder the accumulator as [M, N, K]
+  switch (layout) {
+    case MmaLayout::TT:
+      // [M, K, N] -> [M, N, K]
+      tv2->reorder({{-2, -1}});
+      break;
+    case MmaLayout::TN:
+      // [M, N, K]
+      break;
+    case MmaLayout::NT:
+      // [K, M, N] -> [M, N, K]
+      tv2->reorder({{-3, -1}});
+      break;
+    case MmaLayout::NN:
+      // [N, K, M] -> [M, N, K]
+      tv2->reorder({{-1, -3}});
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  tv2->commitLeafToLogical();
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  moveInnerBroadcastLeft(tv1);
+  tv0->applyMmaSwizzleForTMALoad(swizzle_a);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
+
+  // For smem mma input tensors, the schedule does not matter, we just naively
+  // parallelize it so the test runs faster.
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);

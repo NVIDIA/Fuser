@@ -12,6 +12,9 @@
 #include <c10/util/intrusive_ptr.h>
 
 namespace c10d {
+
+inline void setDebugLevelFromEnvironment() {}
+
 class Work : public torch::CustomClassHolder {
  public:
   void wait() {}
@@ -63,9 +66,14 @@ struct ReduceOptions {
   int64_t rootRank = 0;
 };
 
+struct BarrierOptions {
+  std::vector<int64_t> device_ids;
+};
+
 class Backend : public torch::CustomClassHolder {
  public:
-  c10::intrusive_ptr<Work> barrier() {
+  c10::intrusive_ptr<Work> barrier(
+      const BarrierOptions& opts = BarrierOptions()) {
     return c10::make_intrusive<Work>();
   }
 
@@ -142,6 +150,10 @@ class Backend : public torch::CustomClassHolder {
       const ReduceOptions& opts = ReduceOptions()) {
     return c10::make_intrusive<Work>();
   }
+};
+
+struct TCPStoreOptions {
+  static constexpr uint16_t kDefaultPort = 0;
 };
 
 class TCPStore : public torch::CustomClassHolder {};

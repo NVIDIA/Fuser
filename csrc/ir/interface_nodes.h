@@ -387,16 +387,8 @@ class NVF_API TensorView : public Val {
 
   void setMemoryType(MemoryType mt);
 
-  // Apply double buffering transformation
-  void doubleBuffer();
-
   // Apply circular buffering transformation
-  void circularBuffer(int64_t number_of_stage);
-
-  // Returns true if this tensor is double buffered.
-  bool isDoubleBuffered() const {
-    return is_double_buffered_;
-  }
+  void circularBuffer(int64_t number_of_stages);
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
@@ -416,6 +408,20 @@ class NVF_API TensorView : public Val {
   //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
   void applyMmaSwizzle(MmaInputSmemSwizzle swizzle);
+
+  //! Function to schedule the swizzled TMA box.
+  //! This functions works on the assumption that the TMA box is 2D
+  //! and the inner-dimension is less or equal to the swizzle size.
+  //! This doesn't work for the swizzle none mode. For more details
+  //! refer to the figure doc/dev/tma/swizzle.svg
+  void swizzleTMABox(MmaInputSmemSwizzle swizzle);
+
+  //! Transforms the innermost iterdomains according to the given mma swizzle,
+  //!  this should be used on the tvs that are inputs of a MmaOp or are loaded
+  //!  using TMA.
+  void applyMmaSwizzleForTMALoad(
+      MmaInputSmemSwizzle swizzle,
+      bool permute_outer_dim = true);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
@@ -568,7 +574,6 @@ class NVF_API TensorView : public Val {
   int64_t compute_at_pos_ = 0;
   int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
-  bool is_double_buffered_ = false;
 
   //! Indicates if the tensor is circular buffered.
   bool is_circular_buffered_ = false;

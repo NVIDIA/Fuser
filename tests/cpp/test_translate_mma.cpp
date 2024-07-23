@@ -24,12 +24,12 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <options.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
@@ -200,9 +200,9 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Schedule) {
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
-    params.double_buffer_options.double_buffer_smem_write = true;
-    params.double_buffer_options.double_buffer_smem_read = true;
-    params.double_buffer_options.smem_double_buffer_stage = 4;
+    params.circular_buffer_options.circular_buffer_smem_write = true;
+    params.circular_buffer_options.circular_buffer_smem_read = true;
+    params.circular_buffer_options.smem_circular_buffer_stage = 4;
     scheduleMatmul(&fusion, params);
 
     auto inputs = matmulAtInput2D(M, N, K, layout);
@@ -662,12 +662,12 @@ TEST_F(CombineMulSumAsMmaTest, SwapAandB) {
       const ValGroup& m_gp = permissive_graph.toGroup(tv0->axis(-3));
       auto m_it = dim_roles.find(m_gp);
       ASSERT_NE(m_it, dim_roles.end());
-      EXPECT_EQ(m_it->second, MatmulDomain::M);
+      EXPECT_EQ(m_it->second, MatmulDimRole::M);
 
       const ValGroup& n_gp = permissive_graph.toGroup(tv1->axis(-2));
       auto n_it = dim_roles.find(n_gp);
       ASSERT_NE(n_it, dim_roles.end());
-      EXPECT_EQ(n_it->second, MatmulDomain::N);
+      EXPECT_EQ(n_it->second, MatmulDimRole::N);
 
       ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(&fusion).empty());
     }

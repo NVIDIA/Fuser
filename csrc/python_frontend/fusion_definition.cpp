@@ -6,6 +6,8 @@
  */
 // clang-format on
 #include <debug.h>
+#include <executor_kernel_arg.h>
+#include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <multidevice/communicator.h>
 #include <options.h>
@@ -105,11 +107,73 @@ void FusionDefinition::finalizeDefinition() {
   }
 }
 
+void FusionDefinition::findHiddenTensorViews(Fusion* fusion) {
+  NVF_ERROR(fusion != nullptr);
+
+  // Filter Tensor states
+  std::vector<State> tensor_states;
+  std::copy_if(
+      recording_state_.begin(),
+      recording_state_.end(),
+      std::back_inserter(tensor_states),
+      [](const State& s) { return s.stype == serde::StateType::Tensor; });
+
+  // Get corresponding CPP values and add to set for membership check.
+  std::unordered_set<Val*> known_tensor_vals;
+  std::transform(
+      tensor_states.begin(),
+      tensor_states.end(),
+      std::inserter(known_tensor_vals, known_tensor_vals.end()),
+      [this](State s) { return getFusionState(s.index); });
+
+  // Get set difference between CPP Fusion and Python FusionDefinition
+  std::vector<Val*> all_vals = fusion->usedMathVals();
+  std::vector<Val*> new_fusion_tvs;
+  std::copy_if(
+      all_vals.begin(),
+      all_vals.end(),
+      std::back_inserter(new_fusion_tvs),
+      [&](Val* v) {
+        return v->isA<TensorView>() && known_tensor_vals.count(v) == 0;
+      });
+
+  // Short-Circuit: No new TensorViews found
+  if (new_fusion_tvs.empty()) {
+    return;
+  }
+
+  // Add missing TensorViews to FusionDefinition
+  for (Val* v : new_fusion_tvs) {
+    addTensor(v->as<TensorView>());
+  }
+}
+
+void FusionDefinition::updateSymbolicStates(
+    const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map) {
+  for (const State& s : recording_state_) {
+    // Only update Tensor and Scalar states
+    if (s.stype != serde::StateType::Tensor &&
+        s.stype != serde::StateType::Scalar) {
+      continue;
+    }
+
+    Val* old_value = getFusionState(s.index);
+
+    // Skip replacement if unnecessary
+    if (symbolic_to_concretized_map.count(old_value) == 0) {
+      continue;
+    }
+
+    // Update symbolic states with new concretized values
+    setFusionState(s.index, symbolic_to_concretized_map.at(old_value));
+  }
+}
+
 void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
-  auto scheds = fusionCache()->queryFusionSchedules(id().value());
-  auto device = getCommonDeviceCUDA(inputs);
+  FusionSchedules* scheds = fusionCache()->queryFusionSchedules(id().value());
+  int8_t device = getCommonDeviceCUDA(inputs);
   NVF_CHECK(
       inputs.empty() || device > -1, "Inputs are not all on the same device!");
   NVF_CHECK(user_sched_ == nullptr, "Expected User Scheduler to be null!");
@@ -121,6 +185,28 @@ void FusionDefinition::setupSchedule(const at::ArrayRef<c10::IValue>& inputs) {
   // members that represent tensors would refer to the IR objects in the
   // original and not the copy needed for scheduling.
   buildFusionIr(user_sched_->schedule.get());
+
+  // Add TensorViews created by composite operations to Python FusionDefinition.
+  findHiddenTensorViews(user_sched_->schedule.get());
+
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+
+  // Concretize fusion
+  std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
+      DynamicTransform::concretizeFusion(user_sched_->schedule.get(), args);
+
+  // Update symbolic values to their new concretized values.
+  // Users will access concretized values in schedule function.
+  updateSymbolicStates(symbolic_to_concrete_map);
+
+  // Create runtime info for schedulers
+  Fusion* user_schedule_fusion = user_sched_->schedule.get();
+  user_sched_->runtime_info = std::make_unique<SchedulerRuntimeInfo>(
+      user_schedule_fusion,
+      args,
+      /*precomuted_values=*/nullptr,
+      ir_utils::allTvs(user_schedule_fusion));
 
   // Manually setting the fusion guard as there is not a good way of using a
   // guard in a local scope across the schedule function
@@ -134,23 +220,16 @@ void FusionDefinition::finalizeSchedule(
   // TODO: remove when multidevice executor integration is done natively
   Fusion* fusion = user_sched_->schedule.get();
   std::vector<TensorView*> tvs = ir_utils::allTvs(fusion);
-  static Communicator* comm = new Communicator();
   if (std::any_of(tvs.begin(), tvs.end(), [](Val* v) {
         return v->isA<TensorView>() && v->as<TensorView>()->hasDeviceMesh();
       })) {
     multidevice_executor_ = std::make_unique<MultiDeviceExecutor>(
-        std::make_unique<Fusion>(*fusion), *comm);
+        std::make_unique<Fusion>(*fusion), Communicator::getInstance());
   }
 
   FusionGuard::setCurFusion(prev_fusion_);
+  user_sched_->runtime_info.reset();
   prev_fusion_ = nullptr;
-  if (multidevice_executor_ == nullptr) {
-    user_sched_->executor->compileFusion(
-        user_sched_->schedule.get(),
-        inputs,
-        user_sched_->fusion_id_,
-        user_sched_->device_id_);
-  }
   user_sched_ = nullptr;
 }
 
@@ -189,23 +268,65 @@ std::vector<at::Tensor> FusionDefinition::execute(
   }
 
   std::vector<at::Tensor> outputs;
+  if (profile) {
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+  }
 
   // NOTE: queryUserSchedule is broken, see issue:
   // https://github.com/NVIDIA/Fuser/issues/2056
   if (!override_user_schedule) {
-    // NOTE: Profiling is only currently supported for auto generatoed
-    // schedules.
     auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(
         inputs.empty() || device > -1,
         "Inputs are not all on the same device or don't match selection!");
     auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
     if (user_sched_id.has_value()) {
+      if (isProfilerEnabledWithCupti()) {
+        FusionProfiler::start();
+        FusionProfiler::createSegments(1);
+      }
       auto& user_sched = fusionCache()->queryUserSchedule(
           scheds, user_sched_id.value(), device);
       scheds->last_user_def_scheduled_ir = user_sched.schedule.get();
       scheds->last_user_def_executor = user_sched.executor.get();
-      outputs = user_sched.executor->runFusion(inputs);
+
+      if (user_sched.heuristic_scheduler == nullptr) {
+        // Manual schedule
+        if (!user_sched.executor->isCompiled()) {
+          user_sched.executor->compileFusion(
+              user_sched.schedule.get(),
+              inputs,
+              user_sched.fusion_id_,
+              user_sched.device_id_);
+        }
+        outputs = user_sched.executor->runFusion(inputs);
+      } else {
+        // Automatic scheduler was used for UserSchedule.
+        // Pass launch and compile params to compileFusion and runFusion.
+        if (!user_sched.executor->isCompiled()) {
+          user_sched.executor->compileFusion(
+              user_sched.schedule.get(),
+              KernelArgumentHolder::createKernelArgumentHolder(
+                  inputs, getCommonDeviceCUDA(inputs)),
+              user_sched.heuristic_scheduler->params()->lparams,
+              user_sched.heuristic_scheduler->params()->cparams,
+              user_sched.heuristic_scheduler->heuristic(),
+              user_sched.fusion_id_,
+              user_sched.device_id_);
+        }
+        outputs = user_sched.executor->runFusion(
+            inputs,
+            user_sched.heuristic_scheduler->params()->lparams,
+            user_sched.heuristic_scheduler->params()->cparams);
+      }
+
+      if (isProfilerEnabledWithCupti()) {
+        FusionProfiler::segment(0).scheduler("user");
+        FusionProfiler::stop();
+        if (isProfilerPrintingEnabled()) {
+          debug() << FusionProfiler::profile();
+        }
+      }
     }
   }
 
@@ -213,16 +334,11 @@ std::vector<at::Tensor> FusionDefinition::execute(
   // already at this point and we would not want to overwrite generated output
   // through user scheduled kernel.
   if (outputs.empty()) {
-    // NOTE: Profiling is only currently supported for auto generatoed
-    // schedules.
-    if (profile) {
-      ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
-    }
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         inputs, std::nullopt, selected_device);
-    if (profile) {
-      ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
-    }
+  }
+  if (profile) {
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
   }
 
   if (capture_debug_output) {
@@ -237,6 +353,15 @@ std::string FusionDefinition::fusionIr() {
   std::stringstream ss;
   preschedFusion()->print(ss, false);
   return ss.str();
+}
+
+UserSchedule* FusionDefinition::userSchedule() {
+  NVF_CHECK(id().has_value(), "Invalid fusion definition!");
+
+  if (user_sched_ == nullptr) {
+    NVF_ERROR(false, "User schedule is not defined.");
+  }
+  return user_sched_;
 }
 
 std::string FusionDefinition::userScheduleIr() {
@@ -450,9 +575,7 @@ std::vector<Tensor> FusionDefinition::tensors() {
       recording_state_.begin(),
       recording_state_.end(),
       std::back_inserter(tensor_states),
-      [this](const State& s) {
-        return getFusionState(s.index)->isA<TensorView>();
-      });
+      [](const State& s) { return s.stype == serde::StateType::Tensor; });
 
   // Reconstruct Tensors
   std::vector<Tensor> all_tensors;

@@ -9,7 +9,7 @@
 
 #include <exceptions.h>
 #include <inlining.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_replay.h>
 
 #include <deque>

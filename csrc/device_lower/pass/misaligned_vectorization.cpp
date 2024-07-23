@@ -406,7 +406,7 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
           vectorize && has_vectorize_op,
           vectorize_shift,
           fl->isUnrollRequired(),
-          fl->doubleBufferLoopStage());
+          fl->circularBufferLoopStage());
 
       auto body = &new_loop->body();
 
@@ -470,8 +470,8 @@ class MisalignedVectorizationModifier : public kir::ExprMutator {
 
   // Get full extent for the inner-most, merged root domain
   Val* getVectorizeExtent(TensorView* producer_tv, TensorView* consumer_tv) {
-    auto p2c =
-        PairwiseRootDomainMap(producer_tv, consumer_tv).mapProducerToConsumer();
+    auto p2c = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+                   .mapProducerToConsumer();
 
     auto consumer_root_right_of_ca_domains = IterVisitor::getInputsTo(
         {consumer_tv->getLoopDomain().begin() +

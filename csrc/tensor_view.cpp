@@ -8,7 +8,7 @@
 #include <c10/util/irange.h>
 #include <compute_at.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <inlining.h>
@@ -112,7 +112,6 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_at_pos_(src->compute_at_pos_),
       max_producer_pos_(src->max_producer_pos_),
       memory_type_(src->memory_type_),
-      is_double_buffered_(src->is_double_buffered_),
       is_circular_buffered_(src->is_circular_buffered_),
       circular_buffer_stage_(src->circular_buffer_stage_),
       cpu_scalar_(src->cpu_scalar_),
@@ -219,7 +218,7 @@ int64_t getConsumerPosAlignedToProducerCA(
 
   auto disjoint_sets =
       BestEffortReplay::replayPasC(
-          producer, consumer, -1, PairwiseRootDomainMap(producer, consumer))
+          producer, consumer, -1, PairwiseLogicalDomainMap(producer, consumer))
           .getIterDomainEquivalence();
 
   // Find the innermost position of consumer that has
@@ -1281,27 +1280,14 @@ void TensorView::clearReductionIterDomains() {
   }
 }
 
-void TensorView::doubleBuffer() {
+void TensorView::circularBuffer(int64_t number_of_stages) {
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not
   // be finalized until lowering.
-  validateDoubleBufferedTensor(this);
-  is_double_buffered_ = true;
-}
-
-void TensorView::circularBuffer(int64_t stage) {
-  // Early correctness checking. May miss eventual errors as the
-  // checks depend on memory types and parallelization, which may not
-  // be finalized until lowering.
-  NVF_ERROR(stage > 1, "Unsupported stage number");
-  if (stage == 2) {
-    // Re-direct to double buffer interface if stage is 2;
-    doubleBuffer();
-    return;
-  }
-  validateDoubleBufferedTensor(this);
+  NVF_ERROR(number_of_stages > 1, "Unsupported stage number");
+  validateCircularBufferedTensor(this);
   is_circular_buffered_ = true;
-  circular_buffer_stage_ = stage;
+  circular_buffer_stage_ = number_of_stages;
 }
 
 bool TensorView::isEmptyTensor() const {
@@ -1339,6 +1325,49 @@ void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
       getMemoryType() == MemoryType::Shared,
       "Shared memory swizzle is only supported for shared memory");
   mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, swizzle);
+}
+
+void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
+  auto dtype = getDataType().value();
+  // Input is on the form:
+  // [...., K (assume is 16), N (16 .. say dtype is half and swizzle
+  // size is 32B]. Here the TMA box is [16,16]. This box could have
+  // been created by tiling [K(16), N(32)] -> [NO(2), K(16), N(16)], but
+  // for the comments below, we'll focus on the inner two dims.
+
+  NVF_ERROR(
+      axis(-1)->extent()->evaluate().as<int64_t>() <=
+          (getBytesFromSwizzle(swizzle) / dataTypeSize(dtype)),
+      "The inner dimension of the box cannot be more than swizzle")
+
+  // [..., K, N(16)] -> [..., KO(2), KI(8), N(16)]
+  //  We use 8 because it's 128 / getBytesFromSwizzle(swizzle)  *
+  //  getBytesFromSwizzle(swizzle) / 16
+  split(-2, 8);
+
+  // [..., KO(2), KI(8), N(16)]  ->
+  // [..., KO(2), KIO(2), KII(4), N(16)]
+  split(-2, (128 / (getBytesFromSwizzle(swizzle))));
+
+  // [..., KO(2), KIO(2), KII(4), N(16)] ->
+  // [..., KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+  split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
+
+  this->swizzle(SwizzleType::XOR, -4, -2);
+}
+
+void TensorView::applyMmaSwizzleForTMALoad(
+    MmaInputSmemSwizzle swizzle,
+    bool permute_outer_dim) {
+  NVF_ERROR(
+      getMemoryType() == MemoryType::Shared,
+      "Shared memory swizzle is only supported for shared memory");
+  NVF_ERROR(
+      definition()->as<LoadStoreOp>()->opType() ==
+          LoadStoreOpType::CpAsyncBulkTensorTile,
+      "Operation requires a TMA operation");
+  mma_utils::WarpMmaSwizzler::scheduleTMALoadForMma(
+      this, swizzle, permute_outer_dim);
 }
 
 void TensorView::commitLeafToLogical() {

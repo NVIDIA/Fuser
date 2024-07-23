@@ -366,7 +366,7 @@ void propagateTransformation(
     const std::unordered_set<TensorView*>& boundaryNodesSet) {
   InternalBoundarySelector ibSelector(boundaryNodesSet);
   TransformPropagator propagator(reference_tv);
-  MaxRootDomainInfoSpanningTree(reference_tv, &ibSelector)
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &ibSelector)
       .traverse(&propagator);
 }
 
@@ -937,5 +937,20 @@ std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
   return os;
 }
 
+TensorView* getRepresentativeReductionTv(
+    const std::vector<TensorView*>& reduction_tvs) {
+  TensorView* inner_ref = nullptr;
+  TensorView* outer_ref = nullptr;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      inner_ref = inner_ref == nullptr ? tv : inner_ref;
+    } else {
+      outer_ref = outer_ref == nullptr ? tv : outer_ref;
+    }
+  }
+  // use inner_ref for inner reduction and innerOuter reduction
+  // use outer_ref for outer reduction
+  return inner_ref != nullptr ? inner_ref : outer_ref;
+}
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

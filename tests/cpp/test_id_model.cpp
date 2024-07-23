@@ -271,7 +271,7 @@ void checkStep2Results(Fusion* fusion, const IdModelTester& tester) {
         (tv->getComputeAtPosition() == 0 &&
          tv->getMaxProducerPosition() == 0)) {
       // Make sure there's no promotion of any of the IDs of this tensor
-      for (auto id : ir_utils::allIDsOf(tv)) {
+      for (auto id : tv->domain()->allIDs()) {
         auto promoted_id = getPromotedDomain(id);
         ASSERT_EQ(promoted_id, nullptr)
             << "Expected no mapping for " << id->toString()
@@ -284,10 +284,10 @@ void checkStep2Results(Fusion* fusion, const IdModelTester& tester) {
     ASSERT_EQ(consumers.size(), 1) << "Assumed to have one consumer";
     TensorView* c_tv = consumers.at(0);
     const auto p2c = BestEffortReplay::replayCasP(
-                         c_tv, tv, -1, PairwiseRootDomainMap(tv, c_tv))
+                         c_tv, tv, -1, PairwiseLogicalDomainMap(tv, c_tv))
                          .getReplay();
 
-    for (auto p_id : ir_utils::allIDsOf(tv)) {
+    for (auto p_id : tv->domain()->allIDs()) {
       // Root domains are already done at Step 1
       if (std::find(
               tv->getLogicalDomain().begin(),
@@ -473,7 +473,7 @@ std::unique_ptr<Fusion> createFusionWithMultipleResolutionPaths() {
   // tv10[7*11*13//5//3, 3, 5]
 
   TransformPropagatorWithCheck propagator(tv10);
-  MaxRootDomainInfoSpanningTree(tv10).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv10).traverse(&propagator);
 
   std::vector<TensorView*> tensors_to_inline{tv1, tv2, tv4, tv6, tv8};
   for (auto tensor : tensors_to_inline) {
@@ -553,7 +553,7 @@ TEST_F(IdModelTest, ValGraphStmtSort1) {
   // tensors.
   tv2->merge(0)->split(0, 4);
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   // The exact graph should just map all IDs of the tensors. Ther
   // ordering of the exprs should be the merge and then the split.
@@ -876,7 +876,7 @@ TEST_F(IdModelTest, LoopPromotion3) {
   tv3->merge(1);
 
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv2->inlineAt(1);
 
@@ -951,7 +951,7 @@ TEST_F(IdModelTest, LoopPromotion4) {
   // [4, i0*i1/4]
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   for (auto tv : ir_utils::allTvs(&fusion)) {
     tv->inlineAt(-2);
@@ -1551,7 +1551,7 @@ TEST_F(IdModelTest, LoopPromotion7) {
   tv4->split(0, 32);
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv2->inlineAt(1);
   tv3->inlineAt(1);
@@ -1685,7 +1685,7 @@ TEST_F(IdModelTest, LoopPromotion8) {
   // [3, 3*5//2]
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv1->inlineAt(1);
   tv2->inlineAt(1);
@@ -1886,7 +1886,7 @@ TEST_F(IdModelTest, LoopPromotionPromoteToSameLoopGroup) {
   tv4->merge(1, 2);
 
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   for (auto tv : {tv0, tv1, tv2, tv3}) {
     tv->inlineAt(1);
@@ -1990,7 +1990,7 @@ TEST_F(IdModelTest, LoopPromotionTwoStepFailureReproSimple) {
   t4->merge(-2, -1)->merge(-2, -1)->merge(-2, -1)->merge(-2, -1)->split(0, 4);
 
   TransformPropagatorWithCheck propagator(t4);
-  MaxRootDomainInfoSpanningTree(t4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(t4).traverse(&propagator);
 
   for (auto tv : ir_utils::allTvs(&fusion)) {
     tv->inlineAt(1);
@@ -2204,7 +2204,7 @@ TEST_F(IdModelTest, ValGraphBFS1) {
 
   // Since the loop domains of tv0 and tv1 are grouped together, the
   // path between them is empty
-  ExprPath tv1_to_tv0 =
+  ExprPath<ExprGroup> tv1_to_tv0 =
       ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups);
   EXPECT_TRUE(tv1_to_tv0.empty());
 
@@ -2225,10 +2225,10 @@ TEST_F(IdModelTest, ValGraphBFS1) {
   // domains. The path between them should look like traversing from
   // tv2 loop domain backward to its root and then forward from tv1 root to
   // tv1 loop domain.
-  ExprPath tv2_to_tv1 =
+  ExprPath<ExprGroup> tv2_to_tv1 =
       ValGraphBFS::getExprsBetween(graph, tv2_loop_groups, tv1_loop_groups);
 
-  ExprPath tv2_to_tv1_ref;
+  ExprPath<ExprGroup> tv2_to_tv1_ref;
   tv2_to_tv1_ref.emplace_back(
       graph.toGroup(tv2->axis(0)->definition()), Direction::Backward);
   tv2_to_tv1_ref.emplace_back(
@@ -2244,7 +2244,7 @@ TEST_F(IdModelTest, ValGraphBFS1) {
 }
 
 // Traversal to partial reachable nodes. See also the comment in
-// ValGraphBFS::getShortestExprPath.
+// ValGraphBFS::getShortestExprPath<ExprGroup>.
 TEST_F(IdModelTest, ValGraphBFS2) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -2270,10 +2270,10 @@ TEST_F(IdModelTest, ValGraphBFS2) {
 
   // Since the loop domains of tv0 and tv1 are grouped together, the
   // path between them is empty
-  ExprPath tv1_to_tv0 =
+  ExprPath<ExprGroup> tv1_to_tv0 =
       ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_loop_groups);
 
-  ExprPath tv1_to_tv0_ref;
+  ExprPath<ExprGroup> tv1_to_tv0_ref;
   tv1_to_tv0_ref.emplace_back(
       graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
   tv1_to_tv0_ref.emplace_back(
@@ -2287,7 +2287,7 @@ TEST_F(IdModelTest, ValGraphBFS2) {
   ValGroups tv0_partial_groups;
   tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(1)));
   tv0_partial_groups.pushBack(graph.toGroup(tv0->axis(2)));
-  ExprPath tv1_to_tv0_partial =
+  ExprPath<ExprGroup> tv1_to_tv0_partial =
       ValGraphBFS::getExprsBetween(graph, tv1_loop_groups, tv0_partial_groups);
 
   EXPECT_EQ(tv1_to_tv0_partial, tv1_to_tv0_ref);
@@ -2327,9 +2327,9 @@ TEST_F(IdModelTest, ValGraphBFS3) {
   ValGroups tv4_groups = graph.toGroups(tv4->getLoopDomain());
   ValGroups tv0_groups = graph.toGroups(tv0->getLoopDomain());
 
-  ExprPath tv4_to_tv0 =
+  ExprPath<ExprGroup> tv4_to_tv0 =
       ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups);
-  ExprPath tv4_to_tv0_ref;
+  ExprPath<ExprGroup> tv4_to_tv0_ref;
   tv4_to_tv0_ref.emplace_back(
       graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
 
@@ -2376,10 +2376,10 @@ TEST_F(IdModelTest, ValGraphBFS4) {
   // Traversal from tv4 to tv0 can go through the reshape ops of tv2
   // and tv3, but the shortest path should be just one merge for tv1
 
-  ExprPath tv4_to_tv0 =
+  ExprPath<ExprGroup> tv4_to_tv0 =
       ValGraphBFS::getExprsBetween(graph, tv4_groups, tv0_groups);
 
-  ExprPath tv4_to_tv0_ref;
+  ExprPath<ExprGroup> tv4_to_tv0_ref;
   tv4_to_tv0_ref.emplace_back(
       graph.toGroup(tv1->axis(0)->definition()), Direction::Backward);
 
@@ -2403,7 +2403,7 @@ TEST_F(IdModelTest, LoopGraphWithSibling) {
   avg->merge(0);
   avg->split(0, 8);
   TransformPropagatorWithCheck propagator(avg);
-  MaxRootDomainInfoSpanningTree(avg).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(avg).traverse(&propagator);
 
   IdModel id_model(&fusion);
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
@@ -2450,7 +2450,7 @@ TEST_F(IdModelTest, LoopPromotionWithViewRFactor1) {
     if (tv->isFusionInput()) {
       continue;
     }
-    for (auto id : ir_utils::allIDsOf(tv)) {
+    for (auto id : tv->domain()->allIDs()) {
       ASSERT_TRUE(loop_group->has(id))
           << "Expected to be included. ID: " << id->toString()
           << ". Loop group: " << nvfuser::toString(loop_group);
@@ -2500,7 +2500,7 @@ TEST_F(IdModelTest, LoopPromotionWithLogicalDomains2) {
     if (tv->isFusionInput()) {
       continue;
     }
-    for (auto id : ir_utils::allIDsOf(tv)) {
+    for (auto id : tv->domain()->allIDs()) {
       ASSERT_TRUE(loop_group->has(id))
           << "Expected to be included. ID: " << id->toString()
           << ". Loop group: " << nvfuser::toString(loop_group);
@@ -2545,7 +2545,7 @@ TEST_F(IdModelTest, LoopPromotionCoverage) {
   // there is only one loop group.
   tv10->flatten();
   TransformPropagatorWithCheck propagator(tv10);
-  MaxRootDomainInfoSpanningTree(tv10).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv10).traverse(&propagator);
   inlineMost();
 
   IdModel id_model(&fusion);
@@ -2598,7 +2598,7 @@ TEST_F(IdModelTest, ParallelTypePropagation) {
 
   tv2->split(0, 4);
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 

@@ -1124,7 +1124,9 @@ bool DeadCodeRemover::modifyFusion() const {
     if (old_val->isFusionOutput()) {
       fusion_->replaceOutput(old_val, new_val);
     }
-    for (auto use : old_val->uses()) {
+    // Copy old_val->uses() since we will modify it as we replace its Exprs
+    const std::vector<Expr*> old_uses = old_val->uses();
+    for (auto use : old_uses) {
       ir_utils::replaceValInExprInputs(use, old_val, new_val);
     }
     modified_fusion = true;

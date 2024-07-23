@@ -73,8 +73,8 @@ thread_local bool config_factory_modified = false;
 //!   TN: 2
 //!   TT: 3
 uint8_t innerDimsToByte(const mma_utils::MatmulOperandInnerDims& inner_dims) {
-  bool A_K_inner = inner_dims.empty() || inner_dims.front() == MatmulDomain::K;
-  bool B_K_inner = inner_dims.empty() || inner_dims.back() == MatmulDomain::K;
+  bool A_K_inner = inner_dims.empty() || inner_dims.front() == MatmulDimRole::K;
+  bool B_K_inner = inner_dims.empty() || inner_dims.back() == MatmulDimRole::K;
   if (A_K_inner && B_K_inner) {
     return 0;
   } else if (A_K_inner && !B_K_inner) {
@@ -90,18 +90,18 @@ std::string rolesToPrecisionString(
     const mma_utils::TensorRolesMap& tensor_roles) {
   std::string precision = "   ";
   const std::vector<TensorView*>& a_operands =
-      tensor_roles.at(MatmulRole::OPERAND_A);
+      tensor_roles.at(MatmulTensorRole::OPERAND_A);
   NVF_ERROR(
       a_operands.size() == 1, "We currently require exactly one A operand");
   const std::vector<TensorView*>& b_operands =
-      tensor_roles.at(MatmulRole::OPERAND_B);
+      tensor_roles.at(MatmulTensorRole::OPERAND_B);
   NVF_ERROR(
       b_operands.size() == 1, "We currently require exactly one B operand");
   TensorView* a = a_operands.front();
   TensorView* b = b_operands.front();
   NVF_CHECK(
       a->dtype() == b->dtype(), "Differing A and B dtypes not yet supported");
-  TensorView* d = tensor_roles.at(MatmulRole::OUTPUT).front();
+  TensorView* d = tensor_roles.at(MatmulTensorRole::OUTPUT).front();
   precision[0] = mma_utils::dtypeToChar(a->dtype());
   // NOTE: this assumes compute type is Float
   precision[1] = 'S';
@@ -133,7 +133,8 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
     output[1] = gemm_tile.n;
     output[2] = gemm_tile.k;
   };
-  config->load_stages = params.double_buffer_options.smem_double_buffer_stage;
+  config->load_stages =
+      params.circular_buffer_options.smem_circular_buffer_stage;
   config->async_gmem_load_operands = params.async_gmem_load_operands;
   setConfigTile(config->cta_tile, params.tile_sizes.cta_tile);
   setConfigTile(config->warp_tile, params.tile_sizes.warp_tile);
@@ -143,8 +144,8 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams& params) {
   config->cta_order =
       params.cta_order == MatmulParams::TileRasterizationOrder::RowMajor ? 0
                                                                          : 1;
-  config->double_buffer_smem_read =
-      params.double_buffer_options.double_buffer_smem_read;
+  config->circular_buffer_smem_read =
+      params.circular_buffer_options.circular_buffer_smem_read;
   config->rotate_ldmatrix_out_of_main_loop =
       params.rotate_ldmatrix_out_of_main_loop;
   config->problem.supported_vec_size.a = (uint8_t)params.supported_vec_size.a;
@@ -163,7 +164,8 @@ void copyConfigToParams(MatmulParams& params, const KernelConfig* config) {
   setGemmTile(params.tile_sizes.cta_tile, config->cta_tile);
   setGemmTile(params.tile_sizes.warp_tile, config->warp_tile);
   setGemmTile(params.tile_sizes.instruction_tile, config->instruction_tile);
-  params.double_buffer_options.smem_double_buffer_stage = config->load_stages;
+  params.circular_buffer_options.smem_circular_buffer_stage =
+      config->load_stages;
   params.async_gmem_load_operands = config->async_gmem_load_operands;
   // Update mma macro if necessary to match instruction tile
   MmaMacroEncode menc(params.mma_macro); // this will record the family
@@ -187,13 +189,13 @@ void copyConfigToParams(MatmulParams& params, const KernelConfig* config) {
           config->cta_order,
           ". Expected 0 (row-major) or 1 (column-major)");
   }
-  params.double_buffer_options.double_buffer_smem_read =
-      config->double_buffer_smem_read;
+  params.circular_buffer_options.circular_buffer_smem_read =
+      config->circular_buffer_smem_read;
   params.rotate_ldmatrix_out_of_main_loop =
       config->rotate_ldmatrix_out_of_main_loop;
 
-  // enable double buffering or circular buffering if configured
-  params.double_buffer_options.double_buffer_smem_write =
+  // enable circular buffering if configured
+  params.circular_buffer_options.circular_buffer_smem_write =
       config->load_stages > 1;
 }
 
