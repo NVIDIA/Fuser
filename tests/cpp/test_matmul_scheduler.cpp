@@ -3497,10 +3497,10 @@ class MultiMatmulSchedulerMatchTest
     auto getTensorsToCompare = [](Fusion* fusion) {
       std::vector<TensorView*> tvs;
 
-      for (MmaOp* mma : ir_utils::getOpsOfType<MmaOp>(fusion)) {
-        // Test mma_result and all its producers. This omits the epilogue and
-        // outputs
-        tvs.push_back(mma->out()->as<TensorView>());
+      for (Val* v : fusion->outputs()) {
+        // Test all outputs and their producers (all active TVs)
+        EXPECT_TRUE(v->isA<TensorView>());
+        tvs.push_back(v->as<TensorView>());
       }
 
       return tvs;

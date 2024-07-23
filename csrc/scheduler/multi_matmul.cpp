@@ -583,6 +583,7 @@ class MultipleMatmulScheduler {
     // schedule splitk_sum
 
     // schedule epilogue
+    scheduleEpilogue();
 
     setUpInlining();
 
@@ -610,7 +611,7 @@ class MultipleMatmulScheduler {
   }
 
  private:
-  void cacheInputsAndOutputs() const {
+  void cacheInputsAndOutputs() {
     // Make sure we don't have global memory set on intermediate tensors from
     // fusion segmentation
     scheduler_utils::clearMemorySpace(fusion_);
@@ -619,7 +620,7 @@ class MultipleMatmulScheduler {
     scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
 
     // Cache and fork outputs
-    auto cached_outputs =
+    cached_outputs_ =
         scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
   }
 
@@ -1338,6 +1339,108 @@ class MultipleMatmulScheduler {
     schedulePrologueBranch(bcw_smems_, bcrs_, bbs_, MmaOperand::B);
   }
 
+  void scheduleEpilogue() {
+    params_.use_smem_epilogue) {
+      for (auto [dc, d] : cached_outputs_) {
+        // Schedule output tensor differently for better global memory access
+        // pattern.
+        NVF_ERROR(false, "TODO: implement scheduleOutputTensor");
+        //sche duleOutputTensor(
+   
+        a_ result, d, gemm_tile, params_.supported_vec_size.epilogue);
+        d->axis(-1)->parallelize(ParallelType::Vectorize);
+
+        // Propagate output tensor transformations back to smem_epilogue
+        scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+            d, -1, smem_epilogues_);
+      }
+    } else {
+      std::vector<TensorView*> output_tvs;
+      for (Val* v : fusion_->outputs()) {
+        if (auto tv = dynamic_cast<TensorView*>(v)) {
+          output_tvs.push_back(tv);
+        }
+      }
+      for (TensorView* mma_result : mma_results_) {
+        scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+            mma_result,
+            -1,
+            output_tvs,
+            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                .propagateParallelType()
+                .propagateToBoundary());
+      }
+      for (auto [dc, d] : cached_outputs_) {
+        // We might propagate an inner dimension that is not compatible with the
+        // output or bias-like inputs. In those cases, we will further split thi
+        // 
+    nsion with an outer unrolled loop to achieve the proper
+        // vectorization as specified by params.supported_vec_size.epilogue.
+        NVF_ERROR(d->axis(-1)->extent()->isConst());
+        int64_t d_extent = d->axis(-1)->extent()->value().as<int64_t>();
+        if (d_extent > params_.supported_vec_size.epilogue) {
+          // Should always be a divisible split
+          NVF_ERROR(d_extent % params_.supported_vec_size.epilogue == 0);
+          d->split(-1, 
+              params_.supported_vec_size.epilogue, /*inner_split=*/true);
+          d->axis(-2)->parallelize(ParallelType::Unroll);
+        }
+        d->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+    }
+
+    // propagate output transformations to all inputs that are part of epilogue
+    //  operations, input tvs with non-core roles
+    //  core roles: essential for matmul, for example mma inputs' producers
+    scheduleFusionInputsForEpilogue();
+  }
+
+  //! Propagates transformations from fusion output to fusion tv inputs that are
+  //!  producers in the epilogue. Transformations' propagation aims at input tvs
+  //!  which are not assigned to core roles, that is, are not MMA inputs.
+  void scheduleFusionInputsForEpilogue() {
+    std::vector<TensorView*> cached_tvs;
+
+    // Handling transformations in fusion input tvs with assigned EPILOGUE_INPUT
+    //  role by propagating fusion output transformations through cached views of
+
+    //     OGUE_INPUT fusion input tvs and by setting vectorization of the inn
+    //  r
+     iterdomain of these cached views
+    if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
+      auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
+
+      // The system supports only scenario where there is only one fusion output
+      //  with assigned OUTPUT role, this condition is already verified so there
+      //  is no need for an additional checks here
+      auto output_d = tensor_roles_.at(MatmulTensorRole::OUTPUT).front();
+      for (auto* c : c_tvs) {
+        cached_tvs.push_back(c->cacheAfter());
+      }
+
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          output_d, -1, c_tvs);
+
+      std::unordered_set<ParallelType> parallel_types = {};
+      if (params_.use_smem_epilogue) {
+        //! In cases where smem epilogue feature is enabled, the vectorization of
+
+        //!        //!  domains will be propagated to fusion inputs that are epilogue inp
+        //!  ts,
+     may result in unaligned memory reads. Vectorization is
+        //!  explicitly excluded form parallelization types to avoid this issue.
+        //! This should be changed when vectorization analysis is available and
+        //!  enabled for matmul scheduler.
+        parallel_types = allParallelTypesExcept({ParallelType::Vectorize});
+      }
+      scheduler_utils::parallelizeAllLike(
+          output_d, -1, cached_tvs, parallel_types);
+
+      // The cached EPILOGUE_INPUT tvs are not needed anymore
+      cached_tvs.clear();
+    }
+  }
+
   void setUpInlining() {
     inlineMost();
     /* TODO
@@ -1409,6 +1512,8 @@ class MultipleMatmulScheduler {
   mma_utils::TensorRolesMap tensor_roles_;
   mma_utils::MatmulOperandInnerDims inner_dims_;
 
+  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs_;
+
   std::vector<ValGroup> canonical_dim_ordering_;
 
   std::vector<TensorView*> as_, bs_, acw_smems_, bcw_smems_, acrs_, bcrs_, abs_,
@@ -1424,3 +1529,4 @@ void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams& params) {
 }
 
 } // namespace nvfuser
+    
