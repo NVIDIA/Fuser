@@ -590,24 +590,7 @@ class MultipleMatmulScheduler {
     // set up circular buffering. This must come after everything up to
     // mma_result is scheduled, since everything in the main loop will need to
     // be rotated
-    // setUpCircularBuffering();
-
-    /*
-    // Swizzle writes to prologue and epilogue smem tensors
-    swizzleAllSharedMemory();
-
-    // Schedules from the operand smem cache read buffers up to (not including)
-    // smem_epilogue
-    scheduleWarpTileWithReduction();
-
-    // Generates the prolog schedule on the shared memory buffer
-    //  tensor. The scheduling performs two steps:
-    //
-    // 1. Swizzled the shared mem data layout.
-    // 2. Coalesce and vectorize the read write schedule.
-    // schedulePrologue();
-
-    */
+    setUpCircularBuffering();
   }
 
  private:
@@ -627,6 +610,22 @@ class MultipleMatmulScheduler {
   void findPatterns() {
     patterns_ = mma_utils::findMatmulPatterns(fusion_);
     NVF_ERROR(!patterns_.empty(), "No matmul patterns were found");
+    countDims();
+  }
+
+  void countDims() {
+    NVF_ERROR(!patterns_.empty());
+    TensorView* mma_result = patterns_.front().output;
+    num_device_dims_ = numDeviceDims(mma_result);
+    for (const auto& it : id_roles_) {
+      if (it.second == MatmulDimRole::Batch) {
+        // All batch dims will be merged into one, if any exist
+        num_local_batch_dims_ = 1;
+      }
+    }
+    num_splitk_dims_ = params_.splitk_factor > 1 ? 1 : 0;
+    // Subtract 6 for the [Mo, No, Ko, Mi, Ni, Ki]
+    num_device_and_batch_dims_ = num_device_dims_ + num_local_batch_dims_;
   }
 
   void translatePatterns() {
@@ -1091,14 +1090,6 @@ class MultipleMatmulScheduler {
       TensorView*& mma_result = tvs[i];
       std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
-      const int64_t num_splitk_dims = params_.splitk_factor > 1 ? 1 : 0;
-      const int64_t num_device_dims = numDeviceDims(mma_result);
-      // Subtract 6 for the [Mo, No, Ko, Mi, Ni, Ki]
-      const int64_t num_local_batch_dims =
-          mma_result->nDims() - num_device_dims - 6 - num_splitk_dims;
-      const int64_t num_device_and_batch_dims =
-          num_device_dims + num_local_batch_dims;
-
       // do split-K rFactor to define splitk_sum and smem_epilogue
       if (operand_type == MmaOperand::Accumulator &&
           params_.splitk_factor != 1) {
@@ -1199,9 +1190,9 @@ class MultipleMatmulScheduler {
       //     [... iMo iNo rKf  iMi  iNi]
 
       // parallelize Mwo, Nwo by thread
-      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims + 1)
+      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
           ->parallelize(ParallelType::TIDz);
-      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims + 2)
+      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 2)
           ->parallelize(ParallelType::TIDy);
 
       if (operand_type != MmaOperand::Accumulator) {
@@ -1214,22 +1205,22 @@ class MultipleMatmulScheduler {
       // When we have both batch dims and splitk, parallelize splitk only.
       // If we only have batch dim, parallelize the batch dim.
       if (params_.splitk_factor > 1) {
-        mma_result->axis(num_device_and_batch_dims + 2)
+        mma_result->axis(num_device_and_batch_dims_ + 2)
             ->parallelize(ParallelType::BIDz);
-      } else if (num_local_batch_dims > 0) {
-        mma_result->axis(num_device_dims)->parallelize(ParallelType::BIDz);
+      } else if (num_local_batch_dims_ > 0) {
+        mma_result->axis(num_device_dims_)->parallelize(ParallelType::BIDz);
       }
       switch (params_.cta_order) {
         case MatmulParams::TileRasterizationOrder::RowMajor:
-          mma_result->axis(num_device_and_batch_dims)
+          mma_result->axis(num_device_and_batch_dims_)
               ->parallelize(ParallelType::BIDx);
-          mma_result->axis(num_device_and_batch_dims + 1)
+          mma_result->axis(num_device_and_batch_dims_ + 1)
               ->parallelize(ParallelType::BIDy);
           break;
         case MatmulParams::TileRasterizationOrder::ColumnMajor:
-          mma_result->axis(num_device_and_batch_dims)
+          mma_result->axis(num_device_and_batch_dims_)
               ->parallelize(ParallelType::BIDy);
-          mma_result->axis(num_device_and_batch_dims + 1)
+          mma_result->axis(num_device_and_batch_dims_ + 1)
               ->parallelize(ParallelType::BIDx);
           break;
         default:
@@ -1437,15 +1428,22 @@ class MultipleMatmulScheduler {
   }
 
   void setUpInlining() {
-    inlineMost();
-    /* TODO
     // auto inline for all tensors except register tensors
-    inlineMost(ir_utils::allTvsExcept(fusion_, {acr, bcr, ab, bb}));
+    std::unordered_set<TensorView*> smem_loads_and_mma_inputs;
+    smem_loads_and_mma_inputs.insert(acrs_.begin(), acrs_.end());
+    smem_loads_and_mma_inputs.insert(bcrs_.begin(), bcrs_.end());
+    smem_loads_and_mma_inputs.insert(abs_.begin(), abs_.end());
+    smem_loads_and_mma_inputs.insert(bbs_.begin(), bbs_.end());
+    inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs));
 
     // if auto inline, will inline to position-7, leads to performance
-    regression inlineSelectedAt( {acr, bcr, ab, bb}, mma_result,
-        num_device_and_batch_dims + 6 + num_splitk_dims);
-    */
+    // regression
+    for (TensorView* mma_result : mma_results_) {
+      inlineSelectedAt(
+          smem_loads_and_mma_inputs,
+          mma_result,
+          num_device_and_batch_dims_ + 6 + num_splitk_dims_);
+    }
   }
 
   // NOTE: this should be called after acw_smem, acr, ..., ab, and mma_result
@@ -1484,13 +1482,15 @@ class MultipleMatmulScheduler {
     if (params_.circular_buffer_options.circular_buffer_smem_read &&
         params_.circular_buffer_options.circular_buffer_smem_write) {
       // rotate Kg loop
-      NVF_ERROR(false, "TODO: rotateLoop");
-      /*
+      // This assumes we have a single main loop. If there were multiple main
+      // loops, then we would need to rotate each of them separately.
+      std::unordered_set<Statement*> all_smem_loads;
+      all_smem_loads.insert(acrs_.begin(), acrs_.end());
+      all_smem_loads.insert(bcrs_.begin(), bcrs_.end());
       scheduler_utils::rotateLoop(
           mma_results_.front(),
-          num_device_and_batch_dims + 2 + num_splitk_dims,
-          {acr, bcr});
-      */
+          num_device_and_batch_dims_ + 2 + num_splitk_dims_,
+          all_smem_loads);
     }
   }
 
@@ -1506,6 +1506,9 @@ class MultipleMatmulScheduler {
   mma_utils::DimRolesMap id_roles_;
   mma_utils::TensorRolesMap tensor_roles_;
   mma_utils::MatmulOperandInnerDims inner_dims_;
+
+  int64_t num_splitk_dims_ = 0, num_device_dims_ = 0, num_local_batch_dims_ = 0,
+          num_device_and_batch_dims_ = 0;
 
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs_;
 
