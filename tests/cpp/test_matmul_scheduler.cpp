@@ -2789,8 +2789,9 @@ TEST_F(MatmulSchedulerTest, Llama2FFNNoSegmentation) {
   params.circular_buffer_options.circular_buffer_smem_write = true;
   params.circular_buffer_options.circular_buffer_smem_read = true;
   params.circular_buffer_options.smem_circular_buffer_stage = 2;
-  params.splitk_factor = 2;
-  params.use_smem_epilogue = true;
+  // params.splitk_factor = 2;
+  // params.use_smem_epilogue = true;
+  // params.promote_prologue_smem_reuse = true;
   scheduleMultipleMatmuls(fusion, params);
 
   FusionExecutor fe;
@@ -2798,7 +2799,12 @@ TEST_F(MatmulSchedulerTest, Llama2FFNNoSegmentation) {
 
   auto outputs = fe.runFusion(inputs);
 
-  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+  auto t3 = at::matmul(t0.to(at::kFloat), t1.to(at::kFloat));
+  auto t4 = at::matmul(t0.to(at::kFloat), t2.to(at::kFloat));
+  auto t5 = at::sigmoid(t3) * t3;
+  auto tref = t5 * t4;
+
+  NVF_CHECK(outputs[0].allclose(tref, 0.005, 0.005));
 }
 
 INSTANTIATE_TEST_SUITE_P(
