@@ -149,7 +149,7 @@ Val* getOffsetForCircularBufferTensor(
   return SimplifyingIrBuilder::mulExpr(offset, original_alloc_size);
 }
 
-std::optional<CircularBufferLoopStage> getCircularBufferLoopStage(
+CircularBufferLoopStage getCircularBufferLoopStage(
     const TensorView* circular_buffer_tv,
     const std::vector<ForLoop*>& for_loops,
     const ValGraph& loop_graph) {
@@ -162,7 +162,7 @@ std::optional<CircularBufferLoopStage> getCircularBufferLoopStage(
           circular_buffer_tv);
 
   if (db_axis == nullptr) {
-    return std::nullopt;
+    return CircularBufferLoopStage::NotApplicable;
   }
 
   for (const auto fl : for_loops) {
