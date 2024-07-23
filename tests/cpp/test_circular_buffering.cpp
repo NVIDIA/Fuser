@@ -567,11 +567,11 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
 
   TensorView* tv6 = tv5->cacheBefore();
 
-  // For register double buffering
+  // For register circular buffering
   TensorView* tv0_cache_local = tv0->cacheAfter();
   TensorView* tv1_cache_local = tv1->cacheAfter();
 
-  // For smem double buffering
+  // For smem circular buffering
   TensorView* tv0_cache_smem =
       tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   TensorView* tv1_cache_smem =
@@ -582,22 +582,36 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   constexpr int64_t BSX = 32;
   constexpr int64_t TSX = 8;
 
-  // [M, K, N]
+  // Step 0: [M, K, N]
+  // Step 1: [M, K, N/BSX, BSX]
   tv6->split(-1, BSX);
+
+  // Step 2: [M, K, N/BSX, BSX/TSX, TSX]
   tv6->split(-1, TSX);
+
+  // Step 3: [M, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
   tv6->split(1, BSX);
+
+  // Step 4: [M/BSX, BSX, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
   tv6->split(0, BSX);
+
+  // Step 5:[M/BSX, BSX/TSX, TSX, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
   tv6->split(1, TSX);
-  // [M/BSX, BSX/TSX, TSX, K/BSX, BSX, N/BSX, BSX/TSX, TSX]
+
+  // Step 6: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX]
   tv6->reorder(
       {{4, 7}, {7, 6}, {6, 5}, {2, 4}, {1, 3}, {3, 2}, {5, 1}, {0, 0}});
-  // [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX]
 
+  // Step 7a: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX (reduce)]
+  // Step 7b: [M/BSX, N/BSX, K/BSX (reduce), BSX/TSX, BSX/TSX, TSX, TSX]
   TensorView* tv6_rf = tv6->rFactor({-1});
 
   TransformPropagatorWithCheck propagator(tv6_rf);
   MaxRootDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
 
+  // IterDomain: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX]
+  // Parallelization: BDX, BDY, K/BSX ||, BSX/TSX, BSX/TSX, TDY, TSX, TDX]
+  // 4 non-parallelized for-loops
   tv0->computeAt(tv6, 3);
   tv1->computeAt(tv6, 3);
 
@@ -612,6 +626,7 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
 
   scheduler_utils::parallelizeAllLike(tv5);
 
+  // (BSX/TSX * TSX * BSX) = 1024 floats = 4096 bytes * (number of buffers)
   // Apply circular buffering to smem and local cache tensors
   tv0_cache_smem->axis(-3)->parallelize(ParallelType::Bulk);
   tv0_cache_smem->axis(-2)->parallelize(ParallelType::Bulk);
@@ -648,12 +663,11 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   }
 }
 
-// NOTE change upper limit; currently hitting segmentation fault
-// Test circular buffering from 2 to 8 stages
+// Test circular buffering from 2 to 10 stages
 INSTANTIATE_TEST_SUITE_P(
     Hopper,
     TmaCircularBufferingTest,
-    ::testing::Range(2, 3));
+    ::testing::Range(2, 10));
 
 namespace {
 class CircularBufferingTest : public NVFuserTest {};
