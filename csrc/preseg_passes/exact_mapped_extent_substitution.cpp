@@ -6,11 +6,11 @@
  */
 // clang-format on
 #include <debug.h>
+#include <id_model/id_model.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <options.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
-#include <id_model/id_model.h>
 namespace nvfuser::preseg_passes {
 
 namespace {
@@ -30,11 +30,11 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
   // map non-const extents to const extents
   std::unordered_map<Val*, Val*> replacement_map;
 
-  // (1) Build the exact graph
+  // Build the exact graph
   IdModel id_model(fusion, false, false, false);
   id_model.buildExactGraph();
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();  
+  const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
 
   // Loop over each set of values
   for (auto set_ptr : val_sets.disjointSets()) {
@@ -44,10 +44,7 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
     Val* lowest_val = nullptr;
     for (auto v : *set_ptr) {
       auto id = dynamic_cast<IterDomain*>(v);
-      if(id == nullptr) {
-        continue;
-      }
-      if (isNonSubstitutableID(id)) {
+      if (id == nullptr || isNonSubstitutableID(id)) {
         continue;
       }
       // find the const extent, if already seen, check if they are the same
@@ -71,10 +68,7 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
     // if no const extents, replace with the one with the lowest name.
     for (auto v : *set_ptr) {
       auto id = dynamic_cast<IterDomain*>(v);
-      if(id == nullptr) {
-        continue;
-      }      
-      if (isNonSubstitutableID(id)) {
+      if (id == nullptr || isNonSubstitutableID(id)) {
         continue;
       }
       replacement_map.emplace(
@@ -90,17 +84,23 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
 
 void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "ExactLogicalDomainMap before " << name() << ":" << std::endl;
-    const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
-    debug() << mapped_sets.toString() << std::endl;
+    debug() << "DisjointSets before " << name() << ":" << std::endl;
+    IdModel id_model(fusion, false, false, false);
+    id_model.buildExactGraph();
+    const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+    const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
+    debug() << val_sets.toString() << std::endl;
   }
 
   exactMappedExtentSubstitution(fusion);
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "ExactLogicalDomainMap after " << name() << ":" << std::endl;
-    const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
-    debug() << mapped_sets.toString() << std::endl;
+    IdModel id_model(fusion, false, false, false);
+    id_model.buildExactGraph();
+    const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+    const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();
+    debug() << val_sets.toString() << std::endl;
   }
 }
 

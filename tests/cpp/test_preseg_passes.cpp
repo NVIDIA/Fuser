@@ -642,7 +642,6 @@ TEST_F(PresegTest, ReplaceOutput) {
   testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
-
 TEST_F(PresegTest, ExtentSubstitution) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -657,12 +656,19 @@ TEST_F(PresegTest, ExtentSubstitution) {
   auto tv4 = add(tv2, tv3);
   fusion->addOutput(tv4);
 
-  auto options =
-      at::TensorOptions().device(at::kCUDA, 0);
+  OptimizationPass<PreSegmenter>::runPass(fusion.get());
+  // two inputs should be same after ExactMappedExtentSubstitutionPass in
+  // OptimizationPass
+  const auto& inputs = fusion.get()->inputs();
+  TensorView* input1 = dynamic_cast<TensorView*>(inputs.at(0));
+  TensorView* input2 = dynamic_cast<TensorView*>(inputs.at(1));
+  auto extend1 = input1->getLogicalDomain().at(0)->extent();
+  auto extend2 = input2->getLogicalDomain().at(0)->extent();
+  EXPECT_EQ(extend1, extend2);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn(input_shape, options);
   auto t1 = at::randn(input_shape, options);
-
-
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(
