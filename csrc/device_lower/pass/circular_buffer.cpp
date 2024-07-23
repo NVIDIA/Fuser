@@ -660,17 +660,34 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         ? cloned_top_level_loop_
         : IrBuilder::create<ForLoop>(fl);
 
+    // Add to stack
     for_loop_id_stack_.push_back(fl->iter_domain());
     cloned_scopes_.push_back(&cloned_loop->body());
 
+    // Process for-loop
     kir::IrVisitor::handle(fl);
 
+    // Pop from stack
     for_loop_id_stack_.pop_back();
     cloned_scopes_.pop_back();
 
-    // Skip if cloned loop is empty or there is not an active for-loop
-    // structure
-    if (cloned_loop->body().empty() || cloned_scopes_.empty()) {
+    // if (elect_sync)
+    //   // single arrive for all tma operations
+    //   arrive_expect_tx
+    //   // nested for-loop structure launching multiple tma operations
+    //   for (...):
+    //     tma_operation
+    //   end for
+    // end if
+    // // all threads wait for transaction to complete
+    // mbarrier_wait()
+    //
+    // Prolog - launch only - (arrive_expect_tx and tma_operations)
+    // Main - Launch and wait - (arrive_expect_tx, tma_operations, and
+    // mbarrier_wait) Epilog - wait only - (mbarrier_wait)
+
+    // Skip if there is not an active for-loop structure
+    if (cloned_scopes_.empty()) {
       return;
     }
 
@@ -681,32 +698,34 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
           return id->getParallelType() == ParallelType::Serial;
         });
 
-    // Add cloned for_loop when mbarrier_arrive_tx_ is not active or
-    // we are within a nested for-loop structure
-    if (mbarrier_arrive_tx_ == nullptr || active_for_loops > 1) {
-      cloned_scopes_.back()->push_back(cloned_loop);
-    } else {
-      // mbarrier::arriveExpectTx and TMA load operations occur in prologue and
-      // main loops.
-      //
-      // Pseudo-code example:
-      // if (elect_sync()) {
-      //   mbarrier_tokens[stage] = mbarrier::arriveExpectTx(mbarriers[stage],
-      //                                                     expected_tx);
-      //   for (...) {
-      //     Hopper::cpAsyncBulkTensorTileG2S(
-      //       Hopper::CpAsyncBulkTensorTileG2SIndex<num_dims>{
-      //         tma_descriptor, global_index, mbarrier[stage] },
-      //       shared_index(stage, num_stages));
-      //   }
-      // }
-      NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
-      kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-      Scope& body = if_expr->thenBody();
-      body.push_back(mbarrier_arrive_tx_);
-      body.push_back(cloned_loop);
-      cloned_scopes_.back()->push_back(if_expr);
-      mbarrier_arrive_tx_ = nullptr;
+    if (!cloned_loop->body().empty()) {
+      if (mbarrier_arrive_tx_ == nullptr || active_for_loops > 1) {
+        // Add cloned for_loop when mbarrier_arrive_tx_ is not active or
+        // we are within a nested for-loop structure
+        cloned_scopes_.back()->push_back(cloned_loop);
+      } else {
+        // mbarrier::arriveExpectTx and TMA load operations occur in prologue
+        // and main loops.
+        //
+        // Pseudo-code example:
+        // if (elect_sync()) {
+        //   mbarrier_tokens[stage] = mbarrier::arriveExpectTx(mbarriers[stage],
+        //                                                     expected_tx);
+        //   for (...) {
+        //     Hopper::cpAsyncBulkTensorTileG2S(
+        //       Hopper::CpAsyncBulkTensorTileG2SIndex<num_dims>{
+        //         tma_descriptor, global_index, mbarrier[stage] },
+        //       shared_index(stage, num_stages));
+        //   }
+        // }
+        NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
+        kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+        Scope& body = if_expr->thenBody();
+        body.push_back(mbarrier_arrive_tx_);
+        body.push_back(cloned_loop);
+        cloned_scopes_.back()->push_back(if_expr);
+        mbarrier_arrive_tx_ = nullptr;
+      }
     }
 
     // mbarrier::wait occurs in main and epilogue loops.
