@@ -3650,6 +3650,61 @@ void TensorDomain::setAllocationDomain(
   contiguity_ = std::move(new_contiguity);
 }
 
+std::vector<IterDomain*> TensorDomain::allIDs() const {
+  std::array<const std::vector<IterDomain*>*, 4> all_domains = {
+      &logical_domain_, &root_domain_, &allocation_domain_, &loop_domain_};
+  VectorOfUniqueEntries<IterDomain*> discovered_ids;
+  for (auto domain : all_domains) {
+    discovered_ids.pushBack(*domain);
+  }
+
+  // We only care about IDs on the shortest path between domains
+  std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+  for (auto i : c10::irange(all_domains.size() - 1)) {
+    if (all_domains[i]->empty()) {
+      continue;
+    }
+    for (auto j : c10::irange(i + 1, all_domains.size())) {
+      if (all_domains[j]->empty()) {
+        continue;
+      }
+      auto path = IRBFS::getExprsBetween(
+          {all_domains[i]->begin(), all_domains[i]->end()},
+          {all_domains[j]->begin(), all_domains[j]->end()},
+          false);
+      for (auto [expr, _] : path) {
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->outputs()));
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->inputs()));
+        for (auto in : expr->inputs()) {
+          for (auto out : expr->outputs()) {
+            out2in.emplace(out->as<IterDomain>(), in->as<IterDomain>());
+          }
+        }
+      }
+    }
+  }
+
+  // Topological sort all IDs
+  std::list<IterDomain*> ids_to_be_sorted(
+      discovered_ids.begin(), discovered_ids.end());
+  VectorOfUniqueEntries<IterDomain*> sorted_ids;
+  while (!ids_to_be_sorted.empty()) {
+    auto it = ids_to_be_sorted.begin();
+    while (it != ids_to_be_sorted.end()) {
+      auto in_it = out2in.find(*it);
+      if (in_it == out2in.end() || sorted_ids.has(in_it->second)) {
+        sorted_ids.pushBack(*it);
+        it = ids_to_be_sorted.erase(it);
+      } else {
+        it++;
+      }
+    }
+  }
+  return sorted_ids.vector();
+}
+
 Split::Split(
     IrBuilderPasskey passkey,
     IterDomain* outer,
