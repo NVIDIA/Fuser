@@ -141,7 +141,7 @@ void validateIterDomainUsage(Fusion* fusion) {
   std::unordered_map<IterDomain*, TensorView*> domain_use_map;
 
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (auto id : ir_utils::allIDsOf(tv)) {
+    for (auto id : tv->domain()->allIDs()) {
       auto it = domain_use_map.find(id);
       NVF_ERROR(
           it == domain_use_map.end(),
