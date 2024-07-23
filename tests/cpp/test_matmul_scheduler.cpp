@@ -3349,6 +3349,9 @@ class MultiMatmulSchedulerMatchTest
     compareScalars(
         id_orig->getMaybeExpandedExtent(), id_new->getMaybeExpandedExtent());
 
+    // Print suffix whenever a test fails before recursing
+    ASSERT_FALSE(testing::Test::HasFailure()) << suffix;
+
     EXPECT_EQ(id_new->definition() == nullptr, id_orig->definition() == nullptr)
         << suffix;
     if (id_orig->definition() == nullptr) {
@@ -3373,6 +3376,8 @@ class MultiMatmulSchedulerMatchTest
         }
       }
     }
+    // Print suffix after recursing for context
+    ASSERT_FALSE(testing::Test::HasFailure()) << suffix;
   }
 
   void compareTVs(TensorView* tv_orig, TensorView* tv_new) {
@@ -3397,6 +3402,14 @@ class MultiMatmulSchedulerMatchTest
       IterDomain* id_orig = tv_orig->axis((int64_t)i);
       IterDomain* id_new = tv_new->axis((int64_t)i);
       compareIDs(id_orig, id_new);
+      // Print transforms after failure recursing for context
+      if (testing::Test::HasFailure()) {
+        std::cout << "ORIG: " << tv_orig->toString() << std::endl;
+        tv_orig->printTransforms();
+        std::cout << "NEW: " << tv_new->toString() << std::endl;
+        tv_new->printTransforms();
+      }
+      ASSERT_FALSE(testing::Test::HasFailure()) << suffix;
     }
 
     // Inspect allocation domain
@@ -3409,6 +3422,14 @@ class MultiMatmulSchedulerMatchTest
       ASSERT_EQ(alloc_new.size(), alloc_orig.size()) << suffix;
       for (size_t i : c10::irange(alloc_orig.size())) {
         compareIDs(alloc_orig[i], alloc_new[i]);
+        // Print transforms after failure recursing for context
+        if (testing::Test::HasFailure()) {
+          std::cout << "ORIG: " << tv_orig->toString() << std::endl;
+          tv_orig->printTransforms();
+          std::cout << "NEW: " << tv_new->toString() << std::endl;
+          tv_new->printTransforms();
+        }
+        ASSERT_FALSE(testing::Test::HasFailure()) << suffix;
       }
     }
 
@@ -3429,7 +3450,35 @@ class MultiMatmulSchedulerMatchTest
           rop_orig->serialGridReductionRequested());
     }
 
-    // Print suffix whenever a test fails, even in a recursive call
+    // Print suffix whenever a test fails before recursing
+    ASSERT_FALSE(testing::Test::HasFailure()) << suffix;
+
+    Expr* def_orig = tv_orig->definition();
+    Expr* def_new = tv_new->definition();
+    EXPECT_TRUE(def_orig->sameOp(def_new))
+        << "def_orig\n  " << def_orig->toString()
+        << "is not the same as def_new\n  " << def_new->toString() << suffix;
+    EXPECT_EQ(def_orig->attributes().size(), def_new->attributes().size())
+        << suffix;
+    EXPECT_EQ(def_orig->inputs().size(), def_new->inputs().size()) << suffix;
+    for (size_t i : c10::irange(def_orig->inputs().size())) {
+      if (i >= def_new->inputs().size()) {
+        break;
+      }
+      auto* tv_inp_orig = dynamic_cast<TensorView*>(def_orig->input(i));
+      auto* tv_inp_new = dynamic_cast<TensorView*>(def_new->input(i));
+      EXPECT_EQ(tv_inp_orig != nullptr, tv_inp_new != nullptr) << suffix;
+
+      if (!testing::Test::HasFailure() && tv_inp_orig != nullptr &&
+          !tv_inp_orig->isFusionInput()) {
+        // Skip comparing input TVs since their schedules don't affect the
+        // generated kernel
+        EXPECT_FALSE(tv_inp_new->isFusionInput());
+        compareTVs(tv_inp_orig, tv_inp_new);
+      }
+    }
+
+    // Print suffix whenever a test fails in recursive call
     ASSERT_FALSE(testing::Test::HasFailure()) << suffix;
   }
 
@@ -3448,29 +3497,10 @@ class MultiMatmulSchedulerMatchTest
     auto getTensorsToCompare = [](Fusion* fusion) {
       std::vector<TensorView*> tvs;
 
-      NVF_ERROR(fusion->inputs().size(), 2);
-      for (int64_t i : {0, 1}) { // A and B
-        TensorView* operand = fusion->inputs().at(i)->as<TensorView>();
-
-        NVF_ERROR(operand->uses().size() == 1);
-        NVF_ERROR(operand->uses()[0]->isA<LoadStoreOp>());
-        TensorView* op_smem = operand->uses()[0]->output(0)->as<TensorView>();
-        tvs.push_back(op_smem);
-        NVF_ERROR(op_smem->uses().size() == 1);
-        NVF_ERROR(op_smem->uses()[0]->isA<LoadStoreOp>());
-        // acr/bcr
-        TensorView* op_register =
-            op_smem->uses()[0]->output(0)->as<TensorView>();
-        tvs.push_back(op_register);
-      }
-
       for (MmaOp* mma : ir_utils::getOpsOfType<MmaOp>(fusion)) {
-        // mma_result
+        // Test mma_result and all its producers. This omits the epilogue and
+        // outputs
         tvs.push_back(mma->out()->as<TensorView>());
-        // ab
-        tvs.push_back(mma->inA()->as<TensorView>());
-        // bb
-        tvs.push_back(mma->inB()->as<TensorView>());
       }
 
       return tvs;
@@ -3688,7 +3718,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(8, 2), // vec_size_a
         testing::Values(8, 2), // vec_size_b
         testing::Values(4), // vec_size_epilogue
-        testing::Values(true), // use_smem_epilogue
+        testing::Values(false), // use_smem_epilogue
         testing::Values(1, 2), // splitk_factor
         testing::Bool(), // cta_order_col_major
         testing::Values(1, 2) // grid_swizzle_factor

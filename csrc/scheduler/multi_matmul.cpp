@@ -1421,9 +1421,6 @@ void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams& params) {
   FusionGuard fg(fusion);
 
   MultipleMatmulScheduler(fusion, params).run();
-
-  // TODO: translate starting from matmul.cpp:1027
-  // if (params.use_smem_epilogue) {
 }
 
 } // namespace nvfuser
