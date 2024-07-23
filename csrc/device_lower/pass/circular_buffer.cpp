@@ -691,15 +691,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
       return;
     }
 
-    int64_t active_for_loops = std::count_if(
-        for_loop_id_stack_.begin(),
-        for_loop_id_stack_.end(),
-        [](IterDomain* id) {
-          return id->getParallelType() == ParallelType::Serial;
-        });
-
     if (!cloned_loop->body().empty()) {
-      if (mbarrier_arrive_tx_ == nullptr || active_for_loops > 1) {
+      if (mbarrier_arrive_tx_ == nullptr || cloned_scopes_.size() > 1) {
         // Add cloned for_loop when mbarrier_arrive_tx_ is not active or
         // we are within a nested for-loop structure
         cloned_scopes_.back()->push_back(cloned_loop);
@@ -732,8 +725,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     //
     // Pseudo-code example:
     //  mbarrier::wait(mbarriers[stage], mbarrier_tokens[stage]);
-    if (mbarrier_wait_ != nullptr && active_for_loops == 1) {
-      NVF_ERROR(cloned_scopes_.front() == &cloned_top_level_loop_->body());
+    if (mbarrier_wait_ != nullptr && cloned_scopes_.size() == 1) {
+      NVF_ERROR(cloned_scopes_.back() == &cloned_top_level_loop_->body());
       cloned_top_level_loop_->body().push_back(mbarrier_wait_);
       mbarrier_wait_ = nullptr;
     }
