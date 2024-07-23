@@ -8135,7 +8135,7 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
           ::testing::HasSubstr("unsupported use case of cp.async")));
 }
 
-TEST_F(NVFuserTest, DecoupledDomains) {
+TEST_F(NVFuserTest, DecoupledDomains1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -8197,7 +8197,55 @@ TEST_F(NVFuserTest, DecoupledDomains) {
       root_domain, logical_domain, allocation_domain, loop_domain, contiguity);
   TensorView* tv = IrBuilder::create<TensorView>(td, DataType::Float);
   auto all_ids = concat(logical_all, root_all, alloc_all, loop_all);
-  auto tv_all_vec = ir_utils::allIDsOf(tv);
+  auto tv_all_vec = tv->domain()->allIDs();
+  std::unordered_set<IterDomain*> tv_all(tv_all_vec.begin(), tv_all_vec.end());
+  EXPECT_EQ(tv_all, all_ids);
+}
+
+TEST_F(NVFuserTest, DecoupledDomains2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  auto s2 = IrBuilder::create<Val>(DataType::Index);
+  auto s3 = IrBuilder::create<Val>(DataType::Index);
+  auto id0 = IterDomainBuilder(s0->fusion()->zeroVal(), s0).build();
+  auto id1 = IterDomainBuilder(s1->fusion()->zeroVal(), s1).build();
+  auto id2 = IterDomainBuilder(s2->fusion()->zeroVal(), s2).build();
+  auto id3 = IterDomainBuilder(s3->fusion()->zeroVal(), s3).build();
+  std::unordered_set<IterDomain*> all_ids{id0, id1, id2, id3};
+
+  AbstractTensor root_ids({id0, id1, id2, id3});
+
+  auto schedule = [&]() {
+    AbstractTensor domain = root_ids;
+    domain.merge(2);
+    all_ids.insert(domain[2].as<IterDomain*>());
+    domain.split(2, 256);
+    all_ids.insert(domain[2].as<IterDomain*>());
+    all_ids.insert(domain[3].as<IterDomain*>());
+    domain.merge(0);
+    all_ids.insert(domain[0].as<IterDomain*>());
+    domain.split(0, 256);
+    all_ids.insert(domain[0].as<IterDomain*>());
+    all_ids.insert(domain[1].as<IterDomain*>());
+    return domain.as<IterDomain*>();
+  };
+
+  // Create a TensorView that, all the domains are transformed from a common
+  // topologically root IDs [I0, I1, I2, I3] separately, so that to traverse
+  // between any two domains, the traversal requires both forward and backward.
+  auto logical_domain = schedule();
+  auto root_domain = schedule();
+  auto allocation_domain = schedule();
+  auto loop_domain = schedule();
+  std::vector<std::optional<bool>> contiguity(allocation_domain.size(), true);
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      root_domain, logical_domain, allocation_domain, loop_domain, contiguity);
+  TensorView* tv = IrBuilder::create<TensorView>(td, DataType::Float);
+  auto tv_all_vec = tv->domain()->allIDs();
   std::unordered_set<IterDomain*> tv_all(tv_all_vec.begin(), tv_all_vec.end());
   EXPECT_EQ(tv_all, all_ids);
 }
