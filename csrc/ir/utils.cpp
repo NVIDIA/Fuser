@@ -814,8 +814,6 @@ void validateDomainEquivalence(
   if (dom0.empty() && dom1.empty()) {
     return;
   }
-  NVF_ERROR(!dom0.empty());
-  NVF_ERROR(!dom1.empty());
   // Make sure there's no duplicate in the parameter vectors
   NVF_ERROR(
       dom0.size() == dom0_set.size(),
@@ -914,7 +912,7 @@ void validateDomainEquivalence(
             [&](Val* id) {
               return id->as<IterDomain>()->getIterType() ==
                   IterType::Symbolic ||
-                  dom1_set.count(id);
+                  id->as<IterDomain>()->isBroadcast() || dom1_set.count(id);
             }),
         "dom0 and dom1 are not equal. dom0: ",
         toDelimitedString(dom0),
