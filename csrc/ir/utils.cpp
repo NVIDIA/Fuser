@@ -492,7 +492,6 @@ class ValReplacementMutator : private OptOutMutator {
     more_stmts.insert(more_stmts.end(), stmts.begin(), stmts.end());
 
     for (auto stmt : more_stmts) {
-      // std::cout << "stmt: " << stmt->toString() << std::endl;
       dispatchMutate(stmt);
     }
   }
@@ -811,15 +810,6 @@ void validateDomainEquivalence(
   std::unordered_set<Val*> dom0_set(dom0.begin(), dom0.end());
   std::unordered_set<Val*> dom1_set(dom1.begin(), dom1.end());
 
-  std::cout << "\nvalidateDomainEquivalence: " << std::endl;
-  std::cout << "dom0: " << std::endl;
-  for(auto id : dom0){
-    std::cout << id->toString() << std::endl;
-  }
-  std::cout << "dom1: " << std::endl;
-  for(auto id : dom1){
-    std::cout << id->toString() << std::endl;
-  }
   // empty domain are equivalent.
   if (dom0.empty() && dom1.empty()) {
     return;

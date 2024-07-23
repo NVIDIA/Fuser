@@ -59,7 +59,6 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
     // complicate the two-hop check in maybeMutated
     return;
   }
-  std::cout << "registerMutation: " << val->toString() << " -> " << mutation->toString() << std::endl;
   bool val_is_ns = val->vtype() == ValType::NamedScalar;
   bool mutation_is_ns = mutation->vtype() == ValType::NamedScalar;
   bool val_is_scalar = val->vtype() == ValType::Others;
@@ -86,7 +85,6 @@ void OptOutMutator::mutate(Val* s) {}
 void OptOutMutator::mutate(NamedScalar* ns) {}
 
 void OptOutMutator::mutate(IterDomain* id) {
-  std::cout << "mutate IterDomain: " << id->toString() << std::endl;
   Val* start = maybeMutated(id->start());
   Val* extent = maybeMutated(id->extent());
   Val* expanded_extent = nullptr;
@@ -98,24 +96,20 @@ void OptOutMutator::mutate(IterDomain* id) {
       (!id->hasExpandedExtent() ||
        expanded_extent->sameAs(id->expandedExtent())) &&
       stop_offset->sameAs(id->stopOffset())) {
-    std::cout << "mutate IterDomain: skipped" << std::endl;
     return;
   }
-  auto new_id = IterDomainBuilder(id)
-                    .start(start)
-                    .extent(extent)
-                    .stop_offset(stop_offset)
-                    .expanded_extent(expanded_extent)
-                    .build();
   registerMutation(
       id,
-      new_id);
-  std::cout << "mutate IterDomain: done, new_id " << new_id->toString() << std::endl;
+      IterDomainBuilder(id)
+          .start(start)
+          .extent(extent)
+          .stop_offset(stop_offset)
+          .expanded_extent(expanded_extent)
+          .build());
 }
 
 void OptOutMutator::mutate(TensorDomain* td) {
   bool mutated = false;
-  std::cout << "mutate TensorDomain: " << td->toString() << std::endl;
 
   auto updateIdVec = [&](const std::vector<IterDomain*>& ids) {
     std::vector<IterDomain*> updated_ids;
@@ -136,25 +130,11 @@ void OptOutMutator::mutate(TensorDomain* td) {
       ? updateIdVec(td->allocation())
       : std::vector<IterDomain*>();
   std::vector<IterDomain*> domain = updateIdVec(td->loop());
-  std::cout << "mutate TensorDomain new domain: " << std::endl;
-  for(auto id : domain) {
-    std::cout << "id: " << id->toString() << std::endl;
-  }
-  for(auto id : root_dom) {
-    std::cout << "root_dom: " << id->toString() << std::endl;
-  }
-  for(auto id : logical_dom) {
-    std::cout << "logical_dom: " << id->toString() << std::endl;
-  }
-  for(auto id : allocation_dom) {
-    std::cout << "allocation_dom: " << id->toString() << std::endl;
-  }  
+
   if (!mutated) {
-    std::cout << "mutate TensorDomain: not mutated" << std::endl;
     return;
   }
 
-  std::cout << "mutate TensorDomain: createInContainer TensorDomain" << std::endl;
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,
@@ -162,18 +142,14 @@ void OptOutMutator::mutate(TensorDomain* td) {
       allocation_dom,
       domain,
       td->contiguity());
-  std::cout << "mutate TensorDomain: registerMutation" << std::endl;
   registerMutation(td, mutated_val);
-  std::cout << "mutate TensorDomain: done" << std::endl;
 }
 
 void OptOutMutator::mutate(TensorView* tv) {
-  std::cout << "mutate tv: " << tv->toString() << std::endl;
   TensorDomain* td = maybeMutated(tv->domain())->as<TensorDomain>();
   if (!tv->domain()->sameAs(td)) {
     tv->setDomain(td);
   }
-  std::cout << "mutate tv: done" << std::endl;
   // Don't register tv mutations as we just want to update the TD
 }
 
@@ -190,15 +166,9 @@ Expr* OptOutMutator::mutateExpr(
     bool replace_outputs,
     bool replace_inputs,
     bool replace_attrs) {
-  std::cout << "mutate Expr: " << op->toString() << std::endl;
-  std::cout << "replace_outputs: " << replace_outputs << " replace_inputs: " << replace_inputs << " replace_attrs: " << replace_attrs << std::endl;
   std::vector<Val*> mutated_outputs;
   mutated_outputs.reserve(op->outputs().size());
   for (auto output : op->outputs()) {
-    if(const auto tv = dynamic_cast<TensorView*>(output)) {
-      std::cout << "mutate Expr: tv " << tv->toString() << std::endl;
-      tv->printTransforms();
-    }
     mutated_outputs.emplace_back(
         replace_outputs ? maybeMutated(output) : output);
   }
@@ -244,7 +214,6 @@ Expr* OptOutMutator::mutateExpr(
   }
 
   if (all_same) {
-    std::cout << "mutate expr: done all_same" << std::endl;
     return op;
   }
 
@@ -255,7 +224,6 @@ Expr* OptOutMutator::mutateExpr(
       newObjectFunc(container, mutated_inputs, mutated_outputs, mutated_attrs);
   registerNewExpr(new_expr);
 
-  std::cout << "mutate expr: done new_expr " << new_expr->toString() << std::endl;
   return new_expr;
 }
 

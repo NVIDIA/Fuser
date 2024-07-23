@@ -642,4 +642,30 @@ TEST_F(PresegTest, ReplaceOutput) {
   testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
+
+TEST_F(PresegTest, ExtentSubstitution) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {128};
+  const std::vector<int64_t> group_shape = {32, 4};
+  auto tv0 = makeContigTensor(input_shape.size());
+  auto tv1 = makeContigTensor(input_shape.size());
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = reshape(tv0, input_shape, group_shape);
+  auto tv3 = reshape(tv1, input_shape, group_shape);
+  auto tv4 = add(tv2, tv3);
+  fusion->addOutput(tv4);
+
+  auto options =
+      at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn(input_shape, options);
+
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser::preseg_passes

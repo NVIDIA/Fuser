@@ -3087,14 +3087,11 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  std::cout << "validateDomainEquivalence logical_domain loop_domain_" << std::endl;
   ir_utils::validateDomainEquivalence(logical_domain_, loop_domain_);
   if (!root_domain_.empty()) {
-    std::cout << "validateDomainEquivalence logical_domain root_domain_" << std::endl;
     ir_utils::validateDomainEquivalence(logical_domain_, root_domain_);
   }
   if (!allocation_domain_.empty()) {
-    std::cout << "validateDomainEquivalence logical_domain allocation_domain_" << std::endl;
     ir_utils::validateDomainEquivalence(logical_domain_, allocation_domain_);
   }
 
