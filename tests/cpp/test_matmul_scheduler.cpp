@@ -3429,10 +3429,8 @@ class MultiMatmulSchedulerMatchTest
           rop_orig->serialGridReductionRequested());
     }
 
-    if (testing::Test::HasFailure()) {
-      // Print suffix whenever a test fails, even in a recursive call
-      std::cerr << suffix << std::endl;
-    }
+    // Print suffix whenever a test fails, even in a recursive call
+    ASSERT_FALSE(testing::Test::HasFailure()) << suffix;
   }
 
   void compareSchedules() {
@@ -3458,10 +3456,21 @@ class MultiMatmulSchedulerMatchTest
         NVF_ERROR(operand->uses()[0]->isA<LoadStoreOp>());
         TensorView* op_smem = operand->uses()[0]->output(0)->as<TensorView>();
         tvs.push_back(op_smem);
+        NVF_ERROR(op_smem->uses().size() == 1);
+        NVF_ERROR(op_smem->uses()[0]->isA<LoadStoreOp>());
+        // acr/bcr
+        TensorView* op_register =
+            op_smem->uses()[0]->output(0)->as<TensorView>();
+        tvs.push_back(op_register);
       }
 
       for (MmaOp* mma : ir_utils::getOpsOfType<MmaOp>(fusion)) {
+        // mma_result
         tvs.push_back(mma->out()->as<TensorView>());
+        // ab
+        tvs.push_back(mma->inA()->as<TensorView>());
+        // bb
+        tvs.push_back(mma->inB()->as<TensorView>());
       }
 
       return tvs;

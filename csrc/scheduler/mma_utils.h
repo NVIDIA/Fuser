@@ -48,6 +48,15 @@ NVF_API void scheduleWarpTileWithReduction(
     TensorView* tv,
     MatMulTileOptions tile);
 
+//! Same as above, but takes a vector of dim roles that existed in tv before
+//! splitting/reordering to create block tiles.
+//! Note that if the input has a dimension ordering other than M/N K, it will
+//! be reordered to have M/N K inner dimensions in this utility.
+NVF_API void scheduleWarpTile(
+    TensorView* tv,
+    MatMulTileOptions tile,
+    const std::vector<MatmulDimRole>& merged_dim_roles);
+
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options
 //! on consumers of mma ops in epilog.

@@ -568,30 +568,12 @@ class MultipleMatmulScheduler {
     // This also collects mma_results_
     defineOperandCaches();
 
-    // Computes the scheduling that is common to all tensors in the Fusion:
-    // namely the coarsest tiling level into block tiles as well as the 2D M/N
-    // swizzle of block tiles (if enabled).
-    // TODO: without forwardAroundMissingAxes, we need to specialize this
-    // That means we will need to apply tiling as the first step in each of the
-    // class-specific scheduling methods instead of doing it all at once
-    // scheduleTiling();
-
-    // Use rFactor and cacheAfter to set up splitk_sum and smem_epilogue. This
-    // must be done after tiling.
-    // TODO: this should be part of scheduleMmaResults
-    // doSplitKRFactor();
-
-    // After this point, no new TensorViews will be introduced.
-    // We proceed to schedule each kind of TensorView in order from inputs to
-    // outputs. These steps are invariant to reordering.
-
-    // schedule acw_smem and bcw_smem
-    scheduleOperandSmemLoads();
-
-    // schedule register loads (ldmatrix) acr/bcr
-
-    // schedule prologue after acr/bcr up to and including ab/bb (mma
-    // instruction inputs)
+    // Schedules:
+    //   - global->smem (cp.async)
+    //   - smem->register (ldmatrix)
+    //   - prologue computation in registers, including broadcast to e.g.
+    //   ab=[iM, bN, iK]
+    schedulePrologues();
 
     // schedule mma instruction output (mma_result)
     scheduleMmaResults();
@@ -1045,35 +1027,67 @@ class MultipleMatmulScheduler {
   // Starting from the basic tiled schedule, we swizzle the operand memory.
   // Note that the cache op and LoadStoreOpType are already set during
   // defineOperandCaches().
-  void scheduleOperandSmemLoads() {
-    auto scheduleOperandBranch =
-        [&](const std::vector<TensorView*>& gmem_operands,
-            const std::vector<TensorView*>& smem_operands,
-            const int64_t vec_size) {
-          blockTileTensors(smem_operands);
-          for (TensorView* tv : smem_operands) {
-            if (params_.promote_prologue_smem_reuse) {
-              tv->promoteReuse();
-            }
-            mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
-            auto swizzled_dom = swizzleSharedMemory(tv);
-            tv->setLoopDomain(swizzled_dom.as<IterDomain*>());
-            tv->setHasSwizzleOp();
-            tv->merge(-2);
-            // NOTE: this splits and parallelizes the inner dimension as
-            //   TIDz, TIDy, TIDx, V
-            mma_utils::scheduleContiguousVectorLoad(
-                tv, params_.tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
-          }
-        };
-    scheduleOperandBranch(as_, acw_smems_, params_.supported_vec_size.a);
-    scheduleOperandBranch(bs_, bcw_smems_, params_.supported_vec_size.b);
+  void scheduleOperandSmemStores() {
+    auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
+                              const std::vector<TensorView*>& smem_operands,
+                              const int64_t vec_size) {
+      blockTileTensors(smem_operands);
+      for (TensorView* tv : smem_operands) {
+        if (params_.promote_prologue_smem_reuse) {
+          tv->promoteReuse();
+        }
+        mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
+        auto swizzled_dom = swizzleSharedMemory(tv);
+        tv->setLoopDomain(swizzled_dom.as<IterDomain*>());
+        tv->setHasSwizzleOp();
+        tv->merge(-2);
+        // NOTE: this splits and parallelizes the inner dimension as
+        //   TIDz, TIDy, TIDx, V
+        mma_utils::scheduleContiguousVectorLoad(
+            tv, params_.tile_sizes, vec_size, /*vectorize=*/vec_size > 1);
+      }
+    };
+    scheduleBranch(as_, acw_smems_, params_.supported_vec_size.a);
+    scheduleBranch(bs_, bcw_smems_, params_.supported_vec_size.b);
   }
 
-  void scheduleMmaResults() {
-    auto all_merged_roles = blockTileTensors(mma_results_);
-    for (size_t i : c10::irange(mma_results_.size())) {
-      TensorView*& mma_result = mma_results_[i];
+  // Schedule acr and bcr
+  void scheduleLdMatrixLoads() {
+    auto scheduleLdMatrixBranch =
+        [&](const std::vector<TensorView*>& reg_operands,
+            MmaOperand operand_type) {
+          auto all_merged_roles = blockTileTensors(reg_operands);
+          for (size_t i : c10::irange(reg_operands.size())) {
+            TensorView* tv = reg_operands[i];
+            const std::vector<MatmulDimRole>& merged_roles =
+                all_merged_roles[i];
+
+            // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
+            mma_utils::scheduleWarpTile(tv, params_.tile_sizes, merged_roles);
+            // After scheduling warp tile, the last three dimensions are split
+            // and rearranged:
+            //        -3 -2 -1
+            //   [...  M  N  K]
+            // maps to
+            //         -8  -7 -6  -5 -4 -3 -2 -1
+            //   [... Kwo Mwo Nwo Mw Nw Mi Ni Ki]
+            // so now
+            //                   -12 -11  -10   -9   -8   -7   -6  -5  -4   -3
+            //                   -2   -1
+            // mma_result = [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw iNw iMin
+            // iNin rKin] splitk_sum = [... iMo iNo  rKf  iMi  iNi]
+          }
+        };
+    scheduleLdMatrixBranch(acrs_, MmaOperand::A);
+    scheduleLdMatrixBranch(bcrs_, MmaOperand::B);
+  }
+
+  void scheduleMmaOperandOrOutputs(
+      std::vector<TensorView*>& tvs,
+      const MmaOperand operand_type) {
+    auto all_merged_roles = blockTileTensors(tvs);
+    for (size_t i : c10::irange(tvs.size())) {
+      TensorView*& mma_result = tvs[i];
       std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
       const int64_t num_splitk_dims = params_.splitk_factor > 1 ? 1 : 0;
@@ -1085,7 +1099,8 @@ class MultipleMatmulScheduler {
           num_device_dims + num_local_batch_dims;
 
       // do split-K rFactor to define splitk_sum and smem_epilogue
-      if (params_.splitk_factor != 1) {
+      if (operand_type == MmaOperand::Accumulator &&
+          params_.splitk_factor != 1) {
         TensorView* splitk_sum = mma_result;
         mma_result = splitk_sum->rFactor({-4, -1});
         splitk_sums_.push_back(splitk_sum);
@@ -1098,7 +1113,8 @@ class MultipleMatmulScheduler {
       //     mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
       //     splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
 
-      if (params_.use_smem_epilogue) {
+      if (operand_type == MmaOperand::Accumulator &&
+          params_.use_smem_epilogue) {
         // Note that for split-K
         //   splitk_sum = sum(mma_result)
         // becomes
@@ -1115,7 +1131,19 @@ class MultipleMatmulScheduler {
       }
       // Schedule warp tile
       // Incoming mma_result = [... iMo iNo (iKf) rKg iMi iNi rKi]
+
+      // NOTE: this applies to either mma_result _or_ ab/bb since both have the
+      // same number of dimensions.
+      // TODO: use the version that uses merged_roles instead here
       mma_utils::scheduleWarpTileWithReduction(mma_result, params_.tile_sizes);
+
+      /*
+      scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
+          mma_result,
+          -1,
+          all_smem_stores,
+          smem_epilogues_.empty() ? mma_results_ : smem_epilogues_);
+          */
 
       // This does a split-reorder-merge swizzle of the last two M and N
       // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->
@@ -1126,7 +1154,9 @@ class MultipleMatmulScheduler {
       //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
       //                              iNw iMino iNino iMin2 iNin2 rKino rKin4
       //                              rKin2]
-      mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
+      if (operand_type == MmaOperand::Accumulator) {
+        mma_result->applyMmaSwizzle(operand_type);
+      }
 
       // Parallelization strategy:
       // Here the top two rows indicate how we can index each axis. The third
@@ -1167,6 +1197,19 @@ class MultipleMatmulScheduler {
       //   splitk_sum
       //     [... iMo iNo rKf  iMi  iNi]
 
+      // parallelize Mwo, Nwo by thread
+      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims + 1)
+          ->parallelize(ParallelType::TIDz);
+      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims + 2)
+          ->parallelize(ParallelType::TIDy);
+
+      if (operand_type != MmaOperand::Accumulator) {
+        // Only schedule BID for mma_results
+        // NOTE: this is just for matching the old scheduler. parallelization is
+        // harmless here
+        continue;
+      }
+
       // When we have both batch dims and splitk, parallelize splitk only.
       // If we only have batch dim, parallelize the batch dim.
       if (params_.splitk_factor > 1) {
@@ -1193,18 +1236,111 @@ class MultipleMatmulScheduler {
               false,
               "Invalid TileRasterizationOrder passed to Matmul scheduler");
       }
-
-      // parallelize Mwo, Nwo by thread
-      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims + 1)
-          ->parallelize(ParallelType::TIDz);
-      mma_result->axis((int64_t)merged_roles.size() + num_splitk_dims + 2)
-          ->parallelize(ParallelType::TIDy);
     }
+  }
+
+  void scheduleMmaResults() {
+    scheduleMmaOperandOrOutputs(mma_results_, MmaOperand::Accumulator);
+  }
+
+  void schedulePrologues() {
+    // schedule all transfers from gmem to smem (acw_smems_ and bcw_smems_)
+    scheduleOperandSmemStores();
+
+    // Hold this vector so we can use it as a boundary to propagate backward
+    // from each mma input.
+    std::vector<TensorView*> all_smem_stores = acw_smems_;
+    all_smem_stores.insert(
+        all_smem_stores.end(), bcw_smems_.begin(), bcw_smems_.end());
+
+    // Now for each operand, we load from smem to registers and compute a
+    // prologue (generally) in registers. We typically refer to the register
+    // buffer that is loaded from operand A's smem buffer using ldmatrix as
+    // "acr". This is the beginning of the register epilogue region for that
+    // operand. The end of that region is the first input to the MmaOp
+    // expression, which we typically refer to as "ab". There is some special
+    // handling of acr but otherwise we schedule ab and propagate backward
+    // along this prologue region.
+    auto schedulePrologueBranch = [&](const std::vector<TensorView*>&
+                                          smem_stores,
+                                      const std::vector<TensorView*>&
+                                          smem_loads,
+                                      std::vector<TensorView*>& mma_inputs,
+                                      MmaOperand operand_type) {
+      NVF_ERROR(smem_stores.size() == smem_loads.size());
+      // TODO: we should not assume that each operand is used in only a single
+      // mma op
+      NVF_ERROR(mma_ops_.size() >= smem_loads.size());
+      // We will save abs_ and bbs_ here for later use
+      // TODO: save all register prologue tensors instead to a new vector called
+      // prologue_register_tensors_
+      NVF_ERROR(mma_inputs.empty());
+      for (MmaOp* mma : mma_ops_) {
+        TensorView* mma_input = nullptr;
+        if (operand_type == MmaOperand::A) {
+          mma_input = mma->inA()->as<TensorView>();
+        } else if (operand_type == MmaOperand::B) {
+          mma_input = mma->inB()->as<TensorView>();
+        }
+        NVF_ERROR(mma_input != nullptr);
+        mma_inputs.push_back(mma_input);
+      }
+
+      scheduleMmaOperandOrOutputs(mma_inputs, operand_type);
+
+      // Propagate backward from all mma_results to smem_stores
+
+      for (TensorView* mma_input : mma_inputs) {
+        // Schedule mma_input, since we know it has the broadcast dimension M or
+        // N, whereas the smem read might not
+        if (isTuring(params_.mma_macro) || isAmpere(params_.mma_macro)) {
+          moveInnerBroadcastLeft(mma_input);
+        }
+        mma_input->applyMmaSwizzle(operand_type);
+        scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+            mma_input,
+            -1,
+            smem_stores,
+            scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                .propagateParallelType());
+      }
+      // Find smem loads that are mma inputs and save them
+      std::unordered_set<TensorView*> smem_load_mma_inputs;
+      for (TensorView* smem_load : smem_loads) {
+        // Insert only if smem_load is also in mma_inputs
+        bool is_mma_input =
+            std::find(mma_inputs.begin(), mma_inputs.end(), smem_load) !=
+            mma_inputs.end();
+        if (is_mma_input) {
+          smem_load_mma_inputs.insert(smem_load);
+        }
+        if (!is_mma_input) {
+          //  -5  -4   -3   -2   -1
+          //[8mi, 4k, 2ko, 2mo, 2ki]
+          smem_load->setAllocationDomain(smem_load->getLoopDomain(), true);
+          mma_utils::WarpMmaSwizzler::scheduleLdMatrix(smem_load, operand_type);
+        }
+      }
+      for (TensorView* mma_input : mma_inputs) {
+        if (smem_load_mma_inputs.count(mma_input) == 0) {
+          mma_input->merge(-5);
+          mma_input->axis(-4)->parallelize(ParallelType::TIDx);
+          scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+              mma_input,
+              -1,
+              smem_loads,
+              scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+                  .propagateParallelType());
+        }
+      }
+    };
+    schedulePrologueBranch(acw_smems_, acrs_, abs_, MmaOperand::A);
+    schedulePrologueBranch(bcw_smems_, bcrs_, bbs_, MmaOperand::B);
   }
 
   void setUpInlining() {
     inlineMost();
-    /*
+    /* TODO
     // auto inline for all tensors except register tensors
     inlineMost(ir_utils::allTvsExcept(fusion_, {acr, bcr, ab, bb}));
 
