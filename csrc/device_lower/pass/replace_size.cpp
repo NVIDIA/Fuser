@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/pass/replace_size.h>
 #include <device_lower/utils.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
-
-#include <device_lower/pass/replace_size.h>
 
 namespace nvfuser {
 
@@ -167,6 +167,15 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
 void replaceSymbolicSizes(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::replaceSymbolicSizes");
   std::unordered_map<Val*, Val*> tensor_dim_map;
+  std::unordered_map<Val*, Val*> tensor_id_map;
+  fusion->print();
+
+  // (1) Build the exact graph
+  IdModel id_model(fusion, false, false, false);
+  id_model.buildExactGraph();
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+  auto disjoint_sets = graph.disjointValSets();
+  std::cout << disjoint_sets.toString() << std::endl;
 
   // Grab inputs and outputs
   std::vector<TensorView*> inputs_and_outputs;
@@ -202,7 +211,8 @@ void replaceSymbolicSizes(Fusion* fusion) {
   for (TensorView* tv : inputs_and_outputs) {
     // Replace the domain with one based on Ti.size[j]
     const std::vector<IterDomain*>& logical_td = tv->getLogicalDomain();
-
+    std::cout << "\nreplaceSymbolicSizes: tv: " << tv->toString() << std::endl;
+    tv->printTransforms();
     int64_t dim = 0;
     for (auto id : logical_td) {
       Val* orig_size = id->getMaybeExpandedExtent();
@@ -222,30 +232,96 @@ void replaceSymbolicSizes(Fusion* fusion) {
         tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
             IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
             dim++);
+        tensor_id_map[id] = tensor_dim_map[orig_size];
+        std::cout << "replaceSymbolicSizes: id: " << id->toString() << " -> "
+                  << tensor_dim_map[orig_size]->toInlineString() << std::endl;
+        if (id->definition() != nullptr) {
+          std::cout << "replaceSymbolicSizes: id->definition(): "
+                    << id->definition()->toString() << std::endl;
+        }
       } else {
         dim++;
       }
     }
   }
 
-  // Use a minimal number of sizes from provided tensors.
-  auto extent_simplification_map = getSimplificationMap(fusion);
-  for (auto extent_entry : extent_simplification_map) {
-    auto orig_extent = extent_entry.first;
-    auto simplified_extent = extent_entry.second;
-    if (tensor_dim_map.count(orig_extent)) {
-      if (tensor_dim_map.count(simplified_extent)) {
-        tensor_dim_map[orig_extent] = tensor_dim_map[simplified_extent];
-      } else {
-        tensor_dim_map[orig_extent] = simplified_extent;
+  for (auto [k, v] : tensor_id_map) {
+    auto id = dynamic_cast<IterDomain*>(k);
+    std::cout << "id: " << id->toString() << std::endl;
+    bool is_meta_id = true;
+    auto id_vgroup = graph.toGroup(id);
+    for (auto mapped_id : *id_vgroup) {
+      if (mapped_id->definition() != nullptr) {
+        std::cout << "mapped_id->definition(): "
+                  << mapped_id->definition()->toString() << std::endl;
+        // derived from other ids, remove it from tensor_dim_map
+        is_meta_id = false;
+        break;
       }
     }
+    if (!is_meta_id) {
+      tensor_dim_map.erase(id->getMaybeExpandedExtent());
+    }
+  }
+  // if (first_tv) {
+  //   bool can_use_logical_size_of_others = false;
+  //   auto id_vgroup = graph.toGroup(id);
+  //   std::cout << id->toString() << " id_vgroup: " << id_vgroup->toString()
+  //             << std::endl;
+  //   for (auto v : *id_vgroup) {
+  //     auto mapped_id = dynamic_cast<IterDomain*>(v);
+  //     std::cout << "mapped_id: " << mapped_id->toString() << std::endl;
+  //     if (tensor_dim_map.count(mapped_id->getMaybeExpandedExtent())) {
+  //       can_use_logical_size_of_others = true;
+  //       break;
+  //     }
+  //     if (mapped_id->definition() != nullptr) {
+  //       std::cout << "mapped_id->definition(): "
+  //                 << mapped_id->definition()->toString() << std::endl;
+  //       if (Merge* merge = dynamic_cast<MergeId>(mapped_id->definition())) {
+  //         for (auto id : merge->) {
+  //           if (tensor_dim_map.count(id->getMaybeExpandedExtent())) {
+  //             can_use_logical_size_of_others = true;
+  //             break;
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
+  //   if (can_use_logical_size_of_others) {
+  //     continue;
+  //   }
+  // }
+
+  // Use a minimal number of sizes from provided tensors.
+  // auto extent_simplification_map = getSimplificationMap(fusion);
+  // for (auto extent_entry : extent_simplification_map) {
+  //   auto orig_extent = extent_entry.first;
+  //   auto simplified_extent = extent_entry.second;
+  //   if (tensor_dim_map.count(orig_extent)) {
+  //     if (tensor_dim_map.count(simplified_extent)) {
+  //       tensor_dim_map[orig_extent] = tensor_dim_map[simplified_extent];
+  //     } else {
+  //       tensor_dim_map[orig_extent] = simplified_extent;
+  //     }
+  //   }
+  // }
+
+  std::cout << "\nreplaceSymbolicSizes after extent_simplification_map: "
+            << std::endl;
+  for (auto [k, v] : tensor_dim_map) {
+    std::cout << "replaceSymbolicSizes: " << k->toInlineString() << " -> "
+              << v->toInlineString() << std::endl;
   }
 
-  std::cout << "replaceSymbolicSizes tensor_dim_map size: " << tensor_dim_map.size() << std::endl;
+  std::cout << "replaceSymbolicSizes tensor_dim_map size: "
+            << tensor_dim_map.size() << std::endl;
 
   // Run mutation on the fusion with the tensor_dim_map
   ir_utils::replaceValue(fusion, tensor_dim_map);
+  std::cout << "replaceSymbolicSizes after ir_utils::replaceValue: "
+            << std::endl;
+  fusion->print();
 }
 
 } // namespace nvfuser

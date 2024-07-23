@@ -59,6 +59,7 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
     // complicate the two-hop check in maybeMutated
     return;
   }
+  std::cout << "registerMutation: " << val->toString() << " -> " << mutation->toString() << std::endl;
   bool val_is_ns = val->vtype() == ValType::NamedScalar;
   bool mutation_is_ns = mutation->vtype() == ValType::NamedScalar;
   bool val_is_scalar = val->vtype() == ValType::Others;
@@ -97,18 +98,19 @@ void OptOutMutator::mutate(IterDomain* id) {
       (!id->hasExpandedExtent() ||
        expanded_extent->sameAs(id->expandedExtent())) &&
       stop_offset->sameAs(id->stopOffset())) {
-    std::cout << "mutate IterDomain: done" << std::endl;
+    std::cout << "mutate IterDomain: skipped" << std::endl;
     return;
   }
+  auto new_id = IterDomainBuilder(id)
+                    .start(start)
+                    .extent(extent)
+                    .stop_offset(stop_offset)
+                    .expanded_extent(expanded_extent)
+                    .build();
   registerMutation(
       id,
-      IterDomainBuilder(id)
-          .start(start)
-          .extent(extent)
-          .stop_offset(stop_offset)
-          .expanded_extent(expanded_extent)
-          .build());
-  std::cout << "mutate IterDomain: done" << std::endl;
+      new_id);
+  std::cout << "mutate IterDomain: done, new_id " << new_id->toString() << std::endl;
 }
 
 void OptOutMutator::mutate(TensorDomain* td) {
@@ -189,6 +191,7 @@ Expr* OptOutMutator::mutateExpr(
     bool replace_inputs,
     bool replace_attrs) {
   std::cout << "mutate Expr: " << op->toString() << std::endl;
+  std::cout << "replace_outputs: " << replace_outputs << " replace_inputs: " << replace_inputs << " replace_attrs: " << replace_attrs << std::endl;
   std::vector<Val*> mutated_outputs;
   mutated_outputs.reserve(op->outputs().size());
   for (auto output : op->outputs()) {
@@ -241,7 +244,7 @@ Expr* OptOutMutator::mutateExpr(
   }
 
   if (all_same) {
-    std::cout << "mutate expr: done" << std::endl;
+    std::cout << "mutate expr: done all_same" << std::endl;
     return op;
   }
 
@@ -252,7 +255,7 @@ Expr* OptOutMutator::mutateExpr(
       newObjectFunc(container, mutated_inputs, mutated_outputs, mutated_attrs);
   registerNewExpr(new_expr);
 
-  std::cout << "mutate expr: done" << std::endl;
+  std::cout << "mutate expr: done new_expr " << new_expr->toString() << std::endl;
   return new_expr;
 }
 

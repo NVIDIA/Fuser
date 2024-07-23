@@ -10,7 +10,7 @@
 #include <logical_domain_map.h>
 #include <options.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
-
+#include <id_model/id_model.h>
 namespace nvfuser::preseg_passes {
 
 namespace {
@@ -30,14 +30,24 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
   // map non-const extents to const extents
   std::unordered_map<Val*, Val*> replacement_map;
 
-  const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
-  // Loop over each exact root domain set
-  for (const auto& set_ptr : mapped_sets.disjointSets()) {
+  // (1) Build the exact graph
+  IdModel id_model(fusion, false, false, false);
+  id_model.buildExactGraph();
+  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();  
+  std::cout << val_sets.toString() << std::endl;
+
+  // Loop over each set of values
+  for (auto set_ptr : val_sets.disjointSets()) {
     // (1) pick a const extent
     // (2) if no const extent, pick the var with the lowest name()
     Val* const_extent = nullptr;
     Val* lowest_val = nullptr;
-    for (auto id : *set_ptr) {
+    for (auto v : *set_ptr) {
+      auto id = dynamic_cast<IterDomain*>(v);
+      if(id == nullptr) {
+        continue;
+      }
       if (isNonSubstitutableID(id)) {
         continue;
       }
@@ -60,7 +70,11 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
     }
     // replace with const extents.
     // if no const extents, replace with the one with the lowest name.
-    for (auto id : *set_ptr) {
+    for (auto v : *set_ptr) {
+      auto id = dynamic_cast<IterDomain*>(v);
+      if(id == nullptr) {
+        continue;
+      }      
       if (isNonSubstitutableID(id)) {
         continue;
       }
@@ -68,6 +82,10 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
           id->getMaybeExpandedExtent(),
           const_extent ? const_extent : lowest_val);
     }
+  }
+
+  for(auto [key, val] : replacement_map) {
+    std::cout << key->toInlineString() << " -> " << val->toInlineString() << std::endl;
   }
 
   // Replace non-const extents with const extents
