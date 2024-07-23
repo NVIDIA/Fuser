@@ -690,7 +690,9 @@ class DynamicTransformConcretizer : public OptOutMutator {
  private:
   const DynamicTransformConcretizationInfo* info_;
 
-  //! Map from original symbolic value to new concretized_value
+  //! Map from original symbolic value to new concretized_value.
+  //! This map is separate from mutation_ to avoid interfering with
+  //! OptOutMutator
   std::unordered_map<Val*, Val*> symbolic_to_concretized_map_;
 };
 
