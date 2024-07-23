@@ -35,7 +35,6 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
   id_model.buildExactGraph();
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const DisjointSets<Val*>& val_sets = exact_graph.disjointValSets();  
-  std::cout << val_sets.toString() << std::endl;
 
   // Loop over each set of values
   for (auto set_ptr : val_sets.disjointSets()) {
@@ -82,10 +81,6 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
           id->getMaybeExpandedExtent(),
           const_extent ? const_extent : lowest_val);
     }
-  }
-
-  for(auto [key, val] : replacement_map) {
-    std::cout << key->toInlineString() << " -> " << val->toInlineString() << std::endl;
   }
 
   // Replace non-const extents with const extents
