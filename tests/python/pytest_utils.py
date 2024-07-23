@@ -183,6 +183,20 @@ def is_tensor(a):
     return isinstance(a, torch.Tensor)
 
 
+def is_pre_volta():
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 7
+
+
+def is_pre_ampere():
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 8
+
+
+def is_pre_hopper():
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 9
+
 # This DEBUG_SERDE environment flag is used to debug serialization failures.
 #
 # 1) It disables automatically saving FusionCache upon program exit. Therefore,
@@ -196,7 +210,6 @@ def is_tensor(a):
 # Normally, these files are deleted after each test.
 env_var_debug_serde = os.getenv("DEBUG_SERDE")
 debug_serde: bool = env_var_debug_serde in ("true", "1")
-
 
 def setUpModule():
     if not debug_serde:
