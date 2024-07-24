@@ -25,14 +25,20 @@ void markAliases(Fusion* fusion) {
     fusion->printMath();
   }
 
-  const AliasAnalysisResult analysis =
-      findAliases(fusion, /*can_override_empty_allocation_domain=*/false);
+  const AliasAnalysisResult analysis = findAliases(
+      fusion,
+      /*can_override_empty_allocation_domain=*/false,
+      /*may_alias_intermediate=*/false);
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
     vlog("Alias analysis result:\n", analysis.toString(/*indent_size=*/1));
   }
 
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    if (fusion->getOutputAlias(out).type != AllocationType::New) {
+      continue;
+    }
+
     TensorView* aliased_io = analysis.getNearestAliasedIo(out);
     if (aliased_io == nullptr) {
       continue;
