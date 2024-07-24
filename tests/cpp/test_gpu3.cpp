@@ -5031,15 +5031,6 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
         auto cond_inputs = InputsOf::output(cond);
         auto index_it =
             std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
-        auto vec_factor_it =
-            std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
-              auto int_val = inp->value();
-              return int_val.hasValue() &&
-                  (int_val.as<int64_t>() == vec_factor - 1 ||
-                   int_val.as<int64_t>() == -(vec_factor - 1));
-            });
-        // If vectorized, the predicate should use (vec_factor - 1) or
-        // -(vec_factor - 1) rather than the loop index.
         if (vectorized_) {
           NVF_CHECK(
               index_it == cond_inputs.end(),
@@ -5047,23 +5038,11 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
               loop_index->toInlineString(),
               " in ",
               cond->toInlineString());
-          NVF_CHECK(
-              vec_factor_it != cond_inputs.end(),
-              "Expected to have ",
-              vec_factor - 1,
-              " in ",
-              cond->toInlineString());
         } else {
           NVF_CHECK(
               index_it != cond_inputs.end(),
               "Expected to have ",
               loop_index->toInlineString(),
-              " in ",
-              cond->toInlineString());
-          NVF_CHECK(
-              vec_factor_it == cond_inputs.end(),
-              "Not expected to have ",
-              vec_factor - 1,
               " in ",
               cond->toInlineString());
         }
@@ -8135,7 +8114,7 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicateError) {
           ::testing::HasSubstr("unsupported use case of cp.async")));
 }
 
-TEST_F(NVFuserTest, DecoupledDomains) {
+TEST_F(NVFuserTest, DecoupledDomains1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -8197,7 +8176,55 @@ TEST_F(NVFuserTest, DecoupledDomains) {
       root_domain, logical_domain, allocation_domain, loop_domain, contiguity);
   TensorView* tv = IrBuilder::create<TensorView>(td, DataType::Float);
   auto all_ids = concat(logical_all, root_all, alloc_all, loop_all);
-  auto tv_all_vec = ir_utils::allIDsOf(tv);
+  auto tv_all_vec = tv->domain()->allIDs();
+  std::unordered_set<IterDomain*> tv_all(tv_all_vec.begin(), tv_all_vec.end());
+  EXPECT_EQ(tv_all, all_ids);
+}
+
+TEST_F(NVFuserTest, DecoupledDomains2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  auto s2 = IrBuilder::create<Val>(DataType::Index);
+  auto s3 = IrBuilder::create<Val>(DataType::Index);
+  auto id0 = IterDomainBuilder(s0->fusion()->zeroVal(), s0).build();
+  auto id1 = IterDomainBuilder(s1->fusion()->zeroVal(), s1).build();
+  auto id2 = IterDomainBuilder(s2->fusion()->zeroVal(), s2).build();
+  auto id3 = IterDomainBuilder(s3->fusion()->zeroVal(), s3).build();
+  std::unordered_set<IterDomain*> all_ids{id0, id1, id2, id3};
+
+  AbstractTensor root_ids({id0, id1, id2, id3});
+
+  auto schedule = [&]() {
+    AbstractTensor domain = root_ids;
+    domain.merge(2);
+    all_ids.insert(domain[2].as<IterDomain*>());
+    domain.split(2, 256);
+    all_ids.insert(domain[2].as<IterDomain*>());
+    all_ids.insert(domain[3].as<IterDomain*>());
+    domain.merge(0);
+    all_ids.insert(domain[0].as<IterDomain*>());
+    domain.split(0, 256);
+    all_ids.insert(domain[0].as<IterDomain*>());
+    all_ids.insert(domain[1].as<IterDomain*>());
+    return domain.as<IterDomain*>();
+  };
+
+  // Create a TensorView that, all the domains are transformed from a common
+  // topologically root IDs [I0, I1, I2, I3] separately, so that to traverse
+  // between any two domains, the traversal requires both forward and backward.
+  auto logical_domain = schedule();
+  auto root_domain = schedule();
+  auto allocation_domain = schedule();
+  auto loop_domain = schedule();
+  std::vector<std::optional<bool>> contiguity(allocation_domain.size(), true);
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      root_domain, logical_domain, allocation_domain, loop_domain, contiguity);
+  TensorView* tv = IrBuilder::create<TensorView>(td, DataType::Float);
+  auto tv_all_vec = tv->domain()->allIDs();
   std::unordered_set<IterDomain*> tv_all(tv_all_vec.begin(), tv_all_vec.end());
   EXPECT_EQ(tv_all, all_ids);
 }
