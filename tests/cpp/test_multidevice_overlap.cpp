@@ -77,18 +77,14 @@ class OverlapTest : public MultiDeviceTest {
     std::vector<int64_t> ta_unsharded_sizes = {
         params.S, num_devices_, params.M / params.S, params.K / num_devices_};
     std::vector<int64_t> ta_sizes = {
-        params.S, 1, params.M / params.S, params.K / num_devices_};
+        params.S, params.M / params.S, params.K / num_devices_};
     std::vector<int64_t> tb_unsharded_sizes = {
-        1, num_devices_, params.K / num_devices_, params.N};
-    std::vector<int64_t> tb_sizes = {1, 1, params.K / num_devices_, params.N};
+        num_devices_, params.K / num_devices_, params.N};
+    std::vector<int64_t> tb_sizes = {params.K / num_devices_, params.N};
     std::vector<int64_t> tc_locally_reduced_sizes = {
-        params.S, 1, params.M / params.S, params.N};
+        params.S, params.M / params.S, params.N};
     std::vector<int64_t> tc_sizes = {
-        params.S, 1, params.M / (params.S * num_devices_), params.N};
-
-    auto getShard = [] (at::Tensor t, int64_t index) -> at::Tensor {
-        return t.slice(1, index, index + 1);
-      };
+        params.S, params.M / (params.S * num_devices_), params.N};
 
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
@@ -100,9 +96,9 @@ class OverlapTest : public MultiDeviceTest {
     auto ta_unsharded = at::randn(ta_unsharded_sizes, options);
     auto tb_unsharded = at::randn(tb_unsharded_sizes, options);
     ta_ = at::empty(ta_sizes, options);
-    ta_.copy_(getShard(ta_unsharded, my_device_index_));
+    ta_.copy_(ta_unsharded.select(1, my_device_index_));
     tb_ = at::empty(tb_sizes, options);
-    tb_.copy_(getShard(tb_unsharded, my_device_index_));
+    tb_.copy_(tb_unsharded.select(0, my_device_index_));
 
     // We pre-allocate the output and some intermediate buffers so we do not
     // rely on torch allocator, which do not behave well with multi-stream
@@ -112,7 +108,7 @@ class OverlapTest : public MultiDeviceTest {
 
     // compute the expected output for data correctness validation
     auto tc_unsharded_unreduced =
-        ta_unsharded.unsqueeze(-1) * tb_unsharded.unsqueeze(-3);
+        ta_unsharded.unsqueeze(-1) * tb_unsharded.unsqueeze(-3).unsqueeze(0);
     auto tc_unsharded_expected = at::sum(tc_unsharded_unreduced, {1, 3});
     auto tc_unsharded_expected_reshaped = at::reshape(
         tc_unsharded_expected,
@@ -121,7 +117,7 @@ class OverlapTest : public MultiDeviceTest {
          params.M / (params.S * num_devices_),
          params.N});
     tc_expected_ =
-        getShard(tc_unsharded_expected_reshaped, my_device_index_);
+        tc_unsharded_expected_reshaped.select(1, my_device_index_);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
@@ -238,10 +234,9 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
-  constexpr int64_t n_dims = 4;
-  TensorView* tva = makeSymbolicTensor(n_dims);
-  TensorView* tvb = makeSymbolicTensor(n_dims);
-  TensorView* tvc = makeSymbolicTensor(n_dims);
+  TensorView* tva = makeSymbolicTensor(ta_.dim());
+  TensorView* tvb = makeSymbolicTensor(tb_.dim());
+  TensorView* tvc = makeSymbolicTensor(tc_.dim());
   hic->addInput(tva);
   hic->addInput(tvb);
   hic->addInput(tvc);
