@@ -97,7 +97,7 @@ void prepareRuntimeOrder(SegmentedFusion*, RuntimeWorkSpace&);
 //! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
-  NVF_API explicit FusionKernelRuntime(
+  explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
       const serde::FusionKernelRuntime* serde_buffer = nullptr,

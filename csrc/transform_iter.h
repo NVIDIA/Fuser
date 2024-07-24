@@ -18,7 +18,7 @@
 
 namespace nvfuser {
 
-class RootDomainMap;
+class LogicalDomainMap;
 
 namespace {
 
@@ -482,27 +482,27 @@ class BestEffortReplay {
   NVF_API DisjointSets<IterDomain*> getIterDomainEquivalence();
 
   // Runs a best effort replay that ignores broadcast axes that appear in
-  // consumer that are not mapped to producer in root_map.
+  // consumer that are not mapped to producer in logical_map.
   //
   // When skip_resize is true, resize is ignored or in other words forwarded
   NVF_API static BestEffortReplay replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       bool skip_consumer_swizzle = true,
       bool skip_producer_swizzle = true,
       bool skip_resize = true);
 
   // Runs a best effort replay that ignores broadcast axes that appear in
-  // consumer that are not mapped to producer in root_map.
+  // consumer that are not mapped to producer in logical_map.
   //
   // When skip_resize is true, resize is ignored or in other words forwarded
   NVF_API static BestEffortReplay replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       bool skip_producer_swizzle = true,
       bool skip_consumer_swizzle = true,
       bool skip_resize = true);

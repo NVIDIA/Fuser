@@ -15,8 +15,10 @@
 namespace nvfuser::preseg_passes {
 
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
-  const AliasAnalysisResult analysis =
-      findAliases(fusion, /*can_override_empty_allocation_domain=*/true);
+  const AliasAnalysisResult analysis = findAliases(
+      fusion,
+      /*can_override_empty_allocation_domain=*/true,
+      /*may_alias_intermediate=*/true);
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Alias analysis result:" << std::endl;
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
@@ -24,8 +26,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
 
   // Materialize the alias-enabling allocation domain.
   for (TensorView* tv : ir_utils::allTvs(fusion)) {
-    TensorView* aliased_io = analysis.getNearestAliasedIo(tv);
-    if (aliased_io == nullptr) {
+    if (analysis.getNearestAliasedIo(tv) == nullptr) {
       continue;
     }
 

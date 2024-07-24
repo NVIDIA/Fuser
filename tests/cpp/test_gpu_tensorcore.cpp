@@ -18,6 +18,7 @@
 #include <executor_params.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/graphviz.h>
@@ -27,10 +28,10 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/pre_segmenter.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
@@ -412,8 +413,11 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereSwizzle_CUDA) {
 
     auto inputs = matmulAtInput3DTuring(M, N, K, layout);
 
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
+    FusionProfiler::start();
+    FusionProfiler::createSegments(1);
+
     FusionExecutor fe;
-    fe.setMeasureKernelTimeFlag(true);
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         8,
         0,
@@ -438,7 +442,9 @@ TEST_F(GPUTTensorCoreTest, FusionAmpereSwizzle_CUDA) {
     NVF_CHECK(gdimx == expected_gdimx);
     NVF_CHECK(gdimy == expected_gdimy);
 
-    runtime = fe.kernelTimeMs();
+    FusionProfiler::stop();
+    runtime = FusionProfiler::profile().kernel_time_ms;
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
 
     // Check that mma op is not predicated. This is a regression test for
     // https://github.com/NVIDIA/Fuser/issues/95

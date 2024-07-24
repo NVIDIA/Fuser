@@ -60,6 +60,8 @@ bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type);
 bool is_cpu_scalar(const at::Tensor& tensor);
 bool is_cpu_scalar(const c10::TensorType& tensor_type);
 
+bool is_meta_scalar(const at::Tensor& tensor);
+
 //! Find common device among tensor inputs. If no tensor inputs are found and
 //! the selected_device argument is omitted, a default value of 0 is returned.
 //! If no tensor inputs are found and selected_device is provided,

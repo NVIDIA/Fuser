@@ -554,10 +554,6 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     kernel_runtime->compileFusionParallel(args);
   }
 
-  if (measure_kernel_time_) {
-    kernel_runtime->enableKernelTimeMeasurement();
-  }
-
   most_recent_runtime_ = kernel_runtime;
 
   auto fusion = kernel_runtime->fusionSegments()->completeFusion();
@@ -1195,11 +1191,6 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     most_recent_executor_log_.params = scheduler_entry->params()->clone();
   }
 
-  if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
-      measure_kernel_time_) {
-    executor.setMeasureKernelTimeFlag(true);
-  }
-
   // TODO: This is a work around for the fallback execution path where a kernel
   // is not compiled. Perhaps the gorup/segment Id needs to be specified to the
   // executor at its constructor.  Currently, initialization is ad hoc.
@@ -1207,37 +1198,6 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setGroupId(group_id);
   }
   auto outputs = executor.runFusion(args, launch_params, compile_params);
-
-  // Accumulate the kernel time of each segment
-  kernel_time_ms_ += executor.kernelTimeMs();
-
-  // Print relevant information all at once for easy debuging of perf
-  if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) &&
-      executor.hasCompiledKernel()) {
-    debug() << "\nRun kernel:\n";
-    if (sg) {
-      auto local_fusion = segmented_fusion_->makeFusion(sg).second;
-      local_fusion->printMath();
-    } else {
-      segmented_fusion_->completeFusion()->printMath();
-    }
-    debug() << "With inputs:\n";
-    for (auto i : c10::irange(args.size())) {
-      debug() << "  " << args[i] << std::endl;
-    }
-    debug() << "Compiler log: " << executor.compiledKernel().compile_log
-            << "\n";
-    debug() << scheduler_entry->params()->toString() << "\n";
-    debug() << "With arguments: " << executor.lastLaunchParams().toString();
-    debug() << executor.kernelName() << " " << executor.bytesProcessed()
-            << " bytes/ " << std::setprecision(3) << executor.kernelTimeMs()
-            << " ms "
-            << ((double)executor.bytesProcessed() /
-                ((double)executor.kernelTimeMs() / 1000)) /
-            (double)1.0e9
-            << " GB/s" << std::endl;
-    executor.setMeasureKernelTimeFlag(false);
-  }
 
   return outputs;
 }
@@ -1432,11 +1392,6 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
       " inputs but expected ",
       segmented_fusion_->inputs().size());
 
-  bool compute_overall_bw =
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
-
-  int64_t total_bytes_processed = 0;
-
   ArgumentManager args_manager(
       args, runtime_workspace_, segmented_fusion_->inputs());
 
@@ -1467,16 +1422,6 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
-
-    if (compute_overall_bw) {
-      const auto& executor = executors_.at(group_to_run->groupId());
-      for (auto bytes : executor.bytesInputsProcessed()) {
-        total_bytes_processed += bytes;
-      }
-      for (auto bytes : executor.bytesOutputsProcessed()) {
-        total_bytes_processed += bytes;
-      }
-    }
   }
 
   if (isProfilerEnabled()) {
@@ -1498,88 +1443,6 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
       }
     }
     FusionProfiler::outputBytesAccessed(output_bytes);
-  }
-
-  if (compute_overall_bw) {
-    // Get peak bandwidth for device
-    int clock = 0, width = 0;
-    std::string gpuname;
-    gpuname.reserve(100);
-    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
-        &clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, args.getDeviceIndex()));
-    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
-        &width,
-        CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
-        args.getDeviceIndex()));
-    NVFUSER_CUDA_SAFE_CALL(
-        cuDeviceGetName(gpuname.data(), 100, args.getDeviceIndex()));
-    // Peak bandwidth calculation:
-    // Bus width is given in bits, so dividing by 8 converts to bytes.
-    // Clock is given in kHz. 1 GB = 1e9 bytes (don't report GiB = 1024^3 bytes)
-    // A factor of 2 is multiplied to account for double data rate (DDR):
-    // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
-    // factor = 2.5e-7
-    double peak_bw = 2.5e-7 * (double)clock * (double)width;
-
-    int64_t total_io_bytes_processed = 0;
-    for (auto inp : fusionSegments()->inputs()) {
-      if (auto tv = dynamic_cast<TensorView*>(inp)) {
-        auto aten_ten = args_manager.checkTensorMap(inp);
-        total_io_bytes_processed +=
-            (int64_t)aten_ten->as<at::Tensor>().numel() *
-            dataTypeSize(tv->dtype());
-      }
-    }
-    for (auto outp : fusionSegments()->outputs()) {
-      if (auto tv = dynamic_cast<TensorView*>(outp)) {
-        auto aten_ten = args_manager.checkTensorMap(outp);
-        total_io_bytes_processed +=
-            (int64_t)aten_ten->as<at::Tensor>().numel() *
-            dataTypeSize(tv->dtype());
-      }
-    }
-
-    // Effective bw in GB/s
-    double eff_bw = 1e-6 * (double)total_io_bytes_processed / kernel_time_ms_;
-
-    double percent_peak = eff_bw / peak_bw * 100;
-
-    auto formatBytes = [](double bytes) {
-      std::stringstream ss;
-      if (bytes < 1e3) {
-        ss << bytes << " B";
-        return ss.str();
-      }
-      ss << std::setprecision(2);
-      if (bytes >= 1e12) {
-        ss << (bytes / 1e12) << " TB";
-      } else if (bytes >= 1e9) {
-        ss << (bytes / 1e9) << " GB";
-      } else if (bytes >= 1e6) {
-        ss << (bytes / 1e6) << " MB";
-      } else if (bytes >= 1e3) {
-        ss << (bytes / 1e3) << " kB";
-      }
-      return ss.str();
-    };
-
-    debug() << "Total bytes processed: "
-            << formatBytes((double)total_bytes_processed) << std::endl;
-    debug() << "Bytes that were complete fusion inputs or outputs: "
-            << formatBytes((double)total_io_bytes_processed) << " ("
-            << ((double)total_io_bytes_processed /
-                (double)total_bytes_processed * 100.0)
-            << "% of total)" << std::endl;
-
-    debug() << "Total CUDA kernel time (" << num_groups
-            << " kernels): " << kernel_time_ms_ << " ms" << std::endl;
-    debug() << "Theoretical peak bandwidth (" << gpuname << "): " << peak_bw
-            << " GB/s" << std::endl;
-    debug()
-        << "Complete fusion effective bandwidth (counts CUDA kernel time only): "
-        << eff_bw << " GB/s (";
-    debug() << std::setprecision(2) << percent_peak << "\% of theoretical peak)"
-            << std::endl;
   }
 
   return args_manager.getTensorMap();

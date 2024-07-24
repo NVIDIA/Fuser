@@ -233,8 +233,8 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
       c->inputs().size() == 1 && c->input(0)->isA<TensorView>() &&
           c->outputs().size() == 1 && c->output(0)->isA<TensorView>(),
       "I/O must be TensorViews");
-  TensorView* input_tv = c->input(0)->as<TensorView>();
-  TensorView* output_tv = c->output(0)->as<TensorView>();
+  auto* input_tv = c->input(0)->as<TensorView>();
+  auto* output_tv = c->output(0)->as<TensorView>();
   at::Tensor dummy;
 
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
@@ -310,7 +310,8 @@ bool isLowerableToCommunication(Expr* expr) {
       return false;
     }
     // We check whether the reduced axis is sharded on the input
-    const auto c2p_map = PairwiseRootDomainMap(in, out).mapConsumerToProducer();
+    const auto c2p_map =
+        PairwiseLogicalDomainMap(in, out).mapConsumerToProducer();
     auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
     return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
   } else {
