@@ -1431,6 +1431,7 @@ TensorView* reductionOp(
   }
 
   if (keep_dim && offset < 0) {
+    out = segment_set(out);
     // There were squeezed dimension removed from squeeze that will not be
     // restored by reductionOpRaw above, so we restore them here
     out = broadcast(out, is_squeeze);
