@@ -1042,6 +1042,9 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
 
+  const CircularBufferLoopStage loop_stage = getCircularBufferLoopStage(
+      tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
+
   std::vector<PredicateInfo> info_vec;
   info_vec.reserve(predicate_domains.size());
 
@@ -1069,6 +1072,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     NVF_ERROR(!predicate_domain->maybePartial());
     info.start_offset_ = tv->fusion()->zeroVal();
     info.stop_offset_ = tv->fusion()->zeroVal();
+    info.loop_stage_ = loop_stage;
 
     info.start_predicate_ = SimplifyingIrBuilder::geExpr(
         SimplifyingIrBuilder::addExpr(start_idx, info.start_offset_), zero_val);

@@ -124,8 +124,13 @@ struct UnswitchPredicateKeyHash {
   std::size_t operator()(const UnswitchPredicateKey& key) const;
 };
 
+// Generate predicates for loops that are unswitched, unrolled or
+// vectorized loops
 class UnswitchPredicate {
  public:
+  // Get a predicate for a loop that is unswitched, unrolled or
+  // vectorized. The outer_loops parameter represents the outer loops
+  // of the unswitched/unrolled/vectorized loop.
   static Val* get(
       const std::vector<ForLoop*>& outer_loops,
       ForLoop* unrolled_loop);
@@ -142,6 +147,11 @@ class UnswitchPredicate {
       PolymorphicValue static_offset = 0L;
       //! List of dynamic predicates.
       std::vector<Val*> dynamic_preds;
+      //! Circular buffer loop stage if applicable. The predicate
+      //! generated in the main loop where no epilogue is generated
+      //! needs to be used.
+      CircularBufferLoopStage loop_stage =
+          CircularBufferLoopStage::NotApplicable;
     };
     UnswitchPredicateKey predicate_key;
     Info start;
@@ -165,6 +175,7 @@ class UnswitchPredicate {
   void mergeUnswitchPredicateOffsets(
       Val* predicate,
       Val* offset,
+      CircularBufferLoopStage loop_stage,
       MergedPredicates::Info& merged_predicate_info,
       bool is_start);
 

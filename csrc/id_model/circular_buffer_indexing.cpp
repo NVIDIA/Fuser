@@ -149,4 +149,33 @@ Val* getOffsetForCircularBufferTensor(
   return SimplifyingIrBuilder::mulExpr(offset, original_alloc_size);
 }
 
+CircularBufferLoopStage getCircularBufferLoopStage(
+    const TensorView* circular_buffer_tv,
+    const std::vector<ForLoop*>& for_loops,
+    const ValGraph& loop_graph) {
+  NVF_ERROR(
+      GpuLower::hasCurrent(),
+      "Circular buffering info of GpuLower is required but GpuLower is missing");
+
+  auto db_axis =
+      GpuLower::current()->circularBufferInfo().getCircularBufferAxis(
+          circular_buffer_tv);
+
+  if (db_axis == nullptr) {
+    return CircularBufferLoopStage::NotApplicable;
+  }
+
+  for (const auto fl : for_loops) {
+    if (loop_graph.disjointValSets().strictAreMapped(
+            fl->iter_domain(), db_axis)) {
+      return fl->circularBufferLoopStage();
+    }
+  }
+
+  NVF_ERROR(
+      false,
+      "Circular buffer loop not found for ",
+      circular_buffer_tv->toString());
+}
+
 } // namespace nvfuser

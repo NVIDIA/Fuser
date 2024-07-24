@@ -94,6 +94,30 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     }
   };
 
+  auto replace_for_circular_buffering =
+      [&](ForLoop* fl, Val* original_index, bool within_unswitch) -> Val* {
+    auto circular_buffer_axis =
+        GpuLower::current()->circularBufferInfo().getCircularBufferAxis(tv);
+    if (circular_buffer_axis == nullptr ||
+        !id_model.idGraph(IdMappingMode::LOOP)
+             .disjointValSets()
+             .strictAreMapped(fl->iter_domain(), circular_buffer_axis)) {
+      return nullptr;
+    }
+
+    // The prologue loop does not need to be changed
+    if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
+      return nullptr;
+    } else {
+      auto stage_depth =
+          (int64_t)GpuLower::current()->circularBufferInfo().getStageDepthFor(
+              fl->iter_domain());
+      return SimplifyingIrBuilder::addExpr(
+          original_index,
+          SimplifyingIrBuilder::create<Val>(stage_depth - 1L, DataType::Index));
+    }
+  };
+
   // Inspect the for-loops from outer to inner and keep track of
   // unswitching since it affects all inner loops
   bool within_unswitch = false;
@@ -141,6 +165,12 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
 
     if (auto idx = predicate_at_end(fl, loop_id, within_unswitch)) {
       replacement = idx;
+    }
+
+    // Adjustment for circular buffering
+    if (auto circular_buffer_index =
+            replace_for_circular_buffering(fl, replacement, within_unswitch)) {
+      replacement = circular_buffer_index;
     }
 
     if (replacement != loop_index) {

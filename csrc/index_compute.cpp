@@ -19,6 +19,7 @@
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -2093,7 +2094,7 @@ kir::TensorIndex* Index::getProducerIndex(
     DataType as_type) {
   Val* index = nullptr;
 
-  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
+  if (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
       GpuLower::current()->isTensorIndexerEnabled()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops);
@@ -2196,7 +2197,7 @@ kir::TensorIndex* Index::getConsumerIndex(
     bool generate_pointer,
     DataType as_type) {
   Val* index = nullptr;
-  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
+  if (isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex) &&
       GpuLower::current()->isTensorIndexerEnabled()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         consumer, consumer->definition(), loops);
