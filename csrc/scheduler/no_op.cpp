@@ -118,6 +118,10 @@ void NoOpScheduler::schedule(Fusion* fusion) {
     return;
   }
 
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion);
+
   markAliases(fusion);
 }
 

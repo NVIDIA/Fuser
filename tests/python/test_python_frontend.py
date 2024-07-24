@@ -3432,6 +3432,25 @@ class TestNvFuserFrontend(TestCase):
 
             self.assertEqual(nvf_out[0], inputs[0].sum(dim=0, keepdim=keepdim))
 
+    def test_expanded_reduction_memory_space(self):
+        inputs = [torch.tensor(1.0, device="cuda").as_strided((2, 3), (0, 0))]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[None, None],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.ops.sum(T0, dims=[0], keepdim=False, dtype=DataType.Null)
+            T2 = fd.ops.segment_set(T1)
+            T3 = fd.ops.broadcast_in_dim(T2, [1, 3], [1])
+            fd.add_output(T3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        self.assertEqual(nvf_out[0], inputs[0].sum(dim=0, keepdim=True))
+
     def test_issue1872(self):
         def fusion_func(fd: FusionDefinition) -> None:
             S0 = fd.define_scalar(1.00000, dtype=DataType.Double)
