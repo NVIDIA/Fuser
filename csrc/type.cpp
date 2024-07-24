@@ -350,6 +350,7 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::ToUnsignedSmemAddr:
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
+    case UnaryOpType::ElectSync:
       return false;
     default:
       return true;
@@ -472,6 +473,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "Turing::adjustPartialLdMatrixAddrInTuring<8>";
     case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
       return "Turing::adjustPartialLdMatrixAddrInTuring<16>";
+    case UnaryOpType::ElectSync:
+      return "Hopper::electSync";
     default:
       NVF_ERROR(false, "No string found for unary op type.");
   }

@@ -151,19 +151,37 @@ class CircularBufferFusionInspector : private IterVisitor {
 };
 
 // Creates kir::IfThenElse with the following predicate:
-// threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
-// TODO Replace with elect.sync ptx
+// (tdx / 32 == 0) && (tdy / 32 == 0) && (tdz / 32 == 0) && elect_sync(~0)
 kir::IfThenElse* createThreadPredicatedIfThenElse() {
   Val* zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
-  Val* if_predicate_expr = IrBuilder::logicalAndExpr(
-      IrBuilder::logicalAndExpr(
-          IrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(ParallelType::TIDx), zero_val),
-          IrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(ParallelType::TIDy), zero_val)),
-      IrBuilder::eqExpr(
-          NamedScalar::getParallelIndex(ParallelType::TIDz), zero_val));
 
+  Val* tdx_warp = IrBuilder::eqExpr(
+      IrBuilder::divExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDx),
+          IrBuilder::create<Val>(32L, PrimDataType::UInt)),
+      zero_val);
+  Val* tdy_warp = IrBuilder::eqExpr(
+      IrBuilder::divExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDy),
+          IrBuilder::create<Val>(32L, PrimDataType::UInt)),
+      zero_val);
+  Val* tdz_warp = IrBuilder::eqExpr(
+      IrBuilder::divExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDz),
+          IrBuilder::create<Val>(32L, PrimDataType::UInt)),
+      zero_val);
+
+  Val* selected_warp = IrBuilder::logicalAndExpr(
+      IrBuilder::logicalAndExpr(tdx_warp, tdy_warp), tdz_warp);
+
+  Val* selected_thread = IrBuilder::create<Val>(DataType::Bool);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ElectSync,
+      selected_thread,
+      IrBuilder::bitwiseNotExpr(zero_val));
+
+  Val* if_predicate_expr =
+      IrBuilder::logicalAndExpr(selected_warp, selected_thread);
   kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
       IrBuilder::create<kir::Predicate>(if_predicate_expr));
 

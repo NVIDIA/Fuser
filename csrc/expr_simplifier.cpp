@@ -323,6 +323,12 @@ bool hasSimilarType(DataType t1, DataType t2) {
 // If `value` is a constant scalar, then evaluate the value of that constant and
 // return the evaluated value. Otherwise, returns `value` itself.
 Val* foldConstants(Val* value) {
+  Expr* def = value->definition();
+  if (def != nullptr && def->isA<UnaryOp>() &&
+      def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::ElectSync) {
+    return value;
+  }
+
   if (value->isConst()) {
     return value;
   }
