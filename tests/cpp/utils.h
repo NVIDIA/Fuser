@@ -446,6 +446,14 @@ class NVFuserTest : public ::testing::Test {
     // random seed. Otherwise, use zero. If a test fails, this seed will be
     // printed.
     std::srand(getCRandomSeed());
+
+    if (!getNvFuserEnv("LEGACY_INDEX")) {
+      EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"index"});
+    }
+
+    if (!getNvFuserEnv("LEGACY_PREDICATE")) {
+      EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"predicate"});
+    }
   }
 
   void TearDown() override {
@@ -492,6 +500,7 @@ class NVFuserTest : public ::testing::Test {
 
  private:
   bool capturing_ = false;
+  EnableOptionsGuard enable_options_guard;
 };
 
 // Fixture with param class must be uniquely identified, i.e., can't be in an

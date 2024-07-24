@@ -9,6 +9,7 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <id_model/indexing.h>
+#include <id_model/utils.h>
 #include <index_compute.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -1904,7 +1905,7 @@ void IndexLowering::handle(const PadOp* pad) {
   // workaround.
   Val* pred = nullptr;
   if (GpuLower::current()->isTensorIndexerEnabled() &&
-      hasEnableOptionArgument(EnableOption::IdModel, "consumer_index")) {
+      isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex)) {
     auto consumer_root_indices =
         GpuLower::current()->tensorIndexer().getPerDimIndex(
             consumer_tv,
