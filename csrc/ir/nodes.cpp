@@ -2875,20 +2875,6 @@ void IterDomain::parallelize(ParallelType t) {
     return;
   }
 
-  // assert check that we only parallelize a loop domain.
-  // loop domains are domains that are not used by any other domains.
-  if (t != ParallelType::Serial) {
-    NVF_CHECK(
-        uses().empty(),
-        "Only allowed to parallelize a loop domain.",
-        " Domain: ",
-        toString(),
-        ", Parallel type: ",
-        t,
-        definition() != nullptr ? ", Definition: " + definition()->toString()
-                                : "");
-  }
-
   if (t == ParallelType::Unroll || isParallelTypeVectorize(t) ||
       t == ParallelType::Group) {
     NVF_CHECK(

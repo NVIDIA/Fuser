@@ -6642,33 +6642,6 @@ TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-// Test for void IterDomain::parallelize(ParallelType t)
-// Only allowed to parallelize a loop domain.
-TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  fusion.addOutput(tv1);
-
-  // [I0, I1]
-  tv1->split(1, 4);
-  // [I0, I1/4, 4]
-
-  const auto& logical_domain = tv1->getLogicalDomain();
-
-  // legal, as I0 is also a loop domain
-  logical_domain[0]->parallelize(ParallelType::BIDx);
-
-  // llegal, as I1 is not a loop domain
-  EXPECT_THAT(
-      [&]() { logical_domain[1]->parallelize(ParallelType::BIDy); },
-      testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Only allowed to parallelize a loop domain")));
-}
-
 // delete intermediate tensors between segments to reduce memory usage of large
 // segmented graphs
 TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
