@@ -937,8 +937,6 @@ void IdModel::validateAndPropagatePType() {
   }
 }
 
-class SdpaFwdOp;
-
 bool hasUniformSiblings(Expr* expr) {
   return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
 }
