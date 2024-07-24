@@ -851,7 +851,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   }
 
   TransformPropagator propagator(reference_tv);
-  MaxRootDomainInfoSpanningTree spanning_tree(reference_tv);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(reference_tv);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv);
 

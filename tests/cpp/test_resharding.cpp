@@ -17,6 +17,8 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/utils.h>
 
 #include <algorithm>
@@ -34,6 +36,9 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
     fg_ = std::make_unique<FusionGuard>(fusion_.get());
   }
   void validate() {
+    // TODO(wujingyue): after preseg passes are integrated to
+    // FusionExecutorCache, simplify validation by using
+    // FusionExecutorCache::getMostRecentKernelRuntime()->fusionSegments()->groups().
     for (auto expr : fusion_->exprs()) {
       EXPECT_TRUE(!isResharding(expr) || isLowerableToCommunication(expr))
           << "on expr=" << expr;
@@ -245,7 +250,8 @@ TEST_F(ReshardingTest, InsertResharding_Before) {
   a->axis(0)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  insertReshardings(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   c = outputs[0]->as<TensorView>();
@@ -273,7 +279,8 @@ TEST_F(ReshardingTest, InsertResharding_After) {
   a->axis(0)->parallelize(ParallelType::DIDx);
   b->axis(1)->parallelize(ParallelType::DIDx);
 
-  insertReshardings(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   b = outputs[0]->as<TensorView>();
@@ -302,7 +309,8 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   b->axis(1)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  insertReshardings(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
   int num_inner_reshardings = 0;
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr) && isInnerResharding(expr)) {
@@ -311,7 +319,8 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   }
   EXPECT_GT(num_inner_reshardings, 0);
 
-  insertShardedAxisReordering(&fusion);
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
       EXPECT_FALSE(isInnerResharding(expr));
@@ -362,8 +371,10 @@ TEST_P(ReshardingTest, Insert) {
     tv2->axis(sharded_axis)->parallelize(ParallelType::DIDx);
   }
 
-  insertReshardings(fusion_.get());
-  insertShardedAxisReordering(fusion_.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::InsertReshardingsPass>::runPass(fusion_.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::ReorderShardedAxisPass>::runPass(fusion_.get());
   validate();
 }
 

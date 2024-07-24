@@ -94,7 +94,7 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
     auto ref_rf = ref->rFactor({-3}, {tvs.avg, tvs.var_sum, tvs.n}).at(0);
 
     TransformPropagator propagator(ref_rf);
-    MaxRootDomainInfoSpanningTree(ref_rf).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(ref_rf).traverse(&propagator);
 
     ref_rf->axis(1)->parallelize(ParallelType::BIDx);
     ref_rf->axis(2)->parallelize(ParallelType::TIDx);
@@ -529,7 +529,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   reduction_tv_rf->reorder(vec_reorder_map);
 
   TransformPropagator propagator(reduction_tv_rf);
-  MaxRootDomainInfoSpanningTree(reduction_tv_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reduction_tv_rf).traverse(&propagator);
 
   // Clear vectorization and unswitch as we want to selectively use
   // them

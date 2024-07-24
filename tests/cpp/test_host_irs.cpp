@@ -425,20 +425,23 @@ TEST_P(HostIrTest, ForLoops) {
   fusion->addInput(i);
   fusion->addInput(acc_in);
   fusion->addOutput(acc_out);
+  fusion->aliasOutputToInput(acc_out, acc_in, AllocationType::ReuseBuffer);
 
   FusionGuard::setCurFusion(hic.get());
 
+  auto buffer_input = makeContigConcreteTensor({1}, DataType::Int);
+  auto buffer_ouput = makeContigConcreteTensor({1}, DataType::Int);
+
   IrCloner ir_cloner(hic.get());
-  std::vector<Val*> post_on_stream_inputs = {index, ir_cloner.clone(acc_in)};
-  std::vector<Val*> post_on_stream_outputs = {ir_cloner.clone(acc_in)};
+  std::vector<Val*> post_on_stream_inputs = {index, buffer_input};
+  std::vector<Val*> post_on_stream_outputs = {buffer_ouput};
   auto* host_unit = IrBuilder::create<HostUnit>(std::move(fusion));
   auto* post_on_stream = IrBuilder::create<PostOnStream>(
       host_unit, post_on_stream_inputs, post_on_stream_outputs);
 
   for_loop->body().push_back(post_on_stream);
 
-  hic->addInput(post_on_stream->inputs().at(1));
-  hic->addOutput(post_on_stream->outputs().at(0));
+  hic->addInput(buffer_input);
   hic->pushBackTopLevelExprs(for_loop);
 
   HostIrExecutorParams params;
@@ -447,10 +450,9 @@ TEST_P(HostIrTest, ForLoops) {
   HostIrExecutor hie(std::move(hic), /*communicator=*/nullptr, params);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor acc_in_at = torch::tensor({kInitialValue}, options);
+  at::Tensor buffer_at = torch::tensor({kInitialValue}, options);
 
-  auto outputs =
-      hie.runWithInput({{post_on_stream->inputs().at(1), acc_in_at}});
+  hie.runWithInput({{buffer_input, buffer_at}});
 
   // Compute expected result for validation
   int64_t expected_result_data = kInitialValue;
@@ -459,7 +461,7 @@ TEST_P(HostIrTest, ForLoops) {
   }
   at::Tensor expected_result = torch::tensor({expected_result_data}, options);
 
-  EXPECT_TRUE(expected_result.equal(outputs.at(0)));
+  EXPECT_TRUE(expected_result.equal(buffer_at));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -707,6 +709,43 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "InTopLevelExpr";
       return ss.str();
     });
+
+using MatmulHostIrTest = NVFuserTest;
+
+TEST_F(MatmulHostIrTest, HostIr) {
+  constexpr int64_t H = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* a = makeContigTensor(3);
+  TensorView* b = makeContigTensor(3);
+  TensorView* c = matmul(a, b);
+
+  hic->addInput(a);
+  hic->addInput(b);
+  hic->addOutput(c);
+
+  hic->pushBackTopLevelExprs(c->definition());
+
+  HostIrExecutor hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  at::Tensor a_tensor = at::randn({H, M, K}, options);
+  at::Tensor b_tensor = at::randn({H, K, N}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+      {hie.inputs().at(0), a_tensor}, {hie.inputs().at(1), b_tensor}};
+
+  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+
+  // validate
+  auto ref_output = at::matmul(a_tensor, b_tensor);
+
+  EXPECT_TRUE(ref_output.allclose(output));
+}
 
 } // namespace hir
 

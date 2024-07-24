@@ -7,7 +7,7 @@
 // clang-format on
 #include <executor_kernel_arg.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
@@ -19,7 +19,7 @@ namespace registry_utils {
 bool checkPatternEquivalence(
     TensorView* out_tv0,
     TensorView* out_tv1,
-    const ComputeAtRootDomainMap& root_map) {
+    const ComputeAtLogicalDomainMap& logical_map) {
   const auto& out_root0 = out_tv0->getMaybeRootDomain();
   const auto& out_root1 = out_tv1->getMaybeRootDomain();
   const auto domain0 = out_tv0->domain();
@@ -42,7 +42,7 @@ bool checkPatternEquivalence(
     if ((*it0)->isReduction() != (*it1)->isReduction()) {
       return false;
     }
-    if (!root_map.canMap(domain0, (*it0), domain1, (*it1))) {
+    if (!logical_map.canMap(domain0, (*it0), domain1, (*it1))) {
       return false;
     }
     it0++;
@@ -389,12 +389,35 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   return false;
 }
 
+namespace {
+
+bool isSplitOnly(ViewOp* view_op) {
+  for (auto expr : StmtSort::getExprsTo(
+           {view_op->out()->getLogicalDomain().begin(),
+            view_op->out()->getLogicalDomain().end()})) {
+    if (!expr->isA<Split>()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace
+
 // Returns if view interferes with how we want to treat the reference, being at
 // least a 2D reduction schedule but maybe a 3D reduction schedule.
 bool reductionInterferingView(
     Fusion* fusion,
     const ComputeAtMap& ca_map,
     TensorView* reduction_reference) {
+  // If reshape transform only has split, it shouldn't influence reduction.
+  const auto& view_ops = ir_utils::getViewOps(fusion);
+  if (std::all_of(view_ops.begin(), view_ops.end(), [](ViewOp* view) {
+        return isSplitOnly(view);
+      })) {
+    return false;
+  }
+
   // Make sure the view doesn't interfere with how we'll want to schedule
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.
@@ -616,13 +639,13 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
             continue;
           }
 
-          auto forward_pairwise_root_map = PairwiseRootDomainMap(
+          auto forward_pairwise_logical_map = PairwiseLogicalDomainMap(
               forward_running_producer, forward_running_consumer);
-          auto forward_p2c_root_map =
-              forward_pairwise_root_map.mapProducerToConsumer();
+          auto forward_p2c_logical_map =
+              forward_pairwise_logical_map.mapProducerToConsumer();
 
           // Check if any TensorViews have a resolved broadcast
-          for (auto entry : forward_p2c_root_map) {
+          for (auto entry : forward_p2c_logical_map) {
             auto p_id = entry.first;
             auto c_id = entry.second;
             if (p_id->isBroadcast() && !c_id->isBroadcast()) {
@@ -670,18 +693,18 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
           // otherwise, we can't do backward traversal.
           // see TakeAlongAxisIntermediateTensorNormalization1_CUDA
           bool at_leat_one_id_mapped = false;
-          auto forward_pairwise_root_map =
-              PairwiseRootDomainMap(tmp_producer, tmp_consumer);
-          auto forward_p2c_root_map =
-              forward_pairwise_root_map.mapProducerToConsumer();
+          auto forward_pairwise_logical_map =
+              PairwiseLogicalDomainMap(tmp_producer, tmp_consumer);
+          auto forward_p2c_logical_map =
+              forward_pairwise_logical_map.mapProducerToConsumer();
           for (size_t entry_i = ids_to_resolve.size(); entry_i > 0; entry_i--) {
             auto running_id = ids_to_resolve[entry_i - 1].second;
-            if (forward_p2c_root_map.find(running_id) !=
-                forward_p2c_root_map.end()) {
+            if (forward_p2c_logical_map.find(running_id) !=
+                forward_p2c_logical_map.end()) {
               at_leat_one_id_mapped = true;
               ids_to_resolve[entry_i - 1] = std::make_pair(
-                  forward_p2c_root_map.at(running_id),
-                  forward_p2c_root_map.at(running_id));
+                  forward_p2c_logical_map.at(running_id),
+                  forward_p2c_logical_map.at(running_id));
             }
           }
           if (!at_leat_one_id_mapped) {
@@ -736,11 +759,11 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
 
               std::vector<IterDomain*> running_resolved_ids;
 
-              auto backward_pairwise_root_map = PairwiseRootDomainMap(
+              auto backward_pairwise_logical_map = PairwiseLogicalDomainMap(
                   backward_running_producer, backward_running_consumer);
 
-              auto backward_c2p_root_map =
-                  backward_pairwise_root_map.mapConsumerToProducer();
+              auto backward_c2p_logical_map =
+                  backward_pairwise_logical_map.mapConsumerToProducer();
 
               // Mark if producer is a producer of a reduction
               bool producer_resolves =
@@ -753,18 +776,18 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
                    entry_i--) {
                 auto orig_id = ids_to_resolve[entry_i - 1].first;
                 auto running_id = ids_to_resolve[entry_i - 1].second;
-                if (backward_c2p_root_map.find(running_id) !=
-                    backward_c2p_root_map.end()) {
+                if (backward_c2p_logical_map.find(running_id) !=
+                    backward_c2p_logical_map.end()) {
                   at_leat_one_id_mapped = true;
                   if (producer_resolves &&
-                      !backward_c2p_root_map.at(running_id)->isBroadcast()) {
+                      !backward_c2p_logical_map.at(running_id)->isBroadcast()) {
                     // If mapped, and producer is a producer of a reduction,
                     // we can resolve this id
                     ids_to_resolve.erase(
                         ids_to_resolve.begin() + (int64_t)entry_i - 1);
                   } else {
                     ids_to_resolve[entry_i - 1] = std::make_pair(
-                        orig_id, backward_c2p_root_map.at(running_id));
+                        orig_id, backward_c2p_logical_map.at(running_id));
                   }
                 }
               }
@@ -813,12 +836,12 @@ bool SchedulerTopologyChecker::hasPostReductionBCast(Fusion* fusion) {
           running_consumer = tv_dep_chain.front();
           tv_dep_chain.pop_front();
 
-          auto pairwise_root_map =
-              PairwiseRootDomainMap(running_producer, running_consumer);
-          auto p2c_root_map = pairwise_root_map.mapProducerToConsumer();
+          auto pairwise_logical_map =
+              PairwiseLogicalDomainMap(running_producer, running_consumer);
+          auto p2c_logical_map = pairwise_logical_map.mapProducerToConsumer();
 
           // Check if any TensorViews have a resolved broadcast
-          for (auto entry : p2c_root_map) {
+          for (auto entry : p2c_logical_map) {
             auto p_id = entry.first;
             auto c_id = entry.second;
             if (p_id->isBroadcast() && !c_id->isBroadcast()) {
@@ -959,7 +982,7 @@ bool SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
   // If the broadcast IDs are mapped with the reduction TVs, the
   // reduction scheduler should be able to schedule the gather
   // output TVs. This mapping can be PERMISSIVE as the broadcast IDs
-  // may be concretized. ExactRootDomainMap may be enough as
+  // may be concretized. ExactLogicalDomainMap may be enough as
   // broadcasts should not be removed by rfactor exprs.
 
   // Consider reusing a CA map

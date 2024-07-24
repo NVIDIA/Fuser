@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <visibility.h>
 
+#include <bfs.h>
 #include <dispatch.h>
 #include <ir/base_nodes.h>
 #include <type.h>
@@ -550,6 +551,66 @@ class DeadCodeRemover : BackwardVisitor {
   //! an expression as live, if that expression is not already in inp->uses()
   //! for any of its inputs.
   std::unordered_map<Val*, std::unordered_set<Expr*>> future_uses_;
+};
+
+struct IRDefinitions {
+  decltype(auto) operator()(Val* val) const {
+    auto def = val->definition();
+    if (def == nullptr) {
+      return std::vector<Expr*>{};
+    }
+    return std::vector<Expr*>{val->definition()};
+  }
+};
+
+struct IRUses {
+  decltype(auto) operator()(Val* val) const {
+    return val->uses();
+  }
+};
+
+struct IRInputs {
+  decltype(auto) operator()(Expr* expr) const {
+    return expr->inputs();
+  }
+};
+
+struct IROutputs {
+  decltype(auto) operator()(Expr* expr) const {
+    return expr->outputs();
+  }
+};
+
+class IRBFS
+    : public BFS<Expr*, Val*, IRDefinitions, IRUses, IRInputs, IROutputs> {
+ protected:
+  IRBFS(
+      std::vector<NodeType> from_groups,
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited)
+      : BFS(IRDefinitions{},
+            IRUses{},
+            IRInputs{},
+            IROutputs{},
+            std::move(from_groups),
+            std::move(to_groups),
+            require_all_to_visited) {}
+
+ public:
+  // Find the shortest path from the from_groups_ to to_groups_ on a
+  // given graph. Dependency between vals and exprs must be satisfied.
+  // It is an error if no valid path is found.
+  static ExprPath getExprsBetween(
+      const std::vector<Val*>& from,
+      const std::vector<Val*>& to,
+      bool require_all_to_visited = true) {
+    IRBFS bfs(
+        {from.begin(), from.end()},
+        {to.begin(), to.end()},
+        require_all_to_visited);
+    bfs.traverse();
+    return bfs.getShortestExprPath();
+  }
 };
 
 } // namespace nvfuser

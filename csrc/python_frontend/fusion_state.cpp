@@ -130,7 +130,7 @@ void FusionState::addFusionStateVector(std::vector<Val*> val) {
 Val* FusionState::getFusionState(size_t index) const {
   const auto& ret = fusion_state_.at(index);
   NVF_CHECK(ret.size() == 1, "Expecting to return only one Val*.");
-  return ret[0];
+  return ret.front();
 }
 
 const std::vector<Val*>& FusionState::getFusionStateVector(size_t index) const {

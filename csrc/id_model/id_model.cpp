@@ -16,7 +16,7 @@
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
 
@@ -173,7 +173,7 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
     VectorOfUniqueEntries<IterDomain*> root_domain_ids{
         tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()};
 
-    std::vector<IterDomain*> all_ids = ir_utils::allIDsOf(tv);
+    std::vector<IterDomain*> all_ids = tv->domain()->allIDs();
 
     // Check if this domain is a consumer of a view-like operation
     const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
@@ -308,12 +308,13 @@ void IdModel::buildExactGraph() {
       // For exact mapings do not map any broadcast dimensions to
       // non-broadcast dimensions. Prevent any broadcasted axes being mapped
       // to non-broadcasted axes.
-      auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
-                                    .mapBroadcast(false)
-                                    .mapConsumerToProducer();
+      auto exact_c2p_logical_map = PairwiseLogicalDomainMap(p_tv, c_tv)
+                                       .mapBroadcast(false)
+                                       .mapConsumerToProducer();
 
-      for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
-        auto p_id = exact_c2p_root_map.at(c_id);
+      for (auto c_id :
+           getSortedKeys(exact_c2p_logical_map, Statement::lessThan)) {
+        auto p_id = exact_c2p_logical_map.at(c_id);
         idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
       }
     }
@@ -453,10 +454,10 @@ void IdModel::buildPermissiveGraph() {
         }
       }
 
-      auto permissive_c2p_root_map =
-          PairwiseRootDomainMap(p_tv, c_tv).mapBroadcast(true);
+      auto permissive_c2p_logical_map =
+          PairwiseLogicalDomainMap(p_tv, c_tv).mapBroadcast(true);
 
-      for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
+      for (auto entry : permissive_c2p_logical_map.mapConsumerToProducer()) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
       }
     }
@@ -472,7 +473,7 @@ namespace {
 std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
     TensorView* producer,
     TensorView* consumer) {
-  auto p2c_map = PairwiseRootDomainMap(producer, consumer)
+  auto p2c_map = PairwiseLogicalDomainMap(producer, consumer)
                      .mapBroadcast(true)
                      .mapProducerToConsumer();
 
@@ -527,8 +528,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
-        auto all_producer_ids = ir_utils::allIDsOf(producer_tv);
-        auto all_consumer_ids = ir_utils::allIDsOf(consumer_tv);
+        auto all_producer_ids = producer_tv->domain()->allIDs();
+        auto all_consumer_ids = consumer_tv->domain()->allIDs();
 
         auto p2c_permissive_map = permissive_graph.buildMapBetween(
             all_producer_ids, all_consumer_ids);
@@ -553,12 +554,12 @@ StatefulInliningInfo buildStatefulInliningInfo(
     // Siblings should always be mapped
     auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
     if (consumer_tvs.size() > 1) {
-      auto all_consumer_ids = ir_utils::allIDsOf(consumer_tvs.vector().at(0));
+      auto all_consumer_ids = consumer_tvs.vector().at(0)->domain()->allIDs();
       info.ordered_sibling_ids.pushBack(
           {all_consumer_ids.begin(), all_consumer_ids.end()});
       for (const auto i : c10::irange(1, consumer_tvs.size())) {
         auto consumer_tv_i = consumer_tvs.vector().at(i);
-        auto all_consumer_i_ids = ir_utils::allIDsOf(consumer_tv_i);
+        auto all_consumer_i_ids = consumer_tv_i->domain()->allIDs();
 
         auto sibling_map = permissive_graph.buildMapBetween(
             all_consumer_ids, all_consumer_i_ids);

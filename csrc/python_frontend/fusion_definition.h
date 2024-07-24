@@ -29,8 +29,9 @@ struct TrieNode;
 
 NVF_API const char* dtypeToPyString(PrimDataType t);
 
-//! The Tensor and Scalar classes are used to define separate function signtures
-//! in the FusionDefinition to identify the appropriate Operator function.
+//! The Tensor and Scalar classes are used to define separate function
+//! signatures in the FusionDefinition to identify the appropriate Operator
+//! function.
 //!
 //! Example:
 //!
@@ -251,6 +252,13 @@ class NVF_API FusionDefinition : public FusionState {
   FusionCache* fusionCache() const;
   //! Return a prescheduled Fusion object
   Fusion* preschedFusion();
+  //! Composite operations can create hidden TensorViews in the CPP fusion
+  //! These TensorViews are not visible from python definition. This function
+  //! finds and adds them to FusionDefinition
+  void findHiddenTensorViews(Fusion* fusion);
+  //! Update Symbolic FusionStates after DynamicTransform pass
+  void updateSymbolicStates(
+      const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map);
 
   //! Holds the defined maximum length of a FusionDefinition in order to
   //! prevent a run away error. The user should feel free to increase this

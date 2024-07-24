@@ -18,6 +18,17 @@ namespace nvfuser {
 // Returns true iff nvFuser was compiled with distributed APIs enabled.
 NVF_API bool distributedEnabled();
 
+// For a resharding expression, either a set or reduce, returns root IDs
+// that change sharding.
+// (1) sharded root IterDomains that are added by the expression
+// i.e. sharded IterDomains that are present in the output, but not the input.
+// (2) sharded root IterDomains that are removed by the expression
+// i.e. sharded IterDomains that are present in the input, but not the output.
+// TODO: Analyze loop domain for unsharded/sharded IDs and return their
+// parent root IDs.
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
+    Expr* expr);
+
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
 NVF_API bool isSharded(TensorView*);
@@ -85,26 +96,6 @@ int64_t requestedNumberOfDevices(Fusion*);
 // remove the multi-device scheduling annotations
 void unshard(Fusion*);
 void unshard(TensorView*);
-
-// Runs through the fusion and inserts a resharding Set Op after
-// any resharding Expr that is not directly lowerable to a series of
-// communications
-void insertReshardings(Fusion* fusion);
-
-// This can only run after the insertResharding passes.
-// Assumes all resharding ops are either a set or reduction.
-// For each resharding operation that requires communication
-// over a noncontiguous slices of the tensor, this pass
-// inserts permutations necessary to push the device parallel axis
-// to the front so that communication operations are contiguous.
-void insertShardedAxisReordering(Fusion* fusion);
-
-// Resharding expressions are mapped to collective libraries which expect
-// contiguous tensors and output contiguous buffers. This pass checks that
-// inputs are contiguous and sets the allocation domain of inputs and outputs of
-// all resharding expressions. This pass should run after all passes that add or
-// update resharding expressions.
-void setShardedAllocationDomain(Fusion* fusion);
 
 // Returns the index of the a sharded axis if none return -1.
 // TODO: Assumes no merges/splits on sharded axis.

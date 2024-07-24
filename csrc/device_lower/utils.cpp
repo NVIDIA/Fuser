@@ -15,8 +15,8 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/arith.h>
-#include <root_domain_map.h>
 
 #include <expr_simplifier.h>
 #include <algorithm>
@@ -153,6 +153,7 @@ bool isTvOp(const Expr* expr) {
           MmaOp,
           LinearOp,
           SdpaFwdOp,
+          SdpaBwdOp,
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
@@ -909,7 +910,8 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
       continue;
     }
     NVF_ERROR(in_tv->getMemoryType() == MemoryType::Shared);
-    auto out2in = PairwiseRootDomainMap(in_tv, out_tv).mapConsumerToProducer();
+    auto out2in =
+        PairwiseLogicalDomainMap(in_tv, out_tv).mapConsumerToProducer();
     auto reduction_id_in = out2in.at(reduction_id);
     auto inner_id = in_tv->getMaybeAllocationDomain().back();
     while (inner_id != reduction_id_in && inner_id->definition() != nullptr) {
@@ -919,6 +921,62 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   }
 
   return layout;
+}
+
+bool isReductionInitExpr(const Expr* expr) {
+  // False if its output isn't a TensorView
+  if (!ir_utils::isTvOp(expr)) {
+    return false;
+  }
+  // False if it doesn't have any reduction axis
+  const auto out_tv = ir_utils::getTvOutput(expr);
+  if (!out_tv->domain()->hasReduction()) {
+    return false;
+  }
+  // False if it has TensorView inputs as initialization should
+  // never use TensorViews
+  const auto tv_filter_inp_view =
+      ir_utils::filterByType<TensorView>(expr->inputs());
+  if (tv_filter_inp_view.begin() != tv_filter_inp_view.end()) {
+    return false;
+  }
+  return true;
+}
+
+bool predicateAtEnd(ForLoop* loop) {
+  auto loop_id = loop->iter_domain();
+  auto split = dynamic_cast<Split*>(loop_id->definition());
+  if (split == nullptr) {
+    return false;
+  }
+
+  bool is_divisible = GpuLower::current()->divisibleSplitSet().count(split) > 0;
+
+  if (!is_divisible) {
+    return false;
+  }
+
+  // Find the other output of the split
+  auto other_out_id =
+      split->inner() == loop_id ? split->outer() : split->inner();
+
+  // If the other output is mapped with a vectorized IterDomain,
+  // this IterDomain needs to be predicated at each iteration point.
+  const auto& other_id_exact_set = GpuLower::current()
+                                       ->caMap()
+                                       ->getIdSets(IdMappingMode::EXACT)
+                                       .getDisjointSetOf(other_out_id);
+
+  if (std::any_of(
+          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
+            return id->getParallelType() == ParallelType::Vectorize;
+          })) {
+    return false;
+  }
+
+  // Now it is either loop_id is mapped with a vectorized IterDomain
+  // or it's an output of view transformations.
+  return true;
 }
 
 } // namespace lower_utils
