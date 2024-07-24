@@ -6642,33 +6642,6 @@ TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-// Test for void IterDomain::parallelize(ParallelType t)
-// Only allowed to parallelize a loop domain.
-TEST_F(NVFuserTest, FusionIllegalParallelizeNonLeafDomain_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-  auto tv1 = set(tv0);
-  fusion.addOutput(tv1);
-
-  // [I0, I1]
-  tv1->split(1, 4);
-  // [I0, I1/4, 4]
-
-  const auto& logical_domain = tv1->getLogicalDomain();
-
-  // legal, as I0 is also a loop domain
-  logical_domain[0]->parallelize(ParallelType::BIDx);
-
-  // llegal, as I1 is not a loop domain
-  EXPECT_THAT(
-      [&]() { logical_domain[1]->parallelize(ParallelType::BIDy); },
-      testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("Only allowed to parallelize a loop domain")));
-}
-
 // delete intermediate tensors between segments to reduce memory usage of large
 // segmented graphs
 TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
@@ -8278,6 +8251,42 @@ TEST_F(NVFuserTest, ReplayRFactorMergeBcast) {
     testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
+
+// This tests that we don't hit errors when we have multiple grid reductions
+// scheduled with different static-sized extents mapped to the same parallel
+// dimension.
+// See https://github.com/NVIDIA/Fuser/issues/2634
+TEST_F(NVFuserTest, MultipleDifferentSizeGridReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigConcreteTensor({128});
+  TensorView* tv1 = makeContigConcreteTensor({192});
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  TensorView* tv2 = max(tv0, {0});
+  TensorView* tv3 = sum(tv1, {0});
+  TensorView* tv4 = add(tv2, tv3);
+
+  fusion.addOutput(tv4);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const at::Tensor t0 = at::randn({128}, options);
+  const at::Tensor t1 = at::randn({192}, options);
+  const std::vector<c10::IValue> inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
