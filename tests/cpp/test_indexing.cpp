@@ -319,6 +319,8 @@ class PredicateIndexValidator : public kir::IrVisitor {
 
     get_ref_.setForLoops(for_loops_);
 
+    CircularBufferLoopStage loop_stage = CircularBufferLoopStage::NotApplicable;
+
     if (auto loop_it = std::find_if(
             for_loops_.begin(),
             for_loops_.end(),
@@ -328,7 +330,8 @@ class PredicateIndexValidator : public kir::IrVisitor {
             });
         loop_it != for_loops_.end()) {
       auto loop = *loop_it;
-      get_ref_.setCircularBufferInfo(loop->circularBufferLoopStage());
+      loop_stage = loop->circularBufferLoopStage();
+      get_ref_.setCircularBufferInfo(loop_stage);
     }
 
     auto out_ti = expr->output(0)->as<kir::TensorIndex>();
@@ -354,7 +357,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
         continue;
       }
 
-      validateOuterPredicate(out_ti, ite->predicate()->value());
+      validateOuterPredicate(out_ti, ite->predicate()->value(), loop_stage);
       break;
     }
 
@@ -400,13 +403,21 @@ class PredicateIndexValidator : public kir::IrVisitor {
     }
   }
 
-  void validateOuterPredicate(kir::TensorIndex* ti, Val* actual) {
+  void validateOuterPredicate(
+      kir::TensorIndex* ti,
+      Val* actual,
+      CircularBufferLoopStage loop_stage) {
     TensorView* tv = ti->view();
     Val* ref = get_ref_.getOuterPredicate(tv);
     if (ref != nullptr) {
+      std::stringstream loop_stage_msg;
+      if (loop_stage != CircularBufferLoopStage::NotApplicable) {
+        loop_stage_msg << " in " << loop_stage;
+      }
       EXPECT_TRUE(actual->sameAs(ref))
           << "Validation failure of outer predicate for "
-          << ti->view()->toString() << "\nRef: " << ref->toInlineString()
+          << ti->view()->toString() << loop_stage_msg.str()
+          << "\nRef: " << ref->toInlineString()
           << "\nActual: " << actual->toInlineString();
       if (!actual->sameAs(ref)) {
         compareRecursively(actual, ref);
@@ -2272,8 +2283,6 @@ TEST_F(IndexingTest, CircularBuffering1) {
 
   tv1->circularBuffer(/*number_of_stages=*/4);
 
-  fusion.printKernel();
-
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
@@ -3035,6 +3044,19 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
   };
 
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 // Same fusion ad IndexingTest.CircularBuffering1
@@ -3121,11 +3143,24 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
   };
 
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 // Same fusion as IndexingTest.CircularBuffering2. Combination of
 // circular buffering and unrolling
-TEST_F(PredicateIndexingTest, CircularBuffering2) {
+TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3139,34 +3174,37 @@ TEST_F(PredicateIndexingTest, CircularBuffering2) {
 
   tv1->setMemoryType(MemoryType::Shared);
 
+  // [I0]
   tv3->split(-1, 128);
+  // [I0/128, 128]
   tv3->split(-1, 16);
+  // [I0/128, 128/16, 16]
   tv3->split(-2, 4);
+  // [I0/128, 128/16/4, 4, 16]
   tv3->split(-2, 2);
+  // [I0/128, 128/16/4, 4/2, 2, 16]
+
   TransformPropagatorWithCheck propagator(tv3);
   MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
   tv2->computeAt(tv3, -1);
 
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(2)->parallelize(ParallelType::Unroll);
   tv3->axis(4)->parallelize(ParallelType::TIDx);
-
-  tv2->circularBuffer(/*number_of_stages=*/4);
-
-  fusion.printMath();
-  fusion.printKernel();
 
   // T2_l[ iS12{( ceilDiv(i0, 128) )}, iS16{( ceilDiv(( ceilDiv(128, 16) ), 4)
   // )}, iS18{( ceilDiv(4, 2) )}, iS19{2}, iS15{16} ] ca_pos( 5 ) produce_pos( 1
   // )
 
+  // axis(1) will be circular buffered
+  tv2->circularBuffer(/*number_of_stages=*/4);
+
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    // The inline predicates are mostly the same as
-    // CircularBuffering1. Validates only the unswitch predicates.
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
 
@@ -3204,7 +3242,7 @@ TEST_F(PredicateIndexingTest, CircularBuffering2) {
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
         // Start index: i0 * 128 + ((i1 * 4 + (0 * 2 + 0)) * 16 +
         // tidx)
-        // Stop index: i0 * 128 + ((i1 * 4 + (1 * 2 + 1)) * 16 + tidx)
+        // Stop index: i0 * 128 + (((i1 + 3) * 4 + (1 * 2 + 1)) * 16 + tidx)
         start_idx = addExpr(
             mulExpr(loop_indices.at(0), createInt(128)),
             addExpr(
@@ -3231,7 +3269,7 @@ TEST_F(PredicateIndexingTest, CircularBuffering2) {
                 loop_indices.at(4)));
       } else {
         NVF_ERROR(circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
-        // Start index: i0 * 128 + (((i1 + 3) * 4 + (0 * 2 + 0)) * 16 +
+        // Start index: i0 * 128 + (((i1) * 4 + (0 * 2 + 0)) * 16 +
         // tidx)
         // Stop index: i0 * 128 + (((i1 + 3) * 4 + (1 * 2 + 1)) * 16 + tidx)
         start_idx = addExpr(
@@ -3239,9 +3277,7 @@ TEST_F(PredicateIndexingTest, CircularBuffering2) {
             addExpr(
                 mulExpr(
                     addExpr(
-                        mulExpr(
-                            addExpr(circular_buffer_index, createInt(3)),
-                            createInt(4)),
+                        mulExpr(circular_buffer_index, createInt(4)),
                         IrBuilder::addExpr(
                             IrBuilder::mulExpr(zero, tv->axis(3)->extent()),
                             zero)),
@@ -3271,10 +3307,23 @@ TEST_F(PredicateIndexingTest, CircularBuffering2) {
   };
 
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-// Unswitched double buffering
-TEST_F(PredicateIndexingTest, CircularBuffering3) {
+// Completely unswitched circular buffering
+TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3303,15 +3352,10 @@ TEST_F(PredicateIndexingTest, CircularBuffering3) {
   // T1_l[ iS9{( ceilDiv(( ceilDiv(i0, 4) ), 1) )}, iUS10{1}, iS8{4} ] ca_pos( 3
   // )
 
-  fusion.printMath();
-  fusion.printKernel();
-
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    // The inline predicates are mostly the same as
-    // CircularBuffering1. Validates only the unswitch predicates.
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
 
@@ -3321,17 +3365,18 @@ TEST_F(PredicateIndexingTest, CircularBuffering3) {
       //
       // i0 * 4 + i2
       //
-      // where i2 is the circular buffer index. The index if iS10 is
+      // where i2 is the circular buffer index. The index of iUS10 is
       // not included as its extent is 1.
 
-      Val* start_idx = nullptr;
-      Val* stop_idx = nullptr;
-      // Start index: i0 * 4 + 0
-      // Stop index: i0 * 4 + 3
-      start_idx =
-          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(4)), zero);
-      stop_idx =
-          addExpr(mulExpr(loop_indices.at(0), createInt(4)), createInt(3));
+      // Start index: i0 * 4
+      Val* start_idx = mulExpr(loop_indices.at(0), createInt(4));
+
+      // Stop index: i0 * 4 + 4
+      // Note that it isn't "i0 * 4 + 3" since i2 is circular buffered
+      // and there's no epilog, so the main loop has a read of (i2 +
+      // 1).
+      Val* stop_idx =
+          addExpr(mulExpr(loop_indices.at(0), createInt(4)), createInt(4));
 
       return andExpr(
           geExpr(start_idx, zero),
@@ -3340,9 +3385,23 @@ TEST_F(PredicateIndexingTest, CircularBuffering3) {
   };
 
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({99}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
+// Mostly the same as UnswitchedCircularBuffering1 but with Vectorize
+TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3376,15 +3435,10 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
   tv1->axis(1)->parallelize(ParallelType::Unswitch);
   tv1->axis(0)->parallelize(ParallelType::BIDx);
 
-  fusion.printMath();
-  fusion.printKernel();
-
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    // The inline predicates are mostly the same as
-    // CircularBuffering1. Validates only the unswitch predicates.
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
 
@@ -3392,19 +3446,26 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
 
       // The base index is:
       //
-      // i0 * 4 + i2
+      // (i0 * 128 + i2) * 4 + i3
       //
-      // where i2 is the circular buffer index. The index if iS10 is
-      // not included as its extent is 1.
+      // where i2 is the circular buffer index. Here, i3 corresponds
+      // to the vectorization. Since it's vectorized, the predicate
+      // uses 0 for start and (vec_factor - 1) for stop
 
-      Val* start_idx = nullptr;
-      Val* stop_idx = nullptr;
-      // Start index: i0 * 4 + 0
-      // Stop index: i0 * 4 + 3
-      start_idx =
-          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(4)), zero);
-      stop_idx =
-          addExpr(mulExpr(loop_indices.at(0), createInt(4)), createInt(3));
+      // Start index: (i0 * 128 + 0) * 4 + 0
+      Val* start_idx = IrBuilder::addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(loop_indices.at(0), createInt(128)), zero),
+              createInt(4)),
+          zero);
+      // Stop index: (i0 * 128 + 129) * 4 + 3
+      Val* stop_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), createInt(128)), createInt(129)),
+              createInt(4)),
+          createInt(3));
 
       return andExpr(
           geExpr(start_idx, zero),
@@ -3413,15 +3474,28 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
   };
 
   PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-// Test circular buffering with unswitch. This fusion has a non circular-buffered tensor
-// that is unswitched together with a circular-buffered tensor. The
-// order between the circular buffered and non circular buffered
+// Test circular buffering with unswitch. This fusion has a non
+// circular-buffered tensor that is unswitched together with a circular-buffered
+// tensor. The order between the circular buffered and non circular buffered
 // tensors should not affect the unswitch predicate, which should
 // always be generated based on the circular buffered tensor as it has
 // more restrictive conditions.
-TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering5) {
+TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3466,15 +3540,10 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering5) {
     tv3->circularBuffer(/*number_of_stages=*/3);
   }
 
-  fusion.printMath();
-  fusion.printKernel();
-
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
         : AbstractGetReference(indexer) {}
 
-    // The inline predicates are mostly the same as
-    // CircularBuffering1. Validates only the unswitch predicates.
     Val* getOuterPredicate(TensorView* tv) const override {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
 
@@ -3482,19 +3551,26 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering5) {
 
       // The base index is:
       //
-      // i0 * 4 + i2
+      // (i0 * 128 + i2) * 4 + i3
       //
-      // where i2 is the circular buffer index. The index if iS10 is
-      // not included as its extent is 1.
+      // where i2 is the circular buffer index. Here, i3 corresponds
+      // to the vectorization. Since it's vectorized, the predicate
+      // uses 0 for start and (vec_factor - 1) for stop
 
-      Val* start_idx = nullptr;
-      Val* stop_idx = nullptr;
-      // Start index: i0 * 4 + 0
-      // Stop index: i0 * 4 + 3
-      start_idx =
-          IrBuilder::addExpr(mulExpr(loop_indices.at(0), createInt(4)), zero);
-      stop_idx =
-          addExpr(mulExpr(loop_indices.at(0), createInt(4)), createInt(3));
+      // Start index: (i0 * 128 + 0) * 4 + 0
+      Val* start_idx = IrBuilder::addExpr(
+          mulExpr(
+              IrBuilder::addExpr(
+                  mulExpr(loop_indices.at(0), createInt(128)), zero),
+              createInt(4)),
+          zero);
+      // Stop index: (i0 * 128 + 129) * 4 + 3
+      Val* stop_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), createInt(128)), createInt(129)),
+              createInt(4)),
+          createInt(3));
 
       return andExpr(
           geExpr(start_idx, zero),
@@ -3502,7 +3578,21 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering5) {
     }
   };
 
-  // PredicateIndexValidator<GetReference>::validate(&fusion, false);
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  at::Tensor t1 = at::randn({1000}, options);
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -3513,7 +3603,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 // Repro for the issue with unswitched double buffer loops
 // (https://github.com/NVIDIA/Fuser/issues/2159)
-TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering6) {
+TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3535,6 +3625,44 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering6) {
   scheduler_utils::parallelizeAllLike(tv2);
 
   tv1->circularBuffer(/*number_of_stages=*/2);
+
+  // [ 1, i0/8/1, 8 ]
+  //   +     +
+  //   |     +-- circular buffering
+  //   +-- unswitch
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      auto one = tv->fusion()->oneVal();
+
+      // The base index is:
+      //
+      // (i1 * 8) + i2
+      //
+      // where i1 is the circular buffer index.
+      //
+      // Start index is 0 * 8 + 0, so it's completely eliminated by
+      // SimplifyingIrBuilder
+
+      // Stop index: ((tv->axis(1)->extent() - 1) + 1) * 8 + 7
+      Val* stop_idx = addExpr(
+          mulExpr(
+              addExpr(subExpr(tv->axis(1)->extent(), one), one), createInt(8)),
+          createInt(7));
+
+      return ltExpr(stop_idx, tv->getLogicalDomain().at(0)->extent());
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  // Running this fusion with the legacy indexer would result in an
+  // error if run with compute-sanitizer.
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16}, options);
