@@ -1166,7 +1166,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       getPredicateDomains(tv, expr);
 
   const IndexingInfo& index_info = computeIndex(
-      expr, traversalGraph().toGroups(predicate_domains), for_loops, false);
+      expr, traversalGraph().toGroups(predicate_domains), for_loops);
 
   const std::unordered_map<ValGroup, Val*>& index_map = index_info.index_map;
 
@@ -1189,6 +1189,9 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           id_model_,
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
+
+  const CircularBufferLoopStage loop_stage = getCircularBufferLoopStage(
+      tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
   std::vector<PredicateInfo> info_vec;
   info_vec.reserve(predicate_domains.size());
@@ -1219,6 +1222,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     NVF_ERROR(!predicate_domain->maybePartial());
     info.start_offset_ = tv->fusion()->zeroVal();
     info.stop_offset_ = tv->fusion()->zeroVal();
+    info.loop_stage_ = loop_stage;
 
     info.start_predicate_ = SimplifyingIrBuilder::geExpr(
         SimplifyingIrBuilder::addExpr(start_idx, info.start_offset_), zero_val);

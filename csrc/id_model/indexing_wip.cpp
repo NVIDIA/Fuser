@@ -98,19 +98,21 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
 
   const auto zero_val = tv->fusion()->zeroVal();
 
-  const auto predicate_domains = getPredicateDomains(tv, expr);
+  const std::vector<IterDomain*>& predicate_domains =
+      getPredicateDomains(tv, expr);
 
   // TODO: It should be safe to exit if predicate_domains is empty
 
   VERBOSE() << "Predicate domains: " << toDelimitedString(predicate_domains)
             << std::endl;
 
-  const auto& index_info = computeIndex(
+  const IndexingInfo& index_info = computeIndex(
       expr,
       traversalGraph().toGroups(predicate_domains),
       for_loops,
       is_unswitch);
-  const auto& index_map = index_info.index_map;
+
+  const std::unordered_map<ValGroup, Val*>& index_map = index_info.index_map;
 
   const std::unordered_map<Val*, Val*> replacement_map_start =
       getPredicateIndexReplacementMap(
@@ -120,7 +122,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
           traversalGraph(),
           id_model_,
           /*is_start_predicate=*/true,
-          unswitched_loop);
+          /*unswitched_loop=*/unswitched_loop);
 
   const std::unordered_map<Val*, Val*> replacement_map_stop =
       getPredicateIndexReplacementMap(
@@ -130,7 +132,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
           traversalGraph(),
           id_model_,
           /*is_start_predicate=*/false,
-          unswitched_loop);
+          /*unswitched_loop=*/unswitched_loop);
 
   auto non_divisible_splits = getNonDivisibleConsumerDomainsToPredicate(tv);
 
