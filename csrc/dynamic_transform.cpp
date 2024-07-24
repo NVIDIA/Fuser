@@ -667,6 +667,14 @@ class DynamicTransformConcretizer : public OptOutMutator {
   void registerConcretization(Val* old_val, Val* new_val) {
     symbolic_to_concretized_map_.emplace(old_val, new_val);
     checkConcretizedUses(old_val, new_val);
+    NVF_ERROR(
+        old_val->dtype() == new_val->dtype(),
+        "registerConcretization should not be used to change dtype of Val ",
+        old_val->toString(),
+        ". Old dtype: ",
+        old_val->dtype(),
+        ". New dtype: ",
+        new_val->dtype());
     registerMutation(old_val, new_val);
   }
 
