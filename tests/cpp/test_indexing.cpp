@@ -3175,14 +3175,14 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
   tv1->setMemoryType(MemoryType::Shared);
 
   // [I0]
-  tv3->split(-1, 128);
-  // [I0/128, 128]
-  tv3->split(-1, 16);
-  // [I0/128, 128/16, 16]
+  tv3->split(-1, 256);
+  // [I0/256, 256]
+  tv3->split(-1, 8);
+  // [I0/256, 256/8, 8]
   tv3->split(-2, 4);
-  // [I0/128, 128/16/4, 4, 16]
+  // [I0/256, 256/8/4, 4, 8]
   tv3->split(-2, 2);
-  // [I0/128, 128/16/4, 4/2, 2, 16]
+  // [I0/256, 256/8/4, 4/2, 2, 8]
 
   TransformPropagatorWithCheck propagator(tv3);
   MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
@@ -3194,12 +3194,15 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
   tv3->axis(2)->parallelize(ParallelType::Unroll);
   tv3->axis(4)->parallelize(ParallelType::TIDx);
 
-  // T2_l[ iS12{( ceilDiv(i0, 128) )}, iS16{( ceilDiv(( ceilDiv(128, 16) ), 4)
-  // )}, iS18{( ceilDiv(4, 2) )}, iS19{2}, iS15{16} ] ca_pos( 5 ) produce_pos( 1
-  // )
-
   // axis(1) will be circular buffered
   tv2->circularBuffer(/*number_of_stages=*/4);
+
+  // [I0/256, 256/8/4, 4/2, 2, 8]
+  //    +        +       +      +
+  //    |        |       |      +-- TIDx
+  //    |        |       +-- unroll
+  //    |        +-- circular buffering
+  //    +-- BIDx
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer)
@@ -3232,7 +3235,7 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
 
       // The base index is:
       //
-      // i0 * 128 + ((i1 * 4 + (i2 * 2 + i3)) * 16 + tidx)
+      // i0 * 256 + ((i1 * 4 + (i2 * 2 + i3)) * 16 + tidx)
       //
       // Here, i1 and i2 correspond to the circular buffer loop and
       // the unroll loop, respectively.
@@ -3240,11 +3243,11 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
       Val* start_idx = nullptr;
       Val* stop_idx = nullptr;
       if (circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog) {
-        // Start index: i0 * 128 + ((i1 * 4 + (0 * 2 + 0)) * 16 +
+        // Start index: i0 * 256 + ((i1 * 4 + (0 * 2 + 0)) * 8 +
         // tidx)
-        // Stop index: i0 * 128 + (((i1 + 3) * 4 + (1 * 2 + 1)) * 16 + tidx)
+        // Stop index: i0 * 256 + (((i1 + 3) * 4 + (1 * 2 + 1)) * 8 + tidx)
         start_idx = addExpr(
-            mulExpr(loop_indices.at(0), createInt(128)),
+            mulExpr(loop_indices.at(0), createInt(256)),
             addExpr(
                 mulExpr(
                     addExpr(
@@ -3255,7 +3258,7 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
                     tv->axis(4)->extent()),
                 loop_indices.at(4)));
         stop_idx = addExpr(
-            mulExpr(loop_indices.at(0), createInt(128)),
+            mulExpr(loop_indices.at(0), createInt(256)),
             addExpr(
                 mulExpr(
                     addExpr(
@@ -3269,11 +3272,11 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
                 loop_indices.at(4)));
       } else {
         NVF_ERROR(circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
-        // Start index: i0 * 128 + (((i1) * 4 + (0 * 2 + 0)) * 16 +
+        // Start index: i0 * 256 + (((i1) * 4 + (0 * 2 + 0)) * 8 +
         // tidx)
-        // Stop index: i0 * 128 + (((i1 + 3) * 4 + (1 * 2 + 1)) * 16 + tidx)
+        // Stop index: i0 * 256 + (((i1 + 3) * 4 + (1 * 2 + 1)) * 8 + tidx)
         start_idx = addExpr(
-            mulExpr(loop_indices.at(0), createInt(128)),
+            mulExpr(loop_indices.at(0), createInt(256)),
             addExpr(
                 mulExpr(
                     addExpr(
@@ -3284,7 +3287,7 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
                     tv->axis(4)->extent()),
                 loop_indices.at(4)));
         stop_idx = addExpr(
-            mulExpr(loop_indices.at(0), createInt(128)),
+            mulExpr(loop_indices.at(0), createInt(256)),
             addExpr(
                 mulExpr(
                     addExpr(
