@@ -6620,14 +6620,10 @@ TEST_F(NVFuserTest, FusionDomainEquivalence_CUDA) {
 
   // dom0: logical domain
   // dom1: [S0, B0/4]
-  // Should fail as the dom1 only partially covers dom0
-  EXPECT_THAT(
-      [&]() {
-        ir_utils::validateDomainEquivalence(
-            tv4->getLogicalDomain(), {tv4->axis(0), tv4->axis(1)});
-      },
-      testing::ThrowsMessage<nvfuser::nvfError>(
-          testing::HasSubstr("dom0 and dom1 are not equal")));
+  // Succeeds because broadcasting IterDomains are just auxiliary placeholders
+  // and can be arbitrarily created and annihilated as needed.
+  ir_utils::validateDomainEquivalence(
+      tv4->getLogicalDomain(), {tv4->axis(0), tv4->axis(1)});
 }
 
 // Repro for issue #236 (https://github.com/NVIDIA/Fuser/issues/236)
