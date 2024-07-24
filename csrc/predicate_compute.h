@@ -150,7 +150,8 @@ class UnswitchPredicate {
       //! Circular buffer loop stage if applicable. The predicate
       //! generated in the main loop where no epilogue is generated
       //! needs to be used.
-      CircularBufferLoopStage loop_stage = CircularBufferLoopStage::NotApplicable;
+      CircularBufferLoopStage loop_stage =
+          CircularBufferLoopStage::NotApplicable;
     };
     UnswitchPredicateKey predicate_key;
     Info start;

@@ -452,7 +452,8 @@ class NVFuserTest : public ::testing::Test {
     }
 
     if (!getNvFuserEnv("LEGACY_PREDICATE")) {
-      EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"predicate"});
+      EnableOptionsGuard::getCurOptions().set(
+          EnableOption::IdModel, {"predicate"});
     }
   }
 
