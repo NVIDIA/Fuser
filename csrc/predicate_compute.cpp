@@ -10,6 +10,7 @@
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <id_model/utils.h>
 #include <index_compute.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
@@ -486,23 +487,10 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   auto out_tv = ir_utils::getTvOutput(tv_expr);
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
-  const ParallelType parallel_type =
-      unrolled_loop_->iter_domain()->getParallelType();
-
-  // For the sake of predicate generation, unswitch and unroll can be
-  // handled in the same way. Note that !is_unswitch means this is for
-  // a vectorized loop.
-  const bool is_unswitch = parallel_type == ParallelType::Unswitch ||
-      parallel_type == ParallelType::Unroll;
-
   std::vector<PredicateInfo> ref_pred_info;
 
   if (TensorIndexer::isSupported(GpuLower::current()->kernel()) &&
-      ((is_unswitch &&
-        hasEnableOptionArgument(EnableOption::IdModel, "unswitch_predicate")) ||
-       (!is_unswitch &&
-        hasEnableOptionArgument(
-            EnableOption::IdModel, "vectorize_predicate")))) {
+      isIdModelOptionEnabled(IdModelEnableOption::UnswitchPredicate)) {
     if (getenv("NEW")) {
       ref_pred_info = gpu_lower->tensorIndexer().getPredicates(
           out_tv, tv_expr, for_loops_, unrolled_loop_);
@@ -776,28 +764,29 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
     }
   };
 
-  if (getenv("FIX_UNSWITCH")) {
-    if (merged_predicate_info.loop_stage !=
-            CircularBufferLoopStage::NotApplicable ||
-        loop_stage != CircularBufferLoopStage::NotApplicable) {
-      NVF_ERROR(
-          merged_predicate_info.dynamic_preds.empty(),
-          "Dynamic predicates not supported with circular buffering");
-      NVF_ERROR(
-          merged_predicate_info.static_offset == 0,
-          "Non-zero static ofset not supported with circular buffering: ",
-          merged_predicate_info.static_offset);
-      NVF_ERROR(
-          offset->isZero(),
-          "Non-zero static ofset not supported with circular buffering: ",
-          offset->toInlineString());
-      if (is_more_restrictive_loop_stage(
-              loop_stage, merged_predicate_info.loop_stage)) {
-        merged_predicate_info.static_pred = predicate;
-        merged_predicate_info.loop_stage = loop_stage;
-      }
-      return;
+  if (merged_predicate_info.loop_stage !=
+          CircularBufferLoopStage::NotApplicable ||
+      loop_stage != CircularBufferLoopStage::NotApplicable) {
+    NVF_ERROR(
+        merged_predicate_info.dynamic_preds.empty(),
+        "Dynamic predicates not supported with circular buffering");
+    NVF_ERROR(
+        merged_predicate_info.static_offset == 0,
+        "Non-zero static ofset not supported with circular buffering: ",
+        merged_predicate_info.static_offset);
+    NVF_ERROR(
+        offset->isZero(),
+        "Non-zero static ofset not supported with circular buffering: ",
+        offset->toInlineString());
+    // If merged_predicate_info.static_pred is nullptr, nothing is
+    // set yet.
+    if (merged_predicate_info.static_pred == nullptr ||
+        is_more_restrictive_loop_stage(
+            loop_stage, merged_predicate_info.loop_stage)) {
+      merged_predicate_info.static_pred = predicate;
+      merged_predicate_info.loop_stage = loop_stage;
     }
+    return;
   }
 
   auto offset_int = dynamic_cast<Val*>(offset);

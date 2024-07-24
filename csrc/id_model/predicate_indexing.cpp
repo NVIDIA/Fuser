@@ -178,7 +178,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       NVF_ERROR(
           inserted, "Duplicate replacement attempted: ", loop_id->toString());
       VERBOSE() << "Replacing initial index: " << loop_index->toInlineString()
-                << " with " << replacement->toInlineString() << std::endl;
+                << " with " << replacement->toInlineString()
+                << ", tv: " << tv->toString() << std::endl;
     }
   }
 
