@@ -37,7 +37,11 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
-  // MovePadPass needs to happen before MarkAliasPrepare and after MoveSplitCat
+  // MovePadPass needs to happen:
+  // 1. before MarkAliasPrepare; and
+  //    avoid moving pad operatoins around, which could disturb the analysis from MarkAliasPrepare
+  // 2. after MoveSplitCat
+  //    to avoid this pass moving PadOp around to break the MoveSplitCat.
   OptimizationPass<MovePadPass>::runPass(fusion);
   // NOTE vvv this doesn't really work, since our type promotion to higher
   // precision for Add cannot be canceled out with previous cast to lower
