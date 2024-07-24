@@ -291,13 +291,15 @@ void propagatePad(Fusion* fusion) {
     }
 
     // check for pad_dependencies to verify that 'p' can be moved before 'def'.
-    std::unordered_set<Val*> pad_dependencies;
+    std::unordered_set<Val*> pad_inputs;
     for (Val* val : p->inputs()) {
       if (val == p->in() || val->isConst()) {
         continue;
       }
-      pad_dependencies.merge(DependencyCheck::getAllDependentVals(val));
+      pad_inputs.insert(val);
     }
+    std::unordered_set<Val*> pad_dependencies = DependencyCheck::getAllDependentVals(pad_inputs);
+
     auto pad_replay_check = [&pad_dependencies](Expr* expr) {
       return std::all_of(
           expr->inputs().begin(),
