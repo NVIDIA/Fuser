@@ -1223,7 +1223,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
     auto swizzled_dom = swizzleSharedMemory<false>(smem_epilogue);
     smem_epilogue->setAllocationDomain(swizzled_dom.as<IterDomain*>(), true);
-    // smem_epilogue->setHasSwizzleOp();
     scheduler_utils::BoundedDirectionalTransformPropagator::forward(
         mma_result,
         -1,
