@@ -69,6 +69,116 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
   EXPECT_TRUE(at::equal(nvf_out[6], debug_attn_mask));
 };
 
+void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
+  IdModel id_model(fusion);
+  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  vg.validateConsistency();
+
+  auto sdpa_op = dynamic_cast<SdpaFwdOp*>(op);
+  ASSERT_TRUE(sdpa_op != nullptr);
+
+  /* SdpaFwdOp:
+  Consumers:
+  output = [N, H, L, Ev]
+  logsumexp = [N, H, L]
+  Producers:
+  query = [N, H, L, E]
+  key = [N, H, S, E]
+  value = [N, H, S, Ev]
+  */
+
+  for (auto producer : sdpa_op->inputs()) {
+    for (auto consumer : sdpa_op->outputs()) {
+      if (producer->isA<Val>() || consumer->isA<Val>()) {
+        continue;
+      }
+      std::vector<IterDomain*> producer_ids =
+          producer->as<TensorView>()->getLogicalDomain();
+      std::vector<IterDomain*> consumer_ids =
+          consumer->as<TensorView>()->getMaybeRootDomain();
+
+      size_t num_device_dim = producer_ids.at(0)->isDeviceDim() ? 1 : 0;
+
+      // Idx=0: producer_ids[0], consumer_ids[0] = N
+      // Idx=1: producer_ids[1], consumer_ids[1] = H
+      // Idx=2: producer_ids[2]=L/S, consumer_ids [2] = L
+      // Idx=3: prodcuer_ids[3] = E/Ev, consumer_idx[3] = Ev
+
+      for (auto idx : c10::irange(consumer_ids.size())) {
+        if (idx >= num_device_dim && idx < (2 + num_device_dim)) {
+          checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+        } else if (
+            idx == (2 + num_device_dim) && producer->sameAs(sdpa_op->query())) {
+          checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+        } else if (
+            idx == (3 + num_device_dim) && producer->sameAs(sdpa_op->value())) {
+          checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+        }
+      }
+    }
+  }
+}
+
+void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
+  IdModel id_model(fusion);
+  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  vg.validateConsistency();
+
+  auto sdpa_op = dynamic_cast<SdpaBwdOp*>(op);
+  ASSERT_TRUE(sdpa_op != nullptr);
+
+  /* SdpaBwdOp:
+    Consumers:
+    grad_query = [N, H, L, E]
+    grad_key = [N, H, S, E]
+    grad_value = [N, H, S, Ev]
+    Producers:
+    grad_output = [N, H, L, Ev]
+    query = [N, H, L, E]
+    key = [N, H, S, E]
+    value = [N, H, S, Ev]
+    output = [N, H, L, Ev]
+    logsumexp = [N, H, L]
+  */
+
+  for (auto producer : sdpa_op->inputs()) {
+    for (auto consumer : sdpa_op->outputs()) {
+      if (producer->isA<Val>() || consumer->isA<Val>()) {
+        continue;
+      }
+      auto producer_tv = producer->as<TensorView>();
+      auto consumer_tv = consumer->as<TensorView>();
+      std::vector<IterDomain*> producer_ids = producer_tv->getLogicalDomain();
+      std::vector<IterDomain*> consumer_ids = consumer_tv->getMaybeRootDomain();
+
+      // Idx=0: producer_ids[0], consumer_ids[0] = N
+      // Idx=1: producer_ids[1], consumer_ids[1] = H
+      // Idx=2: producer_ids[2], consumer_ids [2] = L/S
+      // Idx=3: producer_ids[3], consumer_ids[3] = E/Ev
+
+      bool producer_has_s = producer_tv->sameAs(sdpa_op->key()) ||
+          producer_tv->sameAs(sdpa_op->value());
+      bool consumer_has_s = consumer_tv->sameAs(sdpa_op->grad_key()) ||
+          consumer_tv->sameAs(sdpa_op->grad_value());
+
+      bool producer_has_e = producer_tv->sameAs(sdpa_op->query()) ||
+          producer_tv->sameAs(sdpa_op->key());
+      bool consumer_has_e = consumer_tv->sameAs(sdpa_op->grad_query()) ||
+          consumer_tv->sameAs(sdpa_op->grad_key());
+
+      for (auto idx : c10::irange(consumer_ids.size())) {
+        if (idx < 2) {
+          checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+        } else if (idx == 2 && (producer_has_s == consumer_has_s)) {
+          checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+        } else if (idx == 3 && (producer_has_e == consumer_has_e)) {
+          checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
+        }
+      }
+    }
+  }
+}
+
 TEST_F(SDPATest, NonCausalAttnConcrete) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
@@ -93,6 +203,8 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
   addSdpaFwdOutputs(fusion.get(), output);
+
+  checkSdpaFwdMapping(fusion.get(), output.output->definition());
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
@@ -139,6 +251,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
       /*scale=*/nullptr);
   addSdpaFwdOutputs(fusion.get(), output);
 
+  checkSdpaFwdMapping(fusion.get(), output.output->definition());
+
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
   at::Tensor k = at::randn(kv_shape, options);
@@ -184,6 +298,8 @@ TEST_F(SDPATest, CausalAttn) {
       /*scale=*/IrBuilder::create<Val>(1e-3));
   addSdpaFwdOutputs(fusion.get(), output);
 
+  checkSdpaFwdMapping(fusion.get(), output.output->definition());
+
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
   at::Tensor k = at::randn(kv_shape, options);
@@ -201,73 +317,6 @@ TEST_F(SDPATest, CausalAttn) {
   FusionExecutorCache fec(std::move(fusion));
   auto nvf_out = fec.runFusionWithInputs({q, k, v});
   validateSdpaFwdOutputs(nvf_out, aten_out);
-}
-
-TEST_F(SDPATest, PairwiseLogicalDomainMap) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
-
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  std::vector<int64_t> q_shape({n, h, l, e});
-  std::vector<int64_t> kv_shape({n, h, s, e});
-
-  auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
-  auto tvk = makeSymbolicTensor(kv_shape, DataType::Half);
-  auto tvv = makeSymbolicTensor(kv_shape, DataType::Half);
-
-  fusion->addInput(tvq);
-  fusion->addInput(tvk);
-  fusion->addInput(tvv);
-
-  auto output = sdpfa_fwd(
-      tvq,
-      tvk,
-      tvv,
-      /*dropout_p=*/IrBuilder::create<Val>(0.0),
-      /*is_causal=*/IrBuilder::create<Val>(true),
-      /*scale=*/IrBuilder::create<Val>(1e-3));
-  addSdpaFwdOutputs(fusion.get(), output);
-
-  // Verify mapping between Q,K,V and all output
-  // Producers:
-  //   query = [N, H, L, E]
-  //   key = [N, H, S, E]
-  //   value = [N, H, S, Ev]
-  // Consumers:
-  //   output = [N, H, L, Ev]
-  //   logsumexp = [N, H, L]
-  std::vector<TensorView*> producer_tvs{tvq, tvk, tvv};
-  for (auto role : {AttnRole::Q, AttnRole::K, AttnRole::V}) {
-    auto producer_tv = producer_tvs[(int)role];
-
-    for (Val* consumer : fusion->outputs()) {
-      auto consumer_tv = consumer->as<TensorView>();
-      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
-                              .mapProducerToConsumer();
-      auto mappingExists = [&pairwise_map](
-                               IterDomain* p_id, IterDomain* c_id) -> bool {
-        return pairwise_map.find(p_id) != pairwise_map.end() &&
-            pairwise_map[p_id] == c_id;
-      };
-
-      auto consumer_root = consumer_tv->getMaybeRootDomain();
-      for (auto idx : c10::irange(consumer_tv->nDims())) {
-        // Mapping for N, H exists from Q/K/V to any output.
-        if (idx < 2) {
-          EXPECT_TRUE(
-              mappingExists(producer_tv->axis(idx), consumer_root.at(idx)));
-        }
-        // Mapping for L exists between Q and output, log_sumexp.
-        if (idx == 2 && role == AttnRole::Q) {
-          EXPECT_TRUE(mappingExists(producer_tv->axis(2), consumer_root.at(2)));
-        }
-        // Mapping for Ev exists between V and output.
-        if (idx == 3 && role == AttnRole::V) {
-          EXPECT_TRUE(mappingExists(producer_tv->axis(3), consumer_root.at(3)));
-        }
-      }
-    }
-  }
 }
 
 TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
@@ -351,6 +400,8 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   fusion->addOutput(tvgrad.grad_query);
   fusion->addOutput(tvgrad.grad_key);
   fusion->addOutput(tvgrad.grad_value);
+
+  checkSdpaBwdMapping(fusion.get(), tvgrad.grad_query->definition());
 
   at::Tensor grad_out = at::randn(attn_shape, options);
 
@@ -480,6 +531,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   fusion->addOutput(tvgrad.grad_key);
   fusion->addOutput(tvgrad.grad_value);
 
+  checkSdpaBwdMapping(fusion.get(), tvgrad.grad_query->definition());
+
   at::Tensor grad_out = at::randn(attn_shape, options);
 
   std::vector<c10::IValue> sdpa_bwd_inputs = {
@@ -555,6 +608,8 @@ TEST_F(SDPATest, AttnProgram) {
 
   TensorView* tvout = add(tvattn.output, tvattn.output);
   fusion->addOutput(tvout);
+
+  checkSdpaFwdMapping(fusion.get(), tvattn.output->definition());
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options);
@@ -632,6 +687,9 @@ TEST_F(SDPATest, AttnFwdBwd) {
   fusion->addOutput(sdpa_grad.grad_key);
   fusion->addOutput(sdpa_grad.grad_value);
 
+  checkSdpaFwdMapping(fusion.get(), sdpa_fwd_out.output->definition());
+  checkSdpaBwdMapping(fusion.get(), sdpa_grad.grad_query->definition());
+
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn(q_shape, options).set_requires_grad(true);
   at::Tensor k = at::randn(k_shape, options).set_requires_grad(true);
@@ -700,6 +758,8 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
+
+  checkSdpaFwdMapping(fusion.get(), output.output->definition());
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor q = at::randn({n, h / d, l, e}, options);
