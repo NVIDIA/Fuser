@@ -2345,6 +2345,10 @@ float FusionExecutor::runRtc(
 
 flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
+  if (lowered_) {
+    std::cerr << "kernel in FusionExecutor::serialize" << std::endl;
+    kernel()->printMath(true);
+  }
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
@@ -2566,6 +2570,11 @@ void FusionExecutor::deserialize(
       buffer->runtime_id(),
       buffer->group_id());
   setUsedTVs();
+
+  if (lowered_) {
+    std::cerr << "kernel in FusionExecutor::deserialize" << std::endl;
+    kernel()->printMath(true);
+  }
 
   // GlobalBufferInfo requires lowered kernel before deserialization
   for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
