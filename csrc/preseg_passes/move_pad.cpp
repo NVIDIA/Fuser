@@ -30,7 +30,7 @@ bool isSimplePadOp(PadOp* pad) {
   }
   // TODO: add a test case for this.
   for (Val* pad_val : pad->getPadWidths()) {
-    if (!simplifyExpr(SimplifyingIrBuilder::geExpr(pad_val, pad->fusion()->oneVal()))
+    if (!simplifyExpr(SimplifyingIrBuilder::geExpr(pad_val, pad->fusion()->zeroVal()))
             ->isTrue()) {
       return false;
     }
