@@ -17,7 +17,7 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
  public:
   static OrderedIdGroupInformation get(
       const std::vector<IterDomain*>& alloc_domain,
-      const ExprPath& path,
+      const ExprPath<ExprGroup>& path,
       const ValGraph& graph,
       const ConcretizedBroadcastDomains& concrete_info) {
     OrderedIdGroupInformation info(alloc_domain, graph, concrete_info);
@@ -36,7 +36,7 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
     using_id_graph_ = true;
   }
 
-  virtual void traverse(const ExprPath& path);
+  virtual void traverse(const ExprPath<ExprGroup>& path);
 
  protected:
   std::vector<IterDomain*>::const_iterator findActiveId(
@@ -53,7 +53,7 @@ class OrderedIdGroupInformation : public OrderedIdInformation {
 std::unordered_map<IterDomain*, ValGroup> getContigDomains(
     const std::vector<IterDomain*>& alloc_domains,
     const std::vector<bool>& contiguity,
-    const ExprPath& path_from_alloc,
+    const ExprPath<ExprGroup>& path_from_alloc,
     const ValGraph& graph,
     const ConcretizedBroadcastDomains& concrete_info,
     bool is_predicate_pass);

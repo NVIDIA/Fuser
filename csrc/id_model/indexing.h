@@ -24,7 +24,7 @@ namespace nvfuser {
 struct IndexingInfo {
   std::vector<IterDomain*> loop_domains;
   // Indexing traversal path from loop domains
-  ExprPath traversal_path;
+  ExprPath<ExprGroup> traversal_path;
   // Index mappings of ID groups along the traversal path
   std::unordered_map<ValGroup, Val*> index_map;
 };
@@ -170,7 +170,7 @@ class TensorIndexer {
       const std::vector<IterDomain*>& allocation_domains,
       const std::vector<Val*>& strides,
       const std::vector<bool>& contiguity,
-      const ExprPath& traversal_path) const;
+      const ExprPath<ExprGroup>& traversal_path) const;
 
   // Get a replace map for tensor indexing. Examples include replacing
   // an index of a vectorized loop with zero.

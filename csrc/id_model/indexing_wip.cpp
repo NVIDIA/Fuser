@@ -25,7 +25,7 @@ std::pair<std::deque<ValGroup>, std::deque<Val*>> TensorIndexer::
         const std::vector<IterDomain*>& allocation_domains,
         const std::vector<Val*>& strides,
         const std::vector<bool>& contiguity,
-        const ExprPath& traversal_path) const {
+        const ExprPath<ExprGroup>& traversal_path) const {
   const std::unordered_map<IterDomain*, ValGroup>& contig_domains =
       getContigDomains(
           allocation_domains,
@@ -342,7 +342,7 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
       // loadstore->opType() == LoadStoreOpType::CpAsyncBulkTensorTile)) {
       reason << "LoadStoreOp not supported: " << loadstore->toString();
     } else {
-      for (const auto& id : ir_utils::allIDsOf(tv)) {
+      for (const auto& id : tv->domain()->allIDs()) {
         if (id->getParallelType() == ParallelType::MisalignedVectorize) {
           reason << "MialignedVectorize is used: " << id->toString();
           break;

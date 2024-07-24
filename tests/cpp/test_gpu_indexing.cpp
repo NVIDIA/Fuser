@@ -830,7 +830,7 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
   const ValGroup& merge_loop_group =
       id_model.idGraph(IdMappingMode::LOOP).toGroup(tv1->getRootDomain().at(0));
   for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
-    for (auto id : ir_utils::allIDsOf(tv)) {
+    for (auto id : tv->domain()->allIDs()) {
       if (dynamic_cast<Split*>(id->definition()) == nullptr) {
         const ValGroup& loop_group =
             id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
@@ -889,7 +889,7 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
     auto consumer_tvs = ir_utils::consumerTvsOf(tv);
     return std::any_of(
         consumer_tvs.begin(), consumer_tvs.end(), [&](auto consumer_tv) {
-          auto all_ids = ir_utils::allIDsOf(consumer_tv);
+          auto all_ids = consumer_tv->domain()->allIDs();
           return std::find(all_ids.begin(), all_ids.end(), id) != all_ids.end();
         });
   };
@@ -897,7 +897,7 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
   // At this point, all of the IDs from the root until split are
   // validated. Validating the remaining IDs
   for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
-    for (auto id : ir_utils::allIDsOf(tv)) {
+    for (auto id : tv->domain()->allIDs()) {
       const auto& loop_group =
           id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
       if (loop_group == merge_loop_group) {

@@ -174,7 +174,7 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
     VectorOfUniqueEntries<IterDomain*> root_domain_ids{
         tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()};
 
-    std::vector<IterDomain*> all_ids = ir_utils::allIDsOf(tv);
+    std::vector<IterDomain*> all_ids = tv->domain()->allIDs();
 
     // Check if this domain is a consumer of a view-like operation
     const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
@@ -530,8 +530,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
 
         info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
-        auto all_producer_ids = ir_utils::allIDsOf(producer_tv);
-        auto all_consumer_ids = ir_utils::allIDsOf(consumer_tv);
+        auto all_producer_ids = producer_tv->domain()->allIDs();
+        auto all_consumer_ids = consumer_tv->domain()->allIDs();
 
         auto p2c_permissive_map = permissive_graph.buildMapBetween(
             all_producer_ids, all_consumer_ids);
@@ -556,12 +556,12 @@ StatefulInliningInfo buildStatefulInliningInfo(
     // Siblings should always be mapped
     auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
     if (consumer_tvs.size() > 1) {
-      auto all_consumer_ids = ir_utils::allIDsOf(consumer_tvs.vector().at(0));
+      auto all_consumer_ids = consumer_tvs.vector().at(0)->domain()->allIDs();
       info.ordered_sibling_ids.pushBack(
           {all_consumer_ids.begin(), all_consumer_ids.end()});
       for (const auto i : c10::irange(1, consumer_tvs.size())) {
         auto consumer_tv_i = consumer_tvs.vector().at(i);
-        auto all_consumer_i_ids = ir_utils::allIDsOf(consumer_tv_i);
+        auto all_consumer_i_ids = consumer_tv_i->domain()->allIDs();
 
         auto sibling_map = permissive_graph.buildMapBetween(
             all_consumer_ids, all_consumer_i_ids);

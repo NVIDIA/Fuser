@@ -78,7 +78,7 @@ const ValGroup& ValGraph::toGroup(Val* val) const {
   auto disjoint_set_it = disjoint_vals_.disjointSetMap().find(val);
   NVF_ERROR(
       disjoint_set_it != disjoint_vals_.disjointSetMap().end(),
-      "\nId group could not be found in graph associated with: ",
+      "\nVal group could not be found in graph associated with: ",
       val->toString(),
       "\n");
   return disjoint_set_it->second;

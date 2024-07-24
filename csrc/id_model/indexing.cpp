@@ -688,7 +688,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     ValGroup reverse_merge_output =
         exact_graph.outputGroups(reverse_merge).at(0);
     // Look for a matching merge in the consumer
-    const auto consumer_all_ids = ir_utils::allIDsOf(consumer);
+    const auto consumer_all_ids = consumer->domain()->allIDs();
     IterDomain* consumer_merge_out = nullptr;
     for (auto consumer_id : consumer_all_ids) {
       if (reverse_merge_output->has(consumer_id)) {
@@ -1062,7 +1062,7 @@ IndexingInfo TensorIndexer::computeIndex(
 
   const ValGroups loop_groups = traversalGraph().toGroups(loop_domains);
 
-  auto traversal_path = IndexingTraversal::getExprsBetween(
+  const ExprPath<ExprGroup> traversal_path = IndexingTraversal::getExprsBetween(
       expr, traversalGraph(), loop_groups, index_groups);
 
   VERBOSE() << "Indexing path:\n";

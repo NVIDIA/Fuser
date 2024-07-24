@@ -71,7 +71,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   // - predicateAtEnd returns true
   // - Within an unswitch/unroll loop
   //
-  // Use N-1 instead of i but not when it's thread paralellized so
+  // Use N-1 instead of i but not when it's thread parallelized so
   // that each thread or block can take different paths. This may not
   // be optimal for TID, though, as it might result in thread
   // divergence.
@@ -84,7 +84,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     // Don't replace thread indices even when unswitched
     if (!fl->iter_domain()->isThread() &&
         (fl->iter_domain()->getParallelType() == ParallelType::Vectorize ||
-         within_unswitch || predicateAtEnd(fl))) {
+         within_unswitch || lower_utils::predicateAtEnd(fl))) {
       return is_start_predicate
           ? fl->fusion()->zeroVal()
           : SimplifyingIrBuilder::subExpr(

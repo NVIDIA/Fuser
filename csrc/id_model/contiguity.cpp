@@ -47,7 +47,7 @@ bool OrderedIdGroupInformation::isConsistentlyOrdered(IterDomain* id) const {
   return it != consistently_ordered_ids_.end();
 }
 
-void OrderedIdGroupInformation::traverse(const ExprPath& path) {
+void OrderedIdGroupInformation::traverse(const ExprPath<ExprGroup>& path) {
   for (const auto& [eg, direction] : path) {
     if (direction != Direction::Forward) {
       // Not supported
@@ -65,7 +65,7 @@ class ContigIDGroups {
   ContigIDGroups(
       const std::vector<IterDomain*>& alloc_domains,
       const std::vector<bool>& contiguity,
-      const ExprPath& path_from_alloc,
+      const ExprPath<ExprGroup>& path_from_alloc,
       const ValGraph& graph,
       const ConcretizedBroadcastDomains& concrete_info,
       bool is_predicate_pass)
@@ -323,7 +323,7 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
 std::unordered_map<IterDomain*, ValGroup> getContigDomains(
     const std::vector<IterDomain*>& alloc_domains,
     const std::vector<bool>& contiguity,
-    const ExprPath& path_from_alloc,
+    const ExprPath<ExprGroup>& path_from_alloc,
     const ValGraph& graph,
     const ConcretizedBroadcastDomains& concrete_info,
     bool is_predicate_pass) {
