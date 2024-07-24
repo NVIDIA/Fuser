@@ -210,8 +210,16 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     if (use_set_allocation_domain) {
-      allocation_domains = tv->getAllocationDomain();
-      contiguity = tv->domain()->contiguity();
+      std::unordered_set<IterDomain*> ca_ids(
+          tv->getLoopDomain().begin(),
+          tv->getLoopDomain().begin() + tv->getComputeAtPosition());
+      for (auto i : c10::irange(tv->getAllocationDomain().size())) {
+        auto id = tv->getAllocationDomain()[i];
+        if (ca_ids.find(id) == ca_ids.end()) {
+          allocation_domains.push_back(id);
+          contiguity.push_back(tv->domain()->contiguity()[i]);
+        }
+      }
     } else {
       // If allocation domain is not set, assume that:
       // - Global: logical domains
