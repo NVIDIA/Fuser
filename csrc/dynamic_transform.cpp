@@ -661,6 +661,14 @@ class DynamicTransformConcretizer : public OptOutMutator {
   //! check that the concretized value is a valid input to all of its uses.
   void registerConcretization(Val* old_val, Val* new_val) {
     checkConcretizedUses(old_val, new_val);
+    NVF_ERROR(
+        old_val->dtype() == new_val->dtype(),
+        "registerConcretization should not be used to change dtype of Val ",
+        old_val->toString(),
+        ". Old dtype: ",
+        old_val->dtype(),
+        ". New dtype: ",
+        new_val->dtype());
     registerMutation(old_val, new_val);
   }
 

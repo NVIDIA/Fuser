@@ -695,7 +695,7 @@ kir::Allocate* allocGlobalBufferForGridComm(
     bool resets_to_zero) {
   const std::vector<IterDomain*> new_buffer_ids = {
       IrBuilder::create<IterDomain>(IterDomainBuilder(
-          GpuLower::current()->kernel()->zeroVal(DataType::Index),
+          GpuLower::current()->kernel()->zeroVal(),
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, buffer_size)))};
   const auto buffer_domain = IrBuilder::create<TensorDomain>(new_buffer_ids);
   const auto buffer_tv =
