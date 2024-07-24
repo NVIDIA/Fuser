@@ -30,7 +30,7 @@ bool isSimplePadOp(PadOp* pad) {
   }
   // TODO: add a test case for this.
   for (Val* pad_val : pad->getPadWidths()) {
-    if (!simplifyExpr(SimplifyingIrBuilder::leExpr(pad_val, pad->fusion()->oneVal()))
+    if (!simplifyExpr(SimplifyingIrBuilder::geExpr(pad_val, pad->fusion()->oneVal()))
             ->isTrue()) {
       return false;
     }
@@ -59,14 +59,14 @@ bool isSamePadOp(Expr* use, PadOp* p) {
   }
 
   for (auto idx : padded_axes) {
-    if (simplifyExpr(
+    if (!simplifyExpr(
             SimplifyingIrBuilder::eqExpr(
                 use_pad->getPadWidths(idx).first, p->getPadWidths(idx).first))
-            ->isFalse() ||
-        simplifyExpr(
+            ->isTrue() ||
+        !simplifyExpr(
             SimplifyingIrBuilder::eqExpr(
                 use_pad->getPadWidths(idx).second, p->getPadWidths(idx).second))
-            ->isFalse()) {
+            ->isTrue()) {
       return false;
     }
   }
