@@ -32,8 +32,7 @@ int64_t D = 1, B = 2, E = 768, H = 12, S = 128;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
-constexpr double kDropoutProb = 0.1, kSdpaProb = 0.1, kSdpaScale = 1e-3,
-                 kParamScale = 0.02;
+constexpr double kDropoutProb = 0.1, kParamScale = 0.02;
 
 class DistributedTransformerTest
     : public MultiDeviceTest,
