@@ -116,8 +116,7 @@ class OverlapTest : public MultiDeviceTest {
          num_devices_,
          params.M / (params.S * num_devices_),
          params.N});
-    tc_expected_ =
-        tc_unsharded_expected_reshaped.select(1, my_device_index_);
+    tc_expected_ = tc_unsharded_expected_reshaped.select(1, my_device_index_);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
@@ -230,7 +229,6 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
 }
 
 TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
-
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
 
