@@ -223,7 +223,7 @@ TensorView* replayConcretePad(
       IrBuilder::create<TensorDomain>(
           merged_root_ids, merged_logical_ids, merged_logical_ids),
       pad_tv->getDataType().value());
-  IrBuilder::create<PadOp>(new_out, pad_tv, merged_pad_widths, SimplifyingIrBuilder::maybeCastExpr(pad_value, pad_tv->getDataType().value()));
+  IrBuilder::create<PadOp>(new_out, pad_tv, merged_pad_widths, SimplifyingIrBuilder::maybeCastExpr(pad_tv->getDataType().value(), pad_value));
   return new_out;
 }
 
@@ -296,7 +296,7 @@ void propagatePad(Fusion* fusion) {
       if (val == p->in() || val->isConst()) {
         continue;
       }
-      pad_dependencies.merge(DependentVals::getAllDependentVals(val));
+      pad_dependencies.merge(DependencyCheck::getAllDependentVals(val));
     }
     auto pad_replay_check = [&pad_dependencies](Expr* expr) {
       return std::all_of(
@@ -422,7 +422,6 @@ void propagatePad(Fusion* fusion) {
       if (tv->uses().size() != 1) {
         continue;
       }
-      auto* cat = def->as<CatOp>();
 
       // TODO: can cat support broadcast on any non-cat dimensions? Otherwise we
       // need to ensure that we are not padding on broadcast dimensions like
