@@ -582,14 +582,14 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     // If a corresponding MergedPredicates is found, merge both the
     // start and stop offsets.
     if (merged_pred_it != pending_predicates_.end()) {
-      mergeUnswitchPredicateOffsets(
+      mergeUnswitchPredicates(
           pred_info.startPredicate(),
           pred_info.startOffset(),
           pred_info.loopStage(),
           merged_pred_it->start,
           true);
 
-      mergeUnswitchPredicateOffsets(
+      mergeUnswitchPredicates(
           pred_info.stopPredicate(),
           pred_info.stopOffset(),
           pred_info.loopStage(),
@@ -699,7 +699,7 @@ void UnswitchPredicate::finalize() {
   }
 }
 
-void UnswitchPredicate::mergeUnswitchPredicateOffsets(
+void UnswitchPredicate::mergeUnswitchPredicates(
     Val* predicate,
     Val* offset,
     CircularBufferLoopStage loop_stage,
@@ -714,6 +714,13 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
     }
   };
 
+  // This feels like a hacky WAR but when we have predicates generated
+  // from certain circular buffer loops, they should have more
+  // restrictive conditions. Only the most restrictive one should be
+  // used. If this is not done, we could end up having an unswitch
+  // predicate like: idx(i) < N && idx(i + 1) < N, which obvously has
+  // redundancy. This check is meant to keep only the second term,
+  // i.e., idx(i + 1) < N.
   auto is_more_restrictive_loop_stage =
       [&is_start](
           CircularBufferLoopStage new_stage,
@@ -733,9 +740,14 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
         "Unknown stage: ",
         new_stage);
 
-    // For the start predicate, prefer prologue over main and main
-    // over epilogue. If non circular buffer predicacate exists,
+    // For the start predicate, prologue and main are more restrictive
+    // than main and epilogue, respectively.
+    // If non circular buffer predicacate exists,
     // that should just work too
+    //
+    // For the stop predicate, epilogue should be more restrictive
+    // than main. If the current stage is prologue or non circular
+    // buffer, main or epilogue should be more restrictive.
     if (is_start) {
       return (existing_stage == CircularBufferLoopStage::Main &&
               (new_stage == CircularBufferLoopStage::NotApplicable ||

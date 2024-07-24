@@ -94,8 +94,12 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     }
   };
 
-  auto replace_for_circular_buffering =
-      [&](ForLoop* fl, Val* original_index, bool within_unswitch) -> Val* {
+  // If the tensor is circular buffered and the given for-loop is the
+  // main loop of circular buffering, increment the index by
+  // (number_of_stages - 1) since the main loop has a read that is
+  // (number_of_stages - 1) elements ahead.
+  auto replace_for_circular_buffering = [&](ForLoop* fl,
+                                            Val* original_index) -> Val* {
     auto circular_buffer_axis =
         GpuLower::current()->circularBufferInfo().getCircularBufferAxis(tv);
     if (circular_buffer_axis == nullptr ||
@@ -104,6 +108,9 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
              .strictAreMapped(fl->iter_domain(), circular_buffer_axis)) {
       return nullptr;
     }
+
+    // Epilog should not hit this part
+    NVF_ERROR(fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog);
 
     // The prologue loop does not need to be changed
     if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
@@ -167,9 +174,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       replacement = idx;
     }
 
-    // Adjustment for circular buffering
     if (auto circular_buffer_index =
-            replace_for_circular_buffering(fl, replacement, within_unswitch)) {
+            replace_for_circular_buffering(fl, replacement)) {
       replacement = circular_buffer_index;
     }
 

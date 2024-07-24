@@ -16,6 +16,7 @@
 
 namespace nvfuser {
 
+// Options to enable the IdModel-based tensor indexer selectively
 enum class IdModelEnableOption {
   ConsumerIndex,
   ProducerIndex,
