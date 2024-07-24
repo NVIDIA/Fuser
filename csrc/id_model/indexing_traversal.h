@@ -24,8 +24,8 @@ class IndexingTraversal : public ValGraphBFS {
   IndexingTraversal(
       const Expr* expr,
       const ValGraph& graph,
-      std::vector<GroupType> from_groups,
-      std::vector<GroupType> to_groups)
+      std::vector<NodeType> from_groups,
+      std::vector<NodeType> to_groups)
       : ValGraphBFS(graph, from_groups, to_groups) {
     auto consumer_tv = ir_utils::getTvOutput(expr);
     NVF_ERROR(consumer_tv != nullptr);
@@ -64,7 +64,7 @@ class IndexingTraversal : public ValGraphBFS {
 
   using ValGraphBFS::isVisited;
 
-  bool excludeFromTraversal(const GroupType& group) const override {
+  bool excludeFromTraversal(const NodeType& group) const override {
     if (const ExprGroup* eg = std::get_if<ExprGroup>(&group)) {
       if ((*eg)->empty()) {
         return false;

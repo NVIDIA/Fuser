@@ -21,6 +21,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 
 #include <iterator>
@@ -651,7 +652,7 @@ std::vector<Val*> Fusion::usedMathVals() {
   const auto inputs = InputsOf::outputs(outputs());
   auto used_math_vals = DependencyCheck::getAllValsBetween(
       {inputs.begin(), inputs.end()}, outputs());
-  // When an expre has multiple outputs and only some of them are
+  // When an expression has multiple outputs and only some of them are
   // used, the rest aren't included in used_math_vals as they are not
   // used. However, we want them to be included as they must show up
   // in the fusion.
@@ -816,6 +817,11 @@ void Fusion::aliasOutputToInput(
 
   if (input->getDataType().value() != output->getDataType().value()) {
     output = castOp(input->getDataType().value(), output);
+  }
+
+  if (output->isFusionInput()) {
+    // ensure that codegen produce a write operation on the buffer.
+    output = set(output);
   }
 
   NVF_ERROR(

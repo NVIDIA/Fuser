@@ -574,6 +574,12 @@ class TensorDomain : public Val {
     return loop_domain_;
   }
 
+  // Get all IDs that is on the shortest path between any of the domains
+  // (logical domain, root domain, loop domain, allocation domain) following
+  // definition and uses path. Return values are topologically ordered and
+  // unique.
+  std::vector<IterDomain*> allIDs() const;
+
   const std::vector<IterDomain*>& maybeAllocation() const {
     return hasAllocation() ? allocation_domain_ : logical();
   };

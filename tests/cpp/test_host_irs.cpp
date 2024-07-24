@@ -425,20 +425,23 @@ TEST_P(HostIrTest, ForLoops) {
   fusion->addInput(i);
   fusion->addInput(acc_in);
   fusion->addOutput(acc_out);
+  fusion->aliasOutputToInput(acc_out, acc_in, AllocationType::ReuseBuffer);
 
   FusionGuard::setCurFusion(hic.get());
 
+  auto buffer_input = makeContigConcreteTensor({1}, DataType::Int);
+  auto buffer_ouput = makeContigConcreteTensor({1}, DataType::Int);
+
   IrCloner ir_cloner(hic.get());
-  std::vector<Val*> post_on_stream_inputs = {index, ir_cloner.clone(acc_in)};
-  std::vector<Val*> post_on_stream_outputs = {ir_cloner.clone(acc_in)};
+  std::vector<Val*> post_on_stream_inputs = {index, buffer_input};
+  std::vector<Val*> post_on_stream_outputs = {buffer_ouput};
   auto* host_unit = IrBuilder::create<HostUnit>(std::move(fusion));
   auto* post_on_stream = IrBuilder::create<PostOnStream>(
       host_unit, post_on_stream_inputs, post_on_stream_outputs);
 
   for_loop->body().push_back(post_on_stream);
 
-  hic->addInput(post_on_stream->inputs().at(1));
-  hic->addOutput(post_on_stream->outputs().at(0));
+  hic->addInput(buffer_input);
   hic->pushBackTopLevelExprs(for_loop);
 
   HostIrExecutorParams params;
@@ -447,10 +450,9 @@ TEST_P(HostIrTest, ForLoops) {
   HostIrExecutor hie(std::move(hic), /*communicator=*/nullptr, params);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor acc_in_at = torch::tensor({kInitialValue}, options);
+  at::Tensor buffer_at = torch::tensor({kInitialValue}, options);
 
-  auto outputs =
-      hie.runWithInput({{post_on_stream->inputs().at(1), acc_in_at}});
+  hie.runWithInput({{buffer_input, buffer_at}});
 
   // Compute expected result for validation
   int64_t expected_result_data = kInitialValue;
@@ -459,7 +461,7 @@ TEST_P(HostIrTest, ForLoops) {
   }
   at::Tensor expected_result = torch::tensor({expected_result_data}, options);
 
-  EXPECT_TRUE(expected_result.equal(outputs.at(0)));
+  EXPECT_TRUE(expected_result.equal(buffer_at));
 }
 
 INSTANTIATE_TEST_SUITE_P(

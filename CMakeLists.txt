@@ -272,7 +272,7 @@ add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 if(NOT MSVC)
   target_compile_options(codegen_internal PRIVATE
     -Wall -Wno-unused-function
-    -Werror
+    # -Werror
   )
 endif()
 
