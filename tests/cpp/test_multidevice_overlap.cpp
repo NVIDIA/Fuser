@@ -86,6 +86,10 @@ class OverlapTest : public MultiDeviceTest {
     std::vector<int64_t> tc_sizes = {
         params.S, 1, params.M / (params.S * num_devices_), params.N};
 
+    auto getShard = [] (at::Tensor t, int64_t index) -> at::Tensor {
+        return t.slice(1, index, index + 1);
+      };
+
     // Set up input tensors. We create the full unsharded tensors and define the
     // actual input as the shard corresponding to the current device. Having the
     // full unsharded input on each rank makes it possible to compute the
@@ -96,9 +100,9 @@ class OverlapTest : public MultiDeviceTest {
     auto ta_unsharded = at::randn(ta_unsharded_sizes, options);
     auto tb_unsharded = at::randn(tb_unsharded_sizes, options);
     ta_ = at::empty(ta_sizes, options);
-    ta_.copy_(getSlice(ta_unsharded, 1, my_device_index_));
+    ta_.copy_(getShard(ta_unsharded, my_device_index_));
     tb_ = at::empty(tb_sizes, options);
-    tb_.copy_(getSlice(tb_unsharded, 1, my_device_index_));
+    tb_.copy_(getShard(tb_unsharded, my_device_index_));
 
     // We pre-allocate the output and some intermediate buffers so we do not
     // rely on torch allocator, which do not behave well with multi-stream
@@ -117,7 +121,7 @@ class OverlapTest : public MultiDeviceTest {
          params.M / (params.S * num_devices_),
          params.N});
     tc_expected_ =
-        getSlice(tc_unsharded_expected_reshaped, 1, my_device_index_);
+        getShard(tc_unsharded_expected_reshaped, my_device_index_);
 
     // Debug print
     if (communicator_->deviceId() == 0 && debug_print) {
@@ -128,10 +132,6 @@ class OverlapTest : public MultiDeviceTest {
               << std::endl
               << "tc_.sizes()=" << tc_.sizes() << std::endl;
     }
-  }
-
-  at::Tensor getSlice(at::Tensor t, int64_t axis, int64_t index) {
-    return t.slice(axis, index, index + 1);
   }
 
   void computeATen(
@@ -203,9 +203,9 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams;
   for (auto j : c10::irange(params.S)) {
     // define the sliced tensors
-    auto ta_j = getSlice(ta_, 0, j);
-    auto tc_locally_reduced_j = getSlice(tc_locally_reduced_, 0, j);
-    auto tc_j = getSlice(tc_, 0, j);
+    auto ta_j = ta_.select(0, j);
+    auto tc_locally_reduced_j = tc_locally_reduced_.select(0, j);
+    auto tc_j = tc_.select(0, j);
 
     if (params.use_different_streams) {
       auto new_stream = c10::cuda::getStreamFromPool(
@@ -234,14 +234,6 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningATenImplementation) {
 }
 
 TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
-  // returns tv[j:j+1,...]
-  auto getSymbolicSlice = [](TensorView* tv, Val* j) -> TensorView* {
-    Val* one = tv->container()->oneVal();
-    Slice range = {.start = j, .stop = add(j, one), .step = one};
-    std::vector<Slice> ranges(tv->nDims());
-    ranges.at(0) = range;
-    return slice(tv, ranges);
-  };
 
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
@@ -270,8 +262,8 @@ TEST_F(OverlapTest, ReduceScatterBasedPipeliningHostIrImplementation) {
       /*unroll_required=*/false,
       CircularBufferLoopStage::NotApplicable);
 
-  TensorView* tva_j = getSymbolicSlice(tva, j);
-  TensorView* tvc_j = getSymbolicSlice(tvc, j);
+  TensorView* tva_j = select(tva, 0, j);
+  TensorView* tvc_j = select(tvc, 0, j);
   TensorView* tvc_locally_reduced_j =
       matmul(tva_j, tvb); // ideally we should use the preallocated global
                           // buffer tc_locally_reduced, but ExpressionEvaluator
