@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/utils.h>
 #include <instrumentation.h>
+#include <id_model/id_model.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -167,6 +168,8 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
 void replaceSymbolicSizes(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::replaceSymbolicSizes");
   std::unordered_map<Val*, Val*> tensor_dim_map;
+  // ids mapped to logical sizes
+  std::unordered_set<IterDomain*> mapped_ids;
 
   // Grab inputs and outputs
   std::vector<TensorView*> inputs_and_outputs;
@@ -222,9 +225,35 @@ void replaceSymbolicSizes(Fusion* fusion) {
         tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
             IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
             dim++);
+        mapped_ids.insert(id);
       } else {
         dim++;
       }
+    }
+  }
+
+  IdModel id_model(fusion, false, false, false);
+  id_model.buildExactGraph();
+  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+  auto disjoint_sets = graph.disjointValSets();
+  std::cout << disjoint_sets.toString() << std::endl;
+
+  for (auto id : mapped_ids) {
+    bool is_atomic_id = true;
+    auto id_vgroup = graph.toGroup(id);
+    for (auto mapped_id : *id_vgroup) {
+      if (mapped_id->definition() != nullptr) {
+        std::cout << "mapped_id->definition(): "
+                  << mapped_id->definition()->toString() << std::endl;
+        // derived from other ids, remove it from tensor_dim_map
+        is_atomic_id = false;
+        break;
+      }
+    }
+    if (!is_atomic_id) {
+      std::cout << "remove id: " << id->getMaybeExpandedExtent()->name()
+                << std::endl;
+      tensor_dim_map.erase(id->getMaybeExpandedExtent());
     }
   }
 
