@@ -2974,6 +2974,75 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("scale").none(true) = py::none(),
       py::return_value_policy::reference);
 
+  nvf_ops.def(
+      "sdpfa_bwd",
+      [](FusionDefinition::Operators& self,
+         Tensor grad_output,
+         Tensor query,
+         Tensor key,
+         Tensor value,
+         Tensor output,
+         Tensor log_sumexp,
+         Tensor query_seq_len,
+         Tensor key_seq_len,
+         std::optional<Scalar> dropout_p,
+         std::optional<Scalar> is_causal,
+         Tensor philox_seed,
+         Tensor philox_offset,
+         std::optional<Scalar> scale) -> decltype(auto) {
+        FUSER_PERF_SCOPE("Operators.sdpfa_bwd");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        size_t ndims = query.dims;
+        Tensor grad_query = fd->defineTensor(ndims);
+        Tensor grad_key = fd->defineTensor(ndims);
+        Tensor grad_value = fd->defineTensor(ndims);
+
+        auto dropout_p_state = dropout_p.has_value()
+            ? fd->recordingState(dropout_p.value()())
+            : State(0, serde::StateType::None);
+        auto is_causal_state = is_causal.has_value()
+            ? fd->recordingState(is_causal.value()())
+            : State(0, serde::StateType::None);
+        auto scale_state = scale.has_value()
+            ? fd->recordingState(scale.value()())
+            : State(0, serde::StateType::None);
+
+        fd->defineRecord(new SdpaBwdOpRecord(
+            {fd->recordingState(grad_output()),
+             fd->recordingState(query()),
+             fd->recordingState(key()),
+             fd->recordingState(value()),
+             fd->recordingState(output()),
+             fd->recordingState(log_sumexp()),
+             fd->recordingState(query_seq_len()),
+             fd->recordingState(key_seq_len()),
+             dropout_p_state,
+             is_causal_state,
+             fd->recordingState(philox_seed()),
+             fd->recordingState(philox_offset()),
+             scale_state},
+            {fd->recordingState(grad_query()),
+             fd->recordingState(grad_key()),
+             fd->recordingState(grad_value())}));
+        return std::make_tuple(grad_query, grad_key, grad_value);
+      },
+      py::arg("grad_output"),
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("output"),
+      py::arg("log_sumexp"),
+      py::arg("query_seq_len"),
+      py::arg("key_seq_len"),
+      py::arg("dropout_p").none(true) = py::none(),
+      py::arg("is_causal").none(true) = py::none(),
+      py::arg("philox_seed"),
+      py::arg("philox_offset"),
+      py::arg("scale").none(true) = py::none(),
+      py::return_value_policy::reference);
+
   //! The ScedOperators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of schedule operators.
   //!
