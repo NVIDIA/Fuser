@@ -507,7 +507,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   return rparams;
 }
 
-struct OuterReduHeuristicParas {
+struct OuterReductionHeuristicParams {
   OuterReduHeuristicParas(
       int64_t total_iteration_numel,
       int64_t total_reduction_numel)
