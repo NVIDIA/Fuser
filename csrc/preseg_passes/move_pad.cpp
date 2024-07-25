@@ -166,7 +166,7 @@ TensorView* replayConcretePad(
       rank == ref_iter_type.size(),
       "ref_iter_type does not have compatible size regarding pad_tv");
   NVF_ERROR(
-      std::all_of(vec_pad_widths.begin(), vec_pad_widths.end(), [&rank](const std::vector<Val*>& pad_widths) { return pad_widths.size() == rank; }), "vec_pad_widths doesn't have compatible length for pad_tv");
+      std::all_of(vec_pad_widths.begin(), vec_pad_widths.end(), [&rank](const std::vector<Val*>& pad_widths) { return pad_widths.size() == 2 * rank; }), "vec_pad_widths doesn't have compatible length for pad_tv");
 
   std::vector<Val*> merged_pad_widths;
 
