@@ -2638,7 +2638,7 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   fusion.addOutput(tv4);
   fusion.addOutput(tv5);
 
-  // schedule all tensors like tv2 and tv4's logical domain
+  // Create topological roots for tv5 that looks like tv1
   std::vector<IterDomain*> tv5_root{
       // Topological root of tv5, not the root domain of tv5.
       // TODO: rename root domain as producer domain
@@ -2648,6 +2648,7 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   };
   IrBuilder::create<Merge>(tv5->axis(1), tv5_root[1], tv5_root[2]);
 
+  // Schedule tv1, tv3, tv5 tensors like tv2 and tv4's logical domain
   AbstractTensor schedule({
       {tv1->getLogicalDomain()[0],
        tv3->getRootDomain()[0],
@@ -2660,13 +2661,16 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
        tv5_root[2]}, // dim 2
   });
   schedule.merge(0);
+
+  // Let schedule contain all tensors, in the order of [tv1, tv3, tv5, tv2, tv4]
   schedule[0].as<std::vector>().push_back(tv2->getLogicalDomain()[0]);
   schedule[0].as<std::vector>().push_back(tv4->getLogicalDomain()[0]);
   schedule[1].as<std::vector>().push_back(tv2->getLogicalDomain()[1]);
   schedule[1].as<std::vector>().push_back(tv4->getLogicalDomain()[1]);
+
+  // Parallelize all tensors
   schedule.merge(0);
   schedule.split(0, 128);
-
 #if 0
   // TODO: sync analysis is not working yet
   for (auto id : static_cast<std::vector<IterDomain*>>(schedule[0])) {
@@ -2677,6 +2681,10 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   }
 #endif
 
+  // TODO: make inlining work
+  // inlineMost();
+
+  // Set the loop domain of all tensors
   auto uz = schedule.unzip();
   tv1->setLoopDomain(uz[0].as<IterDomain*>());
   tv3->setLoopDomain(uz[1].as<IterDomain*>());
@@ -2685,7 +2693,8 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   tv4->setLoopDomain(uz[4].as<IterDomain*>());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  // TODO: use larger tensor size
+  // TODO: use larger tensor size once we are able to successfully parallelize
+  // this fusion.
   at::Tensor t0 = at::randn({2, 3, 5}).to(options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
