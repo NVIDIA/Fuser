@@ -25,10 +25,10 @@ namespace {
 // 1. zero pad value; and
 // 2. non-negative pad widths.
 bool isSimplePadOp(PadOp* pad) {
-  if (!simplifyExpr(pad->value())->isZero()) {
+  if (!simplifyExpr(pad->value())->isZero() && !simplifyExpr(pad->value())->isFalse()) {
     return false;
   }
-  // TODO: we cannot seem to always been able to prove this
+  // TODO: we cannot seem to always been able to prove that pad widths are >= 0. But we know that PadOp + CatOp implies such condition. Adding this short-cut to ensure that we recognized such pattern.
   if (pad->out()->uses().size() == 1 && pad->out()->uses()[0]->isA<CatOp>()) {
     return true;
   }
@@ -41,6 +41,7 @@ bool isSimplePadOp(PadOp* pad) {
   return true;
 }
 
+// check if `use` and `p` are the same pad operatoin.
 bool isSamePadOp(Expr* use, PadOp* p) {
   if (!use->isA<PadOp>()) {
     return false;
@@ -77,6 +78,10 @@ bool isSamePadOp(Expr* use, PadOp* p) {
   return true;
 }
 
+// This operation replaces:
+//   CatOp(inputs)
+// with:
+//   BinaryOp(inputs[n-1], BinaryOp(inputs[n-2], BinaryOp(..., BinaryOp[0])...))
 Val* replayCatOpWithBinaryOp(
     const std::vector<Val*>& inputs,
     DataType data_type) {
@@ -250,7 +255,6 @@ TensorView* replayConcretePad(
 // This function only propagates `zero-padding`, i.e. PadOp with pad value as
 // constant zero. Based on which we have certain operations that can allow PadOp
 // to propagated across. See `zeroIsFixedPoint` and `zeroIsIdentity`.
-
 void propagatePad(Fusion* fusion) {
   // propagating PadOp
   auto exprs = fusion->exprs();
