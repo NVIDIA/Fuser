@@ -551,7 +551,7 @@ struct OuterReductionHeuristicParams {
   }
 };
 // compare block reduction with grid reduction
-static bool isBetterThan(
+bool isBetterThan(
     const OuterReductionHeuristicParams& block_hp,
     const OuterReductionHeuristicParams& grid_hp,
     int64_t sm_count) {
@@ -663,8 +663,8 @@ std::shared_ptr<ReductionParams> heuristicParaToSchedulerPara(
 }
 
 OuterReductionHeuristicParams getBlockOuterReduction(
-    int64_t total_iteration_numel,
     int64_t total_reduction_numel,
+    int64_t total_iteration_numel,
     int64_t vectorize_factor,
     int64_t max_unroll,
     int64_t sm_count,
