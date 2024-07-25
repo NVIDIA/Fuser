@@ -249,8 +249,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     }
 
     // Ignore init loop
-    if (!(out_tv->isCircularBuffered() || out_tv->isCircularBuffered()) ||
-        !expr->input(0)->isA<TensorView>()) {
+    if (!out_tv->isCircularBuffered() || !expr->input(0)->isA<TensorView>()) {
       return;
     }
 

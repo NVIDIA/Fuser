@@ -84,7 +84,7 @@ class CircularBufferFusionInspector : private IterVisitor {
   using IterVisitor::handle;
 
   void handle(TensorView* tv) final {
-    if (!(tv->isCircularBuffered() || tv->isCircularBuffered())) {
+    if (!tv->isCircularBuffered()) {
       return;
     }
 
@@ -103,7 +103,7 @@ class CircularBufferFusionInspector : private IterVisitor {
 };
 
 } // namespace
-  
+
 void validateCircularBufferedTensor(const TensorView* tv) {
   int64_t circular_buffer_pos = getCircularBufferAxisPosition(tv);
 
@@ -283,11 +283,11 @@ void CircularBufferInfo::setOriginalAllocSize(
 }
 
 Val* CircularBufferInfo::getOriginalAllocSize(const TensorView* tv) {
-  if (!(tv->isCircularBuffered() || tv->isCircularBuffered())) {
+  if (!tv->isCircularBuffered()) {
     return nullptr;
   }
 
   return getTvInfo(tv).original_alloc_size;
 }
 
-} // namespace
+} // namespace nvfuser

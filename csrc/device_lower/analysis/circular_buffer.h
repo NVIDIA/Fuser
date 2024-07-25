@@ -85,4 +85,4 @@ class CircularBufferInfo {
   std::unordered_map<IterDomain*, int64_t> stage_depth_;
 };
 
-} // namespace
+} // namespace nvfuser
