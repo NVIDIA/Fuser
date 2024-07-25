@@ -55,7 +55,47 @@ std::vector<IterDomain*> getPredicateDomains(
 
 namespace {
 
-void ensurePropagationOfMaxMinPredicates(
+// Recall that when a loop domain is unswitched, the corresponding
+// unswitch predicate needs to ensure that all the iteration values of the
+// loop domain are covered. In principle, the maximum iteration value
+// can be used to guard against the upper bound. However, when
+// indexing propagtes backward a Merge expr, since the index of the
+// inner input is calculated as (output_idx % inner_extent), the
+// maximumness property may not be guaranteed. For example, given a 2D
+// tensor of [I0, I1], suppose it's scheduled as:
+//
+// merge -> [I0*I1]
+// split by 4 -> [ceilDiv(I0*I1, 4), 4]
+// unswitch > [ceilDiv(I0*I1, 4), US(4)]
+//
+// In this case, we send a symbolic loop index of i for the outer loop
+// domain and 3 for the unswitched inner domain. Suppose the actual
+// extent of I1 is 3, the index of the I1 logical domain will be:
+//
+// (i * 4 + 3) % 3
+//
+// For example, when i is zero, the index is just zero. However,
+// that's not the maximum possible index for the domain. Instead of
+// assigning 3 to the inner loop domain of extent 4, it should use 2,
+// which results in 2 for the inner logical domain.
+//
+// In the above example, it doesn't matter if the inner logical domain
+// gets the actual maximum index because it's guaranteed to be less
+// than the extent of the domain. However, that's not always the case,
+// e.g.:
+//
+// split by 4 -> [I0, ceilDiv(I1, 4), 4]
+// merge -> [I0*ceilDiv(I1, 4), 4]
+// split by 1 -> [ceilDiv(I0*ceilDiv(I1, 4), 1), 1, 4]
+// unswitch -> [ceilDiv(I0*ceilDiv(I1, 4), 1), US(1), 4]
+//
+// In this case, unless the maximumness property is guaranteed for the
+// merge inner domain, the propagation through the backward split of
+// the inner logical domain, I1, will not be able to guarantee the
+// maximum index of the I1 domain. For a concret fusion example, see
+// issue #681 as well as
+// PredicateIndexingTest.UnswitchPredicateIssueRepro681.
+void ensurePropagationOfMinMaxPredicates(
     TensorView* tv,
     const std::unordered_set<ForLoop*>& unswitched_loops,
     const std::unordered_map<ValGroup, Val*>& index_map,
@@ -64,9 +104,10 @@ void ensurePropagationOfMaxMinPredicates(
     const IdModel& id_model,
     bool is_start_predicate,
     std::unordered_map<Val*, Val*>& replacement_map) {
-  // Index traversal groups
+  // ID groups of the traversal graph
   std::unordered_set<ValGroup> unswitched_domains;
 
+  // Gather all unswitched groups from the loop domains of this tensor
   for (auto loop_domain : tv->getLoopDomain()) {
     const auto& loop_group =
         id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
@@ -81,8 +122,13 @@ void ensurePropagationOfMaxMinPredicates(
     }
   }
 
-  // Propagate unswitching
+  if (unswitched_domains.empty()) {
+    return;
+  }
+
+  // Propagate unswitching and assign a min or max index when necessary
   for (const auto& [expr_group, direction] : traversal_path) {
+    // If any of inputs is unswitched, all outputs are considered unswitched
     const auto inputs = direction == Direction::Forward
         ? traversal_graph.inputGroups(expr_group)
         : traversal_graph.outputGroups(expr_group);
@@ -97,7 +143,9 @@ void ensurePropagationOfMaxMinPredicates(
       unswitched_domains.insert(outputs.begin(), outputs.end());
     }
 
-    // Propagation by modulo
+    // The propagation issue happens when modulo is used, i.e.,
+    // - inner domain of backward merge
+    // - outer domain of forward split
     Expr* expr = expr_group->front();
     IterDomain* replacement_domain = nullptr;
     if (auto split = dynamic_cast<Split*>(expr);
@@ -272,7 +320,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     }
   }
 
-  ensurePropagationOfMaxMinPredicates(
+  ensurePropagationOfMinMaxPredicates(
       tv,
       unswitched_loops,
       index_map,

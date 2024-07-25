@@ -3702,8 +3702,6 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
 
   tv1->axis(1)->parallelize(ParallelType::Unswitch);
 
-  fusion.printKernel();
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
   std::vector<c10::IValue> aten_inputs = {t0};
