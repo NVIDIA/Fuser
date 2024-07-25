@@ -8485,6 +8485,7 @@ TEST_F(NVFuserTest, ReplaceSymbolicSizeLogicalDomainMerge) {
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

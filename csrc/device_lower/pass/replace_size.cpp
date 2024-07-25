@@ -164,22 +164,22 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
 }
 
 bool isDerivedFromConstOrMapped(
-    Expr* expr,
-    const std::unordered_set<IterDomain*>& ids_mapped_to_logical_size) {
-  auto isConstOrMapped = [&ids_mapped_to_logical_size](IterDomain* id) {
-    return id->isConstScalar() ||
-        ids_mapped_to_logical_size.find(id) != ids_mapped_to_logical_size.end();
-  };
+    IterDomain* id,
+    const std::unordered_set<IterDomain*>& mapped_ids) {
+  // if can't trace back further, check if id is a const scalar or mapped to
+  // logical size
+  if (id->definition() == nullptr) {
+    return id->isConstScalar() || mapped_ids.find(id) != mapped_ids.end();
+  }
+  // trace back using definition
+  Expr* expr = id->definition();
   if (Merge* merge = dynamic_cast<Merge*>(expr)) {
     std::cout << "merge " << merge->toString() << std::endl;
-    if (isConstOrMapped(merge->inner()) && isConstOrMapped(merge->outer())) {
-      return true;
-    }
+    return isDerivedFromConstOrMapped(merge->inner(), mapped_ids) &&
+        isDerivedFromConstOrMapped(merge->outer(), mapped_ids);
   } else if (Split* split = dynamic_cast<Split*>(expr)) {
     std::cout << "split " << split->toString() << std::endl;
-    if (isConstOrMapped(split->in())) {
-      return true;
-    }
+    return isDerivedFromConstOrMapped(split->in(), mapped_ids);
   }
   return false;
 }
@@ -223,6 +223,8 @@ void replaceSymbolicSizes(Fusion* fusion) {
   // symbolic values. i.e. T0->getLogicalDomain()[0] would map to a named scalar
   // "T0.size[0]". This map will be used when lowering fusion ir to kernel ir.
   for (TensorView* tv : inputs_and_outputs) {
+    std::cout << "tv " << tv->toString() << std::endl;
+    tv->printTransforms();
     // Replace the domain with one based on Ti.size[j]
     const std::vector<IterDomain*>& logical_td = tv->getLogicalDomain();
     int64_t dim = 0;
@@ -245,6 +247,8 @@ void replaceSymbolicSizes(Fusion* fusion) {
             IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
             dim++);
         ids_mapped_to_logical_size.insert(id);
+        std::cout << "id " << orig_size->toString() << " : " << tensor_dim_map[orig_size]->toInlineString()
+                  << std::endl;
       } else {
         dim++;
       }
@@ -257,12 +261,19 @@ void replaceSymbolicSizes(Fusion* fusion) {
   id_model.buildExactGraph();
   const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
   auto disjoint_sets = graph.disjointValSets();
+  std::cout << "disjoint_sets.size() " << disjoint_sets.toString() << std::endl;
   for (auto id : ids_mapped_to_logical_size) {
     auto id_vgroup = graph.toGroup(id);
-    for (auto mapped_id : *id_vgroup) {
-      if (isDerivedFromConstOrMapped(
-              mapped_id->definition(), ids_mapped_to_logical_size)) {
+    for (auto val : *id_vgroup) {
+      IterDomain* mapped_id = val->as<IterDomain>();
+      if(mapped_id->definition() == nullptr) {
+        continue;
+      }
+      // If this mapped_id is derived from a other Ids, check its oldest ancestors
+      if (isDerivedFromConstOrMapped(mapped_id, ids_mapped_to_logical_size)) {
+        std::cout << "remove " << id->toString() << std::endl;
         tensor_dim_map.erase(id->getMaybeExpandedExtent());
+        break;
       }
     }
   }
