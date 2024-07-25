@@ -15,7 +15,6 @@ int main(int argc, char* argv[]) {
         std::cerr << "use_matmul_out: 0 for using at::matmul, 1 for using at::matmul_out with preallocated output" << std::endl;
         return 1;
     }
-
     int64_t M = std::pow(2, std::stoi(argv[1]));
     int64_t N = std::pow(2, std::stoi(argv[2]));
     int64_t K = std::pow(2, std::stoi(argv[3]));
@@ -76,7 +75,7 @@ int main(int argc, char* argv[]) {
 
     // "Validation"
     for (int i = 0; i < I; ++i) {
-        std::cout << "Result " << i << std::endl << results[i] << std::endl;
+        assert(results.at(0).equal(results.at(i)));
     }
 
     return 0;
