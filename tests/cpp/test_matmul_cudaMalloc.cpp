@@ -1,29 +1,82 @@
 #include <torch/torch.h>
+#include <c10/cuda/CUDAStream.h>
 #include <iostream>
+#include <vector>
 
+using namespace c10::cuda;
+
+// Perform matrix multiplication I times
 int main(int argc, char* argv[]) {
-    if (argc != 4) {
-        std::cerr << "Usage: " << argv[0] << " M N K" << std::endl;
-        return 1;
-    }
 
     // Parse command-line arguments
+    if (argc != 6) {
+        std::cerr << "Usage: " << argv[0] << " M N K use_stream use_matmul_out" << std::endl;
+        std::cerr << "use_stream: 0 for default stream, 1 to use multiple streams" << std::endl;
+        std::cerr << "use_matmul_out: 0 for using at::matmul, 1 for using at::matmul_out with preallocated output" << std::endl;
+        return 1;
+    }
     int M = std::stoi(argv[1]);
     int N = std::stoi(argv[2]);
     int K = std::stoi(argv[3]);
+    bool use_stream = std::stoi(argv[4]) != 0;
+    bool use_matmul_out = std::stoi(argv[5]) != 0;
 
-    // Initialize tensors with random values
+    constexpr int I = 8; // number of iterations
+
+    std::cout << "M=" << M << std::endl;
+    std::cout << "N=" << N << std::endl;
+    std::cout << "K=" << K << std::endl;
+    std::cout << "use_stream=" << use_stream << std::endl;
+    std::cout << "use_matmul_out=" << use_matmul_out << std::endl;
+
+    // input tensors
     torch::Device device(torch::kCUDA);
     torch::Tensor mat1 = torch::rand({M, K}, device);
     torch::Tensor mat2 = torch::rand({K, N}, device);
 
-    // Perform matrix multiplication
-    torch::Tensor result = torch::matmul(mat1, mat2);
+    // output tensors
+    std::vector<at::Tensor> results;
+    if (use_matmul_out) {
+        for (int i = 0; i < I; ++i) {
+            results.push_back(torch::empty({M, N}, device));
+        }
+    }
 
-    // Output the result
-    std::cout << "Matrix 1 (" << M << "x" << K << "):\n" << mat1 << "\n";
-    std::cout << "Matrix 2 (" << K << "x" << N << "):\n" << mat2 << "\n";
-    std::cout << "Resultant Matrix (" << M << "x" << N << "):\n" << result << "\n";
+    // Streams init
+    std::vector<CUDAStream> streams;
+    if (use_stream) {
+        // Create I CUDA streams
+        for (int i = 0; i < I; ++i) {
+            streams.push_back(getStreamFromPool(/*isHighPriority=*/false));
+        }
+    }
+
+    // Matmul execution
+    for (int i = 0; i < I; ++i) {
+        if (use_stream) {
+            setCurrentCUDAStream(streams[i]);
+        }
+        if (use_matmul_out) {
+            torch::matmul_out(results[i], mat1, mat2);
+        } else {
+            results.push_back(torch::matmul(mat1, mat2));
+        }
+
+    }
+
+    // Stream sync
+    if (use_stream) {
+        for (int i = 0; i < I; ++i) {
+            streams[i].synchronize();
+        }
+    } else {
+        torch::cuda::synchronize();
+    }
+
+    // "Validation"
+    for (int i = 0; i < I; ++i) {
+        std::cout << "Result " << i << std::endl << results[i] << std::endl;
+    }
 
     return 0;
 }
