@@ -85,6 +85,8 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
   query = [N, H, L, E]
   key = [N, H, S, E]
   value = [N, H, S, Ev]
+  Note: S, E are not mapped together in the producers and do not have any
+  mapping to the consumer.
   */
 
   for (auto producer : sdpa_op->inputs()) {
