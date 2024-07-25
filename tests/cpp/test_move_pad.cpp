@@ -427,7 +427,10 @@ TEST_F(MovePadTest, BooleanCat) {
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
 
-  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  // ExpressionEvaluator is hitting an assert with dynamic value.
+  // testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  at::Tensor ref = at::cat({at::bitwise_and(t0, t1), t2}, 0);
+  testValidate(fec.fusion(), out_tensors, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

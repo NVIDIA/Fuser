@@ -248,13 +248,10 @@ TensorView* replayConcretePad(
 // can be replayed as the program below:
 //   tv0_padded = PadOp(tv0)
 //   tv2_new = UnaryOp(tv0_padded)
-// Given certain constraints on the UnaryOp, we can ensure that the
-// computational output remains the same when we replace all uses of `tv2` with
-// `tv2_new`.
+// Given certain constraints on the UnaryOp, we can ensure that the computational output remains the same when we replace all uses of `tv2` with `tv2_new`.
 //
-// This function only propagates `zero-padding`, i.e. PadOp with pad value as
-// constant zero. Based on which we have certain operations that can allow PadOp
-// to propagated across. See `zeroIsFixedPoint` and `zeroIsIdentity`.
+// This function only propagates simple padding, where its pad value is `zero` (or `false` for boolean) and pad widths are non-negative. This allows us to unconditionally merge neighboring PadOps as a single op.
+// We also restrict propagation on operatoins that can allow PadOp to propagated across. See `zeroIsFixedPoint` and `zeroIsIdentity`.
 void propagatePad(Fusion* fusion) {
   // propagating PadOp
   auto exprs = fusion->exprs();
@@ -262,20 +259,20 @@ void propagatePad(Fusion* fusion) {
   std::vector<PadOp*> frontier;
   frontier.reserve(filtered_pads.size());
 
-  // NOTE: we only consider zero pad as propagation frontier.
+  // NOTE: we only consider simple padop as propagation frontier.
   std::copy_if(
       filtered_pads.begin(),
       filtered_pads.end(),
       std::back_inserter(frontier),
       isSimplePadOp);
 
+  // NOTE: this is a WAR. We use a set of `simple_pad_set` to track all mergable PadOps, this is to leverage the assumption that all PadOps before CatOps are simple op, but might not be able to be evaluated as such during compile time.
   std::unordered_set<PadOp*> simple_pad_set(frontier.begin(), frontier.end());
 
   while (!frontier.empty()) {
     PadOp* p = frontier.back();
     frontier.pop_back();
 
-    // TODO: should I check for if uses lead to output instead?
     // if no uses, this has already been short-wired.
     if (p->out()->uses().empty() && !p->out()->isFusionOutput()) {
       continue;
@@ -295,6 +292,7 @@ void propagatePad(Fusion* fusion) {
       }
     }
 
+    // if tv is fusion output, we need to keep tv alive, it might render propagating PadOp before tv->definition() being non-optimal.
     if (tv->isFusionOutput()) {
       continue;
     }
@@ -308,7 +306,6 @@ void propagatePad(Fusion* fusion) {
       pad_inputs.insert(val);
     }
     std::unordered_set<Val*> pad_dependencies = DependencyCheck::getAllDependentVals(pad_inputs);
-
     auto pad_replay_check = [&pad_dependencies](Expr* expr) {
       return std::all_of(
           expr->inputs().begin(),
@@ -437,6 +434,10 @@ void propagatePad(Fusion* fusion) {
       if (tv->uses().size() != 1) {
         continue;
       }
+      // check if PadOp can be replayed on input(s)
+      if (!pad_replay_check(uop)) {
+        continue;
+      }
 
       // TODO: can cat support broadcast on any non-cat dimensions? Otherwise we
       // need to ensure that we are not padding on broadcast dimensions like
@@ -468,11 +469,12 @@ void propagatePad(Fusion* fusion) {
   }
 }
 
+// clean up to fix CatOp which could be invalid after its producer PadOp has been altered by the pass.
 void replaceCat(Fusion* fusion) {
   // updating CatOp
   std::vector<Expr*> exprs = fusion->exprs();
 
-  // sanitizing CatOp with series of binary add;
+  // sanitizing CatOp with series of binary add
   for (auto* cat : ir_utils::filterByType<CatOp>(exprs)) {
     if (std::any_of(cat->inputs().begin(), cat->inputs().end(), [](Val* val) {
           return !val->definition()->isA<PadOp>();
