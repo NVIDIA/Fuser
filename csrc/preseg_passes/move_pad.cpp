@@ -28,13 +28,16 @@ bool isSimplePadOp(PadOp* pad) {
   if (!simplifyExpr(pad->value())->isZero()) {
     return false;
   }
-  // TODO: we cannot seem to always been able to prove this. maybe use catop as a hint instead.
-  // for (Val* pad_val : pad->getPadWidths()) {
-  //   if (!simplifyExpr(SimplifyingIrBuilder::geExpr(pad_val, pad->fusion()->zeroVal()))
-  //           ->isTrue()) {
-  //     return false;
-  //   }
-  // }
+  // TODO: we cannot seem to always been able to prove this
+  if (pad->out()->uses().size() == 1 && pad->out()->uses()[0]->isA<CatOp>()) {
+    return true;
+  }
+  for (Val* pad_val : pad->getPadWidths()) {
+    if (!simplifyExpr(SimplifyingIrBuilder::geExpr(pad_val, pad->fusion()->zeroVal()))
+            ->isTrue()) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -254,6 +257,7 @@ void propagatePad(Fusion* fusion) {
   auto filtered_pads = ir_utils::filterByType<PadOp>(exprs);
   std::vector<PadOp*> frontier;
   frontier.reserve(filtered_pads.size());
+
   // NOTE: we only consider zero pad as propagation frontier.
   std::copy_if(
       filtered_pads.begin(),
@@ -261,7 +265,8 @@ void propagatePad(Fusion* fusion) {
       std::back_inserter(frontier),
       isSimplePadOp);
 
-  std::unordered_set<PadOp*> merged_pad;
+  std::unordered_set<PadOp*> simple_pad_set(frontier.begin(), frontier.end());
+
   while (!frontier.empty()) {
     PadOp* p = frontier.back();
     frontier.pop_back();
@@ -347,6 +352,7 @@ void propagatePad(Fusion* fusion) {
       IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), new_out, new_pad_out);
       // insert new PadOp(s) to frontier;
       frontier.push_back(new_pad_out->definition()->as<PadOp>());
+      simple_pad_set.insert(new_pad_out->definition()->as<PadOp>());
     } else if (auto* bop = dynamic_cast<BinaryOp*>(def)) {
       // stop propagation if current PadOp p isn't the only use of tv, since it requires tv to be live in the fusion.
       if (tv->uses().size() != 1) {
@@ -401,11 +407,13 @@ void propagatePad(Fusion* fusion) {
           bop->getBinaryOpType(), new_out, vals[0], vals[1]);
       // insert new PadOp(s) to frontier;
       frontier.push_back(vals[0]->definition()->as<PadOp>());
+      simple_pad_set.insert(vals[0]->definition()->as<PadOp>());
       frontier.push_back(vals[1]->definition()->as<PadOp>());
+      simple_pad_set.insert(vals[1]->definition()->as<PadOp>());
     } else if (auto* pop = dynamic_cast<PadOp*>(def)) {
       // stop propagation if PadOp `pop` isn't a simple PadOp, since we can only merge simple PadOp together.
       // Note that we don't need to check the other uses of `tv` here, since we want to merge the consecutive pads anyway and it won't interfere the other uses of `tv`.
-      if (!isSimplePadOp(pop)) {
+      if (simple_pad_set.count(pop) == 0) {
         continue;
       }
 
@@ -419,6 +427,7 @@ void propagatePad(Fusion* fusion) {
 
       // insert new PadOp(s) to frontier;
       frontier.push_back(new_out->definition()->as<PadOp>());
+      simple_pad_set.insert(new_out->definition()->as<PadOp>());
     } else if (auto* cat = dynamic_cast<CatOp*>(def)) {
       // stop propagation if current PadOp p isn't the only use of tv, since it requires tv to be live in the fusion.
       if (tv->uses().size() != 1) {
@@ -441,6 +450,7 @@ void propagatePad(Fusion* fusion) {
                 TensorDomain::noReductions(
                     p->out()->as<TensorView>()->getLogicalDomain()));
             frontier.push_back(pad_out->definition()->as<PadOp>());
+            simple_pad_set.insert(pad_out->definition()->as<PadOp>());
             return pad_out;
           });
 

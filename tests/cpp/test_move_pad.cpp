@@ -368,4 +368,36 @@ TEST_F(MovePadTest, CascadePadCase2) {
   testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
 }
 
+TEST_F(MovePadTest, NotMergeNegativePad) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigConcreteTensor({4, 10});
+  TensorView* tv1 =
+      pad(tv0,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(-2L),
+           IrBuilder::create<Val>(1L),
+           IrBuilder::create<Val>(1L)});
+  TensorView* tv2 =
+      pad(tv1,
+          {IrBuilder::create<Val>(0L),
+           IrBuilder::create<Val>(3L),
+           IrBuilder::create<Val>(4L),
+           IrBuilder::create<Val>(0L)});
+  TensorView* tv3 = relu(tv2);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 10}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto out_tensors = fec.runFusionWithInputs(aten_inputs);
+
+  testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
