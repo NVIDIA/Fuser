@@ -2591,10 +2591,10 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   constexpr int64_t n = 2, c = 128, h = 16, w = 16, g = 32;
-  const std::vector<int64_t> input_shape = {N, C, H, W};
-  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
-  const std::vector<int64_t> input_shape_wb = {C};
-  const std::vector<int64_t> group_shape_wb = {G, C / G};
+  const std::vector<int64_t> input_shape = {n, c, h, w};
+  const std::vector<int64_t> group_shape = {n, g, c / g, h, w};
+  const std::vector<int64_t> input_shape_wb = {c};
+  const std::vector<int64_t> group_shape_wb = {g, c / g};
   DataType dtype = DataType::Half;
   auto tv0 = makeContigTensor(input_shape.size(), dtype);
   auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
@@ -2645,7 +2645,9 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
 
   EXPECT_THAT(
       seg_groups,
-      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::InnerPersistent), Heuristic(ScheduleHeuristic::NoOp)));
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::InnerPersistent),
+          HeuristicIs(ScheduleHeuristic::NoOp)));
 
   testValidate(
       executor_cache.fusion(),
