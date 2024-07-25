@@ -36,7 +36,7 @@ void insertReshardingsBefore(Fusion* fusion) {
       continue;
     }
 
-    // Verify that multi-op expression requires no resharding.
+    // Verify that multi-output expression requires no resharding.
     if (expr->outputs().size() > 1) {
       for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
         for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
