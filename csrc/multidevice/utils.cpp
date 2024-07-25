@@ -173,10 +173,6 @@ bool isResharding(Expr* expr) {
   }
   // we don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
-  if (!ir_utils::isTvOp(expr)) {
-    return false;
-  }
-
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
