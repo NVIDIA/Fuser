@@ -413,7 +413,7 @@ TEST_F(MovePadTest, BooleanCat) {
   fusion->addInput(tv1);
   fusion->addOutput(tv3);
 
-  auto options = at::TensorOptions().dtype(at::kBool).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options) > 0.5;
   at::Tensor t1 = at::randn({2, 10}, options) > 0.5;
   std::vector<c10::IValue> aten_inputs = {t0, t1};
