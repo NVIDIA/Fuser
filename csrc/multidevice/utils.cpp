@@ -180,7 +180,9 @@ bool isResharding(Expr* expr) {
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
-      return haveDifferentShardings(input, output);
+      if (haveDifferentShardings(input, output)) {
+        return true;
+      }
     }
   }
   return false;
