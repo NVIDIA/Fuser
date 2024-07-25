@@ -2630,13 +2630,6 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
   auto t0 = at::randn(input_shape, options);
   auto tw = at::randn(input_shape_wb, options_wb);
   auto tb = at::randn(input_shape_wb, options_wb);
-  auto t1 = t0.reshape(group_shape).to(at::kFloat);
-  auto t2 = t1.sum({-1, -2, -3}).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1);
-  auto t3 = t1 / t2;
-  auto t4 = t3.reshape(input_shape);
-  auto t5 = tw.unsqueeze(0).unsqueeze(-1).unsqueeze(-1);
-  auto t6 = tb.unsqueeze(0).unsqueeze(-1).unsqueeze(-1);
-  auto t7 = t4.mul(t5).add(t6);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
@@ -2650,11 +2643,6 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
           HeuristicIs(ScheduleHeuristic::NoOp)));
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0, tw, tb},
-      {t7},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
 }
 } // namespace nvfuser
