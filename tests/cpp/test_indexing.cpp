@@ -3674,7 +3674,7 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
     }
   };
 
-  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+  PredicateIndexValidator<GetReference>::validate(&fusion);
 
   EnableOptionsGuard enable_options_guard;
   if (GetParam()) {
