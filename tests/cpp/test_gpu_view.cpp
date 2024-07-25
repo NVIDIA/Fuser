@@ -9,6 +9,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <abstract_tensor.h>
 #include <codegen.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/lower2device.h>
@@ -2619,4 +2620,78 @@ TEST_F(GpuViewTest, GroupNorm) {
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
+
+TEST_F(GpuViewTest, FusionMismatchingReshape) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // TODO: use symbolic sizes. Currently, this is not working because of
+  // failures in replaceSymbolicSizes
+  TensorView* tv0 = makeContigConcreteTensor({2, 3, 5}, DataType::Float);
+  // TensorView* tv0 = makeContigTensor(3, DataType::Float);
+  fusion.addInput(tv0);
+  auto tv1 = sin(tv0);
+  auto tv2 = reshape(tv1, {2, 3, 5}, {2 * 3, 5});
+  auto tv3 = reshape(tv1, {2, 3, 5}, {2, 3 * 5});
+  auto tv4 = cos(tv2);
+  auto tv5 = exp(tv3);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+
+  // schedule all tensors like tv2 and tv4's logical domain
+  std::vector<IterDomain*> tv5_root{
+      // Topological root of tv5, not the root domain of tv5.
+      // TODO: rename root domain as producer domain
+      tv5->getLogicalDomain()[0],
+      tv1->getLogicalDomain()[1]->cloneWithoutRFactor(),
+      tv1->getLogicalDomain()[2]->cloneWithoutRFactor(),
+  };
+  IrBuilder::create<Merge>(tv5->axis(1), tv5_root[1], tv5_root[2]);
+
+  AbstractTensor schedule({
+      {tv1->getLogicalDomain()[0],
+       tv3->getRootDomain()[0],
+       tv5_root[0]}, // dim 0
+      {tv1->getLogicalDomain()[1],
+       tv3->getRootDomain()[1],
+       tv5_root[1]}, // dim 1
+      {tv1->getLogicalDomain()[2],
+       tv3->getRootDomain()[2],
+       tv5_root[2]}, // dim 2
+  });
+  schedule.merge(0);
+  schedule[0].as<std::vector>().push_back(tv2->getLogicalDomain()[0]);
+  schedule[0].as<std::vector>().push_back(tv4->getLogicalDomain()[0]);
+  schedule[1].as<std::vector>().push_back(tv2->getLogicalDomain()[1]);
+  schedule[1].as<std::vector>().push_back(tv4->getLogicalDomain()[1]);
+  schedule.merge(0);
+  schedule.split(0, 128);
+
+#if 0
+  // TODO: sync analysis is not working yet
+  for (auto id : static_cast<std::vector<IterDomain*>>(schedule[0])) {
+    id->parallelize(ParallelType::BIDx);
+  }
+  for (auto id : static_cast<std::vector<IterDomain*>>(schedule[1])) {
+    id->parallelize(ParallelType::TIDx);
+  }
+#endif
+
+  auto uz = schedule.unzip();
+  tv1->setLoopDomain(uz[0].as<IterDomain*>());
+  tv3->setLoopDomain(uz[1].as<IterDomain*>());
+  tv5->setLoopDomain(uz[2].as<IterDomain*>());
+  tv2->setLoopDomain(uz[3].as<IterDomain*>());
+  tv4->setLoopDomain(uz[4].as<IterDomain*>());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // TODO: use larger tensor size
+  at::Tensor t0 = at::randn({2, 3, 5}).to(options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
