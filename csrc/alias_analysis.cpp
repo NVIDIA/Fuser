@@ -470,16 +470,6 @@ bool isOpsToStop(const Expr* expr, bool stop_at_view) {
   return stop_at_view && expr->isA<ViewOp>();
 }
 
-bool isGlobalTensor(const TensorView* tv) {
-  return tv->isFusionInput() || tv->isFusionOutput() ||
-      std::any_of(tv->uses().begin(), tv->uses().end(), [](Expr* expr) {
-           return expr->isA<PadOp>() || expr->isA<SliceOp>() ||
-               (expr->isA<LoadStoreOp>() &&
-                expr->as<LoadStoreOp>()->opType() ==
-                    LoadStoreOpType::SegmenterSet);
-         });
-}
-
 } // namespace
 
 void AliasAnalysisResult::finalize(
@@ -494,7 +484,8 @@ void AliasAnalysisResult::finalize(
   for (auto [alias, source_and_layout] : alias_to_source_) {
     auto [root, preferred_layout] = source_and_layout;
     if (!isOpsToStop(alias->definition(), stop_at_view)) {
-      while (root != nullptr && !isGlobalTensor(root)) {
+      while (root != nullptr && !root->isFusionInput() &&
+             !root->isFusionOutput()) {
         const auto i = alias_to_source_.find(root);
         root = (i == alias_to_source_.end() ? nullptr : i->second.first);
       }
