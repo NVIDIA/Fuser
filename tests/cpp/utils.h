@@ -606,7 +606,8 @@ Container parse(const std::string& nvdisasm_output);
 static auto kAllSupportedMmaLayout =
     testing::Values(MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN);
 
-inline std::string mmaLayoutName(const testing::TestParamInfo<MmaLayout>& info) {
+inline std::string mmaLayoutName(
+    const testing::TestParamInfo<MmaLayout>& info) {
   return toString(info.param);
 }
 
