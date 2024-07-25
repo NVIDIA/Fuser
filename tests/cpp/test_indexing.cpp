@@ -1882,7 +1882,9 @@ TEST_F(IndexingTest, ResizePath) {
           return addExpr(
               mulExpr(
                   loop_indices.at(0), tv->getLogicalDomain().at(1)->extent()),
-              addExpr(loop_indices.at(1), IrBuilder::create<Val>(15)));
+              addExpr(
+                  loop_indices.at(1),
+                  IrBuilder::create<Val>(15, DataType::Index)));
         }
         default:
           return nullptr;
