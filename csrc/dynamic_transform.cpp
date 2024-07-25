@@ -841,8 +841,6 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
     if (old_extent->definition() && !new_extent->sameAs(old_extent) &&
         (!old_extent->isConstScalar() || new_extent->isConstScalar())) {
       registerConcretization(old_extent, new_extent);
-      std::cout << "registerConcretization Replacing " << old_extent->toInlineString() << " with "
-                << new_extent->toInlineString() << std::endl;
     }
   }
 

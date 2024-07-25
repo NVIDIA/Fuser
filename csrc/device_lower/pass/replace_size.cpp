@@ -269,7 +269,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
       if(mapped_id->definition() == nullptr) {
         continue;
       }
-      // If this mapped_id is derived from a other Ids, check its oldest ancestors
+      // check its oldest ancestors
       if (isDerivedFromConstOrMapped(mapped_id, ids_mapped_to_logical_size)) {
         std::cout << "remove " << id->toString() << std::endl;
         tensor_dim_map.erase(id->getMaybeExpandedExtent());

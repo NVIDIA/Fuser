@@ -8428,7 +8428,8 @@ TEST_F(NVFuserTest, MultipleDifferentSizeGridReduction) {
 
 
 // https://github.com/NVIDIA/Fuser/issues/2671
-// reshape(tv1) is using logical size of tv0, but tv0 is not used in the output
+// reshape(tv1) is using logical size of tv0, avoid using the
+// logical sizes of both tv0 and tv1.
 TEST_F(NVFuserTest, ReplaceSymbolicSizeLogicalDomainSplit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
