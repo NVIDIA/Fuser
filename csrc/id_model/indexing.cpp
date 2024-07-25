@@ -1028,6 +1028,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           for_loops,
           index_map,
           traversalGraph(),
+          index_info.traversal_path,
           id_model_,
           /*is_start_predicate=*/true,
           /*unswitched_loop=*/unswitched_loop);
@@ -1038,6 +1039,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           for_loops,
           index_map,
           traversalGraph(),
+          index_info.traversal_path,
           id_model_,
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
