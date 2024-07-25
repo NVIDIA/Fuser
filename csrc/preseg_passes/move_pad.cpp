@@ -466,7 +466,7 @@ void propagatePad(Fusion* fusion) {
         continue;
       }
       // check if PadOp can be replayed on input(s)
-      if (!pad_replay_check(uop)) {
+      if (!pad_replay_check(cat)) {
         continue;
       }
 
