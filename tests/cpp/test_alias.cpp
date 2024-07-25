@@ -1555,6 +1555,7 @@ TEST_F(AliasTest, Bookend_ReuseSegmentSet) {
 
   TensorView* in = makeContigConcreteTensor({2, 3, 5});
   TensorView* t = add(in, in);
+  // Expect the three reshapes to be placed in the same no-op segment.
   t = reshape(t, {2, 3, 5}, {30});
   TensorView* out0 = reshape(t, {30}, {6, 5});
   TensorView* out1 = reshape(t, {30}, {2, 15});

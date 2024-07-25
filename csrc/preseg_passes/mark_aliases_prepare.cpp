@@ -31,6 +31,8 @@ struct Use {
   }
 };
 
+// A helper function that walks up from `out` until reaching a non-meta op or a
+// fusion input. Returns where it stops.
 Use findUseToSegment(
     TensorView* out,
     const AliasAnalysisResult& analysis,
@@ -53,6 +55,21 @@ bool isSegmentSet(Expr* e) {
     }
   }
   return false;
+}
+
+// Collects all expressions that are (transitively) used by non-alias
+// TensorViews.
+std::unordered_set<Expr*> exprsUsedByNonAliases(
+    const AliasAnalysisResult& analysis,
+    Fusion* fusion) {
+  std::vector<Val*> non_aliases;
+  for (TensorView* tv : ir_utils::allTvs(fusion)) {
+    if (analysis.getRoot(tv) == nullptr) {
+      non_aliases.push_back(tv);
+    }
+  }
+  std::vector<Expr*> used_by_non_aliases = StmtSort::getExprsTo(non_aliases);
+  return {used_by_non_aliases.begin(), used_by_non_aliases.end()};
 }
 
 } // namespace
@@ -93,18 +110,24 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     }
   }
 
-  auto used_by_non_aliases = [&]() -> std::unordered_set<Expr*> {
-    std::vector<Val*> non_aliases;
-    for (TensorView* tv : ir_utils::allTvs(fusion)) {
-      if (analysis.getRoot(tv) == nullptr) {
-        non_aliases.push_back(tv);
-      }
-    }
-    // Mark all expressions that are (transitively) used by non-alias outputs.
-    std::vector<Expr*> used_by_non_aliases = StmtSort::getExprsTo(non_aliases);
-    return {used_by_non_aliases.begin(), used_by_non_aliases.end()};
-  }();
-
+  // The following emulates the bookend optimization. Only the output end is
+  // implemented at this moment. In general, the algorithm tries to walk up
+  // from each fusion output until reaching a non-alias, and put a
+  // `segment_set` there so the meta ops that are skipped form a no-op segment.
+  //
+  // An important detail: a meta op preceding a non-meta op (i.e. has a
+  // non-alias output TensorView) is treated as non-meta for the purpose of
+  // bookend. This is to avoid over segmentation. For example, in
+  //
+  //   N/M -> M1 -> N/M
+  //          |
+  //          -> M2
+  //
+  // we want to avoid putting a `segment_set` before M1, a meta op, because
+  // that would lead to two kernels. See AliasTest.DoNotOverSegment_* for more
+  // examples.
+  const std::unordered_set<Expr*>& used_by_non_aliases =
+      exprsUsedByNonAliases(analysis, fusion);
   std::vector<Use> uses_to_segment;
   uses_to_segment.reserve(fusion->outputs().size());
   for (auto* out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
@@ -113,6 +136,11 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
       uses_to_segment.push_back(use_to_segment);
     }
   }
+
+  // The remaining are optimizations to reduce the number of `segment_set`s
+  // inserted.
+  //
+  // Group `uses_to_segment` by `use_of` and remove duplicates.
   std::sort(uses_to_segment.begin(), uses_to_segment.end());
   uses_to_segment.erase(
       std::unique(uses_to_segment.begin(), uses_to_segment.end()),
@@ -139,9 +167,9 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
       // There are a few corner cases where we don't need to add a
       // `segment_set`. If `use_of` is only used by aliases, ...
       if (static_cast<size_t>(std::distance(i, j)) == use_of->uses().size()) {
-        // Put a `segment_set` before `use_of`.
         if (use_of->isFusionInput()) {
-          // A `segment_set` before a fusion input is useless.
+          // Putting a `segment_set` between a fusion input and its users is
+          // unnecessary.
           return;
         }
 
@@ -152,8 +180,8 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
         }
       }
 
-      // Rarely, if `use_of` is already defined by `segment_set`, don't
-      // create another `segment_set`.
+      // If all aliasing users are `segment_set`, don't create another
+      // `segment_set`.
       if (std::all_of(
               i, j, [](const Use& use) { return isSegmentSet(use.user); })) {
         return;
