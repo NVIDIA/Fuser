@@ -319,6 +319,73 @@ TEST_F(SDPATest, CausalAttn) {
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
 
+TEST_F(SDPATest, PairwiseLogicalDomainMap) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> q_shape({n, h, l, e});
+  std::vector<int64_t> kv_shape({n, h, s, e});
+
+  auto tvq = makeSymbolicTensor(q_shape, DataType::Half);
+  auto tvk = makeSymbolicTensor(kv_shape, DataType::Half);
+  auto tvv = makeSymbolicTensor(kv_shape, DataType::Half);
+
+  fusion->addInput(tvq);
+  fusion->addInput(tvk);
+  fusion->addInput(tvv);
+
+  auto output = sdpfa_fwd(
+      tvq,
+      tvk,
+      tvv,
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(true),
+      /*scale=*/IrBuilder::create<Val>(1e-3));
+  addSdpaFwdOutputs(fusion.get(), output);
+
+  // Verify mapping between Q,K,V and all output
+  // Producers:
+  //   query = [N, H, L, E]
+  //   key = [N, H, S, E]
+  //   value = [N, H, S, Ev]
+  // Consumers:
+  //   output = [N, H, L, Ev]
+  //   logsumexp = [N, H, L]
+  std::vector<TensorView*> producer_tvs{tvq, tvk, tvv};
+  for (auto role : {AttnRole::Q, AttnRole::K, AttnRole::V}) {
+    auto producer_tv = producer_tvs[(int)role];
+
+    for (Val* consumer : fusion->outputs()) {
+      auto consumer_tv = consumer->as<TensorView>();
+      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+                              .mapProducerToConsumer();
+      auto mappingExists = [&pairwise_map](
+                               IterDomain* p_id, IterDomain* c_id) -> bool {
+        return pairwise_map.find(p_id) != pairwise_map.end() &&
+            pairwise_map[p_id] == c_id;
+      };
+
+      auto consumer_root = consumer_tv->getMaybeRootDomain();
+      for (auto idx : c10::irange(consumer_tv->nDims())) {
+        // Mapping for N, H exists from Q/K/V to any output.
+        if (idx < 2) {
+          EXPECT_TRUE(
+              mappingExists(producer_tv->axis(idx), consumer_root.at(idx)));
+        }
+        // Mapping for L exists between Q and output, log_sumexp.
+        if (idx == 2 && role == AttnRole::Q) {
+          EXPECT_TRUE(mappingExists(producer_tv->axis(2), consumer_root.at(2)));
+        }
+        // Mapping for Ev exists between V and output.
+        if (idx == 3 && role == AttnRole::V) {
+          EXPECT_TRUE(mappingExists(producer_tv->axis(3), consumer_root.at(3)));
+        }
+      }
+    }
+  }
+}
+
 TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   at::manual_seed(0);
