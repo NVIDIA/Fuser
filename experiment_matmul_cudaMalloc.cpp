@@ -10,14 +10,15 @@ int main(int argc, char* argv[]) {
 
     // Parse command-line arguments
     if (argc != 6) {
-        std::cerr << "Usage: " << argv[0] << " M N K use_stream use_matmul_out" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " LOG2_M LOG2_N LOG2_K use_stream use_matmul_out" << std::endl;
         std::cerr << "use_stream: 0 for default stream, 1 to use multiple streams" << std::endl;
         std::cerr << "use_matmul_out: 0 for using at::matmul, 1 for using at::matmul_out with preallocated output" << std::endl;
         return 1;
     }
-    int M = std::stoi(argv[1]);
-    int N = std::stoi(argv[2]);
-    int K = std::stoi(argv[3]);
+
+    int64_t M = std::pow(2, std::stoi(argv[1]));
+    int64_t N = std::pow(2, std::stoi(argv[2]));
+    int64_t K = std::pow(2, std::stoi(argv[3]));
     bool use_stream = std::stoi(argv[4]) != 0;
     bool use_matmul_out = std::stoi(argv[5]) != 0;
 
