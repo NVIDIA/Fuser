@@ -17,7 +17,21 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-std::pair<TensorView*, Expr*> findUseToSegment(
+struct Use {
+  TensorView* use_of;
+  Expr* user;
+
+  bool operator<(const Use& other) const {
+    return std::make_pair(use_of, user) <
+        std::make_pair(other.use_of, other.user);
+  }
+
+  bool operator==(const Use& other) const {
+    return use_of == other.use_of && user == other.user;
+  }
+};
+
+Use findUseToSegment(
     TensorView* out,
     const AliasAnalysisResult& analysis,
     const std::unordered_set<Expr*>& used_by_non_aliases) {
@@ -91,12 +105,11 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
     return {used_by_non_aliases.begin(), used_by_non_aliases.end()};
   }();
 
-  std::vector<std::pair<TensorView*, Expr*>> uses_to_segment;
+  std::vector<Use> uses_to_segment;
   uses_to_segment.reserve(fusion->outputs().size());
   for (auto* out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    std::pair<TensorView*, Expr*> use_to_segment =
-        findUseToSegment(out, analysis, used_by_non_aliases);
-    if (use_to_segment.first != out) {
+    Use use_to_segment = findUseToSegment(out, analysis, used_by_non_aliases);
+    if (use_to_segment.use_of != out) {
       uses_to_segment.push_back(use_to_segment);
     }
   }
@@ -106,16 +119,16 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
       uses_to_segment.end());
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    for (const auto& [use_of, user] : uses_to_segment) {
-      debug() << "Will put a segment_set at " << user << std::endl;
+    for (const auto& use : uses_to_segment) {
+      debug() << "Will put a segment_set at " << use.user << std::endl;
     }
   }
 
   auto i = uses_to_segment.begin();
   while (i != uses_to_segment.end()) {
-    TensorView* use_of = i->first;
+    TensorView* use_of = i->use_of;
     auto j = i;
-    while (j != uses_to_segment.end() && j->first == use_of) {
+    while (j != uses_to_segment.end() && j->use_of == use_of) {
       j++;
     }
 
@@ -141,16 +154,15 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
 
       // Rarely, if `use_of` is already defined by `segment_set`, don't
       // create another `segment_set`.
-      if (std::all_of(i, j, [](const std::pair<TensorView*, Expr*>& use) {
-            return isSegmentSet(use.second);
-          })) {
+      if (std::all_of(
+              i, j, [](const Use& use) { return isSegmentSet(use.user); })) {
         return;
       }
 
       // The general case.
       TensorView* copy = segment_set(use_of);
-      std::for_each(i, j, [&](const std::pair<TensorView*, Expr*>& use) {
-        ir_utils::replaceValInExprInputs(use.second, use_of, copy);
+      std::for_each(i, j, [&](const Use& use) {
+        ir_utils::replaceValInExprInputs(use.user, use_of, copy);
       });
       if (use_of->isFusionOutput()) {
         fusion->replaceOutput(use_of, copy);
@@ -162,7 +174,8 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "Fusion Transforms after " << name() << ":" << std::endl;
+    debug() << std::endl
+            << "Fusion Transforms after " << name() << ":" << std::endl;
     fusion->printTransforms();
   }
 }
