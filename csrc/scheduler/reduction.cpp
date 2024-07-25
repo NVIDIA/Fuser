@@ -547,7 +547,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // waves, helps hiding memory latency, if still use 4 * SM blocks, about 5%
   // regression for compute bound kernels. Not much change for memory bound.
   const int64_t n_waves = n_elems >= (int64_t)64 * 1024 * 1024 ? 8 : 4;
-
+  const int64_t empirical_max_blocks = n_waves * device_multiprocessor_count;
   // if data fits in l2 and we need more parallelization in the iter dim,
   // we can use a smaller warp size. While thread local data fits in l1, and
   // iter dim is really small, we can use <32 threads per warp.
@@ -557,7 +557,9 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       at::cuda::getCurrentDeviceProperties()->l2CacheSize;
 
   const int64_t min_warp_size = fits_in_l2 ? 16 : 32;
-
+  const int64_t threads_using_all_warp_schedulers = 128;
+  const int64_t empirical_max_threads_per_block =
+      ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4);
   // Set some targets for parallelization
   int64_t target_threads_in_block = min_warp_size;
   // Start target blocks at roughly a quarter wave if available
@@ -577,43 +579,40 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // Threads are currently at a warp (16 or 32)
   // Blocks are currently at a quarter wave
   // Unroll is currently at 1
-  while (
-      // and there's parallelism left
-      available_parallelism() > 1 &&
-      (
-          //  There's a place to put it in the block
-          target_threads_in_block <
-              ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4)
-          // There's a place to put it in the device
-          || target_blocks < device_multiprocessor_count * n_waves
-          // There's a place to put it in unrolling
-          || target_unroll < max_unroll)) {
-    // Delay increasing threads per block until all SMs have a block
-    if (target_blocks >= device_multiprocessor_count && target_threads_in_block <
-        ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4)) {
-      target_threads_in_block *= 2;
-    }
-
-    if (target_blocks < device_multiprocessor_count * n_waves &&
-        available_parallelism() > 1) {
-      target_blocks *= 2;
-    }
-
-    // Delay increasing unroll until we have more than one block per SM.
-    // Assuming each SM can take more than one block.
-    if (target_blocks > device_multiprocessor_count &&
-        target_unroll < max_unroll && available_parallelism() > 1) {
-      target_unroll *= 2;
-    }
+  // Follow these priorities:
+  // (1) Increase threads from warp size to 128 to use all warp schedulers
+  while (available_parallelism() > 1 &&
+         target_threads_in_block * 2 <= threads_using_all_warp_schedulers) {
+    target_threads_in_block *= 2;
   }
-
-  // Fill out unrolling if possible
-  if (target_unroll < max_unroll && available_parallelism() > 1) {
-    target_unroll = std::min(available_parallelism(), max_unroll);
+  // (2) Increase blocks to SM count ensure each SM has at least a block
+  while (available_parallelism() > 1 &&
+         target_blocks * 2 <= device_multiprocessor_count) {
+    target_blocks *= 2;
   }
+  // (3) Increase unroll to optimize memory access
+  while (available_parallelism() > 1 && target_unroll * 2 <= max_unroll) {
+    target_unroll *= 2;
+  }
+  // (4) Increase threads from 128 to empirical max (512) to minimize
+  //     inter-block communication
+  while (available_parallelism() > 1 &&
+         target_threads_in_block * 2 <= empirical_max_threads_per_block) {
+    target_threads_in_block *= 2;
+  }
+  // (5) Increase blocks to empirical_max_blocks to hide memory latency
+  while (available_parallelism() > 1 &&
+         target_blocks * 2 <= empirical_max_blocks) {
+    target_blocks *= 2;
+  }
+  // Priorities (1) and (2) ensure schedulers and SMs are all utilized.
+  // Priorities (3) optimized memory access.
+  // Priorities (4) and (5) ensures enough active warps to hide memory latency.
 
-  target_unroll = scheduler_utils::lastPow2(target_unroll);
-
+  std::cout << "target_threads_in_block: " << target_threads_in_block
+            << std::endl;
+  std::cout << "target_blocks: " << target_blocks << std::endl;
+  std::cout << "target_unroll: " << target_unroll << std::endl;
   // To get to target threads:
   // Prioritize
   // (1) x dim in iter domain
@@ -695,9 +694,10 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   // Move parallelization into unrolling the reduction dimension if
   // parallelizing iteration dimension didn't take the available unroll factor.
-  if (iter_unroll_factor < max_unroll && rDimAvail() > 2) {
+  if (iter_unroll_factor < target_unroll && rDimAvail() > 2) {
     inner_reduction_unroll_factor = std::min(
-        rDimAvail(), scheduler_utils::safeDiv(max_unroll, iter_unroll_factor));
+        rDimAvail(),
+        scheduler_utils::safeDiv(target_unroll, iter_unroll_factor));
 
     inner_reduction_unroll_factor =
         scheduler_utils::lastPow2(inner_reduction_unroll_factor);
@@ -705,19 +705,19 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
   gidim = iDimAvail();
 
-  // Try to hit a wave by going cross reduction
-  grdim = std::min(rDimAvail(), ceilDiv(device_multiprocessor_count, gidim));
-  // Extend to go to target blocks
-  if (gidim * grdim < target_blocks) {
-    // What should we use out of the reduction factor to hit target blocks? Make
-    // sure we have 2 reductions per thread beyond what's already set as we
-    // consider expanding to target block
-    grdim = std::min(
-        // At least 2 iterations of the reduction per thread ontop of unroll
-        ceilDiv(rDimAvail() * grdim, 2),
-        // Expand to target blocks
-        ceilDiv(target_blocks, gidim));
-  }
+  // Set grdim based on target blocks
+  grdim = std::min(rDimAvail(), ceilDiv(target_blocks, gidim));
+  // // Extend to go to target blocks
+  // if (gidim * grdim < target_blocks) {
+  //   // What should we use out of the reduction factor to hit target blocks? Make
+  //   // sure we have 2 reductions per thread beyond what's already set as we
+  //   // consider expanding to target block
+  //   grdim = std::min(
+  //       // At least 2 iterations of the reduction per thread on top of unroll
+  //       ceilDiv(rDimAvail() * grdim, 2),
+  //       // Expand to target blocks
+  //       ceilDiv(target_blocks, gidim));
+  // }
 
   // If there isn't a lot of available parallelism from the iteration dimension,
   // expand across the reduction dimension. This has to be done carefully.
@@ -763,6 +763,10 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       grdim = new_grdim;
     }
   }
+
+  bool less_than_sm = grdim * gidim < device_multiprocessor_count;
+  std::cout << "less_than_sm=" << less_than_sm << " grdim: " << grdim
+            << " gidim: " << gidim << std::endl;
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
