@@ -163,6 +163,26 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   return extent_to_min_input_id_extent;
 }
 
+bool isDerivedFromConstOrMapped(
+    Expr* expr,
+    const std::unordered_set<IterDomain*>& ids_mapped_to_logical_size) {
+  auto isConstOrMapped = [&ids_mapped_to_logical_size](IterDomain* id) {
+    return id->isConstScalar() ||
+        ids_mapped_to_logical_size.find(id) != ids_mapped_to_logical_size.end();
+  };
+  if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+    std::cout << "merge " << merge->toString() << std::endl;
+    if (isConstOrMapped(merge->inner()) && isConstOrMapped(merge->outer())) {
+      return true;
+    }
+  } else if (Split* split = dynamic_cast<Split*>(expr)) {
+    std::cout << "split " << split->toString() << std::endl;
+    if (isConstOrMapped(split->in())) {
+      return true;
+    }
+  }
+  return false;
+}
 } // namespace
 
 void replaceSymbolicSizes(Fusion* fusion) {
@@ -205,7 +225,6 @@ void replaceSymbolicSizes(Fusion* fusion) {
   for (TensorView* tv : inputs_and_outputs) {
     // Replace the domain with one based on Ti.size[j]
     const std::vector<IterDomain*>& logical_td = tv->getLogicalDomain();
-
     int64_t dim = 0;
     for (auto id : logical_td) {
       Val* orig_size = id->getMaybeExpandedExtent();
@@ -221,7 +240,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
       // Currently turn off this part for inputs of segmented fusion,
       //  since FusionKernelRuntime will provide these as integer inputs
       if (tensor_dim_map.find(orig_size) == tensor_dim_map.end() &&
-          !orig_size->isFusionInput() && !orig_size->isConstScalar()) {
+          !orig_size->isFusionInput()) {
         tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
             IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
             dim++);
@@ -233,22 +252,18 @@ void replaceSymbolicSizes(Fusion* fusion) {
   }
 
   // Simplify the map by removing derived extents
+  // See NVFuserTest.ReplaceSymbolicSize
   IdModel id_model(fusion, false, false, false);
   id_model.buildExactGraph();
   const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
   auto disjoint_sets = graph.disjointValSets();
   for (auto id : ids_mapped_to_logical_size) {
-    bool is_atomic_id = true;
     auto id_vgroup = graph.toGroup(id);
     for (auto mapped_id : *id_vgroup) {
-      if (mapped_id->definition() != nullptr) {
-        // derived from other ids, remove it from tensor_dim_map
-        is_atomic_id = false;
-        break;
+      if (isDerivedFromConstOrMapped(
+              mapped_id->definition(), ids_mapped_to_logical_size)) {
+        tensor_dim_map.erase(id->getMaybeExpandedExtent());
       }
-    }
-    if (!is_atomic_id) {
-      tensor_dim_map.erase(id->getMaybeExpandedExtent());
     }
   }
 
