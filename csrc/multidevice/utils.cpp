@@ -168,6 +168,9 @@ bool haveDifferentShardings(TensorView* producer, TensorView* consumer) {
 }
 
 bool isResharding(Expr* expr) {
+  if (!ir_utils::isTvOp(expr)) {
+    return false;
+  }
   // we don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {

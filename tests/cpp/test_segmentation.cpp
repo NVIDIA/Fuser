@@ -10,6 +10,8 @@
 
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -700,6 +702,31 @@ TEST_F(SegmentationTest, MultipleSegmentSetsInOneSegment) {
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
   EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(2));
+}
+
+TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
+  // Disable mark aliases prepare pass, which might insert more segment_set
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* vanilla_in = makeContigConcreteTensor({2, 3});
+  TensorView* in = relu(vanilla_in);
+  TensorView* seg_in = segment_set(in);
+  TensorView* permute_out = permute(seg_in, {1, 0});
+  TensorView* compute_out = mul(in, in);
+  compute_out = add(compute_out, in);
+  fusion->addInput(vanilla_in);
+  fusion->addOutput(in);
+  fusion->addOutput(permute_out);
+  fusion->addOutput(compute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
