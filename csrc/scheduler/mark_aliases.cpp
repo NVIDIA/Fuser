@@ -40,7 +40,7 @@ void markAliases(Fusion* fusion) {
     }
 
     TensorView* aliased_io = analysis.getNearestAliasedIo(out);
-    while(aliased_io != nullptr) {
+    while (aliased_io != nullptr) {
       if (aliased_io->isFusionInput()) {
         break;
       }

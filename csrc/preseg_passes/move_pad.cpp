@@ -25,16 +25,20 @@ namespace {
 // 1. zero pad value; and
 // 2. non-negative pad widths.
 bool isSimplePadOp(PadOp* pad) {
-  if (!simplifyExpr(pad->value())->isZero() && !simplifyExpr(pad->value())->isFalse()) {
+  if (!simplifyExpr(pad->value())->isZero() &&
+      !simplifyExpr(pad->value())->isFalse()) {
     return false;
   }
-  // TODO: we cannot seem to always been able to prove that pad widths are >= 0. But we know that PadOp + CatOp implies such condition. Adding this short-cut to ensure that we recognized such pattern.
+  // TODO: we cannot seem to always been able to prove that pad widths are >= 0.
+  // But we know that PadOp + CatOp implies such condition. Adding this
+  // short-cut to ensure that we recognized such pattern.
   if (pad->out()->uses().size() == 1 && pad->out()->uses()[0]->isA<CatOp>()) {
     return true;
   }
   for (Val* pad_val : pad->getPadWidths()) {
-    if (!simplifyExpr(SimplifyingIrBuilder::geExpr(pad_val, pad->fusion()->zeroVal()))
-            ->isTrue()) {
+    if (!simplifyExpr(
+             SimplifyingIrBuilder::geExpr(pad_val, pad->fusion()->zeroVal()))
+             ->isTrue()) {
       return false;
     }
   }
@@ -49,7 +53,7 @@ bool isSamePadOp(Expr* use, PadOp* p) {
 
   auto* use_pad = use->as<PadOp>();
   if (!simplifyExpr(SimplifyingIrBuilder::eqExpr(use_pad->value(), p->value()))
-          ->isTrue()) {
+           ->isTrue()) {
     return false;
   }
 
@@ -64,13 +68,13 @@ bool isSamePadOp(Expr* use, PadOp* p) {
 
   for (auto idx : padded_axes) {
     if (!simplifyExpr(
-            SimplifyingIrBuilder::eqExpr(
-                use_pad->getPadWidths(idx).first, p->getPadWidths(idx).first))
-            ->isTrue() ||
-        !simplifyExpr(
-            SimplifyingIrBuilder::eqExpr(
-                use_pad->getPadWidths(idx).second, p->getPadWidths(idx).second))
-            ->isTrue()) {
+             SimplifyingIrBuilder::eqExpr(
+                 use_pad->getPadWidths(idx).first, p->getPadWidths(idx).first))
+             ->isTrue() ||
+        !simplifyExpr(SimplifyingIrBuilder::eqExpr(
+                          use_pad->getPadWidths(idx).second,
+                          p->getPadWidths(idx).second))
+             ->isTrue()) {
       return false;
     }
   }
@@ -174,7 +178,13 @@ TensorView* replayConcretePad(
       rank == ref_iter_type.size(),
       "ref_iter_type does not have compatible size regarding pad_tv");
   NVF_ERROR(
-      std::all_of(vec_pad_widths.begin(), vec_pad_widths.end(), [&rank](const std::vector<Val*>& pad_widths) { return pad_widths.size() == 2 * rank; }), "vec_pad_widths doesn't have compatible length for pad_tv");
+      std::all_of(
+          vec_pad_widths.begin(),
+          vec_pad_widths.end(),
+          [&rank](const std::vector<Val*>& pad_widths) {
+            return pad_widths.size() == 2 * rank;
+          }),
+      "vec_pad_widths doesn't have compatible length for pad_tv");
 
   std::vector<Val*> merged_pad_widths;
 
@@ -231,7 +241,12 @@ TensorView* replayConcretePad(
       IrBuilder::create<TensorDomain>(
           merged_root_ids, merged_logical_ids, merged_logical_ids),
       pad_tv->getDataType().value());
-  IrBuilder::create<PadOp>(new_out, pad_tv, merged_pad_widths, SimplifyingIrBuilder::maybeCastExpr(pad_tv->getDataType().value(), pad_value));
+  IrBuilder::create<PadOp>(
+      new_out,
+      pad_tv,
+      merged_pad_widths,
+      SimplifyingIrBuilder::maybeCastExpr(
+          pad_tv->getDataType().value(), pad_value));
   return new_out;
 }
 
@@ -248,10 +263,15 @@ TensorView* replayConcretePad(
 // can be replayed as the program below:
 //   tv0_padded = PadOp(tv0)
 //   tv2_new = UnaryOp(tv0_padded)
-// Given certain constraints on the UnaryOp, we can ensure that the computational output remains the same when we replace all uses of `tv2` with `tv2_new`.
+// Given certain constraints on the UnaryOp, we can ensure that the
+// computational output remains the same when we replace all uses of `tv2` with
+// `tv2_new`.
 //
-// This function only propagates simple padding, where its pad value is `zero` (or `false` for boolean) and pad widths are non-negative. This allows us to unconditionally merge neighboring PadOps as a single op.
-// We also restrict propagation on operatoins that can allow PadOp to propagated across. See `zeroIsFixedPoint` and `zeroIsIdentity`.
+// This function only propagates simple padding, where its pad value is `zero`
+// (or `false` for boolean) and pad widths are non-negative. This allows us to
+// unconditionally merge neighboring PadOps as a single op. We also restrict
+// propagation on operatoins that can allow PadOp to propagated across. See
+// `zeroIsFixedPoint` and `zeroIsIdentity`.
 void propagatePad(Fusion* fusion) {
   // propagating PadOp
   auto exprs = fusion->exprs();
@@ -266,7 +286,10 @@ void propagatePad(Fusion* fusion) {
       std::back_inserter(frontier),
       isSimplePadOp);
 
-  // NOTE: this is a WAR. We use a set of `simple_pad_set` to track all mergable PadOps, this is to leverage the assumption that all PadOps before CatOps are simple op, but might not be able to be evaluated as such during compile time.
+  // NOTE: this is a WAR. We use a set of `simple_pad_set` to track all mergable
+  // PadOps, this is to leverage the assumption that all PadOps before CatOps
+  // are simple op, but might not be able to be evaluated as such during compile
+  // time.
   std::unordered_set<PadOp*> simple_pad_set(frontier.begin(), frontier.end());
 
   while (!frontier.empty()) {
@@ -287,12 +310,14 @@ void propagatePad(Fusion* fusion) {
       // check if use is the same pad operation (same pad value / width e.t.c.)
       if (isSamePadOp(use, p)) {
         // replace consumer of use->out() with p->out()
-        ir_utils::replaceValInAllExprInputsAndFusionOutputs(use->output(0), p->out());
+        ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+            use->output(0), p->out());
         fusion->removeExpr(use);
       }
     }
 
-    // if tv is fusion output, we need to keep tv alive, it might render propagating PadOp before tv->definition() being non-optimal.
+    // if tv is fusion output, we need to keep tv alive, it might render
+    // propagating PadOp before tv->definition() being non-optimal.
     if (tv->isFusionOutput()) {
       continue;
     }
@@ -305,7 +330,8 @@ void propagatePad(Fusion* fusion) {
       }
       pad_inputs.insert(val);
     }
-    std::unordered_set<Val*> pad_dependencies = DependencyCheck::getAllDependentVals(pad_inputs);
+    std::unordered_set<Val*> pad_dependencies =
+        DependencyCheck::getAllDependentVals(pad_inputs);
     auto pad_replay_check = [&pad_dependencies](Expr* expr) {
       return std::all_of(
           expr->inputs().begin(),
@@ -325,7 +351,8 @@ void propagatePad(Fusion* fusion) {
     Val* new_out = nullptr;
 
     if (auto* uop = dynamic_cast<UnaryOp*>(def)) {
-      // stop propagation if current PadOp p isn't the only use of tv, since it requires tv to be live in the fusion.
+      // stop propagation if current PadOp p isn't the only use of tv, since it
+      // requires tv to be live in the fusion.
       if (tv->uses().size() != 1) {
         continue;
       }
@@ -355,7 +382,8 @@ void propagatePad(Fusion* fusion) {
       frontier.push_back(new_pad_out->definition()->as<PadOp>());
       simple_pad_set.insert(new_pad_out->definition()->as<PadOp>());
     } else if (auto* bop = dynamic_cast<BinaryOp*>(def)) {
-      // stop propagation if current PadOp p isn't the only use of tv, since it requires tv to be live in the fusion.
+      // stop propagation if current PadOp p isn't the only use of tv, since it
+      // requires tv to be live in the fusion.
       if (tv->uses().size() != 1) {
         continue;
       }
@@ -412,8 +440,10 @@ void propagatePad(Fusion* fusion) {
       frontier.push_back(vals[1]->definition()->as<PadOp>());
       simple_pad_set.insert(vals[1]->definition()->as<PadOp>());
     } else if (auto* pop = dynamic_cast<PadOp*>(def)) {
-      // stop propagation if PadOp `pop` isn't a simple PadOp, since we can only merge simple PadOp together.
-      // Note that we don't need to check the other uses of `tv` here, since we want to merge the consecutive pads anyway and it won't interfere the other uses of `tv`.
+      // stop propagation if PadOp `pop` isn't a simple PadOp, since we can only
+      // merge simple PadOp together. Note that we don't need to check the other
+      // uses of `tv` here, since we want to merge the consecutive pads anyway
+      // and it won't interfere the other uses of `tv`.
       if (simple_pad_set.count(pop) == 0) {
         continue;
       }
@@ -430,7 +460,8 @@ void propagatePad(Fusion* fusion) {
       frontier.push_back(new_out->definition()->as<PadOp>());
       simple_pad_set.insert(new_out->definition()->as<PadOp>());
     } else if (auto* cat = dynamic_cast<CatOp*>(def)) {
-      // stop propagation if current PadOp p isn't the only use of tv, since it requires tv to be live in the fusion.
+      // stop propagation if current PadOp p isn't the only use of tv, since it
+      // requires tv to be live in the fusion.
       if (tv->uses().size() != 1) {
         continue;
       }
@@ -469,7 +500,8 @@ void propagatePad(Fusion* fusion) {
   }
 }
 
-// clean up to fix CatOp which could be invalid after its producer PadOp has been altered by the pass.
+// clean up to fix CatOp which could be invalid after its producer PadOp has
+// been altered by the pass.
 void replaceCat(Fusion* fusion) {
   // updating CatOp
   std::vector<Expr*> exprs = fusion->exprs();

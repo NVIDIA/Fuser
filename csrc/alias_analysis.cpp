@@ -471,9 +471,13 @@ bool isOpsToStop(const Expr* expr, bool stop_at_view) {
 }
 
 bool isGlobalTensor(const TensorView* tv) {
-  return tv->isFusionInput() || tv->isFusionOutput() || std::any_of(tv->uses().begin() , tv->uses().end(), [](Expr* expr) {
-  return expr->isA<PadOp>() || expr->isA<SliceOp>() || (expr->isA<LoadStoreOp>() && expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet);
-});
+  return tv->isFusionInput() || tv->isFusionOutput() ||
+      std::any_of(tv->uses().begin(), tv->uses().end(), [](Expr* expr) {
+           return expr->isA<PadOp>() || expr->isA<SliceOp>() ||
+               (expr->isA<LoadStoreOp>() &&
+                expr->as<LoadStoreOp>()->opType() ==
+                    LoadStoreOpType::SegmenterSet);
+         });
 }
 
 } // namespace

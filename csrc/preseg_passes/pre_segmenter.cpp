@@ -39,7 +39,8 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   // MovePadPass needs to happen:
   // 1. before MarkAliasPrepare; and
-  //    avoid moving pad operatoins around, which could disturb the analysis from MarkAliasPrepare
+  //    avoid moving pad operatoins around, which could disturb the analysis
+  //    from MarkAliasPrepare
   // 2. after MoveSplitCat
   //    to avoid this pass moving PadOp around to break the MoveSplitCat.
   OptimizationPass<MovePadPass>::runPass(fusion);
