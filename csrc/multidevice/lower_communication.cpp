@@ -295,7 +295,7 @@ std::vector<Communication*> lowerCommunication(Expr* c) {
 bool isLowerableToCommunication(Expr* expr) {
   if (!ir_utils::isTvOp(expr)) {
     return false;
-  } 
+  }
   if (expr->isA<ReductionOp>()) {
     auto in = expr->as<ReductionOp>()->in()->as<TensorView>();
     auto out = expr->as<ReductionOp>()->out()->as<TensorView>();
