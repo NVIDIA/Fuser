@@ -588,7 +588,8 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
           || target_blocks < device_multiprocessor_count * n_waves
           // There's a place to put it in unrolling
           || target_unroll < max_unroll)) {
-    if (target_threads_in_block <
+    // Delay increasing threads per block until all SMs have a block
+    if (target_blocks >= device_multiprocessor_count && target_threads_in_block <
         ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4)) {
       target_threads_in_block *= 2;
     }
