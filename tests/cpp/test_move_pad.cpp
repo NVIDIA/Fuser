@@ -405,8 +405,8 @@ TEST_F(MovePadTest, BooleanCat) {
   FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeContigConcreteTensor({4, 10}, DataType::Bool);
-  TensorView* tv1 = makeContigConcreteTensor({2, 10}, DataType::Bool);
-  TensorView* tv2 = makeContigConcreteTensor({4, 10}, DataType::Bool);
+  TensorView* tv1 = makeContigConcreteTensor({4, 10}, DataType::Bool);
+  TensorView* tv2 = makeContigConcreteTensor({2, 10}, DataType::Bool);
   TensorView* tv3 = logical_and(tv0, tv1);
   TensorView* tv4 = cat({tv3, tv2}, /*dim=*/0);
 
