@@ -410,8 +410,7 @@ void AliasAnalysisResult::add(
       i->second.first);
 }
 
-TensorView* AliasAnalysisResult::getNearestAliasedIo(
-    const TensorView* alias) const {
+TensorView* AliasAnalysisResult::getRoot(const TensorView* alias) const {
   return getOrDefault(alias_to_root_, alias);
 }
 

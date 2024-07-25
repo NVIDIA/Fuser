@@ -24,8 +24,7 @@ std::pair<TensorView*, Expr*> findUseToSegment(
   Expr* user = nullptr;
   while (true) {
     Expr* def = out->definition();
-    if (analysis.getNearestAliasedIo(out) == nullptr ||
-        used_by_non_aliases.count(def)) {
+    if (analysis.getRoot(out) == nullptr || used_by_non_aliases.count(def)) {
       return {out, user};
     }
     out = def->input(0)->as<TensorView>();
@@ -54,7 +53,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
 
   // Materialize the alias-enabling allocation domain.
   for (TensorView* tv : ir_utils::allTvs(fusion)) {
-    if (analysis.getNearestAliasedIo(tv) == nullptr) {
+    if (analysis.getRoot(tv) == nullptr) {
       continue;
     }
 
@@ -83,7 +82,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   auto used_by_non_aliases = [&]() -> std::unordered_set<Expr*> {
     std::vector<Val*> non_aliases;
     for (TensorView* tv : ir_utils::allTvs(fusion)) {
-      if (analysis.getNearestAliasedIo(tv) == nullptr) {
+      if (analysis.getRoot(tv) == nullptr) {
         non_aliases.push_back(tv);
       }
     }

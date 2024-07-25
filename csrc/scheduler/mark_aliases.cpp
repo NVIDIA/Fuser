@@ -39,7 +39,7 @@ void markAliases(Fusion* fusion) {
       continue;
     }
 
-    if (TensorView* aliased_io = analysis.getNearestAliasedIo(out)) {
+    if (TensorView* aliased_io = analysis.getRoot(out)) {
       if (aliased_io->isFusionInput() || aliased_io->isFusionOutput()) {
         fusion->aliasOutputToInput(out, aliased_io, AllocationType::Evaluate);
         vlog(

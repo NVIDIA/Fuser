@@ -51,7 +51,7 @@ TEST_F(AliasAnalysisTest, View_SymbolicTensor) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+  EXPECT_EQ(alias_analysis.getRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, ChainOfViews) {
@@ -69,7 +69,7 @@ TEST_F(AliasAnalysisTest, ChainOfViews) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+  EXPECT_EQ(alias_analysis.getRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, View_Contiguous) {
@@ -85,7 +85,7 @@ TEST_F(AliasAnalysisTest, View_Contiguous) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+  EXPECT_EQ(alias_analysis.getRoot(out), in);
   Layout preferred_layout = alias_analysis.preferredLayout(out);
   EXPECT_THAT(
       preferred_layout.allocation_domain,
@@ -110,7 +110,7 @@ TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
+  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, Set) {
@@ -125,7 +125,7 @@ TEST_F(AliasAnalysisTest, Set) {
   in->setAllocationDomain({in->axis(1), in->axis(2), in->axis(0)}, true);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+  EXPECT_EQ(alias_analysis.getRoot(out), in);
 
   const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
@@ -145,7 +145,7 @@ TEST_F(AliasAnalysisTest, Permute) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+  EXPECT_EQ(alias_analysis.getRoot(out), in);
 
   const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
   EXPECT_THAT(
@@ -173,7 +173,7 @@ TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
+  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
@@ -192,7 +192,7 @@ TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+  EXPECT_EQ(alias_analysis.getRoot(out), in);
 
   // Verify the last dimension isn't expanded physically.
   FusionExecutor fe;
@@ -220,7 +220,7 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
+  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, TrivialSlice) {
@@ -234,7 +234,7 @@ TEST_F(AliasAnalysisTest, TrivialSlice) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+  EXPECT_EQ(alias_analysis.getRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
@@ -248,7 +248,7 @@ TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+  EXPECT_EQ(alias_analysis.getRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
@@ -262,7 +262,7 @@ TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
   fusion.addOutput(out);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
+  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
@@ -280,7 +280,7 @@ TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
   fusion.addOutput(expanded_tv);
 
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(expanded_tv), in);
+  EXPECT_EQ(alias_analysis.getRoot(expanded_tv), in);
 }
 
 using AliasTest = NVFuserTest;
@@ -1408,7 +1408,7 @@ TEST_F(AliasTest, FusionExecutor) {
 
   // Sanity-check that `out` is a valid alias of `in`.
   AliasAnalysisResult alias_analysis = findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+  EXPECT_EQ(alias_analysis.getRoot(out), in);
 
   // Mark them alias so FusionExecutor::runFusion expression-evaluates the
   // output on the host instead of launching a CUDA kernel.

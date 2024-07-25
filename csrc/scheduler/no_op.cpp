@@ -41,7 +41,7 @@ bool allOutputsArePointerArithmetics(Fusion* fusion) {
       return false;
     }
 
-    TensorView* root = analysis.getNearestAliasedIo(out);
+    TensorView* root = analysis.getRoot(out);
     return root != nullptr && root->isFusionInput();
   });
 }
