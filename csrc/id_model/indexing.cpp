@@ -210,7 +210,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     if (use_set_allocation_domain) {
-      NVF_ERROR(tv->getMemoryType() != MemoryType::Global, "Setting the allocation of intermediate global tensor is not supported");
+      NVF_ERROR(
+          tv->getMemoryType() != MemoryType::Global,
+          "Setting the allocation of intermediate global tensor is not supported");
       allocation_domains = tv->getAllocationDomain();
       contiguity = tv->domain()->contiguity();
     } else {
