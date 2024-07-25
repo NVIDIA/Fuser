@@ -626,7 +626,7 @@ class TensorDomain : public Val {
   //! Returns a position of a root domain
   int64_t rootPosOf(IterDomain* id) const;
 
-  //! Create a new broadcast IterDoimain with extent one in the loop domain
+  //! Create a new broadcast IterDomain with extent one in the loop domain
   void broadcast(int64_t axis);
 
   // Split "axis" into 2 axes

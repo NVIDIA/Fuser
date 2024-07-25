@@ -282,7 +282,7 @@ class NVF_API TensorView : public Val {
       int64_t position,
       ComputeAtMode mode = ComputeAtMode::Standard);
 
-  //! Create a new broadcast IterDoimain with extent one in the loop domain
+  //! Create a new broadcast IterDomain with extent one in the loop domain
   TensorView* broadcast(int64_t axis);
 
   // Split "axis" into 2 axes
