@@ -575,11 +575,9 @@ bool isBetterThan(
   }
 
   // prefer block reduction if it uses same or more blocks than grid
-  // reduction. this is to avoid bad grid reduction heuristic that uses very
-  // few blocks. Current grid reduction heuristic may use less blocks when input
-  // size is small since it uses more threads per block and prioritize
-  // vectorization.
-  // TODO: ensure grid reduction uses enough blocks to saturate the device.
+  // reduction. This may happen when input size is very small, e.g. 512 x 128.
+  // Current grid reduction heuristic start bdimx from 16 and prioritize
+  // vectorization. It may not be able to fully utilize all the SMs.
   if (block_hp.gidim * block_hp.grdim >= grid_hp.gidim * grid_hp.grdim) {
     return true;
   }
