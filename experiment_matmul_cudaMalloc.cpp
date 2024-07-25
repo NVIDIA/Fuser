@@ -40,15 +40,16 @@ int main(int argc, char* argv[]) {
   std::cout << "use_stream=" << use_stream << std::endl;
   std::cout << "use_matmul_out=" << use_matmul_out << std::endl;
 
-  // input tensors
   torch::Device device(torch::kCUDA);
-  torch::Tensor mat1 = torch::rand({M, K}, device);
-  torch::Tensor mat2 = torch::rand({K, N}, device);
-
+  // input tensors
+  std::vector<at::Tensor> mat1;
+  std::vector<at::Tensor> mat2;
   // output tensors
   std::vector<at::Tensor> results;
-  if (use_matmul_out) {
-    for (int i = 0; i < I; ++i) {
+  for (int i = 0; i < I; ++i) {
+    mat1.push_back(torch::rand({M, K}, device));
+    mat2.push_back(torch::rand({K, N}, device));
+    if (use_matmul_out) {
       results.push_back(torch::empty({M, N}, device));
     }
   }
@@ -68,9 +69,9 @@ int main(int argc, char* argv[]) {
       setCurrentCUDAStream(streams[i]);
     }
     if (use_matmul_out) {
-      torch::matmul_out(results[i], mat1, mat2);
+      torch::matmul_out(results[i], mat1[i], mat2[i]);
     } else {
-      results.push_back(torch::matmul(mat1, mat2));
+      results.push_back(torch::matmul(mat1[i], mat2[i]));
     }
   }
 
@@ -85,7 +86,7 @@ int main(int argc, char* argv[]) {
 
   // "Validation"
   for (int i = 0; i < I; ++i) {
-    assert(results.at(0).equal(results.at(i)));
+    assert(results.at(i).numel()>0);
   }
 
   return 0;
