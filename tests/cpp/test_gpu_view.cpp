@@ -2645,9 +2645,7 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
 
   EXPECT_THAT(
       seg_groups,
-      Contains(HeuristicIs(ScheduleHeuristic::InnerPersistent)).Times(1));
-  EXPECT_THAT(
-      seg_groups, Contains(HeuristicIs(ScheduleHeuristic::NoOp)).Times(1));
+      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::InnerPersistent), Heuristic(ScheduleHeuristic::NoOp)));
 
   testValidate(
       executor_cache.fusion(),
