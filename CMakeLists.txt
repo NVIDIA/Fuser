@@ -620,8 +620,8 @@ if(BUILD_TEST)
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
 
-  add_test_without_main(test_matmul_cudaMalloc "${NVFUSER_ROOT}/tests/cpp/test_matmul_cudaMalloc.cpp" "")
-  list(APPEND TEST_BINARIES test_matmul_cudaMalloc)
+  add_test_without_main(experiment_matmul_cudaMalloc "${NVFUSER_ROOT}/experiment_matmul_cudaMalloc.cpp" "")
+  list(APPEND TEST_BINARIES experiment_matmul_cudaMalloc)
 
   add_test(test_view "${NVFUSER_ROOT}/tests/cpp/test_gpu_view.cpp" "")
   list(APPEND TEST_BINARIES test_view)
