@@ -577,13 +577,8 @@ bool isBetterThan(
   // prefer block reduction if it uses same or more blocks than grid
   // reduction. this is to avoid bad grid reduction heuristic that uses very
   // few blocks. Current grid reduction heuristic may use less blocks when input
-  // size is small since it uses more threads per block and prioritize
-  // vectorization.
-  // TODO: ensure grid reduction uses enough blocks to saturate the device.
+  // size is small since it start bdimx from 16 and prioritize vectorization.
   if (block_hp.gidim * block_hp.grdim >= grid_hp.gidim * grid_hp.grdim) {
-    std::cout << "blk_uses_more block_hp.gidim * block_hp.grdim: " << block_hp.gidim * block_hp.grdim << std::endl;
-    std::cout << block_hp.toString() << std::endl;
-    std::cout << grid_hp.toString() << std::endl;
     return true;
   }
 
@@ -816,19 +811,17 @@ OuterReductionHeuristicParams getGridOuterReduction(
          target_threads_in_block * 2 <= empirical_max_threads_per_block) {
     target_threads_in_block *= 2;
   }
-  // (5) Increase blocks to empirical_max_blocks to hide memory latency
-  while (available_parallelism() > 1 &&
+  // (5) Increase blocks to empirical_max_blocks to hide memory latency.
+  //     Leave at least 2 serial reductions on top of unroll to avoid too many
+  //     blocks.
+  const int64_t redu_serial_on_unroll = 2;
+  while (available_parallelism() > redu_serial_on_unroll &&
          target_blocks * 2 <= empirical_max_blocks) {
     target_blocks *= 2;
   }
   // Priorities (1) and (2) ensure schedulers and SMs are all utilized.
   // Priorities (3) optimized memory access.
   // Priorities (4) and (5) ensures enough active warps to hide memory latency.
-
-  std::cout << "target_threads_in_block: " << target_threads_in_block
-            << std::endl;
-  std::cout << "target_blocks: " << target_blocks << std::endl;
-  std::cout << "target_unroll: " << target_unroll << std::endl;
 
   // To get to target threads:
   // Prioritize
