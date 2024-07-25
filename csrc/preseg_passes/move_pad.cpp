@@ -28,13 +28,13 @@ bool isSimplePadOp(PadOp* pad) {
   if (!simplifyExpr(pad->value())->isZero()) {
     return false;
   }
-  // TODO: add a test case for this.
-  for (Val* pad_val : pad->getPadWidths()) {
-    if (!simplifyExpr(SimplifyingIrBuilder::geExpr(pad_val, pad->fusion()->zeroVal()))
-            ->isTrue()) {
-      return false;
-    }
-  }
+  // TODO: we cannot seem to always been able to prove this. maybe use catop as a hint instead.
+  // for (Val* pad_val : pad->getPadWidths()) {
+  //   if (!simplifyExpr(SimplifyingIrBuilder::geExpr(pad_val, pad->fusion()->zeroVal()))
+  //           ->isTrue()) {
+  //     return false;
+  //   }
+  // }
   return true;
 }
 
