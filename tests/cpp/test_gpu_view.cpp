@@ -2590,7 +2590,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  constexpr int64_t n = 2, c = 128, h = 16, w = 16, g = 32;
   const std::vector<int64_t> input_shape = {N, C, H, W};
   const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
   const std::vector<int64_t> input_shape_wb = {C};
