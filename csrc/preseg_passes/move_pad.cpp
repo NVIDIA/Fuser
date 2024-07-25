@@ -442,7 +442,7 @@ void propagatePad(Fusion* fusion) {
           cat->inputs().begin(),
           cat->inputs().end(),
           std::back_inserter(vals),
-          [&p, &frontier](Val* val) {
+          [&p, &frontier, &simple_pad_set](Val* val) {
             Val* pad_out = replayConcretePad(
                 val->as<TensorView>(),
                 p->value(),
