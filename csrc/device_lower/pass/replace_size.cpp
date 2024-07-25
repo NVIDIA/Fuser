@@ -218,7 +218,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
       // Currently turn off this part for inputs of segmented fusion,
       //  since FusionKernelRuntime will provide these as integer inputs
       if (tensor_dim_map.find(orig_size) == tensor_dim_map.end() &&
-          !orig_size->isFusionInput() && !orig_size->isConstScalar()) {
+          !orig_size->isFusionInput()) {
         tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
             IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
             dim++);
