@@ -67,7 +67,7 @@ void IdGraphIndexCompute::handle(Merge* merge) {
     // it's impacting. Maybe just fine to look at if all subsequent
     // depedent splits are divisible. That shoud be the case of the
     // transpose.
-    if (isInMaxPath(merge->out())) {
+    if (isInMaxPath(merge->out()) && getenv("MAX_PATH")) {
       VERBOSE() << "Taking max path: " << merge->toString();
       inner_idx = SimplifyingIrBuilder::subExpr(
           inner_ext, inner_ext->fusion()->oneVal());
