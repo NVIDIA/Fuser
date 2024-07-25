@@ -415,14 +415,6 @@ TensorView* AliasAnalysisResult::getNearestAliasedIo(
   return getOrDefault(alias_to_root_, alias);
 }
 
-TensorView* AliasAnalysisResult::source(const TensorView* alias) const {
-  if (const auto i = alias_to_source_.find(alias);
-      i != alias_to_source_.end()) {
-    return i->second.first;
-  }
-  return nullptr;
-}
-
 namespace {
 bool okToRelayout(
     const TensorView* tv,
