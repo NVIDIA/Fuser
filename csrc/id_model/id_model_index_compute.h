@@ -18,18 +18,14 @@ class IdGraphIndexCompute : public OptOutDispatch {
  public:
   IdGraphIndexCompute(
       const ValGraph& traversal_graph,
-      std::unordered_map<ValGroup, Val*> initial_index_map,
-      const std::unordered_set<ValGroup>& max_path_domains)
+      std::unordered_map<ValGroup, Val*> initial_index_map)
       : traversal_graph_(traversal_graph),
-        index_map_(std::move(initial_index_map)),
-        max_path_domains_(max_path_domains) {}
+        index_map_(std::move(initial_index_map)) {}
 
   // Propagate the index map through a given expr of a specified
   // direction.
   void propagate(const ExprGroup& expr_group, Direction direction) {
     NVF_ERROR(!expr_group->empty());
-    // Propagate max path domains
-    propagateMaxPathDomains(expr_group, direction);
     // This looks a little ugly but the dispatch interface doesn't
     // have a way to pass arguments
     current_direction_ = direction;
@@ -82,34 +78,10 @@ class IdGraphIndexCompute : public OptOutDispatch {
     return traversal_graph_.toGroup(id);
   }
 
-  bool isInMaxPath(IterDomain* id) const {
-    const auto& id_group = traversal_graph_.toGroup(id);
-    return max_path_domains_.find(id_group) != max_path_domains_.end();
-  }
-
-  void propagateMaxPathDomains(
-      const ExprGroup& expr_group,
-      Direction direction) {
-    const auto inputs = direction == Direction::Forward
-        ? traversal_graph_.inputGroups(expr_group)
-        : traversal_graph_.outputGroups(expr_group);
-
-    if (std::any_of(
-            inputs.begin(), inputs.end(), [&](const ValGroup& input) -> bool {
-              return max_path_domains_.find(input) != max_path_domains_.end();
-            })) {
-      const auto outputs = direction == Direction::Forward
-          ? traversal_graph_.outputGroups(expr_group)
-          : traversal_graph_.inputGroups(expr_group);
-      max_path_domains_.insert(outputs.begin(), outputs.end());
-    }
-  }
-
  private:
   const ValGraph& traversal_graph_;
   std::unordered_map<ValGroup, Val*> index_map_;
   Direction current_direction_ = Direction::Undefined;
-  std::unordered_set<ValGroup> max_path_domains_;
 };
 
 } // namespace nvfuser

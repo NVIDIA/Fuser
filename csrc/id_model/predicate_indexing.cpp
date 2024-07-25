@@ -53,11 +53,95 @@ std::vector<IterDomain*> getPredicateDomains(
   return predicate_domains;
 }
 
+namespace {
+
+void ensurePropagationOfMaxMinPredicates(
+    TensorView* tv,
+    const std::unordered_set<ForLoop*>& unswitched_loops,
+    const std::unordered_map<ValGroup, Val*>& index_map,
+    const ValGraph& traversal_graph,
+    const ExprPath<ExprGroup>& traversal_path,
+    const IdModel& id_model,
+    bool is_start_predicate,
+    std::unordered_map<Val*, Val*>& replacement_map) {
+  // Index traversal groups
+  std::unordered_set<ValGroup> unswitched_domains;
+
+  for (auto loop_domain : tv->getLoopDomain()) {
+    const auto& loop_group =
+        id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
+    auto it = std::find_if(
+        unswitched_loops.begin(),
+        unswitched_loops.end(),
+        [&loop_group](ForLoop* fl) -> bool {
+          return loop_group->has(fl->iter_domain());
+        });
+    if (it != unswitched_loops.end()) {
+      unswitched_domains.emplace(traversal_graph.toGroup(loop_domain));
+    }
+  }
+
+  // Propagate unswitching
+  for (const auto& [expr_group, direction] : traversal_path) {
+    const auto inputs = direction == Direction::Forward
+        ? traversal_graph.inputGroups(expr_group)
+        : traversal_graph.outputGroups(expr_group);
+
+    if (std::any_of(
+            inputs.begin(), inputs.end(), [&](const ValGroup& input) -> bool {
+              return unswitched_domains.find(input) != unswitched_domains.end();
+            })) {
+      const auto outputs = direction == Direction::Forward
+          ? traversal_graph.outputGroups(expr_group)
+          : traversal_graph.inputGroups(expr_group);
+      unswitched_domains.insert(outputs.begin(), outputs.end());
+    }
+
+    // Propagation by modulo
+    Expr* expr = expr_group->front();
+    IterDomain* replacement_domain = nullptr;
+    if (auto split = dynamic_cast<Split*>(expr);
+        split != nullptr && direction == Direction::Forward) {
+      replacement_domain = split->inner();
+    } else if (auto merge = dynamic_cast<Merge*>(expr);
+               merge != nullptr && direction == Direction::Backward) {
+      replacement_domain = merge->inner();
+    }
+
+    if (replacement_domain == nullptr) {
+      continue;
+    }
+
+    const auto& replacement_group = traversal_graph.toGroup(replacement_domain);
+    if (unswitched_domains.find(replacement_group) ==
+        unswitched_domains.end()) {
+      continue;
+    }
+
+    auto index_it = index_map.find(replacement_group);
+    NVF_ERROR(index_it != index_map.end());
+    Val* current_idx = index_it->second;
+    // Conservatively use either zero or max for start and stop,
+    // respectively
+    Val* replacement_idx = is_start_predicate
+        ? current_idx->fusion()->zeroVal()
+        : SimplifyingIrBuilder::subExpr(
+              replacement_domain->extent(), current_idx->fusion()->oneVal());
+
+    NVF_ERROR(
+        replacement_map.emplace(current_idx, replacement_idx).second,
+        "Attempted to register double replacement");
+  }
+}
+
+} // namespace
+
 std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     TensorView* tv,
     const std::vector<ForLoop*>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map,
     const ValGraph& traversal_graph,
+    const ExprPath<ExprGroup>& traversal_path,
     const IdModel& id_model,
     bool is_start_predicate,
     ForLoop* unswitched_loop) {
@@ -121,12 +205,17 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   // Inspect the for-loops from outer to inner and keep track of
   // unswitching since it affects all inner loops
   bool within_unswitch = false;
+  std::unordered_set<ForLoop*> unswitched_loops;
   for (const auto fl : for_loops) {
     auto parallel_type = fl->iter_domain()->getParallelType();
 
     // Note that unswitched_loop may be a vectorized loop
     if (fl == unswitched_loop && parallel_type != ParallelType::Vectorize) {
       within_unswitch = true;
+    }
+
+    if (within_unswitch) {
+      unswitched_loops.insert(fl);
     }
 
     auto loop_id =
@@ -182,6 +271,16 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
                 << ", tv: " << tv->toString() << std::endl;
     }
   }
+
+  ensurePropagationOfMaxMinPredicates(
+      tv,
+      unswitched_loops,
+      index_map,
+      traversal_graph,
+      traversal_path,
+      id_model,
+      is_start_predicate,
+      replacement_map);
 
   return replacement_map;
 }

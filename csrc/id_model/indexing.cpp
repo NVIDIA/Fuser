@@ -1075,16 +1075,7 @@ IndexingInfo TensorIndexer::computeIndex(
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_domains, for_loops);
 
-  const std::unordered_set<ValGroup> max_path_loop_domains = is_unswitch
-      ? indexing_utils::getMaxPathLoopDomains(
-            ir_utils::getTvOutput(expr),
-            for_loops,
-            id_model_.idGraph(IdMappingMode::LOOP),
-            traversalGraph())
-      : std::unordered_set<ValGroup>{};
-
-  IdGraphIndexCompute index_compute(
-      traversalGraph(), initial_index_map, max_path_loop_domains);
+  IdGraphIndexCompute index_compute(traversalGraph(), initial_index_map);
 
   for (const auto& [expr_group, direction] : traversal_path) {
     index_compute.propagate(expr_group, direction);
@@ -1176,6 +1167,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           for_loops,
           index_map,
           traversalGraph(),
+          index_info.traversal_path,
           id_model_,
           /*is_start_predicate=*/true,
           /*unswitched_loop=*/unswitched_loop);
@@ -1186,6 +1178,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           for_loops,
           index_map,
           traversalGraph(),
+          index_info.traversal_path,
           id_model_,
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
@@ -1209,6 +1202,13 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
 
     Val* start_idx =
         ir_utils::replaceValRecursively(idx, replacement_map_start);
+
+    if (unswitched_loop != nullptr) {
+      std::cerr << "Start index: " << idx->toInlineString() << " -> "
+                << start_idx->toInlineString() << " for " << tv->toString()
+                << std::endl;
+    }
+
     Val* stop_idx = ir_utils::replaceValRecursively(idx, replacement_map_stop);
 
     // Generate predicates as follows:

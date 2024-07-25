@@ -23,13 +23,7 @@ void IdGraphIndexCompute::handle(Split* split) {
   if (is_forward) {
     auto in_idx = getIndex(split->in());
     auto outer_idx = SimplifyingIrBuilder::divExpr(in_idx, inner_extent);
-    Val* inner_idx = nullptr;
-    if (isInMaxPath(split->in())) {
-      inner_idx = SimplifyingIrBuilder::subExpr(
-          inner_extent, in_idx->fusion()->oneVal());
-    } else {
-      inner_idx = SimplifyingIrBuilder::modExpr(in_idx, inner_extent);
-    }
+    Val* inner_idx = SimplifyingIrBuilder::modExpr(in_idx, inner_extent);
     setIndex(split->outer(), outer_idx);
     setIndex(split->inner(), inner_idx);
   } else {
@@ -60,20 +54,7 @@ void IdGraphIndexCompute::handle(Merge* merge) {
     auto out_idx = getIndex(merge->out());
     auto outer_idx = SimplifyingIrBuilder::divExpr(out_idx, inner_ext);
     setIndex(merge->outer(), outer_idx);
-    Val* inner_idx = nullptr;
-    // TODO: This is a safe but conservative workaround. See the old
-    // IndexCompute for optimization
-    // Leave it for now. Revisit after contig indexing. See if how
-    // it's impacting. Maybe just fine to look at if all subsequent
-    // depedent splits are divisible. That shoud be the case of the
-    // transpose.
-    if (isInMaxPath(merge->out()) && getenv("MAX_PATH")) {
-      VERBOSE() << "Taking max path: " << merge->toString();
-      inner_idx = SimplifyingIrBuilder::subExpr(
-          inner_ext, inner_ext->fusion()->oneVal());
-    } else {
-      inner_idx = SimplifyingIrBuilder::modExpr(out_idx, inner_ext);
-    }
+    Val* inner_idx = SimplifyingIrBuilder::modExpr(out_idx, inner_ext);
     setIndex(merge->inner(), inner_idx);
   }
 }
