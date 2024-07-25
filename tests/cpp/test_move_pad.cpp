@@ -406,17 +406,20 @@ TEST_F(MovePadTest, BooleanCat) {
 
   TensorView* tv0 = makeContigConcreteTensor({4, 10}, DataType::Bool);
   TensorView* tv1 = makeContigConcreteTensor({2, 10}, DataType::Bool);
-  TensorView* tv2 = logical_not(tv0);
-  TensorView* tv3 = cat({tv1, tv2}, /*dim=*/0);
+  TensorView* tv2 = makeContigConcreteTensor({4, 10}, DataType::Bool);
+  TensorView* tv3 = logical_and(tv0, tv1);
+  TensorView* tv4 = cat({tv3, tv2}, /*dim=*/0);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
-  fusion->addOutput(tv3);
+  fusion->addInput(tv2);
+  fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options) > 0.5;
-  at::Tensor t1 = at::randn({2, 10}, options) > 0.5;
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
+  at::Tensor t1 = at::randn({4, 10}, options) > 0.5;
+  at::Tensor t2 = at::randn({2, 10}, options) > 0.5;
+  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
   FusionExecutorCache fec(std::move(fusion));
   auto out_tensors = fec.runFusionWithInputs(aten_inputs);
