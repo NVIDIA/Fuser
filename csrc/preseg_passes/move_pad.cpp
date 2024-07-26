@@ -21,17 +21,20 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+// Note [ Simple PadOp ]
+//
 // Simple PadOp is defined as a pad op with:
 // 1. zero pad value; and
 // 2. non-negative pad widths.
+//
+// Sharp edges: we cannot to always prove that pad widths are >= 0. We know that
+// PadOp + CatOp implies all the pads are simple pad. We add a short-cut to
+// ensure that we recognized such pattern.
 bool isSimplePadOp(PadOp* pad) {
   if (!simplifyExpr(pad->value())->isZero() &&
       !simplifyExpr(pad->value())->isFalse()) {
     return false;
   }
-  // TODO: we cannot seem to always been able to prove that pad widths are >= 0.
-  // But we know that PadOp + CatOp implies such condition. Adding this
-  // short-cut to ensure that we recognized such pattern.
   if (pad->out()->uses().size() == 1 && pad->out()->uses()[0]->isA<CatOp>()) {
     return true;
   }
@@ -352,9 +355,9 @@ void propagatePads(Fusion* fusion) {
       isSimplePadOp);
 
   // NOTE: this is a WAR. We use a set of `simple_pad_set` to track all mergable
-  // PadOps, this is to leverage the assumption that all PadOps before CatOps
-  // are simple op, but might not be able to be evaluated as such during compile
-  // time.
+  // PadOps, since we cannot always prove them to be a simple op even when they
+  // are. The set `simple_pad_set` is used to bookkeeping such simple pads as
+  // they propagate to their producers. see Note [ Simple PadOp ]
   std::unordered_set<PadOp*> simple_pad_set(stack.begin(), stack.end());
 
   while (!stack.empty()) {
