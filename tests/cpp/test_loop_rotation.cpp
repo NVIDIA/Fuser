@@ -648,11 +648,18 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
          = T2[0LL];
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
-    float T2[1LL];
-    T2[0LL]
-       = T1[0LL];
-    T3[(2LL + i13)]
-       = T2[0LL];
+    #pragma unroll
+    for(nvfuser_index_t i17 = (max((3LL - 1LL), 0LL)); i17 < 3LL; ++i17) {
+      nvfuser_index_t i18;
+      i18 = i17 + nvfuser_zero;
+      float T2[1LL];
+      T2[0LL]
+         = T1[(i17 % 2LL)];
+      if ((i18 >= 0LL)) {
+        T3[(i13 + i18)]
+           = T2[0LL];
+      }
+    }
     NVFUSER_UPDATE_MAGIC_ZERO;
     asm volatile("cp.async.wait_group %0;\n"::"n"(3LL));
     T1[0LL]
