@@ -106,8 +106,6 @@ Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
   return maybeCastOp(data_type, res);
 }
 
-} // namespace
-
 // The pass assumes propagating PadOp with zero pad. The criteria here for
 // return true is that `unaryOp(0) == 0` or `unaryOp(0) == false`
 bool zeroIsFixedPoint(UnaryOpType t) {
@@ -173,10 +171,11 @@ bool zeroIsIdentity(BinaryOpType t) {
 // NOTE: this assumes all vec_pad_widths are non-negative entries so we don't
 // need to consider accumulating them changing the output iter_type.
 TensorView* replayConcretePad(
-    TensorView* pad_tv,
+    Val* pad_val,
     Val* pad_value,
     const std::vector<std::vector<Val*>>& vec_pad_widths,
     std::vector<IterDomain*> ref_iter_type) {
+  auto* pad_tv = pad_val->as<TensorView>();
   NVF_ERROR(pad_tv->getDataType().has_value(), "pad source dtype is missing");
   const std::vector<IterDomain*> inp_dom =
       TensorDomain::noReductions(pad_tv->getLogicalDomain());
@@ -257,6 +256,61 @@ TensorView* replayConcretePad(
           pad_tv->getDataType().value(), pad_value));
   return new_out;
 }
+
+// This function tries to move `pad` on tv to tv->definition()->inputs and
+// returns padded inputs. When moving pad fails, this function returns an empty
+// vector.
+std::vector<Val*> maybeMovePadBeforeDefinition(
+    TensorView* tv,
+    const std::unordered_set<Val*>& pad_dependencies,
+    std::vector<PadOp*>& stack,
+    std::unordered_set<PadOp*> simple_pad_set, ) {
+  std::vector<Val*> padded_inputs;
+  // stop propagation if current PadOp p isn't the only use of tv, since
+  // it requires tv to be live in the fusion.
+  if (tv->uses().size() != 1) {
+    return padded_inputs;
+  }
+
+  Expr* expr = tv->definition();
+  // stop propagation if any of expr's inputs are not TensorView, which we
+  // cannot pad.
+  if (std::any_of(expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
+        return !val->isA<TensorView>();
+      })) {
+    return padded_inputs;
+  }
+
+  // stop propagation if moving pad before definition would create cycles
+  NVF_ERROR(
+      expr->outputs().size() == 1,
+      "expects tv to be the only output from its definition")
+  if (pad_dependencies.count(tv) > 0) {
+    return padded_inputs;
+  }
+
+  PadOp* p = tv->uses()[0]->as<PadOp>();
+  padded_inputs.reserve(expr->inputs().size());
+  std::transform(
+      expr->inputs().begin(),
+      expr->inputs().end(),
+      std::back_inserter(padded_inputs),
+      [&p, &stack, &simple_pad_set](TensorView* val) {
+    TensorView new_pad_in = replayConcretePad(
+        val,
+        p->value(),
+        {p->getPadWidths()},
+        TensorDomain::noReductions(
+            p->out()->as<TensorView>()->getLogicalDomain()));
+    new_pad_op = new_pad_in->definition()->as<PadOp>();
+    stack.push_back(new_pad_op);
+    simple_pad_set.insert(new_pad_op);
+    return new_pad_in;
+      }
+  return padded_inputs;
+}
+
+} // namespace
 
 // Note [ PadOp Propagation Rule ]
 //
@@ -340,7 +394,13 @@ void propagatePads(Fusion* fusion) {
     }
     std::unordered_set<Val*> pad_dependencies =
         DependencyCheck::getAllDependentVals(pad_inputs);
-    auto pad_replay_check = [&pad_dependencies](Expr* expr) {
+    auto pad_replay_check = [&pad_dependencies](TensorView* tv) {
+      // stop propagation if current PadOp p isn't the only use of tv, since
+      // it requires tv to be live in the fusion.
+      if (tv->uses().size() != 1) {
+        return false;
+      }
+      Expr* expr = tv->definition();
       return std::all_of(
                  expr->inputs().begin(),
                  expr->inputs().end(),
@@ -352,59 +412,52 @@ void propagatePads(Fusion* fusion) {
                      Val* val) { return pad_dependencies.count(val) > 0; });
     };
 
+    auto pad_replay = [&p, &stack, &simple_pad_set](std::vector<Val*> vals) {
+      std::vector<TensorView*> res;
+      res.reserve(vals.size());
+      std::transform(
+          vals.begin(),
+          vals.end(),
+          std::back_inserter(res),
+          [&p](TensorView* val) {
+        TensorView new_pad_out = replayConcretePad(
+            val,
+            p->value(),
+            {p->getPadWidths()},
+            TensorDomain::noReductions(
+                p->out()->as<TensorView>()->getLogicalDomain()));
+        new_pad_op = new_pad_out->definition()->as<PadOp>();
+        stack.push_back(new_pad_op);
+        simple_pad_set.insert(new_pad_op);
+        return new_pad_out;
+          }
+      return res;
+    };
+
     Expr* def = p->in()->definition();
     Val* new_out = nullptr;
 
     if (auto* uop = dynamic_cast<UnaryOp*>(def)) {
-      // stop propagation if current PadOp p isn't the only use of tv, since
-      // it requires tv to be live in the fusion.
-      if (tv->uses().size() != 1) {
-        continue;
-      }
-      NVF_ERROR(
-          tv->uses()[0] == p,
-          "expect existing PadOp to be the only use of its input");
       // check if unary op type is compatible for zero pad propagation.
       if (!zeroIsFixedPoint(uop->getUnaryOpType())) {
         continue;
       }
-      // check if PadOp can be replayed on input(s)
-      if (!pad_replay_check(uop)) {
+      std::vector<Val*> new_pad_inputs = maybeMovePadBeforeDefinition(
+          tv, pad_dependencies, std::ref(stack), std::ref(simple_pad_set));
+      // stop when move pad fails.
+      if (new_pad_inputs.empty()) {
         continue;
       }
-
-      // replay pad on input(s)
-      Val* new_pad_out = replayConcretePad(
-          uop->in()->as<TensorView>(),
-          p->value(),
-          {p->getPadWidths()},
-          TensorDomain::noReductions(
-              p->out()->as<TensorView>()->getLogicalDomain()));
-
-      new_out = ops::newValLike(new_pad_out, uop->out()->getDataType().value());
-      IrBuilder::create<UnaryOp>(uop->getUnaryOpType(), new_out, new_pad_out);
-      // insert new PadOp(s) to stack;
-      stack.push_back(new_pad_out->definition()->as<PadOp>());
-      simple_pad_set.insert(new_pad_out->definition()->as<PadOp>());
+      // update new outputs.
+      new_out =
+          ops::newValLike(new_pad_inputs[0], uop->out()->getDataType().value());
+      IrBuilder::create<UnaryOp>(
+          uop->getUnaryOpType(), new_out, new_pad_inputs[0]);
     } else if (auto* bop = dynamic_cast<BinaryOp*>(def)) {
-      // stop propagation if current PadOp p isn't the only use of tv, since
-      // it requires tv to be live in the fusion.
-      if (tv->uses().size() != 1) {
-        continue;
-      }
-      NVF_ERROR(
-          tv->uses()[0] == p,
-          "expect existing PadOp to be the only use of its input");
-
       // check if unary op type is compatible for zero pad propagation.
       if (!zeroIsIdentity(bop->getBinaryOpType())) {
         continue;
       }
-      // check if PadOp can be replayed on input(s)
-      if (!pad_replay_check(bop)) {
-        continue;
-      }
-
       // check for broadcast on padded axis.
       auto* lhs = bop->lhs()->as<TensorView>();
       auto* rhs = bop->rhs()->as<TensorView>();
@@ -417,29 +470,21 @@ void propagatePads(Fusion* fusion) {
         continue;
       }
 
-      // replay pad on input(s)
-      std::vector<Val*> vals = {
-          replayConcretePad(
-              bop->lhs()->as<TensorView>(),
-              p->value(),
-              {p->getPadWidths()},
-              TensorDomain::noReductions(
-                  p->out()->as<TensorView>()->getLogicalDomain())),
-          replayConcretePad(
-              bop->rhs()->as<TensorView>(),
-              p->value(),
-              {p->getPadWidths()},
-              TensorDomain::noReductions(
-                  p->out()->as<TensorView>()->getLogicalDomain()))};
+      std::vector<Val*> new_pad_inputs = maybeMovePadBeforeDefinition(
+          tv, pad_dependencies, std::ref(stack), std::ref(simple_pad_set));
+      // stop when move pad fails.
+      if (new_pad_inputs.empty()) {
+        continue;
+      }
 
-      new_out = ops::newOutputTV(vals, bop->out()->getDataType().value());
+      new_out =
+          ops::newOutputTV(new_pad_inputs, bop->out()->getDataType().value());
       IrBuilder::create<BinaryOp>(
-          bop->getBinaryOpType(), new_out, vals[0], vals[1]);
+          bop->getBinaryOpType(),
+          new_out,
+          new_pad_inputs[0],
+          new_pad_inputs[1]);
       // insert new PadOp(s) to stack;
-      stack.push_back(vals[0]->definition()->as<PadOp>());
-      simple_pad_set.insert(vals[0]->definition()->as<PadOp>());
-      stack.push_back(vals[1]->definition()->as<PadOp>());
-      simple_pad_set.insert(vals[1]->definition()->as<PadOp>());
     } else if (auto* pop = dynamic_cast<PadOp*>(def)) {
       // stop propagation if PadOp `pop` isn't a simple PadOp, since we can
       // only merge simple PadOp together. Note that we don't need to check
@@ -456,42 +501,23 @@ void propagatePads(Fusion* fusion) {
           {pop->getPadWidths(), p->getPadWidths()},
           TensorDomain::noReductions(
               p->out()->as<TensorView>()->getLogicalDomain()));
-
       // insert new PadOp(s) to stack;
       stack.push_back(new_out->definition()->as<PadOp>());
       simple_pad_set.insert(new_out->definition()->as<PadOp>());
     } else if (auto* cat = dynamic_cast<CatOp*>(def)) {
-      // stop propagation if current PadOp p isn't the only use of tv, since
-      // it requires tv to be live in the fusion.
-      if (tv->uses().size() != 1) {
-        continue;
-      }
-      // check if PadOp can be replayed on input(s)
-      if (!pad_replay_check(cat)) {
-        continue;
-      }
-
       // TODO: can cat support broadcast on any non-cat dimensions? Otherwise
       // we need to ensure that we are not padding on broadcast dimensions
       // like binary op
-      std::vector<Val*> vals;
-      std::transform(
-          cat->inputs().begin(),
-          cat->inputs().end(),
-          std::back_inserter(vals),
-          [&p, &stack, &simple_pad_set](Val* val) {
-            Val* pad_out = replayConcretePad(
-                val->as<TensorView>(),
-                p->value(),
-                {p->getPadWidths()},
-                TensorDomain::noReductions(
-                    p->out()->as<TensorView>()->getLogicalDomain()));
-            stack.push_back(pad_out->definition()->as<PadOp>());
-            simple_pad_set.insert(pad_out->definition()->as<PadOp>());
-            return pad_out;
-          });
 
-      new_out = replaceCatOpWithBinaryOp(vals);
+      // check if PadOp can be replayed on input(s)
+      std::vector<Val*> new_pad_inputs = maybeMovePadBeforeDefinition(
+          tv, pad_dependencies, std::ref(stack), std::ref(simple_pad_set));
+      // stop when move pad fails.
+      if (new_pad_inputs.empty()) {
+        continue;
+      }
+
+      new_out = replaceCatOpWithBinaryOp(new_pad_inputs);
     }
     // replace old (->pad->) with (->pads_before_new_def->new_def->)
     if (new_out != nullptr) {
