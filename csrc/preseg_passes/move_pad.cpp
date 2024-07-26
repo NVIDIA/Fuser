@@ -426,7 +426,8 @@ void propagatePads(Fusion* fusion) {
       // padding on broadcast dimensions stops pad propagation.
       if (std::any_of(
               padded_axes.begin(), padded_axes.end(), [&lhs, &rhs](int64_t i) {
-        return lhs->getLogicalDomain()[i]->isBroadcast() || rhs->getLogicalDomain()[i]->isBroadcast());
+        return lhs->getLogicalDomain()[i]->isBroadcast() ||
+            rhs->getLogicalDomain()[i]->isBroadcast();
               }) {
         continue;
       }
