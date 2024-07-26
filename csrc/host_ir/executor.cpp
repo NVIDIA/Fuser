@@ -54,7 +54,7 @@ HostIrExecutor::HostIrExecutor(
   if (isDebugDumpEnabled(DebugDumpOption::HostIr) && device_index == 0) {
     container_->print(debug());
   }
-  streams_.insert(
+  streams_by_pointer_.insert(
       {container_->getDefaultStream(),
        c10::cuda::getDefaultCUDAStream(
            static_cast<c10::DeviceIndex>(device_index))});
@@ -79,23 +79,31 @@ std::vector<at::Tensor> HostIrExecutor::runWithInput(
 
 void HostIrExecutor::handle(SetCurrentStream* set_current_stream) {
   Stream* stream = set_current_stream->stream();
-  StreamKey stream_key = stream;
+  c10::DeviceIndex device_index = static_cast<c10::DeviceIndex>(
+      (communicator_ != nullptr && communicator_->is_available())
+          ? communicator_->deviceId()
+          : 0);
   // if stream points to an index, it represents the dynamic value of that index
   if (Val* index = stream->index(); index != nullptr) {
     auto value = expr_evaluator_.evaluate(index);
     NVF_ERROR(value.hasValue() && value.is<int64_t>());
-    stream_key = value.as<int64_t>();
+    auto stream_key = value.as<int64_t>();
+    if (streams_by_index_.find(stream_key) == streams_by_index_.end()) {
+      streams_by_index_.insert(
+          {stream_key,
+           c10::cuda::getStreamFromPool(
+               /*isHighPriority=*/false, device_index)});
+    }
+    setCurrentCUDAStream(streams_by_index_.at(stream_key));
+  } else {
+    if (streams_by_pointer_.find(stream) == streams_by_pointer_.end()) {
+      streams_by_pointer_.insert(
+          {stream,
+           c10::cuda::getStreamFromPool(
+               /*isHighPriority=*/false, device_index)});
+    }
+    setCurrentCUDAStream(streams_by_pointer_.at(stream));
   }
-  if (streams_.find(stream_key) == streams_.end()) {
-    auto i = (communicator_ != nullptr && communicator_->is_available())
-        ? communicator_->deviceId()
-        : 0;
-    streams_.insert(
-        {stream_key,
-         c10::cuda::getStreamFromPool(
-             /*isHighPriority=*/false, static_cast<c10::DeviceIndex>(i))});
-  }
-  setCurrentCUDAStream(streams_.at(stream_key));
 }
 
 void HostIrExecutor::handle(PostOnStream* post_ir) {
