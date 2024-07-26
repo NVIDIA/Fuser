@@ -368,6 +368,7 @@ void propagatePads(Fusion* fusion) {
   // are. The set `simple_pad_set` is used to bookkeeping such simple pads as
   // they propagate to their producers. see Note [ Simple PadOp ]
   std::unordered_set<PadOp*> simple_pad_set(stack.begin(), stack.end());
+  std::vector<Expr*> pad_to_be_removed;
 
   while (!stack.empty()) {
     PadOp* p = stack.back();
@@ -389,7 +390,9 @@ void propagatePads(Fusion* fusion) {
         // replace consumer of use->out() with p->out()
         ir_utils::replaceValInAllExprInputsAndFusionOutputs(
             use->output(0), p->out());
-        fusion->removeExpr(use);
+        // we could remove `use`, but `use` could still be in stack and needs to
+        // be visited later. So push it to a vector and we'll remove it later.
+        pad_to_be_removed.push_back(use);
       }
     }
 
@@ -500,6 +503,10 @@ void propagatePads(Fusion* fusion) {
     if (new_out != nullptr) {
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(p->out(), new_out);
     }
+  }
+
+  for (Expr* expr : pad_to_be_removed) {
+    fusion->removeExpr(use);
   }
 }
 
