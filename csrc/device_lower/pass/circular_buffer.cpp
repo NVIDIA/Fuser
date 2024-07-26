@@ -79,8 +79,9 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 
     if (loop_type_ == CircularBufferLoopStage::Prolog) {
       NVF_ERROR(start->isZeroInt());
-      stop = SimplifyingIrBuilder::create<Val>(
+      Val* prolog_stop = SimplifyingIrBuilder::create<Val>(
           int64_t(stage_depth - 1), DataType::Index);
+      stop = IrBuilder::minExpr(circular_buffer_loop_->stop(), prolog_stop);
     } else if (
         loop_type_ == CircularBufferLoopStage::Main &&
         requireEpilogue(circular_buffer_load_exprs_)) {
