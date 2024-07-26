@@ -310,8 +310,6 @@ std::vector<Val*> maybeMovePadBeforeDefinition(
   return padded_inputs;
 }
 
-} // namespace
-
 // Note [ PadOp Propagation Rule ]
 //
 // Push PadOp to its producer to reduce segmentation caused by the resize node
