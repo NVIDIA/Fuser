@@ -428,7 +428,8 @@ TEST_F(MovePadTest, BooleanCat) {
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
 
   // ExpressionEvaluator is hitting an assert with dynamic value.
-  // testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+  // https://github.com/NVIDIA/Fuser/issues/2697 testValidate(fec.fusion(),
+  // out_tensors, aten_inputs, __LINE__, __FILE__);
   at::Tensor ref = at::cat({at::bitwise_and(t0, t1), t2}, 0);
   testValidate(
       fec.fusion(), out_tensors, aten_inputs, {ref}, __LINE__, __FILE__);
