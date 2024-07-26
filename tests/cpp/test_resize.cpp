@@ -2001,6 +2001,8 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
       tv1,
       {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
        {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)}});
+  // Without the `add`, the fusion will be accepted by NoOp, defeating the
+  // purpose of testing PointWise.
   auto tv3 = add(tv2, tv2);
   fusion->addOutput(tv3);
 

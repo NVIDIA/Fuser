@@ -17,8 +17,6 @@
 #include <ir/builder.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1102,9 +1100,6 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
 // transpose the dimension produced by take_along_axis. Currently not
 // supported by the transpose scheduler
 TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
-      optimization_guard(false);
-
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1127,7 +1122,10 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   auto tv3 = broadcast(tv1, {true, false, false});
   auto tv4 = take_along_axis(tv2, tv3, 2);
   auto tv5 = transpose(tv4, 1, 2);
-  fusion.addOutput(tv5);
+  // Without the `add`, the transpose will be taken by NoOp, defeating the
+  // purpose of testing PointWise.
+  auto tv6 = add(tv5, tv5);
+  fusion.addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);

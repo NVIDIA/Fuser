@@ -31,8 +31,7 @@ void markAliases(Fusion* fusion) {
     vlog("Alias analysis result:\n", analysis.toString(/*indent_size=*/1));
   }
 
-  for (TensorView* out :
-       ir_utils::filterByType<TensorView>(fusion->outputs())) {
+  for (auto* out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
     // AllocationType::ReuseBuffer requires the output to be updated in place
     // so it can't be computed as an alias.
     if (fusion->getOutputAlias(out).type == AllocationType::ReuseBuffer) {
