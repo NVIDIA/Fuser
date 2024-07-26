@@ -469,7 +469,7 @@ void propagatePads(Fusion* fusion) {
       // insert new PadOp(s) to stack;
       stack.push_back(new_out->definition()->as<PadOp>());
       simple_pad_set.insert(new_out->definition()->as<PadOp>());
-    } else if (def->isA<CatOp*>()) {
+    } else if (def->isA<CatOp>()) {
       // TODO: can cat support broadcast on any non-cat dimensions? Otherwise
       // we need to ensure that we are not padding on broadcast dimensions
       // like binary op
