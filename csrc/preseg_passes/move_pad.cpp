@@ -155,15 +155,24 @@ bool zeroIsFixedPoint(UnaryOpType t) {
   }
 }
 
-// The pass assumes propagating PadOp with zero pad. The criteria here for
-// return true is that `binaryOp(0, x) == 0` & `binaryOp(x, 0) == 0`
+// The pass assumes propagating PadOp with zero pad. We do not support broadcast
+// across operands, so both operands will be padded with `0` or `false` . The
+// criteria here for return true is that `binaryOp(x, x) == y`, where `x`/`y`
+// could be either `0` or `false`.
 bool zeroIsIdentity(BinaryOpType t) {
   switch (t) {
     case BinaryOpType::Add:
+    case BinaryOpType::Max:
+    case BinaryOpType::Min:
     case BinaryOpType::Mul:
+    case BinaryOpType::Sub:
+    case BinaryOpType::BitwiseAnd:
     case BinaryOpType::BitwiseOr:
-    case BinaryOpType::BitwiseXor:
+    case BinaryOpType::GT:
+    case BinaryOpType::LT:
+    case BinaryOpType::LogicalAnd:
     case BinaryOpType::LogicalOr:
+    case BinaryOpType::Complex:
       return true;
     default:
       return false;
