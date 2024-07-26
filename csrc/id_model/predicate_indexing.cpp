@@ -226,6 +226,10 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     }
   };
 
+  // If the tensor is circular buffered and the given for-loop is the
+  // main loop of circular buffering, increment the index by
+  // (number_of_stages - 1) since the main loop has a read that is
+  // (number_of_stages - 1) elements ahead.
   auto replace_for_circular_buffering =
       [&](ForLoop* fl, Val* original_index, bool within_unswitch) -> Val* {
     auto circular_buffer_axis =
@@ -236,6 +240,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
              .strictAreMapped(fl->iter_domain(), circular_buffer_axis)) {
       return nullptr;
     }
+
+    NVF_ERROR(fl->circularBufferLoopStage() != CircularBufferLoopStage::Epilog);    
 
     // The prologue loop does not need to be changed
     if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {

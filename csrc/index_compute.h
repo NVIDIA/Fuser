@@ -638,6 +638,7 @@ struct PredicateDomainInfo {
   bool is_intermediate_domain = false;
 };
 
+// Get all domains that need to be predicated due to non-divisible splits
 std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
     TensorView* consumer_tv);
 
