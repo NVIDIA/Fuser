@@ -22,7 +22,7 @@ class CircularBufferingTest : public NVFuserFixtureParamTest<int> {
   }
 };
 
-TEST_P(CircularBufferingTest, Test1) {
+TEST_P(CircularBufferingTest, SingleDim1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -66,7 +66,7 @@ TEST_P(CircularBufferingTest, Test1) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_P(CircularBufferingTest, Test2) {
+TEST_P(CircularBufferingTest, SingleDim2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -108,7 +108,7 @@ TEST_P(CircularBufferingTest, Test2) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_P(CircularBufferingTest, Test3) {
+TEST_P(CircularBufferingTest, SingleDim3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -158,7 +158,7 @@ TEST_P(CircularBufferingTest, Test3) {
 }
 
 // circular buffering smem to local and unswitch
-TEST_P(CircularBufferingTest, Test4) {
+TEST_P(CircularBufferingTest, SingleDimUnswitch1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -204,7 +204,7 @@ TEST_P(CircularBufferingTest, Test4) {
 }
 
 // circular buffering gmem to shared and unswitch
-TEST_P(CircularBufferingTest, Test5) {
+TEST_P(CircularBufferingTest, SingleDimUnswitch2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -249,7 +249,7 @@ TEST_P(CircularBufferingTest, Test5) {
 }
 
 // circular buffering smem to local and unroll
-TEST_P(CircularBufferingTest, Test6) {
+TEST_P(CircularBufferingTest, SingleDimUnroll) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -291,7 +291,7 @@ TEST_P(CircularBufferingTest, Test6) {
 }
 
 // circular buffering and vectorize
-TEST_P(CircularBufferingTest, Test7) {
+TEST_P(CircularBufferingTest, SingleDimVectorize) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -328,7 +328,7 @@ TEST_P(CircularBufferingTest, Test7) {
 }
 
 // Multiple tensors to circular-buffer
-TEST_P(CircularBufferingTest, Test8) {
+TEST_P(CircularBufferingTest, MultipleTensors) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -370,7 +370,7 @@ TEST_P(CircularBufferingTest, Test8) {
 }
 
 // Nested circular buffering from gmem to smem and smem to register
-TEST_P(CircularBufferingTest, Test9) {
+TEST_P(CircularBufferingTest, NestedTensors) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
