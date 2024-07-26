@@ -2638,17 +2638,43 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   fusion.addOutput(tv4);
   fusion.addOutput(tv5);
 
-  // Create topological roots for tv5 that looks like tv1
+  // For this fusion, because tv4 and tv5 have different views, and these views
+  // are not compatible, traditionally, we were not able to support this fusion.
+  // However, with the advanced feature that domains in a TensorDomain can be
+  // connected by both forward and backward, we can schedule the entire fusion
+  // like tv4 as follows:
+
+  // First, the most difficult part is to schedule tv5. The TensorDomain of
+  // tv5 only contains 2 IDs, and non of them is mapped to anything in tv4.
+  // So, in order to schedule tv5 like tv4, we need to reconstruct the entire ID
+  // graph into tv5.
+
+  // Before schedule, tv5 is:
+  //
+  //  logical domain: [I0, I1]
+  //
+  // Now, we want to make tv5 as:
+  //
+  //                    I2   I3
+  //                      \ /
+  //  logical domain: [I0, I1]
+  //
+  // so that [I0, I2, I3] are mapped to the logical domain of fusion input.
   std::vector<IterDomain*> tv5_root{
       // Topological root of tv5, not the root domain of tv5.
       // TODO: rename root domain as producer domain
       tv5->getLogicalDomain()[0],
-      tv1->getLogicalDomain()[1]->cloneWithoutRFactor(),
-      tv1->getLogicalDomain()[2]->cloneWithoutRFactor(),
+      tv0->getLogicalDomain()[1]->cloneWithoutRFactor(),
+      tv0->getLogicalDomain()[2]->cloneWithoutRFactor(),
   };
   IrBuilder::create<Merge>(tv5->axis(1), tv5_root[1], tv5_root[2]);
 
-  // Schedule tv1, tv3, tv5 tensors like tv2 and tv4's logical domain
+  // Now, except for tv4, all tensors contain all IDs that are exact mapped to
+  // the logical domain of the fusion input. tv4 not containing IDs exact mapped
+  // to the logical domain of the fusion input is not a problem, because tv4 is
+  // the reference tensor and the entire fusion will be scheduled like tv4.
+
+  // Now, let's schedule tv1, tv3, and tv5 to be like tv4's logical domain:
   AbstractTensor schedule({
       {tv1->getLogicalDomain()[0],
        tv3->getRootDomain()[0],
@@ -2662,13 +2688,24 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   });
   schedule.merge(0);
 
-  // Let schedule contain all tensors, in the order of [tv1, tv3, tv5, tv2, tv4]
+  // Now, tv5 looks like:
+  //
+  //                         I2  I3
+  //                        / | /
+  //  logical domain: [I0  /, I1]
+  //                    | /
+  //                    I4
+  //
+  // and `schedule` contains [I4, I3]
+
+  // Now, `schedule` is like the logical domain of tv2 and tv4. So let's append
+  // tv2 and tv4 to it so we can parallelizing all of them all together.
   schedule[0].as<std::vector>().push_back(tv2->getLogicalDomain()[0]);
   schedule[0].as<std::vector>().push_back(tv4->getLogicalDomain()[0]);
   schedule[1].as<std::vector>().push_back(tv2->getLogicalDomain()[1]);
   schedule[1].as<std::vector>().push_back(tv4->getLogicalDomain()[1]);
 
-  // Parallelize all tensors
+  // Parallelize all tensors as [BIDx, TIDx]
   schedule.merge(0);
   schedule.split(0, 128);
 #if 0
@@ -2680,6 +2717,22 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
     id->parallelize(ParallelType::TIDx);
   }
 #endif
+
+  // Now, tv5 looks like:
+  //
+  //                         I2  I3
+  //                        / | / |
+  //  logical domain: [I0  /, I1] |
+  //                    | /       /
+  //                    I4       /
+  //                      \     /
+  //                       \   /
+  //                        \ /
+  //                        I5
+  //                        / \.
+  //                    BIDx   TIDx
+  //
+  // and `schedule` contains [BIDx, TIDx]
 
   // TODO: make inlining work
   // inlineMost();
