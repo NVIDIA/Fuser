@@ -7,8 +7,8 @@
 // clang-format on
 #include <c10/util/irange.h>
 #include <compute_at.h>
+#include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/pass/circular_buffer.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <inlining.h>

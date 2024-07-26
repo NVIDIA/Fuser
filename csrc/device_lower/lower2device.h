@@ -10,6 +10,7 @@
 #include <exceptions.h>
 
 #include <compute_at_map.h>
+#include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
