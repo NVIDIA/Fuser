@@ -210,14 +210,25 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     if (use_set_allocation_domain) {
-      std::unordered_set<IterDomain*> ca_ids(
-          tv->getLoopDomain().begin(),
-          tv->getLoopDomain().begin() + tv->getComputeAtPosition());
-      for (auto i : c10::irange(tv->getAllocationDomain().size())) {
-        auto id = tv->getAllocationDomain()[i];
-        if (ca_ids.find(id) == ca_ids.end()) {
-          allocation_domains.push_back(id);
-          contiguity.push_back(tv->domain()->contiguity()[i]);
+      if (tv->getMemoryType() == MemoryType::Global) {
+        // For global memory tensors we always allocate the entire tensor
+        allocation_domains = tv->getAllocationDomain();
+        contiguity = tv->domain()->contiguity();
+      } else {
+        std::unordered_set<IterDomain*> exclude_ids;
+        for (auto i : c10::irange(tv->getComputeAtPosition())) {
+          auto ca_id = tv->axis(i);
+          if (!ir_utils::isMemorySharedAcross(
+                  tv->getMemoryType(), ca_id->getParallelType())) {
+            exclude_ids.insert(ca_id);
+          }
+        }
+        for (auto i : c10::irange(tv->getAllocationDomain().size())) {
+          auto id = tv->getAllocationDomain()[i];
+          if (exclude_ids.find(id) == exclude_ids.end()) {
+            allocation_domains.push_back(id);
+            contiguity.push_back(tv->domain()->contiguity()[i]);
+          }
         }
       }
     } else {
