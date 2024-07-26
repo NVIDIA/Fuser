@@ -136,7 +136,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
 
-  auto non_divisible_splits = getNonDivisibleConsumerDomainsToPredicate(tv);
+  const std::vector<PredicateDomainInfo> non_divisible_split_predicates =
+      getNonDivisibleConsumerDomainsToPredicate(tv);
 
   const std::unordered_map<IterDomain*, ValGroup>& contig_domains =
       getContigDomains(
@@ -164,7 +165,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
       tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
   std::vector<PredicateInfo> info_vec;
-  info_vec.reserve(predicate_domains.size() + non_divisible_splits.size());
+  info_vec.reserve(
+      predicate_domains.size() + non_divisible_split_predicates.size());
   std::unordered_set<ValGroup> already_indexed_domains;
 
   for (const auto& predicate_domain : predicate_domains) {
@@ -245,21 +247,21 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
   // If this is a reduction init expr, then no need to take care of
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
-    for (const auto& [eg, direction] : index_info.traversal_path) {
-      if (!isNonDivisibleSplit(eg)) {
-        continue;
-      }
+    // for (const auto& [eg, direction] :
+    // non_divisible_split_predicates) {
+    for (const PredicateDomainInfo& pred_info :
+         non_divisible_split_predicates) {
+      IterDomain* non_divisible_domain = pred_info.id;
 
-      NVF_ERROR(eg->front()->isA<Split>());
-      auto split_to_predicate = eg->front()->as<Split>();
       VERBOSE() << "Non-divisible predicate: "
-                << split_to_predicate->toString();
-
-      IterDomain* non_divisible_domain = split_to_predicate->in();
+                << non_divisible_domain->toString() << std::endl;
 
       PredicateInfo info;
+      info.loop_stage_ = loop_stage;
+      // The start predicate should always be true
       info.start_offset_ = zero_val;
       info.start_predicate_ = non_divisible_domain->fusion()->trueVal();
+
       info.stop_offset_ = zero_val;
 
       auto idx_it =
@@ -274,6 +276,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
       info.stop_predicate_ =
           SimplifyingIrBuilder::ltExpr(idx, non_divisible_domain->extent());
       info.predicated_domains_ = {non_divisible_domain};
+
       info_vec.emplace_back(info);
     }
   }

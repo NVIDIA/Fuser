@@ -115,8 +115,6 @@ inline bool isNonDivisibleSplit(const ExprGroup& expr_group) {
 
   std::vector<PredicateDomainInfo> pred_info_vec;
 
-  // non_divisible_split_info should just have a set of all
-  // non-divisible splits
   for (const auto& [tv, splits] :
        non_divisible_split_info.splitsToPredicate()) {
     if (std::find_if(splits.begin(), splits.end(), [&](Split* split) {
