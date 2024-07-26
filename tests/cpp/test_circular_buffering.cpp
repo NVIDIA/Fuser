@@ -12,7 +12,7 @@
 
 namespace nvfuser {
 
-class CircularBufferTest : public NVFuserFixtureParamTest<int> {
+class CircularBufferingTest : public NVFuserFixtureParamTest<int> {
  protected:
   int64_t number_of_stages = 1;
 
@@ -22,7 +22,7 @@ class CircularBufferTest : public NVFuserFixtureParamTest<int> {
   }
 };
 
-TEST_P(CircularBufferTest, SingleDim1) {
+TEST_P(CircularBufferingTest, SingleDim1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -66,7 +66,7 @@ TEST_P(CircularBufferTest, SingleDim1) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_P(CircularBufferTest, SingleDim2) {
+TEST_P(CircularBufferingTest, SingleDim2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -108,7 +108,7 @@ TEST_P(CircularBufferTest, SingleDim2) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_P(CircularBufferTest, SingleDim3) {
+TEST_P(CircularBufferingTest, SingleDim3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -158,7 +158,7 @@ TEST_P(CircularBufferTest, SingleDim3) {
 }
 
 // circular buffering smem to local and unswitch
-TEST_P(CircularBufferTest, SingleDimUnswitch1) {
+TEST_P(CircularBufferingTest, SingleDimUnswitch1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -204,7 +204,7 @@ TEST_P(CircularBufferTest, SingleDimUnswitch1) {
 }
 
 // circular buffering gmem to shared and unswitch
-TEST_P(CircularBufferTest, SingleDimUnswitch2) {
+TEST_P(CircularBufferingTest, SingleDimUnswitch2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -249,7 +249,7 @@ TEST_P(CircularBufferTest, SingleDimUnswitch2) {
 }
 
 // circular buffering smem to local and unroll
-TEST_P(CircularBufferTest, SingleDimUnroll) {
+TEST_P(CircularBufferingTest, SingleDimUnroll) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -291,7 +291,7 @@ TEST_P(CircularBufferTest, SingleDimUnroll) {
 }
 
 // circular buffering and vectorize
-TEST_P(CircularBufferTest, SingleDimVectorize) {
+TEST_P(CircularBufferingTest, SingleDimVectorize) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -328,7 +328,7 @@ TEST_P(CircularBufferTest, SingleDimVectorize) {
 }
 
 // Multiple tensors to circular-buffer
-TEST_P(CircularBufferTest, MultipleTensors) {
+TEST_P(CircularBufferingTest, MultipleTensors) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -370,7 +370,7 @@ TEST_P(CircularBufferTest, MultipleTensors) {
 }
 
 // Nested circular buffering from gmem to smem and smem to register
-TEST_P(CircularBufferTest, NestedTensors) {
+TEST_P(CircularBufferingTest, NestedTensors) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -412,7 +412,7 @@ TEST_P(CircularBufferTest, NestedTensors) {
 }
 
 // FusionSmemBlockGemmCache + circular buffering at both smem and local
-TEST_P(CircularBufferTest, SmemBlockGemmCache) {
+TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -503,7 +503,7 @@ TEST_P(CircularBufferTest, SmemBlockGemmCache) {
 }
 
 // Vectorized reset test for circular buffered registers
-TEST_P(CircularBufferTest, Vector) {
+TEST_P(CircularBufferingTest, Vector) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -547,7 +547,7 @@ TEST_P(CircularBufferTest, Vector) {
 // Simple test of async copy primitive: circular buffered
 //   circular buffer case 1, both block sync and async wait
 //  are needed.
-TEST_P(CircularBufferTest, CpAsync1) {
+TEST_P(CircularBufferingTest, CpAsync1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -601,7 +601,7 @@ TEST_P(CircularBufferTest, CpAsync1) {
 
 // Simple test of async copy primitive: circular buffered
 //   circular buffer case 2, only async wait is needed
-TEST_P(CircularBufferTest, CpAsync2) {
+TEST_P(CircularBufferingTest, CpAsync2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -655,7 +655,7 @@ TEST_P(CircularBufferTest, CpAsync2) {
 // Simple test for circular buffer in shared mem,
 //  where we should not insert redundant syncs when
 //  they are not needed.
-TEST_P(CircularBufferTest, NoSync) {
+TEST_P(CircularBufferingTest, NoSync) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -711,6 +711,9 @@ TEST_P(CircularBufferTest, NoSync) {
 }
 
 // Test circular buffer from 2 to 10 stages
-INSTANTIATE_TEST_SUITE_P(NonTma, CircularBufferTest, ::testing::Range(2, 10));
+INSTANTIATE_TEST_SUITE_P(
+    NonTma,
+    CircularBufferingTest,
+    ::testing::Range(2, 10));
 
 } // namespace nvfuser
