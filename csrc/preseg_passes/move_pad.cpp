@@ -428,7 +428,7 @@ void propagatePads(Fusion* fusion) {
               padded_axes.begin(), padded_axes.end(), [&lhs, &rhs](int64_t i) {
         return lhs->getLogicalDomain()[i]->isBroadcast() ||
             rhs->getLogicalDomain()[i]->isBroadcast();
-              }) {
+              })) {
         continue;
       }
 
