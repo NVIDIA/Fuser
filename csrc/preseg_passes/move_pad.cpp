@@ -37,8 +37,8 @@ bool isSimplePadOp(PadOp* pad) {
   }
   std::vector<Val*> pad_widths = pad->getPadWidths();
   return std::all_of(pad_widths.begin(), pad_widths.end(), [](Val* pad_val) {
-    return simplifyExpr(
-               SimplifyingIrBuilder::geExpr(pad_val, pad_val->fusion()->zeroVal()))
+    return simplifyExpr(SimplifyingIrBuilder::geExpr(
+                            pad_val, pad_val->fusion()->zeroVal()))
         ->isTrue();
   });
 }
@@ -97,7 +97,7 @@ Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
       "all inputs to cat should be of the same datatype");
   NVF_ERROR(!inputs.empty(), "replace cat op expects to have non-empty inputs");
 
-  Val* (*binary_op)(Val*,Val*) = isBooleanType(data_type) ? logical_or : add;
+  Val* (*binary_op)(Val*, Val*) = isBooleanType(data_type) ? logical_or : add;
   Val* res = inputs[0];
   for (auto i : c10::irange(1, inputs.size())) {
     res = binary_op(res, inputs[i]);
@@ -296,17 +296,17 @@ std::vector<Val*> maybeMovePadBeforeDefinition(
       expr->inputs().end(),
       std::back_inserter(padded_inputs),
       [&p, &stack, &simple_pad_set](TensorView* val) {
-    TensorView* new_pad_in = replayConcretePad(
-        val,
-        p->value(),
-        {p->getPadWidths()},
-        TensorDomain::noReductions(
-            p->out()->as<TensorView>()->getLogicalDomain()));
-    PadOp* new_pad_op = new_pad_in->definition()->as<PadOp>();
-    stack.push_back(new_pad_op);
-    simple_pad_set.insert(new_pad_op);
-    return new_pad_in;
-      }
+        TensorView* new_pad_in = replayConcretePad(
+            val,
+            p->value(),
+            {p->getPadWidths()},
+            TensorDomain::noReductions(
+                p->out()->as<TensorView>()->getLogicalDomain()));
+        PadOp* new_pad_op = new_pad_in->definition()->as<PadOp>();
+        stack.push_back(new_pad_op);
+        simple_pad_set.insert(new_pad_op);
+        return new_pad_in;
+      });
   return padded_inputs;
 }
 
@@ -427,7 +427,7 @@ void propagatePads(Fusion* fusion) {
       if (std::any_of(
               padded_axes.begin(), padded_axes.end(), [&lhs, &rhs](int64_t i) {
         return lhs->getLogicalDomain()[i]->isBroadcast() || rhs->getLogicalDomain()[i]->isBroadcast());
-              })) {
+              }) {
         continue;
       }
 
@@ -498,11 +498,10 @@ void replaceCat(Fusion* fusion) {
     if (std::any_of(cat->inputs().begin(), cat->inputs().end(), [](Val* val) {
           return !val->definition()->isA<PadOp>();
         })) {
-      Val* res = replaceCatOpWithBinaryOp(cat->inputs())
+      Val* res = replaceCatOpWithBinaryOp(cat->inputs());
 
-          // replace `CatOp` with the replay result.
-          ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-              cat->output(0), res);
+      // replace `CatOp` with the replay result.
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(cat->output(0), res);
     }
   }
 }
