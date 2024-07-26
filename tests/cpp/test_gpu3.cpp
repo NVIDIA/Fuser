@@ -8426,7 +8426,6 @@ TEST_F(NVFuserTest, MultipleDifferentSizeGridReduction) {
   testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
-
 // https://github.com/NVIDIA/Fuser/issues/2671
 // reshape(tv1) is using logical size of tv0, avoid using the
 // logical sizes of both tv0 and tv1.

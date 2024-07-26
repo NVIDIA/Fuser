@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <device_lower/utils.h>
-#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
@@ -163,33 +162,11 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   return extent_to_min_input_id_extent;
 }
 
-bool isDerivedFromConstOrMapped(
-    IterDomain* id,
-    const std::unordered_set<IterDomain*>& mapped_ids) {
-  // if can't trace back further, check if id is a const scalar or mapped to
-  // logical size
-  if (id->definition() == nullptr) {
-    return id->isConstScalar() || mapped_ids.find(id) != mapped_ids.end();
-  }
-  // trace back using definition
-  Expr* expr = id->definition();
-  if (Merge* merge = dynamic_cast<Merge*>(expr)) {
-    std::cout << "merge " << merge->toString() << std::endl;
-    return isDerivedFromConstOrMapped(merge->inner(), mapped_ids) &&
-        isDerivedFromConstOrMapped(merge->outer(), mapped_ids);
-  } else if (Split* split = dynamic_cast<Split*>(expr)) {
-    std::cout << "split " << split->toString() << std::endl;
-    return isDerivedFromConstOrMapped(split->in(), mapped_ids);
-  }
-  return false;
-}
 } // namespace
 
 void replaceSymbolicSizes(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::replaceSymbolicSizes");
   std::unordered_map<Val*, Val*> tensor_dim_map;
-  // ids mapped to logical sizes
-  std::unordered_set<IterDomain*> ids_mapped_to_logical_size;
 
   // Grab inputs and outputs
   std::vector<TensorView*> inputs_and_outputs;
@@ -223,8 +200,6 @@ void replaceSymbolicSizes(Fusion* fusion) {
   // symbolic values. i.e. T0->getLogicalDomain()[0] would map to a named scalar
   // "T0.size[0]". This map will be used when lowering fusion ir to kernel ir.
   for (TensorView* tv : inputs_and_outputs) {
-    std::cout << "tv " << tv->toString() << std::endl;
-    tv->printTransforms();
     // Replace the domain with one based on Ti.size[j]
     const std::vector<IterDomain*>& logical_td = tv->getLogicalDomain();
     int64_t dim = 0;
@@ -246,38 +221,11 @@ void replaceSymbolicSizes(Fusion* fusion) {
         tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
             IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
             dim++);
-        ids_mapped_to_logical_size.insert(id);
-        std::cout << "id " << orig_size->toString() << " : "
-                  << tensor_dim_map[orig_size]->toInlineString() << std::endl;
       } else {
         dim++;
       }
     }
   }
-
-  // Simplify the map by removing derived extents
-  // See NVFuserTest.ReplaceSymbolicSize
-  // IdModel id_model(fusion, false, false, false);
-  // id_model.buildExactGraph();
-  // const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
-  // auto disjoint_sets = graph.disjointValSets();
-  // std::cout << "disjoint_sets.size() " << disjoint_sets.toString() <<
-  // std::endl; for (auto id : ids_mapped_to_logical_size) {
-  //   auto id_vgroup = graph.toGroup(id);
-  //   for (auto val : *id_vgroup) {
-  //     IterDomain* mapped_id = val->as<IterDomain>();
-  //     if(mapped_id->definition() == nullptr) {
-  //       continue;
-  //     }
-  //     // check its oldest ancestors
-  //     if (isDerivedFromConstOrMapped(mapped_id, ids_mapped_to_logical_size))
-  //     {
-  //       std::cout << "remove " << id->toString() << std::endl;
-  //       tensor_dim_map.erase(id->getMaybeExpandedExtent());
-  //       break;
-  //     }
-  //   }
-  // }
 
   const auto& view_ops = ir_utils::getViewOps(fusion);
   for (auto view_op : view_ops) {
@@ -285,20 +233,16 @@ void replaceSymbolicSizes(Fusion* fusion) {
              {view_op->out()->getLogicalDomain().begin(),
               view_op->out()->getLogicalDomain().end()})) {
       if (Split* split = dynamic_cast<Split*>(expr)) {
-        std::cout << "split " << split->toString() << std::endl;
         auto extent_o = split->outer()->getMaybeExpandedExtent();
         auto extent_i = split->inner()->getMaybeExpandedExtent();
         for (auto extent : {extent_i, extent_o}) {
           if (tensor_dim_map.find(extent) != tensor_dim_map.end()) {
-            std::cout << "remove " << extent->toInlineString() << std::endl;
             tensor_dim_map.erase(extent);
           }
         }
       } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
-        std::cout << "merge " << merge->toString() << std::endl;
         auto extent = merge->out()->getMaybeExpandedExtent();
         if (tensor_dim_map.find(extent) != tensor_dim_map.end()) {
-            std::cout << "remove " << extent->toInlineString() << std::endl;
           tensor_dim_map.erase(extent);
         }
       }
