@@ -462,6 +462,11 @@ void TensorView::clearComputeWith() {
   NVF_ERROR(compute_with_consumers_.empty());
 }
 
+TensorView* TensorView::broadcast(int64_t axis) {
+  domain()->broadcast(axis);
+  return this;
+}
+
 TensorView* TensorView::split(int64_t axis, Val* factor, bool inner_split) {
   // Only check things associated with axis, factor will be validated in
   // IterDomain
