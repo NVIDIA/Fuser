@@ -506,7 +506,7 @@ void propagatePads(Fusion* fusion) {
   }
 
   for (Expr* expr : pad_to_be_removed) {
-    fusion->removeExpr(use);
+    fusion->removeExpr(expr);
   }
 }
 
