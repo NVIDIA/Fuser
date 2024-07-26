@@ -38,7 +38,7 @@ bool isSimplePadOp(PadOp* pad) {
   std::vector<Val*> pad_widths = pad->getPadWidths();
   return std::all_of(pad_widths.begin(), pad_widths.end(), [](Val* pad_val) {
     return simplifyExpr(
-               SimplifyingIrBuilder::geExpr(pad_val, pad->fusion()->zeroVal()))
+               SimplifyingIrBuilder::geExpr(pad_val, pad_val->fusion()->zeroVal()))
         ->isTrue();
   });
 }
@@ -97,7 +97,7 @@ Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
       "all inputs to cat should be of the same datatype");
   NVF_ERROR(!inputs.empty(), "replace cat op expects to have non-empty inputs");
 
-  auto binary_op = isBooleanType(data_type) ? logical_or : add;
+  Val* (*binary_op)(Val*,Val*) = isBooleanType(data_type) ? logical_or : add;
   Val* res = inputs[0];
   for (auto i : c10::irange(1, inputs.size())) {
     res = binary_op(res, inputs[i]);
@@ -264,7 +264,7 @@ std::vector<Val*> maybeMovePadBeforeDefinition(
     TensorView* tv,
     const std::unordered_set<Val*>& pad_dependencies,
     std::vector<PadOp*>& stack,
-    std::unordered_set<PadOp*> simple_pad_set, ) {
+    std::unordered_set<PadOp*> simple_pad_set) {
   std::vector<Val*> padded_inputs;
   // stop propagation if current PadOp p isn't the only use of tv, since
   // it requires tv to be live in the fusion.
@@ -296,13 +296,13 @@ std::vector<Val*> maybeMovePadBeforeDefinition(
       expr->inputs().end(),
       std::back_inserter(padded_inputs),
       [&p, &stack, &simple_pad_set](TensorView* val) {
-    TensorView new_pad_in = replayConcretePad(
+    TensorView* new_pad_in = replayConcretePad(
         val,
         p->value(),
         {p->getPadWidths()},
         TensorDomain::noReductions(
             p->out()->as<TensorView>()->getLogicalDomain()));
-    new_pad_op = new_pad_in->definition()->as<PadOp>();
+    PadOp* new_pad_op = new_pad_in->definition()->as<PadOp>();
     stack.push_back(new_pad_op);
     simple_pad_set.insert(new_pad_op);
     return new_pad_in;
@@ -394,45 +394,6 @@ void propagatePads(Fusion* fusion) {
     }
     std::unordered_set<Val*> pad_dependencies =
         DependencyCheck::getAllDependentVals(pad_inputs);
-    auto pad_replay_check = [&pad_dependencies](TensorView* tv) {
-      // stop propagation if current PadOp p isn't the only use of tv, since
-      // it requires tv to be live in the fusion.
-      if (tv->uses().size() != 1) {
-        return false;
-      }
-      Expr* expr = tv->definition();
-      return std::all_of(
-                 expr->inputs().begin(),
-                 expr->inputs().end(),
-                 [](Val* val) { return val->isA<TensorView>(); }) &&
-          std::none_of(
-                 expr->outputs().begin(),
-                 expr->outputs().end(),
-                 [&pad_dependencies = std::as_const(pad_dependencies)](
-                     Val* val) { return pad_dependencies.count(val) > 0; });
-    };
-
-    auto pad_replay = [&p, &stack, &simple_pad_set](std::vector<Val*> vals) {
-      std::vector<TensorView*> res;
-      res.reserve(vals.size());
-      std::transform(
-          vals.begin(),
-          vals.end(),
-          std::back_inserter(res),
-          [&p](TensorView* val) {
-        TensorView new_pad_out = replayConcretePad(
-            val,
-            p->value(),
-            {p->getPadWidths()},
-            TensorDomain::noReductions(
-                p->out()->as<TensorView>()->getLogicalDomain()));
-        new_pad_op = new_pad_out->definition()->as<PadOp>();
-        stack.push_back(new_pad_op);
-        simple_pad_set.insert(new_pad_op);
-        return new_pad_out;
-          }
-      return res;
-    };
 
     Expr* def = p->in()->definition();
     Val* new_out = nullptr;
