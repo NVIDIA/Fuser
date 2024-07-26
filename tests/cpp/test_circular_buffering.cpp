@@ -30,13 +30,18 @@ TEST_F(CircularBufferingTest, CircularBuffering1) {
 
   tv1->setMemoryType(MemoryType::Shared);
 
+  // I0
   tv3->split(-1, 128);
+  // I0/128, 128
   tv3->split(-1, 32);
+  // I0/128, 4, 32
   TransformPropagatorWithCheck propagator(tv3);
   MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
+  // Outer for-loop is I0/128
   tv0->computeAt(tv3, 1);
 
+  // Parallelize inner two dimensions
   tv3->axis(-2)->parallelize(ParallelType::BIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
@@ -67,13 +72,18 @@ TEST_F(CircularBufferingTest, CircularBuffering2) {
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
+  // I0
   tv3->split(-1, 128);
+  // I0/128, 128
   tv3->split(-1, 32);
+  // I0/128, 4, 32
   TransformPropagatorWithCheck propagator(tv3);
   MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
+  // Outer for-loop is I0/128
   tv0->computeAt(tv3, -1);
 
+  // Parallelize inner two dimensions
   tv3->axis(-2)->parallelize(ParallelType::BIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
@@ -106,8 +116,11 @@ TEST_F(CircularBufferingTest, CircularBuffering3) {
 
   tv1->setMemoryType(MemoryType::Shared);
 
+  // I0
   tv3->split(-1, 128);
+  // I0/128, 128
   tv3->split(-1, 32);
+  // I0/128, 4, 32
   TransformPropagatorWithCheck propagator(tv3);
   MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
@@ -153,9 +166,13 @@ TEST_F(CircularBufferingTest, CircularBuffering4) {
 
   tv1->setMemoryType(MemoryType::Shared);
 
+  // I0
   tv3->split(-1, 128);
+  // I0/128, 128
   tv3->split(-1, 32);
+  // I0/128, 4, 32
   tv3->split(-1, 8);
+  // I0/128, 4, 4, 8
   TransformPropagatorWithCheck propagator(tv3);
   MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
@@ -194,9 +211,13 @@ TEST_F(CircularBufferingTest, CircularBuffering5) {
 
   tv1->setMemoryType(MemoryType::Shared);
 
+  // I0
   tv2->split(-1, 128);
+  // I0/128, 128
   tv2->split(-1, 32);
+  // I0/128, 4, 32
   tv2->split(-1, 8);
+  // I0/128, 4, 4, 8
   TransformPropagatorWithCheck propagator(tv2);
   MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
