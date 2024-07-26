@@ -274,6 +274,10 @@ void HostIrExecutor::handle(MatmulOp* matmul_op) {
   return handleWithExpressionEvaluator(matmul_op, expr_evaluator_);
 }
 
+void HostIrExecutor::handle(SelectOp* select_op) {
+  return handleWithExpressionEvaluator(select_op, expr_evaluator_);
+}
+
 } // namespace hir
 
 } // namespace nvfuser
