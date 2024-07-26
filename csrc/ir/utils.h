@@ -499,6 +499,10 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion);
 //! Then [I0, I1, I8, I9] is equivalent to [I6, I7, I2, I3]. [I0, I1, I2, I3] is
 //! equivalent to [I6, I7, I8, I9]. But [I0, I1, I8, I3] is NOT equivalent to
 //! [I6, I7, I2, I9]
+//!
+//! Broadcast IterDomains are ignored in this check, because we consider them as
+//! placeholders and allow them to be created (and annihilated?) arbitrarily as
+//! needed for convenience.
 NVF_API void validateDomainEquivalence(
     const std::vector<IterDomain*>& dom0,
     const std::vector<IterDomain*>& dom1);

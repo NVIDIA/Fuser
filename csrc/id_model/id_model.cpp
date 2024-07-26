@@ -171,9 +171,6 @@ ValGraph& IdModel::idGraph(IdMappingMode mode) {
 
 void IdModel::buildIterDomainDefinitionsAndUses() {
   for (const auto tv : tvs_) {
-    VectorOfUniqueEntries<IterDomain*> root_domain_ids{
-        tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()};
-
     std::vector<IterDomain*> all_ids = tv->domain()->allIDs();
 
     // Check if this domain is a consumer of a view-like operation
@@ -202,7 +199,7 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
 
       Expr* def = id->definition();
 
-      if (def == nullptr || root_domain_ids.has(id)) {
+      if (def == nullptr) {
         continue;
       }
 
