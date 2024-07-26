@@ -24,6 +24,17 @@ namespace nvfuser {
 
 using MatmulSASSTest = NVFuserTest;
 
+class MatmulSASSTestWithLayout
+    : public NVFuserTest,
+      public ::testing::WithParamInterface<MmaLayout> {
+ protected:
+  MmaLayout layout;
+  void SetUp() override {
+    layout = GetParam();
+    NVFuserTest::SetUp();
+  }
+};
+
 // For SASS instruction definitions, see:
 // https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html#instruction-set-reference
 //
@@ -170,7 +181,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
 
 } // namespace
 
-TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
+TEST_P(MatmulSASSTestWithLayout, AmpereSanity) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -178,47 +189,51 @@ TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
   bool found_LDSM = false;
   bool found_HMMA = false;
 
-  for (auto layout : kAllSupportedMmaLayout) {
-    sass::Container sass;
-    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-        8,
-        0,
-        sass = getSASSFor(
-            layout,
-            GemmTile(128, 128, 32),
-            GemmTile(64, 64, 32),
-            GemmTile(16, 8, 16),
-            MmaMacro::Ampere_16_8_16,
-            M,
-            N,
-            K));
-    for (const auto& inst : sass.code) {
-      std::visit(
-          [&](auto&& i) {
-            using T = std::decay_t<decltype(i)>;
-            if constexpr (std::is_same_v<sass::Instruction, T>) {
-              if (i.opCode() == "LDGSTS") {
-                found_LDGSTS = true;
-              } else if (i.opCode() == "LDSM") {
-                found_LDSM = true;
-              } else if (i.opCode() == "HMMA") {
-                found_HMMA = true;
-              }
+  sass::Container sass;
+  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+      8,
+      0,
+      sass = getSASSFor(
+          layout,
+          GemmTile(128, 128, 32),
+          GemmTile(64, 64, 32),
+          GemmTile(16, 8, 16),
+          MmaMacro::Ampere_16_8_16,
+          M,
+          N,
+          K));
+  for (const auto& inst : sass.code) {
+    std::visit(
+        [&](auto&& i) {
+          using T = std::decay_t<decltype(i)>;
+          if constexpr (std::is_same_v<sass::Instruction, T>) {
+            if (i.opCode() == "LDGSTS") {
+              found_LDGSTS = true;
+            } else if (i.opCode() == "LDSM") {
+              found_LDSM = true;
+            } else if (i.opCode() == "HMMA") {
+              found_HMMA = true;
             }
-          },
-          inst);
-    }
-    NVF_CHECK(found_LDGSTS);
-    NVF_CHECK(found_LDSM);
-    NVF_CHECK(found_HMMA);
+          }
+        },
+        inst);
   }
+  NVF_CHECK(found_LDGSTS);
+  NVF_CHECK(found_LDSM);
+  NVF_CHECK(found_HMMA);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    MatmulSASSTestWithLayout,
+    kAllSupportedMmaLayout,
+    mmaLayoutName);
 
 // Check the modifiers of instructions. We are particularily interested in
 // load/store, mma, and sync instructions. Currently, the ground truth in this
 // test's asserts are based on experimental result of this test itself. In the
 // future, we should use cutlass's kernel as ground truth.
-TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
+TEST_F(MatmulSASSTest, AmpereModifiers) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -333,7 +348,7 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
 // load/store, mma, and sync instructions. Currently, the ground truth in this
 // test's asserts are based on experimental result of this test itself. In the
 // future, we should use cutlass's kernel as ground truth.
-TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
+TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
@@ -471,7 +486,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
   }
 }
 
-TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
+TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
@@ -605,7 +620,7 @@ We need to reinvestigate the test below to determine whether to change it or del
 //   LDSM.16.M88.2 R144, [R213+0xa00] ;
 //   LDSM.16.M88.2 R146, [R213+0xc00] ;
 //   LDSM.16.M88.2 R148, [R213+0xe00] ;
-TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM_CUDA) {
+TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
