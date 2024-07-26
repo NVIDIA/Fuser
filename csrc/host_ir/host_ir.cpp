@@ -140,7 +140,15 @@ std::string Stream::toInlineString(int indent_size) const {
 }
 
 bool Stream::sameAs(const Statement* other) const {
-  return false;
+  if (other == this) {
+    return true;
+  }
+  if (!other->isA<Stream>()) {
+    return false;
+  }
+
+  const auto* other_stream = other->as<Stream>();
+  return index() != nullptr && index() == other_stream->index();
 }
 
 SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
