@@ -93,11 +93,16 @@ Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
       std::all_of(
           inputs.begin(),
           inputs.end(),
-          [&data_type](Val* val) { return val->getDataType().value() == data_type; }),
+          [&data_type](Val* val) {
+            return val->getDataType().value() == data_type;
+          }),
       "all inputs to cat should be of the same datatype");
   NVF_ERROR(!inputs.empty(), "replace cat op expects to have non-empty inputs");
 
-  Val* (*binary_op)(Val*, Val*) = isBooleanType(data_type) ? logical_or : add;
+  Val* (*add_resolved)(Val*, Val*) = add;
+  Val* (*logical_or_resolved)(Val*, Val*) = logical_or;
+  Val* (*binary_op)(Val*, Val*) =
+      isBooleanType(data_type) ? logical_or_resolved : add_resolved;
   Val* res = inputs[0];
   for (auto i : c10::irange(1, inputs.size())) {
     res = binary_op(res, inputs[i]);
@@ -424,8 +429,8 @@ void propagatePads(Fusion* fusion) {
       // padding on broadcast dimensions stops pad propagation.
       if (std::any_of(
               padded_axes.begin(), padded_axes.end(), [&lhs, &rhs](int64_t i) {
-        return lhs->getLogicalDomain()[i]->isBroadcast() ||
-            rhs->getLogicalDomain()[i]->isBroadcast();
+                return lhs->getLogicalDomain()[i]->isBroadcast() ||
+                    rhs->getLogicalDomain()[i]->isBroadcast();
               })) {
         continue;
       }
@@ -464,7 +469,7 @@ void propagatePads(Fusion* fusion) {
       // insert new PadOp(s) to stack;
       stack.push_back(new_out->definition()->as<PadOp>());
       simple_pad_set.insert(new_out->definition()->as<PadOp>());
-    } else if (auto* cat = dynamic_cast<CatOp*>(def)) {
+    } else if (def->isA<CatOp*>()) {
       // TODO: can cat support broadcast on any non-cat dimensions? Otherwise
       // we need to ensure that we are not padding on broadcast dimensions
       // like binary op
