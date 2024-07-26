@@ -227,11 +227,15 @@ void replaceSymbolicSizes(Fusion* fusion) {
     }
   }
 
-  const auto& view_ops = ir_utils::getViewOps(fusion);
-  for (auto view_op : view_ops) {
+  // extent creased by split and merge should be removed from the map
+  // to avoid conflict with the original extent. See
+  // NVFuserTest.ReplaceSymbolicSize*
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    if (!tv->hasRoot()) {
+      continue;
+    }
     for (auto expr : StmtSort::getExprsTo(
-             {view_op->out()->getLogicalDomain().begin(),
-              view_op->out()->getLogicalDomain().end()})) {
+             {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       if (Split* split = dynamic_cast<Split*>(expr)) {
         auto extent_o = split->outer()->getMaybeExpandedExtent();
         auto extent_i = split->inner()->getMaybeExpandedExtent();
