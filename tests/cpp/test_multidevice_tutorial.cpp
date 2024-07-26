@@ -194,6 +194,8 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
       all_devices.end(),
       0); // all_devices = [0,1,..., communicator->size()-1]
   DeviceMesh mesh_full(all_devices);
+  // However, it is forbidden to define a mesh with duplicates indices:
+  EXPECT_ANY_THROW(DeviceMesh mesh_with_duplicates({1, 1}));
 
   // Device meshes are used to indicate the devices on which a Tensor is
   // sharded or replicated. Each tensor can be associated with a DeviceMesh. For
