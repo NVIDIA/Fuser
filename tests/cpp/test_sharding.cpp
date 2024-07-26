@@ -19,6 +19,8 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#include <csrc/iter_visitor.h>
+
 namespace nvfuser {
 
 using ShardingTest = NVFuserFixtureParamTest<bool>;
@@ -37,7 +39,7 @@ TEST_F(ShardingTest, IsSharded) {
   TensorView* b = makeSymbolicTensor(3);
   b->split(1, 4);
   b->axis(1)->parallelize(ParallelType::DIDx);
-  EXPECT_ANY_THROW(isSharded(b));
+  EXPECT_TRUE(isSharded(b));
 
   TensorView* c = makeSymbolicTensor(3);
   c->axis(0)->parallelize(ParallelType::DIDx);
@@ -127,8 +129,8 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
 
 TEST_P(ShardingTest, ComputeIndex) {
   const bool creates_concrete_tensor = GetParam();
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  Fusion fusion;
+  FusionGuard fg(&fusion);
   DeviceMesh mesh({0, 1, 2});
 
   TensorView* a = creates_concrete_tensor ? makeConcreteTensor({4, 2, 3, 5})
@@ -137,10 +139,10 @@ TEST_P(ShardingTest, ComputeIndex) {
   TensorView* c = add(a, a);
   TensorView* d = permute(a, {{2, 0}});
 
-  fusion->addInput(a);
-  fusion->addOutput(b);
-  fusion->addOutput(c);
-  fusion->addOutput(d);
+  fusion.addInput(a);
+  fusion.addOutput(b);
+  fusion.addOutput(c);
+  fusion.addOutput(d);
 
   a->setDeviceMesh(mesh);
   b->setDeviceMesh(mesh);
@@ -156,9 +158,9 @@ TEST_P(ShardingTest, ComputeIndex) {
   auto a_tensor = at::randn({4, 2, 1, 5}, options);
 
   FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {a_tensor});
+  fe.compileFusion(&fusion, {a_tensor});
   auto outputs = fe.runFusion({a_tensor});
-  testValidate(fusion.get(), outputs, {a_tensor}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {a_tensor}, __LINE__, __FILE__);
 }
 
 TEST_P(ShardingTest, ShardSplitAxis_Computation) {

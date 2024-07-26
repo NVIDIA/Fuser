@@ -28,6 +28,7 @@ class ForwardTraverseFromLogicalToAlloc {
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
 
   void handle(Split* split) {
+    
     auto in = split->in();
     auto inner = split->inner();
     auto outer = split->outer();
@@ -309,6 +310,7 @@ inferAndValidateAllocationSizesAndStrides(
   const auto& logical = TensorDomain::noReductions(tv->getLogicalDomain());
 
   // active IDs and their shape and stride
+  // active IDs are initially bound to sharded shape and stride. 
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   NVF_ERROR((int64_t)logical.size() == tensor.dim());
   for (int64_t i : c10::irange((int64_t)logical.size())) {
@@ -360,6 +362,7 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->data = input.data_ptr();
   // If tensor is sharded then logical_size and logical_stride will
   // refer to size and stride of the sharded tensor.
+  // TODO: Is this assumption is correct? Maybe it should be the unsharded data. 
   metadata->logical_size = input.sizes();
   metadata->logical_stride = input.strides();
   if (tv->hasAllocation()) {

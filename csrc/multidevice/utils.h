@@ -30,7 +30,6 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges
     Expr* expr);
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
-// Checks that the other non-reduction axis are not parallelized on Didx
 NVF_API bool isSharded(TensorView*);
 
 // Returns number of device dimensions in a TensorView's loop domain.

@@ -329,11 +329,11 @@ void PrecomputedValues::bindTensorMetaData(
     const at::Tensor& tensor) {
   const auto logical_domain =
       TensorDomain::noReductions(tv->getLogicalDomain());
-  const auto alloc_domain =
-    TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   NVF_ERROR(
       tensor.dim() == static_cast<int64_t>(logical_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
+  const auto alloc_domain =
+    TensorDomain::noReductions(tv->getMaybeAllocationDomain());
 
   for (const auto dim : c10::irange(logical_domain.size())) {
     auto value = tensor.size((int64_t)dim);
