@@ -499,18 +499,14 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     } else if (
         loop_type_ == CircularBufferLoopStage::Main &&
         requireEpilogue(circular_buffer_load_exprs_)) {
-      Val* main_stop = IrBuilder::subExpr(
+      stop = IrBuilder::subExpr(
           circular_buffer_loop_->stop(),
           SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
-      stop = IrBuilder::maxExpr(
-          main_stop, GpuLower::current()->kernel()->oneVal());
     } else if (loop_type_ == CircularBufferLoopStage::Epilog) {
       NVF_ERROR(requireEpilogue(circular_buffer_load_exprs_));
-      Val* epilogue_start = IrBuilder::subExpr(
+      start = IrBuilder::subExpr(
           circular_buffer_loop_->stop(),
           SimplifyingIrBuilder::create<Val>(stage_depth - 1, DataType::Index));
-      start = IrBuilder::maxExpr(
-          epilogue_start, GpuLower::current()->kernel()->oneVal());
     }
 
     cloned_top_level_loop_ = IrBuilder::create<ForLoop>(
