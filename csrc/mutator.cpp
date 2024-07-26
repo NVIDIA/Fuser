@@ -77,6 +77,7 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
       ", ",
       mutation->dtype(),
       ")");
+  std::cout << "val  " << val->toInlineString() << " muted changed to " <<  mutation->toInlineString() << std::endl;
   mutations_[val] = mutation;
 }
 
@@ -133,6 +134,27 @@ void OptOutMutator::mutate(TensorDomain* td) {
 
   if (!mutated) {
     return;
+  }
+  std::cout << "================================"  << std::endl;
+
+  for(auto root : td->root()) {
+    std::cout << "root  " << root->toString() << std::endl;
+  }
+  for(auto logical : td->logical()) {
+    std::cout << "logical  " << logical->toString()  << ", const?= " << logical->getMaybeExpandedExtent()->isConstScalar() << std::endl;
+  }
+  for(auto loop : td->loop()) {
+    std::cout << "loop  " << loop->toString() << std::endl;
+  }
+  std::cout << std::endl;
+  for(auto root : root_dom) {
+    std::cout << "root  " << root->toString() << std::endl;
+  }
+  for(auto logical : logical_dom) {
+    std::cout << "logical  " << logical->toString() << std::endl;
+  }
+  for(auto loop : domain) {
+    std::cout << "loop  " << loop->toString() << std::endl;
   }
 
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(

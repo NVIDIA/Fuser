@@ -247,8 +247,8 @@ void replaceSymbolicSizes(Fusion* fusion) {
             IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
             dim++);
         ids_mapped_to_logical_size.insert(id);
-        std::cout << "id " << orig_size->toString() << " : " << tensor_dim_map[orig_size]->toInlineString()
-                  << std::endl;
+        std::cout << "id " << orig_size->toString() << " : "
+                  << tensor_dim_map[orig_size]->toInlineString() << std::endl;
       } else {
         dim++;
       }
@@ -257,23 +257,50 @@ void replaceSymbolicSizes(Fusion* fusion) {
 
   // Simplify the map by removing derived extents
   // See NVFuserTest.ReplaceSymbolicSize
-  IdModel id_model(fusion, false, false, false);
-  id_model.buildExactGraph();
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
-  auto disjoint_sets = graph.disjointValSets();
-  std::cout << "disjoint_sets.size() " << disjoint_sets.toString() << std::endl;
-  for (auto id : ids_mapped_to_logical_size) {
-    auto id_vgroup = graph.toGroup(id);
-    for (auto val : *id_vgroup) {
-      IterDomain* mapped_id = val->as<IterDomain>();
-      if(mapped_id->definition() == nullptr) {
-        continue;
-      }
-      // check its oldest ancestors
-      if (isDerivedFromConstOrMapped(mapped_id, ids_mapped_to_logical_size)) {
-        std::cout << "remove " << id->toString() << std::endl;
-        tensor_dim_map.erase(id->getMaybeExpandedExtent());
-        break;
+  // IdModel id_model(fusion, false, false, false);
+  // id_model.buildExactGraph();
+  // const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+  // auto disjoint_sets = graph.disjointValSets();
+  // std::cout << "disjoint_sets.size() " << disjoint_sets.toString() <<
+  // std::endl; for (auto id : ids_mapped_to_logical_size) {
+  //   auto id_vgroup = graph.toGroup(id);
+  //   for (auto val : *id_vgroup) {
+  //     IterDomain* mapped_id = val->as<IterDomain>();
+  //     if(mapped_id->definition() == nullptr) {
+  //       continue;
+  //     }
+  //     // check its oldest ancestors
+  //     if (isDerivedFromConstOrMapped(mapped_id, ids_mapped_to_logical_size))
+  //     {
+  //       std::cout << "remove " << id->toString() << std::endl;
+  //       tensor_dim_map.erase(id->getMaybeExpandedExtent());
+  //       break;
+  //     }
+  //   }
+  // }
+
+  const auto& view_ops = ir_utils::getViewOps(fusion);
+  for (auto view_op : view_ops) {
+    for (auto expr : StmtSort::getExprsTo(
+             {view_op->out()->getLogicalDomain().begin(),
+              view_op->out()->getLogicalDomain().end()})) {
+      if (Split* split = dynamic_cast<Split*>(expr)) {
+        std::cout << "split " << split->toString() << std::endl;
+        auto extent_o = split->outer()->getMaybeExpandedExtent();
+        auto extent_i = split->inner()->getMaybeExpandedExtent();
+        for (auto extent : {extent_i, extent_o}) {
+          if (tensor_dim_map.find(extent) != tensor_dim_map.end()) {
+            std::cout << "remove " << extent->toInlineString() << std::endl;
+            tensor_dim_map.erase(extent);
+          }
+        }
+      } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+        std::cout << "merge " << merge->toString() << std::endl;
+        auto extent = merge->out()->getMaybeExpandedExtent();
+        if (tensor_dim_map.find(extent) != tensor_dim_map.end()) {
+            std::cout << "remove " << extent->toInlineString() << std::endl;
+          tensor_dim_map.erase(extent);
+        }
       }
     }
   }
