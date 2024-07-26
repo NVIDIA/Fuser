@@ -578,6 +578,11 @@ bool isBetterThan(
   // reduction. This may happen when input size is very small, e.g. 512 x 128.
   // Current grid reduction heuristic start bdimx from 16 and prioritize
   // vectorization. It may not be able to fully utilize all the SMs.
+  // This is really a tiny problem. The performance impact is most likely in a
+  // range of a few us in <10us kernels
+  // This condition is a WAR. Ideally, the grid reduction heuristics should be
+  // improved, but given that the impact is likely negligible, we decided to do
+  // this quick adjustment.
   if (block_hp.gidim * block_hp.grdim >= grid_hp.gidim * grid_hp.grdim) {
     return true;
   }
