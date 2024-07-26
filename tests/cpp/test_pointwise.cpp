@@ -539,8 +539,6 @@ TEST_F(PointwiseTest, ShardedPointwise) {
     at::Tensor t0 = at::randn(input_size, options);
     at::Tensor t1 = at::randn({input_size[1], input_size[2]}, options);
     std::vector<c10::IValue> sharded_inputs = {t0.unsqueeze(sharded_dim), t1};
-    std::cout << "t0 unsqueeze shape " << t0.unsqueeze(sharded_dim).sizes()
-              << std::endl;
     auto params = getPointwiseHeuristics(&sharded_fusion, sharded_inputs);
     auto unsharded_params = getPointwiseHeuristics(&unsharded_fusion, {t0, t1});
     // Note: occasionally one of the compile parameter index types is int64_t
