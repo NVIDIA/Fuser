@@ -2798,42 +2798,6 @@ struct SdpaFwdOpRecord : RecordFunctor {
     fd.setFusionState(outputs_.at(5).index, output.philox_offset);
     fd.setFusionState(outputs_.at(6).index, output.debug_attn_mask);
   }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    bool first_output = true;
-    for (auto& output : outputs_) {
-      if (first_output) {
-        first_output = false;
-      } else {
-        os << ", ";
-      }
-      os << output;
-    }
-
-    os << " = "
-       << "fd." << name_ << "(";
-
-    bool first_arg = true;
-    size_t idx = 0;
-    for (auto& arg : args_) {
-      if (arg.stype == serde::StateType::None) {
-        continue;
-      }
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      if (!arg_names_[idx].empty()) {
-        os << arg_names_[idx] << "=";
-      }
-      ++idx;
-      os << arg;
-    }
-    if (close_function) {
-      os << ")";
-    }
-  }
 };
 
 struct SdpaBwdOpRecord : RecordFunctor {
@@ -2890,42 +2854,6 @@ struct SdpaBwdOpRecord : RecordFunctor {
     fd.setFusionState(outputs_.at(0).index, grad.grad_query);
     fd.setFusionState(outputs_.at(1).index, grad.grad_key);
     fd.setFusionState(outputs_.at(2).index, grad.grad_value);
-  }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    bool first_output = true;
-    for (auto& output : outputs_) {
-      if (first_output) {
-        first_output = false;
-      } else {
-        os << ", ";
-      }
-      os << output;
-    }
-
-    os << " = "
-       << "fd." << name_ << "(";
-
-    bool first_arg = true;
-    size_t idx = 0;
-    for (auto& arg : args_) {
-      if (arg.stype == serde::StateType::None) {
-        continue;
-      }
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      if (!arg_names_[idx].empty()) {
-        os << arg_names_[idx] << "=";
-      }
-      ++idx;
-      os << arg;
-    }
-    if (close_function) {
-      os << ")";
-    }
   }
 };
 

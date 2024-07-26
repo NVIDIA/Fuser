@@ -4375,8 +4375,12 @@ class TestNvFuserFrontend(TestCase):
         ref_grad = torch.ops.aten._scaled_dot_product_flash_attention(
             q, k, v, dropout_p, is_causal, return_debug_mask=False, scale = 1 / E**0.5
         )
+
+        # nvFuser API requires query/key_seq_len to be CPU scalar tensors.
         query_seq_tensor = torch.scalar_tensor(query_seq_len, dtype=torch.int64)
         key_seq_tensor = torch.scalar_tensor(query_seq_len, dtype=torch.int64)
+        
+        inputs = [grad_output, q, k, v, output, log_sumexp, query_seq_tensor, key_seq_tensor, philox_seed, philox_offset]
 
         def fusion_func(fd: FusionDefinition, inputs:list):
             grad_output = fd.from_pytorch(inputs[0])
@@ -4389,15 +4393,12 @@ class TestNvFuserFrontend(TestCase):
             key_seq_len = fd.from_pytorch(inputs[7])
             philox_seed = fd.from_pytorch(inputs[8])
             philox_offset = fd.from_pytorch(inputs[9])
-            dropout_p = fd.define_scalar(0.0)
-            is_causal = fd.define_scalar(False, dtype=DataType.Bool)
 
-            grad_query, grad_key, grad_value= fd.ops.sdpfa_bwd(grad_output, q, k, v, output, log_sumexp, query_seq_len, key_seq_len, dropout_p, is_causal, philox_seed, philox_offset)
+            grad_query, grad_key, grad_value= fd.ops.sdpfa_bwd(grad_output, q, k, v, output, log_sumexp, query_seq_len, key_seq_len, None, None, philox_seed, philox_offset)
             fd.add_output(grad_query)
             fd.add_output(grad_key)
             fd.add_output(grad_value)
 
-        inputs = [grad_output, q, k, v, output, log_sumexp, query_seq_tensor, key_seq_tensor, philox_seed, philox_offset]
         nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inputs=inputs), inputs)
         
     def test_reshape_dynamic(self):
