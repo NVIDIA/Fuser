@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 import ctypes
 import gc
 import pytest_benchmark
@@ -5,6 +8,8 @@ import torch
 from torch.autograd import DeviceType
 from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union, Tuple
+import numpy as np
+from nvfuser import FusionDefinition, FusionCache
 
 
 def get_device_properties() -> Tuple[int, float]:
@@ -112,6 +117,11 @@ def get_device_properties() -> Tuple[int, float]:
     return device_properties
 
 
+# These variables can be overwritten through CLI commands
+# --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
+# --benchmark-num-inputs=num_inputs
+BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1, "num_inputs": None}
+
 DEVICE_PROPERTIES = get_device_properties()
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
@@ -138,13 +148,37 @@ def clear_cuda_cache() -> None:
         torch.cuda.empty_cache()
 
 
+# Backward function for torch baseline benchmarks.
+def unary_bwd_torch(inputs: List):  # [output, grad_out]
+    inputs[0].backward(inputs[1], retain_graph=True)
+
+
+def compute_total_iobytes(
+    tensor_props: dict[str, tuple[int | tuple[int, ...], torch.dtype]]
+):
+    """
+    Compute IObytes for baselines from given description:
+    Tensor_props has entries of the form: {'tensor_id': (size: tuple, dtype: torch.dtype)}
+    """
+    iobytes = 0
+    for _, tensor_prop in tensor_props.items():
+        size, dtype = tensor_prop[0], tensor_prop[1]
+        if isinstance(size, tuple):
+            iobytes += np.prod(size) * dtype.itemsize
+        else:
+            iobytes += size * dtype.itemsize
+    return int(iobytes)
+
+
 class NVFBenchmark:
     """
     A wrapper class around pytest-benchmark to support
     torchprofiler-based timer and metric computation.
     """
 
-    def __init__(self, benchmark_fixture, precision: float = 1e-6):
+    def __init__(
+        self, benchmark_fixture, device: str = "cuda", precision: float = 1e-6
+    ):
         """
         Arguments:
             benchmark_fixture: pytest-benchmark fixture passed to every
@@ -157,11 +191,20 @@ class NVFBenchmark:
             self.benchmark: Underlying pytest-benchmark fixture with timer modified to use torchprofile_timer
             self.current_time: Global montonic clock incremented based on elapsed CUDA time
         """
-        # Initialize a Torch Profiler object
-        self.prof = profile(activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU])
 
-        # Modify the default timer.
-        benchmark_fixture._timer = self.torchprofile_timer
+        self.device = device
+        self.fd = None  # Set through setup() for host benchmarking.
+        self.benchmark = benchmark_fixture
+
+        if device == "cuda":
+            # Initialize a Torch Profiler object
+            self.prof = profile(
+                activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU]
+            )
+            # Modify the default timer.
+            benchmark_fixture._timer = self.torchprofile_timer
+        else:
+            benchmark_fixture._timer = self.fusionprofile_timer
         # Externally set the precision to avoid timer calibration. Since the timer uses CUDA times,
         # calibration using subsequent timer calls produces invalid results.
         # https://github.com/ionelmc/pytest-benchmark/blob/728752d2976ef53fde7e40beb3e55f09cf4d4736/src/pytest_benchmark/timers.py#L15
@@ -171,6 +214,10 @@ class NVFBenchmark:
 
         # Global montonic clock
         self.current_time = 0.0
+
+        # Specifies if the timer in host measurement is called at the start/finish of execution.
+        # Timings are measured at the end of execution.
+        self.execution_start = True
 
     def __call__(self, function_to_benchmark: Callable, *args, **kwargs):
         return self.benchmark(function_to_benchmark, *args, **kwargs)
@@ -194,9 +241,20 @@ class NVFBenchmark:
             prof_averages = self.prof.key_averages()
             elapsed_cuda_time = self._get_kernel_time(prof_averages)
             self._increment_global_time(elapsed_cuda_time)
+            # Clear the internal profiler object to avoid accumulating function events and then restart the profiler
+            # See PR: https://github.com/pytorch/pytorch/pull/125510
+            self.prof.profiler = None
             self.prof.start()
         except AssertionError:
             self.prof.start()
+        return self.current_time
+
+    def fusionprofile_timer(self) -> float:
+        if not self.execution_start:
+            profile = self.fd.profile()
+            elapsed_host_time = profile.host_time_ms / 1e3
+            self._increment_global_time(elapsed_host_time)
+        self.execution_start = not self.execution_start
         return self.current_time
 
     def _get_kernel_time(
@@ -211,7 +269,12 @@ class NVFBenchmark:
         elapsed_cuda_time = (
             sum(
                 [
-                    event.self_cuda_time_total
+                    # Re: torch profiler API changes in https://github.com/pytorch/pytorch/pull/123247
+                    (
+                        event.self_device_time_total
+                        if hasattr(event, "self_device_time_total")
+                        else event.self_cuda_time_total
+                    )
                     for event in prof_averages
                     if event.device_type == DeviceType.CUDA
                 ]
@@ -280,11 +343,11 @@ class NVFBenchmark:
 
 def run_benchmark(
     benchmark: pytest_benchmark.fixture.BenchmarkFixture,
-    benchmark_fn: Callable,
+    benchmark_fn: Callable | None,
     inputs: Union[torch.Tensor, List],
-    rounds: int = 10,
-    warmup_rounds: int = 1,
     iobytes: int = None,
+    device: str = "cuda",
+    fusion_fn: Callable = None,
 ) -> Union[torch.Tensor, List]:
     """
     Benchmarks the target function using torchprofiler and stores metrics as extra information.
@@ -293,19 +356,59 @@ def run_benchmark(
         benchmark: pytest-benchmark fixture
         benchmark_fn: Target function
         inputs: Inputs to the target function
+        iobytes (Optional): When given, IO bytes computation is skipped
+                and this is used to compute SOL and bandwidth.
+        device (Optional): Default: CUDA, Possible values: ["cuda", "host"].
+            Using device="host" is only allowed with nvFuser FusionDefinition.
+        fusion_fn (Optional): Must be provided if device = "host".
+            fusion_fn should only require FusionDefinition() as the input.
+            Use functools.partial if fusion_fn accepts additional arguments.
+            See test_many_pointwise_ops.py for example.
 
     Returns:
         outputs: Output of the target function
     """
 
+    assert device in [
+        "cuda",
+        "host",
+    ], f"Unsupported device type: {device}. Use one of cuda/host."
+
+    if device == "host":
+        assert fusion_fn is not None and benchmark_fn is None
+
+    nvf_benchmark = NVFBenchmark(benchmark, device=device)
+
+    def host_benchmark_fn(inputs, fd):
+        # Set the fd variable used to query the profile object
+        nvf_benchmark.fd = fd
+        return fd.execute(inputs, profile=True)
+
     def setup():
         clear_l2_cache()
+
+        if device == "host":
+            # Reset the FusionCache to measure host overhead correctly.
+            FusionCache.reset()
+            with FusionDefinition() as fd:
+                fusion_fn(fd)
+            # The benchmark_fn used is host_benchmark_fn above.
+            return [inputs], {"fd": fd}
+
         return [inputs], {}
 
-    nvf_benchmark = NVFBenchmark(benchmark)
+    benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
     outputs = nvf_benchmark.pedantic(
-        benchmark_fn, setup=setup, rounds=rounds, warmup_rounds=warmup_rounds
+        benchmark_fn,
+        setup=setup,
+        rounds=BENCHMARK_CONFIG["rounds"],
+        warmup_rounds=BENCHMARK_CONFIG["warmup_rounds"],
     )
-    nvf_benchmark.set_metrics(inputs, outputs, iobytes)
-    nvf_benchmark.cleanup()
+
+    if device == "cuda":
+        # Record additional metrics (IOBytes, Bandwidth)
+        nvf_benchmark.set_metrics(inputs, outputs, iobytes)
+        # Stop torch.profiler instance
+        nvf_benchmark.cleanup()
+
     return outputs

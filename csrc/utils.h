@@ -60,6 +60,8 @@ bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type);
 bool is_cpu_scalar(const at::Tensor& tensor);
 bool is_cpu_scalar(const c10::TensorType& tensor_type);
 
+bool is_meta_scalar(const at::Tensor& tensor);
+
 //! Find common device among tensor inputs. If no tensor inputs are found and
 //! the selected_device argument is omitted, a default value of 0 is returned.
 //! If no tensor inputs are found and selected_device is provided,
@@ -292,7 +294,7 @@ SPECIALIZE_PRINTER(UnaryOpType);
 SPECIALIZE_PRINTER(BinaryOpType);
 SPECIALIZE_PRINTER(TernaryOpType);
 SPECIALIZE_PRINTER(LoadStoreOpType);
-SPECIALIZE_PRINTER(DoubleBufferLoopStage);
+SPECIALIZE_PRINTER(CircularBufferLoopStage);
 SPECIALIZE_PRINTER(tma::TensorMapInterleave);
 SPECIALIZE_PRINTER(tma::TensorMapL2Promotion);
 SPECIALIZE_PRINTER(tma::TensorMapFloatOOBFill);
@@ -549,6 +551,21 @@ template <typename K, typename V>
 V getOrDefault(const std::unordered_map<K, V>& map, const K& key) {
   const auto i = map.find(key);
   return i == map.end() ? V() : i->second;
+}
+
+size_t deviceAvailableSharedMemoryBytes();
+
+inline int64_t wrapDim(int64_t dim, int64_t ndim) {
+  if (dim < 0) {
+    dim += ndim;
+  }
+  NVF_CHECK(
+      dim >= 0 && dim < ndim,
+      "Tried to access out of boundary index ",
+      dim,
+      ". total index: ",
+      ndim);
+  return dim;
 }
 
 } // namespace nvfuser

@@ -127,29 +127,10 @@ class NVF_API IterDomain : public Val {
       IterDomain* inner,
       bool rfactor_domain = false);
 
-  //! start_offset and stop_offset defines partial split. Only root
-  //! domains are allowed to have non-zero start and stop offsets.
-  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
-  //! both result IterDomains.
   static std::pair<IterDomain*, IterDomain*> split(
       IterDomain* in,
       Val* factor,
       bool inner_split,
-      Val* start_offset = nullptr,
-      Val* stop_offset = nullptr,
-      bool rfactor_domain = false);
-
-  //! trim_out_of_bounds controls how the values outside start and stop
-  //! positions are treated. The option is only valid with root
-  //! domains as non-root domains do not have valid start and stop
-  //! positions.
-  //!
-  //! \param trim_out_of_bounds Trims [0, start_] and [-stop_offset_, extent_]
-  static std::pair<IterDomain*, IterDomain*> split(
-      IterDomain* in,
-      Val* factor,
-      bool inner_split,
-      bool trim_out_of_bounds,
       bool rfactor_domain = false);
 
   //! Resize an IterDomain by expanding both the left and right sides
@@ -205,10 +186,6 @@ class NVF_API IterDomain : public Val {
 
   bool isGatherScatter() const {
     return getIterType() == IterType::GatherScatter;
-  }
-
-  bool isGather() const {
-    return getIterType() == IterType::Gather;
   }
 
   bool isStride() const {
@@ -454,36 +431,36 @@ class TensorDomain : public Val {
  public:
   NVF_API explicit TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   // See notes [ Note stride order and contiguity vector ] in
   // python_bindings.cpp
   TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<int64_t> stride_order,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
-      std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> leaf_domain,
+      std::vector<IterDomain*> logical_domain,
+      std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> rfactor_domain,
-      std::vector<IterDomain*> leaf_domain,
+      std::vector<IterDomain*> logical_domain,
+      std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
-      std::vector<IterDomain*> rfactor_domain,
+      std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> allocation,
-      std::vector<IterDomain*> leaf_domain,
+      std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
@@ -497,8 +474,8 @@ class TensorDomain : public Val {
     return !(*this == other);
   }
 
-  std::vector<IterDomain*>::size_type nDims() const {
-    return leaf_domain_.size();
+  int64_t nDims() const {
+    return (int64_t)loop_domain_.size();
   }
 
   bool sameAs(const Statement* other) const override;
@@ -507,15 +484,15 @@ class TensorDomain : public Val {
       const std::vector<IterDomain*>& lhs,
       const std::vector<IterDomain*>& rhs);
 
-  // When `leaf_only` is false, prints also the root, rfactor and allocation
+  // When `loop_only` is false, prints also the root, logical and allocation
   // domain if not empty.
-  std::string toString(int indent_size, bool leaf_only) const;
+  std::string toString(int indent_size, bool loop_only) const;
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
   // Note: [Contiguity]
   // Contiguity is a vector of optional<bool> which has the same number of
-  // elements as rfactor_domain_. The contiguity of a broadcast dimension is
+  // elements as logical_domain_. The contiguity of a broadcast dimension is
   // meaningless, so it has to be nullopt. The contiguity of a non-broadcasting
   // dimension is true if and only if it is memory dense with the next
   // non-broadcasting dimension.
@@ -542,11 +519,11 @@ class TensorDomain : public Val {
   bool hasGridBroadcast() const;
 
   bool hasBroadcast() const {
-    return no_bcast_domain_.size() != leaf_domain_.size();
+    return no_bcast_domain_.size() != loop_domain_.size();
   }
 
-  bool hasRFactor() const {
-    return !rfactor_domain_.empty();
+  bool hasRoot() const {
+    return !root_domain_.empty();
   }
 
   bool hasAllocation() const {
@@ -560,7 +537,7 @@ class TensorDomain : public Val {
 
   NVF_API bool hasSymbolicAxis() const;
 
-  std::optional<unsigned int> getReductionAxis() const;
+  std::optional<int64_t> getReductionAxis() const;
 
   const std::vector<IterDomain*>& noReductions() const {
     return no_reduction_domain_;
@@ -571,15 +548,18 @@ class TensorDomain : public Val {
   }
 
   // The input logical domain. The root domain of a consumer should equal the
-  // rfactor domain of its producer ignoring reduction dimensions.
+  // logical domain of its producer ignoring reduction dimensions.
   const std::vector<IterDomain*>& root() const {
     return root_domain_;
   };
 
-  // The output logical domain. If empty, the same as the root domain.
-  // See also the helper function `maybeRFactor`.
-  const std::vector<IterDomain*>& rfactor() const {
-    return rfactor_domain_;
+  const std::vector<IterDomain*>& maybeRoot() const {
+    return root_domain_.empty() ? logical_domain_ : root_domain_;
+  };
+
+  // The output logical domain.
+  const std::vector<IterDomain*>& logical() const {
+    return logical_domain_;
   };
 
   // The allocation domain. This describes how data is stored in memory in
@@ -589,24 +569,33 @@ class TensorDomain : public Val {
   }
 
   // The loop domain after scheduling. This defines loop nests and loop indices.
-  const std::vector<IterDomain*>& leaf() const {
-    return leaf_domain_;
+  const std::vector<IterDomain*>& loop() const {
+    return loop_domain_;
   }
 
-  // If rfactor domain exists in domain() return it, otherwise return root
-  // domain.
-  const std::vector<IterDomain*>& maybeRFactor() const {
-    return hasRFactor() ? rfactor() : root();
-  }
+  // Get all IDs that is on the shortest path between any of the domains
+  // (logical domain, root domain, loop domain, allocation domain) following
+  // definition and uses path. Return values are topologically ordered and
+  // unique.
+  std::vector<IterDomain*> allIDs() const;
 
   const std::vector<IterDomain*>& maybeAllocation() const {
-    return hasAllocation() ? allocation_domain_ : maybeRFactor();
+    return hasAllocation() ? allocation_domain_ : logical();
   };
 
-  // Set the allocation domain of this TensorDomain. The new allocation domain
-  // must satisfy root <= allocation <= leaf, that is, it must be within the
-  // history between root and leaf domain. Because contiguity is always defined
-  // w.r.t. the allocation domain, the contiguity must be updated accordingly.
+  // Additional IDs that are not on the path from one of
+  // root/logical/allocation/loop domain to another. We need to keep track of
+  // these IDs to ensure that we can find all paths/IDs of interest.
+  const std::vector<IterDomain*>& additionalIDs() const {
+    return additional_ids_;
+  }
+
+  // Set the loop domain of this TensorDomain.
+  NVF_API void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
+
+  // Set the allocation domain of this TensorDomain. Because contiguity is
+  // always defined w.r.t. the allocation domain, the contiguity must be updated
+  // accordingly.
   NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
       std::vector<std::optional<bool>> new_contiguity);
@@ -623,19 +612,22 @@ class TensorDomain : public Val {
   }
 
   void resetDomains() {
-    no_reduction_domain_ = noReductions(leaf_domain_);
-    no_bcast_domain_ = noBroadcasts(leaf_domain_);
-    has_reduction_ = hasReduction(leaf_domain_);
+    no_reduction_domain_ = noReductions(loop_domain_);
+    no_bcast_domain_ = noBroadcasts(loop_domain_);
+    has_reduction_ = hasReduction(loop_domain_);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a
   // uint.
-  IterDomain* axis(int i) const;
+  IterDomain* axis(int64_t i) const;
 
   int64_t posOf(IterDomain* id) const;
 
   //! Returns a position of a root domain
   int64_t rootPosOf(IterDomain* id) const;
+
+  //! Create a new broadcast IterDomain with extent one in the loop domain
+  void broadcast(int64_t axis);
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
@@ -645,26 +637,22 @@ class TensorDomain : public Val {
   //! tv[id{extent}] -> tv[id{ceilDiv(extent, factor)}, id{factor}]
   //! e.g. split(0, 4, inner_split = false) will result in:
   //! tv[id{extent}] -> tv[id{factor}, id{ceilDiv(extent, factor)}]
-  void split(
-      int axis_,
-      Val* factor,
-      bool inner_split,
-      bool trim_out_of_bounds = false);
+  void split(int64_t axis_, Val* factor, bool inner_split);
 
   // Merge axis_o and axis_i. axis_i is the fast changing dimension. Resulting
   // axis is by default placed at original position axis_o
-  void merge(int axis_o, int axis_i);
+  void merge(int64_t axis_o, int64_t axis_i);
 
   // Reorder axes according to map[old_pos] = new_pos
-  void reorder(const std::unordered_map<int, int>& old2new);
+  void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
 
   //! Applies 2D swizzle on a rectangular tile defined by
   //!  a pair of iterdomains contained in this domain.
-  void swizzle(SwizzleType swizzle_type, int x, int y);
+  void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
   void swizzle(
       Swizzle2DType swizzle_type,
-      int x,
-      int y,
+      int64_t x,
+      int64_t y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
 
   // Transform TensorView according to merge and split transformations
@@ -674,31 +662,40 @@ class TensorDomain : public Val {
 
   static std::vector<IterDomain*> orderedAs(
       const std::vector<IterDomain*>& td,
-      const std::unordered_map<int, int>& old2new);
+      const std::unordered_map<int64_t, int64_t>& old2new);
 
   NVF_API static std::vector<IterDomain*> noReductions(
       const std::vector<IterDomain*>&);
   NVF_API static std::vector<IterDomain*> noBroadcasts(
       const std::vector<IterDomain*>&);
+  NVF_API static std::vector<IterDomain*> noDevices(
+      const std::vector<IterDomain*>&);
 
   static bool hasBroadcast(const std::vector<IterDomain*>&);
   static bool hasReduction(const std::vector<IterDomain*>&);
 
-  // Get a vector whose size is the number of IDs in the given rfactor_domain
+  // Get a vector whose size is the number of IDs in the given logical_domain
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
   NVF_API static std::vector<std::optional<bool>> getContiguityFilledWith(
-      const std::vector<IterDomain*>& rfactor_domain,
+      const std::vector<IterDomain*>& logical_domain,
       bool fill_value);
 
   // pair is in order where second is the consumer of first
-  std::pair<TensorDomain*, TensorDomain*> rFactor(const std::vector<int>& axes);
+  std::pair<TensorDomain*, TensorDomain*> rFactor(
+      const std::vector<int64_t>& axes);
+
+ private:
+  int64_t wrapDim(int64_t dim) const {
+    return nvfuser::wrapDim(dim, nDims());
+  }
 
  private:
   const std::vector<IterDomain*> root_domain_;
-  const std::vector<IterDomain*> rfactor_domain_;
+  const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
-  std::vector<IterDomain*> leaf_domain_;
+  std::vector<IterDomain*> loop_domain_;
+  std::vector<IterDomain*> additional_ids_;
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;

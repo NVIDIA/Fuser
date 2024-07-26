@@ -23,37 +23,15 @@ namespace nvfuser {
 namespace {
 
 // Provide a new for loop matching the one provided
-kir::ForLoop* cloneLoopNest(const kir::ForLoop* for_loop) {
-  const auto new_loop = IrBuilder::create<kir::ForLoop>(for_loop);
+ForLoop* cloneLoopNest(const ForLoop* for_loop) {
+  const auto new_loop = IrBuilder::create<ForLoop>(for_loop);
   for (auto expr : for_loop->body().exprs()) {
-    if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    if (auto nested_for_loop = dynamic_cast<ForLoop*>(expr)) {
       expr = cloneLoopNest(nested_for_loop);
     }
     new_loop->body().push_back(expr);
   }
   return new_loop;
-}
-
-// Returns true if expr is an expression that initializes a reduction
-// buffer.
-bool isReductionInitExpr(const Expr* expr) {
-  // False if its output isn't a TensorView
-  if (!ir_utils::isTvOp(expr)) {
-    return false;
-  }
-  // False if it doesn't have any reduction axis
-  const auto out_tv = expr->outputs()[0]->as<TensorView>();
-  if (!out_tv->domain()->hasReduction()) {
-    return false;
-  }
-  // False if it has have TensorView inputs as initialization should
-  // never use TensorViews
-  const auto tv_filter_inp_view =
-      ir_utils::filterByType<TensorView>(expr->inputs());
-  if (tv_filter_inp_view.begin() != tv_filter_inp_view.end()) {
-    return false;
-  }
-  return true;
 }
 
 } // namespace
@@ -65,29 +43,34 @@ void UnrollPass::registerReplace(Expr* reference, Expr* new_expr) {
 
 void UnrollPass::dispatch(Expr* expr) {
   if (ir_utils::isTvOp(expr)) {
+    DEBUG_PRINT_SCOPE_NAME("UnrollPass::dispatch", expr);
     // If tv op, predicate it
     const auto out_tv = ir_utils::getTvOutput(expr);
     const bool should_predicate = !for_loops_.empty() ||
         out_tv->getMemoryType() == MemoryType::Global ||
         out_tv->getMemoryType() == MemoryType::Shared;
     if (!should_predicate) {
+      DEBUG_LOG("!should_predicate");
       return;
     }
 
     auto thread_pred =
         GpuLower::current()->threadPredMap().getPredicate(out_tv);
+    DEBUG_LOG("thread predicate: ", thread_pred->toInlineString());
 
     // If this expr is for initializing a reduction output tensor, the
     // thread predicate can be ignored if the tensor is not shared by
     // any of the predicated parallel types
-    if (isReductionInitExpr(expr)) {
+    if (lower_utils::isReductionInitExpr(expr)) {
       if (out_tv->getMemoryType() == MemoryType::Local) {
         // Local is always private, so we can always ignore thread predicates
         thread_pred = GpuLower::current()->kernel()->trueVal();
+        DEBUG_LOG("thread predicate: ", thread_pred->toInlineString());
       } else if (out_tv->getMemoryType() == MemoryType::Shared) {
         // In the case of Shared, we can only ignore BIDx predicates
         thread_pred = GpuLower::current()->threadPredMap().getPredicate(
             out_tv, ParallelTypeBitmap().setAllTID());
+        DEBUG_LOG("thread predicate: ", thread_pred->toInlineString());
       } else {
         // In the case of Global, we cannot ignore any predicates at
         // all, so don't modify thread_pred. Just make sure no other
@@ -106,6 +89,7 @@ void UnrollPass::dispatch(Expr* expr) {
     // grouped to the unswitch predicate.
     kir::Predicate* thread_pred_expr = nullptr;
     if (unswitched_loop_) {
+      DEBUG_LOG("thread predicate in unswitched loop");
       thread_pred_expr = IrBuilder::create<kir::Predicate>(thread_pred);
     }
 
@@ -113,23 +97,16 @@ void UnrollPass::dispatch(Expr* expr) {
 
     Expr* expr_with_predicate = expr;
 
-    // When a predicate needs to account for ShiftOp, it is currently
-    // taken care by its own function.
-    if (GpuLower::current()->haloInfo()->needsShiftPredicate(expr)) {
-      expr_with_predicate = ShiftPredicateInserter::insert(
-          expr, for_loops_, thread_pred, unswitched_loop_);
-      if (expr_with_predicate != expr) {
-        registerReplace(expr, expr_with_predicate);
-      }
-      return;
-    }
-
     // Reduction may need a separate predicate for writes.
-    if (!isReductionInitExpr(expr) && out_tv->domain()->hasReduction()) {
+    if (!lower_utils::isReductionInitExpr(expr) &&
+        out_tv->domain()->hasReduction()) {
       const auto write_pred = unswitched_loop_
           ? thread_pred_expr
           : IrBuilder::create<kir::Predicate>(
                 PredicateType::ReductionWrite, expr, thread_pred);
+      if (!unswitched_loop_) {
+        DEBUG_LOG("Reduction write predicate.");
+      }
       expr_with_predicate = expr_with_predicate->withWritePredicate(write_pred);
     }
 
@@ -140,6 +117,9 @@ void UnrollPass::dispatch(Expr* expr) {
           ? thread_pred_expr
           : IrBuilder::create<kir::Predicate>(
                 PredicateType::Inline, expr, thread_pred);
+      if (!unswitched_loop_) {
+        DEBUG_LOG("Inline predicate.");
+      }
       expr_with_predicate = expr_with_predicate->withPredicate(pred);
       registerReplace(expr, expr_with_predicate);
       return;
@@ -149,10 +129,11 @@ void UnrollPass::dispatch(Expr* expr) {
     kir::Predicate* pred = nullptr;
     if (!unswitched_loop_ &&
         std::any_of(
-            for_loops_.begin(), for_loops_.end(), [](const kir::ForLoop* fl) {
+            for_loops_.begin(), for_loops_.end(), [](const ForLoop* fl) {
               return fl->iter_domain()->getParallelType() ==
                   ParallelType::Vectorize;
             })) {
+      DEBUG_LOG("Vectorize predicate");
       pred = IrBuilder::create<kir::Predicate>(PredicateType::Vectorize);
     }
 
@@ -160,6 +141,9 @@ void UnrollPass::dispatch(Expr* expr) {
       pred = unswitched_loop_ ? thread_pred_expr
                               : IrBuilder::create<kir::Predicate>(
                                     PredicateType::Inline, expr, thread_pred);
+      if (!unswitched_loop_) {
+        DEBUG_LOG("Inline predicate.");
+      }
     }
 
     if (lower_utils::supportInlinePredicate(expr)) {
@@ -175,7 +159,7 @@ void UnrollPass::dispatch(Expr* expr) {
       GpuLower::current()->propagateExprInfo(expr, expr_with_predicate);
     }
     inline_ite->thenBody().push_back(expr_with_predicate);
-  } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+  } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
     handle(for_loop);
   } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
     kir::ExprMutator::handle(ite);
@@ -184,7 +168,7 @@ void UnrollPass::dispatch(Expr* expr) {
 
 // We should factor our actual predicate generation from unrolling but insering
 // IR nodes "unroll_pred" or "inline_pred", then generate those later.
-void UnrollPass::handle(kir::ForLoop* fl) {
+void UnrollPass::handle(ForLoop* fl) {
   // Setup for loop scoping
   const bool is_unroll =
       fl->iter_domain()->getParallelType() == ParallelType::Unroll ||
@@ -218,7 +202,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
   kir::IfThenElse* unroll_ite = IrBuilder::create<kir::IfThenElse>(unroll_pred);
 
   // Get the loop nest for the unrolled path
-  kir::ForLoop* unrolled_loop_nest = cloneLoopNest(fl);
+  ForLoop* unrolled_loop_nest = cloneLoopNest(fl);
   unroll_ite->thenBody().push_back(unrolled_loop_nest);
 
   // Thread predicates are not removed from the expressions. Visit
@@ -234,7 +218,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
   scope_exprs_.pop_back();
 
   // Loop nest for inlined path
-  kir::ForLoop* inlined_loop = cloneLoopNest(fl);
+  ForLoop* inlined_loop = cloneLoopNest(fl);
 
   // Add inline predicates for inlined loop nest
   scope_.push_back(&unroll_ite->elseBody());
@@ -255,8 +239,8 @@ void UnrollPass::handle(kir::ForLoop* fl) {
   }
 }
 
-bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
-  std::vector<kir::ForLoop*> loops({fl});
+bool UnrollPass::canOmitElseClause(ForLoop* fl) {
+  std::vector<ForLoop*> loops({fl});
 
   const auto& pred_map = GpuLower::current()->threadPredMap();
 
@@ -288,7 +272,7 @@ bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
     // unswitch predicate is sufficient.
     // When the loop stop is the same as the extent of its IterDomain,
     // the per-thread visit count is guaranteed to be one at most (see
-    // CudaKernelGenerator::handle(kir::ForLoop*) as well. Also, when a
+    // CudaKernelGenerator::handle(ForLoop*) as well. Also, when a
     // loop is vectorized (not misaligned), the count must be one at
     // most. Even if not parallelized nor vectoirzed, it is also
     // sufficient if the loop stop is in fact one.
@@ -299,7 +283,8 @@ bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
       visit_once = true;
     }
     if (!visit_once) {
-      if (loop->stop()->isConstInt() && loop->stop()->evaluate() == 1) {
+      if (loop->stop()->isConstInt() &&
+          loop->stop()->evaluate().as<int64_t>() == 1) {
         visit_once = true;
       }
     }
@@ -313,7 +298,7 @@ bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
     // The unswitch predicate is sufficient for this loop. Proceed to
     // nested loops.
     for (auto nested_loop :
-         ir_utils::filterByType<kir::ForLoop>(loop->body().exprs())) {
+         ir_utils::filterByType<ForLoop>(loop->body().exprs())) {
       loops.push_back(nested_loop);
     }
   }

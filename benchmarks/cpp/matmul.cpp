@@ -61,6 +61,8 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams params) {
 
   fusion->addOutput(d);
 
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
+
   scheduleMatmul(fusion, params);
 }
 
@@ -161,8 +163,6 @@ static void SingleMatmulBase(
   // Define fusion graph
   setupMatmul(fusion, layout, params);
 
-  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
-
   KernelArgumentHolder args = KernelArgumentHolder::createKernelArgumentHolder(
       {inputs.first, inputs.second});
 
@@ -244,12 +244,13 @@ MatmulParams getMatmulParams(
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   MatmulParams params;
+  params.supported_vec_size = {8, 8, 8};
   params.mma_macro = MmaMacro::Ampere_16_16_16;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = stage_number;
+  params.circular_buffer_options.circular_buffer_smem_write = true;
+  params.circular_buffer_options.circular_buffer_smem_read = true;
+  params.circular_buffer_options.smem_circular_buffer_stage = stage_number;
   params.splitk_factor = splitk_factor;
   std::tie(params.use_smem_epilogue, params.promote_prologue_smem_reuse) =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
@@ -399,9 +400,6 @@ static void NvFuserScheduler_Matmul(
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
 
-  DisableOptionsGuard dog;
-  DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-
   // Run benchmark:
   if (partitionedk) {
     SingleMatmulPartitionedK(benchmark_state, layout, params, splitk_factor);
@@ -477,10 +475,8 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 }
 // ----------------------------- Benchmark Instantiation-------
 
-#define LegacyMs \
-  { 2048 }
-#define LegacyNs \
-  { 3456 }
+#define LegacyMs {2048}
+#define LegacyNs {3456}
 #define LegacyKs benchmark::CreateDenseRange(512, 4096, /*step=*/512)
 
 // clang-format off
@@ -534,8 +530,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 // size. Below you will find all the factors of 108, which is the number of SMs
 // on an A100. Note that 8warp uses tile size (256, 128) in which case SplitKMs
 // should be changed to 256.
-#define SplitKMs \
-  { 128, 256 }
+#define SplitKMs {128, 256}
 
 // Dynamically find all valid values of N that divide number of SMs
 static std::vector<long int> splitKNs(long int tileN = 128) {
@@ -548,15 +543,11 @@ static std::vector<long int> splitKNs(long int tileN = 128) {
   }
   return Ns;
 }
-#define SplitKKs \
-  { 65536 }
+#define SplitKKs {65536}
 
-#define Layouts \
-  { MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN }
-#define NumWarps \
-  { 4, 8 }
-#define NumStages \
-  { 3, 4, 5 }
+#define Layouts {MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN}
+#define NumWarps {4, 8}
+#define NumStages {3, 4, 5}
 
 //! Simple cartesian product of three integers. Used to emulate ArgsProduct
 template <typename T>

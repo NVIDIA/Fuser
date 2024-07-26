@@ -7,7 +7,7 @@
 // clang-format on
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <grouped_reduction.h>
@@ -30,17 +30,17 @@ namespace {
 // Return if ref and other are transformed in the same way.
 bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
   std::unordered_map<IterDomain*, IterDomain*> ref_2_other;
-  for (const auto i : c10::irange(ref->getRootDomain().size())) {
+  for (const auto i : c10::irange(ref->getLogicalDomain().size())) {
     ref_2_other.emplace(
-        ref->getRootDomain().at(i), other->getRootDomain().at(i));
+        ref->getLogicalDomain().at(i), other->getLogicalDomain().at(i));
   }
 
   auto replay = BestEffortReplay(
-                    other->getLeafDomain(), ref->getLeafDomain(), ref_2_other)
+                    other->getLoopDomain(), ref->getLoopDomain(), ref_2_other)
                     .getIterDomainEquivalence();
 
   for (const auto i : c10::irange(ref->nDims())) {
-    if (!replay.permissiveAreMapped(ref->axis((int)i), other->axis((int)i))) {
+    if (!replay.permissiveAreMapped(ref->axis(i), other->axis(i))) {
       return false;
     }
   }
@@ -60,13 +60,13 @@ bool validateReductionGrouping(
   NVF_ERROR(
       fusion != nullptr, "Grouping of reductions must be done within a Fusion");
 
-  ExactRootDomainMap exact_map(fusion);
+  ExactLogicalDomainMap exact_map(fusion);
 
   // Pick the first output TV as a reference and compare it with the
   // rest. Do not allow grouping if any mismatch is detected.
   auto ref_tv = outputs[0]->as<TensorView>();
-  const auto ref_domain = ref_tv->getRootDomain();
-  const auto num_root_dims = ref_domain.size();
+  const auto ref_domain = ref_tv->getLogicalDomain();
+  const auto num_logical_dims = ref_domain.size();
   const auto num_dims = ref_tv->nDims();
   const auto ref_ca_pos = ref_tv->getComputeAtPosition();
   const auto ref_cw_pos = ref_tv->getComputeWithPosition();
@@ -78,16 +78,16 @@ bool validateReductionGrouping(
       ref_tv->hasComputeWith() ? ref_tv->uses() : std::vector<Expr*>();
   for (const auto i : c10::irange(inputs.size())) {
     auto output_tv = outputs.at(i)->as<TensorView>();
-    const auto& output_domain = output_tv->getRootDomain();
+    const auto& output_domain = output_tv->getLogicalDomain();
     if (ref_tv == output_tv) {
       continue;
     }
     GROUP_REDUCTION_CHECK(
         error_on_failure,
-        output_domain.size() == num_root_dims,
+        output_domain.size() == num_logical_dims,
         "Invalid grouped reduction due to mismatched number of root dimensions. "
         "Expected: ",
-        num_root_dims,
+        num_logical_dims,
         ". Detected: ",
         output_domain.size(),
         ". Invalid output tensor: ",
@@ -102,7 +102,7 @@ bool validateReductionGrouping(
         output_tv->nDims(),
         ". Invalid output tensor: ",
         output_tv->toString());
-    for (const auto i : c10::irange(num_root_dims)) {
+    for (const auto i : c10::irange(num_logical_dims)) {
       auto ref_id = ref_domain.at(i);
       auto output_id = output_domain.at(i);
       // If an IterDomain is broadcast, require the other
@@ -245,7 +245,7 @@ bool groupReductions(
     return false;
   }
 
-  IrBuilder::create<GroupedReductionOp>(
+  IrBuilder::createInContainer<GroupedReductionOp>(
       container, op_types, init_vals, outputs, inputs);
 
   for (auto output : ir_utils::filterByType<TensorView>(outputs)) {

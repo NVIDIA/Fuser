@@ -8,6 +8,8 @@
 
 #include <alias_analysis.h>
 #include <ir/utils.h>
+#include <multidevice/lower_communication.h>
+#include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
 #include <scheduler/no_op.h>
@@ -30,12 +32,16 @@ NoOpScheduler::NoOpScheduler(
 
 namespace {
 bool allOutputsArePointerArithmetics(Fusion* fusion) {
-  const AliasAnalysisResult analysis =
-      findAliases(fusion, /*can_override_empty_allocation_domain=*/false);
+  const AliasAnalysisResult analysis = findAliases(
+      fusion,
+      /*can_override_empty_allocation_domain=*/false,
+      /*may_alias_intermediate=*/false);
   auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   return std::all_of(
-      out_tvs.begin(), out_tvs.end(), [&analysis](TensorView* out) {
-        return analysis.getNearestAliasedIo(out) != nullptr;
+      out_tvs.begin(), out_tvs.end(), [&analysis, fusion](TensorView* out) {
+        // Check out has an alias and out is not an inplace update target.
+        return analysis.getNearestAliasedIo(out) != nullptr &&
+            fusion->getOutputAlias(out).type != AllocationType::ReuseBuffer;
       });
 }
 } // namespace
@@ -43,6 +49,12 @@ bool allOutputsArePointerArithmetics(Fusion* fusion) {
 //! Check if the no-op heuristics apply in given fusion
 bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (fusion->isNoOp()) {
+    return true;
+  }
+
+  const std::vector<Expr*>& exprs = fusion->exprs();
+  if (exprs.size() == 1 && isResharding(exprs[0]) &&
+      isLowerableToCommunication(exprs[0])) {
     return true;
   }
 
@@ -55,7 +67,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
     for (auto output :
          ir_utils::filterByType<TensorView>(reduction->outputs())) {
       auto concrete_dimension =
-          TensorDomain::noReductions(output->getRootDomain());
+          TensorDomain::noReductions(output->getLogicalDomain());
       auto all_nonzero = std::none_of(
           concrete_dimension.begin(),
           concrete_dimension.end(),
@@ -71,7 +83,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Check that all outputs are either broadcast or ignored reduction.
   for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
     auto concrete_dimension = TensorDomain::noReductions(
-        TensorDomain::noBroadcasts(out_tv->getLeafDomain()));
+        TensorDomain::noBroadcasts(out_tv->getLoopDomain()));
     if (!concrete_dimension.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
           heuristicType(), "output has a concrete dimension");
@@ -102,6 +114,15 @@ bool NoOpScheduler::canScheduleRunTime(
 }
 
 void NoOpScheduler::schedule(Fusion* fusion) {
+  if (scheduler_utils::isResharding(fusion)) {
+    return;
+  }
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation. Otherwise, the generated kernel may unnecessarily
+  // access intermediate buffers. See NoOpTest.ExpandedReduction.
+  scheduler_utils::clearMemorySpace(fusion);
+
   markAliases(fusion);
 }
 

@@ -125,6 +125,8 @@ struct KernelProfile {
   std::string block_str{};
   std::string cluster_str{};
   std::string shared_mem_str{};
+
+  std::string scheduler{};
 };
 
 struct ProfileAttrDescriptor {
@@ -193,6 +195,9 @@ class SegmentProfiler {
   void inputBytesAccessed(int64_t bytes);
   void outputBytesAccessed(int64_t bytes);
 
+  void scheduler(const std::string& name);
+  const std::string& scheduler() const;
+
   uint32_t segmentId() const;
   int device() const {
     return device_;
@@ -220,6 +225,7 @@ class SegmentProfiler {
   HostTimer compile_timer_;
   int64_t input_bytes_;
   int64_t output_bytes_;
+  std::string scheduler_;
   ProfilerState kernel_profile_state_;
 };
 
@@ -235,9 +241,6 @@ class FusionProfiler {
  public:
   NVF_API static void reset();
   NVF_API static ProfilerState state();
-
-  static void setCppPrinting(bool enable);
-  static bool cppPrintingEnabled();
 
   //! Profiling Methods
   NVF_API static void start(bool cupti_disable = false);
@@ -260,10 +263,12 @@ class FusionProfiler {
   static uint8_t* cuptiBufferPtr();
 
  public:
-  // CUPTI buffer size 4.0 KB
+  // CUPTI buffer size 200.0 KB
   // The original example code used an 8MB buffer.  Such a larger buffer
   // impacted host time overhead significantly.
-  static constexpr size_t cupti_activity_buffer_size{size_t(4 * 1024)};
+  // The buffer size needed to be raised to 200KB to allow for the fallback
+  // path that adds a lot of records via Cublas.
+  static constexpr size_t cupti_activity_buffer_size{size_t(200 * 1024)};
 
  private:
   // Because this method may resize `device_descriptors_`, a call to it may
@@ -272,8 +277,6 @@ class FusionProfiler {
 
   //! Disables CUPTI usage in order to measure Host Time without CUPTI overhead
   bool cupti_disabled_;
-  //! Indicates whether CPP Printing is enabled
-  bool cpp_printing_enabled_;
   //! Buffer for Cupti to store Activity Buffers during async activity
   std::vector<uint8_t> cupti_buffer_;
   //! The state is used to check for errors in usage

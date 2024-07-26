@@ -155,37 +155,37 @@ class MaxInfoSpanningTree {
   virtual ~MaxInfoSpanningTree() = default;
 };
 
-// MaxRootDomainInfoSpanningTree is a subclass of MaxInfoSpanningTree which
+// MaxLogicalDomainInfoSpanningTree is a subclass of MaxInfoSpanningTree which
 // generates the maximum spanning tree that perserves the most amount of root
 // domain information from the reference tensor.
 //*
 // During the path-finding, we explicitly keep track of the information about
 // which reference tensor's root ID's information is preserved, and to which
-// level. This information is stored as a vector of `RootIDInfo`, where each
+// level. This information is stored as a vector of `IDInfo`, where each
 // item in the vector corresponds to one ID in the reference tensor's root
 // domain.
-class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
+class NVF_API MaxLogicalDomainInfoSpanningTree : public MaxInfoSpanningTree {
  protected:
   // This is a struct storing how the information about a root ID in the
   // starting tensor is preserved during path-finding. If during path-finding,
   // we reached a tensor called the "current" tensor, we are interested in the
   // following information:
   // - Which reference tensor's root ID's information does the current tensor
-  //   contains? Each RootIDInfo object should correspond to one reference
+  //   contains? Each IDInfo object should correspond to one reference
   //   tensor's root ID, but we don't need to store this ID explicitly.
   // - For this reference tensor's root ID, what are its corresponding IDs in
-  //   the current tensor's root/rfactor domain?
+  //   the current tensor's root/logical domain?
   // - Is the current tensor's information about this reference tensor's root ID
   //   complete?
-  struct RootIDInfo {
+  struct IDInfo {
     // Each object of this class correspond to one root ID in the reference
     // tensor, but we do not need to explicitly store this ID.
 
-    // The IDs in the current tensor's root or rfactor domain that contains
+    // The IDs in the current tensor's root or logical domain that contains
     // information of the corresponding reference tensor's root ID. Whether we
-    // are using root domain or rfactor domain depends on how we reached the
-    // current tensor during path-finding. `is_rfactor` tells us whether the IDs
-    // contained in `mapped_ids` are from the root domain or the rfactor domain.
+    // are using root domain or logical domain depends on how we reached the
+    // current tensor during path-finding. `is_logical` tells us whether the IDs
+    // contained in `mapped_ids` are from the root domain or the logical domain.
     std::unordered_set<IterDomain*> mapped_ids;
 
     // Does `mapped_ids` contain all the IDs required to recompute the
@@ -198,19 +198,19 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
     // t1 is complete, but t4 is not because one axis is missing.
     bool is_complete;
 
-    // Is `mapped_ids` from the root domain or rfactor domain of the current
+    // Is `mapped_ids` from the root domain or logical domain of the current
     // tensor? We only store IDs from one of them, depending on how we reach the
     // current tensor during path-finding. If we reached the current tensor from
     // a consumer, then `mapped_ids` containes IDs in the current tensor's
-    // rfactor domain because the rfactor domain contains raw information. If we
+    // logical domain because the logical domain contains raw information. If we
     // reached the current tensor from a producer, then `mapped_ids` containes
     // IDs in the current tensor's root domain because the root domain contains
     // raw information.
-    bool is_rfactor;
+    bool is_logical;
   };
 
-  struct RootDomainInfo : public Information {
-    std::vector<RootIDInfo> info;
+  struct DomainInfo : public Information {
+    std::vector<IDInfo> info;
     operator bool() const override;
     bool operator<(const Information& r) const override;
   };
@@ -229,31 +229,31 @@ class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
       std::shared_ptr<Information> from_info) override;
 
  private:
-  static std::shared_ptr<RootDomainInfo> getReferenceRootIDInfo(TensorView* tv);
-  static std::shared_ptr<RootDomainInfo> getReferenceRootIDInfo(
+  static std::shared_ptr<DomainInfo> getReferenceIDInfo(TensorView* tv);
+  static std::shared_ptr<DomainInfo> getReferenceIDInfo(
       TensorView* tv,
-      int64_t leaf_pos);
+      int64_t loop_pos);
 
  public:
-  MaxRootDomainInfoSpanningTree(
+  MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
       std::shared_ptr<Information> reference_info,
       Selector* selector = nullptr)
       : MaxInfoSpanningTree(reference, reference_info, selector) {}
-  MaxRootDomainInfoSpanningTree(
+  MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
       Selector* selector = nullptr)
-      : MaxRootDomainInfoSpanningTree(
+      : MaxLogicalDomainInfoSpanningTree(
             reference,
-            getReferenceRootIDInfo(reference),
+            getReferenceIDInfo(reference),
             selector) {}
-  MaxRootDomainInfoSpanningTree(
+  MaxLogicalDomainInfoSpanningTree(
       TensorView* reference,
-      int64_t leaf_pos,
+      int64_t loop_pos,
       Selector* selector = nullptr)
-      : MaxRootDomainInfoSpanningTree(
+      : MaxLogicalDomainInfoSpanningTree(
             reference,
-            getReferenceRootIDInfo(reference, leaf_pos),
+            getReferenceIDInfo(reference, loop_pos),
             selector) {}
 };
 

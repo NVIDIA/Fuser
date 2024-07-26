@@ -22,17 +22,7 @@
 
 namespace nvfuser {
 
-class MatmulSASSTest : public NVFuserTest {
- protected:
-  MatmulSASSTest() {
-    DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
-  }
-
- private:
-  // RAII style options guard. This is used to disable
-  // (via set) options in the constructor.
-  DisableOptionsGuard opt_guard_;
-};
+using MatmulSASSTest = NVFuserTest;
 
 // For SASS instruction definitions, see:
 // https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html#instruction-set-reference
@@ -56,7 +46,7 @@ sass::Container getSASSFor(
     int M,
     int N,
     int K,
-    const int smem_double_buffer_stage = 4,
+    const int smem_circular_buffer_stage = 4,
     const bool use_smem_epilogue = false,
     const bool promote_prologue_smem_reuse = false) {
   Fusion fusion;
@@ -82,13 +72,14 @@ sass::Container getSASSFor(
   gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams params;
+  params.supported_vec_size = {8, 8, 4};
   params.mma_macro = macro;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage =
-      smem_double_buffer_stage;
+  params.circular_buffer_options.circular_buffer_smem_write = true;
+  params.circular_buffer_options.circular_buffer_smem_read = true;
+  params.circular_buffer_options.smem_circular_buffer_stage =
+      smem_circular_buffer_stage;
   params.use_smem_epilogue = use_smem_epilogue;
   params.promote_prologue_smem_reuse = promote_prologue_smem_reuse;
   scheduleMatmul(&fusion, params);
@@ -144,12 +135,13 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
   gemm_tile.instruction_tile = instruction_tile;
 
   MatmulParams params;
+  params.supported_vec_size = {8, 8, 4};
   params.mma_macro = macro;
   params.tile_sizes = gemm_tile;
   params.async_gmem_load_operands = true;
-  params.double_buffer_options.double_buffer_smem_write = true;
-  params.double_buffer_options.double_buffer_smem_read = true;
-  params.double_buffer_options.smem_double_buffer_stage = 4;
+  params.circular_buffer_options.circular_buffer_smem_write = true;
+  params.circular_buffer_options.circular_buffer_smem_read = true;
+  params.circular_buffer_options.smem_circular_buffer_stage = 4;
   scheduleMatmul(&fusion, params);
 
   at::manual_seed(0);
@@ -347,12 +339,12 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-  const int smem_double_buffer_stage = 4;
+  const int smem_circular_buffer_stage = 4;
   const bool ignore_occupancy_drop = true;
   const auto [use_smem_epilogue, promote_prologue_smem_reuse] =
       mma_utils::generateSharedMemoryEpilogueHeuristics(
           gemm_tile,
-          smem_double_buffer_stage,
+          smem_circular_buffer_stage,
           {DataType::Half, DataType::Half, DataType::Float},
           ignore_occupancy_drop);
   if (!use_smem_epilogue) {
@@ -384,7 +376,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
             M,
             N,
             K,
-            smem_double_buffer_stage,
+            smem_circular_buffer_stage,
             use_smem_epilogue,
             promote_prologue_smem_reuse));
     for (const auto& inst : sass.code) {

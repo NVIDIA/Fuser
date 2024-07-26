@@ -75,7 +75,8 @@ NVF_API void propagateParallelization(
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.
 // Order of the sort is:
 //
-// [i-block dims, i-thread dims, i-non-constant sized, i-constant sized,
+// [i-device dims, i-block dims, i-thread dims, i-constant sized, i-non-constant
+// sized
 //  r-block dims, r-thread dims, r-non-constant sized, r-constant sized,
 //  i/r-unswitched, i/r-unroll/vectorized, broadcasted dims]
 //
@@ -104,5 +105,13 @@ std::string toString(ReductionType reduction_type);
 ReductionType getReductionType(Fusion* fusion);
 ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
 
+//! Get the representative reduction tv from the given reduction tvs.
+//! If there are no reduction tvs, return nullptr.
+//! If there are only inner reduction tvs, return the first inner reduction tv.
+//! If there are only outer reduction tvs, return the first outer reduction tv.
+//! If there are both inner and outer reduction tvs, return the first inner
+//! reduction tv.
+TensorView* getRepresentativeReductionTv(
+    const std::vector<TensorView*>& reduction_tvs);
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

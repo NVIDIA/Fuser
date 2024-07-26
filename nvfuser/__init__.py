@@ -17,14 +17,7 @@ if pytorch_lib_dir not in sys.path:
 
 # we need to import _C here to avoid confusing error message generated from failure in this python script ended up with
 # complaining on `_C` not defined for `_C._FusionDefinition`
-try:
-    from . import _C
-except ImportError as err:
-    logging.getLogger("nvfuser").error(
-        """==== importing nvfuser failed ====
-             try run `patch-nvfuser` if https://github.com/NVIDIA/Fuser is installed via pip package"""
-    )
-    raise err
+from . import _C
 from ._C import *  # noqa: F401,F403
 
 from . import contrib  # noqa: F401
@@ -57,11 +50,80 @@ def disable_automatic_serialization():
 
 
 class FusionDefinition(_C._FusionDefinition):
+    def __init__(self, id=None, max_length=1024):
+        super(FusionDefinition, self).__init__(id, max_length)
+        self.profiled = False
+
     def __enter__(self):
         return self._setup_definition()
 
     def __exit__(self, type, value, traceback):
-        self._finalize_definition()
+        try:
+            self._finalize_definition()
+        except Exception as err:
+            logger.exception(self.getReproErrorString("defining"))
+            raise
+
+    def getReproErrorString(self, section: str, inputs: list | None = None):
+        msg = (
+            f"An error occurred while {section} nvFuser FusionDefinition {self.id()}.\n"
+            "If you believe this is a bug or need assistance, please file an issue at "
+            "https://github.com/NVIDIA/Fuser/issues/new\n"
+            f"Here's a script to reproduce the error:\n"
+            "```python\n"
+            "# CUDA devices:\n"
+        )
+        for i in range(torch.cuda.device_count()):
+            msg += f"#  {0}: {torch.cuda.get_device_name(i)}\n"
+        msg += (
+            f"# torch version: {torch.__version__}\n"
+            f"# cuda version: {torch.version.cuda}\n"
+            f"# nvfuser version: {version()}\n"
+            "import torch\n"
+            "from nvfuser import FusionDefinition, DataType\n"
+            f"{self}"
+            "with FusionDefinition() as fd:\n"
+            f"    nvfuser_fusion_id{self.id()}(fd)\n"
+        )
+        if inputs is not None:
+            msg += "\ninputs = [\n"
+            for i in inputs:
+                if isinstance(i, torch.Tensor):
+                    # max linear index determines number of elements to generate
+                    sz = 1
+                    for szi, stri in zip(i.size(), i.stride()):
+                        if szi == 0:
+                            sz = 0
+                            break
+                        sz += (szi - 1) * stri
+                    if i.dtype.is_floating_point:
+                        msg += (
+                            f"    torch.randn(({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
+                    else:
+                        upper_bound = 2 if i.dtype == torch.bool else 10
+                        msg += (
+                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                        )
+                else:
+                    input_as_string = str(i)
+                    # `nan` and `inf` are stringified as is, which are not
+                    # defined in Python. So we replace them with `float("nan")`
+                    # and `float("inf")`. `-inf` is replaced with
+                    # `-float("inf")`, which equals `float("-inf")`.
+                    input_as_string = re.sub(
+                        r"\binf\b", 'float("inf")', input_as_string
+                    )
+                    input_as_string = re.sub(
+                        r"\bnan\b", 'float("nan")', input_as_string
+                    )
+                    msg += f"    {input_as_string},\n"
+            msg += "]"
+            msg += "\nfd.execute(inputs)\n"
+        msg += "```\n"
+        return msg
 
     def definition(self):
         raise NotImplementedError("definition() should be implemented by child class!")
@@ -76,6 +138,7 @@ class FusionDefinition(_C._FusionDefinition):
         device=None,
         override_user_schedule=False,
         capture_debug_output=False,
+        profile=False,
     ):
         """
         Executes an nvFuser set of kernels for a given Fusion
@@ -119,6 +182,7 @@ class FusionDefinition(_C._FusionDefinition):
             List[Tensor]
         """
         func_based_def = False
+        self.profiled = profile
 
         if device is not None:
             if not isinstance(device, torch.device):
@@ -145,64 +209,13 @@ class FusionDefinition(_C._FusionDefinition):
         try:
             result = self._execute(
                 inputs,
-                override_user_schedule,
                 device=device,
+                override_user_schedule=override_user_schedule,
                 capture_debug_output=capture_debug_output,
+                profile=profile,
             )
         except Exception as err:
-            msg = (
-                f"An error occurred while executing nvFuser FusionDefinition {self.id()}.\n"
-                "If you believe this is a bug or need assistance, please file an issue at "
-                "https://github.com/NVIDIA/Fuser/issues/new\n"
-            )
-            msg += (
-                f"Here's a script to reproduce the error:\n"
-                "```python\n"
-                "import torch\n"
-                "from nvfuser import FusionDefinition, DataType\n"
-                f"{self}"
-                "with FusionDefinition() as fd:\n"
-                f"    nvfuser_fusion_id{self.id()}(fd)\n"
-                "\n"
-                "inputs = [\n"
-            )
-            for i in inputs:
-                if isinstance(i, torch.Tensor):
-                    # max linear index determines number of elements to generate
-                    sz = 1
-                    for szi, stri in zip(i.size(), i.stride()):
-                        if szi == 0:
-                            sz = 0
-                            break
-                        sz += (szi - 1) * stri
-                    if i.dtype.is_floating_point:
-                        msg += (
-                            f"    torch.randn(({sz},), dtype={i.dtype}, device='{i.device}')"
-                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                        )
-                    else:
-                        upper_bound = 2 if i.dtype == torch.bool else 10
-                        msg += (
-                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
-                            f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                        )
-                else:
-                    input_as_string = str(i)
-                    # `nan` and `inf` are stringified as is, which are not
-                    # defined in Python. So we replace them with `float("nan")`
-                    # and `float("inf")`. `-inf` is replaced with
-                    # `-float("inf")`, which equals `float("-inf")`.
-                    input_as_string = re.sub(
-                        r"\binf\b", 'float("inf")', input_as_string
-                    )
-                    input_as_string = re.sub(
-                        r"\bnan\b", 'float("nan")', input_as_string
-                    )
-                    msg += f"    {input_as_string},\n"
-            msg += "]"
-            msg += "\nfd.execute(inputs)\n"
-            msg += "```\n"
-            logger.exception(msg)
+            logger.exception(self.getReproErrorString("executing", inputs))
             raise
 
         return result
@@ -326,6 +339,33 @@ class FusionDefinition(_C._FusionDefinition):
         return self._scheduled_fusion_ir_for(
             inputs, tensor_transforms, override_user_schedule
         )
+
+    def profile(self):
+        """
+        Returns the FusionProfile object from the CUPTI based FusionProfiler
+
+        Returns:
+            FusionProfile
+        """
+        if not self.profiled:
+            raise ValueError(
+                "The execute() method was not previously called with profiling enabled!"
+            )
+
+        fp = self._profile()
+
+        if fp.fusion_id < 0:
+            raise ValueError(
+                "Something went wrong with Fusion Profiling as an illegal fusion_id was returned! "
+                + str(fp.fusion_id)
+            )
+        if fp.segments < 1:
+            raise ValueError(
+                "Something went wrong with Fusion Profiling as no kernel segments were profiled!"
+                + str(fp.segments)
+            )
+
+        return fp
 
     def validate(
         self,

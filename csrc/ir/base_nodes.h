@@ -186,6 +186,10 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   IrContainer* ir_container_ = nullptr;
 };
 
+inline std::string toString(Statement* stmt) {
+  return stmt->toString();
+}
+
 //! A Val represents a "value." These are objects, like tensors, scalars, and
 //! memory locations, that are inputs and outputs of computations (represented
 //! by Exprs, below)
@@ -260,7 +264,7 @@ class NVF_API Val : public Statement {
       : Statement(src, ir_cloner),
         vtype_(src->vtype_),
         dtype_(src->dtype_),
-        value_(src->value_){};
+        value_(src->value_) {}
 
   std::string toString(int indent_size = 0) const override;
 
@@ -383,7 +387,9 @@ class NVF_API Val : public Statement {
   bool sameAs(const Statement* other) const override;
 
   void setEvaluatorIndex(int to) {
-    NVF_ERROR(evaluator_index_ == -1);
+    // Only allow resetting evaluator_index to -1 OR
+    // setting evaluator_index if it isn't in-use
+    NVF_ERROR(evaluator_index_ == -1 || to == -1);
     evaluator_index_ = to;
   }
 
@@ -488,7 +494,7 @@ using newObjectFuncType = Expr*(
 //!      - Constructors need to register with the Fusion after inputs/outputs
 //!         are defined
 //!      - Implementation of bool sameAs(...)
-//!  2) dispatch.h/.cpp must be updated to include dispatch of the new Val
+//!  2) dispatch.h/.cpp must be updated to include dispatch of the new Expr
 //!  3) Default mutator function should be added to mutator.h/.cpp
 //!  4) Printing functions should be added to ir/iostream.h/.cpp
 //!  5) Lower case convenience functions should be added to arith.h/.cpp (If
@@ -680,7 +686,7 @@ bool Val::isDefinitionType() const {
       std::vector<Val*> inputs,                            \
       std::vector<Val*> outputs,                           \
       std::vector<Statement*> attributes) {                \
-    return IrBuilder::create<ClassName>(                   \
+    return IrBuilder::createInContainer<ClassName>(        \
         container, inputs, outputs, attributes);           \
   }
 

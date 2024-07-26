@@ -143,7 +143,7 @@ static void NvFuserScheduler_Softmax_WarpReduce(
   // Modify the schedule to use warp reduction
   auto used_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (IterDomain* id : tv->getLeafDomain()) {
+    for (IterDomain* id : tv->getLoopDomain()) {
       if (id->getParallelType() == ParallelType::TIDx) {
         id->padToMultipleOfWarp();
       }

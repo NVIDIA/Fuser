@@ -34,13 +34,6 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  // Fusions handled by transpose scheduler cannot have MmaOp.
-  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristicType(), "no support for mma ops.");
-    return false;
-  }
-
   for (auto select : ir_utils::getOpsOfType<SelectOp>(fusion)) {
     auto inner = TensorDomain::noReductions(
         select->input(0)->as<TensorView>()->getMaybeAllocationDomain());
@@ -139,10 +132,10 @@ void moveReductionsOut(TensorView* tv, int n) {
     return;
   }
 
-  std::unordered_map<int, int> old2new;
+  std::unordered_map<int64_t, int64_t> old2new;
 
-  int target = 0;
-  for (int i = 0; i < n; i++) {
+  int64_t target = 0;
+  for (int64_t i = 0; i < n; i++) {
     if (tv->axis(-1 - i)->isReduction()) {
       old2new[-1 - i] = target++;
     }
@@ -155,7 +148,7 @@ void moveReductionsOut(TensorView* tv, int n) {
 // the path of potential propagation checking if there's any incompatible
 // propagation that would not be resolved.
 struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
-  void propagateC2P(TensorView* from, TensorView* to) override{};
+  void propagateC2P(TensorView* from, TensorView* to) override {};
   void propagateP2C(TensorView* from, TensorView* to) override {
     // short-cut to skip if we know we are already rejecting the fusion for
     // transpose scheduler
@@ -171,7 +164,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
       should_reject = true;
     };
   };
-  void propagateSibling(TensorView* from, TensorView* to) override{};
+  void propagateSibling(TensorView* from, TensorView* to) override {};
   ~TransposeViewPropagator() override = default;
 
   bool shouldReject() {
@@ -247,11 +240,11 @@ class DomainMap : public pointwise_utils::DomainMap {
     return domain_map.getMappedAllocDimIn(ref1, innermost2) != nullptr;
   }
 
-  // scheduler assumes inner leaf dimension on tv is an exact mapping, when the
+  // scheduler assumes inner loop dimension on tv is an exact mapping, when the
   // mapping cannot be resolved, we'll return a `-1`
   int64_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
-    // TODO: ideally we should be mapping to leaf domain directly here.
-    // However, our current compute at map is constructed before leaf domain is
+    // TODO: ideally we should be mapping to loop domain directly here.
+    // However, our current compute at map is constructed before loop domain is
     // transformed. So the mapping here would require a new compute at map to be
     // constructed from the updated fusion. We'll revisit this once our id graph
     // refactor is done.
@@ -263,8 +256,8 @@ class DomainMap : public pointwise_utils::DomainMap {
         " in tensor ",
         tv);
     auto replay_exprs = StmtSort::getExprsBetween(
-        {mapped_id}, {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
-    // Project the root id to leaf id. Similar to projectIdToRFactor.
+        {mapped_id}, {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+    // Project the root id to loop id. Similar to projectIdToRFactor.
     for (auto expr : replay_exprs) {
       if (expr->isA<Split>()) {
         // Split with factor one is not supposed to be here, reshape would map
@@ -290,8 +283,8 @@ class DomainMap : public pointwise_utils::DomainMap {
         mapped_id = expr->as<Resize>()->out();
       }
     }
-    // Find the position of the leaf id
-    const auto& dom = tv->getLeafDomain();
+    // Find the position of the loop id
+    const auto& dom = tv->getLoopDomain();
     for (auto i : c10::irange(dom.size())) {
       if (dom[i] == mapped_id) {
         return static_cast<int64_t>(i);
@@ -642,11 +635,11 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     DomainMap& domain_map) {
-  auto ref_root = reference->getMaybeRFactorDomain();
+  auto ref_logical = reference->getLogicalDomain();
   std::vector<int64_t> shape_in_ref;
   shape_in_ref.reserve(reference->nDims());
   int64_t n_elems = 1;
-  for (auto id : ref_root) {
+  for (auto id : ref_logical) {
     auto concrete_id = domain_map.getComputeAtMap().getConcreteMappedID(
         id, IdMappingMode::EXACT);
     auto inferred_val =
@@ -807,7 +800,7 @@ std::string getTransposeRuntimeRejectReason(
     // doing dry-run on the first traverse. Since the following twos are only
     // used for scheduling tiling, which is not going to cause issue, since we
     // are only tiling on the merged virtual innermost dimensions.
-    MaxRootDomainInfoSpanningTree entire_dag(reference1);
+    MaxLogicalDomainInfoSpanningTree entire_dag(reference1);
     entire_dag.traverse(&propagator);
     if (propagator.shouldReject()) {
       return "transpose scheduler could potentially trigger incoherent transform propagation";
@@ -864,7 +857,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   auto inner_most_pos1_in_ref1 = innermost_info[0];
   auto inner_most_pos2_in_ref1 = innermost_info[1];
-  // No exact innermost leaf dimension mapping on referenc1. cannot schedule
+  // No exact innermost loop dimension mapping on referenc1. cannot schedule
   if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
     return nullptr;
   }
@@ -916,12 +909,12 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   constexpr int64_t kSixteen = 16; // clang tidy
 
   int64_t max_io_dtype_size = 1;
-  size_t n_io_tensors = 0;
+  int64_t n_io_tensors = 0;
   auto scan_max_dtype_size = [&](const auto& vals) {
     for (auto inp : ir_utils::filterByType<TensorView>(vals)) {
       max_io_dtype_size = std::max(
           max_io_dtype_size,
-          (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
+          dataTypeSize(inp->getDataType().value(), index_type));
       n_io_tensors++;
     }
   };
@@ -930,7 +923,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   auto max_unroll_factor = ceilDiv(
       // Available unrolling based on size of data type
-      (int64_t)kSixteen / max_io_dtype_size,
+      kSixteen / max_io_dtype_size,
       // Reduce max unrolling factor if we have many inputs/outputs to unroll
       // as it could start consuming a lot of registers.
       std::max(
@@ -974,7 +967,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
   // and merged i2/2 & 2.
   //
   // TODO: We use ContiguousInnerDimensionsMapper to compute the size of virtual
-  // innermost dimension. The analysis right now is limited on rfactor domain
+  // innermost dimension. The analysis right now is limited on logical domain
   // only, so we can't actually map the `split` iter domains, which limits the
   // vectorization width we can apply. We need to fix that.
   // TODO 2: Small transpose dimensions transformation should also consider the
@@ -1091,7 +1084,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   }
   auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
 
-  size_t max_dims = 0;
+  int64_t max_dims = 0;
   for (auto inp : input_tvs) {
     max_dims = std::max(pointwise_utils::nRootDims(inp), max_dims);
   }
@@ -1173,25 +1166,25 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   scheduler_utils::splitDims(reference1, params.split_before_tiling);
 
   // prepare all dimensions in merge order for group1
-  std::vector<size_t> dims_group1 = params.dims_merged_with_1;
-  auto inner_leaf_index1 =
+  std::vector<int64_t> dims_group1 = params.dims_merged_with_1;
+  auto inner_loop_index1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id1);
-  NVF_ERROR(inner_leaf_index1 >= 0, "getInnerLeafDim cannot be resolved");
-  size_t inner_most_pos1_in_ref1 = static_cast<size_t>(inner_leaf_index1);
+  NVF_ERROR(inner_loop_index1 >= 0, "getInnerLeafDim cannot be resolved");
+  int64_t inner_most_pos1_in_ref1 = inner_loop_index1;
   dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
 
   // prepare all dimensions in merge order for group2
-  std::vector<size_t> dims_group2 = params.dims_merged_with_2;
-  auto inner_leaf_index2 =
+  std::vector<int64_t> dims_group2 = params.dims_merged_with_2;
+  auto inner_loop_index2 =
       domain_map.getInnerLeafDim(reference1, inner_most_id2);
-  size_t inner_most_pos2_in_ref1 = inner_leaf_index2;
-  NVF_ERROR(inner_leaf_index2 >= 0, "getInnerLeafDim cannot be resolved");
+  int64_t inner_most_pos2_in_ref1 = inner_loop_index2;
+  NVF_ERROR(inner_loop_index2 >= 0, "getInnerLeafDim cannot be resolved");
   dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
 
   // merge all dimensions in group1, while updating all indices for group2
   auto merged1 =
       scheduler_utils::mergeDims(reference1, dims_group1, dims_group2);
-  std::vector<size_t> merged1_vec;
+  std::vector<int64_t> merged1_vec;
   if (merged1.has_value()) {
     merged1_vec.push_back(*merged1);
   }
@@ -1213,34 +1206,41 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   // make tile
   // [..., I1, .., I2, ...]
-  reference1->split((int)inner_most_pos1_in_ref1, params.tile_size1);
+  reference1->split(inner_most_pos1_in_ref1, params.tile_size1);
   reference1->reorder({{inner_most_pos1_in_ref1 + 1, -1}});
-  reference1->split((int)inner_most_pos2_in_ref1, params.tile_size2);
+  reference1->split(inner_most_pos2_in_ref1, params.tile_size2);
   reference1->reorder({{inner_most_pos2_in_ref1 + 1, -1}});
   // [..., I1/tile1, .., I2/tile2, ..., tile1, tile2]
 
-  // Merge remaining dimensions
-  int lhs_i = -1;
-  for (int i = (int)reference1->nDims() - 2; i > 0; i--) {
-    auto axis_i = i - 1;
-    if (lhs_i == -1) {
-      lhs_i = axis_i;
-    } else {
-      reference1->merge(axis_i, lhs_i);
-      lhs_i = axis_i;
+  // Merge remaining dimensions ignoring reduction axes (See Issue #2317)
+  // The reduction axes cannot be at any position.
+  // For example: [i0, r1, i1, r2, i2] after tiling is [i0, r1, i1/tile1, r2,
+  // i2/tile2, tile1, tile2] The following code merges all the outer iterdomains
+  // as: [i0 * i1/tile1 * i2/tile2, r1, r2, tile1, tile2]
+  int64_t rhs_i = reference1->nDims() - 3;
+  for (int64_t lhs_i = reference1->nDims() - 4; lhs_i >= 0; lhs_i--) {
+    if (reference1->axis(lhs_i)->isReduction()) {
+      continue;
     }
+    if (reference1->axis(rhs_i)->isReduction()) {
+      rhs_i = lhs_i;
+      continue;
+    }
+    reference1->merge(lhs_i, rhs_i);
+    rhs_i = lhs_i;
   }
-  reference1->split(0, 1);
-  // [merged_dim, 1, tile1, tile2]
+
+  reference1->split(rhs_i, 1);
+  // [r.., merged_dim, 1, tile1, tile2]
 
   // parallelize non-tile dimensions
-  reference1->axis(1)->parallelize(ParallelType::Unswitch);
-  reference1->axis(0)->parallelize(ParallelType::BIDx);
+  reference1->axis(rhs_i + 1)->parallelize(ParallelType::Unswitch);
+  reference1->axis(rhs_i)->parallelize(ParallelType::BIDx);
   // [BIDx, Unswitch, tile1, tile2]
 
   // Propagate transformations so far to the entire DAG
   TransformPropagator propagator(reference1);
-  MaxRootDomainInfoSpanningTree entire_dag(reference1);
+  MaxLogicalDomainInfoSpanningTree entire_dag(reference1);
   entire_dag.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference1);
 
@@ -1258,7 +1258,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // transform tile for vectorization/unroll
   // See note [vectorization and unroll of input and output]
 
-  int pos = (int)reference2->nDims() - 2;
+  int64_t pos = reference2->nDims() - 2;
   // [..., tile1, tile2]
   moveReductionsOut(reference2, 2);
   reference2->merge(pos);
@@ -1275,7 +1275,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
         fusion,
         {grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end()});
     SetSelector selector({all_tvs_except1.begin(), all_tvs_except1.end()});
-    MaxRootDomainInfoSpanningTree entire_dag_except1(reference2, &selector);
+    MaxLogicalDomainInfoSpanningTree entire_dag_except1(reference2, &selector);
     TransformPropagator propagator(reference2);
     entire_dag_except1.traverse(&propagator);
   }
@@ -1301,8 +1301,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> vectorized_group2_cached_inputs;
     for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
-              gin->getLeafDomain().begin(),
-              gin->getLeafDomain().end(),
+              gin->getLoopDomain().begin(),
+              gin->getLoopDomain().end(),
               [&ca_map, reference2](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference2->axis(-1), IdMappingMode::EXACT);
@@ -1323,8 +1323,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> unrolled_group2_cached_inputs;
     for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
-              gin->getLeafDomain().begin(),
-              gin->getLeafDomain().end(),
+              gin->getLoopDomain().begin(),
+              gin->getLoopDomain().end(),
               [&ca_map, reference2](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference2->axis(-3), IdMappingMode::EXACT);
@@ -1345,7 +1345,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // schedule group 1
   reference1->reorder({{-2, -1}});
   // [..., tile2, tile1]
-  pos = (int)reference1->nDims() - 2;
+  pos = reference1->nDims() - 2;
   moveReductionsOut(reference1, 2);
   reference1->merge(pos);
   reference1->split(pos, params.vectorize_factor1);
@@ -1363,7 +1363,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     auto all_tvs_except2 =
         ir_utils::allTvsExcept(fusion, group2_and_cached_inputs);
     SetSelector selector({all_tvs_except2.begin(), all_tvs_except2.end()});
-    MaxRootDomainInfoSpanningTree entire_dag_except_outputs(
+    MaxLogicalDomainInfoSpanningTree entire_dag_except_outputs(
         reference1, &selector);
     TransformPropagator propagator(reference1);
     entire_dag_except_outputs.traverse(&propagator);
@@ -1388,8 +1388,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> vectorized_group1_cached_inputs;
     for (auto gin : group1_and_cached_inputs) {
       if (std::any_of(
-              gin->getLeafDomain().begin(),
-              gin->getLeafDomain().end(),
+              gin->getLoopDomain().begin(),
+              gin->getLoopDomain().end(),
               [&ca_map, reference1](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference1->axis(-1), IdMappingMode::EXACT);
@@ -1410,8 +1410,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
     std::vector<TensorView*> unrolled_group1_cached_inputs;
     for (auto gin : group1_and_cached_inputs) {
       if (std::any_of(
-              gin->getLeafDomain().begin(),
-              gin->getLeafDomain().end(),
+              gin->getLoopDomain().begin(),
+              gin->getLoopDomain().end(),
               [&ca_map, reference1](IterDomain* id) {
                 return ca_map.areMapped(
                     id, reference1->axis(-3), IdMappingMode::EXACT);
@@ -1434,7 +1434,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // inputs
   for (auto tv : {reference1, reference2}) {
     if (tv->isFusionInput()) {
-      for (auto id : tv->getLeafDomain()) {
+      for (auto id : tv->getLoopDomain()) {
         id->parallelize(ParallelType::Serial);
       }
     }

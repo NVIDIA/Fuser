@@ -13,6 +13,7 @@
 #include <device_lower/pass/magic_zero.h>
 #include <executor.h>
 #include <expr_evaluator.h>
+#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
@@ -207,7 +208,7 @@ class UnswitchInElseChecker : public kir::IrVisitor {
     within_else_ = prev_within_else;
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     if (for_loop->iter_domain()->getParallelType() == ParallelType::Unswitch) {
       found_in_else_ = found_in_else_ || within_else_;
     }
@@ -250,8 +251,8 @@ class PredicateMagicZeroChecker : public kir::IrVisitor {
       }
     }
 
-    if (expr->isA<kir::ForLoop>()) {
-      handle(expr->as<kir::ForLoop>());
+    if (expr->isA<ForLoop>()) {
+      handle(expr->as<ForLoop>());
     } else if (expr->isA<kir::IfThenElse>()) {
       handle(expr->as<kir::IfThenElse>());
     } else {
@@ -325,7 +326,7 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     auto to_pos = replayed_pos_.at(to);
     NVF_CHECK(
         TransformReplay::getMatchedLeafPosWithoutReplayPasC(
-            to, from, from_pos) == (int)to_pos);
+            to, from, from_pos) == to_pos);
   }
   virtual void propagateP2C(TensorView* from, TensorView* to) override {
     TransformPropagator::propagateP2C(from, to);
@@ -333,7 +334,7 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     auto to_pos = replayed_pos_.at(to);
     NVF_CHECK(
         TransformReplay::getMatchedLeafPosWithoutReplayCasP(
-            to, from, from_pos) == (int)to_pos);
+            to, from, from_pos) == to_pos);
   }
   virtual void propagateSibling(TensorView* from, TensorView* to) override {
     TransformPropagator::propagateSibling(from, to);
@@ -425,6 +426,10 @@ size_t getATenRandomSeed();
 class NVFuserTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    // Enable logging so debug messages in PyTorch can be printed out
+    // via `TORCH_CPP_LOG_LEVEL`.
+    c10::initLogging();
+
     // requires PASCAL or newer
     if (!deviceMajorMinorCheck(6)) {
       GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
@@ -455,6 +460,10 @@ class NVFuserTest : public ::testing::Test {
 
     // Make sure capturing of stdout is stopped
     ensureStopCaptureStdout();
+
+    // Make sure profiler is unset in case it was set during test
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
   }
 
   // Start capturing of stdout if not already started
@@ -604,24 +613,24 @@ at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
 // Utility to generate inputs based on given layout
 std::pair<at::Tensor, at::Tensor> matmulAtInput2D(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout,
     c10::ScalarType dtype = at::kHalf);
 
 // Utility to generate input shapes based on given layout
 std::pair<std::vector<int64_t>, std::vector<int64_t>> matmulAtInputShape3DTuring(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout);
 
 // Utility to generate inputs based on given layout
 std::pair<at::Tensor, at::Tensor> matmulAtInput3DTuring(
-    int M,
-    int N,
-    int K,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     MmaLayout layout,
     c10::ScalarType dtype = at::kHalf);
 
@@ -638,11 +647,11 @@ at::Tensor matmulAtInput2D(
     const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
-    const int M,
-    const int N,
-    const int K,
-    const int B = 0,
-    const int device = 0);
+    const int64_t M,
+    const int64_t N,
+    const int64_t K,
+    const int64_t B = 0,
+    const int64_t device = 0);
 
 // Given a tensor view created by matmulAtInput2D or matmulAtInput3DTuring,
 // insert permute/BroadcastOp as needed to make it [B, M, N, K]. The returned
@@ -661,7 +670,7 @@ TensorView* canonicalizeInputToBMNK(
 // Utility to check if for given kernel the expected scheduler has
 // been used
 bool isSchedulerInUse(
-    nvfuser::FusionKernelRuntime* kernel_rt,
+    const nvfuser::FusionKernelRuntime* kernel_rt,
     const ScheduleHeuristic& scheduler);
 
 // Disable magic zero
@@ -681,6 +690,25 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
 at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
 
 // Get the number of SMs on the current device
-int getNumSMs();
+int64_t getNumSMs();
 
+bool checkMapped(const ValGraph& vg, IterDomain* x, IterDomain* y);
+
+// This uses mma_utils::getOperandInnerDims(fusion) to get the inner allocation
+// dimensions of fusion operands and translate that into one of the MmaOp
+// layouts TT, TN, NT, or NN.
+MmaLayout getMatmulProblemLayout(Fusion* fusion);
+
+// Get floating data types including half, float, double, complex_float,
+// complex_double, and bfloat16 if supported by the device.
+std::vector<DataType> getFloatingDataTypes(bool include_complex = true);
+
+// gtest requires test name contains only alphanumeric characters and
+// underscores. Sanitize name e.g. std::complex<float> -> std_complex_float
+std::string sanitizeTestName(const std::string& name);
+
+// values frequently used in tests
+constexpr std::array<int64_t, 21> Pow2Vals1to1Million = {
+    1,    2,    4,    8,     16,    32,    64,     128,    256,    512,    1024,
+    2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576};
 } // namespace nvfuser

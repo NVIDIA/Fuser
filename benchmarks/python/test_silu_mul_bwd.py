@@ -1,9 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_cuda_cache
+from .core import run_benchmark, clear_cuda_cache, unary_bwd_torch
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
+import numpy as np
 
 
 def silu_mul_bwd_fusion(fd: FusionDefinition, dtype: DataType):
@@ -47,9 +51,14 @@ def silu_mul_bwd_fusion(fd: FusionDefinition, dtype: DataType):
     fd.add_output(T20)
 
 
+def silu_mul_bwd_iobytes(size: tuple, dtype: torch.dtype):
+    # Total IO bytes = grad_out, x, y, grad_x, grad_y
+    return int(dtype.itemsize * np.prod(size) * 5)
+
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_silu_mul_bwd_benchmark(
+def test_silu_mul_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
@@ -69,3 +78,26 @@ def test_silu_mul_bwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [grads, x, y])
+
+
+@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+def test_silu_mul_bwd_baseline_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    compile: bool,
+):
+    clear_cuda_cache()
+    x = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+    y = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+    grads = torch.randn(*size, device="cuda", dtype=dtype)
+    eager_output = torch.nn.functional.silu(x) * y
+
+    run_benchmark(
+        benchmark,
+        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
+        [eager_output, grads],
+        iobytes=silu_mul_bwd_iobytes(size, dtype),
+    )

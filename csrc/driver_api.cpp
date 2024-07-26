@@ -6,9 +6,10 @@
  */
 // clang-format on
 #include <driver_api.h>
+#include <sys_utils.h>
+#include <utils.h>
 
 #include <cuda.h>
-#include <dlfcn.h>
 
 #include <iostream>
 
@@ -16,33 +17,10 @@
 
 namespace {
 
-class CUDADriverAPIDynamicLoader {
-  void* handle_ = nullptr;
-
+class CUDADriverAPIDynamicLoader : public nvfuser::LibraryLoader {
  public:
-  constexpr static const char* filename = "libcuda.so";
-
-  ~CUDADriverAPIDynamicLoader() {
-    if (handle_) {
-      dlclose(handle_);
-    }
-  }
-
-  void* sym(const char* symbolName) {
-    if (!handle_) {
-      handle_ = dlopen(filename, RTLD_LAZY);
-    }
-    NVF_CHECK(
-        handle_, "Dynamic library not loaded. Please check CUDA installation");
-    void* symbol = dlsym(handle_, symbolName);
-    NVF_CHECK(
-        symbol,
-        "Failed to load symbol: ",
-        symbolName,
-        " ",
-        dlerror(),
-        "Please check CUDA installation");
-    return symbol;
+  CUDADriverAPIDynamicLoader() {
+    setFilename("libcuda.so");
   }
 } loader;
 
@@ -90,26 +68,26 @@ class CUDADriverAPIDynamicLoader {
 //
 // Doc for CTAD:
 // https://en.cppreference.com/w/cpp/language/class_template_argument_deduction
-#define DEFINE_DRIVER_API_WRAPPER(funcName)                     \
-  namespace {                                                   \
-  template <typename ReturnType, typename... Args>              \
-  struct funcName##Loader {                                     \
-    static ReturnType lazilyLoadAndInvoke(Args... args) {       \
-      funcName = (decltype(funcName))loader.sym(#funcName);     \
-      return funcName(args...);                                 \
-    }                                                           \
-    /* This ctor is just a CTAD helper, it is only used in a */ \
-    /* non-evaluated environment*/                              \
-    funcName##Loader(ReturnType(Args...)){};                    \
-  };                                                            \
-                                                                \
-  /* Use CTAD rule to deduct return and argument types */       \
-  template <typename ReturnType, typename... Args>              \
-  funcName##Loader(ReturnType(Args...))                         \
-      ->funcName##Loader<ReturnType, Args...>;                  \
-  }                                                             \
-                                                                \
-  decltype(::funcName)* funcName =                              \
+#define DEFINE_DRIVER_API_WRAPPER(funcName)                       \
+  namespace {                                                     \
+  template <typename ReturnType, typename... Args>                \
+  struct funcName##Loader {                                       \
+    static ReturnType lazilyLoadAndInvoke(Args... args) {         \
+      funcName = (decltype(funcName))loader.getSymbol(#funcName); \
+      return funcName(args...);                                   \
+    }                                                             \
+    /* This ctor is just a CTAD helper, it is only used in a */   \
+    /* non-evaluated environment*/                                \
+    funcName##Loader(ReturnType(Args...)){};                      \
+  };                                                              \
+                                                                  \
+  /* Use CTAD rule to deduct return and argument types */         \
+  template <typename ReturnType, typename... Args>                \
+  funcName##Loader(ReturnType(Args...))                           \
+      ->funcName##Loader<ReturnType, Args...>;                    \
+  }                                                               \
+                                                                  \
+  decltype(::funcName)* funcName =                                \
       decltype(funcName##Loader(::funcName))::lazilyLoadAndInvoke
 
 namespace nvfuser {

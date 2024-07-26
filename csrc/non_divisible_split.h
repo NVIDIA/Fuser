@@ -15,6 +15,7 @@
 
 namespace nvfuser {
 
+//! See doc/reading/divisibility-of-split.md#predication
 //! If an IterDomain is split and its inner output domain is
 //! eventually split too, the second split must be divisible or the
 //! inner domain must be predicated. This class finds Split

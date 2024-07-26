@@ -13,7 +13,7 @@
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <functional>
 #include <iostream>
@@ -34,7 +34,7 @@ void validateValWithConcreteValue(
         concrete_value.type().name());
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
-        (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+        (int64_t)TensorDomain::noReductions(tv->getLogicalDomain()).size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -53,12 +53,16 @@ void validateValWithConcreteValue(
         value->dtype(),
         ", but got a tensor of dtype ",
         actual_dtype);
+    // Intermediate tensorviews marked as CPU scalars will be created as meta
+    // tensors during compilation. For example, for fusions containing SDPA fwd
+    // and bwd, some outputs of the fwd op (philox seed, philox offset) are CPU
+    // scalars.
     if (tv->isCpuScalar()) {
       NVF_CHECK(
-          is_cpu_scalar(t),
+          is_cpu_scalar(t) || is_meta_scalar(t),
           "Expected ",
           tv->toString(),
-          " to be bound to a CPU scalar tensor "
+          " to be bound to a CPU or meta scalar tensor "
           ", but got a tensor on device ",
           t.device(),
           " with ",
@@ -66,7 +70,7 @@ void validateValWithConcreteValue(
           " elements");
     } else {
       NVF_CHECK(
-          t.is_cuda() || t.is_meta(),
+          !t.defined() || t.is_cuda() || t.is_meta(),
           "Expected ",
           tv->toString(),
           " to be bound to a CUDA or meta tensor, but got a tensor on device ",
@@ -113,19 +117,39 @@ void ExpressionEvaluator::bind_(
   }
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
-    auto rfactor_domain =
-        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+    auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+    auto alloc_domain = 
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
     NVF_ERROR(
-        t.dim() == (int64_t)rfactor_domain.size(),
+        t.dim() == (int64_t)logical_domain.size(),
         "Expected ",
         tv->toString(),
         " to be bound to a tensor of rank ",
-        rfactor_domain.size(),
+        logical_domain.size(),
         ", but got a tensor of rank ",
         t.dim());
     for (auto i : c10::irange(t.dim())) {
-      auto id = rfactor_domain[i];
-      if (id->hasExpandedExtent()) {
+      auto id = logical_domain[i];
+        const auto all_exp = DependencyCheck::getAllExprsBetween(
+        {id, id}, {alloc_domain.begin(), alloc_domain.end()});
+
+      // If an logical dimensions has been sharded. (Split + DID parallelization)
+      // then bind the logical id to the unsharded extent, not the
+      // input size (sharded)
+      if (!all_exp.empty()) {
+        for (auto exp : all_exp) {
+          // TODO: assert there is no merge
+          if (auto split = dynamic_cast<Split*>(exp)) {
+            auto out = split->outer();
+            // auto in = split->inner();
+            NVF_CHECK(out->isDeviceDim(), "Only allocation splits handled for DeviceDim");
+            // TODO: assert that outer's extent == tv->getDeviceMesh().vector().size()
+            int logical_extent = (int)(t.size(i) * tv->getDeviceMesh().vector().size());
+            std::cout << "Bind " << logical_domain[i]->toString() << " to extent " << logical_extent << std::endl;
+            bind_(logical_domain[i]->extent(), logical_extent, evaluate_validate);
+          }
+        }
+      } else if (id->hasExpandedExtent()) {
         // Verify that t is also expanded
         NVF_ERROR(
             t.size(i) == 1 || t.stride(i) == 0,
@@ -140,8 +164,8 @@ void ExpressionEvaluator::bind_(
             " in dimension ",
             i);
         bind_(
-            rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
-      } else if (rfactor_domain[i]->isDeviceDim()) {
+            logical_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
+      } else if (logical_domain[i]->isDeviceDim()) {
         // Currently we have the restrictions:
         // (1) Devices parallelized axis extent == DeviceMesh's extent
         // (2) Device parallelized axis cannot be split or merged
@@ -156,12 +180,17 @@ void ExpressionEvaluator::bind_(
             id->toString(),
             "is sharded and must have size 1, but input tensor has size ",
             t.size(i));
+        NVF_CHECK(
+            tv->getDeviceMesh().size() > 0,
+            "TV ",
+            tv->toString(),
+            " has an empty DeviceMesh with DID parallelization")
         bind_(
-            rfactor_domain[i]->extent(),
-            (int)tv->getDeviceMesh().vector().size(),
+            logical_domain[i]->extent(),
+            (int)tv->getDeviceMesh().size(),
             evaluate_validate);
       } else {
-        bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
+        bind_(logical_domain[i]->extent(), t.size(i), evaluate_validate);
       }
     }
   }
@@ -213,7 +242,7 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
 const PolymorphicValue& ExpressionEvaluator::evaluate(
     const Val* value,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
-  if (precomputed_values_ && precomputed_values_->ready()) {
+  if (precomputed_values_ && precomputed_values_->hasValidValues()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
     }
@@ -289,7 +318,7 @@ void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
   // We map Symbolic IterDomains here only if their extents match. This avoids
   // mapping between symbolic domains that might concretize to an (Iteration,
   // Broadcast) pair from a resolved broadcast.
-  const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+  const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
 
   for (const auto& set : mapped_sets.disjointSets()) {
     int64_t known_size = -1;

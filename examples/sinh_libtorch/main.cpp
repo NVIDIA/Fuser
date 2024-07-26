@@ -1,3 +1,9 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 #include <executor.h>
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>

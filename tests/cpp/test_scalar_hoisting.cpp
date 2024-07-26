@@ -67,10 +67,10 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   // intended. Validation could be also done by just string comparison
   // as the parser test, but updating such tests would be tedious.
   for (auto top_level_loop :
-       ir_utils::filterByType<kir::ForLoop>(kernel->topLevelExprs())) {
+       ir_utils::filterByType<ForLoop>(kernel->topLevelExprs())) {
     auto innermost_loop = top_level_loop;
-    while (auto first_expr_loop = dynamic_cast<kir::ForLoop*>(
-               innermost_loop->body().exprs().at(0))) {
+    while (auto first_expr_loop =
+               dynamic_cast<ForLoop*>(innermost_loop->body().exprs().at(0))) {
       innermost_loop = first_expr_loop;
     }
     const auto& exprs = innermost_loop->body().exprs();
@@ -242,7 +242,7 @@ TEST_F(ScalarHoistTest, IndexHoist2) {
 
   tv5->split(-1, 4);
   TransformPropagatorWithCheck propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
 
   tv4->split(-1, 3);
 
@@ -352,6 +352,21 @@ TEST_F(ScalarHoistTest, ARange) {
   fusion->addOutput(output1);
   fusion->addOutput(output2);
 
+  {
+    // output1 has Symbolic axes since the arange arguments are input scalars.
+    // That means we need to concretize the fusion first.
+    ExpressionEvaluator expr_eval;
+    expr_eval.bind(start_int, 0);
+    expr_eval.bind(end_int, 100);
+    expr_eval.bind(step_int, 1);
+    auto initial_info = DynamicTransform::getInitialInfo(fusion.get());
+    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+    DynamicTransform::concretizeFusion(fusion.get(), &info);
+    NVF_CHECK(
+        !fusion->hasDynamicTransform(),
+        "Expected to have no dynamic transform");
+  }
+
   int64_t start = 0, end = 100, step = 1;
 
   FusionExecutor fe;
@@ -373,11 +388,11 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   int64_t i8;
   i8 = (int64_t)(i7);
   #pragma unroll 1
-  for(nvfuser_index_t i9 = 0; i9 < i7; ++i9) {
+  for(nvfuser_index_t i9 = 0LL; i9 < i7; ++i9) {
     T0[i9] = (i0 + (i2 * i9));
   }
   #pragma unroll 1
-  for(nvfuser_index_t i10 = 0; i10 < i7; ++i10) {
+  for(nvfuser_index_t i10 = 0LL; i10 < i7; ++i10) {
     T1[i10] = i8;
   }
 }

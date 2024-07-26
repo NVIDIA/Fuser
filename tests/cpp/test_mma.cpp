@@ -16,6 +16,9 @@
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
+#include <algorithm>
+#include <iterator>
+#include <unordered_map>
 
 namespace nvfuser {
 
@@ -85,43 +88,68 @@ class MmaTest : public NVFuserFixtureParamTest<MmaTestParams> {
   }
 };
 
-TEST_P(MmaTest, SingleTile) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+std::vector<at::Tensor> scheduleCompileAndRun(
+    Fusion* fusion,
+    TensorView* tva,
+    TensorView* tvb,
+    std::pair<at::Tensor, at::Tensor> inputs,
+    int64_t dim_to_reduce,
+    MmaMacro macro,
+    bool propagate_backwards) {
+  fusion->addInput(tva);
+  fusion->addInput(tvb);
 
-  auto shapes = matmulAtInputShape3DTuring(
-      getM(macro), getN(macro), getK(macro), MmaLayout::TN);
-
-  auto tv0 = makeConcreteTensor(shapes.first, dtype);
-  auto tv1 = makeConcreteTensor(shapes.second, dtype);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-
-  // [M, 1, K]
   // Just doing a gmem->register copy
-  tv0 = set(tv0);
+  auto tv0 = set(tva);
 
-  // [1, N, K]
   // Just doing a gmem->register copy
-  tv1 = set(tv1);
+  auto tv1 = set(tvb);
 
-  auto tv2 = fusedMultiplySum(tv0, tv1, {2});
+  // Dim to reduce is 1 for [M, K, N] and 2 for [M, N, K].
+  auto tv2 = fusedMultiplySum(tv0, tv1, {dim_to_reduce});
+  fusion->addOutput(tv2);
 
-  fusion.addOutput(tv2);
-
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
+  // In this test we don't handle input a (tv0) having
+  // an allocation domain.
+  NVF_CHECK(
+      !tva->hasAllocation(),
+      "tva cannot have an allocation domain in this test");
+
+  if (tvb->hasAllocation()) {
+    // Get the permutation that describes the difference
+    // between the logical domain and allocation domain.
+    auto b_permutation =
+        ir_utils::computePermutation(
+            tvb->getLogicalDomain(), tvb->getAllocationDomain())
+            .value();
+
+    // Reorder the ouput of Mma.
+    tv2->reorder(b_permutation);
+
+    // We have to propage the changes we made to then output back to the inputs
+    // of the Mma Op. Just for the purpose of demonstration we also show how
+    // it's equivalent to applying the transform to the input of the Mma
+    // directly.
+    if (propagate_backwards) {
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          tv2, -1, {});
+    } else {
+      tv1->reorder(b_permutation);
+    }
+  }
+
   auto tv2c = tv2->cacheBefore();
 
-  // [M, N, K] -> [N, M, K]
+  // [M, N, K] or [M, K, N] -> [N, M, K]
   moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
-
   tv1->applyMmaSwizzle(MmaOperand::B);
 
   tv0->merge(1);
@@ -133,21 +161,87 @@ TEST_P(MmaTest, SingleTile) {
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto inputs = matmulAtInput3DTuring(
-      getM(macro),
-      getN(macro),
-      getK(macro),
-      MmaLayout::TN,
-      data_type_to_aten(dtype));
-
   FusionExecutor fe;
   fe.compileFusion(
-      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
-  auto tref = atMatmul(
-      inputs.first.squeeze().to(at::kFloat),
-      inputs.second.squeeze().to(at::kFloat),
-      MmaLayout::TN);
+      fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  return fe.runFusion({inputs.first, inputs.second});
+}
+
+TEST_P(MmaTest, SingleTile) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto M = getM(macro);
+  auto N = getN(macro);
+  auto K = getK(macro);
+
+  auto tv0 = makeConcreteTensor({M, 1, K}, dtype);
+  auto tv1 = makeConcreteTensor({1, N, K}, dtype);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto a_input = at::randn({M, 1, K}, options);
+  auto b_input = at::randn({1, N, K}, options);
+
+  auto cg_outputs = scheduleCompileAndRun(
+      &fusion,
+      tv0,
+      tv1,
+      {a_input, b_input},
+      2 /*dim to reduce [M, N, K]*/,
+      macro,
+      false /* propagate backwards*/);
+
+  auto tref = a_input.squeeze()
+                  .to(at::kFloat)
+                  .matmul(b_input.squeeze().t().to(at::kFloat));
+
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_P(MmaTest, SingleTileWithStridedInput) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto M = getM(macro);
+  auto N = getN(macro);
+  auto K = getK(macro);
+
+  auto tv0 = makeConcreteTensor({M, K, 1}, dtype);
+  auto tv1 = makeConcreteTensor({1, K, N}, dtype);
+  tv1->setAllocationDomain({tv1->axis(0), tv1->axis(2), tv1->axis(1)}, true);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto a_input = at::randn({M, K, 1}, options);
+  auto b_input = at::randn({1, K, N}, options);
+  b_input = b_input.as_strided(b_input.sizes(), {N * K, 1, K});
+
+  auto cg_outputs = scheduleCompileAndRun(
+      &fusion,
+      tv0,
+      tv1,
+      {a_input, b_input},
+      1 /*dim to reduce [M, K, N]*/,
+      macro,
+      false /* propagate backwards*/);
+
+  auto tref =
+      a_input.squeeze().to(at::kFloat).matmul(b_input.squeeze().to(at::kFloat));
+
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+
+  // Clear the fusion and try propagating changes to the mma output.
+  fusion.clear();
+  tv0 = makeConcreteTensor({M, K, 1}, dtype);
+  tv1 = makeConcreteTensor({1, K, N}, dtype);
+  tv1->setAllocationDomain({tv1->axis(0), tv1->axis(2), tv1->axis(1)}, true);
+  cg_outputs = scheduleCompileAndRun(
+      &fusion,
+      tv0,
+      tv1,
+      {a_input, b_input},
+      1 /*dim to reduce [M, N, K]*/,
+      macro,
+      true /* propagate backwards*/);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
@@ -320,7 +414,7 @@ TEST_P(HopperRS, SingleTile) {
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv1->applyMmaSwizzle(swizzle_b, layout == MmaLayout::TN);
+  tv1->applyMmaSwizzle(swizzle_b);
 
   naivelyParallelize(tv1);
 
@@ -328,6 +422,215 @@ TEST_P(HopperRS, SingleTile) {
     // [M, K, N] -> [M, N, K]
     tv2c->reorder({{-1, -2}});
   }
+
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_P(HopperRS, SingleTileWithTMALoad) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  moveInnerBroadcastLeft(tv1);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
+  }
+
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_P(HopperRS, SingleTileWithTMALoadStore) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  auto tv3 = set(tv2);
+  tv2->setMemoryType(MemoryType::Shared);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  fusion.addOutput(tv3);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  moveInnerBroadcastLeft(tv1);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
+  }
+
+  EXPECT_TRUE(tv2c->getMemoryType() == MemoryType::Local);
+  EXPECT_TRUE(tv2->getMemoryType() == MemoryType::Shared);
+  EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Global);
+
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+
+  mma_utils::scheduleTMAStoreForMmaOutput(tv3, getM(macro), getN(macro));
+
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_P(HopperRS, SingleTileWithTMALoadOuterDimNotSplit) {
+  if (layout == MmaLayout::TT) {
+    GTEST_SKIP() << "Skipping test as we only handle TN layout in this test";
+  }
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(1);
+  tv0->merge(1);
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  // In this case we don't split the outer dimension, thus having
+  // fewer TMA loads.
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b, /* don't split outer dim*/ false);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
@@ -428,9 +731,6 @@ TEST_P(HopperSS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
-  bool transpose_b = (layout == MmaLayout::TN || layout == MmaLayout::NN);
-
   auto shapes = matmulAtInputShape3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout);
 
@@ -482,7 +782,7 @@ TEST_P(HopperSS, SingleTile) {
     default:
       NVF_ERROR("Invalid layout");
   }
-  tv2->commitLeafToRFactor();
+  tv2->commitLeafToLogical();
 
   fusion.addOutput(tv2);
 
@@ -502,12 +802,111 @@ TEST_P(HopperSS, SingleTile) {
   moveInnerBroadcastLeft(tv1);
 
   // Hopper tensor core assumes K major, so we are using !transpose_a here.
-  tv0->applyMmaSwizzle(swizzle_a, !transpose_a);
-  tv1->setMemoryType(MemoryType::Shared);
-  tv1->applyMmaSwizzle(swizzle_b, transpose_b, transpose_a);
+  tv0->applyMmaSwizzle(swizzle_a);
+  tv1->applyMmaSwizzle(swizzle_b);
 
   naivelyParallelize(tv0);
   naivelyParallelize(tv1);
+
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+
+  auto inputs = matmulAtInput3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
+TEST_P(HopperSS, SingleTileWithTMALoad) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto shapes = matmulAtInputShape3DHopperSS(
+      getM(macro), getN(macro), getK(macro), layout);
+
+  auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->smem copy
+  tv0 = set(tv0);
+  tv0->setMemoryType(MemoryType::Shared);
+  tv0->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  int axes = 0;
+  switch (layout) {
+    case MmaLayout::NT:
+      axes = 0;
+      break;
+    case MmaLayout::TT:
+    case MmaLayout::NN:
+      axes = 1;
+      break;
+    case MmaLayout::TN:
+      axes = 2;
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
+
+  // Reorder the accumulator as [M, N, K]
+  switch (layout) {
+    case MmaLayout::TT:
+      // [M, K, N] -> [M, N, K]
+      tv2->reorder({{-2, -1}});
+      break;
+    case MmaLayout::TN:
+      // [M, N, K]
+      break;
+    case MmaLayout::NT:
+      // [K, M, N] -> [M, N, K]
+      tv2->reorder({{-3, -1}});
+      break;
+    case MmaLayout::NN:
+      // [N, K, M] -> [M, N, K]
+      tv2->reorder({{-1, -3}});
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
+  tv2->commitLeafToLogical();
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0);
+  moveInnerBroadcastLeft(tv1);
+  tv0->applyMmaSwizzleForTMALoad(swizzle_a);
+  tv1->applyMmaSwizzleForTMALoad(swizzle_b);
+
+  // For smem mma input tensors, the schedule does not matter, we just naively
+  // parallelize it so the test runs faster.
+  tv0->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);

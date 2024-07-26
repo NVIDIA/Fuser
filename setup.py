@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 # Environment variables used during build:
 #
 #   MAX_JOBS
@@ -389,6 +392,8 @@ def main():
             "include/nvfuser/scheduler/*.h",
             "include/nvfuser/serde/*.h",
             "include/nvfuser/flatbuffers/*.h",
+            "include/nvfuser/host_ir/*.h",
+            "include/nvfuser/id_model/*.h",
             "share/cmake/nvfuser/NvfuserConfig*",
             "contrib/*",
             "contrib/nn/*",

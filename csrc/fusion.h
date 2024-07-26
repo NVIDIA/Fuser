@@ -96,7 +96,7 @@ enum class AllocationType : int {
   // pointer arithmetic of the input.  In this case, aliased_io is a non-null
   // tensor.
   // 2. To evaluate output tensors which are not aliases. For example, default
-  // scheduling in matmul when DisableOption::MatmulExprEval is not set.
+  // scheduling for MatmulOp/LinearOp in ExprEval scheduler.
   Evaluate,
 };
 
@@ -146,6 +146,9 @@ class NVF_API Fusion : public IrContainer {
   //! Register input as an input of the fusion
   void addInput(Val* input);
 
+  //! Add output to outputs_ without modifying hide_output
+  void addOutputInternal(Val* output);
+
   //! Register output as an output of the fusion
   void addOutput(Val* output);
 
@@ -188,7 +191,9 @@ class NVF_API Fusion : public IrContainer {
   //! Returns (tensor, read conflict ways, write conflict ways)
   //! Each tensor can be read/write by multiple expressions, so the ways are
   //! vectors.
-  std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
+  std::unordered_map<
+      TensorView*,
+      std::pair<std::vector<int64_t>, std::vector<int64_t>>>
   bankConflictInfo(const CompileParams& compile_params = CompileParams());
 
   //! Return a list of topologically sorted expressions. This only includes
@@ -435,6 +440,17 @@ class NVF_API Fusion : public IrContainer {
 
   static IrCloner copy(const Fusion* from, Fusion* to);
 
+  //! During scheduling, this can be set to a non-negative value. If done, then
+  //! during execution by FusionExecutor, we will check that this value matches
+  //! the corresponding value in LaunchParams.
+  int64_t expectedDynamicSmemBytes() const {
+    return expected_dynamic_smem_bytes_;
+  }
+
+  void setExpectedDynamicSmemBytes(int64_t bytes) {
+    expected_dynamic_smem_bytes_ = bytes;
+  }
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
@@ -493,6 +509,13 @@ class NVF_API Fusion : public IrContainer {
   std::vector<std::pair<std::any, CloneFn>> managed_data_;
   std::unordered_map<std::string, std::pair<std::any, CloneFn>>
       managed_named_data_;
+
+  // If set to a non-negative value during scheduling, this will be checked by
+  // the executor.
+  int64_t expected_dynamic_smem_bytes_ = -1LL;
 };
+
+// Returns true if all fusion outputs are expression evaluated.
+bool isExpressionEvaluated(Fusion* fusion);
 
 } // namespace nvfuser

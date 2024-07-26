@@ -143,7 +143,15 @@ TEST_F(RNGTest, ManualScheduleValidateWithCURand2) {
   fusion->addInput(size2);
   fusion->addInput(size3);
   fusion->addInput(size4);
-  TensorView* tv0 = rand({size1, size2, size3, size4}, DataType::Float);
+  // Passing maybe_symbolic=false for this test since we know we will not pass
+  // an extent of 1. Otherwise the fusion would be dynamic and we would need to
+  // concretize before compiling.
+  TensorView* tv0 = rand(
+      {size1, size2, size3, size4},
+      DataType::Float,
+      /*philox_seed=*/nullptr,
+      /*philox_offset*/ nullptr,
+      /*maybe_symbolic=*/false);
   fusion->addOutput(tv0);
 
   FusionExecutor fe;

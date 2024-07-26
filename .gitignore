@@ -48,3 +48,6 @@ foo.bin
 .pre-commit-config.yaml
 
 *_generated.*
+
+# Mac OS internal file
+.DS_Store

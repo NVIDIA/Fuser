@@ -21,27 +21,19 @@ void validateIr(Fusion* fusion);
 //! used in code generation as well as runtime validation.
 void validateAndCollectVectorizeInfo(Fusion* fusion);
 
-//! Find the contig allocation domains that a vectorized leaf domain
+//! Find the contig allocation domains that a vectorized loop domain
 //! of a consumer TV depends on. Required for runtime validation.
 void fillConsumerVectorizedContigAllocationDomains(
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder);
 
-//! Find the contig allocation domains that a vectorized leaf domain
+//! Find the contig allocation domains that a vectorized loop domain
 //! of a producer TV depends on. Required for runtime validation.
 //! Producer must be transformed as consumer.
 void fillProducerVectorizedContigAllocationDomains(
     const TensorView* producer_tv,
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder);
-
-//! Validates partial split expressions. Partial split only uses an
-//! inner subdomain specified by start and stop offsets, ignoring the
-//! values outside the range. It's designed to be used with non-padded
-//! shift, which introduces non-zero start and stop smaller than the
-//! extent. This function makes sure all tensors have all values
-//! calculated that are necessary for output values.
-void validatePartialSplit(Fusion* fusion);
 
 //! Validate data format and GPU arch compatibility of scheduled
 //!  mma operators on the fusion.

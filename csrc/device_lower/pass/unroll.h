@@ -12,7 +12,7 @@
 #include <device_lower/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <bitset>
 #include <unordered_map>
@@ -61,7 +61,7 @@ class UnrollPass : kir::ExprMutator {
   // Take the incoming exprs and run loop unrolling, returning the new IR
   static std::vector<Expr*> runPass(const std::vector<Expr*>& exprs);
 
-  static bool canOmitElseClause(kir::ForLoop* fl);
+  static bool canOmitElseClause(ForLoop* fl);
 
  private:
   void registerReplace(Expr* reference, Expr* new_expr);
@@ -75,7 +75,7 @@ class UnrollPass : kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(kir::ForLoop* fl) final;
+  void handle(ForLoop* fl) final;
 
   void dispatch(Expr* expr) final;
 

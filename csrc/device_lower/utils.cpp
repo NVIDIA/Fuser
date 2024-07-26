@@ -15,8 +15,8 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/arith.h>
-#include <root_domain_map.h>
 
 #include <expr_simplifier.h>
 #include <algorithm>
@@ -28,8 +28,8 @@ namespace nvfuser {
 namespace scope_utils {
 
 //! Create an **empty** Forloop and copy the metadata.
-kir::ForLoop* cloneForLoop(kir::ForLoop* for_loop) {
-  return IrBuilder::create<kir::ForLoop>(for_loop);
+ForLoop* cloneForLoop(ForLoop* for_loop) {
+  return IrBuilder::create<ForLoop>(for_loop);
 }
 
 //! Create an **empty** IfThenElse and copy the metadata.
@@ -64,26 +64,26 @@ ir_utils::TVDomainGuard overrideContiguityGuard(
   TensorDomain* domain_with_specified_contiguity =
       IrBuilder::create<TensorDomain>(
           tv->getRootDomain(),
-          tv->getRFactorDomain(),
+          tv->getLogicalDomain(),
           tv->getAllocationDomain(),
-          tv->getLeafDomain(),
+          tv->getLoopDomain(),
           TensorDomain::getContiguityFilledWith(
               tv->getMaybeAllocationDomain(), contiguity));
 
   return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
 }
 
-ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
+ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
     TensorView* tv,
     bool contiguity) {
   // Use domain guard to ignore the contiguity of the given tv.
   TensorDomain* domain_with_specified_contiguity =
       IrBuilder::create<TensorDomain>(
           tv->getRootDomain(),
-          tv->getRFactorDomain(),
-          tv->getLeafDomain(),
+          tv->getLogicalDomain(),
+          tv->getLoopDomain(),
           TensorDomain::getContiguityFilledWith(
-              tv->getMaybeRFactorDomain(), contiguity));
+              tv->getLogicalDomain(), contiguity));
 
   return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
 }
@@ -149,12 +149,14 @@ bool isTvOp(const Expr* expr) {
           WelfordOp,
           GroupedWelfordOp,
           LoadStoreOp,
+          MatmulOp,
           MmaOp,
+          LinearOp,
+          SdpaFwdOp,
+          SdpaBwdOp,
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
-          ShiftOp,
-          GatherOp,
           ViewAsScalar,
           ViewOp,
           PadOp,
@@ -173,8 +175,7 @@ bool isTvOp(const Expr* expr) {
 
 bool isLdMatrixOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::LdMatrix ||
-        ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
+    return ldst->opType() == LoadStoreOpType::LdMatrix;
   }
   return false;
 }
@@ -193,14 +194,12 @@ enum class CpAsyncBulkTileType { G2S, S2G, NotACpAsyncBulkTile };
 inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
     if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
-      if (ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Global &&
-          ldst->out()->as<TensorView>()->getMemoryType() ==
-              MemoryType::Shared) {
+      if (getTv(ldst->in())->getMemoryType() == MemoryType::Global &&
+          getTv(ldst->out())->getMemoryType() == MemoryType::Shared) {
         return CpAsyncBulkTileType::G2S;
       } else if (
-          ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Shared &&
-          ldst->out()->as<TensorView>()->getMemoryType() ==
-              MemoryType::Global) {
+          getTv(ldst->in())->getMemoryType() == MemoryType::Shared &&
+          getTv(ldst->out())->getMemoryType() == MemoryType::Global) {
         return CpAsyncBulkTileType::S2G;
       } else {
         NVF_ERROR(false, "Invalid CpAsyncBulkTileType");
@@ -317,7 +316,7 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   IterDomain* reduction_on_xdim = nullptr;
-  for (auto id : tv_out->getLeafDomain()) {
+  for (auto id : tv_out->getLoopDomain()) {
     // Currently warp reduction only allows
     //  serial and block.x parallel reductions
     if (id->isReduction() && id->isParallelized()) {
@@ -362,7 +361,7 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
   }
 
   std::unordered_map<ParallelType, IterDomain*> parallel_domains;
-  for (auto d : tv->getLeafDomain()) {
+  for (auto d : tv->getLoopDomain()) {
     if (d->isThread()) {
       parallel_domains.insert(std::make_pair(d->getParallelType(), d));
     }
@@ -424,7 +423,7 @@ class ExprFlattener : private kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
     } else {
       flat_exprs_.push_back(expr);
@@ -605,8 +604,7 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->macro(),
-          node->layout());
+          node->macro());
       registerReplaceWithPredicate(node, replacement);
     }
   }
@@ -694,20 +692,26 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
 kir::Allocate* allocGlobalBufferForGridComm(
     Val* buffer_size,
     DataType dtype,
-    bool zero_init) {
+    bool zero_init,
+    bool resets_to_zero) {
   const std::vector<IterDomain*> new_buffer_ids = {
       IrBuilder::create<IterDomain>(IterDomainBuilder(
-          GpuLower::current()->kernel()->zeroVal(), buffer_size))};
+          GpuLower::current()->kernel()->zeroVal(),
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, buffer_size)))};
   const auto buffer_domain = IrBuilder::create<TensorDomain>(new_buffer_ids);
   const auto buffer_tv =
       IrBuilder::create<TensorView>(buffer_domain, dtype, MemoryType::Global);
   return IrBuilder::create<kir::Allocate>(
-      buffer_tv, buffer_tv->getMemoryType(), nullptr, zero_init);
+      buffer_tv,
+      buffer_tv->getMemoryType(),
+      nullptr,
+      zero_init,
+      resets_to_zero);
 }
 
 BasicAllocInfo getAllocInformation(
     const TensorView* tv,
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map,
     bool use_id_map) {
   DEBUG_PRINT_SCOPE(tv);
@@ -722,7 +726,7 @@ BasicAllocInfo getAllocInformation(
       break;
     }
 
-    if (tv->axis((int)info.alloc_pos)->isReduction()) {
+    if (tv->axis(info.alloc_pos)->isReduction()) {
       const auto outputs = FusionGuard::getCurFusion()->getTerminatingOutputs();
       NVF_ERROR(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
@@ -752,15 +756,15 @@ BasicAllocInfo getAllocInformation(
       outer_alloc_found = true;
     }
 
-    // Allocation of a double buffered tensor is placed outside its
-    // double buffer axis.
-    if ((tv->isDoubleBuffered() || tv->isCircularBuffered()) &&
-        tv->axis((int)info.alloc_pos) ==
-            gpu_lower->doubleBufferInfo().getDoubleBufferAxis(tv)) {
+    // Allocation of a circular buffered tensor is placed outside its
+    // circular buffer axis.
+    if (tv->isCircularBuffered() &&
+        tv->axis(info.alloc_pos) ==
+            gpu_lower->circularBufferInfo().getCircularBufferAxis(tv)) {
       outer_alloc_found = true;
     }
 
-    auto local_id = tv->axis((int)info.alloc_pos);
+    auto local_id = tv->axis(info.alloc_pos);
 
     if (use_id_map) {
       auto id_it = id_map.find(local_id);
@@ -867,6 +871,131 @@ std::vector<Val*> getFusionOutputsRequiringCodegen(Fusion* fusion) {
         return (fusion->getOutputAlias(out).type != AllocationType::Evaluate);
       });
   return outs_requiring_codegen;
+}
+
+Val* getNumThreadsInTensorView(TensorView* tv) {
+  Val* num_threads = tv->fusion()->oneVal();
+  for (auto id : tv->getLoopDomain()) {
+    if (id->isThreadDim()) {
+      num_threads = SimplifyingIrBuilder::mulExpr(num_threads, id->extent());
+    }
+  }
+  return num_threads;
+}
+
+std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
+  if (isAmpere(expr->macro()) || isTuring(expr->macro())) {
+    return {UnitDim::K, UnitDim::K};
+  }
+  NVF_ERROR(isHopper(expr->macro()));
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
+  std::array<UnitDim, 2> layout;
+
+  auto out_tv = ir_utils::getTv(expr->out());
+  IterDomain* reduction_id = nullptr;
+  for (auto id : out_tv->getLogicalDomain()) {
+    if (id->isReduction()) {
+      reduction_id = id;
+      break;
+    }
+  }
+  NVF_ERROR(reduction_id != nullptr);
+
+  std::array<TensorView*, 2> inputs = {
+      ir_utils::getTv(expr->inA()), ir_utils::getTv(expr->inB())};
+  for (auto i : c10::irange(2)) {
+    auto in_tv = inputs.at(i);
+    if (in_tv->getMemoryType() == MemoryType::Local) {
+      layout[i] = UnitDim::K;
+      continue;
+    }
+    NVF_ERROR(in_tv->getMemoryType() == MemoryType::Shared);
+    auto out2in =
+        PairwiseLogicalDomainMap(in_tv, out_tv).mapConsumerToProducer();
+    auto reduction_id_in = out2in.at(reduction_id);
+    auto inner_id = in_tv->getMaybeAllocationDomain().back();
+    while (inner_id != reduction_id_in && inner_id->definition() != nullptr) {
+      inner_id = inner_id->definition()->inputs().back()->as<IterDomain>();
+    }
+    layout[i] = inner_id == reduction_id_in ? UnitDim::K : UnitDim::M_or_N;
+  }
+
+  return layout;
+}
+
+bool hasRootToLoopLinearTransformations(const TensorView* tv) {
+  auto root = tv->getMaybeRootDomain();
+  auto loop = tv->getLoopDomain();
+  std::vector<Val*> loop_val(loop.begin(), loop.end());
+  auto all_ids_vec =
+      DependencyCheck::getAllValsBetween({root.begin(), root.end()}, loop_val);
+  std::unordered_set<Val*> all_ids_set(all_ids_vec.begin(), all_ids_vec.end());
+  auto alloc = tv->getMaybeAllocationDomain();
+  auto logical = tv->getLogicalDomain();
+  bool all_alloc_id_on_path = std::all_of(
+      alloc.begin(), alloc.end(), [&](Val* v) { return all_ids_set.count(v); });
+  bool all_logical_id_on_path =
+      std::all_of(logical.begin(), logical.end(), [&](Val* v) {
+        return all_ids_set.count(v);
+      });
+  return all_alloc_id_on_path && all_logical_id_on_path;
+}
+
+bool isReductionInitExpr(const Expr* expr) {
+  // False if its output isn't a TensorView
+  if (!ir_utils::isTvOp(expr)) {
+    return false;
+  }
+  // False if it doesn't have any reduction axis
+  const auto out_tv = ir_utils::getTvOutput(expr);
+  if (!out_tv->domain()->hasReduction()) {
+    return false;
+  }
+  // False if it has TensorView inputs as initialization should
+  // never use TensorViews
+  const auto tv_filter_inp_view =
+      ir_utils::filterByType<TensorView>(expr->inputs());
+  if (tv_filter_inp_view.begin() != tv_filter_inp_view.end()) {
+    return false;
+  }
+  return true;
+}
+
+bool predicateAtEnd(ForLoop* loop) {
+  auto loop_id = loop->iter_domain();
+  auto split = dynamic_cast<Split*>(loop_id->definition());
+  if (split == nullptr) {
+    return false;
+  }
+
+  bool is_divisible = GpuLower::current()->divisibleSplitSet().count(split) > 0;
+
+  if (!is_divisible) {
+    return false;
+  }
+
+  // Find the other output of the split
+  auto other_out_id =
+      split->inner() == loop_id ? split->outer() : split->inner();
+
+  // If the other output is mapped with a vectorized IterDomain,
+  // this IterDomain needs to be predicated at each iteration point.
+  const auto& other_id_exact_set = GpuLower::current()
+                                       ->caMap()
+                                       ->getIdSets(IdMappingMode::EXACT)
+                                       .getDisjointSetOf(other_out_id);
+
+  if (std::any_of(
+          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
+            return id->getParallelType() == ParallelType::Vectorize;
+          })) {
+    return false;
+  }
+
+  // Now it is either loop_id is mapped with a vectorized IterDomain
+  // or it's an output of view transformations.
+  return true;
 }
 
 } // namespace lower_utils

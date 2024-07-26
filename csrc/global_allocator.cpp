@@ -105,7 +105,7 @@ thread_local std::vector<Arena> arenas;
 
 } // namespace
 
-at::Tensor contigZeroTensor(
+at::Tensor contigZeroedTensor(
     const std::vector<int64_t>& sizes,
     const c10::ScalarType& aten_dtype,
     const c10::Device& device) {

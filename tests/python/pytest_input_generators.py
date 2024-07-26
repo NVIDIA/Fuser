@@ -326,14 +326,6 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
         yield SampleInput([make_arg(s) for s in shapes], dim), ex_type, ex_str
 
 
-def define_tensor_generator(
-    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
-):
-    yield SampleInput(shape=[-1], contiguity=[True])
-    yield SampleInput(shape=[-1, -1], contiguity=[True, True], stride_order=[0, 1])
-    yield SampleInput(shape=[-1, -1], contiguity=[True, True], stride_order=[-1, -2])
-
-
 def define_tensor_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -797,8 +789,16 @@ def index_select_error_generator(
     a = make_arg(input_shape)
 
     # dim, exception type, exception string
-    positive_axis = (2, RuntimeError, "index_select on invalid axis")
-    negative_axis = (-3, RuntimeError, "index_select on invalid axis")
+    positive_axis = (
+        2,
+        RuntimeError,
+        "Tried to access out of boundary index 2. total index: 2",
+    )
+    negative_axis = (
+        -3,
+        RuntimeError,
+        "Tried to access out of boundary index -1. total index: 2",
+    )
 
     error_cases = [
         positive_axis,
@@ -1423,7 +1423,7 @@ def tensor_size_error_generator(
             "dim": MAX_TENSOR_DIMS,
         },
         RuntimeError,
-        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+        "Tried to access out of boundary index",
     )
     check_relative_index_beyond_num_dims = (
         {
@@ -1431,7 +1431,7 @@ def tensor_size_error_generator(
             "dim": -MAX_TENSOR_DIMS - 1,
         },
         RuntimeError,
-        "The dimension requested is beyond the bounds of the shape of the indexed tensor!",
+        "Tried to access out of boundary index",
     )
 
     error_checks = [
@@ -1458,7 +1458,7 @@ def vector_at_error_generator(
             "index": MAX_TENSOR_DIMS,
         },
         RuntimeError,
-        "The index requested is beyond the bounds of the indexed vector!",
+        "Tried to access out of boundary index",
     )
     check_relative_index_beyond_num_dims = (
         {
@@ -1466,7 +1466,7 @@ def vector_at_error_generator(
             "index": -MAX_TENSOR_DIMS - 1,
         },
         RuntimeError,
-        "The index requested is beyond the bounds of the indexed vector!",
+        "Tried to access out of boundary index",
     )
 
     error_checks = [
@@ -1492,18 +1492,108 @@ def matmul_input_generator(
         requires_grad=requires_grad,
     )
 
-    def multiply_range(maximum, step):
-        assert maximum % step == 0
-        num_steps = int(math.log(maximum, step))
-        return tuple(
-            map(pow, itertools.repeat(step, num_steps), range(1, num_steps + 1))
+    B = 64
+    M = 512
+    N = 256
+    K = 32
+
+    shapes_a = ((K,), (M, K), (1, K), (B, M, K), (B, 1, M, K))
+    shapes_b = ((K,), (K, N), (K, 1), (B, K, N))
+
+    for shape_a, shape_b in itertools.product(shapes_a, shapes_b):
+        yield SampleInput(make_arg(shape_a), make_arg(shape_b))
+
+
+def linear_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor,
+        dtype=dtype,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    B = 64
+    M = 512
+    N = 256
+    K = 32
+
+    # Cases without bias
+    shapes_input = ((K), (M, K), (B, M, K), (B, 1, M, K))
+    shapes_weight = ((K), (N, K), (1, K))
+    for shape_input, shape_weight in itertools.product(shapes_input, shapes_weight):
+        yield SampleInput(make_arg(shape_input), make_arg(shape_weight))
+
+    # Cases with bias
+    shape_weight = (N, K)
+    shapes_bias = ((), (N,))
+    for shape_input, shape_bias in itertools.product(shapes_input, shapes_bias):
+        yield SampleInput(
+            make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias)
         )
 
-    # Ranges of tensor sizes: 8, 64, 512, 4096, 32768, ...
-    # Use a Cartesian product to create a wide range of matrix shapes
-    # I'll stop at 512 as possible numerical difference may show up.
-    M, N, K = itertools.repeat(multiply_range(512, 8), 3)
-    for M, N, K in itertools.product(M, N, K):
-        lhs_shape = (M, K)
-        rhs_shape = (K, N)
-        yield SampleInput(make_arg(lhs_shape), make_arg(rhs_shape))
+
+def linear_error_generator(
+    op, dtype=torch.float32, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    # shapes, dim, exception type, exception string
+    M = 512
+    N = 256
+    K = 32
+
+    bias_with_1dweight = (
+        ((M, K), (K), (N)),
+        RuntimeError,
+        "Expected B to be a 2D matrix if bias is given, got 1D.",
+    )
+
+    mismatched_bias_extent = (
+        ((M, K), (1, K), (N)),
+        RuntimeError,
+        f"The expanded size of the tensor (1) must match the existing size ({N}) at non-singleton dimension 1.  Target sizes: [{M}, 1].  Tensor sizes: [{N}]",
+    )
+
+    error_cases = [bias_with_1dweight, mismatched_bias_extent]
+
+    for input_shapes, ex_type, ex_str in error_cases:
+        shape_input, shape_weight, shape_bias = input_shapes
+        yield SampleInput(
+            make_arg(shape_input), make_arg(shape_weight), make_arg(shape_bias)
+        ), ex_type, ex_str
+
+
+def div_input_generator(
+    op: OpInfo,
+    dtype: torch.dtype,
+    requires_grad: bool = False,
+):
+    """Rescale to avoid very small denominators"""
+    for sample in elementwise_binary_generator(
+        op,
+        dtype,
+        requires_grad,
+        supports_numbers=True,
+        enable_small_value_testing=False,
+        enable_extremal_value_testing=False,
+        exclude_zero=True,
+    ):
+        if not is_floating_dtype(dtype):
+            yield sample
+            continue
+
+        # rescale so that the denominator always has at least this modulus
+        minabs = 1e-2
+        numer, denom = sample.args
+        denom = denom * 1e-4
+        denom_abs = denom.abs()  # this is never zero because of exclude_zero=True
+        denom_is_small = denom_abs < minabs
+        denom_scaled_to_minabs = denom * (minabs / denom_abs)
+        denom = torch.where(denom_is_small, denom_scaled_to_minabs, denom).detach()
+        denom.requires_grad_(requires_grad)
+        yield SampleInput(numer, denom)

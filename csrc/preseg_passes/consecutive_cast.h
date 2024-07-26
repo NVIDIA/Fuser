@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#pragma once
+
 #include <preseg_passes/optimization_pass.h>
 
 namespace nvfuser::preseg_passes {
@@ -16,6 +18,9 @@ class ConsecutiveCastPass : public OptimizationPass<ConsecutiveCastPass> {
 
  protected:
   static void runPass(Fusion* fusion);
+  static std::string name() {
+    return "ConsecutiveCastPass";
+  }
 };
 
 } // namespace nvfuser::preseg_passes

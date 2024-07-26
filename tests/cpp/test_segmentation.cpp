@@ -10,10 +10,14 @@
 
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
 namespace nvfuser {
+
+using testing::SizeIs;
 
 using SegmentationTest = NVFuserTest;
 
@@ -599,6 +603,130 @@ TEST_F(SegmentationTest, codeGenSupportedMergeIssue1970) {
   auto outputs = fec.runFusionWithInputs({in0});
 
   testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
+}
+
+// Test that Reduction axes are removed in segmentation edges
+// https://github.com/NVIDIA/Fuser/pull/2487
+TEST_F(SegmentationTest, EraseReductionsInSegmentationEdges) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigConcreteTensor({3, 32, 17}, DataType::Float);
+  fusion->addInput(tv0);
+
+  auto* tv1 = sum(tv0, {2});
+  tv1->setAllocationDomain(
+      {tv1->axis(1), tv1->axis(2), tv1->axis(0)}, {true, std::nullopt, true});
+  auto* tv2 = sum(tv1, {0});
+  auto* tv3 = sum(tv2, {0});
+
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn({3, 32, 17}, options);
+  auto outputs = fec.runFusionWithInputs({in0});
+
+  testValidate(fec.fusion(), outputs, {in0}, __LINE__, __FILE__);
+
+  const FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  ASSERT_TRUE(runtime != nullptr);
+
+  SegmentedFusion* segmented_fusion = runtime->fusionSegments();
+
+  EXPECT_EQ(segmented_fusion->groups().size(), 3);
+
+  for (SegmentedGroup* group : segmented_fusion->groups()) {
+    std::unique_ptr<Fusion> segment_fusion =
+        segmented_fusion->makeFusion(group).second;
+
+    auto* segment_input = segment_fusion->inputs().at(0)->as<TensorView>();
+
+    EXPECT_FALSE(segment_input->domain()->hasReduction());
+  }
+}
+
+TEST_F(SegmentationTest, AliasedOutputOnSegmentation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigConcreteTensor({2, 3, 4}, DataType::Float);
+  fusion->addInput(tv0);
+
+  auto* tv1 = neg(tv0);
+  auto* seg_out = segment_set(tv1);
+  // validating segmentation on aliased output is not affecting how outputs are
+  // hidden.
+  fusion->aliasOutputToInput(seg_out, tv0, AllocationType::ReuseBuffer);
+  auto* tv2 = relu(seg_out);
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in0 = at::randn({2, 3, 4}, options);
+  auto in0_ref = in0.clone();
+
+  auto outputs = fec.runFusionWithInputs({in0});
+  auto in0_neg = in0_ref.neg();
+  EXPECT_TRUE(in0_neg.allclose(in0));
+
+  testValidate(
+      fec.fusion(),
+      outputs,
+      {in0.clone()},
+      {in0_neg.relu()},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(SegmentationTest, MultipleSegmentSetsInOneSegment) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto* in = makeContigTensor(1);
+  auto* t = add(in, in);
+  auto* seg_out_0 = segment_set(t);
+  auto* seg_out_1 = segment_set(t);
+  auto* out = add(seg_out_0, seg_out_1);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::randn({10}, options);
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(2));
+}
+
+TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
+  // Disable mark aliases prepare pass, which might insert more segment_set
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* vanilla_in = makeContigConcreteTensor({2, 3});
+  TensorView* in = relu(vanilla_in);
+  TensorView* seg_in = segment_set(in);
+  TensorView* permute_out = permute(seg_in, {1, 0});
+  TensorView* compute_out = mul(in, in);
+  compute_out = add(compute_out, in);
+  fusion->addInput(vanilla_in);
+  fusion->addOutput(in);
+  fusion->addOutput(permute_out);
+  fusion->addOutput(compute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

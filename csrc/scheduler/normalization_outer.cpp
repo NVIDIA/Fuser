@@ -92,13 +92,11 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
 
   auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tvs.at(0));
 
-  const int64_t vectorization_factor =
-      (int64_t)vectorize_helper::getVectorizationFactor(
-          runtime_info,
-          reduced_tv,
-          data_cache,
-          (int)reduced_tv->nDims() -
-              (int)properties.inner_most_dimension_ndims);
+  const int64_t vectorization_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      reduced_tv,
+      data_cache,
+      reduced_tv->nDims() - properties.inner_most_dimension_ndims);
 
   // Minimum required multi reduction factor.
   const int64_t min_multi_reduction_factor = vectorization_factor *

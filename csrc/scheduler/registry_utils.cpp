@@ -7,7 +7,7 @@
 // clang-format on
 #include <executor_kernel_arg.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
@@ -19,9 +19,9 @@ namespace registry_utils {
 bool checkPatternEquivalence(
     TensorView* out_tv0,
     TensorView* out_tv1,
-    const ComputeAtRootDomainMap& root_map) {
-  const auto& out_root0 = out_tv0->getRootDomain();
-  const auto& out_root1 = out_tv1->getRootDomain();
+    const ComputeAtLogicalDomainMap& logical_map) {
+  const auto& out_root0 = out_tv0->getMaybeRootDomain();
+  const auto& out_root1 = out_tv1->getMaybeRootDomain();
   const auto domain0 = out_tv0->domain();
   const auto domain1 = out_tv1->domain();
 
@@ -42,7 +42,7 @@ bool checkPatternEquivalence(
     if ((*it0)->isReduction() != (*it1)->isReduction()) {
       return false;
     }
-    if (!root_map.canMap(domain0, (*it0), domain1, (*it1))) {
+    if (!logical_map.canMap(domain0, (*it0), domain1, (*it1))) {
       return false;
     }
     it0++;
@@ -63,7 +63,7 @@ bool hasNonUniqueBcast(Fusion* fusion) {
   ConcretizedBroadcastDomains concretize_info(fusion);
 
   for (auto tv : ir_utils::allTvs(fusion)) {
-    for (auto id : tv->getRootDomain()) {
+    for (auto id : tv->getMaybeRootDomain()) {
       if (concretize_info.maybeNonUniquelyConcretized(id)) {
         return true;
       }
@@ -128,8 +128,8 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   // assumption about the index type as it may change.
   int64_t stride = 1;
   KernelIndexTypeCompute index_type_helper;
-  for (auto i = tv->getMaybeRFactorDomain().size(); i > 0; --i) {
-    auto id = tv->getMaybeRFactorDomain().at(i - 1);
+  for (auto i = tv->getLogicalDomain().size(); i > 0; --i) {
+    auto id = tv->getLogicalDomain().at(i - 1);
     if (id->isReduction() || id->isStride() || id->isBroadcast()) {
       continue;
     }
@@ -255,17 +255,17 @@ bool isConnectedFusionGraph(Fusion* fusion) {
 //
 // Returns true if a scenario like above is found in the fusion.
 bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
-  // Track the uses of the rfactor domains in the fusion. If an rfactor domain
+  // Track the uses of the logical domains in the fusion. If an logical domain
   // is used in more than one way it means the above situation is being
   // encountered.
   //
-  // tv1 root: [I0rf, I1rf, I2] -> rfactor [I0*I1rf, I2]
-  // tv1 root: [I0, I1rf, I2rf] -> rfactor [I0, I1*I2rf]
+  // tv1 root: [I0rf, I1rf, I2] -> logical [I0*I1rf, I2]
+  // tv1 root: [I0, I1rf, I2rf] -> logical [I0, I1*I2rf]
   //
   // Here we can see I1rf is used in two view transformations, one to I0*I1rf,
   // and the other to I1*I2rf.
 
-  // Track the transformation each exact disjoint rfactor set is used in. If
+  // Track the transformation each exact disjoint logical set is used in. If
   // more than one is detected we can't support transforming the fusion into a
   // consistent format.
   std::unordered_map<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>, Expr*>
@@ -284,11 +284,11 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   // path.
 
   // Look through all definitions associated with producing rfactor outputs.
-  // Mark those as an active use of the rfactor, if two are detected, return
+  // Mark those as an active use of the logical, if two are detected, return
   // true.
   for (const auto& disjoint_set_shared_ptr :
        ca_map.idGraph().exactNodes().disjointSets()) {
-    // Make sure there's at least one rfactor domain in the set, otherwise we
+    // Make sure there's at least one logical domain in the set, otherwise we
     // don't need to check anything from this set.
     if (!std::any_of(
             disjoint_set_shared_ptr->vector().begin(),
@@ -334,15 +334,15 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
           "If one output is rfactor all should be rfactor.");
 
       // If outputs are rfactor all the inputs should be as well. It doesn't
-      // make sense to have transforms on non-rfactor domains that produce
-      // rfactor domains.
+      // make sense to have transforms on non-logical domains that produce
+      // logical domains.
       auto def_inps = ir_utils::filterByType<IterDomain>(rfactor_def->inputs());
       NVF_ERROR(
           std::all_of(
               def_inps.begin(),
               def_inps.end(),
               [](IterDomain* id) { return id->isRFactorProduct(); }),
-          "Inputs producing an rfactor domain, should be marked as rfactor but found:\n  ",
+          "Inputs producing an logical domain, should be marked as rfactor but found:\n  ",
           rfactor_def->toString());
 
       // Check which definition in the unique exact definition set this
@@ -357,7 +357,7 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
       for (auto unique_def : unique_defs) {
         if (ca_map.areExactExprs(rfactor_def, unique_def)) {
           // Check if we already have an expression that consumes an
-          // equivalent of any of the input rfactor domains. If so and it's
+          // equivalent of any of the input logical domains. If so and it's
           // not the already registered transformation, return true
           for (auto inp : def_inps) {
             auto inp_disjoint_set =
@@ -389,12 +389,35 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
   return false;
 }
 
+namespace {
+
+bool isSplitOnly(ViewOp* view_op) {
+  for (auto expr : StmtSort::getExprsTo(
+           {view_op->out()->getLogicalDomain().begin(),
+            view_op->out()->getLogicalDomain().end()})) {
+    if (!expr->isA<Split>()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace
+
 // Returns if view interferes with how we want to treat the reference, being at
 // least a 2D reduction schedule but maybe a 3D reduction schedule.
 bool reductionInterferingView(
     Fusion* fusion,
     const ComputeAtMap& ca_map,
     TensorView* reduction_reference) {
+  // If reshape transform only has split, it shouldn't influence reduction.
+  const auto& view_ops = ir_utils::getViewOps(fusion);
+  if (std::all_of(view_ops.begin(), view_ops.end(), [](ViewOp* view) {
+        return isSplitOnly(view);
+      })) {
+    return false;
+  }
+
   // Make sure the view doesn't interfere with how we'll want to schedule
   // it. If we might want to do a 3D scheduler make sure views are disjoint
   // based on what the 3D scheduler's merges would be.
@@ -412,7 +435,7 @@ bool reductionInterferingView(
     return dims_removed;
   };
 
-  std::vector<IterDomain*> dims = reduction_reference->getMaybeRFactorDomain();
+  std::vector<IterDomain*> dims = reduction_reference->getLogicalDomain();
 
   // The disjoint groups we need for this scheduler
   std::vector<std::vector<IterDomain*>> groups;
@@ -451,32 +474,33 @@ bool reductionInterferingView(
 
   // Make sure groups are disjoint based on view
 
-  auto disjoint_rfactor_sets = scheduler_utils::disjointRFactorSets(fusion);
-  auto disjoint_set_information = scheduler_utils::getDisjointRFactorSetsOf(
+  auto disjoint_rfactor_sets = scheduler_utils::disjointLogicalSets(fusion);
+  auto disjoint_set_information = scheduler_utils::getDisjointLogicalSetsOf(
       fusion, reduction_reference, disjoint_rfactor_sets);
 
   // Convert id's in groups to disjoint_set_ids of disjoint_set_information
-  std::vector<std::vector<int>> disjoint_groups;
+  std::vector<std::vector<int64_t>> disjoint_groups;
 
   for (const auto& group : groups) {
-    std::vector<int> disjoint_id_sets;
+    std::vector<int64_t> disjoint_id_sets;
     for (auto id : group) {
       auto find_it = std::find(
-          reduction_reference->getMaybeRFactorDomain().begin(),
-          reduction_reference->getMaybeRFactorDomain().end(),
+          reduction_reference->getLogicalDomain().begin(),
+          reduction_reference->getLogicalDomain().end(),
           id);
       NVF_ERROR(
-          find_it != reduction_reference->getMaybeRFactorDomain().end(),
+          find_it != reduction_reference->getLogicalDomain().end(),
           "Issue with view analysis on reduction like schedule, with reference: ",
           reduction_reference->toString());
-      auto rfactor_pos = std::distance(
-          reduction_reference->getMaybeRFactorDomain().begin(), find_it);
+      auto logical_pos = std::distance(
+          reduction_reference->getLogicalDomain().begin(), find_it);
       NVF_ERROR(
-          rfactor_pos < (int)disjoint_set_information.disjoint_set_ids.size(),
-          "Error computing disjoint group on the rfactor domain of ",
+          logical_pos <
+              (int64_t)disjoint_set_information.disjoint_set_ids.size(),
+          "Error computing disjoint group on the logical domain of ",
           reduction_reference->toString());
       disjoint_id_sets.push_back(
-          disjoint_set_information.disjoint_set_ids[rfactor_pos]);
+          disjoint_set_information.disjoint_set_ids[logical_pos]);
     }
     disjoint_groups.push_back(disjoint_id_sets);
   }
@@ -574,36 +598,8 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
       TensorView* forward_running_producer = nullptr;
       TensorView* forward_running_consumer = forward_tv_dep_chain.front();
       forward_tv_dep_chain.pop_front();
+
       while (!forward_tv_dep_chain.empty()) {
-        forward_running_producer = forward_running_consumer;
-        forward_running_consumer = forward_tv_dep_chain.front();
-        forward_tv_dep_chain.pop_front();
-
-        if (std::none_of(
-                forward_running_producer->getMaybeRFactorDomain().begin(),
-                forward_running_producer->getMaybeRFactorDomain().end(),
-                [](IterDomain* id) { return id->isBroadcast(); })) {
-          // If there's no broadcast axes in producer it doesn't need to be
-          // checked
-          continue;
-        }
-
-        // If consumer is before another reduction it doesn't need to be
-        // checked
-        if (pre_reduction_tvs.count(forward_running_consumer)) {
-          break;
-        }
-
-        // If consumer was already validated it doesn't need to be checked
-        if (validated_resolved_tvs.count(forward_running_consumer)) {
-          continue;
-        }
-
-        auto forward_pairwise_root_map = PairwiseRootDomainMap(
-            forward_running_producer, forward_running_consumer);
-        auto forward_p2c_root_map =
-            forward_pairwise_root_map.mapProducerToConsumer();
-
         // These are the ids we will have to resolve. As we resolve them we'll
         // remove them from this vector. If this vector ends up empty, then
         // we've resolved everything we need to. This is a pair so as we
@@ -613,20 +609,114 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         // propagated as we map the IDs through the backward traversal.
         std::vector<std::pair<IterDomain*, IterDomain*>> ids_to_resolve;
 
-        // Check if any TensorViews have a resolved broadcast
-        for (auto entry : forward_p2c_root_map) {
-          auto p_id = entry.first;
-          auto c_id = entry.second;
-          if (p_id->isBroadcast() && !c_id->isBroadcast()) {
-            ids_to_resolve.emplace_back(c_id, c_id);
+        // (1) step-1, Find the id to resolve
+        while (!forward_tv_dep_chain.empty()) {
+          forward_running_producer = forward_running_consumer;
+          forward_running_consumer = forward_tv_dep_chain.front();
+          forward_tv_dep_chain.pop_front();
+
+          if (std::none_of(
+                  forward_running_producer->getLogicalDomain().begin(),
+                  forward_running_producer->getLogicalDomain().end(),
+                  [](IterDomain* id) { return id->isBroadcast(); })) {
+            // If there's no broadcast axes in producer it doesn't need to be
+            // checked
+            continue;
+          }
+
+          // If consumer is before another reduction it doesn't need to be
+          // checked, e.g. softmax where the consumers of the first reduction
+          // are the inputs to the second reduction.
+          // After break from this inner loop, [ids_to_resolve] is still empty
+          // and the code breaks from this chain without doing step-2 and
+          // step-3.
+          if (pre_reduction_tvs.count(forward_running_consumer)) {
+            break;
+          }
+
+          // If consumer was already validated it doesn't need to be checked
+          if (validated_resolved_tvs.count(forward_running_consumer)) {
+            continue;
+          }
+
+          auto forward_pairwise_logical_map = PairwiseLogicalDomainMap(
+              forward_running_producer, forward_running_consumer);
+          auto forward_p2c_logical_map =
+              forward_pairwise_logical_map.mapProducerToConsumer();
+
+          // Check if any TensorViews have a resolved broadcast
+          for (auto entry : forward_p2c_logical_map) {
+            auto p_id = entry.first;
+            auto c_id = entry.second;
+            if (p_id->isBroadcast() && !c_id->isBroadcast()) {
+              ids_to_resolve.emplace_back(c_id, c_id);
+            }
+          }
+
+          // Mission accomplished, we've found a ID to resolve
+          if (!ids_to_resolve.empty()) {
+            break;
           }
         }
-
+        // break from this chain if no id to resolve
         if (ids_to_resolve.empty()) {
-          continue;
+          break;
+        }
+        // (2) step-2, Find the location we need to start the backward traversal
+        // to resolve the id. Move forward to output to avoid unnecessary
+        // segmentation when the reduction input iteration domain is used after
+        // the resolution point. Assume we have a fusion with:
+        //! Fusion inputs: T2 & T5
+        //! Reduction inputs: T2
+        //! T3[I1, R] = sum(T2[I1,I2], axis=1)
+        //! T4[I1, B] = broadcast(T3[I1,R], axis=1)
+        //! T6[I1,I2] = T4[I1,B] + T5[I1,I2]
+        //! T7[I1,I2] = T6[I1,I2] + T2[I1,I2]
+        //! We found a id to resolve at T6 = T4 + T5.
+        // If we do backward transversal from T6[I1,I2], we can't find
+        // T2[I1,I2]. But from T7, the backward search can find the
+        // corresponding reduction input ID, which is {I2} in T2. See
+        // PostReductionBroadcastCheck test and issue-2146.
+        while (!forward_tv_dep_chain.empty()) {
+          // Assume we move one step forward
+          auto tmp_producer = forward_running_consumer;
+          auto tmp_consumer = forward_tv_dep_chain.front();
+
+          // Don't move forward if the consumer has a broadcast id.
+          // It may be resolved and requires a new check.
+          // see FusionReshapePersistentShmoo and issue-2576
+          if (tmp_consumer->hasBroadcast()) {
+            break;
+          }
+
+          // Don't move forward if there is no mapped id.
+          // otherwise, we can't do backward traversal.
+          // see TakeAlongAxisIntermediateTensorNormalization1_CUDA
+          bool at_leat_one_id_mapped = false;
+          auto forward_pairwise_logical_map =
+              PairwiseLogicalDomainMap(tmp_producer, tmp_consumer);
+          auto forward_p2c_logical_map =
+              forward_pairwise_logical_map.mapProducerToConsumer();
+          for (size_t entry_i = ids_to_resolve.size(); entry_i > 0; entry_i--) {
+            auto running_id = ids_to_resolve[entry_i - 1].second;
+            if (forward_p2c_logical_map.find(running_id) !=
+                forward_p2c_logical_map.end()) {
+              at_leat_one_id_mapped = true;
+              ids_to_resolve[entry_i - 1] = std::make_pair(
+                  forward_p2c_logical_map.at(running_id),
+                  forward_p2c_logical_map.at(running_id));
+            }
+          }
+          if (!at_leat_one_id_mapped) {
+            break;
+          }
+
+          // safe to move forward
+          forward_running_consumer = tmp_consumer;
+          forward_tv_dep_chain.pop_front();
         }
 
-        // Only because of api limitations in getAllDependencyChains
+        // (3) step-3, backward traversal to resolve the id
         auto inputs_of_forward_running_consumer =
             IterVisitor::getInputsTo({forward_running_consumer});
         auto tv_inputs_of_forward_running_consumer =
@@ -669,33 +759,35 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
 
               std::vector<IterDomain*> running_resolved_ids;
 
-              auto backward_pairwise_root_map = PairwiseRootDomainMap(
+              auto backward_pairwise_logical_map = PairwiseLogicalDomainMap(
                   backward_running_producer, backward_running_consumer);
 
-              auto backward_c2p_root_map =
-                  backward_pairwise_root_map.mapConsumerToProducer();
+              auto backward_c2p_logical_map =
+                  backward_pairwise_logical_map.mapConsumerToProducer();
 
               // Mark if producer is a producer of a reduction
               bool producer_resolves =
                   pre_reduction_tvs.count(backward_running_producer);
 
               bool at_leat_one_id_mapped = false;
+              // backward visit of ids_to_resolve sicne we may erase
+              // elements from the vector
               for (size_t entry_i = ids_to_resolve.size(); entry_i > 0;
                    entry_i--) {
                 auto orig_id = ids_to_resolve[entry_i - 1].first;
                 auto running_id = ids_to_resolve[entry_i - 1].second;
-                if (backward_c2p_root_map.find(running_id) !=
-                    backward_c2p_root_map.end()) {
+                if (backward_c2p_logical_map.find(running_id) !=
+                    backward_c2p_logical_map.end()) {
                   at_leat_one_id_mapped = true;
                   if (producer_resolves &&
-                      !backward_c2p_root_map.at(running_id)->isBroadcast()) {
+                      !backward_c2p_logical_map.at(running_id)->isBroadcast()) {
                     // If mapped, and producer is a producer of a reduction,
                     // we can resolve this id
                     ids_to_resolve.erase(
                         ids_to_resolve.begin() + (int64_t)entry_i - 1);
                   } else {
                     ids_to_resolve[entry_i - 1] = std::make_pair(
-                        orig_id, backward_c2p_root_map.at(running_id));
+                        orig_id, backward_c2p_logical_map.at(running_id));
                   }
                 }
               }
@@ -712,12 +804,13 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         } // for(auto input_of_forward_running_consumer :
           // tv_inputs_of_forward_running_consumer){
 
+        // (4) step-4, check if all ids were resolved
         // if all ids were not resolved, then we've found an instance of a
-        // bad broadcast resolution after reduction
+        // bad broadcast resolution after reduction, return true. Otherwise,
+        // move to top of the while loop and further check along this chain.
         if (!ids_to_resolve.empty()) {
           return true;
         }
-
       } // while (!forward_tv_dep_chain.empty()) {
     } // for (auto forward_tv_dep_chain : forward_tv_chains) {
   } // for (auto red_tv : reduction_tvs)
@@ -743,12 +836,12 @@ bool SchedulerTopologyChecker::hasPostReductionBCast(Fusion* fusion) {
           running_consumer = tv_dep_chain.front();
           tv_dep_chain.pop_front();
 
-          auto pairwise_root_map =
-              PairwiseRootDomainMap(running_producer, running_consumer);
-          auto p2c_root_map = pairwise_root_map.mapProducerToConsumer();
+          auto pairwise_logical_map =
+              PairwiseLogicalDomainMap(running_producer, running_consumer);
+          auto p2c_logical_map = pairwise_logical_map.mapProducerToConsumer();
 
           // Check if any TensorViews have a resolved broadcast
-          for (auto entry : p2c_root_map) {
+          for (auto entry : p2c_logical_map) {
             auto p_id = entry.first;
             auto c_id = entry.second;
             if (p_id->isBroadcast() && !c_id->isBroadcast()) {
@@ -773,7 +866,7 @@ bool SchedulerTopologyChecker::supportedPostReductionFusion(
     std::vector<TensorView*> reduction_tvs) {
   NVF_ERROR(!reduction_tvs.empty());
   bool fastest_dim_reduction = true;
-  auto red_root_dom = reduction_tvs[0]->getRootDomain();
+  auto red_root_dom = reduction_tvs[0]->getMaybeRootDomain();
   for (size_t i = red_root_dom.size(); i > 0; i--) {
     if (red_root_dom[i - 1]->isBroadcast()) {
       continue;
@@ -889,7 +982,7 @@ bool SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
   // If the broadcast IDs are mapped with the reduction TVs, the
   // reduction scheduler should be able to schedule the gather
   // output TVs. This mapping can be PERMISSIVE as the broadcast IDs
-  // may be concretized. ExactRootDomainMap may be enough as
+  // may be concretized. ExactLogicalDomainMap may be enough as
   // broadcasts should not be removed by rfactor exprs.
 
   // Consider reusing a CA map
@@ -904,8 +997,8 @@ bool SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
         // Check if this broadcast ID has no mapping
         // with the reference TV.
         return std::none_of(
-            ref_tv->getRootDomain().begin(),
-            ref_tv->getRootDomain().end(),
+            ref_tv->getMaybeRootDomain().begin(),
+            ref_tv->getMaybeRootDomain().end(),
             [&](IterDomain* red_tv_root_id) {
               return ca_map.areMapped(
                   broadcast_consumer_id,

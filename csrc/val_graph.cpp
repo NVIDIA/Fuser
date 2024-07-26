@@ -77,7 +77,7 @@ const ValGroup& ValGraph::toGroup(Val* val) const {
   auto disjoint_set_it = disjoint_vals_.disjointSetMap().find(val);
   NVF_ERROR(
       disjoint_set_it != disjoint_vals_.disjointSetMap().end(),
-      "\nId group could not be found in graph associated with: ",
+      "\nVal group could not be found in graph associated with: ",
       val->toString(),
       "\n");
   return disjoint_set_it->second;
@@ -670,19 +670,19 @@ std::optional<SelfMapping> hasSelfMapping(
     const TensorView* tv,
     const ValGraph& id_graph) {
   std::optional<std::pair<IterDomain*, IterDomain*>> mapped =
-      detectSelfMapping(tv->getRootDomain(), id_graph);
-  // Root domains.
+      detectSelfMapping(tv->getLogicalDomain(), id_graph);
+  // Logical domains.
   if (mapped.has_value()) {
     return SelfMapping{
-        .id1 = mapped->first, .id2 = mapped->second, .where = "Root"};
+        .id1 = mapped->first, .id2 = mapped->second, .where = "Logical"};
   }
 
-  // Rfactor domains
-  if (tv->hasRFactor()) {
-    mapped = detectSelfMapping(tv->getRFactorDomain(), id_graph);
+  // Root domains
+  if (tv->hasRoot()) {
+    mapped = detectSelfMapping(tv->getRootDomain(), id_graph);
     if (mapped.has_value()) {
       return SelfMapping{
-          .id1 = mapped->first, .id2 = mapped->second, .where = "RFactor"};
+          .id1 = mapped->first, .id2 = mapped->second, .where = "Root"};
     }
   }
 
@@ -690,7 +690,7 @@ std::optional<SelfMapping> hasSelfMapping(
   // TODO: Exact map isn't quite right here, it should be based on the index
   // map. However, it should also be impossible for index map to generate a
   // case like this.
-  mapped = detectSelfMapping(tv->getLeafDomain(), id_graph);
+  mapped = detectSelfMapping(tv->getLoopDomain(), id_graph);
   if (mapped.has_value()) {
     return SelfMapping{
         .id1 = mapped->first, .id2 = mapped->second, .where = "Leaf"};

@@ -425,4 +425,83 @@ TEST_F(TensorFactoryTest, NoInputs) {
   testValidate(executor_cache.fusion(), out_tensors, {}, __LINE__, __FILE__);
 }
 
+TEST_F(TensorFactoryTest, FactoryBroadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  Val* i = IrBuilder::create<Val>(DataType::Int);
+  fusion->addInput(i);
+  TensorView* tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+
+  auto tv1 = arange(i);
+  auto tv2 = full({i}, fusion->oneVal(DataType::Float), DataType::Float);
+  // Random factory ops.
+  // NOTE: we fix seeds and offsets here so that we can easily validate
+  auto tv3 = normal(
+      {i},
+      fusion->zeroVal(DataType::Float),
+      fusion->oneVal(DataType::Float),
+      DataType::Float,
+      /*Val* philox_seed=*/fusion->zeroVal(),
+      /*Val* philox_offset=*/fusion->zeroVal());
+  auto tv4 = randn(
+      {i},
+      DataType::Float,
+      /*Val* philox_seed=*/fusion->zeroVal(),
+      /*Val* philox_offset=*/fusion->zeroVal());
+  auto tv5 = uniform(
+      {i},
+      fusion->zeroVal(DataType::Float),
+      fusion->oneVal(DataType::Float),
+      DataType::Float,
+      /*Val* philox_seed=*/fusion->zeroVal(),
+      /*Val* philox_offset=*/fusion->zeroVal());
+  auto tv6 = rand(
+      {i},
+      DataType::Float,
+      /*Val* philox_seed=*/fusion->zeroVal(),
+      /*Val* philox_offset=*/fusion->zeroVal());
+
+  auto tv7 = add(tv1, tv0);
+  auto tv8 = add(tv2, tv0);
+  auto tv9 = add(tv3, tv0);
+  auto tv10 = add(tv4, tv0);
+  auto tv11 = add(tv5, tv0);
+  auto tv12 = add(tv6, tv0);
+
+  fusion->addOutput(tv7);
+  fusion->addOutput(tv8);
+  fusion->addOutput(tv9);
+  fusion->addOutput(tv10);
+  fusion->addOutput(tv11);
+  fusion->addOutput(tv12);
+
+  const auto options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto in = at::randn({100}, options);
+  std::vector<c10::IValue> inputs{1, in};
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+
+  at::manual_seed(0);
+  at::Tensor randn_sample = at::randn({1}, options);
+  at::manual_seed(0);
+  at::Tensor rand_sample = at::rand({1}, options);
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      inputs,
+      {in,
+       in + 1,
+       in + randn_sample,
+       in + randn_sample,
+       in + rand_sample,
+       in + rand_sample},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser

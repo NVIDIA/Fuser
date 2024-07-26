@@ -6,7 +6,9 @@
  */
 // clang-format on
 
-#include <csrc/validator_utils.h>
+#include <gmock/gmock-matchers.h>
+
+#include <validator_utils.h>
 
 namespace nvfuser {
 
@@ -82,7 +84,7 @@ void testValidate(
       NVF_ERROR(
           at_tensor.dim() ==
               static_cast<int64_t>(TensorDomain::noReductions(
-                                       fusion_input_tv->getMaybeRFactorDomain())
+                                       fusion_input_tv->getLogicalDomain())
                                        .size()),
           "Dimensionality mismatch in inputs.");
     }
@@ -107,7 +109,7 @@ void testValidate(
         aten_output_tensor.dim() == fusion_output_tensor.dim() &&
             fusion_outputs[i].dim() ==
                 static_cast<int64_t>(
-                    TensorDomain::noReductions(out_tv->getMaybeRFactorDomain())
+                    TensorDomain::noReductions(out_tv->getLogicalDomain())
                         .size()),
         "Dimensionality mismatch in outputs.");
 
@@ -178,6 +180,11 @@ void testValidate(
       err_msg,
       lparams,
       tolerances);
+}
+
+// A gmock matcher for matching heuristics.
+MATCHER_P(HeuristicIs, heuristic, "") {
+  return arg->heuristic() == heuristic;
 }
 
 } // namespace nvfuser

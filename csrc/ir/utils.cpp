@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <ops/arith.h>
+#include <scheduler/mma_utils.h>
 
 #include <limits>
 #include <set>
@@ -21,9 +22,9 @@ namespace nvfuser::ir_utils {
 
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
-    size_t ndims) {
+    int64_t ndims) {
   NVF_CHECK(
-      new2old_in.size() == ndims,
+      (int64_t)new2old_in.size() == ndims,
       "There must be a transpose mapping for each dimension in domain");
 
   // Canonicalize dimensions by wrapping each dim for the given ndims
@@ -39,9 +40,7 @@ std::vector<int64_t> normalizeNew2Old(
       std::none_of(
           new2old.begin(),
           new2old.end(),
-          [ndims](int64_t entry) {
-            return entry < 0 || (unsigned int)entry >= ndims;
-          }),
+          [ndims](int64_t entry) { return entry < 0 || entry >= ndims; }),
       "New2Old axes are not within the number of dimensions of the provided domain.\t",
       new2old);
 
@@ -55,25 +54,25 @@ std::vector<int64_t> normalizeNew2Old(
 
   // Error out if duplicate values are found.
   NVF_CHECK(
-      new2old.size() == ndims && old_pos_set.size() == new2old.size(),
+      (int64_t)new2old.size() == ndims && old_pos_set.size() == new2old.size(),
       "Duplicate entries in transformation map.");
 
   // END VALIDATION CHECKS
   return new2old;
 }
 
-std::vector<int> normalizeOld2New(
-    const std::unordered_map<int, int>& old2new_in,
-    size_t ndims) {
+std::vector<int64_t> normalizeOld2New(
+    const std::unordered_map<int64_t, int64_t>& old2new_in,
+    int64_t ndims) {
   // adjust based on negative values (any negative values gets nDims added to
   // it)
-  std::unordered_map<int, int> old2new;
+  std::unordered_map<int64_t, int64_t> old2new;
   std::transform(
       old2new_in.begin(),
       old2new_in.end(),
       std::inserter(old2new, old2new.begin()),
-      [ndims](std::unordered_map<int, int>::value_type entry) {
-        return std::unordered_map<int, int>::value_type({
+      [ndims](std::unordered_map<int64_t, int64_t>::value_type entry) {
+        return std::unordered_map<int64_t, int64_t>::value_type({
             entry.first < 0 ? entry.first + ndims : entry.first,
             entry.second < 0 ? entry.second + ndims : entry.second,
         });
@@ -85,29 +84,29 @@ std::vector<int> normalizeOld2New(
       std::none_of(
           old2new.begin(),
           old2new.end(),
-          [ndims](std::unordered_map<int, int>::value_type entry) {
-            return entry.first < 0 || (unsigned int)entry.first >= ndims ||
-                entry.second < 0 || (unsigned int)entry.second >= ndims;
+          [ndims](std::unordered_map<int64_t, int64_t>::value_type entry) {
+            return entry.first < 0 || entry.first >= ndims ||
+                entry.second < 0 || entry.second >= ndims;
           }),
       "Reorder axes are not within the number of dimensions of the provided domain.");
 
   // Going to use sets, to see if any duplicate values are in the map.
 
-  std::set<int> old_pos_set;
+  std::set<int64_t> old_pos_set;
   std::transform(
       old2new.begin(),
       old2new.end(),
       std::inserter(old_pos_set, old_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
+      [](std::unordered_map<int64_t, int64_t>::value_type entry) {
         return entry.first;
       });
 
-  std::set<int> new_pos_set;
+  std::set<int64_t> new_pos_set;
   std::transform(
       old2new.begin(),
       old2new.end(),
       std::inserter(new_pos_set, new_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
+      [](std::unordered_map<int64_t, int64_t>::value_type entry) {
         return entry.second;
       });
 
@@ -119,27 +118,27 @@ std::vector<int> normalizeOld2New(
 
   // END VALIDATION CHECKS
 
-  std::vector<int> new2old(ndims, -1);
+  std::vector<int64_t> new2old(ndims, -1);
 
   // Go through each old and new position, make sure they're within [0, ndims)
-  for (std::pair<int, int> elem : old2new) {
-    int old_pos = elem.first;
-    int new_pos = elem.second;
+  for (std::pair<int64_t, int64_t> elem : old2new) {
+    int64_t old_pos = elem.first;
+    int64_t new_pos = elem.second;
     new2old[new_pos] = old_pos;
   }
 
   // old_positions that already have a new position
-  std::set<int> old_positions(new2old.begin(), new2old.end());
+  std::set<int64_t> old_positions(new2old.begin(), new2old.end());
   old_positions.erase(-1);
 
   // All available new positions
-  std::set<int> all_positions;
+  std::set<int64_t> all_positions;
   for (auto i : c10::irange(ndims)) {
-    all_positions.insert((int)i);
+    all_positions.insert((int64_t)i);
   }
 
   // Check what positions haven't been specified.
-  std::set<int> positions_left;
+  std::set<int64_t> positions_left;
   std::set_difference(
       all_positions.begin(),
       all_positions.end(),
@@ -152,9 +151,10 @@ std::vector<int> normalizeOld2New(
   // new2old[new_position] = old_position
   auto it = positions_left.begin(); // old positions left
   std::transform(
-      new2old.begin(), new2old.end(), new2old.begin(), [&it](int i) -> int {
-        return i == -1 ? *it++ : i;
-      });
+      new2old.begin(),
+      new2old.end(),
+      new2old.begin(),
+      [&it](int64_t i) -> int64_t { return i == -1 ? *it++ : i; });
 
   return new2old;
 }
@@ -249,9 +249,9 @@ Expr* transferDefinitionToNewOutputs(
   return mutator.mutateExprOutputsOnly(expr);
 }
 
-TensorView* rfactorHelper(
+TensorView* rFactorHelper(
     TensorView* reduction_tv,
-    const std::vector<int>& axes) {
+    const std::vector<int64_t>& axes) {
   NVF_ERROR(reduction_tv->definition() != nullptr);
   const bool has_multiple_tvs = reduction_tv->definition()->inputs().size() > 1;
   if (!has_multiple_tvs) {
@@ -586,12 +586,11 @@ bool isReductionTvOp(const Expr* expr) {
 }
 
 bool isPointwiseTvOp(const Expr* expr) {
-  // LoadStoreOp with rfactor domain means transpose, which is not
+  // LoadStoreOp with producer projection means transpose, which is not
   // considered pointwise
   return isTvOp(expr) &&
       (expr->isOneOf<UnaryOp, BinaryOp, TernaryOp>() ||
-       (expr->isA<LoadStoreOp>() &&
-        !ir_utils::getTvOutput(expr)->hasRFactor()));
+       (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasRoot()));
 }
 
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
@@ -611,7 +610,7 @@ std::vector<ViewOp*> getViewOps(Fusion* fusion) {
               if (!v->isA<TensorView>()) {
                 return false;
               }
-              return v->as<TensorView>()->hasRFactor();
+              return v->as<TensorView>()->hasRoot();
             });
       });
 
@@ -679,10 +678,10 @@ bool isSqueezeInput(const TensorView* tv) {
 }
 
 bool isSqueezedID(const TensorView* tv, const IterDomain* id) {
-  auto root_dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto logical_dom = TensorDomain::noReductions(tv->getLogicalDomain());
   auto squeezes = ir_utils::filterByType<SqueezeOp>(tv->uses());
-  for (auto i : c10::irange(root_dom.size())) {
-    if (root_dom[i] != id) {
+  for (auto i : c10::irange(logical_dom.size())) {
+    if (logical_dom[i] != id) {
       continue;
     }
     for (auto squeeze : squeezes) {
@@ -729,18 +728,6 @@ IterDomain* getConsumerOfIndexedProducerID(const Expr* expr) {
 bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
   return tv->definition()->isA<ScatterOp>() &&
       tv->definition()->as<ScatterOp>()->getIndexedID() == id;
-}
-
-std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
-  const auto& root_domain = tv->getRootDomain();
-  const auto& domain = tv->getLeafDomain();
-  // Grab all values in the history of the tensor view's domain
-  auto all_vals = DependencyCheck::getAllValsBetween(
-      {root_domain.begin(), root_domain.end()}, {domain.begin(), domain.end()});
-
-  // Filter so we only have iteration domains (ignore Ints used in split)
-  auto all_ids = ir_utils::filterByType<IterDomain>(all_vals);
-  return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
 }
 
 bool isIndexSelectLookupTv(const TensorView* tv) {
@@ -794,12 +781,12 @@ std::string varName(const Val* val) {
 }
 
 bool hasResizedRfactor(const TensorView* tv) {
-  if (!tv->hasRFactor()) {
+  if (!tv->hasRoot()) {
     return false;
   }
   auto root_to_rf_exprs = StmtSort::getExprsBetween(
       {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-      {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()});
+      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
   return std::any_of(
       root_to_rf_exprs.begin(), root_to_rf_exprs.end(), [](Expr* expr) {
         return expr->isA<Resize>();
@@ -817,84 +804,32 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
-namespace {
+void validateDomainEquivalence(
+    const std::vector<IterDomain*>& dom0,
+    const std::vector<IterDomain*>& dom1) {
+  std::unordered_set<Val*> dom0_set(dom0.begin(), dom0.end());
+  std::unordered_set<Val*> dom1_set(dom1.begin(), dom1.end());
 
-class ValidateDomainEquivalence : private IterVisitor {
- public:
-  ValidateDomainEquivalence(
-      const std::vector<IterDomain*>& initial_domain,
-      const std::vector<IterDomain*>& derived_domain)
-      : initial_domain_({initial_domain.begin(), initial_domain.end()}),
-        derived_domain_({derived_domain.begin(), derived_domain.end()}),
-        frontier_({initial_domain.begin(), initial_domain.end()}) {
-    // empty domain are equivalent.
-    if (initial_domain.empty() && derived_domain.empty()) {
-      return;
-    }
-    NVF_ERROR(!initial_domain.empty());
-    NVF_ERROR(!derived_domain.empty());
-    // Make sure there's no duplicate in the parameter vectors
-    NVF_ERROR(
-        initial_domain.size() == initial_domain_.size(),
-        "Duplicated entry is detected in inial_domain: ",
-        toDelimitedString(initial_domain));
-    NVF_ERROR(
-        derived_domain.size() == derived_domain_.size(),
-        "Duplicated entry is detected in derived_domain: ",
-        toDelimitedString(derived_domain));
+  // empty domain are equivalent.
+  if (dom0.empty() && dom1.empty()) {
+    return;
+  }
+  // Make sure there's no duplicate in the parameter vectors
+  NVF_ERROR(
+      dom0.size() == dom0_set.size(),
+      "Duplicated entry is detected in dom0: ",
+      toDelimitedString(dom0));
+  NVF_ERROR(
+      dom1.size() == dom1_set.size(),
+      "Duplicated entry is detected in dom1: ",
+      toDelimitedString(dom1));
 
-    traverseBetween(
-        {initial_domain.begin(), initial_domain.end()},
-        {derived_domain.begin(), derived_domain.end()});
+  auto exprs = IRBFS::getExprsBetween(
+      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
 
-    // At this point, the frontier set and the derived set should be
-    // equal, except when there's a symbolic ID in the derived set,
-    // where the traversal may be incomplete.
-    if (std::any_of(derived_domain.begin(), derived_domain.end(), [](auto id) {
-          return id->getIterType() == IterType::Symbolic;
-        })) {
-      // Make sure all non-symbolic IDs of the derived set are included
-      // in the frontier set
-      NVF_ERROR(
-          std::all_of(
-              derived_domain.begin(),
-              derived_domain.end(),
-              [&](auto id) {
-                return id->getIterType() == IterType::Symbolic ||
-                    frontier_.count(id);
-              }),
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-      // Similarly, all frontier vals should be included in the
-      // derived set. It is also possible that an ID in the initial
-      // domain set still remains in the frontier set as there may be
-      // no expr connecting to the derived set, e.g., dynamic reshape
-      NVF_ERROR(
-          std::all_of(
-              frontier_.begin(),
-              frontier_.end(),
-              [&](Val* val) {
-                NVF_ERROR(val->isA<IterDomain>());
-                return derived_domain_.count(val->as<IterDomain>()) ||
-                    initial_domain_.count(val);
-              }),
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-    } else {
-      NVF_ERROR(
-          derived_domain_ == frontier_,
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-    }
-  };
+  std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  void dispatch(Expr* expr) override {
+  for (auto [expr, direction] : exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -903,45 +838,90 @@ class ValidateDomainEquivalence : private IterVisitor {
         std::all_of(expr->outputs().begin(), expr->outputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
         }));
-    // If any of the inputs is included in derived_domain_, that means there's a
-    // dependency within derived_domain_ and the dependent domains
-    // redundantly cover the initial domain
-    NVF_ERROR(
-        std::none_of(
-            expr->inputs().begin(),
-            expr->inputs().end(),
-            [&](Val* input_val) {
-              return derived_domain_.find(input_val) != derived_domain_.end();
-            }),
-        "Invalid derived domain due to dependent expr: ",
-        expr->toString(),
-        ". Derived domain: ",
-        toDelimitedString(derived_domain_));
-    for (auto out : expr->outputs()) {
-      // Make sure the output is not yet visited
+    std::vector<Val*> from;
+    std::vector<Val*> to;
+    if (direction == Direction::Forward) {
+      from = expr->inputs();
+      to = expr->outputs();
+    } else {
+      from = expr->outputs();
+      to = expr->inputs();
+    }
+    for (auto v : to) {
       NVF_ERROR(
-          frontier_.insert(out).second,
+          frontier.insert(v).second,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Output should just show up once: ",
-          out->toString());
+          v->toString());
     }
-    for (auto inp : expr->inputs()) {
+    for (auto v : from) {
+      bool ignorable = v->as<IterDomain>()->isBroadcast();
       NVF_ERROR(
-          frontier_.erase(inp) == 1,
+          frontier.erase(v) == 1 || ignorable,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Input not seen before: ",
-          inp->toString());
+          v->toString());
     }
   }
 
- private:
-  const std::unordered_set<Val*> initial_domain_;
-  const std::unordered_set<Val*> derived_domain_;
-  //! Traversal frontier vals
-  std::unordered_set<Val*> frontier_;
-};
+  // Remove symbolic IDs that appear both in frontier and in dom1_set. These IDs
+  // are carried over without any transformation.
+  auto is_symb = [](Val* v) {
+    return v->as<IterDomain>()->getIterType() == IterType::Symbolic;
+  };
+  std::vector<Val*> ids_to_remove;
+  for (Val* id : frontier) {
+    if (is_symb(id) && dom1_set.count(id)) {
+      ids_to_remove.push_back(id);
+    }
+  }
+  for (Val* id : ids_to_remove) {
+    frontier.erase(id);
+    dom1_set.erase(id);
+  }
+  // At this point, the frontier set and dom1 should be equal, except when
+  // there's a symbolic ID in frontier or dom1, where the transformations are
+  // incomplete.
+  bool frontier_has_symbolic =
+      std::any_of(frontier.begin(), frontier.end(), is_symb);
+  bool dom1_has_symbolic =
+      std::any_of(dom1_set.begin(), dom1_set.end(), is_symb);
+  if (!frontier_has_symbolic) {
+    // frontier fully covers dom1
+    NVF_ERROR(
+        std::all_of(
+            dom1.begin(),
+            dom1.end(),
+            [&](auto id) {
+              return id->getIterType() == IterType::Symbolic ||
+                  frontier.count(id);
+            }),
+        "dom0 and dom1 are not equal. dom0: ",
+        toDelimitedString(dom0),
+        ". dom1: ",
+        toDelimitedString(dom1));
+  }
+  if (!dom1_has_symbolic) {
+    // dom1 fully covers frontier
+    NVF_ERROR(
+        std::all_of(
+            frontier.begin(),
+            frontier.end(),
+            [&](Val* id) {
+              return id->as<IterDomain>()->getIterType() ==
+                  IterType::Symbolic ||
+                  id->as<IterDomain>()->isBroadcast() || dom1_set.count(id);
+            }),
+        "dom0 and dom1 are not equal. dom0: ",
+        toDelimitedString(dom0),
+        ". dom1: ",
+        toDelimitedString(dom1));
+  }
+}
+
+namespace {
 
 std::vector<Statement*> next(Statement* stmt) {
   if (stmt->isVal()) {
@@ -959,12 +939,6 @@ std::vector<Statement*> next(Statement* stmt) {
 }
 
 } // namespace
-
-void validateDomainEquivalence(
-    const std::vector<IterDomain*>& initial_domain,
-    const std::vector<IterDomain*>& derived_domain) {
-  ValidateDomainEquivalence(initial_domain, derived_domain);
-}
 
 std::vector<Statement*> checkCycle(
     Fusion* fusion,
@@ -1032,7 +1006,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
 
-  } else if (auto fl = dynamic_cast<const kir::ForLoop*>(expr)) {
+  } else if (auto fl = dynamic_cast<const ForLoop*>(expr)) {
     // If the start, stop, step are not thread dependent
     //  then this for loop should be thread independent.
     if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||
@@ -1085,7 +1059,7 @@ bool isTensorStride(const Val* val) {
 }
 
 int64_t getVectorizeSize(const TensorView* tv) {
-  for (auto id : tv->getLeafDomain()) {
+  for (auto id : tv->getLoopDomain()) {
     if (!isParallelTypeVectorize(id->getParallelType())) {
       continue;
     }
@@ -1097,6 +1071,16 @@ int64_t getVectorizeSize(const TensorView* tv) {
     return id->extent()->evaluate().as<int64_t>();
   }
   return 1;
+}
+
+bool hasTrivialAllocationDomain(const TensorView* tv) {
+  if (!tv->hasAllocation()) {
+    return true;
+  }
+  const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+  return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
+      TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
 }
 
 } // namespace nvfuser::ir_utils
@@ -1172,9 +1156,12 @@ MmaOpDetails getMmaOpDetails(
     TensorView* out,
     TensorView* in_a,
     TensorView* in_b) {
-  const auto in_a_details = getDetailsFor(in_a->getMaybeRFactorDomain());
-  const auto in_b_details = getDetailsFor(in_b->getMaybeRFactorDomain());
-  const auto out_details = getDetailsFor(out->getRootDomain());
+  const auto in_a_details =
+      getDetailsFor(TensorDomain::noDevices(in_a->getLogicalDomain()));
+  const auto in_b_details =
+      getDetailsFor(TensorDomain::noDevices(in_b->getLogicalDomain()));
+  const auto out_details =
+      getDetailsFor(TensorDomain::noDevices(out->getMaybeRootDomain()));
 
   using AxesData = MmaOp::AxesData;
 
@@ -1262,7 +1249,6 @@ MmaOpDetails getMmaOpDetails(
   const auto validateOutputDetails = [](const TensorViewDetails& details,
                                         const std::string& desc) {
     // TODO: revise rules when add support for batch gemms
-    NVF_ERROR(details.bcasts.empty(), desc, ": has broadcast domains.");
     NVF_ERROR(!details.rdomains.empty(), desc, ": has no reduction domains.");
     NVF_ERROR(
         (details.cdomains.size() >= expected_gemm_cdomains),

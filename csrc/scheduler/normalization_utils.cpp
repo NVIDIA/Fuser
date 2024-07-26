@@ -612,7 +612,7 @@ bool isReductionIterationAxisMatched(
   auto reference_tv = inner_reduction_tvs[0];
   std::vector<bool> is_reduction(reference_tv->nDims(), false);
   for (const auto i : c10::irange(reference_tv->nDims())) {
-    auto id = reference_tv->axis((int)i);
+    auto id = reference_tv->axis(i);
     NVF_CHECK(
         id->getIterType() == IterType::Iteration ||
             id->getIterType() == IterType::Reduction,
@@ -627,7 +627,7 @@ bool isReductionIterationAxisMatched(
   for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
     auto tv = inner_reduction_tvs[i];
     for (const auto i : c10::irange(tv->nDims())) {
-      auto id = tv->axis((int)i);
+      auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
               id->getIterType() == IterType::Reduction,
@@ -642,7 +642,7 @@ bool isReductionIterationAxisMatched(
   // check outer reduction tvs, the corresponding axis should be iteration.
   for (auto tv : outer_reduction_tvs) {
     for (const auto i : c10::irange(tv->nDims())) {
-      auto id = tv->axis((int)i);
+      auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
               id->getIterType() == IterType::Reduction,
@@ -664,7 +664,7 @@ int64_t partialReductionBufferSize(
   int64_t partial_reduction_buffer_size = 0;
   for (auto buffer : outer_reduction_tvs) {
     int64_t buffer_size = -1;
-    for (auto id : buffer->getMaybeRFactorDomain()) {
+    for (auto id : buffer->getLogicalDomain()) {
       if (id->isReduction() || id->isBroadcast()) {
         continue;
       }
@@ -703,7 +703,8 @@ getOptionalInnerOuterPersistentBufferBatches(
   // time to tune as these un-vectorized small cases should be rare in real
   // world.
   if (inner_dim_numel <= 1024l) {
-    const int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    int64_t batch = (vectorize_factor == 1) ? 4l : 1l;
+    batch = std::min(batch, inner_dim_numel);
     return std::make_pair(
         batch, ceilDiv(inner_dim_numel, batch * vectorize_factor));
   }
@@ -739,8 +740,11 @@ getOptionalInnerOuterPersistentBufferBatches(
   };
 
   const int64_t after_vectorization = inner_dim_numel / vectorize_factor;
-  const int64_t threads_per_block_min = std::min(after_vectorization, 128l);
-  const int64_t threads_per_block_max = getThreadsPerSMGivenRegPerThread(255l);
+  const int64_t threads_per_block_min = std::min(
+      after_vectorization,
+      InnerOuterPersistentKernelScheduler::threads_per_block_min);
+  const int64_t threads_per_block_max =
+      InnerOuterPersistentKernelScheduler::threads_per_block_max;
   const int64_t batch_min = getMinimumBatch();
   const int64_t batch_max = getMaximumInnerOuterPersistentBufferBatch();
 
@@ -757,7 +761,6 @@ getOptionalInnerOuterPersistentBufferBatches(
     threads_per_block += warp_size;
     inner_batch = ceilDiv(after_vectorization, threads_per_block);
   }
-
   // The maximum feature size can be processed without register spills and
   // fusion segmentation for fp16 is 14K. Here, we can allow register spills to
   // avoid fusion segmentation by incrase maximum batch size by 3. This allows
@@ -845,28 +848,45 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
   return available_persistent_buffer_size;
 }
 
-// Returns true if the gains of reducing buffer size is larger than the pains of
-// recalculations. We don't know the real answer until we run it.
-bool projectBufferToInputs(
+// Returns true if persistent buffers are projected to inputs, meaning the
+// inputs are cached instead of the persistent buffers.
+bool isProjectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
-    const bool is_inner_reduction) {
-  // don't project if can't reduce buffer size
-  if (persistent_buffer_size_info.projected_persistent_buffer_size >=
-      persistent_buffer_size_info.persistent_buffer_size) {
+    const ScheduleHeuristic sh,
+    const bool check_projected_buffer_size) {
+  // don't project if there are view ops and no buffer can be projected
+  bool can_project = ir_utils::getViewOps(fusion).empty() &&
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+  if (!can_project) {
+    return false;
+  }
+
+  // Enusre project to inputs can save persistent buffer size,
+  // unless it's innerOuter with outer broadcast where project to inputs reduces
+  // gmem access.
+  if (check_projected_buffer_size &&
+      persistent_buffer_size_info.projected_persistent_buffer_size >=
+          persistent_buffer_size_info.persistent_buffer_size) {
     return false;
   }
 
   // must project to inputs otherwise don't have enough register or shared
-  // memory to store the buffers
-  int64_t max_available_buffer = getMaxRegOrSharedMemorySizeForPersistentBuffer(
-      runtime_info, persistent_buffer_info.persistent_buffers);
-  if (max_available_buffer <
-      persistent_buffer_size_info.persistent_buffer_size) {
-    return true;
+  // memory to store the buffers. Even after projecting, may still not have
+  // enough register or shared memory, then canScheduleRunTime will return
+  // false. For InnerOuterPersistent, both register and shared memory are used
+  // and will be handled in getPersistentBufferStorageParams.
+  if (sh != ScheduleHeuristic::InnerOuterPersistent) {
+    int64_t max_available_buffer =
+        getMaxRegOrSharedMemorySizeForPersistentBuffer(
+            runtime_info, persistent_buffer_info.persistent_buffers);
+    if (max_available_buffer <
+        persistent_buffer_size_info.persistent_buffer_size) {
+      return true;
+    }
   }
 
   // check ops between persistent buffer and inputs.
@@ -895,7 +915,7 @@ bool projectBufferToInputs(
   }
 
   // consider buffer size when exp op exists
-  if (is_inner_reduction) {
+  if (sh == ScheduleHeuristic::InnerPersistent) {
     // check if the non-projected persistent buffer is small enough,
     // i.e., not affecting the occupancy, projecting back to the inputs
     // isn't buying us anything.
@@ -993,19 +1013,15 @@ PersistentKernelProperties getPersistentKernelProperties(
   // which requires more advanced analysis is batch norm backwards.
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
-  // If projected persistent buffers are smaller, they will be used.
-  bool can_project = ir_utils::getViewOps(fusion).empty() &&
-      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
 
   // (6) Project to input when it can reduce buffer size and the gains of
   // reducing buffer size is larger than the pains of recalculations.
-  bool is_inner_reduction = (heuristic == ScheduleHeuristic::InnerPersistent);
-  bool project_persistent_buffers = can_project &&
-      projectBufferToInputs(fusion,
-                            runtime_info,
-                            persistent_buffer_info,
-                            persistent_buffer_size_info,
-                            is_inner_reduction);
+  bool project_persistent_buffers = isProjectBufferToInputs(
+      fusion,
+      runtime_info,
+      persistent_buffer_info,
+      persistent_buffer_size_info,
+      heuristic);
   auto max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
@@ -1061,7 +1077,8 @@ PersistentKernelProperties getPersistentKernelProperties(
       .vectorize_factor = vectorize_factor,
       .project_persistent_buffers = project_persistent_buffers,
       .index_type = runtime_info.getIndexType(),
-      .has_exp_op = has_exp_op};
+      .has_exp_op = has_exp_op,
+      .persistent_buffers = persistent_buffer_info.persistent_buffers};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
@@ -1084,13 +1101,6 @@ bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
     return false;
   }
 
-  // Fusions handled by persistent kernel scheduler cannot have MmaOp.
-  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "no support for mma ops.");
-    return false;
-  }
-
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic,
@@ -1109,21 +1119,21 @@ bool checkReductionPattern(
   // Ensure that the reduction operations share the same axes in their root
   // domains
   FusionGuard fg(fusion);
-  ComputeAtRootDomainMap root_map;
-  root_map.build(true);
+  ComputeAtLogicalDomainMap logical_map;
+  logical_map.build(true);
 
   // Helper function to check the pattern equivalence for a list of
   // TensorViews
   auto checkPattern = [&](const std::vector<TensorView*>& rtvs) -> bool {
     for (const auto it : c10::irange(1, rtvs.size())) {
       if (!registry_utils::checkPatternEquivalence(
-              rtvs[it - 1], rtvs[it], root_map)) {
+              rtvs[it - 1], rtvs[it], logical_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedule_heuristic,
-            "Unmapped reduction ",
-            rtvs[it - 1],
+            "Un-mapped multi-reduction: ",
+            rtvs[it - 1]->toString(),
             " and ",
-            rtvs[it]);
+            rtvs[it]->toString());
         return false;
       }
     }
@@ -1167,10 +1177,14 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   }
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
-  if (getPersistentHeuristicFor(reduction_type) != schedule_heuristic) {
+  const ScheduleHeuristic persistent_heuristic =
+      getPersistentHeuristicFor(reduction_type);
+  if (persistent_heuristic != schedule_heuristic) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic,
-        "schedule_heuristic doesn't match with reduction type.");
+        "schedule_heuristic doesn't match with reduction type `",
+        persistent_heuristic,
+        "`.");
     return false;
   }
 
@@ -1201,7 +1215,7 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   size_t axis_count = 0;
   auto reduction_root_size = [](TensorView* red_tv) {
     size_t count = 0;
-    for (auto id : red_tv->getRootDomain()) {
+    for (auto id : red_tv->getMaybeRootDomain()) {
       if (!id->isBroadcast()) {
         count++;
       }
@@ -1217,7 +1231,7 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
       if (reduction_root_size(red) != axis_count) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedule_heuristic,
-            "inconsistent reduction root size: ",
+            "Inconsistent reduction root size: ",
             red->toString(),
             ", expected: ",
             axis_count);
@@ -1256,6 +1270,54 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   return true;
 }
 
+void movePersistentBufferToSmem(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    const std::vector<TensorView*>& cached_inputs) {
+  // Transfer the persistent buffer tensors to shared memory. These tensors are
+  // housed in smem_persistent_buffers. If a candidate tensor is input, move its
+  // associated cached tensors.
+  if (rparams.smem_persistent_buffers.empty()) {
+    return;
+  }
+  const auto& persistent_buffers =
+      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+  auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
+    return std::any_of(
+        rparams.smem_persistent_buffers.begin(),
+        rparams.smem_persistent_buffers.end(),
+        [lookup_tv](const auto* tv) {
+          // can't use `tv->sameAs(lookup_tv)` since the saved tvs in
+          // smem_persistent_buffers are from a cloned fusion.
+          return tv->name() == lookup_tv->name();
+        });
+  };
+  for (auto tv : persistent_buffers) {
+    // Persistent buffers are categorized into two types:
+    // (1) Cached input tensors.
+    //     For these, [smem_persistent_buffers] holds the original input
+    //     tensors, not the cached.
+    // (2) Intermediate tensors: Other tensors used throughout computation.
+
+    // If a buffer is absent from [smem_persistent_buffers], it may be a
+    // cached input. In such cases, verify if the original input tensor is
+    // stored in [smem_persistent_buffers]. So, we may need to call
+    // isSharedMemoryPersistent() twice, one for the buffer iteself and the
+    // other for the buffer's input tensor if the buffer is a cached input
+    // and it is not in [smem_persistent_buffers].
+    bool use_smem = isSharedMemoryPersistent(tv);
+    if (!use_smem &&
+        std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
+            cached_inputs.end()) {
+      auto input_tv = ir_utils::producerTvsOf(tv).at(0);
+      use_smem = isSharedMemoryPersistent(input_tv);
+    }
+    if (use_smem) {
+      tv->setMemoryType(MemoryType::Shared);
+    }
+  }
+}
+
 // common prepare for all persistent schedulers
 void beforeSchedule(
     Fusion* fusion,
@@ -1287,14 +1349,9 @@ void beforeSchedule(
   scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
-  // Use shared memory to store persistent buffers
-  if (rparams.shared_mem_persistent_buffer) {
-    const auto& persistent_buffers =
-        scheduler_utils::persistentBuffers(fusion).persistent_buffers;
-    for (auto tv : persistent_buffers) {
-      tv->setMemoryType(MemoryType::Shared);
-    }
-  }
+  // move persistent buffer marked in [smem_persistent_buffers] from register to
+  // smem
+  movePersistentBufferToSmem(fusion, rparams, cached_inputs);
 
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
@@ -1317,7 +1374,7 @@ TensorView* scheduleReductionGeneral(
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
     reduction_tv->reorder(
-        scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
+        scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
   }
 
   if (schedule_heuristic == ScheduleHeuristic::OuterPersistent &&

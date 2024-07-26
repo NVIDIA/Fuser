@@ -77,7 +77,7 @@ int64_t getLdMatrixNumThreads(int64_t word_size) {
 }
 
 std::vector<int64_t> evaluateAddressesOnFirstPhase(
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     ExpressionEvaluator expr_eval_common,
     LoadStoreOp* ldst,
     bool is_producer) {
@@ -146,7 +146,7 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
   return addresses;
 }
 
-int getConflictWays(const std::vector<int64_t>& addresses) {
+int64_t getConflictWays(const std::vector<int64_t>& addresses) {
   using long_set = std::unordered_set<int64_t>;
   std::array<long_set, 32> words_by_bank;
   for (auto addr : addresses) {
@@ -154,16 +154,16 @@ int getConflictWays(const std::vector<int64_t>& addresses) {
     int64_t bank = word % 32;
     words_by_bank.at(bank).insert(word);
   }
-  int conflict = 1;
+  int64_t conflict = 1;
   for (const auto& words : words_by_bank) {
-    conflict = std::max<int>(conflict, (int)words.size());
+    conflict = std::max(conflict, (int64_t)words.size());
   }
   return conflict;
 }
 
 class BankConflictInfo : public kir::IrVisitor {
  public:
-  static std::unordered_map<const Expr*, std::pair<int, int>> get(
+  static std::unordered_map<const Expr*, std::pair<int64_t, int64_t>> get(
       const kir::Kernel* kernel,
       LaunchParams launch_params,
       const std::unordered_map<Val*, PolymorphicValue>& known_values) {
@@ -227,14 +227,14 @@ class BankConflictInfo : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
 
     if (expr->isA<LoadStoreOp>()) {
       auto ldst = expr->as<LoadStoreOp>();
-      std::pair<int, int> conflict_ways{0, 0};
+      std::pair<int64_t, int64_t> conflict_ways{0, 0};
       if (isSmemTensorIndex(ldst->in())) {
         conflict_ways.first = getConflictWays(
             evaluateAddressesOnFirstPhase(for_loops_, expr_eval_, ldst, true));
@@ -249,13 +249,14 @@ class BankConflictInfo : public kir::IrVisitor {
     }
   }
 
-  std::unordered_map<const Expr*, std::pair<int, int>> bank_conflict_info_;
+  std::unordered_map<const Expr*, std::pair<int64_t, int64_t>>
+      bank_conflict_info_;
   ExpressionEvaluator expr_eval_;
 };
 
 } // namespace
 
-std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
+std::unordered_map<const Expr*, std::pair<int64_t, int64_t>> getBankConflictInfo(
     const kir::Kernel* kernel,
     LaunchParams launch_params,
     const std::unordered_map<Val*, PolymorphicValue>& known_values) {

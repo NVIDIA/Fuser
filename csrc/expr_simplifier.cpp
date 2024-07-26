@@ -1513,7 +1513,7 @@ bool isPositiveHelper(Val* value, const Context& context) {
 
 bool isNonZero(Val* value, const Context& context) {
   value = foldConstants(value);
-  if (value->value().hasValue() && value->value() != 0) {
+  if (value->value().hasValue() && (bool)(value->value() != 0)) {
     return true;
   }
   if (isPositive(value, context)) {
@@ -1977,7 +1977,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       // 0 / a -> 0
       if (rhs->isOne() ||
           (isValidDenominator(rhs, context) && lhs->value().hasValue() &&
-           lhs->value().is<int64_t>() && lhs->value() == 0)) {
+           lhs->value().is<int64_t>() && lhs->value().as<int64_t>() == 0)) {
         return lhs;
       }
     } else if (bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
@@ -1985,7 +1985,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       // 0 / a -> 0
       if (rhs->isOne() ||
           (isValidDenominator(rhs, context) && lhs->value().hasValue() &&
-           lhs->value().is<int64_t>() && lhs->value() == 0)) {
+           lhs->value().is<int64_t>() && lhs->value().as<int64_t>() == 0)) {
         return lhs;
       }
     }
@@ -2086,7 +2086,7 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
   return value;
 }
 
-// Apply rule 1 in [Simplification of boolean predicates] to convert
+// Apply Theorem 4.16 in doc/math/integer-division.md to convert
 // i / d < D into i < d * D
 Val* convertDivToMulInPredicate(Val* value, const Context& context) {
   auto bop = dynamic_cast<BinaryOp*>(value->definition());
@@ -2182,15 +2182,7 @@ Val* cancelDivMod(Val* value, const Context& context) {
   }
 }
 
-// Use the following rule to simplify div and mod:
-// J) Distributivity of % over +:
-//    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
-// Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
-//    (a + b) / c = a/c + b/c
-// In this pass we distribute div and mod for a special case:
-// If compatible_sign(a, b), and a is a multiple of c, then:
-//  (a + b) / c = a/c + b/c
-//  (a + b) % c = b % c
+// Rule J.1, Q.1
 Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   auto divmod = toDivModOp(value->definition());
   if (!divmod) {
@@ -2240,29 +2232,7 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   return value;
 }
 
-// Use the following rule to simplify div and mod:
-// J) Distributivity of % over +:
-//    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
-// Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
-//    (a + b) / c = a/c + b/c
-// In this pass we distribute div and mod for a special case:
-// Let g = gcd(a, c). If compatible_sign(a, b), and -|g| < b < |g|, then:
-//  (a + b) / c = a/c
-//  (a + b) % c = a % c + b
-// Proof:
-//  Because -|g| < b < |g|, and |g| <= |c|, we know -|c| < b < |c|, according to
-//  Theorem 6.5, we have b % c = b.
-//  According to rule O, we have a % c = ((a/g) % (c/g)) * g.
-//  So, a % c + b % c = ((a/g) % (c/g)) * g + b
-//  Because -|c/g| < (a/g) % (c/g) < |c/g|, for integers, we have
-//  -|c/g| + 1 <= (a/g) % (c/g) <= |c/g| - 1
-//  So, -(|c/g| - 1) * |g| <= a % c <= (|c/g| - 1) * |g|
-//  Therefore, we have
-//  -(|c/g| - 1) * |g| - |g| < a % c + b % c < (|c/g| - 1) * |g| + |g|
-// That is: -|c| < a % c + b % c < |c|
-// Therefore:
-// (a + b) % c = (a % c + b % c) % c = a % c + b % c = a % c + b
-// (a + b) / c = a/c + b/c = a / c
+// Rule J.2, Q.2
 Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
   auto divmod = toDivModOp(value->definition());
   if (!divmod) {
@@ -2821,6 +2791,9 @@ Val* simplifyExpr(
   std::unique_ptr<std::unordered_set<std::string>> disabled_passes = nullptr;
   if (isOptionDisabled(DisableOption::ExprSimplify)) {
     const auto& v = getDisableOptionArguments(DisableOption::ExprSimplify);
+    if (v.empty()) {
+      return value;
+    }
     disabled_passes =
         std::make_unique<std::unordered_set<std::string>>(v.begin(), v.end());
   }

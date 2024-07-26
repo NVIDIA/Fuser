@@ -9,6 +9,8 @@
 
 #include <id_model/to_string.h>
 
+#include <variant>
+
 namespace nvfuser {
 
 void ValGraphVisitor::traverse() {

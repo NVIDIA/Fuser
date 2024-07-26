@@ -10,6 +10,7 @@
 #include <iostream>
 
 #include <kernel_cache.h>
+#include <multidevice/executor.h>
 #include <python_frontend/fusion_state.h>
 #include <visibility.h>
 
@@ -28,8 +29,9 @@ struct TrieNode;
 
 NVF_API const char* dtypeToPyString(PrimDataType t);
 
-//! The Tensor and Scalar classes are used to define separate function signtures
-//! in the FusionDefinition to identify the appropriate Operator function.
+//! The Tensor and Scalar classes are used to define separate function
+//! signatures in the FusionDefinition to identify the appropriate Operator
+//! function.
 //!
 //! Example:
 //!
@@ -42,6 +44,25 @@ struct Tensor {
 
   size_t operator()() const {
     return index;
+  }
+
+  bool operator==(const Tensor& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (dims != other.dims) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
+  }
+
+  bool operator!=(const Tensor& other) const {
+    return !(*this == other);
   }
 
   //! A unique index to identifiy each recorded state item.
@@ -62,6 +83,21 @@ struct Scalar {
     return index;
   }
 
+  bool operator==(const Scalar& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
+  }
+
+  bool operator!=(const Scalar& other) const {
+    return !(*this == other);
+  }
+
   //! A unique index to identifiy each recorded state item.
   size_t index;
 
@@ -77,6 +113,25 @@ struct Vector {
 
   size_t operator()() const {
     return index;
+  }
+
+  bool operator==(const Vector& other) const {
+    if (index != other.index) {
+      return false;
+    }
+
+    if (size != other.size) {
+      return false;
+    }
+
+    if (fusion_definition != other.fusion_definition) {
+      return false;
+    }
+    return true;
+  }
+
+  bool operator!=(const Vector& other) const {
+    return !(*this == other);
   }
 
   //! A unique index to identifiy each recorded state item.
@@ -127,9 +182,10 @@ class NVF_API FusionDefinition : public FusionState {
   //! Executes a fusion if a valid definition or cache lookup occurred prior
   NVF_API std::vector<at::Tensor> execute(
       const at::ArrayRef<c10::IValue>& inputs,
+      std::optional<int8_t> device,
       bool override_user_schedule,
       bool capture_debug_output,
-      std::optional<int8_t> device) const;
+      bool profile) const;
   //! Return debugging output captured through exeuction with
   //! capture_debug_output=true
   std::optional<std::string> getDebugOutput() const {
@@ -141,6 +197,8 @@ class NVF_API FusionDefinition : public FusionState {
 
   //! Return the unscheduled Fusion IR
   NVF_API std::string fusionIr();
+  //! Return the user scheduled FusionIR;
+  NVF_API std::string userScheduleIr();
   //! Return the Cuda code for the last executed set of inputs
   NVF_API std::string lastCudaCode(
       bool intrinsic_code,
@@ -168,8 +226,13 @@ class NVF_API FusionDefinition : public FusionState {
     return id().has_value();
   }
 
+  //! Return UserSchedule struct if it exists
+  UserSchedule* userSchedule();
+
   //! These methods are used to record the FusionDefinition for cache lookup
 
+  //! Defines a Tensor State Record
+  NVF_API Tensor addTensor(TensorView* tv);
   //! Defines a Scalar State Record
   NVF_API Scalar defineScalar();
   //! Defines a Tensor State Record
@@ -181,12 +244,21 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API void defineRecord(RecordFunctor* record);
   //! Gets a Record State object
   NVF_API State recordingState(size_t index) const;
+  //! Get all Tensors in FusionState.
+  NVF_API std::vector<Tensor> tensors();
 
  private:
   //! Returns the FusionCache Ptr that holds the cache of Fusions
   FusionCache* fusionCache() const;
   //! Return a prescheduled Fusion object
   Fusion* preschedFusion();
+  //! Composite operations can create hidden TensorViews in the CPP fusion
+  //! These TensorViews are not visible from python definition. This function
+  //! finds and adds them to FusionDefinition
+  void findHiddenTensorViews(Fusion* fusion);
+  //! Update Symbolic FusionStates after DynamicTransform pass
+  void updateSymbolicStates(
+      const std::unordered_map<Val*, Val*>& symbolic_to_concretized_map);
 
   //! Holds the defined maximum length of a FusionDefinition in order to
   //! prevent a run away error. The user should feel free to increase this
@@ -240,6 +312,12 @@ class NVF_API FusionDefinition : public FusionState {
 
  private:
   mutable std::optional<std::string> debug_output_ = std::nullopt;
+
+  //! The reason we have these is due to the lack of cache for multidevice
+  //! executor. The assumption is that the same multidevice_executor can handle
+  //! device switches. This should be removed after multidevice executor is
+  //! properly integrated in the runtime.
+  mutable std::unique_ptr<MultiDeviceExecutor> multidevice_executor_;
 };
 
 } // namespace nvfuser::python_frontend

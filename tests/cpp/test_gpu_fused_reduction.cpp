@@ -26,8 +26,8 @@
 #include <iter_visitor.h>
 #include <kernel_cache.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -98,7 +98,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce1_CUDA) {
   tv3->split(0, bidx);
   tv3->split(0, 1); // unswitch
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDy);
   tv3->axis(2)->parallelize(ParallelType::BIDx);
@@ -146,7 +146,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
 
   tv3->split(0, tidx);
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
@@ -174,7 +174,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
 }
 
 // Grid reduction with serial non-reduction axis. The global work
-// buffer is double buffered.
+// buffer is circular buffered.
 TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
   const int nx = 100;
   const int ny = 5000;
@@ -198,7 +198,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
 
   tv3->split(1, tidx);
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
 
@@ -245,7 +245,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
 
   tv4->split(0, tidx);
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDx);
@@ -303,7 +303,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
   // Setup the reduction
   tv4->split(1, tidx);
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv4->axis(1)->parallelize(ParallelType::BIDx);
   tv4->axis(2)->parallelize(ParallelType::TIDx);
@@ -357,7 +357,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce6_CUDA) {
   tv1->split(1, tidx);
   tv1->split(0, tidy);
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDy);
   tv1->axis(1)->parallelize(ParallelType::TIDy);
@@ -405,7 +405,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
 
   tv5->split(0, tidx);
   TransformPropagator propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
 
   tv5->axis(0)->parallelize(ParallelType::BIDx);
   tv5->axis(1)->parallelize(ParallelType::TIDx);
@@ -428,7 +428,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
 }
 
 // Grid welford reduction with serial non-reduction axis. The global
-// work buffer is double buffered.
+// work buffer is circular buffered.
 TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
   const int nx = 100;
   const int ny = 5000;
@@ -452,7 +452,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
 
   tv3->split(1, tidx);
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
 
@@ -558,9 +558,9 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
        {6, 9}});
 
   TransformPropagator propagator(tv0);
-  MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator);
 
-  ir_utils::rfactorHelper(tvs.avg, {-5, -4, -3, -2, -1});
+  ir_utils::rFactorHelper(tvs.avg, {-5, -4, -3, -2, -1});
 
   tv0->computeAt(tv29, 2);
   tv1->computeAt(tv29, 2);
@@ -683,7 +683,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction2_CUDA) {
 
   tv2->split(1, 128);
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv0->computeAt(tv4, -1, ComputeAtMode::MostInlined);
 
@@ -727,7 +727,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction3_CUDA) {
   groupReductions({tv1, tv3});
   tv1->split(1, 128);
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv0->computeAt(tv5, -1, ComputeAtMode::MostInlined);
 
@@ -867,8 +867,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor1_CUDA) {
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
 
-  const size_t gdimx = 10;
-  const size_t bdimx = 128;
+  const int64_t gdimx = 10;
+  const int64_t bdimx = 128;
 
   tv1->split(0, gdimx, false);
   tv1->split(1, bdimx);
@@ -916,8 +916,8 @@ TEST_F(NVFuserTest, FusionGroupedReductionRfactor2_CUDA) {
 
   groupReductions({tv1, tv2});
 
-  const size_t gdimx = 10;
-  const size_t bdimx = 128;
+  const int64_t gdimx = 10;
+  const int64_t bdimx = 128;
 
   tv1->split(0, gdimx, false);
   tv1->split(1, bdimx);
@@ -959,7 +959,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionAfterComputeAt_CUDA) {
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
-  const size_t bdimx = 128;
+  const int64_t bdimx = 128;
 
   tv2->split(1, bdimx);
   auto tv2_rf = tv2->rFactor({1});
@@ -1011,7 +1011,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce1_CUDA) {
 
   tv2->split(0, 128);
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
@@ -1057,7 +1057,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce2_CUDA) {
   groupReductions({tv1, tv4});
   tv1->split(1, tidx);
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv0->computeAt(tv8, -1, ComputeAtMode::MostInlined);
 
@@ -1112,7 +1112,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce3_CUDA) {
 
   tv1->split(0, 128);
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -1165,7 +1165,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce4_CUDA) {
 
   reduction_tv->split(0, 128);
   TransformPropagator propagator(reduction_tv);
-  MaxRootDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
 
   reduction_tv->axis(0)->parallelize(ParallelType::BIDx);
   reduction_tv->axis(1)->parallelize(ParallelType::TIDx);
@@ -1238,7 +1238,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
 
   tv1->split(0, 128);
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -1299,11 +1299,11 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   const bool kTraining = true;
   const bool channels_last = false;
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(input->getMaybeRFactorDomain()).size();
-  size_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
+  const int64_t kNumberOfDims =
+      TensorDomain::noReductions(input->getLogicalDomain()).size();
+  int64_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
 
-  std::vector<int> reduction_axes;
+  std::vector<int64_t> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
   for (const auto axis : c10::irange(kNumberOfDims)) {
@@ -1312,10 +1312,10 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
       broadcast_mask[axis] = true;
       if (num_features == nullptr) {
         num_features =
-            castOp(DataType::Double, input->getLeafDomain()[axis]->extent());
+            castOp(DataType::Double, input->getLoopDomain()[axis]->extent());
       } else {
         num_features =
-            mul(num_features, input->getLeafDomain()[axis]->extent());
+            mul(num_features, input->getLoopDomain()[axis]->extent());
       }
     }
   }
@@ -1340,7 +1340,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Val>(input->container(), 1.0));
+            IrBuilder::createInContainer<Val>(input->container(), 1.0));
   } else {
     grad_scale = mul(
         broadcast(invstd, broadcast_mask), broadcast(weight, broadcast_mask));
@@ -1402,7 +1402,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   grad_input->axis(4)->parallelize(ParallelType::TIDx);
 
   TransformPropagator propagator(grad_input);
-  MaxRootDomainInfoSpanningTree(grad_input).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(grad_input).traverse(&propagator);
 
   auto rf_tensors = grad_output_sum->rFactor(
       {-1}, std::vector<TensorView*>({grad_output_sum, dot_p}));
@@ -1516,7 +1516,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionReEntrant1_CUDA) {
 
   tv2->split(0, tidy);
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv0_cache->axis(-1)->parallelize(ParallelType::Vectorize);
 
@@ -1560,7 +1560,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
   auto tv2 = makeContigTensor(1);
   fusion.addInput(tv2);
 
-  std::vector<int> reduction_axes({0, 1, 2});
+  std::vector<int64_t> reduction_axes({0, 1, 2});
   std::vector<bool> broadcast_mask({true, true, true, false});
 
   auto tv3 = castOp(DataType::Float, tv0);
@@ -1617,7 +1617,7 @@ TEST_F(NVFuserTest, FusionGroupedReductionChannelsLastBatchNormLike_CUDA) {
   ref->reorder({{3, 4}, {4, 3}});
 
   TransformPropagator propagator(ref);
-  MaxRootDomainInfoSpanningTree(ref).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(ref).traverse(&propagator);
 
   auto rf_tvs = tv5->rFactor({-2}, {tv5, tv9});
   auto tv5_rf = rf_tvs.at(0);
@@ -1684,7 +1684,7 @@ TEST_F(
   auto tv2 = makeContigTensor(1);
   fusion.addInput(tv2);
 
-  std::vector<int> reduction_axes({0, 1, 2});
+  std::vector<int64_t> reduction_axes({0, 1, 2});
   std::vector<bool> broadcast_mask({true, true, true, false});
 
   auto tv3 = castOp(DataType::Float, tv0);
@@ -1746,7 +1746,7 @@ TEST_F(
   ref->reorder({{3, 4}, {4, 3}});
 
   TransformPropagator propagator(ref);
-  MaxRootDomainInfoSpanningTree(ref).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(ref).traverse(&propagator);
 
   auto rf_tvs = tv5->rFactor({-2}, {tv5, tv9});
   auto tv5_rf = rf_tvs.at(0);
@@ -1826,7 +1826,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
   tv1->split(1, tidx);
   tv1->split(0, tidy);
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDy);
   tv1->axis(1)->parallelize(ParallelType::TIDy);
@@ -1849,7 +1849,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->getLeafDomain()) {
+    for (auto out_axis : out->getLoopDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -1903,7 +1903,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
   tv1->split(1, tidx);
   tv1->split(0, tidy);
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDy);
   tv1->axis(1)->parallelize(ParallelType::TIDy);
@@ -1929,7 +1929,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->getLeafDomain()) {
+    for (auto out_axis : out->getLoopDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -1988,7 +1988,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   tv1->split(1, tidx);
   tv1->split(0, tidy);
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDy);
   tv1->axis(1)->parallelize(ParallelType::TIDy);
@@ -2011,7 +2011,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->getLeafDomain()) {
+    for (auto out_axis : out->getLoopDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2067,7 +2067,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   tv2->split(-1, tidy);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv2->axis(2)->parallelize(ParallelType::Group);
 
@@ -2103,7 +2103,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
       continue;
     }
     auto out = ir_utils::getTvOutput(grouped_grid_reduction);
-    for (auto out_axis : out->getLeafDomain()) {
+    for (auto out_axis : out->getLoopDomain()) {
       auto out_axis_pt = out_axis->getParallelType();
       NVF_CHECK(
           isParallelTypeThread(out_axis_pt) ||
@@ -2154,7 +2154,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
   tv1->split(1, tidx);
   tv1->split(0, tidy);
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDy);
   tv1->axis(1)->parallelize(ParallelType::TIDy);
@@ -2218,7 +2218,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
   tv1->split(1, tidx);
   tv1->split(0, tidy);
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDy);
   tv1->axis(1)->parallelize(ParallelType::TIDy);
@@ -2278,7 +2278,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     FusionGuard fg(&fusion);
 
     std::vector<bool> bcast_pattern{true, true, true, false};
-    std::vector<int> reduction_dims{2, 1, 0};
+    std::vector<int64_t> reduction_dims{2, 1, 0};
 
     auto tv0 = makeContigTensor(4);
     fusion.addInput(tv0);
@@ -2334,23 +2334,23 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
         reduction_scheduler_utils::sortAndRFactor(transform_ref);
 
     TransformPropagator propagator(transform_ref_rf);
-    MaxRootDomainInfoSpanningTree(transform_ref_rf).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(transform_ref_rf).traverse(&propagator);
 
     int vec_id = std::distance(
-        transform_ref_rf->getLeafDomain().begin(),
+        transform_ref_rf->getLoopDomain().begin(),
         std::find_if(
-            transform_ref_rf->getLeafDomain().begin(),
-            transform_ref_rf->getLeafDomain().end(),
+            transform_ref_rf->getLoopDomain().begin(),
+            transform_ref_rf->getLoopDomain().end(),
             [](auto id) {
               return id->getParallelType() == ParallelType::Vectorize;
             }));
     transform_ref_rf->axis(vec_id)->parallelize(ParallelType::Serial);
 
     int unswitch_id = std::distance(
-        transform_ref_rf->getLeafDomain().begin(),
+        transform_ref_rf->getLoopDomain().begin(),
         std::find_if(
-            transform_ref_rf->getLeafDomain().begin(),
-            transform_ref_rf->getLeafDomain().end(),
+            transform_ref_rf->getLoopDomain().begin(),
+            transform_ref_rf->getLoopDomain().end(),
             [](auto id) {
               return id->getParallelType() == ParallelType::Unswitch;
             }));
@@ -2537,7 +2537,7 @@ TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
   tv4->split(0, bidx);
   tv4->split(0, 1); // unswitch
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv4->axis(0)->parallelize(ParallelType::BIDy);
   tv4->axis(2)->parallelize(ParallelType::BIDx);

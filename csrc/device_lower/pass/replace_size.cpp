@@ -10,7 +10,7 @@
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <device_lower/pass/replace_size.h>
 
@@ -90,9 +90,9 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   for (auto producer_tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     auto consumer_tvs = ir_utils::consumerTvsOf(producer_tv);
     for (auto consumer_tv : consumer_tvs) {
-      auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv);
-      auto c2p_root_map = pairwise_map.mapConsumerToProducer();
-      for (auto entry : c2p_root_map) {
+      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv);
+      auto c2p_logical_map = pairwise_map.mapConsumerToProducer();
+      for (auto entry : c2p_logical_map) {
         auto c_id = entry.first;
         auto p_id = entry.second;
         map_root_ids(p_id, c_id);
@@ -113,8 +113,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   // problem size instead of inputs. However, we don't do anything where we can
   // translate to those kinds of kernels integrated into PyTorch.
   for (auto input_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    for (auto id :
-         TensorDomain::noReductions(input_tv->getMaybeRFactorDomain())) {
+    for (auto id : TensorDomain::noReductions(input_tv->getLogicalDomain())) {
       auto id_set_it = id_to_disjoint_root_set.find(id);
       if (id_set_it == id_to_disjoint_root_set.end()) {
         continue;
@@ -197,15 +196,15 @@ void replaceSymbolicSizes(Fusion* fusion) {
         return a->name() < b->name();
       });
 
-  // Generate map for all tensorview root domain values to map them to symbolic
-  // values. i.e. T0->getRootDomain()[0] would map to a named scalar
+  // Generate map for all tensorview logical domain values to map them to
+  // symbolic values. i.e. T0->getLogicalDomain()[0] would map to a named scalar
   // "T0.size[0]". This map will be used when lowering fusion ir to kernel ir.
   for (TensorView* tv : inputs_and_outputs) {
     // Replace the domain with one based on Ti.size[j]
-    const std::vector<IterDomain*>& root_td = tv->getRootDomain();
+    const std::vector<IterDomain*>& logical_td = tv->getLogicalDomain();
 
     int64_t dim = 0;
-    for (auto id : root_td) {
+    for (auto id : logical_td) {
       Val* orig_size = id->getMaybeExpandedExtent();
       // Output sizes could have reduction axes, which isn't what gets output.
       // NOLINTNEXTLINE(bugprone-branch-clone)
@@ -219,7 +218,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
       // Currently turn off this part for inputs of segmented fusion,
       //  since FusionKernelRuntime will provide these as integer inputs
       if (tensor_dim_map.find(orig_size) == tensor_dim_map.end() &&
-          !orig_size->isFusionInput() && !orig_size->isConstScalar()) {
+          !orig_size->isFusionInput()) {
         tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
             IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
             dim++);

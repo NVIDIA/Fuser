@@ -114,9 +114,12 @@ static void NvFuserScheduler_GeluBackwardReduction(
 
   runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
 
+  // inputs: gradient tensor + input tensor
+  // outputs: output, output_of_reduction
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(dtype)));
+      (iter_size * reduction_size * 3 + iter_size) *
+      int64_t(dataTypeSize(dtype)));
 }
 
 static void Baseline_GeluBackwardReduction(
@@ -172,7 +175,8 @@ static void Baseline_GeluBackwardReduction(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(dtype)));
+      (iter_size * reduction_size * 3 + iter_size) *
+      int64_t(dataTypeSize(dtype)));
 }
 
 //------------------------------------------------------------------------------
