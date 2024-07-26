@@ -48,15 +48,6 @@ Use findUseToSegment(
   }
 }
 
-bool isSegmentSet(Expr* e) {
-  if (LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(e)) {
-    if (ldst->opType() == LoadStoreOpType::SegmenterSet) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // Collects all expressions that are (transitively) used by non-alias
 // TensorViews.
 std::unordered_set<Expr*> exprsUsedByNonAliases(
@@ -175,15 +166,16 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
 
         // Rarely, if `use_of` is already defined by `segment_set`, don't
         // create another `segment_set`.
-        if (isSegmentSet(use_of->definition())) {
+        if (ir_utils::isSegmentSet(use_of->definition())) {
           return;
         }
       }
 
       // If all aliasing users are `segment_set`, don't create another
       // `segment_set`.
-      if (std::all_of(
-              i, j, [](const Use& use) { return isSegmentSet(use.user); })) {
+      if (std::all_of(i, j, [](const Use& use) {
+            return ir_utils::isSegmentSet(use.user);
+          })) {
         return;
       }
 
