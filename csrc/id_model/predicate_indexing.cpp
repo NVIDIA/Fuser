@@ -110,7 +110,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     }
 
     // Epilog should not hit this part
-    NVF_ERROR(fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog);
+    NVF_ERROR(fl->circularBufferLoopStage() != CircularBufferLoopStage::Epilog);
 
     // The prologue loop does not need to be changed
     if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
