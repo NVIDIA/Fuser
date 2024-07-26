@@ -611,7 +611,6 @@ class MultipleMatmulScheduler {
   void findPatterns() {
     patterns_ = mma_utils::findMatmulPatterns(fusion_);
     NVF_ERROR(!patterns_.empty(), "No matmul patterns were found");
-    countDims();
   }
 
   void countDims() {
@@ -657,6 +656,8 @@ class MultipleMatmulScheduler {
 
     as_ = tensor_roles_.at(MatmulTensorRole::OPERAND_A);
     bs_ = tensor_roles_.at(MatmulTensorRole::OPERAND_B);
+
+    countDims();
   }
 
   // Including current tensor naming convention for reference,
