@@ -762,16 +762,6 @@ TensorIndexer::TensorIndexer(IdModel& id_model)
     ofs << dot_string;
     ofs.close();
   }
-
-  const auto& non_divisible_split_info =
-      GpuLower::current()->nonDivisibleSplitInfo();
-  for (const auto& [tv, splits] :
-       non_divisible_split_info.splitsToPredicate()) {
-    VERBOSE() << "Splits to predicate of tensor: " << tv->toString() << "\n";
-    for (const auto split : splits) {
-      VERBOSE() << "\t" << split->toString();
-    }
-  }
 }
 
 void TensorIndexer::buildLoopIndexMap() {

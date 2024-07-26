@@ -254,10 +254,6 @@ class ValGraph {
   // do anything.
   bool isTrivialExprGroup(const ExprGroup& expr_group) const;
 
-  void setPropagateThroughExprs(bool b) {
-    propagate_through_exprs_ = b;
-  }
-
   // Can't back prop through merge without making sure one input actually
   // matches. This can be done on a map or extent basis.
   // TODO: Move this to val_graph.cpp once validation_utils.cpp is

@@ -435,11 +435,6 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
         }
         Expr* use0 = use_group_0->front();
         Expr* use1 = use_group_1->front();
-#if 0
-        std::cerr << "Map through uses: "
-                  << use0->toString()
-                  << ", " << use1->toString();
-#endif
         maybeMapThroughExprs(use0, use1, true);
       }
     }
@@ -458,11 +453,6 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
         }
         auto def0 = def_group_0->front();
         auto def1 = def_group_1->front();
-#if 0
-        std::cerr << "Map through defs: "
-                  << def0->toString()
-                  << ", " << def1->toString();
-#endif
         maybeMapThroughExprs(def0, def1, false);
       }
     }

@@ -74,7 +74,7 @@ inline std::vector<ForLoop*> getMaxPathLoops(
     // Don't unswitch threaded loops even when unswitched
     if (fl->iter_domain()->isThread() ||
         (fl->iter_domain()->getParallelType() != ParallelType::Vectorize &&
-         !within_unswitch && !predicateAtEnd(fl))) {
+         !within_unswitch && !lower_utils::predicateAtEnd(fl))) {
       continue;
     } else {
       unswitched_domains.push_back(fl);

@@ -9,8 +9,6 @@
 
 #include <exceptions.h>
 
-#include <id_model/id_model.h>
-#include <id_model/indexing.h>
 #include <instrumentation.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
@@ -28,6 +26,8 @@ class IndexLowering : private OptOutConstDispatch {
   static std::vector<Expr*> getIndexedExprs(std::vector<Expr*> incoming_exprs);
 
  private:
+  IndexLowering() = default;
+
   void pushBack(Expr*);
 
   // Return the most recently inserted
