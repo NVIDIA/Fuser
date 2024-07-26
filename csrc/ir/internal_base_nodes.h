@@ -583,6 +583,13 @@ class TensorDomain : public Val {
     return hasAllocation() ? allocation_domain_ : logical();
   };
 
+  // Additional IDs that are not on the path from one of
+  // root/logical/allocation/loop domain to another. We need to keep track of
+  // these IDs to ensure that we can find all paths/IDs of interest.
+  const std::vector<IterDomain*>& additionalIDs() const {
+    return additional_ids_;
+  }
+
   // Set the loop domain of this TensorDomain.
   NVF_API void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
 
@@ -618,6 +625,9 @@ class TensorDomain : public Val {
 
   //! Returns a position of a root domain
   int64_t rootPosOf(IterDomain* id) const;
+
+  //! Create a new broadcast IterDomain with extent one in the loop domain
+  void broadcast(int64_t axis);
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
@@ -685,6 +695,7 @@ class TensorDomain : public Val {
   const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
   std::vector<IterDomain*> loop_domain_;
+  std::vector<IterDomain*> additional_ids_;
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;

@@ -2875,20 +2875,6 @@ void IterDomain::parallelize(ParallelType t) {
     return;
   }
 
-  // assert check that we only parallelize a loop domain.
-  // loop domains are domains that are not used by any other domains.
-  if (t != ParallelType::Serial) {
-    NVF_CHECK(
-        uses().empty(),
-        "Only allowed to parallelize a loop domain.",
-        " Domain: ",
-        toString(),
-        ", Parallel type: ",
-        t,
-        definition() != nullptr ? ", Definition: " + definition()->toString()
-                                : "");
-  }
-
   if (t == ParallelType::Unroll || isParallelTypeVectorize(t) ||
       t == ParallelType::Group) {
     NVF_CHECK(
@@ -3105,6 +3091,7 @@ TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
       logical_domain_(src->logical_domain_),
       allocation_domain_(src->allocation_domain_),
       loop_domain_(src->loop_domain_),
+      additional_ids_(src->additional_ids_),
       no_bcast_domain_(src->no_bcast_domain_),
       no_reduction_domain_(src->no_reduction_domain_),
       contiguity_(src->contiguity_),
@@ -3116,6 +3103,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       logical_domain_(ir_cloner->clone(src->logical_domain_)),
       allocation_domain_(ir_cloner->clone(src->allocation_domain_)),
       loop_domain_(ir_cloner->clone(src->loop_domain_)),
+      additional_ids_(ir_cloner->clone(src->additional_ids_)),
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       contiguity_(src->contiguity()),
@@ -3356,6 +3344,15 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   auto it = std::find(maybeRoot().begin(), maybeRoot().end(), id);
   NVF_ERROR(it != maybeRoot().end(), "Provided id is not part of root domain.");
   return std::distance(maybeRoot().begin(), it);
+}
+
+void TensorDomain::broadcast(int64_t axis) {
+  axis = nvfuser::wrapDim(axis, nDims() + 1);
+  IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), fusion()->oneVal())
+                       .iter_type(IterType::Broadcast)
+                       .build();
+  loop_domain_.insert(loop_domain_.begin() + axis, id);
+  additional_ids_.push_back(id);
 }
 
 void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
@@ -3651,8 +3648,12 @@ void TensorDomain::setAllocationDomain(
 }
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
-  std::array<const std::vector<IterDomain*>*, 4> all_domains = {
-      &logical_domain_, &root_domain_, &allocation_domain_, &loop_domain_};
+  std::array<const std::vector<IterDomain*>*, 5> all_domains = {
+      &logical_domain_,
+      &root_domain_,
+      &allocation_domain_,
+      &loop_domain_,
+      &additional_ids_};
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
   for (auto domain : all_domains) {
     discovered_ids.pushBack(*domain);
