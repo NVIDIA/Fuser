@@ -121,14 +121,18 @@ bool zeroIsFixedPoint(UnaryOpType t) {
     case UnaryOpType::Ceil:
     case UnaryOpType::Erf:
     case UnaryOpType::Erfinv:
+    case UnaryOpType::Expm1:
     case UnaryOpType::Floor:
+    case UnaryOpType::Frac:
     case UnaryOpType::Gelu:
     case UnaryOpType::Imag:
-    case UnaryOpType::Silu:
+    case UnaryOpType::Log1p:
     case UnaryOpType::Neg:
     case UnaryOpType::Real:
     case UnaryOpType::Relu:
     case UnaryOpType::Round:
+    case UnaryOpType::Silu:
+    case UnaryOpType::Signbit:
     case UnaryOpType::Sin:
     case UnaryOpType::Sinh:
     case UnaryOpType::Sqrt:
@@ -148,8 +152,9 @@ bool zeroIsIdentity(BinaryOpType t) {
     case BinaryOpType::Add:
     case BinaryOpType::Mul:
     case BinaryOpType::Sub:
-    case BinaryOpType::BitwiseAnd:
-    case BinaryOpType::LogicalAnd:
+    case BinaryOpType::BitwiseOr:
+    case BinaryOpType::BitwiseXor:
+    case BinaryOpType::LogicalOr:
       return true;
     default:
       return false;
@@ -162,7 +167,7 @@ bool zeroIsIdentity(BinaryOpType t) {
 // resolved the output iter_type for each IterDomain and provided as
 // `ref_iter_type`. The function returns the output from the replay PadOp.
 //
-// NOTE: this assumes all vec_pad_widths are positive entries so we don't need
+// NOTE: this assumes all vec_pad_widths are non-negative entries so we don't need
 // to consider accumulating them changing the output iter_type.
 TensorView* replayConcretePad(
     TensorView* pad_tv,
@@ -233,7 +238,7 @@ TensorView* replayConcretePad(
         merged_root_id,
         left_pad,
         right_pad,
-        true,
+        /*mark_as_rfactor=*/true,
         ref_iter_type.at(i)->getIterType()));
   }
 
@@ -270,7 +275,7 @@ TensorView* replayConcretePad(
 // This function only propagates simple padding, where its pad value is `zero`
 // (or `false` for boolean) and pad widths are non-negative. This allows us to
 // unconditionally merge neighboring PadOps as a single op. We also restrict
-// propagation on operatoins that can allow PadOp to propagated across. See
+// propagation on operations that can allow PadOp to propagated across. See
 // `zeroIsFixedPoint` and `zeroIsIdentity`.
 void propagatePad(Fusion* fusion) {
   // propagating PadOp
@@ -302,7 +307,7 @@ void propagatePad(Fusion* fusion) {
     }
 
     // unify all consumer pad of tv;
-    TensorView* tv = p->in()->as<TensorView>();
+    auto* tv = p->in()->as<TensorView>();
     for (Expr* use : tv->uses()) {
       if (use == p) {
         continue;
