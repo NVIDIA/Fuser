@@ -352,6 +352,12 @@ std::vector<Val*> getAssumptions(const std::vector<ForLoop*>& loops) {
           start->toInlineString(),
           ". This could indicate a suboptimal schedule such as circular-buffering a ",
           "loop that has only a single iteration.");
+    } else if (
+        loop->circularBufferLoopStage() == CircularBufferLoopStage::Main) {
+      // For circular buffering, the pipeline can be larger than the number of
+      // iterations in main for-loop, so we enforce that its extent is
+      // non-negative. For this case, the assumption changes to index <= stop.
+      assumptions.push_back(IrBuilder::leExpr(loop->index(), stop));
     } else {
       assumptions.push_back(IrBuilder::ltExpr(loop->index(), stop));
     }
