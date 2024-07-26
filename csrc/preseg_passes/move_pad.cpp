@@ -93,7 +93,7 @@ Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
       std::all_of(
           inputs.begin(),
           inputs.end(),
-          [&data_type](Val* val) { val->getDataType().value() == data_type; }),
+          [&data_type](Val* val) { return val->getDataType().value() == data_type; }),
       "all inputs to cat should be of the same datatype");
   NVF_ERROR(!inputs.empty(), "replace cat op expects to have non-empty inputs");
 
@@ -295,7 +295,7 @@ std::vector<Val*> maybeMovePadBeforeDefinition(
       expr->inputs().begin(),
       expr->inputs().end(),
       std::back_inserter(padded_inputs),
-      [&p, &stack, &simple_pad_set](TensorView* val) {
+      [&p, &stack, &simple_pad_set](Val* val) {
         TensorView* new_pad_in = replayConcretePad(
             val,
             p->value(),
