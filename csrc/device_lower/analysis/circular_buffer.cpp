@@ -25,11 +25,6 @@ namespace {
 // which defines the loop where prefetching is applied. Therefore,
 // the CA position must be larger than 0.
 int64_t getCircularBufferAxisPosition(const TensorView* tv) {
-  // Short-Circuit
-  if (!tv->isCircularBuffered()) {
-    return -1;
-  }
-
   NVF_ERROR(
       tv->getComputeAtPosition() > 0,
       "Expected computeAt for circular buffered TensorView");
@@ -65,6 +60,10 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
   }
 
   return valid_pos;
+}
+
+IterDomain* getCircularBufferAxis(const TensorView* tv) {
+  return tv->axis(getCircularBufferAxisPosition(tv));
 }
 
 // Initial inspection of a fusion to find and validate circular buffered tensors
@@ -187,6 +186,15 @@ CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
   return map_[tv];
 }
 
+const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
+    const TensorView* tv) const {
+  NVF_ERROR(
+      tv->isCircularBuffered(),
+      "Not a circular-buffered tensor: ",
+      tv->toString());
+  return map_.at(tv);
+}
+
 void CircularBufferInfo::setCircularBufferAxis(
     const TensorView* tv,
     IterDomain* axis) {
@@ -224,6 +232,15 @@ void CircularBufferInfo::setStageDepth(IterDomain* id, int64_t stage_depth) {
         " by ",
         concrete_loop_id->toString());
   }
+}
+
+IterDomain* CircularBufferInfo::getCircularBufferAxis(
+    const TensorView* tv) const {
+  if (!tv->isCircularBuffered()) {
+    return nullptr;
+  }
+
+  return getTvInfo(tv).circular_buffer_axis;
 }
 
 IterDomain* CircularBufferInfo::getCircularBufferAxis(const TensorView* tv) {
@@ -289,6 +306,17 @@ Val* CircularBufferInfo::getOriginalAllocSize(const TensorView* tv) {
   }
 
   return getTvInfo(tv).original_alloc_size;
+}
+
+std::vector<const TensorView*> CircularBufferInfo::getCircularBufferTvs()
+    const {
+  std::vector<const TensorView*> keys;
+  keys.reserve(map_.size());
+  std::transform(
+      map_.begin(), map_.end(), std::back_inserter(keys), [](auto pair) {
+        return pair.first;
+      });
+  return keys;
 }
 
 } // namespace nvfuser

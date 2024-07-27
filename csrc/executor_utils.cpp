@@ -675,12 +675,26 @@ void validateMisalignedVectorizedTensors(
 
 void validateCircularBuffering(
     kir::Kernel* kernel,
-    ExpressionEvaluator& expr_eval) {
+    const KernelArgumentHolder& args) {
   // 1. Get circular buffer TensorViews
+  const CircularBufferInfo& cb_info = kernel->summary().circular_buffer_info;
+
   // 2. Create Expression Evaluator with KernelArgumentHolder
+  ExpressionEvaluator expr_eval = bindInputs(args, kernel);
+
   // 3. Check if main loop extent >= circular buffer pipeline size
   // 4. If not, throw error at runtime.
-  // 5. Add boolean check function as scheduler_util to check during scheduling
+  for (const TensorView* cb_tv : cb_info.getCircularBufferTvs()) {
+    IterDomain* axis = cb_info.getCircularBufferAxis(cb_tv);
+    NVF_ERROR(axis != nullptr);
+    NVF_ERROR(
+        expr_eval.evaluate(axis) >= cb_tv->circularBufferDepth(),
+        "This kernel fails to fill an entire circular buffer pipeline for ",
+        cb_tv->toString(),
+        " at runtime.");
+  }
+  // TODO Add boolean check function as scheduler_util to check during
+  // scheduling
 }
 
 void validateVectorizedTensors(

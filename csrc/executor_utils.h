@@ -246,6 +246,10 @@ void validateVectorizedTensors(
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval);
 
+void validateCircularBuffering(
+    kir::Kernel* kernel,
+    const KernelArgumentHolder& args);
+
 //! Kernel timing utility
 //!
 //! Usage example:

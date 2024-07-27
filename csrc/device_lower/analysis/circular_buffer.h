@@ -29,7 +29,12 @@ class CircularBufferInfo {
 
   void setCircularBufferAxis(const TensorView* tv, IterDomain* id);
 
+  IterDomain* getCircularBufferAxis(const TensorView* tv) const;
+
   IterDomain* getCircularBufferAxis(const TensorView* tv);
+
+  //! Get all valid circular buffer TensorViews
+  std::vector<const TensorView*> getCircularBufferTvs() const;
 
   //! Get a loop that matches with a given circular-buffer axis. If
   //! ignore_prologue is true, a matched loop is ignored if it's a
@@ -60,6 +65,8 @@ class CircularBufferInfo {
   int64_t getStageDepthFor(IterDomain* circular_buffered_id) const;
 
  private:
+  const TvInfo& getTvInfo(const TensorView* tv) const;
+
   TvInfo& getTvInfo(const TensorView* tv);
 
   //! Set the number of circular buffer stages for the given

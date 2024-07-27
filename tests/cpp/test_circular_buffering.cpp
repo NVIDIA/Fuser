@@ -710,9 +710,10 @@ TEST_P(CircularBufferingTest, NoSync) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
-// TODO Add runtime check to determine that we can run a full pipeline.
-// TODO Increase maximum buffer range to 10
-// Test circular buffer from 2 to 4 stages
-INSTANTIATE_TEST_SUITE_P(NonTma, CircularBufferingTest, ::testing::Range(2, 4));
+// Test circular buffer from 2 to 10 stages
+INSTANTIATE_TEST_SUITE_P(
+    NonTma,
+    CircularBufferingTest,
+    ::testing::Range(2, 10));
 
 } // namespace nvfuser
