@@ -3604,6 +3604,396 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering4) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Same fusion as NVFuserTest.FusionNonDivisibleSplit1_CUDA. Just
+// check if proper predicates are generated.
+TEST_F(PredicateIndexingTest, NonDivisibleSplit1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+  fusion.addOutput(tv1);
+
+  // [I]
+  tv1->split(0, 5);
+  // [ceilDiv(I, 5), 5]
+
+  // This second split is non-divisible. The split domain must be predicated.
+  tv1->split(1, 3);
+  // [ceilDiv(I, 5), 2, 3]
+
+  auto tv2 = sum(tv0, {0});
+  fusion.addOutput(tv2);
+
+  // tv2 shouldn't need to have another predicate
+  tv2->split(0, 4);
+  tv2->split(1, 2);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // Initialization exprs should not be predicated
+      if (for_loops_.empty()) {
+        return tv->fusion()->trueVal();
+      }
+
+      // The predicate for the logical domain is:
+      //
+      // (i0 * first_split_factor + i1 * second_split_factor + i2) >=
+      // 0 &&
+      // (i0 * first_split_factor + i1 * second_split_factor + i2) <
+      // logical_size
+
+      IterDomain* second_split_input =
+          tv->axis(1)->definition()->input(0)->as<IterDomain>();
+
+      Val* second_split_idx = addExpr(
+          mulExpr(loop_indices.at(1), tv->axis(2)->extent()),
+          loop_indices.at(2));
+
+      Val* logical_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_idx);
+
+      Val* cond = andExpr(
+          geExpr(logical_idx, zero),
+          ltExpr(logical_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // In the case of tv1, since the second split is non divisible,
+      // it should have a predicate to protect the non-divisible split
+      // input, which should be:
+      //
+      // i1 * second_split_factor + i2 < first_split_factor
+
+      if (tv->name() == 1) {
+        cond = andExpr(
+            cond, ltExpr(second_split_idx, second_split_input->extent()));
+      }
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({999}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Mostly same pattern as NonDivisibleSplit1 but with unswitch. The
+// non divisible split predicate should also appear in the unswitch
+// predicate.
+TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitch) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // [I]
+  tv1->split(0, 5);
+  // [ceilDiv(I, 5), 5]
+
+  // This second split is non-divisible. The split domain must be predicated.
+  tv1->split(1, 3);
+  // [ceilDiv(I, 5), 2, 3]
+
+  // Schedule tv2 in the same way as tv1. tv2 should also have a non
+  // divisible split predicate.
+  TransformPropagatorWithCheck propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->inlineAt(-1);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unswitch);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  // In this case, tv1 and tv2 are unswitched together. Both should
+  // yield the same non divisible split predicate. The final unswitch
+  // predicate should only have one.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+      auto one = tv->fusion()->oneVal();
+
+      IterDomain* second_split_input =
+          tv->axis(1)->definition()->input(0)->as<IterDomain>();
+
+      Val* second_split_start_idx = addExpr(
+          IrBuilder::mulExpr(zero, tv->axis(2)->extent()), loop_indices.at(2));
+
+      Val* second_split_stop_idx = addExpr(
+          mulExpr(subExpr(tv->axis(1)->extent(), one), tv->axis(2)->extent()),
+          loop_indices.at(2));
+
+      Val* logical_start_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_start_idx);
+
+      Val* logical_stop_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_stop_idx);
+
+      Val* cond = andExpr(
+          geExpr(logical_start_idx, zero),
+          ltExpr(logical_stop_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // Non divisible split. Only the stop predicate is included.
+      cond = andExpr(
+          cond, ltExpr(second_split_stop_idx, second_split_input->extent()));
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({999}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Testing non divisible split predicate with circular buffering
+TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // [I]
+  tv1->split(0, 10);
+  // [ceilDiv(I, 10), 10]
+
+  // This second split is non-divisible. The split domain must be predicated.
+  tv1->split(1, 3);
+  // [ceilDiv(I, 10), 4, 3]
+
+  TransformPropagatorWithCheck propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->inlineAt(2);
+  tv2->axis(0)->parallelize(ParallelType::TIDx);
+
+  tv1->circularBuffer(3);
+
+  // tv1 is circular buffered at its axis(1). The non divisible split
+  // predicate should use the incremented index for the axis.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+      auto circular_buffer_index = for_loops_.at(1)->index();
+
+      // Only interested in validating the circular buffer tensor
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      NVF_ERROR(
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ||
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Main);
+
+      // Increment should be zero for prolog and two for main
+      auto increment =
+          circular_buffer_loop_stage_ == CircularBufferLoopStage::Prolog ? 0
+                                                                         : 2;
+
+      IterDomain* second_split_input =
+          tv->axis(1)->definition()->input(0)->as<IterDomain>();
+
+      Val* second_split_idx = addExpr(
+          mulExpr(
+              addExpr(circular_buffer_index, createInt(increment)),
+              tv->axis(2)->extent()),
+          loop_indices.at(2));
+
+      Val* logical_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_idx);
+
+      Val* cond = andExpr(
+          geExpr(logical_idx, zero),
+          ltExpr(logical_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // Non divisible split. Only the stop predicate is included.
+      cond =
+          andExpr(cond, ltExpr(second_split_idx, second_split_input->extent()));
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({999}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+// Non divisible split with unswitched circularing. The non divisible
+// predicate should only use the one generated from the main loop and
+// the one from the prolog loop should not appear in the unswitch
+// predicate.
+TEST_F(
+    PredicateIndexingTest,
+    NonDivisibleSplitWithUnswitchedCircularBuffering) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // [I]
+  tv1->split(0, 10);
+  // [ceilDiv(I, 10), 10]
+
+  // This second split is non-divisible. The split domain must be predicated.
+  tv1->split(1, 3);
+  // [ceilDiv(I, 10), 4, 3]
+
+  tv1->split(0, 1);
+  // [ceilDiv(I, 10), 1, 4, 3]
+
+  TransformPropagatorWithCheck propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->inlineAt(3);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unswitch);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv1->circularBuffer(3);
+
+  // tv1 is circular buffered at its axis(1). The non divisible split
+  // predicate should use the incremented index for the axis.
+
+  // The unswitch predicate should look like:
+  //
+  // blockIdx.x * 10 + (0 * 3) + threadIdx.x >= 0 &&
+  // blockIdx.x * 10 + ((ceilDiv(10, 3) - 1) + 2) * 3 + threadIdx.x <
+  // T0.logical_size[0] &&
+  // ((ceilDiv(10, 3) - 1) + 2) * 3 + threadIdx.x < 10
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer)
+        : AbstractGetReference(indexer) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      auto zero = tv->fusion()->zeroVal();
+      auto one = tv->fusion()->oneVal();
+
+      IterDomain* second_split_input =
+          tv->axis(-1)->definition()->input(0)->as<IterDomain>();
+
+      int64_t increment = 2;
+
+      // (0 * 3) + threadIdx.x
+      Val* second_split_start_idx = addExpr(
+          IrBuilder::mulExpr(zero, tv->axis(3)->extent()), loop_indices.at(3));
+      // blockIdx.x * 10 + second_split_start_idx
+      Val* logical_start_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_start_idx);
+
+      // ((ceilDiv(10, 3) - 1) + 2) * 3 + threadIdx.x
+      Val* second_split_stop_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  subExpr(tv->axis(2)->extent(), one), createInt(increment)),
+              tv->axis(3)->extent()),
+          loop_indices.at(3));
+      // blockIdx.x * 10 + second_split_stop_idx
+      Val* logical_stop_idx = addExpr(
+          mulExpr(loop_indices.at(0), second_split_input->extent()),
+          second_split_stop_idx);
+
+      Val* cond = andExpr(
+          geExpr(logical_start_idx, zero),
+          ltExpr(logical_stop_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // Non divisible split
+      cond = andExpr(
+          cond, ltExpr(second_split_stop_idx, second_split_input->extent()));
+
+      return cond;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({999}, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 // Repro of unswitch predicate issue #681
 TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
   Fusion fusion;
@@ -3639,7 +4029,6 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
       auto zero = tv->fusion()->zeroVal();
       auto one = tv->fusion()->oneVal();
-
       auto merge =
           dynamic_cast<Merge*>(tv->getLogicalDomain().at(0)->uses().at(0));
       NVF_ERROR(merge != nullptr);
