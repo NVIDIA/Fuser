@@ -10,12 +10,14 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#include <device_lower/analysis/bank_conflict.h>
 #include <exceptions.h>
 #include <executor.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
+
 #include <algorithm>
 #include <iterator>
 #include <unordered_map>
