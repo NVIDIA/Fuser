@@ -237,6 +237,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/utils.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
   ${NVFUSER_SRCS_DIR}/val_graph_visitor.cpp
+  ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
 # We don't link CUPTI for MSVC
@@ -564,7 +565,10 @@ if(BUILD_TEST)
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
-  list(APPEND TEST_SRC ${NVFUSER_ROOT}/tests/cpp/utils.cpp)
+  list(APPEND TEST_SRC
+    ${NVFUSER_ROOT}/tests/cpp/utils.cpp
+    ${NVFUSER_ROOT}/tests/cpp/validator.cpp
+  )
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
