@@ -2825,14 +2825,14 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
       FusionExecutor fe;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
           7, 5, fe.compileFusion(&fusion, inputs));
-      ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+      EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
       auto cg_outputs = fe.runFusion(inputs);
       auto tref = atBiasEpilogue(
           atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
           aten_bias);
 
       // Relax tolerance for larger sum due to large K
-      NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+      EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
     }
   }
 }

@@ -408,6 +408,8 @@ NVF_API bool isReductionTvOp(const Expr*);
 // Returns if Expr is a pointwise op op with TensorView or TensorIndex
 bool isPointwiseTvOp(const Expr* expr);
 
+bool isSegmentSet(const Expr* e);
+
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
 // pull them in.
