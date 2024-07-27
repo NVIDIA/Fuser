@@ -258,14 +258,12 @@ class FusionDefinition(_C._FusionDefinition):
         except ImportError:
             raise ImportError("Unable to import pytorch_utils!")
 
-        if not tensor.is_cuda:
-            raise ValueError("Tensor should be on a cuda device!")
-
         return self.define_tensor(
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
             static_sizes=static_sizes,
+            is_cpu = tensor.is_cpu
         )
 
     def fusion_ir(self):

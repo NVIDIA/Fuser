@@ -94,6 +94,7 @@ enum RecordType: int {
     VarianceMeanOp,
     Vector,
     SdpaFwdOp
+    SdpaBwdOp
 }
 
 // =====================================================================================

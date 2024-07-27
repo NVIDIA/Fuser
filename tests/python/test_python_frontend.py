@@ -4584,6 +4584,91 @@ class TestNvFuserFrontend(TestCase):
                     )
                 torch.testing.assert_close(nvf_out[0], ref_out)
 
+        def test_sdpa_bwd(self):
+        N = 16
+        H = 32
+        L = 64
+        S = 128
+        E = 64
+
+        grad_output = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
+        q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
+        k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
+        v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
+
+        dropout_p = 0.0
+        is_causal = False
+        output, log_sumexp, cum_seq_q, cum_seq_q, query_seq_len, key_seq_len, philox_seed, philox_offset, _ = torch.ops.aten._scaled_dot_product_flash_attention(
+            q, k, v, dropout_p, is_causal, return_debug_mask=False, scale = 1 / E**0.5
+        )
+
+        ref_grad = torch.ops.aten._scaled_dot_product_flash_attention(
+            q, k, v, dropout_p, is_causal, return_debug_mask=False, scale = 1 / E**0.5
+        )
+
+        # nvFuser API requires query/key_seq_len to be CPU scalar tensors.
+        query_seq_tensor = torch.scalar_tensor(query_seq_len, dtype=torch.int64)
+        key_seq_tensor = torch.scalar_tensor(query_seq_len, dtype=torch.int64)
+        
+        inputs = [grad_output, q, k, v, output, log_sumexp, query_seq_tensor, key_seq_tensor, philox_seed, philox_offset]
+
+        def fusion_func(fd: FusionDefinition, inputs:list):
+            grad_output = fd.from_pytorch(inputs[0])
+            q = fd.from_pytorch(inputs[1])
+            k = fd.from_pytorch(inputs[2])
+            v = fd.from_pytorch(inputs[3])
+            output = fd.from_pytorch(inputs[4])
+            log_sumexp = fd.from_pytorch(inputs[5])
+            query_seq_len = fd.from_pytorch(inputs[6])
+            key_seq_len = fd.from_pytorch(inputs[7])
+            philox_seed = fd.from_pytorch(inputs[8])
+            philox_offset = fd.from_pytorch(inputs[9])
+
+            grad_query, grad_key, grad_value= fd.ops.sdpfa_bwd(grad_output, q, k, v, output, log_sumexp, query_seq_len, key_seq_len, None, None, philox_seed, philox_offset)
+            fd.add_output(grad_query)
+            fd.add_output(grad_key)
+            fd.add_output(grad_value)
+
+        nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inputs=inputs), inputs)
+        torch.testing.assert_close(nvf_out[0], ref_grad[0])
+        torch.testing.assert_close(nvf_out[1], ref_grad[1])
+        torch.testing.assert_close(nvf_out[2], ref_grad[2])
+
+    def test_sdpa_fwd_bwd(self):
+        N = 16
+        H = 32
+        L = 64
+        S = 128
+        E = 64
+
+        inputs = [
+            torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0", requires_grad=True),
+            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0", requires_grad=True),
+            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0", requires_grad=True),
+            torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0"),
+        ]
+
+        ref_out = F.scaled_dot_product_attention(*inputs[:-1])
+        ref_out.backward(inputs[-1])
+        
+        def fusion_func(fd: FusionDefinition):
+            q = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
+            k = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
+            v = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
+            grad_out = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
+            
+            output, log_sumexp, query_seq_len, key_seq_len, philox_seed, philox_offset, _ = fd.ops.sdpfa_fwd(q, k, v)
+            grad_query, grad_key, grad_value= fd.ops.sdpfa_bwd(grad_out, q, k, v, output, log_sumexp, query_seq_len, key_seq_len, None, None, philox_seed, philox_offset)
+            fd.add_output(output)
+            fd.add_output(grad_query)
+            fd.add_output(grad_key)
+            fd.add_output(grad_value)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        torch.testing.assert_close(nvf_out[0], ref_out)
+        torch.testing.assert_close(nvf_out[1], q.grad)
+        torch.testing.assert_close(nvf_out[2], k.grad)
+        torch.testing.assert_close(nvf_out[3], v.grad)
 
 if __name__ == "__main__":
     run_tests()
