@@ -210,8 +210,38 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     if (use_set_allocation_domain) {
-      allocation_domains = tv->getAllocationDomain();
-      contiguity = tv->domain()->contiguity();
+      if (tv->getMemoryType() == MemoryType::Global) {
+        // For global memory tensors we always allocate the entire tensor
+        // TODO: do we really want to treat global memory tensors differently?
+        // need to think about this more.
+        allocation_domains = tv->getAllocationDomain();
+        contiguity = tv->domain()->contiguity();
+      } else {
+        std::unordered_set<IterDomain*> exclude_ids;
+        for (auto i : c10::irange(tv->getComputeAtPosition())) {
+          auto ca_id = tv->axis(i);
+          if (!ir_utils::isMemorySharedAcross(
+                  tv->getMemoryType(), ca_id->getParallelType())) {
+            exclude_ids.insert(ca_id);
+          }
+        }
+        for (auto i : c10::irange(tv->getAllocationDomain().size())) {
+          auto id = tv->getAllocationDomain()[i];
+          if (exclude_ids.find(id) == exclude_ids.end()) {
+            allocation_domains.push_back(id);
+            contiguity.push_back(tv->domain()->contiguity()[i]);
+          } else {
+            exclude_ids.erase(id);
+          }
+        }
+        NVF_ERROR(
+            exclude_ids.empty(),
+            "The non-allocating compute-at IDs are not found in the allocation domain. ",
+            "It is unclear how to allocate the tensor: ",
+            tv->toString(),
+            " allocation domain: ",
+            ir_utils::toString(tv->getAllocationDomain()));
+      }
     } else {
       // If allocation domain is not set, assume that:
       // - Global: logical domains
