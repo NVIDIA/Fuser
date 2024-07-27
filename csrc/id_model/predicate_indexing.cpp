@@ -109,7 +109,12 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       return nullptr;
     }
 
-    // Epilog should not hit this part
+    // Epilog should not hit this part since tv must be a circular
+    // buffer tensor. Since predication is done based on a consumer
+    // tensor, this tensor is a circular buffer tensor appearing as a
+    // consumer tensor. Since no circular buffer tensor should appear
+    // as a consumer in the epilog loop, the loop stage here must not
+    // be epilog.
     NVF_ERROR(fl->circularBufferLoopStage() != CircularBufferLoopStage::Epilog);
 
     // The prologue loop does not need to be changed
