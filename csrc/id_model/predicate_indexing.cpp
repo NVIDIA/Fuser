@@ -97,7 +97,7 @@ namespace {
 // PredicateIndexingTest.UnswitchPredicateIssueRepro681.
 void ensurePropagationOfMinMaxPredicates(
     TensorView* tv,
-    const std::unordered_set<ForLoop*>& unswitched_loops,
+    const ValGroups& unswitched_loops,
     const std::unordered_map<ValGroup, Val*>& index_map,
     const ValGraph& traversal_graph,
     const ExprPath<ExprGroup>& traversal_path,
@@ -111,13 +111,7 @@ void ensurePropagationOfMinMaxPredicates(
   for (auto loop_domain : tv->getLoopDomain()) {
     const auto& loop_group =
         id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
-    auto it = std::find_if(
-        unswitched_loops.begin(),
-        unswitched_loops.end(),
-        [&loop_group](ForLoop* fl) -> bool {
-          return loop_group->has(fl->iter_domain());
-        });
-    if (it != unswitched_loops.end()) {
+    if (unswitched_loops.has(loop_group)) {
       unswitched_domains.emplace(traversal_graph.toGroup(loop_domain));
     }
   }
@@ -260,7 +254,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   // Inspect the for-loops from outer to inner and keep track of
   // unswitching since it affects all inner loops
   bool within_unswitch = false;
-  std::unordered_set<ForLoop*> unswitched_loops;
+  ValGroups unswitched_loops;
   for (const auto fl : for_loops) {
     auto parallel_type = fl->iter_domain()->getParallelType();
 
@@ -270,7 +264,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     }
 
     if (within_unswitch) {
-      unswitched_loops.insert(fl);
+      unswitched_loops.pushBack(
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(fl->iter_domain()));
     }
 
     auto loop_id =
