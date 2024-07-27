@@ -673,6 +673,16 @@ void validateMisalignedVectorizedTensors(
 
 } // namespace
 
+void validateCircularBuffering(
+    kir::Kernel* kernel,
+    ExpressionEvaluator& expr_eval) {
+  // 1. Get circular buffer TensorViews
+  // 2. Create Expression Evaluator with KernelArgumentHolder
+  // 3. Check if main loop extent >= circular buffer pipeline size
+  // 4. If not, throw error at runtime.
+  // 5. Add boolean check function as scheduler_util to check during scheduling
+}
+
 void validateVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
