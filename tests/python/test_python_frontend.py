@@ -12,7 +12,7 @@ from typing import List
 
 import torch
 import torch.nn.functional as F
-from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
+from torch.testing._internal.common_utils import run_tests
 import torch._refs as refs
 import torch._prims as prims
 
@@ -135,7 +135,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out1, _ = self.exec_nvfuser(fusion_func, inputs)
 
         # Create a new fusion with the same definition, it should hit the cache!
-        nvf_out2, fd2 = self.exec_nvfuser(fusion_func, inputs, new_fusion_expected=False)
+        nvf_out2, fd2 = self.exec_nvfuser(
+            fusion_func, inputs, new_fusion_expected=False
+        )
 
         # Create a fusion from a fusion id and make sure it executes!
         fd3 = FusionDefinition(fd2.id())
@@ -191,7 +193,9 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.relu(inputs[0].to(torch.half) + inputs[1].to(torch.half))
         self.assertEqual(eager_out, nvf_out[0])
 
-    @pytest.mark.skipif(is_pre_hopper(), reason="Only supported on Hopper and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_hopper(), reason="Only supported on Hopper and newer devices."
+    )
     def test_cast_fp8(self):
         def fn(in_type, out_type):
             inputs = [
@@ -1820,7 +1824,9 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.pad(t0, [1, 1])
             fd.add_output(t1)
 
-        nvf_out1, _ = self.exec_nvfuser(fusion_func_pad1, inputs, new_fusion_expected=True)
+        nvf_out1, _ = self.exec_nvfuser(
+            fusion_func_pad1, inputs, new_fusion_expected=True
+        )
         _ = self.exec_nvfuser(fusion_func_pad1, inputs, new_fusion_expected=False)
 
         def fusion_func_pad2(fd: FusionDefinition):
@@ -1828,7 +1834,9 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.pad(t0, [2, 2])
             fd.add_output(t1)
 
-        nvf_out2, _ = self.exec_nvfuser(fusion_func_pad2, inputs, new_fusion_expected=True)
+        nvf_out2, _ = self.exec_nvfuser(
+            fusion_func_pad2, inputs, new_fusion_expected=True
+        )
 
         def fusion_func_pad3(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
@@ -1836,7 +1844,9 @@ class TestNvFuserFrontend(TestCase):
             t1 = fd.ops.pad(t0, [1, 1], fill_val)
             fd.add_output(t1)
 
-        nvf_out3, _ = self.exec_nvfuser(fusion_func_pad3, inputs, new_fusion_expected=True)
+        nvf_out3, _ = self.exec_nvfuser(
+            fusion_func_pad3, inputs, new_fusion_expected=True
+        )
         _ = self.exec_nvfuser(fusion_func_pad3, inputs, new_fusion_expected=False)
 
         self.assertEqual(F.pad(inputs[0], [1, 1]), nvf_out1[0])
@@ -2264,7 +2274,8 @@ class TestNvFuserFrontend(TestCase):
             _ = fd.execute(inputs)
 
     @pytest.mark.skipif(
-        torch.cuda.device_count() < 2, reason="test_selected_device requires multiple GPUs"
+        torch.cuda.device_count() < 2,
+        reason="test_selected_device requires multiple GPUs",
     )
     def test_selected_device(self):
         """
@@ -2498,7 +2509,9 @@ class TestNvFuserFrontend(TestCase):
 
             # self.exec_nvfuser tests printing and serde, so run that for each definition first
             self.exec_nvfuser(partial(fusion_func, deterministic=False), inputs)
-            self.exec_nvfuser(partial(fusion_func, deterministic=True), [inputs[0], 0, 0])
+            self.exec_nvfuser(
+                partial(fusion_func, deterministic=True), [inputs[0], 0, 0]
+            )
 
             # Now instantiate FusionDefinitions in each mode
             with FusionDefinition() as fd_stoch:
@@ -2862,7 +2875,9 @@ class TestNvFuserFrontend(TestCase):
     # Test that inputs are properly forwarded when an input is used in multiple
     # UnaryOps, some having one and others having multiple further uses.
     # See https://github.com/NVIDIA/Fuser/issues/1301#issuecomment-1812470502
-    @pytest.mark.skipif(is_pre_ampere(), reason="Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_issue1310(self):
         inputs = [torch.randn((16, 128, 768), dtype=torch.bfloat16, device="cuda:0")]
 
@@ -3295,7 +3310,9 @@ class TestNvFuserFrontend(TestCase):
 
         self.exec_nvfuser(fusion_func, [])
 
-    @pytest.mark.skipif(is_pre_ampere(), reason="Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_issue1706(self):
         inputs = [
             1e-6,
@@ -3478,7 +3495,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # https://github.com/NVIDIA/Fuser/issues/1953
-    @pytest.mark.skipif(is_pre_ampere(), reason="Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_issue1953(self):
         inputs = [
             128,
@@ -3678,7 +3697,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2275
-    @pytest.mark.skipif(is_pre_ampere(), reason="Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_unpadded_catop_issue2275_repro1(self):
         inputs = [
             torch.randn((4096,), dtype=torch.bfloat16, device="cuda:0").as_strided(
@@ -3823,7 +3844,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2275
-    @pytest.mark.skipif(is_pre_ampere(), reason="Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_unpadded_catop_issue2275_repro2(self):
         inputs = [
             torch.randn((2, 32, 4096, 128), dtype=torch.bfloat16, device="cuda:0")
@@ -3867,7 +3890,9 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     # See https://github.com/NVIDIA/Fuser/issues/2317
-    @pytest.mark.skipif(is_pre_ampere(), reason="Only supported on Ampere and newer devices.")
+    @pytest.mark.skipif(
+        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+    )
     def test_reduction_transpose_sched_issue2317(self):
         inputs = [
             torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
