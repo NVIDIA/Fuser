@@ -2800,63 +2800,6 @@ struct SdpaFwdOpRecord : RecordFunctor {
   }
 };
 
-struct SdpaBwdOpRecord : RecordFunctor {
-  SdpaBwdOpRecord(std::vector<State> args, std::vector<State> outputs)
-      : RecordFunctor(
-            std::move(args),
-            std::move(outputs),
-            "ops.sdpfa_bwd",
-            serde::RecordType::SdpaBwdOp) {}
-  ~SdpaBwdOpRecord() override = default;
-  RecordFunctor* clone() final {
-    return new SdpaBwdOpRecord(*this);
-  }
-
-  void operator()(FusionState& fd) final {
-    auto grad_output = fd.getFusionState(args_.at(0).index)->as<TensorView>();
-    auto query = fd.getFusionState(args_.at(1).index)->as<TensorView>();
-    auto key = fd.getFusionState(args_.at(2).index)->as<TensorView>();
-    auto value = fd.getFusionState(args_.at(3).index)->as<TensorView>();
-    auto output = fd.getFusionState(args_.at(4).index)->as<TensorView>();
-    auto log_sumexp = fd.getFusionState(args_.at(5).index)->as<TensorView>();
-    auto query_seq_len = fd.getFusionState(args_.at(6).index)->as<TensorView>();
-    auto key_seq_len = fd.getFusionState(args_.at(7).index)->as<TensorView>();
-
-    auto dropout_p = (args_.at(8).stype == serde::StateType::Scalar)
-        ? fd.getFusionState(args_.at(8).index)->as<Val>()
-        : nullptr;
-    auto is_causal = (args_.at(9).stype == serde::StateType::Scalar)
-        ? fd.getFusionState(args_.at(9).index)->as<Val>()
-        : nullptr;
-
-    auto philox_seed = fd.getFusionState(args_.at(10).index)->as<TensorView>();
-    auto philox_offset =
-        fd.getFusionState(args_.at(11).index)->as<TensorView>();
-
-    auto scale = (args_.at(12).stype == serde::StateType::Scalar)
-        ? fd.getFusionState(args_.at(12).index)->as<Val>()
-        : nullptr;
-
-    auto grad = sdpfa_bwd(
-        grad_output,
-        query,
-        key,
-        value,
-        output,
-        log_sumexp,
-        query_seq_len,
-        key_seq_len,
-        dropout_p,
-        is_causal,
-        philox_seed,
-        philox_offset,
-        scale);
-    fd.setFusionState(outputs_.at(0).index, grad.grad_query);
-    fd.setFusionState(outputs_.at(1).index, grad.grad_key);
-    fd.setFusionState(outputs_.at(2).index, grad.grad_value);
-  }
-};
-
 } // namespace nvfuser::python_frontend
 
 //! Creating the template specialized hash and equal_to functions for a

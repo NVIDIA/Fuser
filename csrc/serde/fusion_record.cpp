@@ -316,14 +316,6 @@ void RecordFunctorFactory::registerAllParsers() {
     );
   };
   registerParser(RecordType::SdpaFwdOp, deserializeSdpaFwdRecord);
-
-  auto deserializeSdpaBwdRecord = [&](const RecordFunctor* buffer) {
-    return new python_frontend::SdpaBwdOpRecord(
-      parseStateArgs(buffer->args()),
-      parseStateArgs(buffer->outputs())
-    );
-  };
-  registerParser(RecordType::SdpaBwdOp, deserializeSdpaBwdRecord);
   // END OpRecord Parsers
 
   // START Reduction Parsers
