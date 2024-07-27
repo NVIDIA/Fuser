@@ -260,7 +260,7 @@ class FusionDefinition(_C._FusionDefinition):
 
         if not tensor.is_cuda:
             raise ValueError("Tensor should be on a cuda device!")
-            
+
         return self.define_tensor(
             sizes=tensor.size(),
             strides=tensor.stride(),

@@ -4540,11 +4540,7 @@ class TestNvFuserFrontend(TestCase):
             nvf_out = fd.execute([tensor_inp, 2.0 + 1.0j])
 
     def test_sdpa_fwd(self):
-        N = 16
-        H = 32
-        L = 64
-        S = 128
-        E = 64
+        N, H, L, S, E = 16, 32, 64, 128, 64
 
         inputs = [
             torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0"),
