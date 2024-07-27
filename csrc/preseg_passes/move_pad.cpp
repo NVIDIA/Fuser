@@ -83,6 +83,28 @@ bool isSamePadOp(Expr* use, PadOp* p) {
   return true;
 }
 
+// returns true if any dimension in axes is broadcast on any of vals
+// Note: if any entry in val is not a TensorView, we return true, since a
+// broadcast on scalar is implicit.
+bool hasBroadcastOnAny(
+    std::vector<int64_t> axes,
+    const std::vector<Val*>& vals) {
+  std::vector<TensorView*> tvs;
+  tvs.reserve(vals.size());
+  for (Val* val : vals) {
+    if (auto* tv = dynamic_cast<TensorView*>(val)) {
+      tvs.push_back(tv);
+    } else {
+      return false;
+    }
+  }
+  return std::any_of(padded_axes.begin(), padded_axes.end(), [&tvs](int64_t i) {
+    return std::any_of(tvs.begin(), tvs.end(), [i](TensorView* tv) {
+      return tv->getLogicalDomain()[i]->isBroadcast();
+    });
+  });
+}
+
 // This operation replaces:
 //   CatOp(inputs)
 // with:
@@ -438,15 +460,8 @@ void propagatePads(Fusion* fusion) {
         continue;
       }
       // check for broadcast on padded axis.
-      auto* lhs = bop->lhs()->as<TensorView>();
-      auto* rhs = bop->rhs()->as<TensorView>();
-      std::vector<int64_t> padded_axes = p->getPaddedAxes();
-      // padding on broadcast dimensions stops pad propagation.
-      if (std::any_of(
-              padded_axes.begin(), padded_axes.end(), [&lhs, &rhs](int64_t i) {
-                return lhs->getLogicalDomain()[i]->isBroadcast() ||
-                    rhs->getLogicalDomain()[i]->isBroadcast();
-              })) {
+      if (hasBroadcastOnAny(
+p->getPaddedAxes(), bop->inputs()) {
         continue;
       }
 
