@@ -98,7 +98,7 @@ bool hasBroadcastOnAny(
       return false;
     }
   }
-  return std::any_of(padded_axes.begin(), padded_axes.end(), [&tvs](int64_t i) {
+  return std::any_of(axes.begin(), axes.end(), [&tvs](int64_t i) {
     return std::any_of(tvs.begin(), tvs.end(), [i](TensorView* tv) {
       return tv->getLogicalDomain()[i]->isBroadcast();
     });
