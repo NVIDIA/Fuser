@@ -1267,7 +1267,8 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({tensor_outer_dim, K}, options);
   at::Tensor t1 = at::randn({K, tensor_inner_dim}, options);
-  at::Tensor aten_output = at::matmul(t0, t1);
+  at::Tensor aten_output =
+      (t0.unsqueeze(/*dim=*/-1) * t1.unsqueeze(/*dim=*/0)).sum(/*dim=*/1);
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0, t1});
