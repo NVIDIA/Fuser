@@ -268,7 +268,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       within_unswitch = true;
     }
 
-    if (within_unswitch) {
+    if (within_unswitch && indexing_utils::isEffectiveUnswitchLoop(fl)) {
       unswitched_loops.pushBack(
           id_model.idGraph(IdMappingMode::LOOP).toGroup(fl->iter_domain()));
     }
