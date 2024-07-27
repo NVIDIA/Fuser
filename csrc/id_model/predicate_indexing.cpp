@@ -97,7 +97,7 @@ namespace {
 // PredicateIndexingTest.UnswitchPredicateIssueRepro681.
 void ensurePropagationOfMinMaxPredicates(
     TensorView* tv,
-    const std::unordered_set<ForLoop*>& unswitched_loops,
+    const ValGroups& unswitched_loops,
     const std::unordered_map<ValGroup, Val*>& index_map,
     const ValGraph& traversal_graph,
     const ExprPath<ExprGroup>& traversal_path,
@@ -111,13 +111,7 @@ void ensurePropagationOfMinMaxPredicates(
   for (auto loop_domain : tv->getLoopDomain()) {
     const auto& loop_group =
         id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
-    auto it = std::find_if(
-        unswitched_loops.begin(),
-        unswitched_loops.end(),
-        [&loop_group](ForLoop* fl) -> bool {
-          return loop_group->has(fl->iter_domain());
-        });
-    if (it != unswitched_loops.end()) {
+    if (unswitched_loops.has(loop_group)) {
       unswitched_domains.emplace(traversal_graph.toGroup(loop_domain));
     }
   }
@@ -230,8 +224,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   // main loop of circular buffering, increment the index by
   // (number_of_stages - 1) since the main loop has a read that is
   // (number_of_stages - 1) elements ahead.
-  auto replace_for_circular_buffering =
-      [&](ForLoop* fl, Val* original_index, bool within_unswitch) -> Val* {
+  auto replace_for_circular_buffering = [&](ForLoop* fl,
+                                            Val* original_index) -> Val* {
     auto circular_buffer_axis =
         GpuLower::current()->circularBufferInfo().getCircularBufferAxis(tv);
     if (circular_buffer_axis == nullptr ||
@@ -241,7 +235,13 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       return nullptr;
     }
 
-    NVF_ERROR(fl->circularBufferLoopStage() != CircularBufferLoopStage::Epilog);    
+    // Epilog should not hit this part since tv must be a circular
+    // buffer tensor. Since predication is done based on a consumer
+    // tensor, this tensor is a circular buffer tensor appearing as a
+    // consumer tensor. Since no circular buffer tensor should appear
+    // as a consumer in the epilog loop, the loop stage here must not
+    // be epilog.
+    NVF_ERROR(fl->circularBufferLoopStage() != CircularBufferLoopStage::Epilog);
 
     // The prologue loop does not need to be changed
     if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Prolog) {
@@ -259,7 +259,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   // Inspect the for-loops from outer to inner and keep track of
   // unswitching since it affects all inner loops
   bool within_unswitch = false;
-  std::unordered_set<ForLoop*> unswitched_loops;
+  ValGroups unswitched_loops;
   for (const auto fl : for_loops) {
     auto parallel_type = fl->iter_domain()->getParallelType();
 
@@ -269,7 +269,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     }
 
     if (within_unswitch && indexing_utils::isEffectiveUnswitchLoop(fl)) {
-      unswitched_loops.insert(fl);
+      unswitched_loops.pushBack(
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(fl->iter_domain()));
     }
 
     auto loop_id =
@@ -310,9 +311,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
       replacement = idx;
     }
 
-    // Adjustment for circular buffering
     if (auto circular_buffer_index =
-            replace_for_circular_buffering(fl, replacement, within_unswitch)) {
+            replace_for_circular_buffering(fl, replacement)) {
       replacement = circular_buffer_index;
     }
 

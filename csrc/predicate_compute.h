@@ -172,7 +172,7 @@ class UnswitchPredicate {
   //! Merge predicates as much as possible. If a predicate offset is
   //! static, only pick the most restrictive one, e.g., the one with the
   //! minimum offset for the start predication.
-  void mergeUnswitchPredicateOffsets(
+  void mergeUnswitchPredicates(
       Val* predicate,
       Val* offset,
       CircularBufferLoopStage loop_stage,

@@ -212,9 +212,38 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     if (use_set_allocation_domain) {
-      allocation_domains = tv->getAllocationDomain();
-      contiguity = tv->domain()->contiguity();
-      NVF_ERROR(!tv->isCircularBuffered());
+      if (tv->getMemoryType() == MemoryType::Global) {
+        // For global memory tensors we always allocate the entire tensor
+        // TODO: do we really want to treat global memory tensors differently?
+        // need to think about this more.
+        allocation_domains = tv->getAllocationDomain();
+        contiguity = tv->domain()->contiguity();
+      } else {
+        std::unordered_set<IterDomain*> exclude_ids;
+        for (auto i : c10::irange(tv->getComputeAtPosition())) {
+          auto ca_id = tv->axis(i);
+          if (!ir_utils::isMemorySharedAcross(
+                  tv->getMemoryType(), ca_id->getParallelType())) {
+            exclude_ids.insert(ca_id);
+          }
+        }
+        for (auto i : c10::irange(tv->getAllocationDomain().size())) {
+          auto id = tv->getAllocationDomain()[i];
+          if (exclude_ids.find(id) == exclude_ids.end()) {
+            allocation_domains.push_back(id);
+            contiguity.push_back(tv->domain()->contiguity()[i]);
+          } else {
+            exclude_ids.erase(id);
+          }
+        }
+        NVF_ERROR(
+            exclude_ids.empty(),
+            "The non-allocating compute-at IDs are not found in the allocation domain. ",
+            "It is unclear how to allocate the tensor: ",
+            tv->toString(),
+            " allocation domain: ",
+            ir_utils::toString(tv->getAllocationDomain()));
+      }
     } else {
       // If allocation domain is not set, assume that:
       // - Global: logical domains
@@ -231,14 +260,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
         // position. See also lower_utils::getAllocInformation.
         int64_t allocation_pos =
             lower_utils::getAllocInformation(tv, for_loops).alloc_pos;
-
-        // TODO: Why the allocation position is the same as the computeAt
-        // position even for circular buffers?
-        if (getenv("ADJUST_POS")) {
-          if (tv->isCircularBuffered()) {
-            allocation_pos = getCircularBufferAxisPosition(tv) + 1;
-          }
-        }
 
         for (const auto i : c10::irange(tv->nDims())) {
           auto loop_id = tv->getLoopDomain().at(i);
@@ -1227,8 +1248,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   // If this is a reduction init expr, then no need to take care of
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
-    // for (const auto& [eg, direction] :
-    // non_divisible_split_predicates) {
     for (const PredicateDomainInfo& pred_info :
          non_divisible_split_predicates) {
       IterDomain* non_divisible_domain = pred_info.id;

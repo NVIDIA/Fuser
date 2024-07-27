@@ -157,17 +157,17 @@ CircularBufferLoopStage getCircularBufferLoopStage(
       GpuLower::hasCurrent(),
       "Circular buffering info of GpuLower is required but GpuLower is missing");
 
-  auto db_axis =
+  auto circular_buffer_axis =
       GpuLower::current()->circularBufferInfo().getCircularBufferAxis(
           circular_buffer_tv);
 
-  if (db_axis == nullptr) {
+  if (circular_buffer_axis == nullptr) {
     return CircularBufferLoopStage::NotApplicable;
   }
 
   for (const auto fl : for_loops) {
     if (loop_graph.disjointValSets().strictAreMapped(
-            fl->iter_domain(), db_axis)) {
+            fl->iter_domain(), circular_buffer_axis)) {
       return fl->circularBufferLoopStage();
     }
   }

@@ -79,7 +79,6 @@ inline bool isEffectiveUnswitchLoop(ForLoop* fl) {
   return true;
 }
 
-
 inline std::vector<ForLoop*> getMaxPathLoops(
     const std::vector<ForLoop*>& for_loops) {
   std::vector<ForLoop*> unswitched_domains;
