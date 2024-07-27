@@ -716,58 +716,23 @@ TEST_P(CircularBufferingTest, NoSync) {
 // Test circular buffer from 2 to 4 stages
 INSTANTIATE_TEST_SUITE_P(NonTma, CircularBufferingTest, ::testing::Range(2, 4));
 
-class TmaCircularBufferingTest : public NVFuserFixtureParamTest<int> {
+using TmaCircularBufferingParams = std::tuple<int, int, int>;
+
+class TmaCircularBufferingTest
+    : public NVFuserFixtureParamTest<TmaCircularBufferingParams> {
  protected:
   int64_t number_of_stages = 1;
+  int64_t tensor_outer_dim = 1;
+  int64_t tensor_inner_dim = 1;
 
   void SetUp() override {
-    number_of_stages = GetParam();
+    number_of_stages = std::get<0>(GetParam());
+    tensor_outer_dim = std::get<1>(GetParam());
+    tensor_inner_dim = std::get<2>(GetParam());
+
+    // NOTE: Multiple of 16 required for inner dimension
+    NVF_ERROR(tensor_inner_dim % 16 == 0);
     NVFuserTest::SetUp();
-  }
-
-  template <typename data_type>
-  void compare(int64_t tensor_dim, at::Tensor result, at::Tensor reference) {
-    at::Tensor reference_cpu_data = reference.cpu();
-    at::Tensor result_cpu_data = result.cpu();
-
-    auto reference_cpu = reference_cpu_data.accessor<data_type, 1>();
-    auto result_cpu = result_cpu_data.accessor<data_type, 1>();
-
-    constexpr double tolerance = 1e-5;
-    for (int64_t pos = 0; pos < tensor_dim; ++pos) {
-      if (fabs((double)result_cpu[pos] - (double)reference_cpu[pos]) >
-          tolerance) {
-        std::cout << "[" << pos << "] - result: " << result_cpu[pos]
-                  << " | reference: " << reference_cpu[pos] << std::endl;
-      }
-    }
-  }
-
-  template <typename data_type>
-  void compare(
-      int64_t tensor_outer_dim,
-      int64_t tensor_inner_dim,
-      at::Tensor result,
-      at::Tensor reference) {
-    at::Tensor reference_cpu_data = reference.cpu();
-    at::Tensor result_cpu_data = result.cpu();
-
-    auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
-    auto result_cpu = result_cpu_data.accessor<data_type, 2>();
-
-    constexpr double tolerance = 1e-5;
-    for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
-      for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
-        if (fabs(
-                (double)result_cpu[out_pos][in_pos] -
-                (double)result_cpu[out_pos][in_pos]) > tolerance) {
-          std::cout << "[" << out_pos << ", " << in_pos
-                    << "] - result: " << result_cpu[out_pos][in_pos]
-                    << " | ref: " << reference_cpu[out_pos][in_pos]
-                    << std::endl;
-        }
-      }
-    }
   }
 };
 
@@ -803,20 +768,15 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(number_of_stages);
 
-  std::vector<int64_t> tensor_sizes = {10, 32, 50, 128};
-  for (int64_t tensor_dim : tensor_sizes) {
-    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({tensor_dim}, options);
-    at::Tensor t1 = at::exp(t0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_inner_dim}, options);
+  at::Tensor t1 = at::exp(t0);
 
-    FusionExecutor fe;
-    CompileParams index32bit{DataType::Int32, 255, false};
-    fe.compileFusion(fusion.get(), {t0}, {}, index32bit);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
 
-    std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
-    compare<float>(tensor_dim, cg_outputs.front(), t1);
-    testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
-  }
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
@@ -856,20 +816,15 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(number_of_stages);
 
-  std::vector<int64_t> tensor_sizes = {10, 32, 50, 128};
-  for (int64_t tensor_dim : tensor_sizes) {
-    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({tensor_dim}, options);
-    at::Tensor t1 = at::exp(t0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_inner_dim}, options);
+  at::Tensor t1 = at::exp(t0);
 
-    FusionExecutor fe;
-    CompileParams index32bit{DataType::Int32, 255, false};
-    fe.compileFusion(fusion.get(), {t0}, {}, index32bit);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
 
-    std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
-    compare<float>(tensor_dim, cg_outputs.front(), t1);
-    testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
-  }
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
@@ -909,20 +864,15 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(number_of_stages);
 
-  std::vector<int64_t> tensor_sizes = {10, 32, 50, 128};
-  for (int64_t tensor_dim : tensor_sizes) {
-    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({tensor_dim}, options);
-    at::Tensor t1 = at::exp(t0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_inner_dim}, options);
+  at::Tensor t1 = at::exp(t0);
 
-    FusionExecutor fe;
-    CompileParams index32bit{DataType::Int32, 255, false};
-    fe.compileFusion(fusion.get(), {t0}, {}, index32bit);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
 
-    std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
-    compare<float>(tensor_dim, cg_outputs.front(), t1);
-    testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
-  }
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_P(TmaCircularBufferingTest, MultiDim) {
@@ -973,25 +923,15 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   tv2->axis(-2)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(number_of_stages);
 
-  std::vector<int64_t> outer_tensor_sizes = {10, 32, 50, 128};
-  // NOTE: Multiple of 16 required for inner dimension
-  std::vector<int64_t> inner_tensor_sizes = {16, 32, 128};
-  for (int64_t tensor_outer_dim : outer_tensor_sizes) {
-    for (int64_t tensor_inner_dim : inner_tensor_sizes) {
-      auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-      at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
-      at::Tensor t1 = at::exp(t0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::exp(t0);
 
-      FusionExecutor fe;
-      CompileParams index32bit{DataType::Int32, 255, false};
-      fe.compileFusion(fusion.get(), {t0}, {}, index32bit);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
 
-      std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
-      compare<float>(
-          tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
-      testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
-    }
-  }
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_P(TmaCircularBufferingTest, Pointwise) {
@@ -1040,25 +980,16 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
-  std::vector<int64_t> outer_tensor_sizes = {10, 32, 50, 128};
-  // NOTE: Multiple of 16 required for inner dimension
-  std::vector<int64_t> inner_tensor_sizes = {16, 32, 128};
-  for (int64_t tensor_outer_dim : outer_tensor_sizes) {
-    for (int64_t tensor_inner_dim : inner_tensor_sizes) {
-      auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-      at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
-      at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
-      at::Tensor t2 = t0 + t1;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t2 = t0 + t1;
 
-      FusionExecutor fe;
-      CompileParams index32bit{DataType::Int32, 255, false};
-      fe.compileFusion(fusion.get(), {t0, t1}, {}, index32bit);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1});
 
-      std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
-      testValidate(
-          fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
-    }
-  }
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
+  testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
 TEST_P(TmaCircularBufferingTest, Reduction) {
@@ -1105,30 +1036,20 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(number_of_stages);
 
-  std::vector<int64_t> outer_tensor_sizes = {10, 32, 50, 128};
-  // NOTE: Multiple of 16 required for inner dimension
-  std::vector<int64_t> inner_tensor_sizes = {16, 32, 128};
-  for (int64_t tensor_outer_dim : outer_tensor_sizes) {
-    for (int64_t tensor_inner_dim : inner_tensor_sizes) {
-      auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-      at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
-      at::Tensor t1 = sum(t0, {-1});
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = sum(t0, {-1});
 
-      FusionExecutor fe;
-      CompileParams index32bit{DataType::Int32, 255, false};
-      fe.compileFusion(fusion.get(), {t0}, {}, index32bit);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0});
 
-      std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
-      testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
-    }
-  }
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_P(TmaCircularBufferingTest, Persistent) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
-  constexpr int64_t dim0 = 1024;
-  constexpr int64_t dim1 = 4096;
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   constexpr int64_t correction = 0;
   constexpr int64_t reduction_axis = 1;
@@ -1170,13 +1091,13 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   TensorView* reference_tv = x_norm;
 
   // boxDim array must be non-zero and less than or equal to 256
-  constexpr int64_t width = 256;
+  constexpr int64_t width = 32;
   constexpr int64_t vectorize = 4;
-  constexpr int64_t elem_per_compute_thread = dim1 / width / vectorize;
+  int64_t elem_per_compute_thread = tensor_inner_dim / width / vectorize;
   constexpr int64_t examples_per_cta = 4;
 
   // Define TMA Box
-  // split: [I0, I2, 256]
+  // split: [I0, I2, 32]
   // load entire example in shared memory
   x_cache_smem->split(0, examples_per_cta);
   x_cache_smem->split(-1, 256);
@@ -1229,13 +1150,12 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   }
 
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
-  at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor at_tv1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
 
   // Compile with FusionExecutor directly to avoid scheduling
   FusionExecutor fe;
-  CompileParams index32bit{DataType::Int32, 255, false};
-  fe.compileFusion(fusion.get(), {at_tv0}, {}, index32bit);
+  fe.compileFusion(fusion.get(), {at_tv0});
   std::vector<at::Tensor> cg_outputs = fe.runFusion({at_tv0});
 
   std::tuple<at::Tensor, at::Tensor> at_var_mean =
@@ -1344,24 +1264,17 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   tv1_cache_smem->circularBuffer(number_of_stages);
 
   constexpr int64_t K = 1024;
-  std::vector<int64_t> M_tensor_sizes = {10, 32, 50, 128};
-  // NOTE: Multiple of 16 required for inner dimension
-  std::vector<int64_t> N_tensor_sizes = {16, 32, 128};
-  for (int64_t M : M_tensor_sizes) {
-    for (int64_t N : N_tensor_sizes) {
-      auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-      at::Tensor t0 = at::randn({M, K}, options);
-      at::Tensor t1 = at::randn({K, N}, options);
-      at::Tensor aten_output = at::matmul(t0, t1);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, K}, options);
+  at::Tensor t1 = at::randn({K, tensor_inner_dim}, options);
+  at::Tensor aten_output = at::matmul(t0, t1);
 
-      FusionExecutor fe;
-      CompileParams index32bit{DataType::Int32, 255, false};
-      fe.compileFusion(fusion.get(), {t0, t1}, {}, index32bit);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {t0, t1});
 
-      std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
-      compare<float>(M, N, cg_outputs.front(), aten_output);
-    }
-  }
+  std::vector<at::Tensor> cg_outputs = fe.runFusion({t0, t1});
+  testValidate(
+      fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
 
 // TODO Add runtime check to determine that we can run a full pipeline.
@@ -1370,6 +1283,9 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
 INSTANTIATE_TEST_SUITE_P(
     Hopper,
     TmaCircularBufferingTest,
-    ::testing::Range(2, 4));
+    testing::Combine(
+        ::testing::Range(2, 4),
+        testing::Values(128, 500, 1024),
+        testing::Values(128, 1024)));
 
 } // namespace nvfuser
