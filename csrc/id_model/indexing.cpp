@@ -1196,12 +1196,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     Val* start_idx =
         ir_utils::replaceValRecursively(idx, replacement_map_start);
 
-    if (unswitched_loop != nullptr) {
-      std::cerr << "Start index: " << idx->toInlineString() << " -> "
-                << start_idx->toInlineString() << " for " << tv->toString()
-                << std::endl;
-    }
-
     Val* stop_idx = ir_utils::replaceValRecursively(idx, replacement_map_stop);
 
     // Generate predicates as follows:
