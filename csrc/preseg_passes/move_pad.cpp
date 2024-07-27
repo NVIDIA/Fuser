@@ -188,10 +188,12 @@ bool zeroIsIdentity(BinaryOpType t) {
     case BinaryOpType::Min:
     case BinaryOpType::Mul:
     case BinaryOpType::Sub:
+    case BinaryOpType::Gcd:
     case BinaryOpType::BitwiseAnd:
     case BinaryOpType::BitwiseOr:
     case BinaryOpType::GT:
     case BinaryOpType::LT:
+    case BinaryOpType::NE:
     case BinaryOpType::LogicalAnd:
     case BinaryOpType::LogicalOr:
     case BinaryOpType::Complex:

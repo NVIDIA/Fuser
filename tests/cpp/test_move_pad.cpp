@@ -20,6 +20,7 @@ namespace nvfuser {
 using testing::Contains;
 using testing::IsTrue;
 using testing::Property;
+using testing::UnorderedElementsAre;
 
 using MovePadTest = NVFuserTest;
 
@@ -108,17 +109,14 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
   FusionExecutorCache fec(std::move(fusion));
   auto out_tensors = fec.runFusionWithInputs(aten_inputs);
 
-  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
-  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
-
   // ensure that we propagate the pad across binary operation and the first
   // segment is no-op
-  auto scheduler = runtime->schedulerHeuristics()->heuristicsList().at(0).get();
-  auto heuristic = scheduler->heuristic();
-  NVF_CHECK(
-      heuristic == ScheduleHeuristic::NoOp,
-      "Unexpected heuristic: ",
-      heuristic);
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::NoOp),
+          HeuristicIs(ScheduleHeuristic::PointWise)));
 
   testValidate(fec.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
 }
