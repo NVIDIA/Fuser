@@ -32,17 +32,18 @@ NoOpScheduler::NoOpScheduler(
 
 namespace {
 bool allOutputsArePointerArithmetics(Fusion* fusion) {
-  const AliasAnalysisResult analysis = findAliases(
-      fusion,
-      /*can_override_empty_allocation_domain=*/false,
-      /*may_alias_intermediate=*/false);
+  const AliasAnalysisResult analysis =
+      findAliases(fusion, /*can_override_empty_allocation_domain=*/false);
   auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-  return std::all_of(
-      out_tvs.begin(), out_tvs.end(), [&analysis, fusion](TensorView* out) {
-        // Check out has an alias and out is not an inplace update target.
-        return analysis.getNearestAliasedIo(out) != nullptr &&
-            fusion->getOutputAlias(out).type != AllocationType::ReuseBuffer;
-      });
+  return std::all_of(out_tvs.begin(), out_tvs.end(), [&](TensorView* out) {
+    // Check out has an alias and out is not an inplace update target.
+    if (fusion->getOutputAlias(out).type == AllocationType::ReuseBuffer) {
+      return false;
+    }
+
+    TensorView* root = analysis.getRoot(out);
+    return root != nullptr && root->isFusionInput();
+  });
 }
 } // namespace
 
@@ -133,4 +134,5 @@ void NoOpScheduler::computeHeuristics(
   // Heuristics is no-op.
   return;
 }
+
 } // namespace nvfuser
