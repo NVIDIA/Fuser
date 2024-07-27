@@ -1123,8 +1123,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   // If this is a reduction init expr, then no need to take care of
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
-    // for (const auto& [eg, direction] :
-    // non_divisible_split_predicates) {
     for (const PredicateDomainInfo& pred_info :
          non_divisible_split_predicates) {
       IterDomain* non_divisible_domain = pred_info.id;
