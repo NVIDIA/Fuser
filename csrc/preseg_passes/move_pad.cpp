@@ -460,8 +460,7 @@ void propagatePads(Fusion* fusion) {
         continue;
       }
       // check for broadcast on padded axis.
-      if (hasBroadcastOnAny(
-p->getPaddedAxes(), bop->inputs()) {
+      if (hasBroadcastOnAny(p->getPaddedAxes(), bop->inputs())) {
         continue;
       }
 
