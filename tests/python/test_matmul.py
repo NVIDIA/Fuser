@@ -1,11 +1,13 @@
 import torch
 from nvfuser import FusionDefinition
-from pytest_utils import exec_nvfuser
+from pytest_utils import NVFuserTest, RUN_NVFUSER
 import itertools
 from torch.testing._internal.common_utils import TestCase
 from functools import partial
+import torch.nn.functional as F
 
-class TestMatmul(TestCase):
+@pytest.mark.skipif(not RUN_NVFUSER, reason="requires CUDA")
+class TestMatmul(NVFuserTest):
     def test_matmul(self):
         m = 24
         n = 16
@@ -36,7 +38,7 @@ class TestMatmul(TestCase):
             fd.add_output(t2)
 
         for inps in [inputs_tt, inputs_tn, inputs_nt, inputs_nn]:
-            nvf_out, _ = exec_nvfuser(partial(fusion_func, inps=inps), inps)
+            nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inps=inps), inps)
             eager_out = torch.matmul(inps[0], inps[1])
             fp16_nvf_out = nvf_out[0]
             self.assertEqual(eager_out, fp16_nvf_out)
@@ -90,7 +92,7 @@ class TestMatmul(TestCase):
                 input_tensors = (
                     (inp, wt, use_bias) if use_bias is not None else (inp, wt)
                 )
-                nvf_out, _ = exec_nvfuser(
+                nvf_out, _ = self.exec_nvfuser(
                     partial(fusion_func, inp=inp, wt=wt, bias=use_bias),
                     input_tensors,
                 )
@@ -133,4 +135,4 @@ class TestMatmul(TestCase):
                 fd.add_output(T2)
                 fd.add_output(T4)
 
-            nvf_out, _ = exec_nvfuser(fusion_func, inputs)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
