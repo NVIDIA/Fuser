@@ -396,8 +396,11 @@ TEST_P(CircularBufferingTest, MultipleTensors) {
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
+  // I0
   tv4->split(0, 32);
+  // I0/32, 32
   tv4->split(0, 4);
+  // I0/32/4, 4, 32
   TransformPropagatorWithCheck propagator(tv4);
   MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
@@ -411,15 +414,21 @@ TEST_P(CircularBufferingTest, MultipleTensors) {
   tv3->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({100}, options);
-  auto t1 = at::randn({100}, options);
+  auto t0 = at::randn({500}, options);
+  auto t1 = at::randn({500}, options);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0, t1});
+
+  // Given computeAt axis 1, the axis extent is I0/32/4.
+  constexpr int64_t axis_extent = 1;
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
+
   auto cg_outputs = fe.runFusion({t0, t1});
-
   auto ref = t0 + t1;
-
   testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
@@ -437,8 +446,11 @@ TEST_P(CircularBufferingTest, NestedTensors) {
   auto tv2 = tv0->cacheAfter();
   auto tv3 = tv2->cacheAfter();
 
+  // I0
   out->split(0, 32);
+  // I0/32, 32
   out->split(0, 4);
+  // I0/32/4, 4, 32
   TransformPropagatorWithCheck propagator(out);
   MaxLogicalDomainInfoSpanningTree(out).traverse(&propagator);
 
@@ -458,10 +470,18 @@ TEST_P(CircularBufferingTest, NestedTensors) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
+
+  // Given computeAt axis 1 for tv2, the axis extent is I0/32/4 = 8.
+  // Given computeAt axis 3 for tv3 and axis 3 is parallelized with TIDx,
+  // the axis extent is 4.
+  constexpr int64_t axis_extent = 4;
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
+
   auto cg_outputs = fe.runFusion({t0});
-
   auto ref = t0 + 1;
-
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
@@ -544,8 +564,14 @@ TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
 
+  constexpr int64_t axis_extent = 2;
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
+
+  auto cg_outputs = fe.runFusion(aten_inputs);
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
   // The smem cache write in this test case is redundant predicated,
@@ -592,9 +618,15 @@ TEST_P(CircularBufferingTest, Vector) {
   auto t0 = at::randn({200}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
+
+  constexpr int64_t axis_extent = 8;
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
+
   auto cg_outputs = fe.runFusion({t0});
   auto ref = (t0 + 1).sum({0});
-
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
