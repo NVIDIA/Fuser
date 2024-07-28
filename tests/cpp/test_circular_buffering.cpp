@@ -26,10 +26,6 @@ TEST_P(CircularBufferingTest, SingleDim1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t tensor_size = 1000;
-  constexpr int64_t split_size = 128;
-  constexpr int64_t max_buffers = ceilDiv(tensor_size, split_size);
-
   auto tv0 = makeContigTensor(1);
   fusion.addInput(tv0);
 
@@ -41,7 +37,7 @@ TEST_P(CircularBufferingTest, SingleDim1) {
   tv1->setMemoryType(MemoryType::Shared);
 
   // I0
-  tv3->split(-1, split_size);
+  tv3->split(-1, 128);
   // I0/128, 128
   tv3->split(-1, 32);
   // I0/128, 4, 32
@@ -59,27 +55,23 @@ TEST_P(CircularBufferingTest, SingleDim1) {
   tv1->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({tensor_size}, options);
+  auto t0 = at::randn({1000}, options);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
-
-  if (number_of_stages > max_buffers) {
+  constexpr int64_t axis_extent = 8;
+  if (axis_extent < number_of_stages) {
     ASSERT_ANY_THROW(fe.runFusion({t0}));
-  } else {
-    auto cg_outputs = fe.runFusion({t0});
-    auto ref = t0 + 1;
-    testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+    return;
   }
+  auto cg_outputs = fe.runFusion({t0});
+  auto ref = t0 + 1;
+  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_P(CircularBufferingTest, SingleDim2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-
-  constexpr int64_t tensor_size = 1000;
-  constexpr int64_t split_size = 128;
-  constexpr int64_t max_buffers = ceilDiv(tensor_size, split_size);
 
   auto tv0 = makeContigTensor(1);
   fusion.addInput(tv0);
@@ -90,7 +82,7 @@ TEST_P(CircularBufferingTest, SingleDim2) {
   fusion.addOutput(tv3);
 
   // I0
-  tv3->split(-1, split_size);
+  tv3->split(-1, 128);
   // I0/128, 128
   tv3->split(-1, 32);
   // I0/128, 4, 32
@@ -108,18 +100,18 @@ TEST_P(CircularBufferingTest, SingleDim2) {
   tv1->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({tensor_size}, options);
+  auto t0 = at::randn({1000}, options);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
-
-  if (number_of_stages > max_buffers) {
+  constexpr int64_t axis_extent = 8;
+  if (axis_extent < number_of_stages) {
     ASSERT_ANY_THROW(fe.runFusion({t0}));
-  } else {
-    auto cg_outputs = fe.runFusion({t0});
-    auto ref = t0 + 1;
-    testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+    return;
   }
+  auto cg_outputs = fe.runFusion({t0});
+  auto ref = t0 + 1;
+  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_P(CircularBufferingTest, SingleDim3) {
@@ -164,6 +156,11 @@ TEST_P(CircularBufferingTest, SingleDim3) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
+  constexpr int64_t axis_extent = 4;
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
   auto cg_outputs = fe.runFusion({t0});
 
   auto ref = t0 + 2;
