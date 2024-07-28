@@ -19,15 +19,15 @@ namespace nvfuser {
 
 namespace {
 
+// Circular-buffering prefetches the future subregions of the tensor.
+// The subregion is defined by the axes inside of the CA position.
+// There must be at least one axis that is outside (left) of the CA position,
+// which defines the loop where prefetching is applied. Therefore,
+// the CA position must be larger than 0.
 int64_t getCircularBufferAxisPosition(const TensorView* tv) {
-  // Circular-buffering prefetches the next subregion of the tensor by
-  // doubling the allocation. The subregion is defined by the axes
-  // at the CA position till the inner-most position. There must be
-  // at least one axis that is outside (left) of the CA position,
-  // which defines the loop where prefetching is applied. Therefore,
-  // the CA position must be larger than 0.
-
-  NVF_ERROR(tv->getComputeAtPosition() > 0);
+  NVF_ERROR(
+      tv->getComputeAtPosition() > 0,
+      "Expected computeAt for circular buffered TensorView");
 
   // Unroll must not exist outside of circular-buffer axis
   auto first_unroll_it = std::find_if(
@@ -59,12 +59,6 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
     }
   }
 
-  NVF_ERROR(
-      valid_pos >= 0,
-      "Invalid tensor to circular-buffer. ",
-      "Valid circular buffer axis not found. ",
-      tv->toString());
-
   return valid_pos;
 }
 
@@ -93,9 +87,10 @@ class CircularBufferFusionInspector : private IterVisitor {
 
     validateCircularBufferedTensor(tv);
 
-    IterDomain* db_axis = getCircularBufferAxis(tv);
+    IterDomain* cb_axis = getCircularBufferAxis(tv);
+    NVF_ERROR(cb_axis != nullptr);
 
-    db_info_.setCircularBufferAxis(tv, db_axis);
+    db_info_.setCircularBufferAxis(tv, cb_axis);
   }
 
  private:
@@ -106,6 +101,11 @@ class CircularBufferFusionInspector : private IterVisitor {
 
 void validateCircularBufferedTensor(const TensorView* tv) {
   int64_t circular_buffer_pos = getCircularBufferAxisPosition(tv);
+  NVF_ERROR(
+      circular_buffer_pos >= 0,
+      "Invalid tensor to circular-buffer. ",
+      "Valid circular buffer axis not found. ",
+      tv->toString());
 
   // Like vectorization, only LoadStoreOp with another TensorView is
   // considered.
@@ -186,6 +186,15 @@ CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
   return map_[tv];
 }
 
+const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
+    const TensorView* tv) const {
+  NVF_ERROR(
+      tv->isCircularBuffered(),
+      "Not a circular-buffered tensor: ",
+      tv->toString());
+  return map_.at(tv);
+}
+
 void CircularBufferInfo::setCircularBufferAxis(
     const TensorView* tv,
     IterDomain* axis) {
@@ -223,6 +232,15 @@ void CircularBufferInfo::setStageDepth(IterDomain* id, int64_t stage_depth) {
         " by ",
         concrete_loop_id->toString());
   }
+}
+
+IterDomain* CircularBufferInfo::getCircularBufferAxis(
+    const TensorView* tv) const {
+  if (!tv->isCircularBuffered()) {
+    return nullptr;
+  }
+
+  return getTvInfo(tv).circular_buffer_axis;
 }
 
 IterDomain* CircularBufferInfo::getCircularBufferAxis(const TensorView* tv) {
@@ -288,6 +306,17 @@ Val* CircularBufferInfo::getOriginalAllocSize(const TensorView* tv) {
   }
 
   return getTvInfo(tv).original_alloc_size;
+}
+
+std::vector<const TensorView*> CircularBufferInfo::getCircularBufferTvs()
+    const {
+  std::vector<const TensorView*> keys;
+  keys.reserve(map_.size());
+  std::transform(
+      map_.begin(), map_.end(), std::back_inserter(keys), [](auto pair) {
+        return pair.first;
+      });
+  return keys;
 }
 
 } // namespace nvfuser
