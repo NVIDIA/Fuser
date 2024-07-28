@@ -899,7 +899,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
 
   tv1->axis(1)->parallelize(ParallelType::Unroll);
 
-  // Double Buffer with TMA loads
+  // Circular Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(number_of_stages);
 
@@ -909,6 +909,13 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0});
+
+  int64_t axis_extent =
+      ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
@@ -947,7 +954,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
 
   tv1->axis(1)->parallelize(ParallelType::Unswitch);
 
-  // Double Buffer with TMA loads
+  // Circular Buffer with TMA loads
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(number_of_stages);
 
@@ -957,6 +964,13 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0});
+
+  int64_t axis_extent =
+      ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
@@ -1118,7 +1132,7 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
 
   inlineMost();
 
-  // Double Buffer with TMA loads
+  // Circular Buffer with TMA loads
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2->circularBuffer(number_of_stages);
