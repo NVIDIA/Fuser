@@ -246,9 +246,12 @@ void validateVectorizedTensors(
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval);
 
+// Check that for all circular buffer TensorViews, the extent of the circular
+// buffer axis is >= number of stages in circular buffer. If not, throw an
+// exception at runtime.
 void validateCircularBuffering(
     kir::Kernel* kernel,
-    const KernelArgumentHolder& args);
+    ExpressionEvaluator& expr_eval);
 
 //! Kernel timing utility
 //!
