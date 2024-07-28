@@ -2895,22 +2895,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << "#pragma unroll 1\n";
     }
 
-    indent() << "for(nvfuser_index_t " << gen_index;
-    if (loop->iter_domain()->isParallelized() ||
-        loop->circularBufferLoopStage() !=
-            CircularBufferLoopStage::NotApplicable) {
-      code_ << " = " << gen_start << "; ";
-    } else {
-      // Do not start at  the start of the ID when not parallelized. Instead,
-      // start at 0. Predicates will protect buffers between 0 and ID->start(),
-      // however if we started at ID->start and extent == ID->start, we could
-      // have a "degenerate" loop (loop with no iterations). It may not be an
-      // issue to have a 0-sized loop, but all potential consequences haven't
-      // been covered. One example is WAR analysis which could incorrectly think
-      // a barrier inside a 0-sized loop actually provides protection.
-      code_ << " = 0; ";
-    }
-    code_ << gen_index << " < " << gen_stop << "; " << step_code.str() << ") ";
+    indent() << "for(nvfuser_index_t " << gen_index << " = " << gen_start
+             << "; " << gen_index << " < " << gen_stop << "; "
+             << step_code.str() << ") ";
     startBlock(true);
     kir::ConstIrVisitor::handle(loop);
     endBlock();

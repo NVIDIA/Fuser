@@ -11,6 +11,7 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <id_model/id_model.h>
+#include <id_model/to_string.h>
 
 namespace nvfuser {
 namespace indexing_utils {
@@ -33,6 +34,47 @@ inline ForLoop* getForLoop(
   } else {
     return nullptr;
   }
+}
+
+// Get the promotion domain of a given loop domain.
+inline IterDomain* getLoopPromotion(
+    IterDomain* loop_id,
+    const IdModel& id_model) {
+  const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  const auto& loop_promotion_map = id_model.loopPromotionMap();
+  const auto& loop_group = loop_graph.toGroup(loop_id);
+
+  auto loop_promotion_map_it = loop_promotion_map.find(loop_group);
+  NVF_ERROR(
+      loop_promotion_map_it != loop_promotion_map.end(),
+      "No loop promotion found: ",
+      loop_id->toString(),
+      ". Loop group: ",
+      nvfuser::toString(loop_group));
+
+  return loop_promotion_map_it->second;
+}
+
+// Check if unswitching a given for-loop actually matters. For example,
+// if a loop is parallelized, unswitching doesn't mean anything as we
+// don't unswitch threading dimensions, e.g., "threadIdx.x + ... < N"
+// is generated rather than "blockDim.x + ... < N".
+inline bool isEffectiveUnswitchLoop(ForLoop* fl) {
+  // Threaded domain is not unswitched
+  if (fl->iter_domain()->isThread() || fl->iter_domain()->isDeviceDim()) {
+    return false;
+  }
+
+  // If it's vectorized, it must be true that any of the iteration
+  // values can be used to generate the predicates of the tensor, so
+  // unswitching has no effect. Same for loops that are known to be
+  // safe to just predicate at the end.
+  if (fl->iter_domain()->getParallelType() == ParallelType::Vectorize ||
+      lower_utils::predicateAtEnd(fl)) {
+    return false;
+  }
+
+  return true;
 }
 
 } // namespace indexing_utils

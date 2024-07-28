@@ -283,19 +283,20 @@ class DynamicTransform {
   NVF_API static DynamicTransformInitialInfo getInitialInfo(Fusion* fusion);
 
   //! Concretizes a given fusion. Note that the concretization is
-  //! in-place and the given fusion is modified.
-  NVF_API static void concretizeFusion(
+  //! in-place and the given fusion is modified. Return a map from old, symbolic
+  //! values to new, concrete values.
+  NVF_API static std::unordered_map<Val*, Val*> concretizeFusion(
       Fusion* fusion,
       const DynamicTransformConcretizationInfo* info);
 
   //! Calls the above after computing concretization info from inputs
-  static void concretizeFusion(
+  static std::unordered_map<Val*, Val*> concretizeFusion(
       Fusion* fusion,
       const std::vector<c10::IValue>& aten_inputs);
 
   //! Calls the above after computing concretization info from
   //! KernelArgumentHolder
-  static void concretizeFusion(
+  static std::unordered_map<Val*, Val*> concretizeFusion(
       Fusion* fusion,
       const KernelArgumentHolder& args);
 };

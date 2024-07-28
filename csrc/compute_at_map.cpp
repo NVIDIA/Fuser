@@ -10,7 +10,7 @@
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <tuple>
@@ -344,7 +344,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   // Initialize a node for every iteration domain
   for (auto tv : ir_utils::allTvs(fusion)) {
     const auto& domain = tv->getLoopDomain();
-    auto all_ids = ir_utils::allIDsOf(tv);
+    auto all_ids = tv->domain()->allIDs();
 
     for (auto id : all_ids) {
       // Check if this id is an logical id in the logical domain
@@ -436,7 +436,7 @@ void IterDomainGraph::build(Fusion* fusion) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
       for (auto p_tv : tv_inputs) {
-        auto pairwise_map = PairwiseRootDomainMap(p_tv, c_tv);
+        auto pairwise_map = PairwiseLogicalDomainMap(p_tv, c_tv);
 
         // Look for matching ID transformations in producer and consumer, replay
         // producer as consumer. We use the symmetric API of BestEffortReplay so
@@ -459,7 +459,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         // Note on the boolean flags: swizzles and resizes are skipped
         // in the permissive-resize map
         const auto pairwise_resize_map =
-            PairwiseRootDomainMap(p_tv, c_tv).mapIndexedDomains(true);
+            PairwiseLogicalDomainMap(p_tv, c_tv).mapIndexedDomains(true);
         const auto permissive_resize_disjoint_sets =
             BestEffortReplay::replayPasC(
                 p_tv, c_tv, -1, pairwise_resize_map, true, true, true)
@@ -468,13 +468,15 @@ void IterDomainGraph::build(Fusion* fusion) {
         // For exact mapings do not map any broadcast dimensions to
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
-        auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
-                                      .mapBroadcast(false)
-                                      .mapConsumerToProducer();
+        auto exact_c2p_logical_map = PairwiseLogicalDomainMap(p_tv, c_tv)
+                                         .mapBroadcast(false)
+                                         .mapConsumerToProducer();
 
         // Same as permissive above but for exact
         auto exact_replay_PasC = BestEffortReplay(
-            p_tv->getLoopDomain(), c_tv->getLoopDomain(), exact_c2p_root_map);
+            p_tv->getLoopDomain(),
+            c_tv->getLoopDomain(),
+            exact_c2p_logical_map);
 
         const auto& exact_c2p_map = exact_replay_PasC.getReplay();
 
@@ -491,8 +493,8 @@ void IterDomainGraph::build(Fusion* fusion) {
           mapMaybeSwizzleOp(exact_nodes_, c_id);
         }
 
-        auto p_ids_vec = ir_utils::allIDsOf(p_tv);
-        auto c_ids_vec = ir_utils::allIDsOf(c_tv);
+        auto p_ids_vec = p_tv->domain()->allIDs();
+        auto c_ids_vec = c_tv->domain()->allIDs();
         std::unordered_set<IterDomain*> p_ids(
             p_ids_vec.begin(), p_ids_vec.end());
         std::unordered_set<IterDomain*> c_ids(

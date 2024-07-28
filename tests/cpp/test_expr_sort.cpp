@@ -63,7 +63,7 @@ TEST_F(ExprSortTest, IndirectNormalizationWithZeroDimTensors) {
   //
   // This fusion may appear to have the persistent pattern, but it
   // isn't the case. The reduction output, tv3, is never used with the
-  // reduciton input, tv2. So, ComputeAtRootDomainMap detects no
+  // reduciton input, tv2. So, ComputeAtLogicalDomainMap detects no
   // domains that should not be inlined, which is correct.
   //
   // However, this could turn into a persistent kernel if tv7 and tv8
@@ -101,7 +101,7 @@ TEST_F(ExprSortTest, IndirectNormalizationWithZeroDimTensors) {
   tv3->split(0, 4);
   auto tv11 = tv3->rFactor({1});
 
-  MaxRootDomainInfoSpanningTree tree(tv11);
+  MaxLogicalDomainInfoSpanningTree tree(tv11);
   TransformPropagator tp(tv11);
   tree.traverse(&tp);
 
@@ -146,7 +146,7 @@ TEST_F(ExprSortTest, IndirectInnerNormalization) {
   tv3->split(1, 4);
   auto tv11 = tv3->rFactor({-1});
 
-  MaxRootDomainInfoSpanningTree tree(tv11);
+  MaxLogicalDomainInfoSpanningTree tree(tv11);
   TransformPropagator tp(tv11);
   tree.traverse(&tp);
 

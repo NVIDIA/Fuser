@@ -43,7 +43,7 @@ TEST_P(CircularBufferingTest, SingleDim1) {
   tv3->split(-1, 32);
   // I0/128, 4, 32
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Outer for-loop is I0/128
   tv0->computeAt(tv3, 1);
@@ -85,7 +85,7 @@ TEST_P(CircularBufferingTest, SingleDim2) {
   tv3->split(-1, 32);
   // I0/128, 4, 32
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Outer for-loop is I0/128
   tv0->computeAt(tv3, -1);
@@ -129,7 +129,7 @@ TEST_P(CircularBufferingTest, SingleDim3) {
   tv3->split(-1, 32);
   // I0/128, 4, 32
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
 
@@ -181,7 +181,7 @@ TEST_P(CircularBufferingTest, SingleDimUnswitch1) {
   tv3->split(-1, 8);
   // I0/128, 4, 4, 8
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 2);
   tv2->computeAt(tv3, -1);
@@ -226,7 +226,7 @@ TEST_P(CircularBufferingTest, SingleDimUnswitch2) {
   tv2->split(-1, 8);
   // I0/128, 4, 4, 8
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv0->computeAt(tv2, 2);
   tv1->computeAt(tv2, -1);
@@ -269,7 +269,7 @@ TEST_P(CircularBufferingTest, SingleDimUnroll) {
   tv3->split(-2, 4);
   tv3->split(-2, 2);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
   tv2->computeAt(tv3, -1);
@@ -306,7 +306,7 @@ TEST_P(CircularBufferingTest, SingleDimVectorize) {
   tv2->split(-1, 128);
   tv2->split(-1, 4);
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv1->computeAt(tv2, 2);
 
@@ -346,7 +346,7 @@ TEST_P(CircularBufferingTest, MultipleTensors) {
   tv4->split(0, 32);
   tv4->split(0, 4);
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv0->computeAt(tv4, 1);
   tv1->computeAt(tv4, 1);
@@ -387,7 +387,7 @@ TEST_P(CircularBufferingTest, NestedTensors) {
   out->split(0, 32);
   out->split(0, 4);
   TransformPropagatorWithCheck propagator(out);
-  MaxRootDomainInfoSpanningTree(out).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(out).traverse(&propagator);
 
   tv2->setMemoryType(MemoryType::Shared);
 
@@ -455,7 +455,7 @@ TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
   auto tv6_rf = tv6->rFactor({-1});
 
   TransformPropagatorWithCheck propagator(tv6_rf);
-  MaxRootDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
 
   tv0->computeAt(tv6, 3);
   tv1->computeAt(tv6, 3);
@@ -759,7 +759,7 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
 
   // Propagate Transformations
   TransformPropagatorWithCheck propagator(reference);
-  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
   // Set computeAt before applying circular buffer
   tv0->computeAt(tv1, 1);
@@ -806,7 +806,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
 
   // Propagate Transformations
   TransformPropagatorWithCheck propagator(reference);
-  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
   tv0->computeAt(tv1, 1);
 
@@ -854,7 +854,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
 
   // Propagate Transformations
   TransformPropagatorWithCheck propagator(reference);
-  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
   tv0->computeAt(tv1, 1);
 
@@ -902,7 +902,7 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
 
   // Propagate TMA transform
   TransformPropagatorWithCheck propagator(reference);
-  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
   // Apply computeAt for TMA cache
   tv0->computeAt(tv1, 2);
@@ -961,7 +961,7 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   reference->split(-1, bulk_inner_dim);
 
   TransformPropagatorWithCheck propagator(reference);
-  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
   tv0->computeAt(tv2, 2);
   tv1->computeAt(tv2, 2);
@@ -1018,7 +1018,7 @@ TEST_P(TmaCircularBufferingTest, Reduction) {
   reference->split(-1, bulk_inner_dim);
 
   TransformPropagatorWithCheck propagator(reference);
-  MaxRootDomainInfoSpanningTree(reference).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
 
   // [M/epc, epc, N/bid, bid] -> [M/epc, epc, N]
   reference->merge(-2, -1);
@@ -1120,7 +1120,8 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
       ir_utils::allTvsExcept(fusion.get(), {x_cache_smem});
   SetSelector selector(
       {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
-  MaxRootDomainInfoSpanningTree(reference_tv, &selector).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+      .traverse(&propagator);
 
   std::vector<TensorView*> rfactor_tvs;
   rfactor_tvs.reserve(reduction_tvs.size());
@@ -1228,7 +1229,7 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   TensorView* tv6_rf = tv6->rFactor({-1});
 
   TransformPropagatorWithCheck propagator(tv6_rf);
-  MaxRootDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
 
   // IterDomain: [M/BSX, N/BSX, K/BSX, BSX/TSX, BSX/TSX, TSX, TSX, BSX]
   // Parallelization: BDX, BDY, K/BSX ||, BSX/TSX, BSX/TSX, TDY, TSX, TDX]

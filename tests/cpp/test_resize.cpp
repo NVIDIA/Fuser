@@ -23,11 +23,12 @@
 
 namespace nvfuser {
 
-class ResizeTest : public NVFuserTest {};
+using ResizeTest = NVFuserTest;
 
 using testing::Each;
 using testing::Not;
 using testing::Property;
+using testing::UnorderedElementsAre;
 
 // Simple pad test
 TEST_F(ResizeTest, Pad1) {
@@ -107,7 +108,7 @@ TEST_F(ResizeTest, Pad3) {
   tv4->split(0, 32);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -228,7 +229,7 @@ TEST_F(ResizeTest, Pad6) {
   tv4->split(0, 32);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -269,7 +270,7 @@ TEST_F(ResizeTest, Pad7) {
   tv3->reorder({{1, 2}});
 
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   inlineMost();
 
@@ -315,7 +316,7 @@ TEST_F(ResizeTest, Pad8) {
   tv4->split(0, 128);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -590,7 +591,7 @@ TEST_F(ResizeTest, Cat3) {
   tv2->split(0, 4);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -631,7 +632,7 @@ TEST_F(ResizeTest, Cat4) {
   tv2->split(0, 128);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
@@ -674,7 +675,7 @@ TEST_F(ResizeTest, Cat5) {
   tv4->split(0, 128);
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   inlineMost();
 
@@ -722,7 +723,7 @@ TEST_F(ResizeTest, Cat6) {
   tv3->merge(0);
   tv3->split(0, 4);
   TransformPropagator propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   inlineMost();
 
@@ -773,7 +774,7 @@ TEST_F(ResizeTest, Cat7) {
     concat_tv->split(0, 128);
 
     TransformPropagator propagator(concat_tv);
-    MaxRootDomainInfoSpanningTree(concat_tv).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(concat_tv).traverse(&propagator);
 
     inlineMost();
 
@@ -1021,7 +1022,8 @@ TEST_F(ResizeTest, Slice4) {
   tv5->setMemoryType(MemoryType::Global);
   SetSelector tv5_rf_selector({tv1, tv3, tv5, tv5_cache});
   TransformPropagator tv5_rf_tp(tv5_rf);
-  MaxRootDomainInfoSpanningTree(tv5_rf, &tv5_rf_selector).traverse(&tv5_rf_tp);
+  MaxLogicalDomainInfoSpanningTree(tv5_rf, &tv5_rf_selector)
+      .traverse(&tv5_rf_tp);
   inlineMost(std::vector<TensorView*>{tv1, tv3, tv5_rf});
   tv5_rf->axis(0)->parallelize(ParallelType::BIDx);
   tv5_rf->axis(1)->parallelize(ParallelType::TIDx);
@@ -1034,7 +1036,8 @@ TEST_F(ResizeTest, Slice4) {
   tv6->setMemoryType(MemoryType::Global);
   SetSelector tv6_rf_selector({tv2, tv4, tv6, tv6_cache});
   TransformPropagator tv6_rf_tp(tv6_rf);
-  MaxRootDomainInfoSpanningTree(tv6_rf, &tv6_rf_selector).traverse(&tv6_rf_tp);
+  MaxLogicalDomainInfoSpanningTree(tv6_rf, &tv6_rf_selector)
+      .traverse(&tv6_rf_tp);
   inlineMost(std::vector<TensorView*>{tv2, tv4, tv6_rf});
   tv6_rf->axis(0)->parallelize(ParallelType::BIDx);
   tv6_rf->axis(1)->parallelize(ParallelType::TIDx);
@@ -1096,7 +1099,7 @@ TEST_F(ResizeTest, Slice5) {
   // tv1 to tv3 through tv0, which should work as both tensors are
   // sliced in the same way.
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   inlineMost();
 
@@ -1998,7 +2001,10 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
       tv1,
       {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
        {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)}});
-  fusion->addOutput(tv2);
+  // Without the `add`, the fusion will be accepted by NoOp, defeating the
+  // purpose of testing PointWise.
+  auto tv3 = add(tv2, tv2);
+  fusion->addOutput(tv3);
 
   std::vector<int64_t> shape({4, 8});
 
@@ -2009,14 +2015,11 @@ TEST_F(ResizeTest, ResizeReshapeAndSlice) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-
-  auto ref = t0.reshape({8, 4}).index(
-      {at::indexing::Slice(0, 2), at::indexing::Slice(0, 2)});
-
-  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+  EXPECT_FALSE(runtime->isSegmented());
 }
 
 // Make sure resize works with the transpose scheduler
@@ -2042,7 +2045,8 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
       {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(shape.at(0) - 1)},
        {IrBuilder::create<Val>(2L), IrBuilder::create<Val>(shape.at(1) - 2)}});
   auto tv3 = transpose(tv2, 0, 1);
-  fusion->addOutput(tv3);
+  auto tv5 = add(tv3, tv3);
+  fusion->addOutput(tv5);
   auto tv4 = add(tv2, IrBuilder::create<Val>(1.0));
   fusion->addOutput(tv4);
 
@@ -2053,19 +2057,12 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
-
-  auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
-  NVF_CHECK(
-      heuristic == ScheduleHeuristic::Transpose,
-      "Unexpected heuristic: ",
-      heuristic);
-
   testValidate(
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::Transpose)));
 }
 
 // When scheduling this test, the pointwise scheduler attempt to replay a Split
@@ -2220,9 +2217,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   NVF_CHECK(ref0.equal(cg_outputs[0]));
 
   EXPECT_THAT(
-      [&]() {
-        fec.runFusionWithInputs({t0, 10});
-      },
+      [&]() { fec.runFusionWithInputs({t0, 10}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "must concretize to IterType::Broadcast but found")));
 }
@@ -2642,7 +2637,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual2) {
   tv1->split(0, 128);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -2693,7 +2688,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual3) {
   tv1->split(0, 128);
 
   TransformPropagator propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
@@ -2942,7 +2937,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   tv4->reorder({{1, -1}});
 
   TransformPropagator propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::Unswitch);

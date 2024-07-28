@@ -10,7 +10,7 @@
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <device_lower/pass/replace_size.h>
 
@@ -90,9 +90,9 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   for (auto producer_tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     auto consumer_tvs = ir_utils::consumerTvsOf(producer_tv);
     for (auto consumer_tv : consumer_tvs) {
-      auto pairwise_map = PairwiseRootDomainMap(producer_tv, consumer_tv);
-      auto c2p_root_map = pairwise_map.mapConsumerToProducer();
-      for (auto entry : c2p_root_map) {
+      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv);
+      auto c2p_logical_map = pairwise_map.mapConsumerToProducer();
+      for (auto entry : c2p_logical_map) {
         auto c_id = entry.first;
         auto p_id = entry.second;
         map_root_ids(p_id, c_id);
@@ -218,7 +218,7 @@ void replaceSymbolicSizes(Fusion* fusion) {
       // Currently turn off this part for inputs of segmented fusion,
       //  since FusionKernelRuntime will provide these as integer inputs
       if (tensor_dim_map.find(orig_size) == tensor_dim_map.end() &&
-          !orig_size->isFusionInput() && !orig_size->isConstScalar()) {
+          !orig_size->isFusionInput()) {
         tensor_dim_map[orig_size] = IrBuilder::getItemExpr(
             IrBuilder::getAttrExpr(IrBuilder::metadataExpr(tv), "logical_size"),
             dim++);

@@ -977,8 +977,18 @@ NVFUSER_DEFINE_LOGICAL_OP(logical_and, LogicalAnd)
 NVFUSER_DEFINE_LOGICAL_OP(logical_or, LogicalOr)
 #undef NVFUSER_DEFINE_LOGICAL_OP
 
+void validateBitwiseDtype(std::string op_name, Val* v) {
+  NVF_CHECK(
+      isIntegralType(v->dtype()) || isBooleanType(v->dtype()),
+      "Integer or boolean input is required for ",
+      op_name,
+      " but found ",
+      v->dtype());
+}
 #define NVFUSER_DEFINE_BITWISE_OP(op_name, op_type, bool_alternative)     \
   Val* op_name(Val* v1, Val* v2) {                                        \
+    validateBitwiseDtype(#op_name, v1);                                   \
+    validateBitwiseDtype(#op_name, v2);                                   \
     if (isBooleanType(v1->dtype()) && isBooleanType(v2->dtype())) {       \
       return bool_alternative(v1, v2);                                    \
     }                                                                     \
@@ -986,6 +996,8 @@ NVFUSER_DEFINE_LOGICAL_OP(logical_or, LogicalOr)
         BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
   }                                                                       \
   TensorView* op_name(TensorView* v1, Val* v2) {                          \
+    validateBitwiseDtype(#op_name, v1);                                   \
+    validateBitwiseDtype(#op_name, v2);                                   \
     if (isBooleanType(v1->dtype()) && isBooleanType(v2->dtype())) {       \
       return bool_alternative(v1, v2);                                    \
     }                                                                     \
@@ -993,6 +1005,8 @@ NVFUSER_DEFINE_LOGICAL_OP(logical_or, LogicalOr)
         BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
   }                                                                       \
   TensorView* op_name(Val* v1, TensorView* v2) {                          \
+    validateBitwiseDtype(#op_name, v1);                                   \
+    validateBitwiseDtype(#op_name, v2);                                   \
     if (isBooleanType(v1->dtype()) && isBooleanType(v2->dtype())) {       \
       return bool_alternative(v1, v2);                                    \
     }                                                                     \
@@ -1000,6 +1014,8 @@ NVFUSER_DEFINE_LOGICAL_OP(logical_or, LogicalOr)
         BinaryOpType::op_type, v1, v2, TypePromotion::default_op_config); \
   }                                                                       \
   TensorView* op_name(TensorView* v1, TensorView* v2) {                   \
+    validateBitwiseDtype(#op_name, v1);                                   \
+    validateBitwiseDtype(#op_name, v2);                                   \
     if (isBooleanType(v1->dtype()) && isBooleanType(v2->dtype())) {       \
       return bool_alternative(v1, v2);                                    \
     }                                                                     \

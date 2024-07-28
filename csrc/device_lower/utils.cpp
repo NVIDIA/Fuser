@@ -15,8 +15,8 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/arith.h>
-#include <root_domain_map.h>
 
 #include <expr_simplifier.h>
 #include <algorithm>
@@ -153,6 +153,7 @@ bool isTvOp(const Expr* expr) {
           MmaOp,
           LinearOp,
           SdpaFwdOp,
+          SdpaBwdOp,
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
@@ -695,7 +696,8 @@ kir::Allocate* allocGlobalBufferForGridComm(
     bool resets_to_zero) {
   const std::vector<IterDomain*> new_buffer_ids = {
       IrBuilder::create<IterDomain>(IterDomainBuilder(
-          GpuLower::current()->kernel()->zeroVal(), buffer_size))};
+          GpuLower::current()->kernel()->zeroVal(),
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, buffer_size)))};
   const auto buffer_domain = IrBuilder::create<TensorDomain>(new_buffer_ids);
   const auto buffer_tv =
       IrBuilder::create<TensorView>(buffer_domain, dtype, MemoryType::Global);
@@ -917,7 +919,8 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
       continue;
     }
     NVF_ERROR(in_tv->getMemoryType() == MemoryType::Shared);
-    auto out2in = PairwiseRootDomainMap(in_tv, out_tv).mapConsumerToProducer();
+    auto out2in =
+        PairwiseLogicalDomainMap(in_tv, out_tv).mapConsumerToProducer();
     auto reduction_id_in = out2in.at(reduction_id);
     auto inner_id = in_tv->getMaybeAllocationDomain().back();
     while (inner_id != reduction_id_in && inner_id->definition() != nullptr) {
@@ -927,6 +930,80 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   }
 
   return layout;
+}
+
+bool hasRootToLoopLinearTransformations(const TensorView* tv) {
+  auto root = tv->getMaybeRootDomain();
+  auto loop = tv->getLoopDomain();
+  std::vector<Val*> loop_val(loop.begin(), loop.end());
+  auto all_ids_vec =
+      DependencyCheck::getAllValsBetween({root.begin(), root.end()}, loop_val);
+  std::unordered_set<Val*> all_ids_set(all_ids_vec.begin(), all_ids_vec.end());
+  auto alloc = tv->getMaybeAllocationDomain();
+  auto logical = tv->getLogicalDomain();
+  bool all_alloc_id_on_path = std::all_of(
+      alloc.begin(), alloc.end(), [&](Val* v) { return all_ids_set.count(v); });
+  bool all_logical_id_on_path =
+      std::all_of(logical.begin(), logical.end(), [&](Val* v) {
+        return all_ids_set.count(v);
+      });
+  return all_alloc_id_on_path && all_logical_id_on_path;
+}
+
+bool isReductionInitExpr(const Expr* expr) {
+  // False if its output isn't a TensorView
+  if (!ir_utils::isTvOp(expr)) {
+    return false;
+  }
+  // False if it doesn't have any reduction axis
+  const auto out_tv = ir_utils::getTvOutput(expr);
+  if (!out_tv->domain()->hasReduction()) {
+    return false;
+  }
+  // False if it has TensorView inputs as initialization should
+  // never use TensorViews
+  const auto tv_filter_inp_view =
+      ir_utils::filterByType<TensorView>(expr->inputs());
+  if (tv_filter_inp_view.begin() != tv_filter_inp_view.end()) {
+    return false;
+  }
+  return true;
+}
+
+bool predicateAtEnd(ForLoop* loop) {
+  auto loop_id = loop->iter_domain();
+  auto split = dynamic_cast<Split*>(loop_id->definition());
+  if (split == nullptr) {
+    return false;
+  }
+
+  bool is_divisible = GpuLower::current()->divisibleSplitSet().count(split) > 0;
+
+  if (!is_divisible) {
+    return false;
+  }
+
+  // Find the other output of the split
+  auto other_out_id =
+      split->inner() == loop_id ? split->outer() : split->inner();
+
+  // If the other output is mapped with a vectorized IterDomain,
+  // this IterDomain needs to be predicated at each iteration point.
+  const auto& other_id_exact_set = GpuLower::current()
+                                       ->caMap()
+                                       ->getIdSets(IdMappingMode::EXACT)
+                                       .getDisjointSetOf(other_out_id);
+
+  if (std::any_of(
+          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
+            return id->getParallelType() == ParallelType::Vectorize;
+          })) {
+    return false;
+  }
+
+  // Now it is either loop_id is mapped with a vectorized IterDomain
+  // or it's an output of view transformations.
+  return true;
 }
 
 } // namespace lower_utils

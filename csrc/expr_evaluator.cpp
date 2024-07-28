@@ -13,7 +13,7 @@
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <functional>
 #include <iostream>
@@ -53,12 +53,16 @@ void validateValWithConcreteValue(
         value->dtype(),
         ", but got a tensor of dtype ",
         actual_dtype);
+    // Intermediate tensorviews marked as CPU scalars will be created as meta
+    // tensors during compilation. For example, for fusions containing SDPA fwd
+    // and bwd, some outputs of the fwd op (philox seed, philox offset) are CPU
+    // scalars.
     if (tv->isCpuScalar()) {
       NVF_CHECK(
-          is_cpu_scalar(t),
+          is_cpu_scalar(t) || is_meta_scalar(t),
           "Expected ",
           tv->toString(),
-          " to be bound to a CPU scalar tensor "
+          " to be bound to a CPU or meta scalar tensor "
           ", but got a tensor on device ",
           t.device(),
           " with ",
@@ -293,7 +297,7 @@ void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
   // We map Symbolic IterDomains here only if their extents match. This avoids
   // mapping between symbolic domains that might concretize to an (Iteration,
   // Broadcast) pair from a resolved broadcast.
-  const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
+  const auto mapped_sets = ExactLogicalDomainMap(fusion).getMappedSets();
 
   for (const auto& set : mapped_sets.disjointSets()) {
     int64_t known_size = -1;

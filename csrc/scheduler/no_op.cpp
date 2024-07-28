@@ -8,6 +8,8 @@
 
 #include <alias_analysis.h>
 #include <ir/utils.h>
+#include <multidevice/lower_communication.h>
+#include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
 #include <scheduler/no_op.h>
@@ -33,16 +35,27 @@ bool allOutputsArePointerArithmetics(Fusion* fusion) {
   const AliasAnalysisResult analysis =
       findAliases(fusion, /*can_override_empty_allocation_domain=*/false);
   auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-  return std::all_of(
-      out_tvs.begin(), out_tvs.end(), [&analysis](TensorView* out) {
-        return analysis.getNearestAliasedIo(out) != nullptr;
-      });
+  return std::all_of(out_tvs.begin(), out_tvs.end(), [&](TensorView* out) {
+    // Check out has an alias and out is not an inplace update target.
+    if (fusion->getOutputAlias(out).type == AllocationType::ReuseBuffer) {
+      return false;
+    }
+
+    TensorView* root = analysis.getRoot(out);
+    return root != nullptr && root->isFusionInput();
+  });
 }
 } // namespace
 
 //! Check if the no-op heuristics apply in given fusion
 bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (fusion->isNoOp()) {
+    return true;
+  }
+
+  const std::vector<Expr*>& exprs = fusion->exprs();
+  if (exprs.size() == 1 && isResharding(exprs[0]) &&
+      isLowerableToCommunication(exprs[0])) {
     return true;
   }
 
@@ -102,6 +115,15 @@ bool NoOpScheduler::canScheduleRunTime(
 }
 
 void NoOpScheduler::schedule(Fusion* fusion) {
+  if (scheduler_utils::isResharding(fusion)) {
+    return;
+  }
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation. Otherwise, the generated kernel may unnecessarily
+  // access intermediate buffers. See NoOpTest.ExpandedReduction.
+  scheduler_utils::clearMemorySpace(fusion);
+
   markAliases(fusion);
 }
 
@@ -112,4 +134,5 @@ void NoOpScheduler::computeHeuristics(
   // Heuristics is no-op.
   return;
 }
+
 } // namespace nvfuser

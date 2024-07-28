@@ -12,7 +12,7 @@
 #include <device_lower/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <bitset>
 #include <unordered_map>
