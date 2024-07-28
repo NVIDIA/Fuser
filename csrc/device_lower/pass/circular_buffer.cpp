@@ -21,152 +21,6 @@ namespace nvfuser {
 
 namespace {
 
-// Creates kir::IfThenElse with the following predicate:
-// threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
-// TODO Replace with elect.sync ptx
-kir::IfThenElse* createThreadPredicatedIfThenElse() {
-  Val* zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
-  Val* if_predicate_expr = IrBuilder::logicalAndExpr(
-      IrBuilder::logicalAndExpr(
-          IrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(ParallelType::TIDx), zero_val),
-          IrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(ParallelType::TIDy), zero_val)),
-      IrBuilder::eqExpr(
-          NamedScalar::getParallelIndex(ParallelType::TIDz), zero_val));
-
-  kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
-      IrBuilder::create<kir::Predicate>(if_predicate_expr));
-
-  return if_expr;
-}
-
-// Creates kir::Loop with range based on stage depth
-ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
-  int64_t stage_depth =
-      GpuLower::current()->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
-
-  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
-  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
-  Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
-  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
-
-  ForLoop* loop = IrBuilder::create<ForLoop>(
-      loop_domain_builder.build(),
-      loop_index,
-      loop_start,
-      loop_stop,
-      /*step=*/GpuLower::current()->kernel()->oneVal(),
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
-
-  return loop;
-}
-
-// Get expected transaction count for given tma operation.
-Val* getExpectedTransactionCount(LoadStoreOp* ldst) {
-  TensorView* consumer_tv = ldst->out()->as<TensorView>();
-  NVF_ERROR(
-      GpuLower::current()->consumerToTMAInfo().count(consumer_tv),
-      "Unable to find TMA info for consumer_tv: ",
-      consumer_tv->toString());
-  const TMAInfo& tma_info =
-      GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
-  Val* expected_bytes = SimplifyingIrBuilder::maybeCastExpr(
-      DataType::UInt32, tma_info.tileSizeBytes());
-  auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
-      SimplifyingIrBuilder::modExpr(
-          expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
-      expected_bytes->fusion()->zeroVal());
-  GpuLower::current()->validate(
-      is_multiple_of_16B,
-      "The expected bytes must be a multiple of 16 bytes, but ",
-      expected_bytes->toInlineString(),
-      " is not.");
-  return expected_bytes;
-}
-
-// Creates kir::MBarrierArriveExpectTx for given LoadStoreOp and index of
-// loop in scope's which LoadStoreOp is present
-//
-// Example:
-// __shared__ __mbarrier_t barriers[num_stages];
-// __shared__ __mbarrier_token_t tokens[num_stages];
-// for(nvfuser_index_t stage = 0; stage < num_stages; ++stage) {
-//   if (elect_sync()) {
-//     tokens[stage] =
-//        mbarrier::arriveExpectTX(toSmem((&barriers[stage])), expected_bytes);
-//   }
-// }
-kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
-    LoadStoreOp* ldst,
-    Val* loop_index) {
-  // Get expected bytes for single TMA load operation
-  Val* expected_bytes = getExpectedTransactionCount(ldst);
-
-  // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
-  // load operations launched for each circular buffer stage. We take the
-  // product of all coordinate TMA iterDomains to the right of the circular
-  // buffer axis.
-  TensorView* ldst_out_tv = ldst->out()->as<TensorView>();
-  const std::vector<IterDomain*>& leaf_domain = ldst_out_tv->getLoopDomain();
-  for (size_t idx = ldst_out_tv->getComputeAtPosition();
-       idx < leaf_domain.size();
-       ++idx) {
-    IterDomain* id = leaf_domain.at(idx);
-    if (!isParallelTypeThread(id->getParallelType()) &&
-        id->getParallelType() != ParallelType::Bulk) {
-      expected_bytes =
-          SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
-    }
-  }
-
-  expected_bytes =
-      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
-  auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
-      SimplifyingIrBuilder::modExpr(
-          expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
-      expected_bytes->fusion()->zeroVal());
-  GpuLower::current()->validate(
-      is_multiple_of_16B,
-      "The expected bytes must be a multiple of 16 bytes, but ",
-      expected_bytes,
-      " is not.");
-
-  TensorView* all_mbarrier_tokens =
-      GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
-  kir::TensorIndex* stage_token =
-      IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
-
-  TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
-  kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
-
-  auto mbarrier_arrive_tx = IrBuilder::create<kir::MBarrierArriveExpectTx>(
-      stage_token, stage_mbarrier, expected_bytes);
-
-  return mbarrier_arrive_tx;
-}
-
-// Creates kir::MBarrierWait for given LoadStoreOp and loop index
-kir::MBarrierWait* createMbarrierWait(LoadStoreOp* ldst, Val* loop_index) {
-  TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
-  kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
-
-  TensorView* all_mbarrier_tokens =
-      GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
-  kir::TensorIndex* stage_token =
-      IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
-
-  kir::MBarrierWait* mbarrier_wait =
-      IrBuilder::create<kir::MBarrierWait>(stage_mbarrier, stage_token);
-  return mbarrier_wait;
-}
-
 // The epilogue loop is only created when the producer of a circular
 // buffer tensor is on smem, in which case it would otherwise require
 // an additional predicate to guard buffer overruns. When it's on
@@ -327,6 +181,152 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   std::deque<Scope*> cloned_scopes_;
   const std::unordered_set<Expr*>& exclude_;
 };
+
+// Creates kir::IfThenElse with the following predicate:
+// threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
+// TODO Replace with elect.sync ptx
+kir::IfThenElse* createThreadPredicatedIfThenElse() {
+  Val* zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
+  Val* if_predicate_expr = IrBuilder::logicalAndExpr(
+      IrBuilder::logicalAndExpr(
+          IrBuilder::eqExpr(
+              NamedScalar::getParallelIndex(ParallelType::TIDx), zero_val),
+          IrBuilder::eqExpr(
+              NamedScalar::getParallelIndex(ParallelType::TIDy), zero_val)),
+      IrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDz), zero_val));
+
+  kir::IfThenElse* if_expr = IrBuilder::create<kir::IfThenElse>(
+      IrBuilder::create<kir::Predicate>(if_predicate_expr));
+
+  return if_expr;
+}
+
+// Creates kir::Loop with range based on stage depth
+ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
+  int64_t stage_depth =
+      GpuLower::current()->circularBufferInfo().getStageDepthFor(
+          circular_buffer_loop->iter_domain());
+
+  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
+  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
+  Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
+  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
+
+  ForLoop* loop = IrBuilder::create<ForLoop>(
+      loop_domain_builder.build(),
+      loop_index,
+      loop_start,
+      loop_stop,
+      /*step=*/GpuLower::current()->kernel()->oneVal(),
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable);
+
+  return loop;
+}
+
+// Get expected transaction count for given tma operation.
+Val* getExpectedTransactionCount(LoadStoreOp* ldst) {
+  TensorView* consumer_tv = ldst->out()->as<TensorView>();
+  NVF_ERROR(
+      GpuLower::current()->consumerToTMAInfo().count(consumer_tv),
+      "Unable to find TMA info for consumer_tv: ",
+      consumer_tv->toString());
+  const TMAInfo& tma_info =
+      GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
+  Val* expected_bytes = SimplifyingIrBuilder::maybeCastExpr(
+      DataType::UInt32, tma_info.tileSizeBytes());
+  auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
+      SimplifyingIrBuilder::modExpr(
+          expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
+      expected_bytes->fusion()->zeroVal());
+  GpuLower::current()->validate(
+      is_multiple_of_16B,
+      "The expected bytes must be a multiple of 16 bytes, but ",
+      expected_bytes->toInlineString(),
+      " is not.");
+  return expected_bytes;
+}
+
+// Creates kir::MBarrierArriveExpectTx for given LoadStoreOp and index of
+// loop in scope's which LoadStoreOp is present
+//
+// Example:
+// __shared__ __mbarrier_t barriers[num_stages];
+// __shared__ __mbarrier_token_t tokens[num_stages];
+// for(nvfuser_index_t stage = 0; stage < num_stages; ++stage) {
+//   if (elect_sync()) {
+//     tokens[stage] =
+//        mbarrier::arriveExpectTX(toSmem((&barriers[stage])), expected_bytes);
+//   }
+// }
+kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
+    LoadStoreOp* ldst,
+    Val* loop_index) {
+  // Get expected bytes for single TMA load operation
+  Val* expected_bytes = getExpectedTransactionCount(ldst);
+
+  // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
+  // load operations launched for each circular buffer stage. We take the
+  // product of all coordinate TMA iterDomains to the right of the circular
+  // buffer axis.
+  TensorView* ldst_out_tv = ldst->out()->as<TensorView>();
+  const std::vector<IterDomain*>& leaf_domain = ldst_out_tv->getLoopDomain();
+  for (size_t idx = ldst_out_tv->getComputeAtPosition();
+       idx < leaf_domain.size();
+       ++idx) {
+    IterDomain* id = leaf_domain.at(idx);
+    if (!isParallelTypeThread(id->getParallelType()) &&
+        id->getParallelType() != ParallelType::Bulk) {
+      expected_bytes =
+          SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
+    }
+  }
+
+  expected_bytes =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
+  auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
+      SimplifyingIrBuilder::modExpr(
+          expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
+      expected_bytes->fusion()->zeroVal());
+  GpuLower::current()->validate(
+      is_multiple_of_16B,
+      "The expected bytes must be a multiple of 16 bytes, but ",
+      expected_bytes,
+      " is not.");
+
+  TensorView* all_mbarrier_tokens =
+      GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
+  kir::TensorIndex* stage_token =
+      IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
+
+  TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+  kir::TensorIndex* stage_mbarrier =
+      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
+
+  auto mbarrier_arrive_tx = IrBuilder::create<kir::MBarrierArriveExpectTx>(
+      stage_token, stage_mbarrier, expected_bytes);
+
+  return mbarrier_arrive_tx;
+}
+
+// Creates kir::MBarrierWait for given LoadStoreOp and loop index
+kir::MBarrierWait* createMbarrierWait(LoadStoreOp* ldst, Val* loop_index) {
+  TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+  kir::TensorIndex* stage_mbarrier =
+      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
+
+  TensorView* all_mbarrier_tokens =
+      GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
+  kir::TensorIndex* stage_token =
+      IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
+
+  kir::MBarrierWait* mbarrier_wait =
+      IrBuilder::create<kir::MBarrierWait>(stage_mbarrier, stage_token);
+  return mbarrier_wait;
+}
 
 // Replicates circular buffer loops for Prologue, Main, and
 // Epilogue. Prologue only copies the load expressions of circular
@@ -760,116 +760,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   Val* current_load_stage_ = nullptr;
 };
 
-using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
-
-class IsCircularBufferLoadLoop : public kir::IrVisitor {
- public:
-  static bool check(
-      Expr* expr,
-      const std::vector<Expr*>& circular_buffer_load_exprs) {
-    IsCircularBufferLoadLoop checker(circular_buffer_load_exprs);
-    return checker.check(expr);
-  }
-
- private:
-  IsCircularBufferLoadLoop(const std::vector<Expr*>& circular_buffer_load_exprs)
-      : circular_buffer_load_exprs_(circular_buffer_load_exprs) {}
-
-  using kir::IrVisitor::handle;
-
-  bool check(Expr* expr) {
-    dispatch(expr);
-    return result_;
-  }
-
-  void dispatch(Expr* expr) final {
-    if (result_) {
-      return;
-    }
-    if (std::find(
-            circular_buffer_load_exprs_.begin(),
-            circular_buffer_load_exprs_.end(),
-            expr) != circular_buffer_load_exprs_.end()) {
-      result_ = true;
-      return;
-    }
-    IrVisitor::dispatch(expr);
-  }
-
- private:
-  const std::vector<Expr*>& circular_buffer_load_exprs_;
-  bool result_ = false;
-};
-
-// Traverse lowered loop-nests and find all circular buffer loops and
-// associated load expressions.
-class CircularBufferLoopNestInspector : private kir::IrVisitor {
- public:
-  static InsertionInfo run(const std::vector<Expr*>& exprs) {
-    CircularBufferLoopNestInspector inspector(exprs);
-    return inspector.insertion_info_;
-  }
-
- private:
-  CircularBufferLoopNestInspector(const std::vector<Expr*>& exprs) {
-    handle(exprs);
-  }
-
-  using kir::IrVisitor::handle;
-
-  // Collect circular buffer related information on a expr
-  //  that is a memory load, i.e. a LoadStore or a Set.
-  void handlePossibleLoadExpr(Expr* expr) {
-    auto out_tv = ir_utils::getTvOutput(expr);
-
-    if (out_tv == nullptr) {
-      return;
-    }
-
-    // Ignore init loop
-    if (!out_tv->isCircularBuffered() || !expr->input(0)->isA<TensorView>()) {
-      return;
-    }
-
-    auto circular_buffer_loop =
-        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
-            out_tv, for_loops_);
-
-    NVF_ERROR(
-        circular_buffer_loop != nullptr,
-        "No circular buffer loop found for a circular buffered tensor: ",
-        out_tv->toString());
-
-    validateCircularBufferLoop(circular_buffer_loop);
-
-    insertion_info_[circular_buffer_loop].push_back(expr);
-  }
-
-  void handle(UnaryOp* uop) final {
-    handlePossibleLoadExpr(uop);
-  }
-
-  void handle(LoadStoreOp* ldst) final {
-    handlePossibleLoadExpr(ldst);
-  }
-
-  static void validateCircularBufferLoop(ForLoop* loop) {
-    NVF_ERROR(
-        loop->start()->isZeroInt(), "Unsupported loop: ", loop->toString());
-    NVF_ERROR(loop->step()->isOneInt(), "Unsupported loop: ", loop->toString());
-    NVF_ERROR(
-        !loop->vectorize(),
-        "Vectorized loop should not be the allocation loop for circular-buffered tensor: ",
-        loop->toString());
-    NVF_ERROR(
-        !loop->vectorize_shift(),
-        "Vectorize shift loop should not be the allocation loop for circular-buffered tensor: ",
-        loop->toString());
-  }
-
-  InsertionInfo insertion_info_;
-};
-
 // TODO Move to CircularBufferLoopCloner
 // Creates pre-prologue section necessary for proper handling async TMA memory
 // operations. It moves the allocation of mbarriers and its tokens outside of
@@ -1033,6 +923,116 @@ class CpAsyncBulkPostEpilogue {
   const std::vector<Expr*>& circular_buffer_load_exprs_;
 
   std::vector<Expr*> post_prologue_exprs_;
+};
+
+using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
+
+class IsCircularBufferLoadLoop : public kir::IrVisitor {
+ public:
+  static bool check(
+      Expr* expr,
+      const std::vector<Expr*>& circular_buffer_load_exprs) {
+    IsCircularBufferLoadLoop checker(circular_buffer_load_exprs);
+    return checker.check(expr);
+  }
+
+ private:
+  IsCircularBufferLoadLoop(const std::vector<Expr*>& circular_buffer_load_exprs)
+      : circular_buffer_load_exprs_(circular_buffer_load_exprs) {}
+
+  using kir::IrVisitor::handle;
+
+  bool check(Expr* expr) {
+    dispatch(expr);
+    return result_;
+  }
+
+  void dispatch(Expr* expr) final {
+    if (result_) {
+      return;
+    }
+    if (std::find(
+            circular_buffer_load_exprs_.begin(),
+            circular_buffer_load_exprs_.end(),
+            expr) != circular_buffer_load_exprs_.end()) {
+      result_ = true;
+      return;
+    }
+    IrVisitor::dispatch(expr);
+  }
+
+ private:
+  const std::vector<Expr*>& circular_buffer_load_exprs_;
+  bool result_ = false;
+};
+
+// Traverse lowered loop-nests and find all circular buffer loops and
+// associated load expressions.
+class CircularBufferLoopNestInspector : private kir::IrVisitor {
+ public:
+  static InsertionInfo run(const std::vector<Expr*>& exprs) {
+    CircularBufferLoopNestInspector inspector(exprs);
+    return inspector.insertion_info_;
+  }
+
+ private:
+  CircularBufferLoopNestInspector(const std::vector<Expr*>& exprs) {
+    handle(exprs);
+  }
+
+  using kir::IrVisitor::handle;
+
+  // Collect circular buffer related information on a expr
+  //  that is a memory load, i.e. a LoadStore or a Set.
+  void handlePossibleLoadExpr(Expr* expr) {
+    auto out_tv = ir_utils::getTvOutput(expr);
+
+    if (out_tv == nullptr) {
+      return;
+    }
+
+    // Ignore init loop
+    if (!out_tv->isCircularBuffered() || !expr->input(0)->isA<TensorView>()) {
+      return;
+    }
+
+    auto circular_buffer_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
+            out_tv, for_loops_);
+
+    NVF_ERROR(
+        circular_buffer_loop != nullptr,
+        "No circular buffer loop found for a circular buffered tensor: ",
+        out_tv->toString());
+
+    validateCircularBufferLoop(circular_buffer_loop);
+
+    insertion_info_[circular_buffer_loop].push_back(expr);
+  }
+
+  void handle(UnaryOp* uop) final {
+    handlePossibleLoadExpr(uop);
+  }
+
+  void handle(LoadStoreOp* ldst) final {
+    handlePossibleLoadExpr(ldst);
+  }
+
+  static void validateCircularBufferLoop(ForLoop* loop) {
+    NVF_ERROR(
+        loop->start()->isZeroInt(), "Unsupported loop: ", loop->toString());
+    NVF_ERROR(loop->step()->isOneInt(), "Unsupported loop: ", loop->toString());
+    NVF_ERROR(
+        !loop->vectorize(),
+        "Vectorized loop should not be the allocation loop for circular-buffered tensor: ",
+        loop->toString());
+    NVF_ERROR(
+        !loop->vectorize_shift(),
+        "Vectorize shift loop should not be the allocation loop for circular-buffered tensor: ",
+        loop->toString());
+  }
+
+  InsertionInfo insertion_info_;
 };
 
 namespace {
