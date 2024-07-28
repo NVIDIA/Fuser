@@ -59,11 +59,14 @@ TEST_P(CircularBufferingTest, SingleDim1) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
+
+  // Given computeAt axis 1, the axis_extent is I0/128.
   constexpr int64_t axis_extent = 8;
   if (axis_extent < number_of_stages) {
     ASSERT_ANY_THROW(fe.runFusion({t0}));
     return;
   }
+
   auto cg_outputs = fe.runFusion({t0});
   auto ref = t0 + 1;
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
@@ -104,11 +107,14 @@ TEST_P(CircularBufferingTest, SingleDim2) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
+
+  // Given computeAt axis 1, the axis_extent is I0/128.
   constexpr int64_t axis_extent = 8;
   if (axis_extent < number_of_stages) {
     ASSERT_ANY_THROW(fe.runFusion({t0}));
     return;
   }
+
   auto cg_outputs = fe.runFusion({t0});
   auto ref = t0 + 1;
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
@@ -156,15 +162,16 @@ TEST_P(CircularBufferingTest, SingleDim3) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
+
+  // Given computeAt axis 2, the axis_extent is 128/32.
   constexpr int64_t axis_extent = 4;
   if (axis_extent < number_of_stages) {
     ASSERT_ANY_THROW(fe.runFusion({t0}));
     return;
   }
+
   auto cg_outputs = fe.runFusion({t0});
-
   auto ref = t0 + 2;
-
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
@@ -207,10 +214,17 @@ TEST_P(CircularBufferingTest, SingleDimUnswitch1) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
+
+  // Given computeAt axis -1 and axis 3 is parallelized with TIDx, the axis
+  // extent is 4.
+  constexpr int64_t axis_extent = 4;
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
+
   auto cg_outputs = fe.runFusion({t0});
-
   auto ref = t0 + 2;
-
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
@@ -252,10 +266,17 @@ TEST_P(CircularBufferingTest, SingleDimUnswitch2) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
+
+  // Given computeAt axis -1 and axis 3 is parallelized with TIDx, the axis
+  // extent is 4.
+  constexpr int64_t axis_extent = 4;
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
+
   auto cg_outputs = fe.runFusion({t0});
-
   auto ref = t0 + 1;
-
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
@@ -274,10 +295,15 @@ TEST_P(CircularBufferingTest, SingleDimUnroll) {
 
   tv1->setMemoryType(MemoryType::Shared);
 
+  // I0
   tv3->split(-1, 128);
+  // I0/128, 128
   tv3->split(-1, 16);
+  // I0/128, 8, 16
   tv3->split(-2, 4);
+  // I0/128, 2, 4, 16
   tv3->split(-2, 2);
+  // I0/128, 2, 2, 2, 16
   TransformPropagatorWithCheck propagator(tv3);
   MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
@@ -294,10 +320,17 @@ TEST_P(CircularBufferingTest, SingleDimUnroll) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
+
+  // Given computeAt axis -1 and axis 4 is parallelized with TIDx, the axis
+  // extent is 2.
+  constexpr int64_t axis_extent = 2;
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
+
   auto cg_outputs = fe.runFusion({t0});
-
   auto ref = t0 + 2;
-
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
@@ -313,8 +346,11 @@ TEST_P(CircularBufferingTest, SingleDimVectorize) {
   auto tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv2);
 
+  // I0
   tv2->split(-1, 128);
+  // I0/128, 128
   tv2->split(-1, 4);
+  // I0/128, 32, 4
   TransformPropagatorWithCheck propagator(tv2);
   MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
@@ -331,10 +367,17 @@ TEST_P(CircularBufferingTest, SingleDimVectorize) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0});
+
+  // Given computeAt axis 2 and axis 1 is parallelized with TIDx, the axis
+  // extent is I0/128.
+  constexpr int64_t axis_extent = 2;
+  if (axis_extent < number_of_stages) {
+    ASSERT_ANY_THROW(fe.runFusion({t0}));
+    return;
+  }
+
   auto cg_outputs = fe.runFusion({t0});
-
   auto ref = t0 + 1;
-
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
