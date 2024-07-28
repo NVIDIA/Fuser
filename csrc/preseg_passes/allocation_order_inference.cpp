@@ -31,7 +31,7 @@ int64_t countNonTrivialIterDomains(const TensorView* tv) {
 //
 // Map allocation domain from ref to target's logical domain to construct a new
 // allocation domain for target. The objective is to set target with the similar
-// inner most dimensions in storage to facilitate larger vectorization factor.
+// innermost dimensions in storage to facilitate larger vectorization factor.
 //
 // The propagation rule explained in an example, given inputs:
 //   ref's allocation domain
@@ -128,10 +128,9 @@ void mapAllocationDomain(
     }
     mapped_ids.pushBack(id);
   }
-
-  if (mapped_ids.empty()) {
-    return;
-  }
+  // Note: empty `mapped_ids` will give us `target_alloc_domain` that's
+  // identical to `target_logical_domain`. Hence specifying no allocation domain
+  // on target tensor.
 
   // removing mapped ids and reduction ids to create unmapped_ids.
   // This means for the rest of ids in target_logical_domain that's not in
@@ -196,9 +195,9 @@ void mapAllocationDomain(
     IterDomain* id = exact_id_map[vg];
     mapped_ids.pushBack(id);
   }
-  if (mapped_ids.empty()) {
-    return;
-  }
+  // Note: empty `mapped_ids` will give us `target_alloc_domain` that's
+  // identical to `target_logical_domain`. Hence specifying no allocation domain
+  // on target tensor.
   std::vector<IterDomain*> target_alloc_domain = target_logical_domain;
   // removing mapped ids.
   auto unmapped_ids_vec_end = std::remove_if(
@@ -247,7 +246,7 @@ void mapAllocationDomain(
 // propagation rule:
 //   Given a reference TensorView `ref` and a target TensorView `target`, we try
 //   to map iter domain in `ref->getMaybeAllocationDomain()` to
-//   `target->getLogicalDomain()`, which would gives `target` similar inner most
+//   `target->getLogicalDomain()`, which would gives `target` similar innermost
 //   dimensions as with `ref`. For details on the propagation rule see Note [
 //   Allocation Order Mapping ]
 void inferenceAllocationOrder(
