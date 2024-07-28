@@ -687,8 +687,8 @@ void validateCircularBuffering(
         "The extent of the circular buffer axis is ",
         runtime_axis_size,
         " while ",
-        cb_tv->circularBufferDepth());
-    " is the number of stages in the circular buffer.",
+        cb_tv->circularBufferDepth(),
+        " is the number of stages in the circular buffer.");
   }
 }
 
