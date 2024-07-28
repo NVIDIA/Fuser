@@ -12,6 +12,8 @@
 #include <ir/interface_nodes.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -539,8 +541,6 @@ TEST_F(PointwiseTest, ShardedPointwise) {
     at::Tensor t0 = at::randn(input_size, options);
     at::Tensor t1 = at::randn({input_size[1], input_size[2]}, options);
     std::vector<c10::IValue> sharded_inputs = {t0.unsqueeze(sharded_dim), t1};
-    std::cout << "t0 unsqueeze shape " << t0.unsqueeze(sharded_dim).sizes()
-              << std::endl;
     auto params = getPointwiseHeuristics(&sharded_fusion, sharded_inputs);
     auto unsharded_params = getPointwiseHeuristics(&unsharded_fusion, {t0, t1});
     // Note: occasionally one of the compile parameter index types is int64_t
@@ -565,6 +565,8 @@ TEST_F(PointwiseTest, ShardedPointwise) {
 
 // Repro of issue #657
 TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -610,6 +612,8 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
 
 // Repro of issue #657
 TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 

@@ -3992,6 +3992,23 @@ UnaryOp* shouldForward(Val* v) {
     return nullptr;
   }
 
+  // prevent forward to a SegmenterSet, which could cause unary op forward to a
+  // no-op segment. See issue: https://github.com/NVIDIA/Fuser/issues/2658
+  if (std::any_of(
+          unary_use->out()->uses().begin(),
+          unary_use->out()->uses().end(),
+          [](const Expr* next_use) {
+            if (const LoadStoreOp* use =
+                    dynamic_cast<const LoadStoreOp*>(next_use)) {
+              if (use->opType() == LoadStoreOpType::SegmenterSet) {
+                return true;
+              }
+            }
+            return false;
+          })) {
+    return nullptr;
+  }
+
   return unary_use;
 }
 

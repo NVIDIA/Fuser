@@ -383,8 +383,14 @@ IndexingParameters getPredicateInitialIndexParameters(
       } else {
         // Similar to the above, loop_id()->extent() is
         // used here instead of loop->stop(). See the above comment.
-        loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
-            loop_id->extent(), GpuLower::current()->kernel()->oneVal());
+        if (unswitch_pred) {
+          loop_to_ind_map[loop] = SimplifyingIrBuilder::subExpr(
+              loop_id->extent(), GpuLower::current()->kernel()->oneVal());
+        } else {
+          // For vectorize, zero should be fine as well and that would
+          // promote better index hoisting
+          loop_to_ind_map[loop] = GpuLower::current()->kernel()->zeroVal();
+        }
       }
 
       // When predicating a loop at the maximum end, predicate

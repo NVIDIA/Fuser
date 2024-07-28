@@ -145,7 +145,7 @@ class BFS {
 
     while (!allToNodesVisited()) {
       bool something_was_processed = false;
-      std::deque<NodeType> not_ready_;
+      std::deque<NodeType> not_ready;
       while (!allToNodesVisited() && !to_visit_.empty()) {
         const auto n = to_visit_.front();
         to_visit_.pop_front();
@@ -162,7 +162,7 @@ class BFS {
           // the queue would eventually become empty, which would then
           // break the inner while loop. The something_was_processed
           // flag is used to remember if there's any progress.
-          not_ready_.emplace_back(n);
+          not_ready.emplace_back(n);
           continue;
         }
 
@@ -180,7 +180,7 @@ class BFS {
       }
 
       // Something was processed. Redo the traversal.
-      to_visit_.insert(to_visit_.end(), not_ready_.begin(), not_ready_.end());
+      to_visit_.insert(to_visit_.end(), not_ready.begin(), not_ready.end());
     }
 
     if (require_all_to_visited_ && !allToNodesVisited()) {

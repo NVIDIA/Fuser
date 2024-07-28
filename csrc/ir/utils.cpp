@@ -593,6 +593,15 @@ bool isPointwiseTvOp(const Expr* expr) {
        (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasRoot()));
 }
 
+bool isSegmentSet(const Expr* e) {
+  if (const auto* ldst = dynamic_cast<const LoadStoreOp*>(e)) {
+    if (ldst->opType() == LoadStoreOpType::SegmenterSet) {
+      return true;
+    }
+  }
+  return false;
+}
+
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 
@@ -814,8 +823,6 @@ void validateDomainEquivalence(
   if (dom0.empty() && dom1.empty()) {
     return;
   }
-  NVF_ERROR(!dom0.empty());
-  NVF_ERROR(!dom1.empty());
   // Make sure there's no duplicate in the parameter vectors
   NVF_ERROR(
       dom0.size() == dom0_set.size(),
@@ -849,21 +856,22 @@ void validateDomainEquivalence(
       from = expr->outputs();
       to = expr->inputs();
     }
-    for (auto id : to) {
+    for (auto v : to) {
       NVF_ERROR(
-          frontier.insert(id).second,
+          frontier.insert(v).second,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Output should just show up once: ",
-          id->toString());
+          v->toString());
     }
-    for (auto id : from) {
+    for (auto v : from) {
+      bool ignorable = v->as<IterDomain>()->isBroadcast();
       NVF_ERROR(
-          frontier.erase(id) == 1,
+          frontier.erase(v) == 1 || ignorable,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Input not seen before: ",
-          id->toString());
+          v->toString());
     }
   }
 
@@ -913,7 +921,7 @@ void validateDomainEquivalence(
             [&](Val* id) {
               return id->as<IterDomain>()->getIterType() ==
                   IterType::Symbolic ||
-                  dom1_set.count(id);
+                  id->as<IterDomain>()->isBroadcast() || dom1_set.count(id);
             }),
         "dom0 and dom1 are not equal. dom0: ",
         toDelimitedString(dom0),
