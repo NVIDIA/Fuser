@@ -2761,4 +2761,35 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Test that replacement of a scalar in a reshaped ID that is a product of a
+// split gets replaced properly
+// See https://github.com/NVIDIA/Fuser/issues/2671
+TEST_F(NVFuserTest, ReplacedScalarInSplitOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType dtype = DataType::Half;
+  const std::vector<int64_t> input_shape = {128};
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto S32 = IrBuilder::create<Val>(32L);
+  auto S04 = div(tv0->axis(0)->extent(), IrBuilder::create<Val>(32L));
+  auto tv2 = reshape(tv0, {S32, S04});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = segment_set(tv3);
+  auto tv5 = reshape(tv1, {S32, S04});
+  auto tv6 = castOp(DataType::Float, tv5);
+  auto tv7 = mul(tv4, tv6);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
