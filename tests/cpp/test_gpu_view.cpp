@@ -9,6 +9,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <abstract_tensor.h>
 #include <codegen.h>
 #include <device_lower/analysis/divisible_split.h>
 #include <device_lower/lower2device.h>
@@ -28,8 +29,8 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <logical_domain_map.h>
 #include <ops/all_ops.h>
-#include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
@@ -48,7 +49,7 @@
 
 namespace nvfuser {
 
-using namespace at::indexing;
+using testing::UnorderedElementsAre;
 
 using GpuViewTest = NVFuserTest;
 
@@ -876,7 +877,7 @@ TEST_F(GpuViewTest, FusionFlattenAfterUnsqueezeOutput) {
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionComputeAtRootDomainMapWithView) {
+TEST_F(GpuViewTest, FusionComputeAtLogicalDomainMapWithView) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -899,17 +900,17 @@ TEST_F(GpuViewTest, FusionComputeAtRootDomainMapWithView) {
   auto tv5 = add(tv3, tv4);
   fusion.addOutput(tv5);
 
-  ComputeAtRootDomainMap map;
+  ComputeAtLogicalDomainMap map;
   map.build();
 
   // It's not possible to compute tv1 at the -1 position of
-  // t2. ComputeAtRootDomainMap should tell that by not mapping the
+  // t2. ComputeAtLogicalDomainMap should tell that by not mapping the
   // second axis.
   auto tv1_tv2_mappable_dims =
       map.getMappableDims(tv1->domain(), tv2->domain());
   NVF_CHECK(
       tv1_tv2_mappable_dims.find(tv1->axis(1)) == tv1_tv2_mappable_dims.end(),
-      "Invalid ComputeAtRootDomainMap. Domain should not be mappable: ",
+      "Invalid ComputeAtLogicalDomainMap. Domain should not be mappable: ",
       tv1->axis(1)->toString());
 }
 
@@ -1344,7 +1345,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
 
   {
     TransformPropagator propagator(tv4);
-    MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   }
 
   for (auto i : c10::irange(tv5->nDims() - 1)) {
@@ -1359,7 +1360,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
 
   {
     TransformPropagator propagator(tv5);
-    MaxRootDomainInfoSpanningTree spanning_tree(tv5);
+    MaxLogicalDomainInfoSpanningTree spanning_tree(tv5);
     spanning_tree.traverse(&propagator);
     scheduler_utils::parallelizeAllLike(tv5);
 
@@ -1407,7 +1408,7 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
   {
     TransformPropagator propagator(tv4);
-    MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+    MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   }
 
   tv5->split(1, 128);
@@ -1420,7 +1421,7 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
   {
     TransformPropagator propagator(tv5_rf);
-    MaxRootDomainInfoSpanningTree spanning_tree(tv5_rf);
+    MaxLogicalDomainInfoSpanningTree spanning_tree(tv5_rf);
     spanning_tree.traverse(&propagator);
     scheduler_utils::parallelizeAllLike(tv5_rf);
 
@@ -1447,53 +1448,69 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 
 // Make sure matching reshapes are segmented into the same kernel
 TEST_F(GpuViewTest, FusionReshapeMagicSchedule1) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   int x = 31, y = 65, z = 103;
 
   auto tv0 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
   auto tv1 = sin(tv0);
 
   auto tv2 = reshape(tv1, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv2);
+  // Without tv6, the complete fusion would be segmented to many pointwise
+  // kernels.
+  //
+  // This is for two reasons:
+  //
+  // 1. Without tv6, tv2's definition, reshape, would have to be segmented out
+  // by MarkAliasesPrepare. Therefore, the complete fusion can't be accepted as
+  // one kernel.
+  //
+  // 2. Because of that, the complete fusion would be
+  // decomposed into singletons, which the segmenter attempts to merge.
+  // The segmenter can't yet horizontally merge `tv1`, `tv4` and `tv5`, leading
+  // to many pointwise kernels.
+  //
+  // A similar trick is applied to several other FusionReshapeMagicSchedule
+  // tests to work around this segmenter limitation.
+  auto tv6 = add(tv2, tv2);
+  fusion->addOutput(tv6);
 
   auto tv3 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv3);
+  fusion->addInput(tv3);
 
   auto tv4 = reshape(tv3, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv4);
+  fusion->addOutput(tv4);
 
   // Link 0 and 3 together for reshape analysis done based on before the
   // reshapes actually happened.
   auto tv5 = add(tv0, tv3);
-  fusion.addOutput(tv5);
+  fusion->addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::Tensor t0 = at::randn({x, y, z}, options);
   at::Tensor t3 = at::randn({x, y, z}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3});
-  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
-  testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
 
 // Make sure reshapes of reshapes are correct
 TEST_F(GpuViewTest, FusionReshapeMagicSchedule2) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   int x = 31, y = 65, z = 103;
 
   auto tv0 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
   auto tv1 = sin(tv0);
 
@@ -1501,7 +1518,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule2) {
   auto tv3 = reshape(tv2, {x, y * z}, {x * y, z});
   auto tv4 = reshape(tv3, {x * y, z}, {y, x * z});
   auto tv5 = reshape(tv4, {y, x * z}, {x, y, z});
-  fusion.addOutput(tv5);
+  fusion->addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1511,52 +1528,52 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule2) {
   // this will be broken up into multiple kernels. This is due to the reference
   // check looking for all mappings to all input IDs.
   // TODO: Fix the reference check for this case
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Make sure broadcasts not on the reshape path that don't interfere with
 // reshape are segmented in one kernel and correctly trigger 2D pointwise
 // scheduling
 TEST_F(GpuViewTest, FusionReshapeMagicSchedule3) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   int w = 15, x = 31, y = 49, z = 65;
 
   auto tv0 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
   auto tv1 = sin(tv0);
 
   auto tv2 = reshape(tv1, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv2);
+  auto tv9 = add(tv2, tv2);
+  fusion->addOutput(tv9);
 
   auto tv3 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv3);
+  fusion->addInput(tv3);
 
   auto tv4 = reshape(tv3, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv4);
+  fusion->addOutput(tv4);
 
   // Link 0 and 3 together for reshape analysis done based on before the
   // reshapes actually happened.
   auto tv5 = add(tv0, tv3);
-  fusion.addOutput(tv5);
+  fusion->addOutput(tv5);
 
   // Broadcast on another branch to drive the pointwise reference to not be on
   // the reshape paths.
 
   auto tv6 = makeConcreteTensor({w, x, y, z});
-  fusion.addInput(tv6);
+  fusion->addInput(tv6);
   auto tv7 = broadcast(tv0, {true, false, false, false});
   auto tv8 = add(tv6, tv7);
   // tv8 should be the reference for the pointwise fusion. This broadcast
   // pattern doesn't interfere with the reshapes, so this should also be
   // scheduled as 2D.
-  fusion.addOutput(tv8);
+  fusion->addOutput(tv8);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1564,7 +1581,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule3) {
   at::Tensor t3 = at::randn({x, y, z}, options);
   at::Tensor t6 = at::randn({w, x, y, z}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion));
   // Collect the heuristic params
   executor_cache.profile(true);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3, t6});
@@ -1576,41 +1593,43 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule3) {
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(pparams->break_point == 1);
 
-  testValidate(&fusion, cg_outputs, {t0, t3, t6}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t3, t6}, __LINE__, __FILE__);
 }
 
 // Make sure broadcasts through reshapes when not conflicting with reshape are
 // segmented into one kernel and trigger 2D pointwise scheduler.
 TEST_F(GpuViewTest, FusionReshapeMagicSchedule4) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   int x = 31, y = 49, z = 65;
 
   auto tv0 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
   auto tv1 = sin(tv0);
 
   auto tv2 = reshape(tv1, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv2);
+  auto tv8 = add(tv2, tv2);
+  fusion->addOutput(tv8);
 
   auto tv3 = makeConcreteTensor({x, y, z});
-  fusion.addInput(tv3);
+  fusion->addInput(tv3);
 
   auto tv4 = makeConcreteTensor({x, 1, 1});
-  fusion.addInput(tv4);
+  fusion->addInput(tv4);
 
   auto tv5 = add(tv4, tv3);
 
   auto tv6 = reshape(tv5, {x, y, z}, {x, y * z});
-  fusion.addOutput(tv6);
+  auto tv9 = add(tv6, tv6);
+  fusion->addOutput(tv9);
 
   // Link 0 and 3 together for reshape analysis done based on before the
   // reshapes actually happened.
   auto tv7 = add(tv0, tv3);
-  fusion.addOutput(tv7);
+  fusion->addOutput(tv7);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1618,7 +1637,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule4) {
   at::Tensor t3 = at::randn({x, y, z}, options);
   at::Tensor t4 = at::randn({x, 1, 1}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  FusionExecutorCache executor_cache(std::move(fusion));
   // Collect the heuristic params
   executor_cache.profile(true);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3, t4});
@@ -1630,7 +1649,8 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule4) {
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(pparams->break_point == 1);
 
-  testValidate(&fusion, cg_outputs, {t0, t3, t4}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t3, t4}, __LINE__, __FILE__);
 }
 
 // Make sure different reshapes that are consumed by the reference are segmented
@@ -1939,7 +1959,7 @@ TEST_F(GpuViewTest, FusionReshapeMapping) {
   tv6->axis(2)->parallelize(ParallelType::TIDx);
 
   TransformPropagator propagator(tv6);
-  MaxRootDomainInfoSpanningTree spanning_tree(tv6);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(tv6);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv6);
 
@@ -1975,7 +1995,7 @@ TEST_F(GpuViewTest, FusionLowerDivisibleSplits) {
   tv2->merge(0)->merge(0)->merge(0)->split(0, 4)->split(0, 8, false);
 
   TransformPropagator propagator(tv2);
-  MaxRootDomainInfoSpanningTree spanning_tree(tv2);
+  MaxLogicalDomainInfoSpanningTree spanning_tree(tv2);
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(tv2);
 
@@ -2292,7 +2312,7 @@ TEST_F(GpuViewTest, ReshapeOfReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeContigTensor(2);
   fusion->addInput(tv0);
 
   auto tv1 = reshape(tv0, {4, 8}, {8, 4});
@@ -2342,6 +2362,403 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
   at::Tensor actual_out_tensor = fe.runFusion({in_tensor})[0];
 
   testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const std::vector<int64_t> input_shape = {12, 20};
+  DataType dtype = DataType::Float;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  // root domain : (i0, i2)
+  // logical domain : (3, i0/3, 4, i2/4)
+  auto tv2 = reshape(tv1, {12, 20}, {3, 4, 4, 5});
+  // root domain : (3, i0/3, 4, i2/4)
+  // logical domain : (3, i0/3*4, i2/4)
+  auto tv3 = reshape(tv2, {3, 4, 4, 5}, {3, 16, 5});
+  // root domain : (3, i0/3*4, i2/4)
+  auto tv4 = mul(tv3, tv3);
+  // root domain : (i0, i2)
+  // logical domain : (3, i0/3, 4, i2/4)
+  auto tv5 = reshape(tv1, {12, 20}, {3, 4, 4, 5});
+  // root domain : (3, i0/3, 4, i2/4)
+  // logical domain : (3, i0/3*4, i2/4)
+  auto tv6 = reshape(tv5, {3, 4, 4, 5}, {3, 16, 5});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv6);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+
+  testValidate(executor_cache.fusion(), {cg_outputs}, {t0}, __LINE__, __FILE__);
+}
+
+// segmented into 2 kernels: pointwise and reduction
+TEST_F(GpuViewTest, GroupNormOriginal) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  const std::vector<int64_t> input_shape_wb = {C};
+  const std::vector<int64_t> group_shape_wb = {G, C / G};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  auto tv2 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  // pointwise ops, e.g. cast
+  auto tv3 = castOp(DataType::Float, tv0);
+  // reshape from {N, C, H, W} to {N, G, C / G, H, W}
+  auto tv4 = reshape(tv3, input_shape, group_shape);
+  // normalization
+  auto tv5 = sum(tv4, {-1, -2, -3});
+  auto tv6 = broadcast(tv5, {false, false, true, true, true});
+  auto tv7 = div(tv4, tv6);
+  // reshape back to {N, C, H, W}
+  auto tv8 = reshape(tv7, group_shape, input_shape);
+  // pointwise ops, e.g. scale, bias, cast
+  auto tv9 = broadcast(tv1, {true, false, true, true});
+  auto tv10 = broadcast(tv2, {true, false, true, true});
+  auto tv11 = mul(tv8, tv9);
+  auto tv12 = add(tv11, tv10);
+  auto tv13 = castOp(dtype, tv12);
+  fusion->addOutput(tv13);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_wb = at::TensorOptions()
+                        .dtype(data_type_to_aten(DataType::Float))
+                        .device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto tw = at::randn(input_shape_wb, options_wb);
+  auto tb = at::randn(input_shape_wb, options_wb);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  // should expect 1 after adding a pre-segment pass to move reshape to input
+  // and output.
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::PointWise),
+          HeuristicIs(ScheduleHeuristic::Reduction)));
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
+}
+
+using ReductionAxes = std::vector<int64_t>;
+class ViewReductionTest : public NVFuserFixtureParamTest<ReductionAxes> {};
+
+TEST_P(ViewReductionTest, ReductionReshapeInputNoMergedIds) {
+  auto reduction_axes = GetParam();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, input_shape, group_shape);
+  auto tv3 = sum(tv2, {reduction_axes});
+  fusion->addOutput(tv3);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto ref = t1.sum({reduction_axes});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have only 1 segment group
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 1);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ViewReductionTest,
+    ::testing::Values(
+        std::vector<int64_t>{0},
+        std::vector<int64_t>{0, 1},
+        std::vector<int64_t>{0, 1, 2},
+        std::vector<int64_t>{-1},
+        std::vector<int64_t>{-1, -2},
+        std::vector<int64_t>{-1, -2, -3},
+        std::vector<int64_t>{0, 2, 4},
+        std::vector<int64_t>{1, 3}));
+
+class ViewNormalizationTest : public NVFuserFixtureParamTest<ReductionAxes> {};
+
+TEST_P(ViewNormalizationTest, NormalizationReshapeInputNoMergedIds) {
+  auto reduction_axes = GetParam();
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
+  const std::vector<int64_t> input_shape = {N, C, H, W};
+  const std::vector<int64_t> group_shape = {N, G, C / G, H, W};
+  int ndims = (int)group_shape.size();
+  std::vector<bool> broadcast_tags(ndims, false);
+  for (auto axis : reduction_axes) {
+    int idx = axis < 0 ? ndims + axis : axis;
+    broadcast_tags[idx] = true;
+  }
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = reshape(tv1, input_shape, group_shape);
+  auto tv3 = sum(tv2, {reduction_axes});
+  auto tv4 = broadcast(tv3, broadcast_tags);
+  auto tv5 = div(tv2, tv4);
+  auto tv6 = castOp(dtype, tv5);
+  fusion->addOutput(tv6);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = t0.reshape(group_shape).to(at::kFloat);
+  auto t2 = t1.sum(reduction_axes);
+  for (int idx = 0; idx < ndims; idx++) {
+    if (broadcast_tags[idx]) {
+      t2 = t2.unsqueeze(idx);
+    }
+  }
+  auto t3 = t1 / t2;
+  auto ref = t3.to(at::kHalf);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // should have only 1 segment group
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  EXPECT_EQ(seg_groups.size(), 1);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ViewNormalizationTest,
+    ::testing::Values(
+        std::vector<int64_t>{0},
+        std::vector<int64_t>{0, 1},
+        std::vector<int64_t>{0, 1, 2},
+        std::vector<int64_t>{-1},
+        std::vector<int64_t>{-1, -2},
+        std::vector<int64_t>{-1, -2, -3},
+        std::vector<int64_t>{0, 2, 4},
+        std::vector<int64_t>{1, 3}));
+
+// GroupNorm with the last reshape moved to output tensors
+// first 3 reshapes are fused in InnerPersistent
+// last reshape is NoOp
+TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  constexpr int64_t n = 2, c = 128, h = 16, w = 16, g = 32;
+  const std::vector<int64_t> input_shape = {n, c, h, w};
+  const std::vector<int64_t> group_shape = {n, g, c / g, h, w};
+  const std::vector<int64_t> input_shape_wb = {c};
+  const std::vector<int64_t> group_shape_wb = {g, c / g};
+  DataType dtype = DataType::Half;
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  auto tv2 = makeContigTensor(input_shape_wb.size(), DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = castOp(DataType::Float, tv0);
+  // reshape from {N, C, H, W} to {N, G, C / G, H, W}
+  auto tv4 = reshape(tv3, input_shape, group_shape);
+  // normalization
+  auto tv5 = sum(tv4, {-1, -2, -3});
+  auto tv6 = broadcast(tv5, {false, false, true, true, true});
+  auto tv7 = div(tv4, tv6);
+  // reshape scale and bias
+  auto tv8 = reshape(tv1, input_shape_wb, group_shape_wb);
+  auto tv9 = reshape(tv2, input_shape_wb, group_shape_wb);
+  // apply scale and bias
+  auto tv10 = broadcast(tv8, {true, false, false, true, true});
+  auto tv11 = broadcast(tv9, {true, false, false, true, true});
+  auto tv12 = mul(tv7, tv10);
+  auto tv13 = add(tv12, tv11);
+  auto tv14 = castOp(dtype, tv13);
+  // reshape back to input shape, segmented as a NoOp
+  auto tv15 = reshape(tv14, group_shape, input_shape);
+  fusion->addOutput(tv15);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_wb = at::TensorOptions()
+                        .dtype(data_type_to_aten(DataType::Float))
+                        .device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto tw = at::randn(input_shape_wb, options_wb);
+  auto tb = at::randn(input_shape_wb, options_wb);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, tw, tb});
+  auto seg_groups =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
+
+  EXPECT_THAT(
+      seg_groups,
+      UnorderedElementsAre(
+          HeuristicIs(ScheduleHeuristic::InnerPersistent),
+          HeuristicIs(ScheduleHeuristic::NoOp)));
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
+}
+
+TEST_F(GpuViewTest, FusionMismatchingReshape) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // TODO: use symbolic sizes. Currently, this is not working because of
+  // failures in replaceSymbolicSizes
+  TensorView* tv0 = makeContigConcreteTensor({2, 3, 5}, DataType::Float);
+  // TensorView* tv0 = makeContigTensor(3, DataType::Float);
+  fusion.addInput(tv0);
+  auto tv1 = sin(tv0);
+  auto tv2 = reshape(tv1, {2, 3, 5}, {2 * 3, 5});
+  auto tv3 = reshape(tv1, {2, 3, 5}, {2, 3 * 5});
+  auto tv4 = cos(tv2);
+  auto tv5 = exp(tv3);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+
+  // For this fusion, because tv4 and tv5 have different views, and these views
+  // are not compatible, traditionally, we were not able to support this fusion.
+  // However, with the advanced feature that domains in a TensorDomain can be
+  // connected by both forward and backward, we can schedule the entire fusion
+  // like tv4 as follows:
+
+  // First, the most difficult part is to schedule tv5. The TensorDomain of
+  // tv5 only contains 2 IDs, and non of them is mapped to anything in tv4.
+  // So, in order to schedule tv5 like tv4, we need to reconstruct the entire ID
+  // graph into tv5.
+
+  // Before schedule, tv5 is:
+  //
+  //  logical domain: [I0, I1]
+  //
+  // Now, we want to make tv5 as:
+  //
+  //                    I2   I3
+  //                      \ /
+  //  logical domain: [I0, I1]
+  //
+  // so that [I0, I2, I3] are mapped to the logical domain of fusion input.
+  std::vector<IterDomain*> tv5_root{
+      // Topological root of tv5, not the root domain of tv5.
+      // TODO: rename root domain as producer domain
+      tv5->getLogicalDomain()[0],
+      tv0->getLogicalDomain()[1]->cloneWithoutRFactor(),
+      tv0->getLogicalDomain()[2]->cloneWithoutRFactor(),
+  };
+  IrBuilder::create<Merge>(tv5->axis(1), tv5_root[1], tv5_root[2]);
+
+  // Now, except for tv4, all tensors contain all IDs that are exact mapped to
+  // the logical domain of the fusion input. tv4 not containing IDs exact mapped
+  // to the logical domain of the fusion input is not a problem, because tv4 is
+  // the reference tensor and the entire fusion will be scheduled like tv4.
+
+  // Now, let's schedule tv1, tv3, and tv5 to be like tv4's logical domain:
+  AbstractTensor schedule({
+      {tv1->getLogicalDomain()[0],
+       tv3->getRootDomain()[0],
+       tv5_root[0]}, // dim 0
+      {tv1->getLogicalDomain()[1],
+       tv3->getRootDomain()[1],
+       tv5_root[1]}, // dim 1
+      {tv1->getLogicalDomain()[2],
+       tv3->getRootDomain()[2],
+       tv5_root[2]}, // dim 2
+  });
+  schedule.merge(0);
+
+  // Now, tv5 looks like:
+  //
+  //                         I2  I3
+  //                        / | /
+  //  logical domain: [I0  /, I1]
+  //                    | /
+  //                    I4
+  //
+  // and `schedule` contains [I4, I3]
+
+  // Now, `schedule` is like the logical domain of tv2 and tv4. So let's append
+  // tv2 and tv4 to it so we can parallelizing all of them all together.
+  schedule[0].as<std::vector>().push_back(tv2->getLogicalDomain()[0]);
+  schedule[0].as<std::vector>().push_back(tv4->getLogicalDomain()[0]);
+  schedule[1].as<std::vector>().push_back(tv2->getLogicalDomain()[1]);
+  schedule[1].as<std::vector>().push_back(tv4->getLogicalDomain()[1]);
+
+  // Parallelize all tensors as [BIDx, TIDx]
+  schedule.merge(0);
+  schedule.split(0, 128);
+#if 0
+  // TODO: sync analysis is not working yet
+  for (auto id : static_cast<std::vector<IterDomain*>>(schedule[0])) {
+    id->parallelize(ParallelType::BIDx);
+  }
+  for (auto id : static_cast<std::vector<IterDomain*>>(schedule[1])) {
+    id->parallelize(ParallelType::TIDx);
+  }
+#endif
+
+  // Now, tv5 looks like:
+  //
+  //                         I2  I3
+  //                        / | / |
+  //  logical domain: [I0  /, I1] |
+  //                    | /       /
+  //                    I4       /
+  //                      \     /
+  //                       \   /
+  //                        \ /
+  //                        I5
+  //                        / \.
+  //                    BIDx   TIDx
+  //
+  // and `schedule` contains [BIDx, TIDx]
+
+  // TODO: make inlining work
+  // inlineMost();
+
+  // Set the loop domain of all tensors
+  auto uz = schedule.unzip();
+  tv1->setLoopDomain(uz[0].as<IterDomain*>());
+  tv3->setLoopDomain(uz[1].as<IterDomain*>());
+  tv5->setLoopDomain(uz[2].as<IterDomain*>());
+  tv2->setLoopDomain(uz[3].as<IterDomain*>());
+  tv4->setLoopDomain(uz[4].as<IterDomain*>());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // TODO: use larger tensor size once we are able to successfully parallelize
+  // this fusion.
+  at::Tensor t0 = at::randn({2, 3, 5}).to(options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0});
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

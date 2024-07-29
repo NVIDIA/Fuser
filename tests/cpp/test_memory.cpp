@@ -20,6 +20,7 @@
 #include <ops/utils.h>
 #include <options.h>
 #include <scheduler/cache_policy_refiner.h>
+#include <scheduler/mma_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <type.h>
@@ -61,7 +62,7 @@ TEST_P(MemoryTest, LoadCache) {
   tv1->split(0, 4);
   tv1->split(0, 32);
   TransformPropagatorWithCheck propagator(tv1);
-  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   // Parallelize LoadStoreOps. Other TensorViews don't support vectorization.
   tv1->axis(0)->parallelize(ParallelType::BIDx);
@@ -132,7 +133,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   tv_a2->split(0, 4);
   tv_a2->split(0, 32);
   TransformPropagatorWithCheck propagator(tv_a2);
-  MaxRootDomainInfoSpanningTree(tv_a2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv_a2).traverse(&propagator);
 
   tv_a2->axis(0)->parallelize(ParallelType::BIDx);
   tv_a2->axis(1)->parallelize(ParallelType::TIDx);
@@ -398,31 +399,6 @@ class TMASimpleLdstTest
   }
 };
 
-// Assuming the tile of tv is currently scheduled as a 1D flat dim placed at
-// position -1, schedule the TMA swizzle for it.
-void scheduleTMASwizzle(TensorView* tv, int64_t swizzle_size) {
-  // split as core matrices of 8 x 16B
-  tv->split(-1, core_matrix_width_bytes / dataTypeSize(tv->dtype()));
-  tv->split(-2, 8);
-  // [N, 8, 16B]
-  // swizzle the inner dim of rows of different core matrices
-  tv->split(-3, swizzle_size);
-  tv->split(-2, swizzle_size);
-  // [N/swizzle_size, swizzle_size, 8/swizzle_size, swizzle_size, 16B]
-  tv->swizzle(SwizzleType::XOR, -4, -2);
-}
-
-void markAllDimsExceptFirstAsBulk(const TensorView* tv) {
-  bool skip = true;
-  for (auto id : tv->getLoopDomain()) {
-    if (skip) {
-      skip = false;
-      continue;
-    }
-    id->parallelize(ParallelType::Bulk);
-  }
-}
-
 void parallelizeAllDimsExceptFirstAsTIDx(TensorView* tv) {
   tv->flatten(1);
   tv->axis(1)->parallelize(ParallelType::TIDx);
@@ -433,7 +409,6 @@ void scheduleTile(
     std::vector<int64_t> tile_sizes,
     MmaInputSmemSwizzle swizzle) {
   const int64_t dim = tile_sizes.size();
-  const int64_t swizzle_size = getBytesFromSwizzle(swizzle) / 16;
 
   for (auto tv : tvs) {
     NVF_ERROR(
@@ -457,7 +432,10 @@ void scheduleTile(
     // ...]
     tv->axis(0)->parallelize(ParallelType::BIDx);
     if (swizzle != MmaInputSmemSwizzle::None) {
-      scheduleTMASwizzle(tv, swizzle_size);
+      // In our implementation of swizzling, we work on 2D box where the
+      // inner-dim is the size of the swizzle in Bytes (at most).
+      tv->split(-1, tile_sizes[dim - 1]);
+      tv->swizzleTMABox(swizzle);
     }
   }
 }
@@ -478,7 +456,8 @@ TEST_P(TMASimpleLdstTest, Load) {
 
   scheduleTile({tv1, tv2}, tile, swizzle);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  markAllDimsExceptFirstAsBulk(tv1);
+  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+      tv1, 1 /* skip the first ID*/);
   parallelizeAllDimsExceptFirstAsTIDx(tv2);
 
   auto options =
@@ -511,50 +490,6 @@ class TMALoadTestWithABroadcastDim
     NVFuserTest::SetUp();
   }
 
-  void schedule(TensorView* tv) {
-    // We move the broadcast dim to be the left most.
-    moveInnerBroadcastLeft(tv);
-
-    // {B, N, K}
-    // {B, NO, N_dim, K}
-    tv->split(-2, tv->axis(-2)->extent());
-
-    if (swizzle == MmaInputSmemSwizzle::None) {
-      return;
-    }
-    // {B, NO, N_dim, KO, KI (32/64/128)}
-    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
-
-    // {B, NO, KO, N_dim, KI }
-    tv->reorder({{2, 3}, {3, 2}});
-
-    // {B, NO * KO, N_dim, KI}
-    tv->merge(1);
-
-    // {B, NO * KO, N_dim_O, N_128/(32, 64, 128),  KI}
-    tv->split(-2, (128 / (getBytesFromSwizzle(swizzle))));
-
-    // {B, NO * KO, N_dim_O, N_128/(32, 64, 128),  KIO, KII}
-    tv->split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
-
-    // split N_dim_O by N/16 N =swizzle size (32/64/128)
-    // {B, NO * KO, N_dim_O/(swizzle_size/16), N_128/(32, 64, 128),  KIO, KII}
-    tv->split(-4, (getBytesFromSwizzle(swizzle) / 16));
-
-    tv->swizzle(SwizzleType::XOR, -4, -2);
-  }
-
-  void markAllDimsExceptFirstTwoAsBulk(const TensorView* tv) {
-    int skip = 0;
-    for (auto id : tv->getLoopDomain()) {
-      if (skip < 2) {
-        skip++;
-        continue;
-      }
-      id->parallelize(ParallelType::Bulk);
-    }
-  }
-
   TMALoadTestWithABroadcastDim() {
     dtype = std::get<1>(GetParam());
     swizzle = std::get<2>(GetParam());
@@ -576,11 +511,27 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  schedule(tv1);
-  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  markAllDimsExceptFirstTwoAsBulk(tv1);
+  moveInnerBroadcastLeft(tv1);
+  moveInnerBroadcastLeft(tv2);
 
-  schedule(tv2);
+  // [B, K, N] -> [B, KO, K8, N]
+  tv1->split(-2, 8);
+  tv2->split(-2, 8);
+  // [B, KO, K8, N] ->  [B, KO, K8, NO, NI ]
+  tv1->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+  tv2->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+  // [B, KO, K8, NO, NI ] -> [B, KO, NO, K8, NI ] (Box: K8, NI)
+  tv1->reorder({{-2, -3}});
+  tv2->reorder({{-2, -3}});
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    tv1->swizzleTMABox(swizzle);
+    tv2->swizzleTMABox(swizzle);
+  }
+  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+      tv1, 3 /* skip the first three IDs*/);
+
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+
   // Naively parallelize an outer dim of tv2.
   // We use a single CTA. Inputs are small enough not to error out.
   tv2->axis(2)->parallelize(ParallelType::TIDx);
@@ -626,7 +577,7 @@ TEST_P(TMASimpleLdstTest, Store) {
 
   scheduleTile({tv1, tv2}, tile, swizzle);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  markAllDimsExceptFirstAsBulk(tv2);
+  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(tv2, 1);
   parallelizeAllDimsExceptFirstAsTIDx(tv1);
 
   auto options =
@@ -1140,7 +1091,7 @@ TEST_F(TMAIndexingTest, DefineBoxByRotation3) {
           ::testing::HasSubstr("must be divisible by 23")));
 }
 
-TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
+TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1164,7 +1115,8 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
   tv0->setAllocationDomain(tv0->getLoopDomain(), true);
   scheduleTile({tv1, tv2}, {128, items_of_32_bytes}, MmaInputSmemSwizzle::B32);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
-  markAllDimsExceptFirstAsBulk(tv1);
+  mma_utils::WarpMmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
+      tv1, 1 /* skip the first ID*/);
   parallelizeAllDimsExceptFirstAsTIDx(tv2);
 
   auto options =
@@ -1178,6 +1130,60 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain) {
   EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 2);
   TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
   ASSERT_TRUE(XorFinder::findXor(fe.kernel()));
+
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const DataType dtype = DataType::Float;
+
+  auto tv0 = makeContigTensor(6, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  // Schedule like this:
+  // 0   1   2   3   4   5
+  //  \   \ /   /     \ /
+  //   \   6   /       7
+  //    \ /   /
+  //     8   /
+  //      \ /
+  //       9
+  // where 1 and 5 are bulk IDs. This way, [merge 1, 2 -> 6] is a "striding
+  // split", and [merge 0, 6 -> 8] and [merge 4, 5 -> 7] are "boxing splits".
+  tv0->merge(1);
+  tv0->merge(0);
+  tv0->merge(-2);
+  tv0->merge(0);
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->reorder({{1, -2}});
+    tv->merge(-2);
+    tv->flatten(0, -2);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3, 5, 7, 11, 32}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+
+  EXPECT_EQ(TMADimChecker::getDim(fe.kernel()), 3);
+  TMAPredicateChecker::checkPredicate(fe.kernel(), 1);
 
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -1623,9 +1629,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
       &fusion, cg_outputs, {t0, items_of_16_bytes}, {t0}, __LINE__, __FILE__);
 
   EXPECT_THAT(
-      [&]() {
-        fe.runFusion({t0, items_of_16_bytes / 2});
-      },
+      [&]() { fe.runFusion({t0, items_of_16_bytes / 2}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "The expected bytes must be a multiple of 16 bytes, but ")));
 }

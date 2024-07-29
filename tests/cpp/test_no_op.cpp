@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <fusion.h>
@@ -18,6 +19,9 @@
 namespace nvfuser {
 
 using NoOpTest = NVFuserTest;
+
+using testing::IsEmpty;
+using testing::UnorderedElementsAre;
 
 // Simple test case exercising the null scheduler path.
 TEST_F(NoOpTest, FusionNullScheduler) {
@@ -198,6 +202,35 @@ TEST_F(NoOpTest, View) {
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
   EXPECT_EQ(group->heuristic(), ScheduleHeuristic::NoOp);
+}
+
+TEST_F(NoOpTest, ExpandedReduction) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = TensorViewBuilder()
+                       .ndims(2)
+                       .dtype(DataType::Float)
+                       .contiguity({std::nullopt, std::nullopt})
+                       .shape({2, 3})
+                       .expanded({true, true})
+                       .build();
+  fusion->addInput(in);
+  TensorView* out = sum(in, {0});
+  out = segment_set(out);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::ones({}).cuda().as_strided({2, 3}, {0, 0});
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(ScheduleHeuristic::NoOp)));
+  const auto& executor = runtime->executors().front();
+  EXPECT_THAT(executor.kernel()->summary().global_allocations, IsEmpty());
 }
 
 } // namespace nvfuser

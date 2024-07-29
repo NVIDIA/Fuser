@@ -242,7 +242,7 @@ TEST_F(ScalarHoistTest, IndexHoist2) {
 
   tv5->split(-1, 4);
   TransformPropagatorWithCheck propagator(tv5);
-  MaxRootDomainInfoSpanningTree(tv5).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
 
   tv4->split(-1, 3);
 
@@ -388,11 +388,11 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   int64_t i8;
   i8 = (int64_t)(i7);
   #pragma unroll 1
-  for(nvfuser_index_t i9 = 0; i9 < i7; ++i9) {
+  for(nvfuser_index_t i9 = 0LL; i9 < i7; ++i9) {
     T0[i9] = (i0 + (i2 * i9));
   }
   #pragma unroll 1
-  for(nvfuser_index_t i10 = 0; i10 < i7; ++i10) {
+  for(nvfuser_index_t i10 = 0LL; i10 < i7; ++i10) {
     T1[i10] = i8;
   }
 }

@@ -70,6 +70,10 @@ class ExpressionEvaluator {
     return known_values_.count(value) > 0;
   }
 
+  void invalidate(const Val* value) {
+    known_values_.erase(value);
+  }
+
   //! Debugging helper, prints all the currently known values
   void print() const;
 
@@ -84,7 +88,7 @@ class ExpressionEvaluator {
   //! Augment the evaluator with the exact root-domain map such that
   //! if the extent of a root ID is known, the extents of all other
   //! root IDs that are exactly mapped also get bound to the same
-  //! value. This is currently just done with ExactRootDomainMap, but
+  //! value. This is currently just done with ExactLogicalDomainMap, but
   //! can be similarly done with the Exact CA map as well.
   void propagateBoundValuesThroughExactMaps(Fusion* fusion);
 

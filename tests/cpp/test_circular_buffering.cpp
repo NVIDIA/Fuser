@@ -12,11 +12,17 @@
 
 namespace nvfuser {
 
-namespace {
-class CircularBufferingTest : public NVFuserTest {};
-} // anonymous namespace
+class CircularBufferingTest : public NVFuserFixtureParamTest<int> {
+ protected:
+  int64_t number_of_stages = 1;
 
-TEST_F(CircularBufferingTest, CircularBuffering1) {
+  void SetUp() override {
+    number_of_stages = GetParam();
+    NVFuserTest::SetUp();
+  }
+};
+
+TEST_P(CircularBufferingTest, SingleDim1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -30,18 +36,23 @@ TEST_F(CircularBufferingTest, CircularBuffering1) {
 
   tv1->setMemoryType(MemoryType::Shared);
 
+  // I0
   tv3->split(-1, 128);
+  // I0/128, 128
   tv3->split(-1, 32);
+  // I0/128, 4, 32
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
+  // Outer for-loop is I0/128
   tv0->computeAt(tv3, 1);
 
+  // Parallelize inner two dimensions
   tv3->axis(-2)->parallelize(ParallelType::BIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
 
-  tv1->circularBuffer(/*number_of_stages=*/2);
+  tv1->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -55,7 +66,7 @@ TEST_F(CircularBufferingTest, CircularBuffering1) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(CircularBufferingTest, CircularBuffering2) {
+TEST_P(CircularBufferingTest, SingleDim2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -67,18 +78,23 @@ TEST_F(CircularBufferingTest, CircularBuffering2) {
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
+  // I0
   tv3->split(-1, 128);
+  // I0/128, 128
   tv3->split(-1, 32);
+  // I0/128, 4, 32
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
+  // Outer for-loop is I0/128
   tv0->computeAt(tv3, -1);
 
+  // Parallelize inner two dimensions
   tv3->axis(-2)->parallelize(ParallelType::BIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
 
-  tv1->circularBuffer(/*number_of_stages=*/2);
+  tv1->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -92,7 +108,7 @@ TEST_F(CircularBufferingTest, CircularBuffering2) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(CircularBufferingTest, CircularBuffering3) {
+TEST_P(CircularBufferingTest, SingleDim3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -106,22 +122,25 @@ TEST_F(CircularBufferingTest, CircularBuffering3) {
 
   tv1->setMemoryType(MemoryType::Shared);
 
+  // I0
   tv3->split(-1, 128);
+  // I0/128, 128
   tv3->split(-1, 32);
+  // I0/128, 4, 32
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
 
   // tv2 is invalid to circular-buffer as its producer, tv1, is
   // computed inside the circular-buffering loop.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(tv2->circularBuffer(/*number_of_stages=*/2));
+  ASSERT_ANY_THROW(tv2->circularBuffer(number_of_stages));
 
   // Moving tv2 inner makes tv1 large enough to circular-buffer tv2
   tv2->computeAt(tv3, 2);
 
-  tv2->circularBuffer(/*number_of_stages=*/2);
+  tv2->circularBuffer(number_of_stages);
 
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv3);
@@ -139,7 +158,7 @@ TEST_F(CircularBufferingTest, CircularBuffering3) {
 }
 
 // circular buffering smem to local and unswitch
-TEST_F(CircularBufferingTest, CircularBuffering4) {
+TEST_P(CircularBufferingTest, SingleDimUnswitch1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -153,11 +172,15 @@ TEST_F(CircularBufferingTest, CircularBuffering4) {
 
   tv1->setMemoryType(MemoryType::Shared);
 
+  // I0
   tv3->split(-1, 128);
+  // I0/128, 128
   tv3->split(-1, 32);
+  // I0/128, 4, 32
   tv3->split(-1, 8);
+  // I0/128, 4, 4, 8
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 2);
   tv2->computeAt(tv3, -1);
@@ -166,7 +189,7 @@ TEST_F(CircularBufferingTest, CircularBuffering4) {
   tv3->axis(1)->parallelize(ParallelType::Unswitch);
   scheduler_utils::parallelizeAllLike(tv3);
 
-  tv2->circularBuffer(/*number_of_stages=*/2);
+  tv2->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -181,7 +204,7 @@ TEST_F(CircularBufferingTest, CircularBuffering4) {
 }
 
 // circular buffering gmem to shared and unswitch
-TEST_F(CircularBufferingTest, CircularBuffering5) {
+TEST_P(CircularBufferingTest, SingleDimUnswitch2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -194,11 +217,15 @@ TEST_F(CircularBufferingTest, CircularBuffering5) {
 
   tv1->setMemoryType(MemoryType::Shared);
 
+  // I0
   tv2->split(-1, 128);
+  // I0/128, 128
   tv2->split(-1, 32);
+  // I0/128, 4, 32
   tv2->split(-1, 8);
+  // I0/128, 4, 4, 8
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv0->computeAt(tv2, 2);
   tv1->computeAt(tv2, -1);
@@ -207,7 +234,7 @@ TEST_F(CircularBufferingTest, CircularBuffering5) {
   tv2->axis(1)->parallelize(ParallelType::Unswitch);
   scheduler_utils::parallelizeAllLike(tv2);
 
-  tv1->circularBuffer(/*number_of_stages=*/2);
+  tv1->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1000}, options);
@@ -222,7 +249,7 @@ TEST_F(CircularBufferingTest, CircularBuffering5) {
 }
 
 // circular buffering smem to local and unroll
-TEST_F(CircularBufferingTest, CircularBuffering6) {
+TEST_P(CircularBufferingTest, SingleDimUnroll) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -241,7 +268,7 @@ TEST_F(CircularBufferingTest, CircularBuffering6) {
   tv3->split(-2, 4);
   tv3->split(-2, 2);
   TransformPropagatorWithCheck propagator(tv3);
-  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv0->computeAt(tv3, 1);
   tv2->computeAt(tv3, -1);
@@ -249,7 +276,7 @@ TEST_F(CircularBufferingTest, CircularBuffering6) {
   tv3->axis(2)->parallelize(ParallelType::Unroll);
   tv3->axis(4)->parallelize(ParallelType::TIDx);
 
-  tv2->circularBuffer(/*number_of_stages=*/2);
+  tv2->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({199}, options);
@@ -264,7 +291,7 @@ TEST_F(CircularBufferingTest, CircularBuffering6) {
 }
 
 // circular buffering and vectorize
-TEST_F(CircularBufferingTest, CircularBuffering7) {
+TEST_P(CircularBufferingTest, SingleDimVectorize) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -278,7 +305,7 @@ TEST_F(CircularBufferingTest, CircularBuffering7) {
   tv2->split(-1, 128);
   tv2->split(-1, 4);
   TransformPropagatorWithCheck propagator(tv2);
-  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
 
   tv1->computeAt(tv2, 2);
 
@@ -286,7 +313,7 @@ TEST_F(CircularBufferingTest, CircularBuffering7) {
 
   tv1->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  tv1->circularBuffer(/*number_of_stages=*/2);
+  tv1->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({200}, options);
@@ -301,7 +328,7 @@ TEST_F(CircularBufferingTest, CircularBuffering7) {
 }
 
 // Multiple tensors to circular-buffer
-TEST_F(CircularBufferingTest, CircularBuffering8) {
+TEST_P(CircularBufferingTest, MultipleTensors) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -318,7 +345,7 @@ TEST_F(CircularBufferingTest, CircularBuffering8) {
   tv4->split(0, 32);
   tv4->split(0, 4);
   TransformPropagatorWithCheck propagator(tv4);
-  MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
 
   tv0->computeAt(tv4, 1);
   tv1->computeAt(tv4, 1);
@@ -326,8 +353,8 @@ TEST_F(CircularBufferingTest, CircularBuffering8) {
   tv4->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv4);
 
-  tv2->circularBuffer(/*number_of_stages=*/2);
-  tv3->circularBuffer(/*number_of_stages=*/2);
+  tv2->circularBuffer(number_of_stages);
+  tv3->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({100}, options);
@@ -343,7 +370,7 @@ TEST_F(CircularBufferingTest, CircularBuffering8) {
 }
 
 // Nested circular buffering from gmem to smem and smem to register
-TEST_F(CircularBufferingTest, CircularBuffering9) {
+TEST_P(CircularBufferingTest, NestedTensors) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -359,7 +386,7 @@ TEST_F(CircularBufferingTest, CircularBuffering9) {
   out->split(0, 32);
   out->split(0, 4);
   TransformPropagatorWithCheck propagator(out);
-  MaxRootDomainInfoSpanningTree(out).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(out).traverse(&propagator);
 
   tv2->setMemoryType(MemoryType::Shared);
 
@@ -369,8 +396,8 @@ TEST_F(CircularBufferingTest, CircularBuffering9) {
   out->axis(-1)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(out);
 
-  tv2->circularBuffer(/*number_of_stages=*/2);
-  tv3->circularBuffer(/*number_of_stages=*/2);
+  tv2->circularBuffer(number_of_stages);
+  tv3->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1001}, options);
@@ -385,7 +412,7 @@ TEST_F(CircularBufferingTest, CircularBuffering9) {
 }
 
 // FusionSmemBlockGemmCache + circular buffering at both smem and local
-TEST_F(CircularBufferingTest, SmemBlockGemmCacheCircularBuffer) {
+TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -427,7 +454,7 @@ TEST_F(CircularBufferingTest, SmemBlockGemmCacheCircularBuffer) {
   auto tv6_rf = tv6->rFactor({-1});
 
   TransformPropagatorWithCheck propagator(tv6_rf);
-  MaxRootDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
+  MaxLogicalDomainInfoSpanningTree(tv6_rf).traverse(&propagator);
 
   tv0->computeAt(tv6, 3);
   tv1->computeAt(tv6, 3);
@@ -446,11 +473,11 @@ TEST_F(CircularBufferingTest, SmemBlockGemmCacheCircularBuffer) {
 
   scheduler_utils::parallelizeAllLike(tv5);
 
-  tv0_cache_local->circularBuffer(/*number_of_stages=*/2);
-  tv1_cache_local->circularBuffer(/*number_of_stages=*/2);
+  tv0_cache_local->circularBuffer(number_of_stages);
+  tv1_cache_local->circularBuffer(number_of_stages);
 
-  tv0_cache_smem->circularBuffer(/*number_of_stages=*/2);
-  tv1_cache_smem->circularBuffer(/*number_of_stages=*/2);
+  tv0_cache_smem->circularBuffer(number_of_stages);
+  tv1_cache_smem->circularBuffer(number_of_stages);
 
   constexpr int M = 154, K = 45, N = 1524;
 
@@ -476,7 +503,7 @@ TEST_F(CircularBufferingTest, SmemBlockGemmCacheCircularBuffer) {
 }
 
 // Vectorized reset test for circular buffered registers
-TEST_F(CircularBufferingTest, CircularBufferVector) {
+TEST_P(CircularBufferingTest, Vector) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -504,7 +531,7 @@ TEST_F(CircularBufferingTest, CircularBufferVector) {
   tv1cr->computeAt(tv2c, 2);
 
   tv1cw->setMemoryType(MemoryType::Shared);
-  tv1cr->circularBuffer(/*number_of_stages=*/2);
+  tv1cr->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -520,7 +547,7 @@ TEST_F(CircularBufferingTest, CircularBufferVector) {
 // Simple test of async copy primitive: circular buffered
 //   circular buffer case 1, both block sync and async wait
 //  are needed.
-TEST_F(CircularBufferingTest, CircularBufferCpAsync1) {
+TEST_P(CircularBufferingTest, CpAsync1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -552,7 +579,7 @@ TEST_F(CircularBufferingTest, CircularBufferCpAsync1) {
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
 
   // circular buffer the shared mem tensor.
-  tv0_shared->circularBuffer(/*number_of_stages=*/2);
+  tv0_shared->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({m, n}, options);
@@ -574,7 +601,7 @@ TEST_F(CircularBufferingTest, CircularBufferCpAsync1) {
 
 // Simple test of async copy primitive: circular buffered
 //   circular buffer case 2, only async wait is needed
-TEST_F(CircularBufferingTest, CircularBufferCpAsync2) {
+TEST_P(CircularBufferingTest, CpAsync2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -605,7 +632,7 @@ TEST_F(CircularBufferingTest, CircularBufferCpAsync2) {
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
 
   // circular buffer the shared mem tensor.
-  tv0_shared->circularBuffer(/*number_of_stages=*/2);
+  tv0_shared->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({m, n}, options);
@@ -628,7 +655,7 @@ TEST_F(CircularBufferingTest, CircularBufferCpAsync2) {
 // Simple test for circular buffer in shared mem,
 //  where we should not insert redundant syncs when
 //  they are not needed.
-TEST_F(CircularBufferingTest, CircularBufferNoSync) {
+TEST_P(CircularBufferingTest, NoSync) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -659,7 +686,7 @@ TEST_F(CircularBufferingTest, CircularBufferNoSync) {
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
 
   // circular buffer the shared mem tensor.
-  tv0_shared->circularBuffer(/*number_of_stages=*/2);
+  tv0_shared->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({m, n}, options);
@@ -682,5 +709,10 @@ TEST_F(CircularBufferingTest, CircularBufferNoSync) {
 
   testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
+
+// TODO Add runtime check to determine that we can run a full pipeline.
+// TODO Increase maximum buffer range to 10
+// Test circular buffer from 2 to 4 stages
+INSTANTIATE_TEST_SUITE_P(NonTma, CircularBufferingTest, ::testing::Range(2, 4));
 
 } // namespace nvfuser

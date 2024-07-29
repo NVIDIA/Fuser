@@ -7,10 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
 #include <torch/csrc/jit/python/pybind.h>
 #include <torch/csrc/utils/pybind.h>
 
+#include <visibility.h>
+
 namespace nvfuser::python_frontend {
 NVF_API void initNvFuserPythonBindings(PyObject* module);
-}
+
+NVF_API void cleanup();
+} // namespace nvfuser::python_frontend

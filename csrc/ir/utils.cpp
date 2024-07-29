@@ -593,6 +593,15 @@ bool isPointwiseTvOp(const Expr* expr) {
        (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasRoot()));
 }
 
+bool isSegmentSet(const Expr* e) {
+  if (const auto* ldst = dynamic_cast<const LoadStoreOp*>(e)) {
+    if (ldst->opType() == LoadStoreOpType::SegmenterSet) {
+      return true;
+    }
+  }
+  return false;
+}
+
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 
@@ -730,35 +739,6 @@ bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
       tv->definition()->as<ScatterOp>()->getIndexedID() == id;
 }
 
-std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
-  VectorOfUniqueEntries<Val*> all_vals;
-  const auto& root_domain = tv->getRootDomain();
-  const auto& logical_domain = tv->getLogicalDomain();
-  const auto& loop_domain = tv->getLoopDomain();
-  const auto& alloc_domain = tv->getAllocationDomain();
-
-  std::array<const std::vector<IterDomain*>*, 4> domains{
-      &root_domain, &logical_domain, &loop_domain, &alloc_domain};
-
-  for (auto dom0 : domains) {
-    if (dom0->empty()) {
-      continue;
-    }
-    for (auto dom1 : domains) {
-      if (dom1->empty()) {
-        continue;
-      }
-      auto all_vals_01 = DependencyCheck::getAllValsBetween(
-          {dom0->begin(), dom0->end()}, {dom1->begin(), dom1->end()});
-      all_vals.pushBack(all_vals_01);
-    }
-  }
-
-  // Filter so we only have iteration domains (ignore Ints used in split)
-  auto all_ids = ir_utils::filterByType<IterDomain>(all_vals.vector());
-  return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
-}
-
 bool isIndexSelectLookupTv(const TensorView* tv) {
   for (auto expr : tv->uses()) {
     if (expr->isA<IndexSelectOp>()) {
@@ -843,8 +823,6 @@ void validateDomainEquivalence(
   if (dom0.empty() && dom1.empty()) {
     return;
   }
-  NVF_ERROR(!dom0.empty());
-  NVF_ERROR(!dom1.empty());
   // Make sure there's no duplicate in the parameter vectors
   NVF_ERROR(
       dom0.size() == dom0_set.size(),
@@ -855,14 +833,12 @@ void validateDomainEquivalence(
       "Duplicated entry is detected in dom1: ",
       toDelimitedString(dom1));
 
-  std::vector<Val*> dom0_val(dom0.begin(), dom0.end());
-  std::vector<Val*> dom1_val(dom1.begin(), dom1.end());
-  auto forward_exprs = DependencyCheck::getAllExprsBetween(dom0_set, dom1_val);
-  auto backward_exprs = DependencyCheck::getAllExprsBetween(dom1_set, dom0_val);
+  auto exprs = IRBFS::getExprsBetween(
+      {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false);
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  auto next = [&frontier](Expr* expr, bool forward) {
+  for (auto [expr, direction] : exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -873,35 +849,30 @@ void validateDomainEquivalence(
         }));
     std::vector<Val*> from;
     std::vector<Val*> to;
-    if (forward) {
+    if (direction == Direction::Forward) {
       from = expr->inputs();
       to = expr->outputs();
     } else {
       from = expr->outputs();
       to = expr->inputs();
     }
-    for (auto id : to) {
+    for (auto v : to) {
       NVF_ERROR(
-          frontier.insert(id).second,
+          frontier.insert(v).second,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Output should just show up once: ",
-          id->toString());
+          v->toString());
     }
-    for (auto id : from) {
+    for (auto v : from) {
+      bool ignorable = v->as<IterDomain>()->isBroadcast();
       NVF_ERROR(
-          frontier.erase(id) == 1,
+          frontier.erase(v) == 1 || ignorable,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Input not seen before: ",
-          id->toString());
+          v->toString());
     }
-  };
-  for (Expr* expr : forward_exprs) {
-    next(expr, true);
-  }
-  for (auto it = backward_exprs.rbegin(); it != backward_exprs.rend(); it++) {
-    next(*it, false);
   }
 
   // Remove symbolic IDs that appear both in frontier and in dom1_set. These IDs
@@ -950,7 +921,7 @@ void validateDomainEquivalence(
             [&](Val* id) {
               return id->as<IterDomain>()->getIterType() ==
                   IterType::Symbolic ||
-                  dom1_set.count(id);
+                  id->as<IterDomain>()->isBroadcast() || dom1_set.count(id);
             }),
         "dom0 and dom1 are not equal. dom0: ",
         toDelimitedString(dom0),

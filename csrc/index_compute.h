@@ -9,7 +9,7 @@
 
 #include <exceptions.h>
 #include <iter_visitor.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -67,6 +67,7 @@ namespace nvfuser {
 class ContigIDs;
 class LoopIndexing;
 struct IndexFromIdGraph;
+class TensorIndexer;
 
 class IndexCompute : public BackwardVisitor {
  protected:
@@ -357,9 +358,12 @@ class IndexSwizzle : public IndexCompute {
   std::unordered_set<IterDomain*> swizzled_ids_;
 };
 
-//! Predicate information of a root or contiguous merged domain
-class RootPredicateInfo {
+//! Information about a predicate. By default, it corresponds to a
+//! single logical domain but may cover multiple logial domains due to
+//! contigous indexing.
+class PredicateInfo {
   friend class Index;
+  friend class TensorIndexer;
 
  public:
   const auto& startPredicate() const {
@@ -382,13 +386,17 @@ class RootPredicateInfo {
     return stop_offset_;
   }
 
-  const auto& rootIds() const {
-    return root_ids_;
+  const auto& predicatedDomains() const {
+    return predicated_domains_;
+  }
+
+  CircularBufferLoopStage loopStage() const {
+    return loop_stage_;
   }
 
   //! Return a false RootPredicateInfo, i.e., both start and stop
   //! predicates are false.
-  static RootPredicateInfo getFalseInfo();
+  static PredicateInfo getFalseInfo();
 
  private:
   // prdicate for lower end
@@ -399,8 +407,10 @@ class RootPredicateInfo {
   Val* start_offset_ = nullptr;
   // Offset of the stop predicate
   Val* stop_offset_ = nullptr;
-  // Track which roots have been handled by the generated predicates
-  std::unordered_set<IterDomain*> root_ids_;
+  // Track which domains are covered by the generated predicates
+  std::unordered_set<IterDomain*> predicated_domains_;
+  // Circular buffer loop stage if applicable
+  CircularBufferLoopStage loop_stage_ = CircularBufferLoopStage::NotApplicable;
 };
 
 // Simple interface for IndexCompute
@@ -557,7 +567,7 @@ class Index {
   //! predicate, this is not a bool value as if we have an unswitch loop
   //! with a vectorized loop inside, we only want to base the "unswitch"
   //! like predicate on the vectorized loop.
-  static std::vector<RootPredicateInfo> getReferenceRootPredicates(
+  static std::vector<PredicateInfo> getReferenceRootPredicates(
       TensorView* consumer_tv,
       const std::vector<ForLoop*>& loops,
       const std::unordered_set<ForLoop*>& rotated_loops,
@@ -613,5 +623,23 @@ void ensureStaticIndexing(
     ForLoop* alloc_loop,
     const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {});
+
+struct PredicateDomainInfo {
+ public:
+  // Iteration domain to predicate
+  IterDomain* id = nullptr;
+  // The set of iteration domains that make up the id. If this is for
+  // a non-divisible split, the set only contains the id itself. This
+  // set is used to remove redundant predicates when gathering
+  // unswitch predicates.
+  std::unordered_set<IterDomain*> covered_ids;
+  // True if this predicate is for an intermediate domain. Examples
+  // include domains with non-divisible split and resized domains.
+  bool is_intermediate_domain = false;
+};
+
+// Get all domains that need to be predicated due to non-divisible splits
+std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
+    TensorView* consumer_tv);
 
 } // namespace nvfuser
