@@ -394,6 +394,101 @@ TEST_P(HopperRS, SingleTile) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
+TEST_P(HopperRS, FullSwizzle) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto swizzle_size = getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype);
+  auto inner_size = layout == MmaLayout::TT ? getN(macro) : getK(macro);
+
+  if (swizzle_size / inner_size <= 1) {
+    // Already tested in SingleTile, not interested in testing it again
+    return;
+  }
+
+  if (swizzle_size % inner_size != 0) {
+    // We will be using swizzle size as CTA tile size, so it must be divisible
+    return;
+  }
+
+  // const auto m_axis = 0;
+  // const auto n_axis = layout == MmaLayout::TT ? 2 : 1;
+  const auto k_axis = layout == MmaLayout::TT ? 1 : 2;
+
+  auto shapes = layout == MmaLayout::TT
+      ? matmulAtInputShape3DHopperRS(
+            getM(macro), swizzle_size, getK(macro), layout)
+      : matmulAtInputShape3DHopperRS(
+            getM(macro), getN(macro), swizzle_size, layout);
+
+  auto tv0 = makeConcreteTensor(shapes.first, dtype);
+  auto tv1 = makeConcreteTensor(shapes.second, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Just doing a gmem->register copy
+  tv0 = set(tv0);
+  // Just doing a gmem->smem copy
+  tv1 = set(tv1);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {k_axis});
+
+  fusion.addOutput(tv2);
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  auto tv2c = tv2->cacheBefore();
+
+  moveInnerBroadcastLeft(tv0); // n, m, k
+  if (layout == MmaLayout::TN) {
+    // inner is K, and K has multiple tiles
+    tv0->split(2, inner_size);
+    tv0->reorder({{-2, 0}});
+    // ko, n, m, ki
+  } else {
+    // inner is N, and N has multiple tiles
+    tv0->split(0, inner_size);
+    // no, ni, m, k
+  }
+  tv0->applyMmaSwizzle(MmaOperand::A);
+
+  tv0->merge(2);
+  tv0->merge(2);
+  tv0->axis(2)->parallelize(ParallelType::TIDx);
+
+  tv1->applyMmaSwizzle(swizzle_b);
+
+  naivelyParallelize(tv1);
+
+  if (layout == MmaLayout::TT) {
+    // [M, K, N] -> [M, N, K]
+    tv2c->reorder({{-1, -2}});
+  }
+
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
+
+  auto inputs = matmulAtInput3DHopperRS(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+
+  FusionExecutor fe;
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.squeeze().to(at::kFloat),
+      inputs.second.squeeze().to(at::kFloat),
+      layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+}
+
 TEST_P(HopperRS, SingleTileWithTMALoad) {
   Fusion fusion;
   FusionGuard fg(&fusion);
