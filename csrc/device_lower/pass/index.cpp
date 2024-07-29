@@ -1577,9 +1577,12 @@ static Val* getMatrixBaseOffset(
   NVF_ERROR(indices.size() == 1);
   int64_t inner_size_as_multiple_of_16B =
       inner_size * dataTypeSize(producer->dtype()) / 16;
-  return SimplifyingIrBuilder::divExpr(
-      maybeCastOp(DataType::UInt, indices.front()),
-      IrBuilder::create<Val>(inner_size_as_multiple_of_16B, DataType::UInt));
+  return maybeCastOp(
+      DataType::UInt,
+      SimplifyingIrBuilder::divExpr(
+          indices.front(),
+          IrBuilder::create<Val>(
+              inner_size_as_multiple_of_16B, DataType::Index)));
 }
 
 static Val* constructMatrixDescriptor(
