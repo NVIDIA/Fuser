@@ -905,7 +905,7 @@ void validateDomainEquivalence(
             dom1.end(),
             [&](auto id) {
               return id->getIterType() == IterType::Symbolic ||
-                  frontier.count(id);
+                  id->isBroadcast() || frontier.count(id);
             }),
         "dom0 and dom1 are not equal. dom0: ",
         toDelimitedString(dom0),

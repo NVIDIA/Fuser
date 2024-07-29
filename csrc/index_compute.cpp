@@ -2095,6 +2095,7 @@ kir::TensorIndex* Index::getProducerIndex(
   Val* index = nullptr;
 
   if (!lower_utils::hasRootToLoopLinearTransformations(producer) ||
+      consumer->definition()->isA<MmaOp>() ||
       (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
