@@ -489,8 +489,6 @@ TEST_P(HopperRS, FullSwizzle) {
   tv2c->axis(1)->parallelize(ParallelType::Mma);
   tv2c->axis(2)->parallelize(ParallelType::Mma);
   tv2c->axis(3)->parallelize(ParallelType::Mma);
-  tv2c->broadcast(1, 128);
-  tv2c->axis(1)->parallelize(ParallelType::TIDx);
 
   if (layout == MmaLayout::TT) {
     // [M, K, N] -> [M, N, K]
@@ -502,6 +500,8 @@ TEST_P(HopperRS, FullSwizzle) {
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
   }
+  tv2c->broadcast(1, 128);
+  tv2c->axis(1)->parallelize(ParallelType::TIDx);
 
   tv2->split(-1, inner_size);
   tv2->reorder({{-2, 0}});
