@@ -509,6 +509,8 @@ TEST_P(HopperRS, FullSwizzle) {
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
+  tv0->inlineAt(1);
+
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
