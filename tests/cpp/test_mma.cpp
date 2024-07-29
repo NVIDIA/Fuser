@@ -484,6 +484,14 @@ TEST_P(HopperRS, FullSwizzle) {
 
   naivelyParallelize(tv1);
 
+  tv2c->split(-1, inner_size);
+  tv2c->reorder({{-2, 0}});
+  tv2c->axis(1)->parallelize(ParallelType::Mma);
+  tv2c->axis(2)->parallelize(ParallelType::Mma);
+  tv2c->axis(3)->parallelize(ParallelType::Mma);
+  tv2c->broadcast(1, 128);
+  tv2c->axis(1)->parallelize(ParallelType::TIDx);
+
   if (layout == MmaLayout::TT) {
     // [M, K, N] -> [M, N, K]
     tv2c->reorder({{-1, -2}});

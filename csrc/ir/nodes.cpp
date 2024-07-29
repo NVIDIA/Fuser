@@ -3319,9 +3319,9 @@ int64_t TensorDomain::rootPosOf(IterDomain* id) const {
   return std::distance(maybeRoot().begin(), it);
 }
 
-void TensorDomain::broadcast(int64_t axis) {
+void TensorDomain::broadcast(int64_t axis, Val* extent) {
   axis = nvfuser::wrapDim(axis, nDims() + 1);
-  IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), fusion()->oneVal())
+  IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), extent)
                        .iter_type(IterType::Broadcast)
                        .build();
   loop_domain_.insert(loop_domain_.begin() + axis, id);
