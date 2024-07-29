@@ -13,70 +13,174 @@
 
 using namespace c10::cuda;
 
+enum class StreamMode {
+  NoStreams,
+  PostOnDifferentStreams,
+  AllocateAndPostOnDifferentStreams,
+  Invalid
+};
+
+enum class ComputeMode { Matmul, MatmulOut, Unfused, Invalid };
+
+std::ostream& operator<<(std::ostream& os, const StreamMode& mode) {
+  switch (mode) {
+    case StreamMode::NoStreams:
+      os << "no_streams";
+      break;
+    case StreamMode::PostOnDifferentStreams:
+      os << "post_on_different_streams";
+      break;
+    case StreamMode::AllocateAndPostOnDifferentStreams:
+      os << "allocate_and_post_on_different_streams";
+      break;
+    default:
+      os << "invalid";
+      break;
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const ComputeMode& mode) {
+  switch (mode) {
+    case ComputeMode::Matmul:
+      os << "matmul";
+      break;
+    case ComputeMode::MatmulOut:
+      os << "matmul_out";
+      break;
+    case ComputeMode::Unfused:
+      os << "unfused";
+      break;
+    default:
+      os << "invalid";
+      break;
+  }
+  return os;
+}
+
+// Function to convert a string to a StreamMode
+StreamMode getStreamMode(const std::string& mode) {
+  if (mode == "no_streams") {
+    return StreamMode::NoStreams;
+  } else if (mode == "post_on_different_streams") {
+    return StreamMode::PostOnDifferentStreams;
+  } else if (mode == "allocate_and_post_on_different_streams") {
+    return StreamMode::AllocateAndPostOnDifferentStreams;
+  } else {
+    return StreamMode::Invalid;
+  }
+}
+
+ComputeMode getComputeMode(const std::string& mode) {
+  if (mode == "matmul") {
+    return ComputeMode::Matmul;
+  } else if (mode == "matmul_out") {
+    return ComputeMode::MatmulOut;
+  } else if (mode == "unfused") {
+    return ComputeMode::Unfused;
+  } else {
+    return ComputeMode::Invalid;
+  }
+}
+
 // Perform matrix multiplication I times
 int main(int argc, char* argv[]) {
-  // Parse command-line arguments
   if (argc != 6) {
-    std::cerr << "Usage: " << argv[0]
-              << " LOG2_M LOG2_N LOG2_K use_stream use_matmul_out" << std::endl;
-    std::cerr << "use_stream: 0 for default stream, 1 to use multiple streams"
-              << std::endl;
     std::cerr
-        << "use_matmul_out: 0 for using at::matmul, 1 for using at::matmul_out with preallocated output"
+        << "Usage: " << argv[0]
+        << " LOG2_M LOG2_N LOG2_K {no_streams|post_on_different_streams|allocate_and_post_on_different_streams} {matmul|matmul_out|unfused}"
         << std::endl;
     return 1;
   }
   int64_t M = std::pow(2, std::stoi(argv[1]));
   int64_t N = std::pow(2, std::stoi(argv[2]));
   int64_t K = std::pow(2, std::stoi(argv[3]));
-  bool use_stream = std::stoi(argv[4]) != 0;
-  bool use_matmul_out = std::stoi(argv[5]) != 0;
+
+  StreamMode stream_mode = getStreamMode(argv[4]);
+  if (stream_mode == StreamMode::Invalid) {
+    std::cerr << "Invalid stream mode: " << argv[4] << std::endl;
+    std::cerr
+        << "Valid stream modes: no_streams, post_on_different_streams, allocate_and_post_on_different_streams"
+        << std::endl;
+    return 1;
+  }
+
+  ComputeMode compute_mode = getComputeMode(argv[5]);
+  if (compute_mode == ComputeMode::Invalid) {
+    std::cerr << "Invalid compute mode: " << argv[5] << std::endl;
+    std::cerr << "Valid compute modes: matmul, matmul_out, unfused"
+              << std::endl;
+    return 1;
+  }
 
   constexpr int I = 8; // number of iterations
 
   std::cout << "M=" << M << std::endl;
   std::cout << "N=" << N << std::endl;
   std::cout << "K=" << K << std::endl;
-  std::cout << "use_stream=" << use_stream << std::endl;
-  std::cout << "use_matmul_out=" << use_matmul_out << std::endl;
-
-  torch::Device device(torch::kCUDA);
-  // input tensors
-  std::vector<at::Tensor> mat1;
-  std::vector<at::Tensor> mat2;
-  // output tensors
-  std::vector<at::Tensor> results;
-  for (int i = 0; i < I; ++i) {
-    mat1.push_back(torch::rand({M, K}, device));
-    mat2.push_back(torch::rand({K, N}, device));
-    if (use_matmul_out) {
-      results.push_back(torch::empty({M, N}, device));
-    }
-  }
+  std::cout << "stream_mode=" << stream_mode << std::endl;
+  std::cout << "compute_mode=" << compute_mode << std::endl;
+  std::cout << "PYTORCH_NO_CUDA_MEMORY_CACHING="
+            << std::getenv("PYTORCH_NO_CUDA_MEMORY_CACHING") << std::endl;
 
   // Streams init
   std::vector<CUDAStream> streams;
-  if (use_stream) {
+  const bool use_streams = stream_mode == StreamMode::PostOnDifferentStreams ||
+      stream_mode == StreamMode::AllocateAndPostOnDifferentStreams;
+  if (use_streams) {
     // Create I CUDA streams
     for (int i = 0; i < I; ++i) {
       streams.push_back(getStreamFromPool(/*isHighPriority=*/false));
     }
   }
 
-  // Matmul execution
+  torch::Device device(torch::kCUDA);
+  // input tensors
+  std::vector<at::Tensor> mat1;
+  std::vector<at::Tensor> mat2;
+  // output tensors
+  std::vector<at::Tensor> unreduced_results;
+  std::vector<at::Tensor> results;
   for (int i = 0; i < I; ++i) {
-    if (use_stream) {
+    if (stream_mode == StreamMode::AllocateAndPostOnDifferentStreams) {
       setCurrentCUDAStream(streams[i]);
     }
-    if (use_matmul_out) {
-      torch::matmul_out(results[i], mat1[i], mat2[i]);
-    } else {
-      results.push_back(torch::matmul(mat1[i], mat2[i]));
+    mat1.push_back(torch::rand({M, K}, device));
+    mat2.push_back(torch::rand({K, N}, device));
+    if (compute_mode == ComputeMode::Unfused) {
+      unreduced_results.push_back(torch::empty({M, K, N}, device));
+    }
+    if (compute_mode == ComputeMode::MatmulOut ||
+        compute_mode == ComputeMode::Unfused) {
+      results.push_back(torch::empty({M, N}, device));
+    }
+  }
+
+  // Matmul execution
+  for (int i = 0; i < I; ++i) {
+    if (use_streams) {
+      setCurrentCUDAStream(streams[i]);
+    }
+    switch (compute_mode) {
+      case ComputeMode::Matmul:
+        results.push_back(torch::matmul(mat1[i], mat2[i]));
+        break;
+      case ComputeMode::MatmulOut:
+        torch::matmul_out(results[i], mat1[i], mat2[i]);
+        break;
+      case ComputeMode::Unfused:
+        at::mul_out(
+            unreduced_results[i], mat1[i].unsqueeze(-1), mat2[i].unsqueeze(-3));
+        at::sum_out(results[i], unreduced_results[i], {-2});
+        break;
+      default:
+        assert(false);
+        break;
     }
   }
 
   // Stream sync
-  if (use_stream) {
+  if (use_streams) {
     for (int i = 0; i < I; ++i) {
       streams[i].synchronize();
     }
@@ -86,7 +190,7 @@ int main(int argc, char* argv[]) {
 
   // "Validation"
   for (int i = 0; i < I; ++i) {
-    assert(results.at(i).numel()>0);
+    assert(results.at(i).numel() > 0);
   }
 
   return 0;
