@@ -11,7 +11,7 @@ LOG2_N_VALUES=(8)
 LOG2_K_VALUES=(8)
 STREAM_MODE_VALUES=("no_streams" "post_on_different_streams" "allocate_and_post_on_different_streams")
 COMPUTE_MODE_VALUES=("matmul" "matmul_out" "unfused")
-DISABLE_MEMORY_CACHE_VALUES=(0 1) # Bool
+ENABLE_MEMORY_CACHE_VALUES=(0 1) # Bool
 
 ./install-nsys.sh
 NSYS=$(sudo which nsys)
@@ -25,9 +25,13 @@ for LOG2_M in "${LOG2_M_VALUES[@]}"; do
         for LOG2_K in "${LOG2_K_VALUES[@]}"; do
             for STREAM_MODE in "${STREAM_MODE_VALUES[@]}"; do
                 for COMPUTE_MODE in "${COMPUTE_MODE_VALUES[@]}"; do
-                    for DISABLE_MEMORY_CACHE in "${DISABLE_MEMORY_CACHE_VALUES[@]}"; do
-                        FILE_NAME="LOG2_M=${LOG2_M}__LOG2_N=${LOG2_N}__LOG2_K=${LOG2_K}__STREAM_MODE=${STREAM_MODE}__COMPUTE_MODE=${COMPUTE_MODE}__DISABLE_MEMORY_CACHE=${DISABLE_MEMORY_CACHE}"
-                        export PYTORCH_NO_CUDA_MEMORY_CACHING=${DISABLE_MEMORY_CACHE}
+                    for ENABLE_MEMORY_CACHE in "${ENABLE_MEMORY_CACHE_VALUES[@]}"; do
+                        FILE_NAME="LOG2_M=${LOG2_M}__LOG2_N=${LOG2_N}__LOG2_K=${LOG2_K}__STREAM_MODE=${STREAM_MODE}__COMPUTE_MODE=${COMPUTE_MODE}__ENABLE_MEMORY_CACHE=${ENABLE_MEMORY_CACHE}"
+                        if [[ "$ENABLE_MEMORY_CACHE" -eq 1 ]]; then
+                            export PYTORCH_NO_CUDA_MEMORY_CACHING=
+                        else
+                            export PYTORCH_NO_CUDA_MEMORY_CACHING=1
+                        fi
                         CMD="${NSYS_CMD}\
                               -o ${OUTPUT_DIRECTORY}/${FILE_NAME}\
                               ${BINARY} ${LOG2_M} ${LOG2_N} ${LOG2_K} ${STREAM_MODE} ${COMPUTE_MODE}"
