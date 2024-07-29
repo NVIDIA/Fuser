@@ -4442,9 +4442,6 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
               is_causal,
               /*return_debug_mask=*/false,
               scale);
-  // TEMP HACK: Need to make certain the seed is replicated across devices
-  // before dropout is called.
-  at::manual_seed(0);
 
   // If the inputs were padded, slice the output to restore the original size
   if (output.sizes()[3] != last_dim_size) {

@@ -172,11 +172,12 @@ bool isResharding(Expr* expr) {
   }
   // we don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
-
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // exit early in the unsharded case for performance
-      return haveDifferentShardings(input, output);
+      if (haveDifferentShardings(input, output)) {
+        return true;
+      }
     }
   }
   return false;
@@ -213,8 +214,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
     // HACK: MLP ATtention test only shards the outermost logical
     // axis is DID parallelized.
-    // TODO: why is there an empty tv?
-    if (!tv->getLogicalDomain().empty() && ref->axis(0)->isDeviceDim()) {
+    if (tv->getLogicalDomain().size() > 0 && ref->axis(0)->isDeviceDim()) {
       tv->axis(0)->parallelize(ParallelType::DIDx);
     }
   }
