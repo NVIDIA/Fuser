@@ -7,8 +7,8 @@
 // clang-format on
 #include <c10/util/irange.h>
 #include <compute_at.h>
+#include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/pass/circular_buffer.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <inlining.h>
@@ -460,6 +460,11 @@ void TensorView::clearComputeWith() {
 
   // compute_with_consumers_ should still be empty
   NVF_ERROR(compute_with_consumers_.empty());
+}
+
+TensorView* TensorView::broadcast(int64_t axis) {
+  domain()->broadcast(axis);
+  return this;
 }
 
 TensorView* TensorView::split(int64_t axis, Val* factor, bool inner_split) {
