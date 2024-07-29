@@ -1540,7 +1540,8 @@ static Val* getMatrixBaseOffset(
     const MmaOp* mma,
     TensorView* producer,
     const std::vector<ForLoop*>& loops,
-    const std::unordered_set<ForLoop*>& rotated_loops) {
+    const std::unordered_set<ForLoop*>& rotated_loops,
+    int64_t inner_size) {
   // TODO:
   const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
   ValGraph& id_graph = indexer.traversalGraph();
@@ -1574,7 +1575,11 @@ static Val* getMatrixBaseOffset(
   // Get index
   auto indices = indexer.getIndexFor(mma, false, {index_group}, loops);
   NVF_ERROR(indices.size() == 1);
-  return maybeCastOp(DataType::UInt, indices.front());
+  int64_t inner_size_as_multiple_of_16B =
+      inner_size * dataTypeSize(producer->dtype) / 16;
+  return SimplifyingIrBuilder::divExpr(
+      maybeCastOp(DataType::UInt, indices.front()),
+      inner_size_as_multiple_of_16B);
 }
 
 static Val* constructMatrixDescriptor(
