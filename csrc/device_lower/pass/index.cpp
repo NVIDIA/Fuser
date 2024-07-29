@@ -1688,9 +1688,8 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
         IrBuilder::create<Val>(stride_bytes, DataType::UInt),
-        getMatrixBaseOffset(mma, tv, for_loops_, rotated_loop_),
-        swizzle,
-        inner_size);
+        getMatrixBaseOffset(mma, tv, for_loops_, rotated_loop_, inner_size),
+        swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
         tv,
         GpuLower::current()->commonScalarMap().hoistScalar(
