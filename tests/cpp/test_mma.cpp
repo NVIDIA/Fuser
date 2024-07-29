@@ -420,13 +420,13 @@ TEST_P(HopperRS, FullSwizzle) {
   auto inner_size = layout == MmaLayout::TT ? getN(macro) : getK(macro);
 
   if (swizzle_size / inner_size <= 1) {
-    // Already tested in SingleTile, not interested in testing it again
-    return;
+    GTEST_SKIP()
+        << "Already tested in SingleTile, not interested in testing it again";
   }
 
   if (swizzle_size % inner_size != 0) {
-    // We will be using swizzle size as CTA tile size, so it must be divisible
-    return;
+    GTEST_SKIP()
+        << "We will be using swizzle size as CTA tile size, so it must be divisible";
   }
 
   // const auto m_axis = 0;
