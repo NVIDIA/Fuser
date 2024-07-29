@@ -29,31 +29,25 @@
 namespace nvfuser {
 
 namespace {
-int64_t D = 1, B = 2, E = 768, H = 12, S = 128;
+constexpr int64_t B = 2, E = 768, H = 12, S = 128;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
 constexpr double kDropoutProb = 0.1, kParamScale = 0.02;
-}
+} // namespace
 
 class DistributedTransformerTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<DataType> {
  protected:
-  DistributedTransformerTest()
-      : optimization_guard_(false), allocation_order_guard_(false) {
-    D = communicator_->size();
-    // Ensure test runs by setting E and H appropriately
-    if ((H % D) != 0) {
-      H = D * 2;
-    }
-    if ((E % D) != 0) {
-      E = D * 64;
-    }
-  }
+  DistributedTransformerTest() : D(communicator_->size()) {}
 
   void SetUp() {
     MultiDeviceTest::SetUp();
+    if (H % D != 0) {
+      GTEST_SKIP()
+          << "Distributed transformer tests require number of devices evenly divide E ";
+    }
     if (!deviceMajorMinorCheck(8)) {
       GTEST_SKIP() << "Distributed transformer tests require Ampere or newer";
     }
@@ -64,15 +58,8 @@ class DistributedTransformerTest
       .skip_auto_scheduling = false,
       .cache_fusion_executor = false};
 
- private:
-  // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
-  // `SdpaFwdOp` currently does not work with ID model since it requires all
-  // sibling outputs to have the same root domain.
-  //  This will be modified in a future PR.
-  preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
-      optimization_guard_;
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      allocation_order_guard_;
+ public:
+  const int64_t D; // number of devices
 };
 
 namespace {
