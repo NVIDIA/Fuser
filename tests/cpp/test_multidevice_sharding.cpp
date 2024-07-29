@@ -20,6 +20,61 @@ class MultideviceShardingTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<std::tuple<bool, int>> {};
 
+TEST_F(MultiDeviceTest, DID_Split) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int num_devices = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  std::vector<int64_t> input_size = {4 * num_devices, 3};
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = set(tv0);
+  TensorView* tv2 = add(tv1, tv1);
+  // TensorView* tv3 = sum(tv2, {sharded_dim});
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+  // fusion->addOutput(tv3);
+
+  std::vector<TensorView*> sharded_tvs = {tv1, tv2};
+  for (auto tv : sharded_tvs) {
+    tv->split(0, num_devices, false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  // tv3->axis(sharded_dim + 1)->parallelize(ParallelType::DIDx);
+
+  std::vector<TensorView*> tvs = {tv0, tv1, tv2};
+  for (auto tv : tvs) {
+    tv->setDeviceMesh(mesh);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  // fusion->printKernel();
+
+  auto x0 = at::randn(input_size, tensor_options);
+  std::vector<c10::IValue> inputs = {x0};
+  std::cout << "Input tensor " << x0.sizes() << " getShardedAxis" << getShardedAxis(tv1) << std::endl;
+  auto x1 = shardTensor(x0, 0, mesh).squeeze(0);
+  std::cout << "Sharded tensor " << x1.sizes() << std::endl;
+  auto x2 = x1 + x1;
+  std::cout << "Input x0 " << x0 << std::endl;
+  std::cout << "Expected x1 " << x1 << std::endl;
+  std::cout << "Expected x2 " << x2 << std::endl;
+
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator_);
+  auto outputs = runtime.runWithInput(inputs);
+  std::cout << "Calculated x1 " << outputs[0] << std::endl;
+  std::cout << "Calculated x2 " << outputs[1] << std::endl;
+  testValidate(
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {x1, x2},
+      __LINE__,
+      __FILE__);
+}
+
 // Test memory allocation of multidevice fusion with unsharded inputs
 // and sharded intermediates, outputs.
 TEST_P(MultideviceShardingTest, UnshardedGlobalInput) {

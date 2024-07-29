@@ -109,21 +109,25 @@ bool isSharded(TensorView* tv) {
   auto ids = TensorDomain::noReductions(tv->getLoopDomain());
   for (auto i : c10::irange(ids.size())) {
     // Only one axis can be sharded on DIDx.
-    NVF_ERROR(
-        !(is_sharded && ids[i]->isDeviceDim()),
-        "Multiple IterDomains parallelized on DIDx in TensorView ",
-        tv->toString());
-
     if (ids[i]->isDeviceDim()) {
       // Currently do not support split/merge on a device dimension.
+      // NVF_ERROR(
+      //     std::find(rids.begin(), rids.end(), ids[i]) != rids.end(),
+      //     "Cannot parallelize DIDx on a split/merge axis ",
+          // ids[i]->toString());
       NVF_ERROR(
-          std::find(rids.begin(), rids.end(), ids[i]) != rids.end(),
-          "Cannot parallelize DIDx on a split/merge axis ",
-          ids[i]->toString());
-      is_sharded = true;
+          !(is_sharded && ids[i]->isDeviceDim()),
+          "Multiple IterDomains parallelized on DIDx in TensorView ",
+          tv->toString());
+        is_sharded = true;
     }
   }
   return is_sharded;
+}
+void print(std::vector<IterDomain*> ids) {
+  for (auto i : ids) {
+    std::cout << i->toString() << " ";
+  }
 }
 
 int64_t numDeviceDims(TensorView* tv) {

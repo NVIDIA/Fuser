@@ -332,16 +332,31 @@ void PrecomputedValues::bindTensorMetaData(
   NVF_ERROR(
       tensor.dim() == static_cast<int64_t>(logical_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
+  const auto alloc_domain =
+    TensorDomain::noReductions(tv->getMaybeAllocationDomain());
 
   for (const auto dim : c10::irange(logical_domain.size())) {
     auto value = tensor.size((int64_t)dim);
-    if (logical_domain[dim]->hasExpandedExtent()) {
-      auto extent = logical_domain[dim]->extent();
+    auto logical_id = logical_domain[dim];
+    auto extent = logical_id->extent();
+    // TODO: Lots of duplication with expr_evaluator::bind. 
+    const auto all_exp = DependencyCheck::getAllExprsBetween(
+        {logical_id, logical_id}, {alloc_domain.begin(), alloc_domain.end()});
+    if (!all_exp.empty()) {
+      for (auto exp : all_exp) {
+        if (auto split = dynamic_cast<Split*>(exp)) {
+          auto out = split->outer();
+          NVF_CHECK(out->isDeviceDim(), "Only support binding a tensor with splits for sharding.")
+          value *= tv->getDeviceMesh().vector().size();
+          bindValue(extent->evaluatorIndex(), value);
+        }
+      }
+    } else if (logical_id->hasExpandedExtent()) {
+      // auto extent = logical_domain[dim]->extent();
       auto expanded_extent = logical_domain[dim]->expandedExtent();
       bindValue(extent->evaluatorIndex(), 1L);
       bindValue(expanded_extent->evaluatorIndex(), value);
     } else {
-      auto extent = logical_domain[dim]->extent();
       bindValue(extent->evaluatorIndex(), value);
     }
   }
