@@ -12,6 +12,8 @@
 #include <ir/interface_nodes.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -563,6 +565,8 @@ TEST_F(PointwiseTest, ShardedPointwise) {
 
 // Repro of issue #657
 TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -608,6 +612,8 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
 
 // Repro of issue #657
 TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
