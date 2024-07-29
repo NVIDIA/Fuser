@@ -1579,7 +1579,7 @@ static Val* getMatrixBaseOffset(
       inner_size * dataTypeSize(producer->dtype()) / 16;
   return SimplifyingIrBuilder::divExpr(
       maybeCastOp(DataType::UInt, indices.front()),
-      inner_size_as_multiple_of_16B);
+      IrBuilder::create<Val>(inner_size_as_multiple_of_16B, DataType::UInt));
 }
 
 static Val* constructMatrixDescriptor(
