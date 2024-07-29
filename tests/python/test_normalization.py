@@ -8,6 +8,7 @@ import pytest
 import torch
 import torch.nn as nn
 
+from nvfuser import FusionDefinition, DataType
 from nvfuser.contrib.nn.normalization import InstanceNorm3dNVFuser
 
 
@@ -172,6 +173,25 @@ def test_instance_norm_multigpu():
     loss = nn.functional.mse_loss(pred, y.float())
     loss.backward()
 
+
+def test_issue_2702():
+    def create_fusion(fd: FusionDefinition) -> None:
+        T4 = fd.define_tensor(shape=[1, -1, -1, -1], contiguity=[None, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 2, 1, 0])
+        T75 = fd.ops.reshape(T4, new_shape=[1, 8, 4, 8192, 128])
+        T90 = fd.ops.cast(T75, dtype=DataType.Float)
+        T91 = fd.ops.sum(T90, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T92 = fd.ops.cast(T91, dtype=DataType.BFloat16)
+        fd.add_output(T92)
+
+    with FusionDefinition() as fd:
+        create_fusion(fd)
+
+    ins = [
+        torch.randn((33554432,), dtype=torch.bfloat16, device='cuda:0').as_strided((1, 32, 8192, 128), (33554432, 1048576, 128, 1)),
+    ]
+    outs = fd.execute(ins)
+
+    torch.testing.assert_close(outs[0], ins[0].view(8, 4, 8192, 128).sum(1))
 
 if __name__ == "__main__":
     pytest.main(["-v", __file__])
