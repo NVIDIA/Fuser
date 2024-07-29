@@ -1021,16 +1021,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
 
-  if (params.use_smem_epilogue) {
-    // TODO: this is no longer needed because we are now using the new swizzle
-    // for the smem epilogue. However, without this, I am seeing some failures
-    // in IdModel. Leaving this as is for now. Will investigate later.
-
-    // Transform mma_result through the epilogue swizzle without actually
-    // swizzling the axes. This is done to enable the domains
-    // are mapped between mma_result and smem_epilogue.
-    auto swizzled_dom = swizzleSharedMemory(mma_result);
-    mma_result->setLoopDomain(swizzled_dom.as<IterDomain*>());
+  if (params.use_smem_epilogue && params.splitk_factor != 1) {
+    // TODO:
+    // This is a workaround for a problem that different dimensions in the loop
+    // domain are mapped in the loop graph of IdModel due to the mapping of
+    // compliment IDs. We should remove forwarding completely, and remove this
+    // workaround.
+    mma_result->split(-2, 2);
+    mma_result->merge(-3);
   }
 
   // Schedule warp tile
