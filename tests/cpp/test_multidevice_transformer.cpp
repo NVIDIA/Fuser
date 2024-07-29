@@ -28,11 +28,13 @@
 
 namespace nvfuser {
 
+namespace {
 int64_t D = 1, B = 2, E = 768, H = 12, S = 128;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
 constexpr double kDropoutProb = 0.1, kParamScale = 0.02;
+}
 
 class DistributedTransformerTest
     : public MultiDeviceTest,
@@ -130,7 +132,6 @@ void validate(
     EXPECT_TRUE(all_close);
   }
 }
-} // namespace
 
 std::vector<at::Tensor> reference_mlp(
     at::Tensor x,
@@ -139,12 +140,11 @@ std::vector<at::Tensor> reference_mlp(
     at::Tensor w1,
     at::Tensor b1,
     at::ScalarType at_dtype) {
-  at::manual_seed(0);
-  auto linear1 = at::matmul(x, w0).add(b0).to(at::kFloat);
-  auto gelu = at::gelu(linear1, "tanh");
-  auto linear2 = at::matmul(gelu.to(at_dtype), w1).add(b1).to(at::kFloat);
-  auto dropout = at::dropout(linear2, kDropoutProb, true);
-  return {linear1, gelu, linear2, dropout};
+  auto linear0 = at::matmul(x, w0).add(b0).to(at::kFloat);
+  auto gelu = at::gelu(linear0, "tanh");
+  auto linear1 = at::matmul(gelu.to(at_dtype), w1).add(b1).to(at::kFloat);
+  auto dropout = at::dropout(linear1, kDropoutProb, true);
+  return {linear0, gelu, linear1, dropout};
 }
 
 std::vector<at::Tensor> reference_mlp_backwards(
@@ -307,11 +307,12 @@ std::vector<TensorView*> mlp_backwards(
       matmul0_grad_x};
   return outputs;
 }
+} // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(D);
 
@@ -342,6 +343,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   auto w1 = at::randn({4 * E, E}, options) * kParamScale;
   auto b1 = at::randn({E}, options) * kParamScale;
 
+  at::manual_seed(getATenRandomSeed());
   std::vector<at::Tensor> reference_outs =
       reference_mlp(x, w0, b0, w1, b1, at_dtype);
 
@@ -358,7 +360,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       reference_outs[2],
       reference_outs[3]};
 
-  at::manual_seed(0);
+  at::manual_seed(getATenRandomSeed());
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
@@ -368,7 +370,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 TEST_P(DistributedTransformerTest, MLP_Backward) {
   auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(D);
 
@@ -421,7 +423,6 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
       shardTensor(outs[5], 0, mesh), // linear0 bias grad
       outs[6]}; // linear0 grad
 
-  at::manual_seed(0);
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
   auto outputs = runtime.runWithInput(inputs);
