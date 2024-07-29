@@ -1125,9 +1125,20 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   // If this is a reduction init expr, then no need to take care of
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
-    for (const PredicateDomainInfo& pred_info :
-         non_divisible_split_predicates) {
-      IterDomain* non_divisible_domain = pred_info.id;
+    for (const auto& [eg, direction] : index_info.traversal_path) {
+      // NOTE: Fundamentally, the problem of non divisiblity should be
+      // checked while traversing the indexng path. Currently, it uses
+      // the information gathered in a tensor-by-tensor basis. This
+      // should be fine currently, but may not work if, e.g., the
+      // indexing path involved both backward and forward traversals.
+      if (!isNonDivisibleSplit(eg)) {
+        continue;
+      }
+
+      NVF_ERROR(eg->front()->isA<Split>());
+      auto split_to_predicate = eg->front()->as<Split>();
+
+      IterDomain* non_divisible_domain = split_to_predicate->in();
 
       PredicateInfo info;
       info.loop_stage_ = loop_stage;
