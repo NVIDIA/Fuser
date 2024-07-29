@@ -516,8 +516,19 @@ TEST_P(HopperRS, FullSwizzle) {
     tv2c->inlineAt(1);
   }
 
-  auto inputs = matmulAtInput3DHopperRS(
-      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+  auto inputs =
+      (layout == MmaLayout::TT ? matmulAtInput3DHopperRS(
+                                     getM(macro),
+                                     swizzle_size,
+                                     getK(macro),
+                                     layout,
+                                     data_type_to_aten(dtype))
+                               : matmulAtInput3DHopperRS(
+                                     getM(macro),
+                                     getN(macro),
+                                     swizzle_size,
+                                     layout,
+                                     data_type_to_aten(dtype)));
 
   FusionExecutor fe;
   fe.compileFusion(
