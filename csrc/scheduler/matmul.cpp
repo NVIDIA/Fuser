@@ -567,9 +567,9 @@ void scheduleProlog(
   mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(shared_mem_tv);
 
   // Swizzle the shared memory data layout
-  auto swizzled_dom = swizzleSharedMemory(shared_mem_tv);
-  shared_mem_tv->setLoopDomain(swizzled_dom.as<IterDomain*>());
-  shared_mem_tv->setHasSwizzleOp();
+  auto swizzled_dom = swizzleSharedMemory<false>(shared_mem_tv);
+  shared_mem_tv->setAllocationDomain(swizzled_dom.as<IterDomain*>(), true);
+  // shared_mem_tv->setHasSwizzleOp();
   // Assuming we are always vectorizing smem write by 128b at the moment:
   //   TODO: would need a data-type and alignment dependent interface
   //    to support non-vectorizable shapes.

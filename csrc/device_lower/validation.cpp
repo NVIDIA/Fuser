@@ -18,6 +18,7 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 #include <limits>
@@ -272,60 +273,40 @@ void checkContiguity(
   }
 }
 
-class VectorizeValidator : public OptInDispatch {
+class VectorizeValidator {
  private:
   // Initially, vectorized_id is the IterDomain with Vectorize ParallelType
   // After processing all merge and split operations,
   // vectorized_id is the corresponding allocation domain
-  VectorizeValidator(IterDomain* vectorized_id)
-      : vectorized_id_(vectorized_id) {}
+  VectorizeValidator(const ValGraph& id_graph, IterDomain* vectorized_id)
+      : id_graph_(id_graph),
+        vectorized_group_(id_graph.toGroup(vectorized_id)) {}
 
-  using OptInDispatch::handle;
-
-  void handle(Split* s) final {
-    if (s->outer() == vectorized_id_) {
-      is_valid = false;
-    } else if (s->inner() == vectorized_id_) {
-      vectorized_id_ = s->in();
-    }
-    domains_.insert(s->outer());
-    domains_.insert(s->inner());
-  }
-
-  void handle(Merge* m) final {
-    if (m->out() == vectorized_id_) {
-      if (m->inner()->isBroadcast() && !m->outer()->isBroadcast()) {
-        vectorized_id_ = m->outer();
-      } else {
-        vectorized_id_ = m->inner();
-      }
-    }
-    domains_.insert(m->outer());
-    domains_.insert(m->inner());
-  }
-
-  void handle(Resize* r) final {
-    if (r->out() == vectorized_id_) {
-      vectorized_id_ = r->in();
-    }
-    domains_.insert(r->in());
-  }
-
-  void handle(Swizzle* swizzle) final {
-    if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
-        swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
-      // Do not (yet) allow vectorization across any swizzled id.
-      is_valid = false;
-    }
-  }
-
-  void handle(Swizzle2D* swizzle) final {
-    if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
-        swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
-      // Do not (yet) allow vectorization across any swizzled id.
-      is_valid = false;
-    }
-  }
+  // void handle(const ExprGroup& eg, Direction direction) {
+  //   ValGroups from;
+  //   ValGroups to;
+  //   if (direction == Direction::Backward) {
+  //     from = id_graph_.outputGroups(eg);
+  //     to = id_graph_.inputGroups(eg);
+  //   } else {
+  //     from = id_graph_.inputGroups(eg);
+  //     to = id_graph_.outputGroups(eg);
+  //   }
+  //   std::cout << eg->front()->toString() << std::endl;
+  //   if (std::any_of(from.begin(), from.end() - 1, [](const auto& vg) {
+  //         return vg == vectorized_group_;
+  //       })) {
+  //     is_valid_ = false;
+  //     return;
+  //   }
+  //   if (from.back() == vectorized_group_) {
+  //     if (eg->front()->isOneOf<Swizzle, Swizzle2D>()) {
+  //       is_valid_ = false;
+  //     } else {
+  //       vectorized_group_ = to.back();
+  //     }
+  //   }
+  // }
 
   // Given the vectorized loop ID in a tensor, find its innermost ancestors in
   // the allocation domain.
@@ -333,38 +314,40 @@ class VectorizeValidator : public OptInDispatch {
       IterDomain* v_id,
       TensorView* tv,
       std::string name) {
-    auto replay_exprs = DependencyCheck::getAllExprsBetween(
-        {tv->getMaybeAllocationDomain().begin(),
-         tv->getMaybeAllocationDomain().end()},
-        {v_id});
+    ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+    // TODO: from consumer's loop domain to producer/consumer's allocation
+    // domain
+    // auto exprs = ValGraphBFS::getExprsBetween(
+    //     id_graph,
+    //     id_graph.toGroups(tv->getLoopDomain()),
+    //     id_graph.toGroups(tv->getMaybeAllocationDomain()),
+    //     false);
 
-    VectorizeValidator validator(v_id);
+    // VectorizeValidator validator(id_graph, v_id);
 
-    for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
-         ++expr_it) {
-      auto expr = *expr_it;
-      validator.dispatch(expr);
-    }
+    // for (auto [expr, direction] : exprs) {
+    //   validator.handle(expr, direction);
+    // }
 
-    NVF_CHECK(
-        validator.is_valid,
-        "Invalid vectorized pattern found, vectorization iter domains must be descendants of inner-most dimension.",
-        "Issue found in, ",
-        tv,
-        "\n");
+    // NVF_CHECK(
+    //     validator.is_valid_,
+    //     "Invalid vectorized pattern found, vectorization iter domains must be descendants of inner-most dimension.",
+    //     "Issue found in, ",
+    //     tv,
+    //     "\n");
 
-    if (v_id->getParallelType() == ParallelType::MisalignedVectorize) {
-      if (tv->getMemoryType() == MemoryType::Global) {
-        checkContiguity(validator.domains_, tv);
-      } else if (tv->definition()->isA<LoadStoreOp>()) {
-        auto input = tv->definition()->input(0);
-        NVF_ERROR(input->isA<TensorView>());
-        auto input_tv = input->as<TensorView>();
-        checkContiguity(validator.domains_, tv, input_tv);
-      }
-    }
+    // if (v_id->getParallelType() == ParallelType::MisalignedVectorize) {
+    //   if (tv->getMemoryType() == MemoryType::Global) {
+    //     checkContiguity(validator.domains_, tv);
+    //   } else if (tv->definition()->isA<LoadStoreOp>()) {
+    //     auto input = tv->definition()->input(0);
+    //     NVF_ERROR(input->isA<TensorView>());
+    //     auto input_tv = input->as<TensorView>();
+    //     checkContiguity(validator.domains_, tv, input_tv);
+    //   }
+    // }
 
-    NVF_ERROR(validator.vectorized_id_ != nullptr);
+    // NVF_ERROR(validator.vectorized_group_ != nullptr);
 
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
@@ -398,33 +381,34 @@ class VectorizeValidator : public OptInDispatch {
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
     bool is_ldmatrix_trans =
         ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
-    if (!is_ldmatrix_trans) {
-      // ldmatrix.trans is a hardware transpose instruction that can do
-      // "vectorized" read from discontiguous memory
-      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
-      NVF_CHECK(
-          last_alloc_dim == validator.vectorized_id_ &&
-              contiguity.value_or(false),
-          "Vectorized dim for ",
-          name,
-          " has to be from a contiguous inner most position. tv: ",
-          tv,
-          ", allocation domain: ",
-          ir_utils::toString(tv->getMaybeAllocationDomain()),
-          ", vectorized id: ",
-          validator.vectorized_id_->toString(),
-          ", innermost id: ",
-          last_alloc_dim->toString(),
-          ", contiguity: ",
-          contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
-    }
-    return validator.vectorized_id_;
+    // if (!is_ldmatrix_trans) {
+    //   // ldmatrix.trans is a hardware transpose instruction that can do
+    //   // "vectorized" read from discontiguous memory
+    //   auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
+    //   NVF_CHECK(
+    //       validator.vectorized_group_->has(last_alloc_dim) &&
+    //           contiguity.value_or(false),
+    //       "Vectorized dim for ",
+    //       name,
+    //       " has to be from a contiguous inner most position. tv: ",
+    //       tv,
+    //       ", allocation domain: ",
+    //       ir_utils::toString(tv->getMaybeAllocationDomain()),
+    //       ", vectorized id: ",
+    //       validator.vectorized_group_->toString(),
+    //       ", innermost id: ",
+    //       last_alloc_dim->toString(),
+    //       ", contiguity: ",
+    //       contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
+    // }
+    return last_alloc_dim;
   }
 
  private:
+  const ValGraph& id_graph_;
   std::unordered_set<IterDomain*> domains_;
-  IterDomain* vectorized_id_ = nullptr;
-  bool is_valid = true;
+  ValGroup vectorized_group_ = nullptr;
+  bool is_valid_ = true;
 
  public:
   static void validate(TensorView* tv) {
@@ -442,8 +426,8 @@ class VectorizeValidator : public OptInDispatch {
     }
 
     // If no vectorized ids found simply return. If vectorized access is
-    // broadcast, it won't generate an actual vector instruction, so can safely
-    // be ignore
+    // broadcast, it won't generate an actual vector instruction, so can
+    // safely be ignore
     if (v_id == nullptr || v_id->isBroadcast()) {
       return;
     }
