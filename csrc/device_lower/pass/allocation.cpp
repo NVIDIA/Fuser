@@ -61,23 +61,12 @@ class AllocationInserter : public kir::ExprMutator {
   // Fills info.buffer, info.alloc_pos, info.init_for_loop,
   // info.init_place_before, info.alloc_for_loop, info.alloc_place_before
   void fillAllocationInformation(AllocationInformation& info, Expr* expr) {
-    std::cout << "fillAllocationInformation for " << expr->toString()
-              << std::endl;
     auto loop_alloc_info =
         lower_utils::getAllocInformation(info.buffer, for_loops_);
 
     info.init_for_loop = loop_alloc_info.init_for_loop;
     info.alloc_for_loop = loop_alloc_info.alloc_for_loop;
     info.alloc_pos = loop_alloc_info.alloc_pos;
-    std::cout << "init_for_loop:\n"
-              << (info.init_for_loop ? info.init_for_loop->toString()
-                                     : "nullptr")
-              << std::endl;
-    std::cout << "alloc_for_loop:\n"
-              << (info.alloc_for_loop ? info.alloc_for_loop->toString()
-                                      : "nullptr")
-              << std::endl;
-    std::cout << "alloc_pos: " << info.alloc_pos << std::endl;
 
     auto next_fl = [](ForLoop* fl, const std::vector<ForLoop*> fls) {
       for (auto i : c10::irange(fls.size())) {
@@ -278,8 +267,6 @@ class AllocationInserter : public kir::ExprMutator {
       ExprMutator::dispatch(expr);
       return;
     }
-
-    std::cout << expr->toString() << std::endl;
 
     // Found where the allocation needs to be inserted
 

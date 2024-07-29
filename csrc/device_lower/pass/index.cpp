@@ -16,6 +16,7 @@
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include <val_graph_visitor.h>
 
 #include <device_lower/pass/index.h>
 
@@ -1535,6 +1536,47 @@ static Val* matrixDescriptorEncode(Val* x) {
   return IrBuilder::rShiftExpr(x_and, shift);
 }
 
+static Val* getMatrixBaseOffset(
+    const MmaOp* mma,
+    TensorView* producer,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops) {
+  // TODO:
+  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+  ValGraph& id_graph = indexer.traversalGraph();
+
+  // Find the ValGroup to index.
+  // The ValGroup to index is the inner input of swizzle op.
+  auto exprs = ValGraphBFS::getExprsBetween(
+      id_graph,
+      id_graph.toGroups(producer->getLogicalDomain()),
+      id_graph.toGroups(producer->getAllocationDomain()));
+  ExprGroup swizzle = nullptr;
+  Direction dir = Direction::Undefined;
+  for (auto [eg, direction] : exprs) {
+    if (eg->front()->isA<Swizzle>()) {
+      NVF_ERROR(
+          swizzle == nullptr,
+          "Unable to infer matrix base offset for MMA input: ",
+          "expect only one swizzle expression between the logical and allocation domain of MMA input");
+      swizzle = eg;
+      dir = direction;
+    }
+  }
+  if (swizzle == nullptr) {
+    return IrBuilder::create<Val>(0, DataType::UInt);
+  }
+  auto from =
+      (dir == Direction::Forward ? id_graph.inputGroups(swizzle)
+                                 : id_graph.outputGroups(swizzle));
+  auto index_group = from.back();
+
+  // Get index
+  auto indices = indexer.getIndexFor(mma, false, {index_group}, loops);
+  NVF_ERROR(indices.size() == 1);
+  return maybeCastOp(DataType::UInt, indices.front());
+}
+
 static Val* constructMatrixDescriptor(
     Val* start_address,
     Val* leading_dim_byte_offset,
@@ -1641,7 +1683,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
         IrBuilder::create<Val>(stride_bytes, DataType::UInt),
-        IrBuilder::create<Val>(0, DataType::UInt),
+        getMatrixBaseOffset(mma, tv, for_loops_, rotated_loop_),
         swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
         tv,
