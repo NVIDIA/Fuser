@@ -1116,7 +1116,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
   //                              iNw iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
   {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(mma_result->getLoopDomain());
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        mma_result->getLoopDomain());
     mma_result->setLoopDomain(s.as<IterDomain*>());
     mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
   }
