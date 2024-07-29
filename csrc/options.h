@@ -91,6 +91,7 @@ enum class DebugDumpOption {
 //!
 enum class EnableOption {
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
+  FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
   IdModel, //! Enable IdModel
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling

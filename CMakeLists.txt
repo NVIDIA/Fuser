@@ -78,6 +78,7 @@ endif()
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/abstract_tensor.cpp
+  ${NVFUSER_SRCS_DIR}/abstract_tensor_schedule.cpp
   ${NVFUSER_SRCS_DIR}/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/codegen.cpp
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
@@ -203,6 +204,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/multi_matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
