@@ -1576,7 +1576,7 @@ static Val* getMatrixBaseOffset(
   auto indices = indexer.getIndexFor(mma, false, {index_group}, loops);
   NVF_ERROR(indices.size() == 1);
   int64_t inner_size_as_multiple_of_16B =
-      inner_size * dataTypeSize(producer->dtype) / 16;
+      inner_size * dataTypeSize(producer->dtype()) / 16;
   return SimplifyingIrBuilder::divExpr(
       maybeCastOp(DataType::UInt, indices.front()),
       inner_size_as_multiple_of_16B);
