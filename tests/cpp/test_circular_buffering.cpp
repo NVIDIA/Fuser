@@ -821,6 +821,51 @@ class TmaCircularBufferingTest
     NVF_ERROR(tensor_inner_dim % 16 == 0);
     NVFuserTest::SetUp();
   }
+
+  template <typename data_type>
+  void compare(int64_t tensor_dim, at::Tensor result, at::Tensor reference) {
+    at::Tensor reference_cpu_data = reference.cpu();
+    at::Tensor result_cpu_data = result.cpu();
+
+    auto reference_cpu = reference_cpu_data.accessor<data_type, 1>();
+    auto result_cpu = result_cpu_data.accessor<data_type, 1>();
+
+    constexpr double tolerance = 1e-5;
+    for (int64_t pos = 0; pos < tensor_dim; ++pos) {
+      if (fabs((double)result_cpu[pos] - (double)reference_cpu[pos]) >
+          tolerance) {
+        std::cout << "[" << pos << "] - result: " << result_cpu[pos]
+                  << " | reference: " << reference_cpu[pos] << std::endl;
+      }
+    }
+  }
+
+  template <typename data_type>
+  void compare(
+      int64_t tensor_outer_dim,
+      int64_t tensor_inner_dim,
+      at::Tensor result,
+      at::Tensor reference) {
+    at::Tensor reference_cpu_data = reference.cpu();
+    at::Tensor result_cpu_data = result.cpu();
+
+    auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
+    auto result_cpu = result_cpu_data.accessor<data_type, 2>();
+
+    constexpr double tolerance = 1e-5;
+    for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
+      for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+        if (fabs(
+                (double)reference_cpu[out_pos][in_pos] -
+                (double)result_cpu[out_pos][in_pos]) > tolerance) {
+          std::cout << "[" << out_pos << ", " << in_pos
+                    << "] - result: " << result_cpu[out_pos][in_pos]
+                    << " | ref: " << reference_cpu[out_pos][in_pos]
+                    << std::endl;
+        }
+      }
+    }
+  }
 };
 
 TEST_P(TmaCircularBufferingTest, SingleDim) {
@@ -1025,13 +1070,14 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   tv2->circularBuffer(number_of_stages);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t0 = at::ones({tensor_outer_dim, tensor_inner_dim}, options);
   at::Tensor t1 = at::exp(t0);
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0});
 
   std::vector<at::Tensor> cg_outputs = fe.runFusion({t0});
+  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
