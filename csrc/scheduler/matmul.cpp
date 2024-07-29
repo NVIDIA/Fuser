@@ -1007,7 +1007,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // domain are mapped in the loop graph of IdModel due to the mapping of
     // compliment IDs. We should remove forwarding completely, and remove this
     // workaround.
-    mma_result->split(-2, 2);
+    mma_result->split(-2, 1);
     mma_result->merge(-3);
   }
 
