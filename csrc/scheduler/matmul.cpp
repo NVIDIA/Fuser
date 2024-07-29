@@ -1115,7 +1115,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // After
   //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
   //                              iNw iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
-  mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(mma_result->getLoopDomain());
+    mma_result->setLoopDomain(s.as<IterDomain*>());
+    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
 
   // Set parallelization:
   //   TODO: this section goes to a separate matmul util,
@@ -1126,7 +1130,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     //  -5  -4   -3   -2   -1
     //[8mi, 4k, 2ko, 2mo, 2ki]
     acr->setAllocationDomain(acr->getLoopDomain(), true);
-    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
+    mma_utils::MmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
     ab->merge(-5);
     ab->axis(-4)->parallelize(ParallelType::TIDx);
     propagate_mma_input_schedule_to(acr, nullptr);
@@ -1135,7 +1139,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     //   -5  -4   -3   -2   -1
     // [8ni, 4k, 2ko, 1no, 2ki]
     bcr->setAllocationDomain(bcr->getLoopDomain(), true);
-    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
+    mma_utils::MmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
     bb->merge(-5);
     bb->axis(-4)->parallelize(ParallelType::TIDx);
     propagate_mma_input_schedule_to(nullptr, bcr);
