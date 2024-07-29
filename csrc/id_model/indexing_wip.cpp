@@ -247,12 +247,15 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
   // If this is a reduction init expr, then no need to take care of
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
-    // for (const auto& [eg, direction] :
-    // non_divisible_split_predicates) {
-    for (const PredicateDomainInfo& pred_info :
-         non_divisible_split_predicates) {
-      IterDomain* non_divisible_domain = pred_info.id;
+    for (const auto& [eg, direction] : index_info.traversal_path) {
+      if (!isNonDivisibleSplit(eg)) {
+        continue;
+      }
 
+      NVF_ERROR(eg->front()->isA<Split>());
+      auto split_to_predicate = eg->front()->as<Split>();
+
+      IterDomain* non_divisible_domain = split_to_predicate->in();
       VERBOSE() << "Non-divisible predicate: "
                 << non_divisible_domain->toString() << std::endl;
 
@@ -279,6 +282,35 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
 
       info_vec.emplace_back(info);
     }
+  }
+
+  // PredicateInfo.predicated_domains_ are assumed to be
+  // domains of the consumer tensor of the predicated expr. For
+  // example, UnswitchPredicateKey won't work otherwise since it does
+  // getAllValsBetween with the predicated_domains and the
+  // parallelized consumer loop domains. Replace all
+  // predicated_domains with corresponding domains of the consumer
+  // tensor. Another way to remove this
+  // assumption would be updating UnswitchPredicateKey to work with
+  // the ValGroup representation.
+  const auto all_ids = tv->domain()->allIDs();
+  for (auto& info : info_vec) {
+    std::unordered_set<IterDomain*> tv_predicated_domains;
+    for (auto& predicated_domain : info.predicated_domains_) {
+      // Use the corresponding domain of the consumer tensor
+      auto it = std::find_if(all_ids.begin(), all_ids.end(), [&](auto id) {
+        return traversalGraph().disjointValSets().strictAreMapped(
+            id, predicated_domain);
+      });
+      NVF_ERROR(
+          it != all_ids.end(),
+          "No corresponding domain of tensor ",
+          tv->toString(),
+          " found for a predicated domain of ",
+          predicated_domain->toString());
+      tv_predicated_domains.insert(*it);
+    }
+    info.predicated_domains_ = tv_predicated_domains;
   }
 
   return info_vec;
