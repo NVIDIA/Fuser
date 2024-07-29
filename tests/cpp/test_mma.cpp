@@ -500,9 +500,11 @@ TEST_P(HopperRS, FullSwizzle) {
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
   }
+
+  tv2->split(-1, inner_size);
+  tv2->reorder({{-2, 0}});
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2->getLoopDomain());
@@ -510,6 +512,7 @@ TEST_P(HopperRS, FullSwizzle) {
   }
 
   tv0->inlineAt(1);
+  tv2c->inlineAt(1);
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
