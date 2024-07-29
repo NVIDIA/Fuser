@@ -88,6 +88,7 @@ def groupnorm_fwd(inputs: list):  # [in_tensor, weights, bias, n_groups]
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_groupnorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -121,6 +122,7 @@ def test_groupnorm_fwd_nvf_benchmark(
 @pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_groupnorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,

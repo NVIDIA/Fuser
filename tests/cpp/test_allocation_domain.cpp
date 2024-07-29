@@ -7,9 +7,7 @@
 // clang-format on
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/optimization_pass.h>
-#include <preseg_passes/pre_segmenter.h>
+
 #include <executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -1436,45 +1434,6 @@ TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {
       tv1->getAllocationDomain(), ElementsAre(alloc_copy[0], alloc_copy[2]));
   EXPECT_THAT(
       tv1->getContiguity(), ElementsAre(contig_copy[0], contig_copy[2]));
-}
-
-TEST_F(AllocationDomainTest, PlayGround) {
-  // preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass> guard(false);
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const int64_t dim0 = 2048;
-  const int64_t dim1 = 4096;
-  TensorView* in = makeContigConcreteTensor({dim0, dim1});
-  in->setAllocationDomain(
-      {in->axis(1), in->axis(0)}, true);
-  TensorView* sum_out = sum(in, {1});
-  fusion->addInput(in);
-  fusion->addOutput(sum_out);
-  FusionExecutorCache fec(std::move(fusion));
-  at::Tensor in_tensor =
-      at::randn({dim0 * dim1}) 
-          .cuda()
-          .as_strided({dim0, dim1}, {1, dim0});
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
-}
-
-TEST_F(AllocationDomainTest, PlayGround_ref) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass> guard(false);
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  TensorView* in = makeContigConcreteTensor({1024*36, 16*1024});
-  TensorView* sum_out = sum(in, {0});
-  fusion->addInput(in);
-  fusion->addOutput(sum_out);
-  FusionExecutorCache fec(std::move(fusion));
-  at::Tensor in_tensor =
-      at::randn({16 * 1024 * 1024 * 36}) 
-          .cuda()
-          .as_strided({1024 * 36, 16 * 1024}, {1024*16, 1}); 
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
-  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
