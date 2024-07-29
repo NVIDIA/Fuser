@@ -1481,7 +1481,7 @@ static DataType getMmaInputBType(MmaMacro macro) {
 
 static inline DataType getMmaOutType(TensorView* mma_out) {
   int64_t size = 1;
-  for (auto id : mma_out->getLoopDomain()) {
+  for (auto id : mma_out->getAllocationDomain()) {
     if (id->isMma() && !id->isReduction()) {
       size *= id->extent()->evaluate().as<int64_t>();
     }
