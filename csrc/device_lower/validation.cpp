@@ -314,7 +314,7 @@ class VectorizeValidator {
       IterDomain* v_id,
       TensorView* tv,
       std::string name) {
-    ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+    const ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
     // TODO: from consumer's loop domain to producer/consumer's allocation
     // domain
     // auto exprs = ValGraphBFS::getExprsBetween(
