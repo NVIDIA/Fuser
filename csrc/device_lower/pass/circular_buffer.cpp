@@ -398,17 +398,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
     NVF_ERROR(!cloned_scopes_.empty());
 
-    TensorView* out_tv = ir_utils::getTvOutput(expr);
-
-    bool is_circular_buffer_load_expr = std::any_of(
-        circular_buffer_load_exprs_.begin(),
-        circular_buffer_load_exprs_.end(),
-        [out_tv](Expr* load_expr) {
-          TensorView* circular_buffer_tv = ir_utils::getTvOutput(load_expr);
-          NVF_ERROR(circular_buffer_tv != nullptr);
-          return out_tv == circular_buffer_tv;
-        });
-
     // This expr is a part of cpAsyncBulk synchronization process. It was
     // added earlier to satisfy checks in other passes. It was already handled
     // already, so it will not be pushed to the new scope. cpAsyncBulk exprs
@@ -437,6 +426,15 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         }
 
         // Skip expr if it is not circular buffer expression
+        TensorView* out_tv = ir_utils::getTvOutput(expr);
+        bool is_circular_buffer_load_expr = std::any_of(
+            circular_buffer_load_exprs_.begin(),
+            circular_buffer_load_exprs_.end(),
+            [out_tv](Expr* load_expr) {
+              TensorView* circular_buffer_tv = ir_utils::getTvOutput(load_expr);
+              NVF_ERROR(circular_buffer_tv != nullptr);
+              return out_tv == circular_buffer_tv;
+            });
         if (!is_circular_buffer_load_expr) {
           break;
         }
@@ -640,6 +638,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
             cloned_top_level_loop_->index(),
             IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
 
+        // If last cloned scope is the cloned_top_level_loop body, then add
+        // mbarrier::wait
         int64_t active_for_loops = std::count_if(
             for_loop_id_stack_.begin(),
             for_loop_id_stack_.end(),
@@ -652,6 +652,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
           break;
         }
 
+        // Otherwise, we are in a nested for-loop and should wait until we
+        // return to top-level for loop.
         NVF_ERROR(
             mbarrier_wait_ == nullptr,
             "Expected mbarrier_wait to inactive for current TMA operation");
