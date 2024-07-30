@@ -498,6 +498,7 @@ TEST_P(HopperRS, FullSwizzle) {
   }
 
   {
+    std::cout << tv2c->toString() << std::endl;
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -505,9 +506,12 @@ TEST_P(HopperRS, FullSwizzle) {
   tv2c->broadcast(1, 128);
   tv2c->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2->split(-1, inner_size);
-  tv2->reorder({{-2, 0}});
+  if (layout == MmaLayout::TT) {
+    tv2->split(-1, inner_size);
+    tv2->reorder({{-2, 0}});
+  }
   {
+    std::cout << tv2c->toString() << std::endl;
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2->getLoopDomain());
     tv2->setLoopDomain(s.as<IterDomain*>());
