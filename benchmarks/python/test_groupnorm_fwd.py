@@ -104,6 +104,8 @@ def test_groupnorm_fwd_nvf_benchmark(
     weight = torch.randn(C, device="cuda", dtype=dtype)
     bias = torch.randn(C, device="cuda", dtype=dtype)
     # start num_groups from 1 and increase to 32 at max
+    # 32 is a widely used value for num_groups
+    # it doesn't make sense to use num_groups > C
     num_groups = 1
     while num_groups * 2 <= 32 and C % (num_groups * 2) == 0:
         num_groups *= 2
