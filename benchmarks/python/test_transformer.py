@@ -2,39 +2,41 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-# This file micro-benchmarks the forward pass and the backprop of a Transformer
-# block used in GPT-3. The nvFusions are dumped from Thunder. To regenerate
-# the nvFusions and the inputs, run the following:
-#
-# 1. `git clone https://github.com/Lightning-AI/lightning-thunder.git`
-#
-# 2. `git fetch origin wjy/sharded`
-#
-# 3. `git checkout wjy/sharded`
-# This branch adds the GPT-3 block benchmark and turns on certain knobs so the
-# entire Transformer block fits into one nvFusion.
-#
-# 4. Apply the following patch
-# ```
-# diff --git a/nvfuser/__init__.py b/nvfuser/__init__.py
-# index 8be5df3d..69bcf450 100644
-# --- a/nvfuser/__init__.py
-# +++ b/nvfuser/__init__.py
-# @@ -214,8 +214,8 @@ class FusionDefinition(_C._FusionDefinition):
-#                  capture_debug_output=capture_debug_output,
-#                  profile=profile,
-#              )
-# +            print(self.getReproErrorString("executing", inputs))
-#          except Exception as err:
-# -            logger.exception(self.getReproErrorString("executing", inputs))
-#              raise
-#
-#          return result
-# ```
-#
-# 5. `pytest thunder/benchmarks/targets.py -k 'nanogpt_block and backward-thunder]' -s`
-# In stdout, you'll find the forward nvFusion executed once followed by the
-# backward nvFusion executed many times.
+"""
+This file micro-benchmarks the forward pass and the backprop of a Transformer
+block used in GPT-3. The nvFusions are dumped from Thunder. To regenerate
+the nvFusions and the inputs, run the following:
+
+1. `git clone https://github.com/Lightning-AI/lightning-thunder.git`
+
+2. `git fetch origin wjy/sharded`
+
+3. `git checkout wjy/sharded`
+This branch adds the GPT-3 block benchmark and turns on certain knobs so the
+entire Transformer block fits into one nvFusion.
+
+4. Apply the following patch
+```
+diff --git a/nvfuser/__init__.py b/nvfuser/__init__.py
+index 8be5df3d..69bcf450 100644
+--- a/nvfuser/__init__.py
++++ b/nvfuser/__init__.py
+@@ -214,8 +214,8 @@ class FusionDefinition(_C._FusionDefinition):
+                 capture_debug_output=capture_debug_output,
+                 profile=profile,
+             )
++            print(self.getReproErrorString("executing", inputs))
+         except Exception as err:
+-            logger.exception(self.getReproErrorString("executing", inputs))
+             raise
+
+         return result
+```
+
+5. `pytest thunder/benchmarks/targets.py -k 'test_nanogpt_block[backward-thunder]' -s`
+In stdout, you'll find the forward nvFusion executed once followed by the
+backward nvFusion executed many times.
+"""
 
 from nvfuser import FusionDefinition, DataType
 from .core import run_benchmark, clear_cuda_cache
