@@ -210,8 +210,38 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     if (use_set_allocation_domain) {
-      allocation_domains = tv->getAllocationDomain();
-      contiguity = tv->domain()->contiguity();
+      if (tv->getMemoryType() == MemoryType::Global) {
+        // For global memory tensors we always allocate the entire tensor
+        // TODO: do we really want to treat global memory tensors differently?
+        // need to think about this more.
+        allocation_domains = tv->getAllocationDomain();
+        contiguity = tv->domain()->contiguity();
+      } else {
+        std::unordered_set<IterDomain*> exclude_ids;
+        for (auto i : c10::irange(tv->getComputeAtPosition())) {
+          auto ca_id = tv->axis(i);
+          if (!ir_utils::isMemorySharedAcross(
+                  tv->getMemoryType(), ca_id->getParallelType())) {
+            exclude_ids.insert(ca_id);
+          }
+        }
+        for (auto i : c10::irange(tv->getAllocationDomain().size())) {
+          auto id = tv->getAllocationDomain()[i];
+          if (exclude_ids.find(id) == exclude_ids.end()) {
+            allocation_domains.push_back(id);
+            contiguity.push_back(tv->domain()->contiguity()[i]);
+          } else {
+            exclude_ids.erase(id);
+          }
+        }
+        NVF_ERROR(
+            exclude_ids.empty(),
+            "The non-allocating compute-at IDs are not found in the allocation domain. ",
+            "It is unclear how to allocate the tensor: ",
+            tv->toString(),
+            " allocation domain: ",
+            ir_utils::toString(tv->getAllocationDomain()));
+      }
     } else {
       // If allocation domain is not set, assume that:
       // - Global: logical domains
@@ -1028,6 +1058,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           for_loops,
           index_map,
           traversalGraph(),
+          index_info.traversal_path,
           id_model_,
           /*is_start_predicate=*/true,
           /*unswitched_loop=*/unswitched_loop);
@@ -1038,9 +1069,16 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           for_loops,
           index_map,
           traversalGraph(),
+          index_info.traversal_path,
           id_model_,
           /*is_start_predicate=*/false,
           /*unswitched_loop=*/unswitched_loop);
+
+  const std::vector<PredicateDomainInfo> non_divisible_split_predicates =
+      getNonDivisibleConsumerDomainsToPredicate(tv);
+
+  const CircularBufferLoopStage loop_stage = getCircularBufferLoopStage(
+      tv, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
   std::vector<PredicateInfo> info_vec;
   info_vec.reserve(predicate_domains.size());
@@ -1069,6 +1107,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     NVF_ERROR(!predicate_domain->maybePartial());
     info.start_offset_ = tv->fusion()->zeroVal();
     info.stop_offset_ = tv->fusion()->zeroVal();
+    info.loop_stage_ = loop_stage;
 
     info.start_predicate_ = SimplifyingIrBuilder::geExpr(
         SimplifyingIrBuilder::addExpr(start_idx, info.start_offset_), zero_val);
@@ -1080,6 +1119,39 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     info.predicated_domains_ = {predicate_domain};
 
     info_vec.emplace_back(info);
+  }
+
+  // Add predicates for non-divisible splits.
+  // If this is a reduction init expr, then no need to take care of
+  // non divisible splits
+  if (!lower_utils::isReductionInitExpr(expr)) {
+    for (const PredicateDomainInfo& pred_info :
+         non_divisible_split_predicates) {
+      IterDomain* non_divisible_domain = pred_info.id;
+
+      PredicateInfo info;
+      info.loop_stage_ = loop_stage;
+      // The start predicate should always be true
+      info.start_offset_ = zero_val;
+      info.start_predicate_ = non_divisible_domain->fusion()->trueVal();
+
+      info.stop_offset_ = zero_val;
+
+      auto idx_it =
+          index_map.find(traversalGraph().toGroup(non_divisible_domain));
+      NVF_ERROR(
+          idx_it != index_map.end(),
+          "Index not found for non-divisible split domain: ",
+          non_divisible_domain->toString());
+
+      auto idx =
+          ir_utils::replaceValRecursively(idx_it->second, replacement_map_stop);
+      info.stop_predicate_ =
+          SimplifyingIrBuilder::ltExpr(idx, non_divisible_domain->extent());
+      info.predicated_domains_ = {non_divisible_domain};
+
+      info_vec.emplace_back(info);
+    }
   }
 
   return info_vec;
