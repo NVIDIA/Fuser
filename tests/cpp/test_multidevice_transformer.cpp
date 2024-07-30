@@ -164,14 +164,13 @@ std::vector<at::Tensor> reference_mha(
     qkv_vec[i] =
         qkv_vec[i].reshape({B, S, H, E / H}).transpose(2, 1).to(at_dtype);
   }
-  at::manual_seed(0);
   auto sdpa_out = at::_scaled_dot_product_flash_attention(
       qkv_vec[0], qkv_vec[1], qkv_vec[2], kSdpaProb, true, false, kSdpaScale);
   auto sdpa = std::get<0>(sdpa_out);
   // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
   auto y = sdpa.transpose(1, 2).reshape({B * S, E});
   auto y_proj = at::matmul(y, w1).add(b1);
-  at::manual_seed(0);
+  // at::manual_seed(0);
   auto y_dropout = at::dropout(y_proj.to(at::kFloat), kDropoutProb, true);
   return {m, sdpa, y_proj, y_dropout};
 }
@@ -491,8 +490,8 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   auto w1 = at::randn({E, E}, options) * kParamScale;
   auto b1 = at::randn({E}, options) * kParamScale;
 
+  at::manual_seed(0);
   auto reference_outs = reference_mha(x, w0, b0, w1, b1, at_dtype);
-
   std::vector<c10::IValue> inputs = {
       x,
       shardTensor(w0.view({E, 3, E}), 2, mesh)
@@ -612,18 +611,18 @@ TEST_P(DistributedTransformerTest, Forward) {
   auto ln_1 = layer_norm(x, norm_shape, nullptr, nullptr, eps_ptr);
   auto mha_in = castOp(dtype, ln_1.output);
   auto mha_out =
-      mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, fusion.get(), mesh, dtype);
-  auto resid_1 = add(x, mha_out[3]);
+      mha(mha_in, mha_w0, mha_b0, mha_w1, mha_b1, fusion.get(), mesh, dtype)[3];
+  auto resid_1 = add(x, mha_out);
   auto ln_2 = layer_norm(resid_1, norm_shape, nullptr, nullptr, eps_ptr);
   auto mlp_in = castOp(dtype, ln_2.output);
   auto mlp_out =
-      mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, fusion.get(), mesh, dtype);
-  auto resid_2 = add(mha_out[3], mlp_out[3]);
+      mlp(mlp_in, mlp_w0, mlp_b0, mlp_w1, mlp_b1, fusion.get(), mesh, dtype)[3];
+  auto resid_2 = add(mha_out, mlp_out);
 
   fusion->addOutput(ln_1.output);
-  fusion->addOutput(mha_out[3]);
+  fusion->addOutput(mha_out);
   fusion->addOutput(ln_2.output);
-  fusion->addOutput(mlp_out[3]);
+  fusion->addOutput(mlp_out);
   fusion->addOutput(resid_2);
 
   for (auto tv : {x, ln_1.output, ln_2.output, resid_2}) {
@@ -643,21 +642,22 @@ TEST_P(DistributedTransformerTest, Forward) {
   auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
   auto mlp_b1_ = at::randn({E}, options) * kParamScale;
 
+  at::manual_seed(0);
   auto at_weight = c10::optional<at::Tensor>();
   auto at_bias = c10::optional<at::Tensor>();
   auto ln_1_ = at::native_layer_norm(x_, norm_shape, at_weight, at_bias, kEps);
   auto ln_1_out_ = std::get<0>(ln_1_).to(at_dtype);
 
   auto mha_out_ =
-      reference_mha(ln_1_out_, mha_w0_, mha_b0_, mha_w1_, mha_b1_, at_dtype);
-  auto resid1_ = mha_out_[3] + x_;
+      reference_mha(ln_1_out_, mha_w0_, mha_b0_, mha_w1_, mha_b1_, at_dtype)[3];
+  auto resid1_ = mha_out_ + x_;
   auto ln_2_ =
       at::native_layer_norm(resid1_, norm_shape, at_weight, at_bias, kEps);
   auto ln_2_out_ = std::get<0>(ln_2_).to(at_dtype);
 
   auto mlp_out_ =
-      reference_mlp(ln_2_out_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_, at_dtype);
-  auto at_out = mha_out_[3] + mlp_out_[3];
+      reference_mlp(ln_2_out_, mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_, at_dtype)[3];
+  auto at_out = mha_out_ + mlp_out_;
 
   std::vector<c10::IValue> inputs = {
       x_,
@@ -675,7 +675,7 @@ TEST_P(DistributedTransformerTest, Forward) {
       mlp_b1_};
 
   std::vector<at::Tensor> expected_outputs = {
-      ln_1_out_, mha_out_[3], ln_2_out_, mlp_out_[3], at_out};
+      ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
 
   at::manual_seed(0);
   MultiDeviceExecutor runtime(
