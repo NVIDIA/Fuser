@@ -548,7 +548,7 @@ TEST_P(HopperRS, FullSwizzle) {
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
       layout);
-  std::cout << "ref:\n" << ref << std::endl << std::endl;
+  std::cout << "ref:\n" << tref << std::endl << std::endl;
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
