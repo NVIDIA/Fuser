@@ -773,30 +773,22 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   Val* current_load_stage_ = nullptr;
 };
 
-// This helper function gathers the shared mem allocations for tokens and
+// This visitor class gathers the shared memory allocations for tokens and
 // mbarrier objects.
 class GatherMBarrierAllocations : public kir::IrVisitor {
  public:
-  static std::vector<Expr*> create(
-      ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& circular_buffer_load_exprs) {
-    GatherMBarrierAllocations creator(
-        circular_buffer_loop, circular_buffer_load_exprs);
-    creator.run();
-    return creator.new_exprs_;
+  static std::vector<Expr*> create(ForLoop* circular_buffer_loop) {
+    return GatherMBarrierAllocations().run(circular_buffer_loop);
   }
 
  private:
-  GatherMBarrierAllocations(
-      ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& circular_buffer_load_exprs)
-      : circular_buffer_loop_(circular_buffer_loop),
-        circular_buffer_load_exprs_(circular_buffer_load_exprs) {}
+  GatherMBarrierAllocations() {}
 
   using kir::IrVisitor::handle;
 
-  void run() {
-    handle(circular_buffer_loop_);
+  std::vector<Expr*> run(ForLoop* circular_buffer_loop) {
+    handle(circular_buffer_loop);
+    return new_exprs_;
   }
 
   void handle(ForLoop* fl) final {
@@ -834,8 +826,6 @@ class GatherMBarrierAllocations : public kir::IrVisitor {
   }
 
  private:
-  ForLoop* circular_buffer_loop_ = nullptr;
-  const std::vector<Expr*>& circular_buffer_load_exprs_;
   std::vector<Expr*> new_exprs_;
 };
 
@@ -865,10 +855,10 @@ ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
   return loop;
 }
 
-// CpAsyncBulkHelper creates the pre-prologue and post-epilogue for loops.
+// This helper function creates the pre-prologue and post-epilogue for loops.
 //
 // The pre-prologue for loop moves the allocation of mbarriers and its tokens
-// outside of the main loop
+// outside of the main loop.
 //
 // Expected result:
 //   Allocate mbarriers and tokens in shared memory
@@ -1131,7 +1121,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     // - Allocate shared memory for mbarriers and mbarrier tokens
     // - Initialize mbarrier for all stages
     std::vector<Expr*> smem_allocations =
-        GatherMBarrierAllocations::create(circular_buffer_loop, loads);
+        GatherMBarrierAllocations::create(circular_buffer_loop);
     for (Expr* expr : smem_allocations) {
       registerInsertBefore(circular_buffer_loop, expr);
     }
