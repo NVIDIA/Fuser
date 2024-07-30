@@ -113,7 +113,10 @@ void OptOutMutator::mutate(IterDomain* id) {
   // is one output of a Split operation and the other output is unmodified,
   // then we must avoid replacing only one of the outputs with a new IterDomain
   // with no definition. See https://github.com/NVIDIA/Fuser/issues/2671 for an
-  // example of this happening.
+  // example of this happening. In that case T1.size(0) / 32 in Outer split:
+  // T1.size(0) by factor 32 -> 32, T1.size(0) / 32 is replaced by T4.size(1).
+  // The replacement only affects one output of Split, leading to the error
+  // described above.
   if (Expr* def = id->definition()) {
     mutateExprOutputsOnly(def);
   }
