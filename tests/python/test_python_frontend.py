@@ -4480,6 +4480,7 @@ class TestNvFuserFrontend(TestCase):
         ]
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
     def test_sdpa_fwd(self):
         def fusion_default_dropout(fd: FusionDefinition):
             q = fd.define_tensor(
