@@ -781,36 +781,31 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
  public:
   static std::vector<Expr*> create(
       ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& circular_buffer_load_exprs) {
+      const std::vector<Expr*>& circular_buffer_load_exprs,
+      bool is_pre_prologue = true) {
     CpAsyncBulkPrePrologue creator(
-        circular_buffer_loop, circular_buffer_load_exprs);
+        circular_buffer_loop, circular_buffer_load_exprs, is_pre_prologue);
     creator.create();
-    return creator.pre_prologue_exprs_;
+    return creator.new_exprs_;
   }
 
  private:
   CpAsyncBulkPrePrologue(
       ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& circular_buffer_load_exprs)
+      const std::vector<Expr*>& circular_buffer_load_exprs,
+      bool is_pre_prologue)
       : circular_buffer_loop_(circular_buffer_loop),
         circular_buffer_load_exprs_(circular_buffer_load_exprs) {}
 
   using kir::IrVisitor::handle;
 
   void create() {
-    // Find and add smem allocations for tokens and mbarrier objects
+    // Add shared mem allocations for tokens and mbarrier objects
     handle(circular_buffer_loop_);
 
-    // Define how many threads should arrive at the barrier
-    //  we expect 0th thread to handle init/arrive & transaction config
-    //  while other threads will wait for it
-    Val* one_val = IrBuilder::create<Val>(1L, PrimDataType::UInt32);
-
-    // Construct predicate
-    // 'threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0'
+    // Construct predicate to select a single thread.
     kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
-    // Construct for loop, a body for if expression
     ForLoop* loop = createStagesForLoop(circular_buffer_loop_);
     NVF_ERROR(loop->simplifiedStop() == loop->stop());
 
@@ -822,17 +817,24 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
       if (GpuLower::current()->ldstMBarrierMap().count(ldst) == 0) {
         continue;
       }
+      // Get mbarrier for this circular buffer stage.
       TensorView* all_mbarriers =
           GpuLower::current()->ldstMBarrierMap().at(ldst);
       kir::TensorIndex* stage_mbarrier =
           IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
-      kir::MBarrierInit* mbarrier_init =
-          IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, one_val);
+
+      // Define how many threads should arrive at the barrier.
+      // We expect a single thread to launch transactions and arrive at
+      // mbarrier_wait. We will use a block sync to handle the remaining
+      // threads.
+      Val* one_val = IrBuilder::create<Val>(1L, PrimDataType::UInt32);
+      kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+          stage_mbarrier, /*thread_count=*/one_val);
       loop->body().push_back(mbarrier_init);
     }
 
     if_expr->thenBody().push_back(loop);
-    pre_prologue_exprs_.push_back(if_expr);
+    new_exprs_.push_back(if_expr);
   }
 
   void handle(ForLoop* fl) final {
@@ -849,23 +851,32 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
       return;
     }
 
-    // Add shared memory allocations for mbarrier and mbarrier tokens
-    if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
-      if (alloc->memoryType() == MemoryType::Shared) {
-        if (GpuLower::current()->mBarrierTokenSmemAllocSet().count(alloc) ==
-            0) {
-          return;
-        }
-        pre_prologue_exprs_.push_back(expr);
-      }
+    // Short-Circuit: Handle only allocate nodes
+    if (!expr->isA<kir::Allocate>()) {
+      return;
     }
+
+    // Short-Circuit: Handle shared memory allocations
+    kir::Allocate* alloc = expr->as<kir::Allocate>();
+    if (alloc->memoryType() != MemoryType::Shared) {
+      return;
+    }
+
+    // Short-Circuit: Handle shared memory allocations for mbarrier
+    if (GpuLower::current()->mBarrierTokenSmemAllocSet().count(alloc) == 0) {
+      return;
+    }
+
+    // Add shared memory allocations for mbarrier and mbarrier tokens
+    new_exprs_.push_back(expr);
   }
 
  private:
   ForLoop* circular_buffer_loop_ = nullptr;
   const std::vector<Expr*>& circular_buffer_load_exprs_;
-
-  std::vector<Expr*> pre_prologue_exprs_;
+  std::vector<Expr*> new_exprs_;
+  // If true create pre-prologue loop
+  bool is_pre_prologue_ = false;
 };
 
 // TODO Move to CircularBufferLoopCloner
@@ -898,7 +909,6 @@ class CpAsyncBulkPostEpilogue {
 
   void create() {
     // Construct predicate
-    // 'threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0'
     kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
     // Construct for loop, a body for if expression
