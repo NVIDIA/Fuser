@@ -530,6 +530,7 @@ TEST_P(HopperRS, FullSwizzle) {
                                      layout,
                                      data_type_to_aten(dtype)));
   
+  using namespace debugging;
   setAsIdentity(inputs.first);
   setAsARange(inputs.second);
 
