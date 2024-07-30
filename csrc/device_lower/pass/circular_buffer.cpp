@@ -1007,6 +1007,19 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
 
 namespace {
 
+// In the case where the main loop is trivial (for example, ldmatrix in
+// matmul kernel), we need to be careful when copying epilog loop. For
+// example, if the main loop is:
+//   for (int i = 0; i < 1; ++i) {
+//     ...
+//     float T1[2];
+//     T1 = ...
+//     ...
+//   }
+// Because trivial loop is not generated, the allocation of T1 will be
+// one level above in the generated scope. So when we copy epilog, we
+// need to make sure we don't copy these allocation so that there is no
+// duplicate allocation.
 void getAllocInTrivialLoop(ForLoop* fl, std::unordered_set<Expr*>& output) {
   if (!fl->isTrivial()) {
     return;
@@ -1104,38 +1117,21 @@ class CircularBufferInserter : private kir::ExprMutator {
         circular_buffer_loop, loads, CircularBufferLoopStage::Main);
     registerReplace(circular_buffer_loop, main_loop);
 
-    ForLoop* last_for_loop = circular_buffer_loop;
-
-    if (requireEpilogue(loads)) {
-      // In the case where the main loop is trivial (for example, ldmatrix in
-      // matmul kernel), we need to be careful when copying epilog loop. For
-      // example, if the main loop is:
-      //   for (int i = 0; i < 1; ++i) {
-      //     ...
-      //     float T1[2];
-      //     T1 = ...
-      //     ...
-      //   }
-      // Because trivial loop is not generated, the allocation of T1 will be
-      // one level above in the generated scope. So when we copy epilog, we
-      // need to make sure we don't copy these allocation so that there is no
-      // duplicate allocation.
-      std::unordered_set<Expr*> alloc_in_main;
-      getAllocInTrivialLoop(main_loop, alloc_in_main);
-      ForLoop* epilogue_loop = TmaCircularBufferLoopCloner::clone(
-          circular_buffer_loop,
-          loads,
-          CircularBufferLoopStage::Epilog,
-          alloc_in_main);
-      registerInsertAfter(circular_buffer_loop, epilogue_loop);
-      last_for_loop = epilogue_loop;
-    }
+    // Exclude duplicating allocations if main loop is trivial
+    std::unordered_set<Expr*> alloc_in_main;
+    getAllocInTrivialLoop(main_loop, alloc_in_main);
+    ForLoop* epilogue_loop = TmaCircularBufferLoopCloner::clone(
+        circular_buffer_loop,
+        loads,
+        CircularBufferLoopStage::Epilog,
+        alloc_in_main);
+    registerInsertAfter(circular_buffer_loop, epilogue_loop);
 
     std::vector<Expr*> post_epilogue_exprs = CpAsyncBulkHelper::create(
         circular_buffer_loop, loads, /*is_pre_prologue=*/false);
     if (!post_epilogue_exprs.empty()) {
       for (Expr* expr : post_epilogue_exprs) {
-        registerInsertAfter(last_for_loop, expr);
+        registerInsertAfter(epilogue_loop, expr);
       }
     }
   }
@@ -1237,19 +1233,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     }
 
     if (requireEpilogue(loads)) {
-      // In the case where the main loop is trivial (for example, ldmatrix in
-      // matmul kernel), we need to be careful when copying epilog loop. For
-      // example, if the main loop is:
-      //   for (int i = 0; i < 1; ++i) {
-      //     ...
-      //     float T1[2];
-      //     T1 = ...
-      //     ...
-      //   }
-      // Because trivial loop is not generated, the allocation of T1 will be
-      // one level above in the generated scope. So when we copy epilog, we
-      // need to make sure we don't copy these allocation so that there is no
-      // duplicate allocation.
+      // Exclude duplicating allocations if main loop is trivial
       std::unordered_set<Expr*> alloc_in_main;
       getAllocInTrivialLoop(main_loop, alloc_in_main);
       auto epilogue_loop = CircularBufferLoopCloner::clone(
