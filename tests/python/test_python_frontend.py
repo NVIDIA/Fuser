@@ -4481,23 +4481,51 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
     def test_sdpa_fwd(self):
-        N, H, L, S, E = 16, 32, 64, 128, 64
-
-        inputs = [
-            torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
-        ]
-
         def fusion_func(fd: FusionDefinition):
-            q = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
-            k = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
-            v = fd.define_tensor(shape = [-1, -1, -1, -1], contiguity = [True, True, True, True], dtype=DataType.BFloat16, is_cpu=False)
-            attn, *intermediate_results = fd.ops.sdpfa_fwd(q, k, v)
+            q = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            k = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            v = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            is_causal = fd.define_scalar(None, dtype=DataType.Bool)
+            scale = fd.define_scalar(None, dtype=DataType.Double)
+            attn, *intermediate_results = fd.ops.sdpfa_fwd(
+                q, k, v, is_causal=is_causal, scale=scale
+            )
             fd.add_output(attn)
-        
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-        torch.testing.assert_close(nvf_out[0], F.scaled_dot_product_attention(*inputs))
+
+        N, H, L, S, E = 4, 8, 16, 16, 8
+        is_causal_vals = [False, True]
+        scale_vals = [1 / E**0.5]
+        for is_causal, scale in itertools.product(is_causal_vals, scale_vals):
+            with self.subTest(is_causal=is_causal, scale=scale):
+                qkv = [
+                    torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0"),
+                    torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
+                    torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
+                ]
+                # Reset the FusionCache or the fusion would not recompile for the second subtest running failing the test
+                # TODO: Try to move this to pytest_ops.py. Currently, it does not work since the API between nvFuser and torch differs.
+                FusionCache.reset()
+                nvf_out, _ = self.exec_nvfuser(fusion_func, [*qkv, is_causal, scale])
+                ref_out = F.scaled_dot_product_attention(
+                    *qkv, is_causal=is_causal, scale=scale
+                )
+                torch.testing.assert_close(nvf_out[0], ref_out)
+
 
 if __name__ == "__main__":
     run_tests()
