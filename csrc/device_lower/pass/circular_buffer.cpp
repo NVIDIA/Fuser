@@ -182,10 +182,10 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   const std::unordered_set<Expr*>& exclude_;
 };
 
+// TODO Replace with elect_sync ptx
 // TMA operation only a single thread is necessary to launch TMA operations.
 // This function creates kir::IfThenElse with the following predicate:
 //   threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
-// TODO Replace with elect_sync ptx
 kir::IfThenElse* createThreadPredicatedIfThenElse() {
   Val* zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
   Val* if_predicate_expr = IrBuilder::logicalAndExpr(
@@ -203,13 +203,14 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
   return if_expr;
 }
 
+// Description:
 // Replicates circular buffer loops for Prologue, Main, and
 // Epilogue. Prologue only copies the load expressions of circular
 // buffered tensors, whereas Epilogue does any expression other than
 // the loads. Main copies everything.
 //
-// Loop Structure:
-// Pre-prolog:
+// Loop Structure Overview:
+// Pre-prologue loop:
 // - Allocate shared memory for mbarriers and mbarrier tokens
 // - Initialize mbarrier for all stages
 //
@@ -234,9 +235,57 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
 //   - mbarrier_init exprs
 //   - mbarrier_inval exprs
 //
-// Post-epilogue:
+// Post-epilogue loop:
 //  - if selected_thread:
 //   - Invalidated mbarrier for all stages
+//
+// Detailed Pseudo-Code:
+// Pre-Prologue loop:
+// __shared__ __mbarrier_t barriers[num_stages];
+// __shared__ __mbarrier_token_t tokens[num_stages];
+// if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//   for (int64_t loop_index : irange(stages)) {
+//     mbarrier_init(mbarrier[loop_index], number_of_arrival_threads);
+//   }
+// }
+//
+// Prologue loop:
+// if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//   for (int64_t loop_index : irange(stages-1)) {
+//     tokens[loop_index] = mbarrier::arriveExpectTx(mbarrier[loop_index]);
+//     cpAsyncBulk(mbarriers[loop_index], ...);
+//   }
+// }
+//
+// Main loop:
+// for (int64_t loop_index : irange(N-(stages-1))) {
+//   current_stage = loop_index % stage_depth
+//   load_stage = (loop_index + (stage_depth - 1)) % stage_depth)
+//   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//     token[load_stage] =
+//       mbarrier::arriveExpectTx(mbarrier[load_stage]);
+//     cpAsyncBulk(mbarrier[load_stage], ...);
+//   }
+//   mbarrier::wait(token[current_stage]);
+//
+//   Clone remaining operations
+// }
+//
+// Epilogue loop:
+// for (int64_t loop_index : irange(N-(stages-1), N)) {
+//   current_stage = loop_index % stage_depth
+//   mbarrier::wait(token[current_stage]);
+//
+//   Clone remaining operations
+// }
+//
+// Post-Epilogue loop:
+// if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//   for (int64_t loop_index : irange(stages)) {
+//     mbarrier_inval(mbarrier[loop_index]);
+//   }
+// }
+//
 class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
  public:
   static ForLoop* clone(
@@ -279,29 +328,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     for_loop_id_stack_.pop_back();
     cloned_scopes_.pop_back();
 
-    // if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-    //   // single arrive for all tma operations
-    //   arrive_expect_tx
-    //   // nested for-loop structure launching multiple tma operations
-    //   for (...) {
-    //     tma_operation
-    //   }
-    // }
-    // // all threads wait for transaction to complete
-    // mbarrier_wait()
-    //
-    // Prologue:
-    //  - launch only
-    //  - arrive_expect_tx and tma load operations
-    //
-    // Main loop:
-    //  - Launch and wait
-    //  - arrive_expect_tx, tma load operations, and mbarrier_wait)
-    //
-    // Epilogue loop:
-    //  - wait only
-    //  - mbarrier_wait
-
     // Skip if there is not an active for-loop structure
     if (cloned_scopes_.empty()) {
       return;
@@ -337,7 +363,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
       }
     }
 
-    // mbarrier::wait occurs in main and epilogue loops.
+    // mbarrier::wait occurs in Main and Epilogue loops.
     //
     // Pseudo-code example:
     //  mbarrier::wait(mbarriers[stage], mbarrier_tokens[stage]);
@@ -429,9 +455,9 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         // Replace cpAsyncBulk type LoadStoreOp with:
         //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
         //    for (int64_t loop_idx : irange(stages-1)) {
-        //      token[loop_idx] =
+        //      tokens[loop_idx] =
         //        mbarrier::arriveExpectTx(mbarrier[loop_idx])
-        //      cpAsyncBulk(mbarrier[loop_idx],...)
+        //      cpAsyncBulk(mbarrier[loop_idx], ...);
         //    }
         //  }
 
@@ -541,11 +567,11 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
 
         // Replace LoadStoreOp with:
         //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-        //    token[next_stage] =
-        //      mbarrier::arriveExpectTx(mbarrier[next_stage])
-        //    cpAsyncBulk(mbarrier[next_stage],...)
+        //    tokens[next_stage] =
+        //      mbarrier::arriveExpectTx(mbarrier[next_stage]);
+        //    cpAsyncBulk(mbarrier[next_stage], ...);
         //  }
-        //  mbarrier::wait(token[curr_stage])
+        //  mbarrier::wait(token[current_stage]);
         //
         // Where mbarrier and token are shared memory arrays bound to the
         // LoadStoreOp
@@ -1094,10 +1120,9 @@ class CircularBufferInserter : private kir::ExprMutator {
   void insertTma(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& loads) {
-    // cpAsyncBulk (with TMA) requires some operations to be done prior to
-    //  prologue loop, for example:
-    // - smem allocation
-    // - initialization of mbarrier objects
+    // Pre-prologue loop:
+    // - Allocate shared memory for mbarriers and mbarrier tokens
+    // - Initialize mbarrier for all stages
     std::vector<Expr*> pre_prologue_exprs = CpAsyncBulkHelper::create(
         circular_buffer_loop, loads, /*is_pre_prologue=*/true);
     if (!pre_prologue_exprs.empty()) {
@@ -1109,10 +1134,16 @@ class CircularBufferInserter : private kir::ExprMutator {
     kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
     registerInsertBefore(circular_buffer_loop, sync);
 
+    // Prologue loop:
+    //  - launch only
+    //  - arrive_expect_tx and tma load operations
     ForLoop* prologue_loop = TmaCircularBufferLoopCloner::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
     registerInsertBefore(circular_buffer_loop, prologue_loop);
 
+    // Main loop:
+    //  - Launch and wait
+    //  - arrive_expect_tx, tma load operations, and mbarrier_wait)
     ForLoop* main_loop = TmaCircularBufferLoopCloner::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::Main);
     registerReplace(circular_buffer_loop, main_loop);
@@ -1120,6 +1151,10 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Exclude duplicating allocations if main loop is trivial
     std::unordered_set<Expr*> alloc_in_main;
     getAllocInTrivialLoop(main_loop, alloc_in_main);
+
+    // Epilogue loop:
+    //  - wait only
+    //  - mbarrier_wait
     ForLoop* epilogue_loop = TmaCircularBufferLoopCloner::clone(
         circular_buffer_loop,
         loads,
@@ -1127,6 +1162,9 @@ class CircularBufferInserter : private kir::ExprMutator {
         alloc_in_main);
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
 
+    // Post-epilogue loop:
+    //  - if selected_thread:
+    //  - Invalidated mbarrier for all stages
     std::vector<Expr*> post_epilogue_exprs = CpAsyncBulkHelper::create(
         circular_buffer_loop, loads, /*is_pre_prologue=*/false);
     if (!post_epilogue_exprs.empty()) {
