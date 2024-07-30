@@ -466,6 +466,8 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
           IrBuilder::create<kir::BlockSync>(/*war_sync=*/true);
       cloned_top_level_loop_->body().push_back(sync_expr);
 
+      // TODO Use total number of threads of CTA with mbarrier_wait
+      // TODO Create analysis to determine when block sync is required
       cloned_top_level_loop_->body().push_back(mbarrier_wait_);
       mbarrier_wait_ = nullptr;
     }
