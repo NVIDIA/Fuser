@@ -1630,6 +1630,16 @@ static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
       swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
 }
 
+Val* getMatrixBaseOffset(Val* pattern_start_addr) {
+  // See:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+  pattern_start_addr = maybeCastOp(DataType::UInt, pattern_start_addr);
+  auto shf = IrBuilder::rShiftExpr(
+      pattern_start_addr, IrBuilder::create<Val>(0x7, DataType::UInt));
+  return IrBuilder::bitwiseAndExpr(
+      shf, IrBuilder::create<Val>(0x7, DataType::UInt));
+}
+
 // Reference for smem strides:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#strides
 void IndexLowering::handle(const MmaOp* mma) {
@@ -1693,7 +1703,8 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
         IrBuilder::create<Val>(stride_bytes, DataType::UInt),
-        IrBuilder::create<Val>(0, DataType::UInt),
+        // IrBuilder::create<Val>(0, DataType::UInt),
+        getMatrixBaseOffset(base_addr),
         // getMatrixBaseOffset(mma, tv, for_loops_, rotated_loop_, inner_size),
         swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
