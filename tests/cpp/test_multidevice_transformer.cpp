@@ -19,6 +19,7 @@
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/allocation_order_inference.h>
+#include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/move_split_cat.h>
 #include <preseg_passes/optimization_pass.h>
 #include <scheduler/mma_utils.h>
@@ -28,19 +29,21 @@
 
 namespace nvfuser {
 
-namespace {
 constexpr int64_t B = 2, E = 768, H = 12, S = 128;
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
 constexpr double kDropoutProb = 0.1, kParamScale = 0.02;
-} // namespace
 
 class DistributedTransformerTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<DataType> {
  protected:
-  DistributedTransformerTest() : D(communicator_->size()) {}
+  DistributedTransformerTest()
+      : D(communicator_->size()),
+        optimization_guard_(false),
+        allocation_order_guard_(false),
+        alias_guard_(false) {}
 
   void SetUp() {
     MultiDeviceTest::SetUp();
@@ -60,6 +63,18 @@ class DistributedTransformerTest
 
  public:
   const int64_t D; // number of devices
+
+ private:
+  // Note: `MoveSplitCat` and `AllocationDomain` preseg passes use ID model.
+  // `SdpaFwdOp` currently does not work with ID model since it requires all
+  // sibling outputs to have the same root domain.
+  //  This will be modified in a future PR.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MoveSplitCatPass>
+      optimization_guard_;
+  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+      allocation_order_guard_;
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      alias_guard_;
 };
 
 namespace {
@@ -273,6 +288,7 @@ std::vector<TensorView*> mlp_backwards(
        {w0,
         b0,
         w1,
+        matmul0,
         matmul1_grad_x,
         matmul1_grad_w,
         matmul1_grad_w_t,
