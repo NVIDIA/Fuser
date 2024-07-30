@@ -19,6 +19,7 @@
 #include <device_lower/utils.h>
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -2094,7 +2095,7 @@ kir::TensorIndex* Index::getProducerIndex(
   Val* index = nullptr;
 
   if (!lower_utils::hasRootToLoopLinearTransformations(producer) ||
-      (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") &&
+      (isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops);
@@ -2198,7 +2199,7 @@ kir::TensorIndex* Index::getConsumerIndex(
     DataType as_type) {
   Val* index = nullptr;
   if (!lower_utils::hasRootToLoopLinearTransformations(consumer) ||
-      (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") &&
+      (isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex) &&
        GpuLower::current()->isTensorIndexerEnabled())) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         consumer, consumer->definition(), loops);
@@ -2227,20 +2228,6 @@ kir::TensorIndex* Index::getConsumerIndex(
 }
 
 namespace {
-
-struct PredicateDomainInfo {
- public:
-  // Iteration domain to predicate
-  IterDomain* id = nullptr;
-  // The set of iteration domains that make up the id. If this is for
-  // a non-divisible split, the set only contains the id itself. This
-  // set is used to remove redundant predicates when gathering
-  // unswitch predicates.
-  std::unordered_set<IterDomain*> covered_ids;
-  // True if this predicate is for an intermediate domain. Examples
-  // include domains with non-divisible split and resized domains.
-  bool is_intermediate_domain = false;
-};
 
 // Find iteration domains in the history of a consumer to predicate comprised
 // only of merge operations. Only return iteration domains that are subsequently
@@ -2333,28 +2320,6 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
   return contig_id_infos;
 }
 
-std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
-    TensorView* consumer_tv) {
-  const auto& non_divisible_split_info =
-      GpuLower::current()->nonDivisibleSplitInfo();
-
-  std::vector<PredicateDomainInfo> pred_info_vec;
-
-  auto it = non_divisible_split_info.splitsToPredicate().find(consumer_tv);
-  if (it == non_divisible_split_info.splitsToPredicate().end()) {
-    return {};
-  }
-
-  const auto& splits_to_predicate = it->second;
-
-  for (auto split : splits_to_predicate) {
-    PredicateDomainInfo info{split->in(), {split->in()}, true};
-    pred_info_vec.emplace_back(info);
-  }
-
-  return pred_info_vec;
-}
-
 // Get the start and stop limit offsets that define the valid range to
 // compute. In the simplest case, they are just 0 and
 // IterDomain::extent. However, IterDomain may have non-zero start and
@@ -2426,6 +2391,28 @@ std::unordered_map<IterDomain*, Val*> updateInitialLoopIndexMap(
 }
 
 } // namespace
+
+std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
+    TensorView* consumer_tv) {
+  const auto& non_divisible_split_info =
+      GpuLower::current()->nonDivisibleSplitInfo();
+
+  std::vector<PredicateDomainInfo> pred_info_vec;
+
+  auto it = non_divisible_split_info.splitsToPredicate().find(consumer_tv);
+  if (it == non_divisible_split_info.splitsToPredicate().end()) {
+    return {};
+  }
+
+  const auto& splits_to_predicate = it->second;
+
+  for (auto split : splits_to_predicate) {
+    PredicateDomainInfo info{split->in(), {split->in()}, true};
+    pred_info_vec.emplace_back(info);
+  }
+
+  return pred_info_vec;
+}
 
 // Returns predicates and the concrete (by loop map) root domains they cover
 std::vector<PredicateInfo> Index::getReferenceRootPredicates(

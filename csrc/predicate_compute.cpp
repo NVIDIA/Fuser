@@ -10,6 +10,7 @@
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <id_model/utils.h>
 #include <index_compute.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
@@ -383,7 +384,7 @@ Val* PredicateCompute::getInlinePredicate(
   }
 
   std::vector<PredicateInfo> pred_info_vec;
-  if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") &&
+  if (isIdModelOptionEnabled(IdModelEnableOption::InlinePredicate) &&
       GpuLower::current()->isTensorIndexerEnabled()) {
     pred_info_vec =
         gpu_lower->tensorIndexer().getPredicates(out_tv, expr, loops);
@@ -483,7 +484,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
 
   std::vector<PredicateInfo> ref_pred_info;
 
-  if (hasEnableOptionArgument(EnableOption::IdModel, "unswitch_predicate") &&
+  if (isIdModelOptionEnabled(IdModelEnableOption::UnswitchPredicate) &&
       GpuLower::current()->isTensorIndexerEnabled()) {
     ref_pred_info = gpu_lower->tensorIndexer().getPredicates(
         out_tv, tv_expr, for_loops_, unrolled_loop_);
@@ -581,15 +582,17 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     // If a corresponding MergedPredicates is found, merge both the
     // start and stop offsets.
     if (merged_pred_it != pending_predicates_.end()) {
-      mergeUnswitchPredicateOffsets(
+      mergeUnswitchPredicates(
           pred_info.startPredicate(),
           pred_info.startOffset(),
+          pred_info.loopStage(),
           merged_pred_it->start,
           true);
 
-      mergeUnswitchPredicateOffsets(
+      mergeUnswitchPredicates(
           pred_info.stopPredicate(),
           pred_info.stopOffset(),
+          pred_info.loopStage(),
           merged_pred_it->stop,
           false);
     }
@@ -696,18 +699,97 @@ void UnswitchPredicate::finalize() {
   }
 }
 
-void UnswitchPredicate::mergeUnswitchPredicateOffsets(
+void UnswitchPredicate::mergeUnswitchPredicates(
     Val* predicate,
     Val* offset,
+    CircularBufferLoopStage loop_stage,
     MergedPredicates::Info& merged_predicate_info,
     bool is_start) {
-  auto is_more_restrictive = [&is_start](auto new_val, auto current_val) {
+  auto is_more_restrictive_static_offset = [&is_start](
+                                               auto new_val, auto current_val) {
     if (is_start) {
       return new_val < current_val;
     } else {
       return new_val > current_val;
     }
   };
+
+  // This feels like a hacky WAR but when we have predicates generated
+  // from certain circular buffer loops, they should have more
+  // restrictive conditions. Only the most restrictive one should be
+  // used. If this is not done, we could end up having an unswitch
+  // predicate like: idx(i) < N && idx(i + 1) < N, which obvously has
+  // redundancy. This check is meant to keep only the second term,
+  // i.e., idx(i + 1) < N.
+  auto is_more_restrictive_loop_stage =
+      [&is_start](
+          CircularBufferLoopStage new_stage,
+          CircularBufferLoopStage existing_stage) -> bool {
+    NVF_ERROR(
+        existing_stage == CircularBufferLoopStage::Prolog ||
+            existing_stage == CircularBufferLoopStage::Main ||
+            existing_stage == CircularBufferLoopStage::Epilog ||
+            existing_stage == CircularBufferLoopStage::NotApplicable,
+        "Unknown stage: ",
+        existing_stage);
+    NVF_ERROR(
+        new_stage == CircularBufferLoopStage::Prolog ||
+            new_stage == CircularBufferLoopStage::Main ||
+            new_stage == CircularBufferLoopStage::Epilog ||
+            new_stage == CircularBufferLoopStage::NotApplicable,
+        "Unknown stage: ",
+        new_stage);
+
+    // For the start predicate, prologue and main are more restrictive
+    // than main and epilogue, respectively.
+    // If non circular buffer predicacate exists,
+    // that should just work too
+    //
+    // For the stop predicate, epilogue should be more restrictive
+    // than main. If the current stage is prologue or non circular
+    // buffer, main or epilogue should be more restrictive.
+    if (is_start) {
+      return (existing_stage == CircularBufferLoopStage::Main &&
+              (new_stage == CircularBufferLoopStage::NotApplicable ||
+               new_stage == CircularBufferLoopStage::Prolog)) ||
+          (existing_stage == CircularBufferLoopStage::Epilog &&
+           (new_stage != CircularBufferLoopStage::Epilog));
+    } else {
+      return (existing_stage == CircularBufferLoopStage::Main &&
+              (new_stage == CircularBufferLoopStage::Epilog)) ||
+          (existing_stage == CircularBufferLoopStage::Prolog &&
+           (new_stage == CircularBufferLoopStage::Main ||
+            new_stage == CircularBufferLoopStage::Epilog)) ||
+          (existing_stage == CircularBufferLoopStage::NotApplicable &&
+           (new_stage == CircularBufferLoopStage::Main ||
+            new_stage == CircularBufferLoopStage::Epilog));
+    }
+  };
+
+  if (merged_predicate_info.loop_stage !=
+          CircularBufferLoopStage::NotApplicable ||
+      loop_stage != CircularBufferLoopStage::NotApplicable) {
+    NVF_ERROR(
+        merged_predicate_info.dynamic_preds.empty(),
+        "Dynamic predicates not supported with circular buffering");
+    NVF_ERROR(
+        merged_predicate_info.static_offset == 0,
+        "Non-zero static ofset not supported with circular buffering: ",
+        merged_predicate_info.static_offset);
+    NVF_ERROR(
+        offset->isZero(),
+        "Non-zero static ofset not supported with circular buffering: ",
+        offset->toInlineString());
+    // If merged_predicate_info.static_pred is nullptr, nothing is
+    // set yet.
+    if (merged_predicate_info.static_pred == nullptr ||
+        is_more_restrictive_loop_stage(
+            loop_stage, merged_predicate_info.loop_stage)) {
+      merged_predicate_info.static_pred = predicate;
+      merged_predicate_info.loop_stage = loop_stage;
+    }
+    return;
+  }
 
   auto offset_int = dynamic_cast<Val*>(offset);
   // If it's a static predicate, replace the current one if it's
@@ -718,7 +800,7 @@ void UnswitchPredicate::mergeUnswitchPredicateOffsets(
     auto& static_pred = merged_predicate_info.static_pred;
     auto& static_offset = merged_predicate_info.static_offset;
     if (static_pred == nullptr ||
-        is_more_restrictive(offset_const, static_offset)) {
+        is_more_restrictive_static_offset(offset_const, static_offset)) {
       static_pred = predicate;
       static_offset = offset_const;
     }

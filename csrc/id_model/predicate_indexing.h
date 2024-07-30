@@ -30,6 +30,7 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     const std::vector<ForLoop*>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map,
     const ValGraph& traversal_graph,
+    const ExprPath<ExprGroup>& traversal_path,
     const IdModel& id_model,
     bool is_start_predicate,
     ForLoop* unswitched_loop = nullptr);
