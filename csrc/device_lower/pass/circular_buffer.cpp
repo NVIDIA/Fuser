@@ -773,43 +773,21 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   Val* current_load_stage_ = nullptr;
 };
 
-// Creates pre-prologue section necessary for proper handling async TMA memory
-// operations. It moves the allocation of mbarriers and its tokens outside of
-// the main loop
-//
-// Expected result:
-//   Allocate mbarriers and tokens in shared memory
-//   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-//     for (unsigned i = 0; i < stages; ++i) {
-//       mbarrier::init(...);
-//     }
-//   }
-// Creates post-epilogue section needed for releasing mbarriers after TMA memory
-// operations.
-//
-// Expected result:
-//   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-//     for (unsigned i = 0; i < stages; ++i) {
-//       mbarrier::inval(...);
-//     }
-//   }
-class CpAsyncBulkHelper : public kir::IrVisitor {
+// This helper function gathers the shared mem allocations for tokens and
+// mbarrier objects.
+class GatherMBarrierAllocations : public kir::IrVisitor {
  public:
   static std::vector<Expr*> create(
       ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& circular_buffer_load_exprs,
-      bool is_pre_prologue) {
-    CpAsyncBulkHelper creator(circular_buffer_loop, circular_buffer_load_exprs);
-    if (is_pre_prologue) {
-      // Add shared mem allocations for tokens and mbarrier objects
-      creator.handle(circular_buffer_loop);
-    }
-    creator.createForLoop(is_pre_prologue);
+      const std::vector<Expr*>& circular_buffer_load_exprs) {
+    GatherMBarrierAllocations creator(
+        circular_buffer_loop, circular_buffer_load_exprs);
+    creator.run();
     return creator.new_exprs_;
   }
 
  private:
-  CpAsyncBulkHelper(
+  GatherMBarrierAllocations(
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& circular_buffer_load_exprs)
       : circular_buffer_loop_(circular_buffer_loop),
@@ -817,42 +795,8 @@ class CpAsyncBulkHelper : public kir::IrVisitor {
 
   using kir::IrVisitor::handle;
 
-  void createForLoop(bool is_pre_prologue) {
-    // Construct predicate to select a single thread.
-    kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
-
-    // Construct ForLoop
-    ForLoop* loop = createStagesForLoop(circular_buffer_loop_);
-    for (const Expr* ldst : circular_buffer_load_exprs_) {
-      // Short-Circuit: Handle ldst operations associated with mbarrier
-      if (GpuLower::current()->ldstMBarrierMap().count(ldst) == 0) {
-        continue;
-      }
-
-      // Get mbarrier for this circular buffer stage.
-      TensorView* all_mbarriers =
-          GpuLower::current()->ldstMBarrierMap().at(ldst);
-      kir::TensorIndex* stage_mbarrier =
-          IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
-
-      if (is_pre_prologue) {
-        // We expect a single thread to launch transactions and arrive at
-        // mbarrier_wait. We will use a block sync to handle the remaining
-        // threads.
-        Val* one_val = IrBuilder::create<Val>(1L, PrimDataType::UInt32);
-        kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
-            stage_mbarrier, /*thread_count=*/one_val);
-        loop->body().push_back(mbarrier_init);
-      } else {
-        // Invalidate the mbarrier for each circular buffer stage.
-        kir::MBarrierInvalidate* mbarrier_inval =
-            IrBuilder::create<kir::MBarrierInvalidate>(stage_mbarrier);
-        loop->body().push_back(mbarrier_inval);
-      }
-    }
-
-    if_expr->thenBody().push_back(loop);
-    new_exprs_.push_back(if_expr);
+  void run() {
+    handle(circular_buffer_loop_);
   }
 
   void handle(ForLoop* fl) final {
@@ -889,37 +833,111 @@ class CpAsyncBulkHelper : public kir::IrVisitor {
     new_exprs_.push_back(expr);
   }
 
-  // This function creates kir::Loop with range based on stage depth. It is
-  // used for mbarrier initialization and invalidation.
-  ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
-    int64_t stage_depth =
-        GpuLower::current()->circularBufferInfo().getStageDepthFor(
-            circular_buffer_loop->iter_domain());
-
-    Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
-    Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
-    Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
-    IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
-
-    ForLoop* loop = IrBuilder::create<ForLoop>(
-        loop_domain_builder.build(),
-        loop_index,
-        loop_start,
-        loop_stop,
-        /*step=*/GpuLower::current()->kernel()->oneVal(),
-        /*vectorize=*/false,
-        /*vectorize_shift=*/nullptr,
-        /*unroll_required=*/false,
-        CircularBufferLoopStage::NotApplicable);
-
-    return loop;
-  }
-
  private:
   ForLoop* circular_buffer_loop_ = nullptr;
   const std::vector<Expr*>& circular_buffer_load_exprs_;
   std::vector<Expr*> new_exprs_;
 };
+
+// This function creates kir::Loop with range based on stage depth. It is
+// used for mbarrier initialization and invalidation.
+ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
+  int64_t stage_depth =
+      GpuLower::current()->circularBufferInfo().getStageDepthFor(
+          circular_buffer_loop->iter_domain());
+
+  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
+  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
+  Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
+  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
+
+  ForLoop* loop = IrBuilder::create<ForLoop>(
+      loop_domain_builder.build(),
+      loop_index,
+      loop_start,
+      loop_stop,
+      /*step=*/GpuLower::current()->kernel()->oneVal(),
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable);
+
+  return loop;
+}
+
+// CpAsyncBulkHelper creates the pre-prologue and post-epilogue for loops.
+//
+// The pre-prologue for loop moves the allocation of mbarriers and its tokens
+// outside of the main loop
+//
+// Expected result:
+//   Allocate mbarriers and tokens in shared memory
+//   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//     for (unsigned i = 0; i < stages; ++i) {
+//       mbarrier::init(...);
+//     }
+//   }
+//
+// The post-epilogue for loop releases mbarriers after TMA memory
+// operations.
+//
+// Expected result:
+//   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+//     for (unsigned i = 0; i < stages; ++i) {
+//       mbarrier::inval(...);
+//     }
+//   }
+//
+std::vector<Expr*> createForLoop(
+    ForLoop* circular_buffer_loop,
+    const std::vector<Expr*>& circular_buffer_load_exprs,
+    bool is_pre_prologue) {
+  std::vector<Expr*> new_exprs;
+
+  if (is_pre_prologue) {
+    std::vector<Expr*> smem_allocations = GatherMBarrierAllocations::create(
+        circular_buffer_loop, circular_buffer_load_exprs);
+    new_exprs.reserve(smem_allocations.size());
+    new_exprs.insert(
+        new_exprs.end(), smem_allocations.begin(), smem_allocations.end());
+  }
+
+  // Construct predicate to select a single thread.
+  kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
+
+  // Construct ForLoop
+  ForLoop* loop = createStagesForLoop(circular_buffer_loop);
+  for (const Expr* ldst : circular_buffer_load_exprs) {
+    // Short-Circuit: Handle ldst operations associated with mbarrier
+    if (GpuLower::current()->ldstMBarrierMap().count(ldst) == 0) {
+      continue;
+    }
+
+    // Get mbarrier for this circular buffer stage.
+    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    kir::TensorIndex* stage_mbarrier =
+        IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
+
+    if (is_pre_prologue) {
+      // We expect a single thread to launch transactions and arrive at
+      // mbarrier_wait. We will use a block sync to handle the remaining
+      // threads.
+      Val* one_val = IrBuilder::create<Val>(1L, PrimDataType::UInt32);
+      kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+          stage_mbarrier, /*thread_count=*/one_val);
+      loop->body().push_back(mbarrier_init);
+    } else {
+      // Invalidate the mbarrier for each circular buffer stage.
+      kir::MBarrierInvalidate* mbarrier_inval =
+          IrBuilder::create<kir::MBarrierInvalidate>(stage_mbarrier);
+      loop->body().push_back(mbarrier_inval);
+    }
+  }
+
+  if_expr->thenBody().push_back(loop);
+  new_exprs.push_back(if_expr);
+  return new_exprs;
+}
 
 using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
 
@@ -1123,8 +1141,8 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Pre-prologue loop:
     // - Allocate shared memory for mbarriers and mbarrier tokens
     // - Initialize mbarrier for all stages
-    std::vector<Expr*> pre_prologue_exprs = CpAsyncBulkHelper::create(
-        circular_buffer_loop, loads, /*is_pre_prologue=*/true);
+    std::vector<Expr*> pre_prologue_exprs =
+        createForLoop(circular_buffer_loop, loads, /*is_pre_prologue=*/true);
     if (!pre_prologue_exprs.empty()) {
       for (Expr* expr : pre_prologue_exprs) {
         registerInsertBefore(circular_buffer_loop, expr);
@@ -1165,8 +1183,8 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Post-epilogue loop:
     //  - if selected_thread:
     //  - Invalidated mbarrier for all stages
-    std::vector<Expr*> post_epilogue_exprs = CpAsyncBulkHelper::create(
-        circular_buffer_loop, loads, /*is_pre_prologue=*/false);
+    std::vector<Expr*> post_epilogue_exprs =
+        createForLoop(circular_buffer_loop, loads, /*is_pre_prologue=*/false);
     if (!post_epilogue_exprs.empty()) {
       for (Expr* expr : post_epilogue_exprs) {
         registerInsertAfter(epilogue_loop, expr);
