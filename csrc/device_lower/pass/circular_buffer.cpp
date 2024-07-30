@@ -831,7 +831,7 @@ class GatherMBarrierAllocations : public kir::IrVisitor {
 
 // This function creates kir::Loop with range based on stage depth. It is
 // used for mbarrier initialization and invalidation.
-ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
+ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
   int64_t stage_depth =
       GpuLower::current()->circularBufferInfo().getStageDepthFor(
           circular_buffer_loop->iter_domain());
@@ -878,15 +878,16 @@ ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
 //     }
 //   }
 //
-kir::IfThenElse* createForLoop(
+kir::IfThenElse* createCpAsyncBulkFixtures(
     ForLoop* circular_buffer_loop,
     const std::vector<Expr*>& circular_buffer_load_exprs,
-    bool is_pre_prologue) {
+    bool is_pre_prologue_stage) {
   // Construct predicate to select a single thread.
   kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
   // Construct ForLoop
-  ForLoop* loop = createStagesForLoop(circular_buffer_loop);
+  ForLoop* loop = createStageDepthForLoop(circular_buffer_loop);
+
   for (const Expr* ldst : circular_buffer_load_exprs) {
     // Short-Circuit: Handle ldst operations associated with mbarrier
     if (GpuLower::current()->ldstMBarrierMap().count(ldst) == 0) {
@@ -898,13 +899,13 @@ kir::IfThenElse* createForLoop(
     kir::TensorIndex* stage_mbarrier =
         IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
 
-    if (is_pre_prologue) {
+    if (is_pre_prologue_stage) {
       // We expect a single thread to launch transactions and arrive at
       // mbarrier_wait. We will use a block sync to handle the remaining
       // threads.
-      Val* one_val = IrBuilder::create<Val>(1L, PrimDataType::UInt32);
       kir::MBarrierInit* mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
-          stage_mbarrier, /*thread_count=*/one_val);
+          stage_mbarrier,
+          /*thread_count=*/IrBuilder::create<Val>(1L, PrimDataType::UInt32));
       loop->body().push_back(mbarrier_init);
     } else {
       // Invalidate the mbarrier for each circular buffer stage.
@@ -1126,8 +1127,8 @@ class CircularBufferInserter : private kir::ExprMutator {
       registerInsertBefore(circular_buffer_loop, expr);
     }
 
-    kir::IfThenElse* pre_prologue_init =
-        createForLoop(circular_buffer_loop, loads, /*is_pre_prologue=*/true);
+    kir::IfThenElse* pre_prologue_init = createCpAsyncBulkFixtures(
+        circular_buffer_loop, loads, /*is_pre_prologue=*/true);
     NVF_ERROR(pre_prologue_init != nullptr);
     registerInsertBefore(circular_buffer_loop, pre_prologue_init);
 
@@ -1166,8 +1167,8 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Post-epilogue loop:
     //  - if selected_thread:
     //  - Invalidated mbarrier for all stages
-    kir::IfThenElse* post_epilogue_inval =
-        createForLoop(circular_buffer_loop, loads, /*is_pre_prologue=*/false);
+    kir::IfThenElse* post_epilogue_inval = createCpAsyncBulkFixtures(
+        circular_buffer_loop, loads, /*is_pre_prologue=*/false);
     NVF_ERROR(post_epilogue_inval != nullptr);
     registerInsertAfter(epilogue_loop, post_epilogue_inval);
   }
