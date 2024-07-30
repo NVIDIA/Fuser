@@ -287,7 +287,9 @@ UnswitchPredicateKey::UnswitchPredicateKey(
         // This map is supposed to contain CA conrete IDs but as long
         // as they are uniquely mapped to some representative domains,
         // it should work.
-        parallel_concrete_ids_.at(pt) = loop_id;
+        parallel_concrete_ids_.at(pt) =
+            GpuLower::current()->tensorIndexer().traversalGraph().toGroup(
+                loop_id)->front()->as<IterDomain>();
       }
     }
     return;

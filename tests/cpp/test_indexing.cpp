@@ -4192,7 +4192,6 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
       std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
       std::vector<IterDomain*> loop_domains = getLoopDomains(tv, id_model_);
       auto zero = tv->fusion()->zeroVal();
-      // auto one = tv->fusion()->oneVal();
 
       auto non_divisible_split_to_predicate =
           dynamic_cast<Split*>(loop_domains.at(2)->definition());
@@ -4326,8 +4325,86 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
   tv3->axis(2)->parallelize(ParallelType::TIDx);
   tv3->axis(3)->parallelize(ParallelType::TIDy);
 
-  fusion.printKernel();
+  // All tensors are unswitched but with different TID
+  // parallelization. tv2 and tv4 are parallelized as [TIDy, TIDx],
+  // whereas tv3 is as [TIDx,TIDy]. These two domains are both
+  // unswitched, so the unswitch predicate should include both
+  // patterns: one with TIDy and TIDx and another with TIDx and
+  // TIDy. Specifically, the unswitch predicate should consist of:
+  //
+  // (bidx * 8 + tidy) * 16 + tidx
+  // (bidx * 8 + tidx) * 16 + tidy
+  //
+  // Additionally, since tidx and tidy are both used for different
+  // extents, there should be parallel domain predicates as well. The
+  // overall predicate should look like as follows:
+  //
+  // tidx < 8 && tidy < 8 &&
+  // (bidx * 8 + tidx) * 16 + tidy >= 0 &&
+  // (bidx * 8 + tidx) * 16 + tidy < i0 &&
+  // (bidx * 8 + tidy) * 16 + tidx >= 0 &&
+  // (bidx * 8 + tidy) * 16 + tidx < i0
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
 
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_);
+      std::vector<IterDomain*> loop_domains = getLoopDomains(tv, id_model_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // Parallel domain indices
+      int tidx_offset = tv->name() == 3 ? 2 : 3;
+      int tidy_offset = tv->name() == 3 ? 3 : 2;
+
+      Val* pred = ltExpr(loop_indices.at(tidx_offset), createInt(8));
+      pred = andExpr(pred, ltExpr(loop_indices.at(tidy_offset), createInt(8)));
+
+      // (bidx * 8 + tidx) * 16 + tidy >= 0 &&
+      // (bidx * 8 + tidx) * 16 + tidy < i0
+      auto tv3_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), createInt(8)),
+                  loop_indices.at(tidx_offset)),
+              createInt(16)),
+          loop_indices.at(tidy_offset));
+      pred = andExpr(pred, geExpr(tv3_idx, zero));
+      pred = andExpr(
+          pred, ltExpr(tv3_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // (bidx * 8 + tidy) * 16 + tidx >= 0 &&
+      // (bidx * 8 + tidy) * 16 + tidx < i0
+      auto tv2_idx = addExpr(
+          mulExpr(
+              addExpr(
+                  mulExpr(loop_indices.at(0), createInt(8)),
+                  loop_indices.at(tidy_offset)),
+              createInt(16)),
+          loop_indices.at(tidx_offset));
+      pred = andExpr(pred, geExpr(tv2_idx, zero));
+      pred = andExpr(
+          pred, ltExpr(tv2_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      return pred;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1000}, options);
+  at::Tensor t1 = at::randn({1000}, options);
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

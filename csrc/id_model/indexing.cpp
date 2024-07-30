@@ -968,13 +968,18 @@ IndexingInfo TensorIndexer::computeIndex(
 
   IdGraphIndexCompute index_compute(traversalGraph(), initial_index_map);
 
-  // In addition to indeices themselves, compute the dependency of
-  // each ID group to loop ID groups
+  // In addition to indeices themselves, keep track of the
+  // dependency from each domain to loop domains. This dependency is
+  // represented as a map from ValGroup of the traversal graph to
+  // ValGroup of the LOOP graph.
   std::unordered_map<ValGroup, ValGroups> loop_group_dependencies;
 
   // Initialize the loop dependency mappings
-  for (const auto& loop_group : loop_groups) {
-    loop_group_dependencies[loop_group].pushBack(loop_group);
+  for (const auto& loop_domain : loop_domains) {
+    const auto& traversal_graph_group =
+        traversalGraph().toGroup(loop_domain);
+    const auto& loop_graph_group = id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
+    loop_group_dependencies[traversal_graph_group].pushBack(loop_graph_group);
   }
 
   for (const auto& [expr_group, direction] : traversal_path) {

@@ -1107,25 +1107,27 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
   if (group->heuristic() != ScheduleHeuristic::None) {
     os << "(" << toString(group->heuristic()) << ")";
   }
-  os << "\n";
-  os << "inputs: \n";
+  os << std::endl;
+  os << "group id: " << group->groupId() << std::endl;
+  os << "inputs:" << std::endl;
   for (auto input : sort_val_by_name(getAllInputs(group))) {
-    os << input << " " << input->getDataType().value() << "\n";
+    indent(os, 1) << input << " " << input->getDataType().value() << std::endl;
   }
-  os << "outputs: \n";
+  os << "outputs:" << std::endl;
   for (auto output : sort_val_by_name(getAllOutputs(group))) {
-    os << output << " " << output->getDataType().value() << "\n";
+    indent(os, 1) << output << " " << output->getDataType().value()
+                  << std::endl;
   }
 
-  os << "\n\n";
+  os << std::endl << std::endl;
 
   auto expr_to_print = groupExprPrintSorting(group->exprs());
 
   for (const auto i : c10::irange(expr_to_print.size())) {
     os << expr_to_print[i]->toString();
-    os << "(" << expr_to_print[i]->name() << ")\n";
+    os << "(" << expr_to_print[i]->name() << ")" << std::endl;
   }
-  os << "}\n\n";
+  os << "}" << std::endl << std::endl;
 }
 
 //! Insert casts for an intermediate tensorview, i.e. ones
