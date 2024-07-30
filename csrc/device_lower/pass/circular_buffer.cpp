@@ -203,123 +203,6 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
   return if_expr;
 }
 
-// This function creates kir::Loop with range based on stage depth. It is used
-// for mbarrier initialization and invalidation.
-ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
-  int64_t stage_depth =
-      GpuLower::current()->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
-
-  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
-  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
-  Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
-  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
-
-  ForLoop* loop = IrBuilder::create<ForLoop>(
-      loop_domain_builder.build(),
-      loop_index,
-      loop_start,
-      loop_stop,
-      /*step=*/GpuLower::current()->kernel()->oneVal(),
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
-
-  return loop;
-}
-
-// This function creates kir::MBarrierArriveExpectTx for given LoadStoreOp and
-// circular buffer stage.
-//
-// Example:
-// __shared__ __mbarrier_t barriers[num_stages];
-// __shared__ __mbarrier_token_t tokens[num_stages];
-// for(nvfuser_index_t stage = 0; stage < num_stages; ++stage) {
-//   if (elect_sync()) {
-//     tokens[stage] =
-//        mbarrier::arriveExpectTX(toSmem((&barriers[stage])), expected_bytes);
-//   }
-// }
-kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
-    LoadStoreOp* ldst,
-    Val* loop_index) {
-  TensorView* consumer_tv = ldst->out()->as<TensorView>();
-  NVF_ERROR(
-      GpuLower::current()->consumerToTMAInfo().count(consumer_tv),
-      "Unable to find TMA info for consumer_tv: ",
-      consumer_tv->toString());
-
-  // Get expected bytes for given TMA load operation.
-  const TMAInfo& tma_info =
-      GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
-  Val* expected_bytes = tma_info.tileSizeBytes();
-
-  // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
-  // load operations launched for each circular buffer stage. We take the
-  // product of all coordinate TMA iterDomains to the right of the circular
-  // buffer axis.
-  const std::vector<IterDomain*>& leaf_domain = consumer_tv->getLoopDomain();
-  for (size_t idx = consumer_tv->getComputeAtPosition();
-       idx < leaf_domain.size();
-       ++idx) {
-    IterDomain* id = leaf_domain.at(idx);
-    if (!isParallelTypeThread(id->getParallelType()) &&
-        id->getParallelType() != ParallelType::Bulk) {
-      expected_bytes =
-          SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
-    }
-  }
-  expected_bytes =
-      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
-
-  auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
-      SimplifyingIrBuilder::modExpr(
-          expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
-      expected_bytes->fusion()->zeroVal());
-  GpuLower::current()->validate(
-      is_multiple_of_16B,
-      "The expected bytes must be a multiple of 16 bytes, but ",
-      expected_bytes,
-      " is not.");
-
-  // Get mbarrier for this circular buffer stage.
-  TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
-  kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
-
-  // Get mbarrier_token for this circular buffer stage.
-  TensorView* all_mbarrier_tokens =
-      GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
-  kir::TensorIndex* stage_token =
-      IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
-
-  kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
-      IrBuilder::create<kir::MBarrierArriveExpectTx>(
-          stage_token, stage_mbarrier, expected_bytes);
-
-  return mbarrier_arrive_tx;
-}
-
-// This function creates kir::MBarrierWait for given LoadStoreOp and circular
-// buffer stage.
-kir::MBarrierWait* createMbarrierWait(LoadStoreOp* ldst, Val* loop_index) {
-  // Get mbarrier_token for this circular buffer stage.
-  TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
-  kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
-
-  // Get mbarrier_token for this circular buffer stage.
-  TensorView* all_mbarrier_tokens =
-      GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
-  kir::TensorIndex* stage_token =
-      IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
-
-  kir::MBarrierWait* mbarrier_wait =
-      IrBuilder::create<kir::MBarrierWait>(stage_mbarrier, stage_token);
-  return mbarrier_wait;
-}
-
 // Replicates circular buffer loops for Prologue, Main, and
 // Epilogue. Prologue only copies the load expressions of circular
 // buffered tensors, whereas Epilogue does any expression other than
@@ -747,6 +630,98 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     }
   }
 
+  // This function creates kir::MBarrierArriveExpectTx for given LoadStoreOp and
+  // circular buffer stage.
+  //
+  // Example:
+  // __shared__ __mbarrier_t barriers[num_stages];
+  // __shared__ __mbarrier_token_t tokens[num_stages];
+  // for(nvfuser_index_t stage = 0; stage < num_stages; ++stage) {
+  //   if (elect_sync()) {
+  //     tokens[stage] =
+  //        mbarrier::arriveExpectTX(toSmem((&barriers[stage])),
+  //        expected_bytes);
+  //   }
+  // }
+  kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
+      LoadStoreOp* ldst,
+      Val* loop_index) {
+    TensorView* consumer_tv = ldst->out()->as<TensorView>();
+    NVF_ERROR(
+        GpuLower::current()->consumerToTMAInfo().count(consumer_tv),
+        "Unable to find TMA info for consumer_tv: ",
+        consumer_tv->toString());
+
+    // Get expected bytes for given TMA load operation.
+    const TMAInfo& tma_info =
+        GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
+    Val* expected_bytes = tma_info.tileSizeBytes();
+
+    // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
+    // load operations launched for each circular buffer stage. We take the
+    // product of all coordinate TMA iterDomains to the right of the circular
+    // buffer axis.
+    const std::vector<IterDomain*>& leaf_domain = consumer_tv->getLoopDomain();
+    for (size_t idx = consumer_tv->getComputeAtPosition();
+         idx < leaf_domain.size();
+         ++idx) {
+      IterDomain* id = leaf_domain.at(idx);
+      if (!isParallelTypeThread(id->getParallelType()) &&
+          id->getParallelType() != ParallelType::Bulk) {
+        expected_bytes =
+            SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
+      }
+    }
+    expected_bytes =
+        SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
+
+    auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(
+            expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
+        expected_bytes->fusion()->zeroVal());
+    GpuLower::current()->validate(
+        is_multiple_of_16B,
+        "The expected bytes must be a multiple of 16 bytes, but ",
+        expected_bytes,
+        " is not.");
+
+    // Get mbarrier for this circular buffer stage.
+    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    kir::TensorIndex* stage_mbarrier =
+        IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
+
+    // Get mbarrier_token for this circular buffer stage.
+    TensorView* all_mbarrier_tokens =
+        GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
+    kir::TensorIndex* stage_token =
+        IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
+
+    kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
+        IrBuilder::create<kir::MBarrierArriveExpectTx>(
+            stage_token, stage_mbarrier, expected_bytes);
+
+    return mbarrier_arrive_tx;
+  }
+
+  // This function creates kir::MBarrierWait for given LoadStoreOp and circular
+  // buffer stage.
+  kir::MBarrierWait* createMbarrierWait(LoadStoreOp* ldst, Val* loop_index) {
+    // Get mbarrier_token for this circular buffer stage.
+    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    kir::TensorIndex* stage_mbarrier =
+        IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
+
+    // Get mbarrier_token for this circular buffer stage.
+    TensorView* all_mbarrier_tokens =
+        GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
+    kir::TensorIndex* stage_token =
+        IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
+
+    kir::MBarrierWait* mbarrier_wait =
+        IrBuilder::create<kir::MBarrierWait>(stage_mbarrier, stage_token);
+    return mbarrier_wait;
+  }
+
  private:
   // Track iterDomain associated with each for-loop
   std::vector<IterDomain*> for_loop_id_stack_;
@@ -763,6 +738,32 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // next_stage_index = (loop_index + (stages-1)) % stages
   Val* current_load_stage_ = nullptr;
 };
+
+// This function creates kir::Loop with range based on stage depth. It is used
+// for mbarrier initialization and invalidation.
+ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
+  int64_t stage_depth =
+      GpuLower::current()->circularBufferInfo().getStageDepthFor(
+          circular_buffer_loop->iter_domain());
+
+  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
+  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
+  Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
+  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
+
+  ForLoop* loop = IrBuilder::create<ForLoop>(
+      loop_domain_builder.build(),
+      loop_index,
+      loop_start,
+      loop_stop,
+      /*step=*/GpuLower::current()->kernel()->oneVal(),
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable);
+
+  return loop;
+}
 
 // TODO Move to CircularBufferLoopCloner
 // Creates pre-prologue section necessary for proper handling async TMA memory
