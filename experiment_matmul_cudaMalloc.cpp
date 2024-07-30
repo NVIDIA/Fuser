@@ -156,6 +156,8 @@ int main(int argc, char* argv[]) {
     }
   }
 
+  cudaDeviceSynchronize();
+
   // Matmul execution
   for (int i = 0; i < I; ++i) {
     if (use_streams) {
