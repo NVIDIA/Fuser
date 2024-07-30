@@ -511,7 +511,7 @@ TEST_P(HopperRS, FullSwizzle) {
     tv2->reorder({{-2, 0}});
   }
   {
-    std::cout << tv2c->toString() << std::endl;
+    std::cout << tv2->toString() << std::endl;
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2->getLoopDomain());
     tv2->setLoopDomain(s.as<IterDomain*>());
