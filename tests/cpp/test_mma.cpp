@@ -498,7 +498,6 @@ TEST_P(HopperRS, FullSwizzle) {
   }
 
   {
-    std::cout << tv2c->toString() << std::endl;
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2c->getLoopDomain());
     tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -511,7 +510,6 @@ TEST_P(HopperRS, FullSwizzle) {
     tv2->reorder({{-2, 0}});
   }
   {
-    std::cout << tv2->toString() << std::endl;
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2->getLoopDomain());
     tv2->setLoopDomain(s.as<IterDomain*>());
@@ -535,13 +533,6 @@ TEST_P(HopperRS, FullSwizzle) {
                                      swizzle_size,
                                      layout,
                                      data_type_to_aten(dtype)));
-  
-  using namespace debugging;
-  setAsIdentity(inputs.first.squeeze());
-  setAsARange(inputs.second.squeeze());
-
-  std::cout << "A:\n" << inputs.first << std::endl << std::endl;
-  std::cout << "B:\n" << inputs.second << std::endl << std::endl;
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -549,13 +540,10 @@ TEST_P(HopperRS, FullSwizzle) {
 
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
 
-  std::cout << "result:\n" << cg_outputs[0] << std::endl << std::endl;
-
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
       layout);
-  std::cout << "ref:\n" << tref << std::endl << std::endl;
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
