@@ -739,32 +739,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   Val* current_load_stage_ = nullptr;
 };
 
-// This function creates kir::Loop with range based on stage depth. It is used
-// for mbarrier initialization and invalidation.
-ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
-  int64_t stage_depth =
-      GpuLower::current()->circularBufferInfo().getStageDepthFor(
-          circular_buffer_loop->iter_domain());
-
-  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
-  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
-  Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
-  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
-
-  ForLoop* loop = IrBuilder::create<ForLoop>(
-      loop_domain_builder.build(),
-      loop_index,
-      loop_start,
-      loop_stop,
-      /*step=*/GpuLower::current()->kernel()->oneVal(),
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
-
-  return loop;
-}
-
 // TODO Move to CircularBufferLoopCloner
 // Creates pre-prologue section necessary for proper handling async TMA memory
 // operations. It moves the allocation of mbarriers and its tokens outside of
@@ -889,6 +863,32 @@ class CpAsyncBulkHelper : public kir::IrVisitor {
 
     // Add shared memory allocations for mbarrier and mbarrier tokens
     new_exprs_.push_back(expr);
+  }
+
+  // This function creates kir::Loop with range based on stage depth. It is used
+  // for mbarrier initialization and invalidation.
+  ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
+    int64_t stage_depth =
+        GpuLower::current()->circularBufferInfo().getStageDepthFor(
+            circular_buffer_loop->iter_domain());
+
+    Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
+    Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
+    Val* loop_stop = IrBuilder::create<Val>(stage_depth, DataType::Index);
+    IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
+
+    ForLoop* loop = IrBuilder::create<ForLoop>(
+        loop_domain_builder.build(),
+        loop_index,
+        loop_start,
+        loop_stop,
+        /*step=*/GpuLower::current()->kernel()->oneVal(),
+        /*vectorize=*/false,
+        /*vectorize_shift=*/nullptr,
+        /*unroll_required=*/false,
+        CircularBufferLoopStage::NotApplicable);
+
+    return loop;
   }
 
  private:
