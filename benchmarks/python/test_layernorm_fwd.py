@@ -119,7 +119,7 @@ def test_layernorm_fwd_baseline_benchmark(
 ):
     clear_cuda_cache()
     if compile:
-      clear_dynamo_cache()
+        clear_dynamo_cache()
     batch_size, hidden_size = size
     inputs = [
         torch.randn(size, device="cuda", dtype=dtype),
