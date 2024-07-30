@@ -4509,7 +4509,7 @@ class TestNvFuserFrontend(TestCase):
 
         N, H, L, S, E = 4, 8, 16, 16, 8
         is_causal_vals = [False, True]
-        scale_vals = [1 / E**0.5]
+        scale_vals = [1 / E**0.5, 1e-3]
         # Dropout value is not set (default = 0.0) to validate against torch
         for is_causal, scale in itertools.product(is_causal_vals, scale_vals):
             with self.subTest(is_causal=is_causal, scale=scale):
