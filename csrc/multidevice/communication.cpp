@@ -219,7 +219,7 @@ std::string Communication::toString(const int indent_size) const {
     ss << "root=" << root() << ", ";
   }
   ss << (inputs().empty() ? "" : "Input=" + in()->toString()) << ", "
-     << (outputs().empty() ? "" : "Output=" + out()->toString()) << ")\n";
+     << (outputs().empty() ? "" : "Output=" + out()->toString()) << ")";
   return ss.str();
 }
 

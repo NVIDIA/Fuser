@@ -111,7 +111,7 @@ void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
     os() << std::endl;
     os() << host_unit->toString(indent_size_);
   }
-  os() << "} // %HostIrContainer\n\n";
+  os() << "\n} // %HostIrContainer\n\n";
 }
 
 void IrPrinter::handle(hir::HostIrContainer& host_ir_container) {
