@@ -550,7 +550,7 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
 }
 
 void ContigIDs::handle(Merge* merge) {
-  if (isOptionDisabled(DisableOption : ContigIndexing)) {
+  if (isOptionDisabled(DisableOption::ContigIndexing)) {
     return;
   }
 
