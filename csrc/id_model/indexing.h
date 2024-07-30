@@ -27,6 +27,8 @@ struct IndexingInfo {
   ExprPath<ExprGroup> traversal_path;
   // Index mappings of ID groups along the traversal path
   std::unordered_map<ValGroup, Val*> index_map;
+  // Mappings from ID groups to dependent loop groups
+  std::unordered_map<ValGroup, ValGroups> loop_group_dependencies;
 };
 
 struct IndexingAllocationInfo {

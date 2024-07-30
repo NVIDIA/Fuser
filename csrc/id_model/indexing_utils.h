@@ -131,23 +131,5 @@ inline std::unordered_set<ValGroup> getMaxPathLoopDomains(
   return max_path_loop_domains;
 }
 
-inline bool isNonDivisibleSplit(const ExprGroup& expr_group) {
-  const auto& non_divisible_split_info =
-      GpuLower::current()->nonDivisibleSplitInfo();
-
-  std::vector<PredicateDomainInfo> pred_info_vec;
-
-  for (const auto& [tv, splits] :
-       non_divisible_split_info.splitsToPredicate()) {
-    if (std::find_if(splits.begin(), splits.end(), [&](Split* split) {
-          return expr_group->has(split);
-        }) != splits.end()) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 } // namespace indexing_utils
 } // namespace nvfuser

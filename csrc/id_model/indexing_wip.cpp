@@ -230,6 +230,12 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
           SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
           predicate_domain->extent());
       info.predicated_domains_ = {predicate_domain};
+      // Set the used loop ID groups for this predicated domain
+      const ValGroups& loop_deps =
+          index_info.loop_group_dependencies.at(traversalGraph().toGroup(predicate_domain));
+      for (const auto& loop_dep : loop_deps) {
+        info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
+      }
     } else {
       info.stop_predicate_ = SimplifyingIrBuilder::ltExpr(
           SimplifyingIrBuilder::addExpr(stop_idx, info.stop_offset_),
@@ -238,6 +244,16 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
           getCoveredPredicatedDomains(contig_domain_group);
       VERBOSE() << "Contig covered root: "
                 << toDelimitedString(info.predicated_domains_) << std::endl;
+    }
+
+    // Set the used loop ID groups for this predicated domain
+    const auto& predicated_domain_group =
+        enableContigIndexing() ? contig_domain_group :
+        traversalGraph().toGroup(predicate_domain);
+    const ValGroups& loop_deps =
+        index_info.loop_group_dependencies.at(predicated_domain_group);
+    for (const auto& loop_dep : loop_deps) {
+      info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
     }
 
     info_vec.emplace_back(info);
@@ -256,6 +272,9 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
       auto split_to_predicate = eg->front()->as<Split>();
 
       IterDomain* non_divisible_domain = split_to_predicate->in();
+      const auto& non_divisible_domain_group =
+          traversalGraph().toGroup(non_divisible_domain);
+
       VERBOSE() << "Non-divisible predicate: "
                 << non_divisible_domain->toString() << std::endl;
 
@@ -280,37 +299,14 @@ std::vector<PredicateInfo> TensorIndexer::getPredicatesWIP(
           SimplifyingIrBuilder::ltExpr(idx, non_divisible_domain->extent());
       info.predicated_domains_ = {non_divisible_domain};
 
+      const ValGroups& loop_deps =
+          index_info.loop_group_dependencies.at(non_divisible_domain_group);
+      for (const auto& loop_dep : loop_deps) {
+        info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
+      }
+
       info_vec.emplace_back(info);
     }
-  }
-
-  // PredicateInfo.predicated_domains_ are assumed to be
-  // domains of the consumer tensor of the predicated expr. For
-  // example, UnswitchPredicateKey won't work otherwise since it does
-  // getAllValsBetween with the predicated_domains and the
-  // parallelized consumer loop domains. Replace all
-  // predicated_domains with corresponding domains of the consumer
-  // tensor. Another way to remove this
-  // assumption would be updating UnswitchPredicateKey to work with
-  // the ValGroup representation.
-  const auto all_ids = tv->domain()->allIDs();
-  for (auto& info : info_vec) {
-    std::unordered_set<IterDomain*> tv_predicated_domains;
-    for (auto& predicated_domain : info.predicated_domains_) {
-      // Use the corresponding domain of the consumer tensor
-      auto it = std::find_if(all_ids.begin(), all_ids.end(), [&](auto id) {
-        return traversalGraph().disjointValSets().strictAreMapped(
-            id, predicated_domain);
-      });
-      NVF_ERROR(
-          it != all_ids.end(),
-          "No corresponding domain of tensor ",
-          tv->toString(),
-          " found for a predicated domain of ",
-          predicated_domain->toString());
-      tv_predicated_domains.insert(*it);
-    }
-    info.predicated_domains_ = tv_predicated_domains;
   }
 
   return info_vec;
