@@ -40,6 +40,7 @@ from nvfuser import FusionDefinition, DataType
 from .core import run_benchmark, clear_cuda_cache
 import torch
 
+
 def create_transformer_forward(fd: FusionDefinition) -> None:
     S0 = fd.define_scalar(None, dtype=DataType.Int)
     S1 = fd.define_scalar(None, dtype=DataType.Int)
@@ -47,28 +48,96 @@ def create_transformer_forward(fd: FusionDefinition) -> None:
     S3 = fd.define_scalar(None, dtype=DataType.Int)
     S4 = fd.define_scalar(None, dtype=DataType.Int)
     S5 = fd.define_scalar(None, dtype=DataType.Int)
-    T6 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+    T6 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
     T7 = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0]
+        shape=[-1, -1],
+        contiguity=[True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    T8 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+    T8 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
     T9 = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0]
+        shape=[-1, -1],
+        contiguity=[True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    T10 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-    T11 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-    T12 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-    T13 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-    T14 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+    T10 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
+    T11 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
+    T12 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
+    T13 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
+    T14 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
     T15 = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0]
+        shape=[-1, -1],
+        contiguity=[True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    T16 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+    T16 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
     T17 = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0]
+        shape=[-1, -1],
+        contiguity=[True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
     T18 = fd.define_tensor(
-        shape=[1, -1, -1], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0]
+        shape=[1, -1, -1],
+        contiguity=[None, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
     T19 = fd.ops.cast(T18, dtype=DataType.Float)
     T20, T21 = fd.ops.var_mean(T19, dims=[2], correction=0, keepdim=False)
@@ -113,9 +182,21 @@ def create_transformer_forward(fd: FusionDefinition) -> None:
     T60 = fd.ops.add(T53, T59)
     T61 = fd.ops.cast(T60, dtype=DataType.BFloat16)
     T62 = fd.ops.linear(T61, T7, T6)
-    T63 = fd.ops.slice(T62, start_indices=[0, 0, 0], end_indices=[1, 2048, 12288], strides=[1, 1, 1])
-    T64 = fd.ops.slice(T62, start_indices=[0, 0, 12288], end_indices=[1, 2048, 24576], strides=[1, 1, 1])
-    T65 = fd.ops.slice(T62, start_indices=[0, 0, 24576], end_indices=[1, 2048, 36864], strides=[1, 1, 1])
+    T63 = fd.ops.slice(
+        T62, start_indices=[0, 0, 0], end_indices=[1, 2048, 12288], strides=[1, 1, 1]
+    )
+    T64 = fd.ops.slice(
+        T62,
+        start_indices=[0, 0, 12288],
+        end_indices=[1, 2048, 24576],
+        strides=[1, 1, 1],
+    )
+    T65 = fd.ops.slice(
+        T62,
+        start_indices=[0, 0, 24576],
+        end_indices=[1, 2048, 36864],
+        strides=[1, 1, 1],
+    )
     S66 = fd.define_scalar(1, dtype=DataType.Int)
     S67 = fd.define_scalar(2048, dtype=DataType.Int)
     S68 = fd.define_scalar(96, dtype=DataType.Int)
@@ -217,7 +298,9 @@ def create_transformer_forward(fd: FusionDefinition) -> None:
     S164 = fd.define_scalar(2048, dtype=DataType.Int)
     S165 = fd.define_scalar(2048, dtype=DataType.Int)
     V166 = fd.define_vector([S162, S163, S164, S165], dtype=DataType.Int)
-    T167 = fd.ops.uniform(S160, S161, shape=V166, rng_seed=S0, rng_offset=S1, dtype=DataType.BFloat16)
+    T167 = fd.ops.uniform(
+        S160, S161, shape=V166, rng_seed=S0, rng_offset=S1, dtype=DataType.BFloat16
+    )
     S168 = fd.define_scalar(0.900000, dtype=DataType.Double)
     T169 = fd.ops.lt(T167, S168)
     T170 = fd.ops.cast(T169, dtype=DataType.Float)
@@ -240,7 +323,9 @@ def create_transformer_forward(fd: FusionDefinition) -> None:
     S187 = fd.define_scalar(2048, dtype=DataType.Int)
     S188 = fd.define_scalar(12288, dtype=DataType.Int)
     V189 = fd.define_vector([S186, S187, S188], dtype=DataType.Int)
-    T190 = fd.ops.uniform(S184, S185, shape=V189, rng_seed=S2, rng_offset=S3, dtype=DataType.BFloat16)
+    T190 = fd.ops.uniform(
+        S184, S185, shape=V189, rng_seed=S2, rng_offset=S3, dtype=DataType.BFloat16
+    )
     S191 = fd.define_scalar(0.900000, dtype=DataType.Double)
     T192 = fd.ops.lt(T190, S191)
     T193 = fd.ops.cast(T183, dtype=DataType.Float)
@@ -313,7 +398,9 @@ def create_transformer_forward(fd: FusionDefinition) -> None:
     S261 = fd.define_scalar(2048, dtype=DataType.Int)
     S262 = fd.define_scalar(12288, dtype=DataType.Int)
     V263 = fd.define_vector([S260, S261, S262], dtype=DataType.Int)
-    T264 = fd.ops.uniform(S258, S259, shape=V263, rng_seed=S4, rng_offset=S5, dtype=DataType.BFloat16)
+    T264 = fd.ops.uniform(
+        S258, S259, shape=V263, rng_seed=S4, rng_offset=S5, dtype=DataType.BFloat16
+    )
     S265 = fd.define_scalar(0.900000, dtype=DataType.Double)
     T266 = fd.ops.lt(T264, S265)
     T267 = fd.ops.cast(T257, dtype=DataType.Float)
@@ -331,7 +418,10 @@ def create_transformer_forward(fd: FusionDefinition) -> None:
     fd.add_output(T34)
     fd.add_output(T174)
 
-def test_transformer_forward(benchmark, disable_validation: bool, disable_benchmarking: bool):
+
+def test_transformer_forward(
+    benchmark, disable_validation: bool, disable_benchmarking: bool
+):
     clear_cuda_cache()
 
     with FusionDefinition() as fd:
@@ -344,23 +434,50 @@ def test_transformer_forward(benchmark, disable_validation: bool, disable_benchm
         30,
         2757501781750758,
         31,
-        torch.randn((36864,), dtype=torch.bfloat16, device="cuda:0").as_strided((36864,), (1,)),
-        torch.randn((452984832,), dtype=torch.bfloat16, device="cuda:0").as_strided((36864, 12288), (12288, 1)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((150994944,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288, 12288), (12288, 1)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((49152,), dtype=torch.bfloat16, device="cuda:0").as_strided((49152,), (1,)),
-        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided((49152, 12288), (12288, 1)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288, 49152), (49152, 1)),
-        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided((1, 2048, 12288), (25165824, 12288, 1)),
+        torch.randn((36864,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (36864,), (1,)
+        ),
+        torch.randn((452984832,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (36864, 12288), (12288, 1)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((150994944,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288, 12288), (12288, 1)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((49152,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (49152,), (1,)
+        ),
+        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (49152, 12288), (12288, 1)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288, 49152), (49152, 1)
+        ),
+        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (1, 2048, 12288), (25165824, 12288, 1)
+        ),
     ]
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
+
 
 def create_transformer_backward(fd: FusionDefinition) -> None:
     S0 = fd.define_scalar(None, dtype=DataType.Int)
@@ -370,16 +487,32 @@ def create_transformer_backward(fd: FusionDefinition) -> None:
     S4 = fd.define_scalar(None, dtype=DataType.Int)
     S5 = fd.define_scalar(None, dtype=DataType.Int)
     T6 = fd.define_tensor(
-        shape=[1, -1], contiguity=[None, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0]
+        shape=[1, -1],
+        contiguity=[None, True],
+        dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
     T7 = fd.define_tensor(
-        shape=[1, -1, 1], contiguity=[None, True, None], dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0]
+        shape=[1, -1, 1],
+        contiguity=[None, True, None],
+        dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
     T8 = fd.define_tensor(
-        shape=[1, -1, -1], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0]
+        shape=[1, -1, -1],
+        contiguity=[None, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
     T9 = fd.define_tensor(
-        shape=[1, -1], contiguity=[None, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0]
+        shape=[1, -1],
+        contiguity=[None, True],
+        dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
     T10 = fd.define_tensor(
         shape=[1, -1, -1, -1],
@@ -389,7 +522,11 @@ def create_transformer_backward(fd: FusionDefinition) -> None:
         stride_order=[3, 2, 1, 0],
     )
     T11 = fd.define_tensor(
-        shape=[1, -1, 1], contiguity=[None, True, None], dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0]
+        shape=[1, -1, 1],
+        contiguity=[None, True, None],
+        dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
     T12 = fd.define_tensor(
         shape=[1, -1, -1, -1],
@@ -398,27 +535,89 @@ def create_transformer_backward(fd: FusionDefinition) -> None:
         is_cpu=False,
         stride_order=[3, 2, 1, 0],
     )
-    T13 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+    T13 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
     T14 = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0]
+        shape=[-1, -1],
+        contiguity=[True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    T15 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+    T15 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
     T16 = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0]
+        shape=[-1, -1],
+        contiguity=[True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
-    T17 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-    T18 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-    T19 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-    T20 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-    T21 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+    T17 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
+    T18 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
+    T19 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
+    T20 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
+    T21 = fd.define_tensor(
+        shape=[-1],
+        contiguity=[True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[0],
+    )
     T22 = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0]
+        shape=[-1, -1],
+        contiguity=[True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
     T23 = fd.define_tensor(
-        shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0]
+        shape=[-1, -1],
+        contiguity=[True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[1, 0],
     )
     T24 = fd.define_tensor(
-        shape=[1, -1, -1], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0]
+        shape=[1, -1, -1],
+        contiguity=[None, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
     )
     T25 = fd.ops.cast(T24, dtype=DataType.Float)
     S26 = fd.define_scalar(1, dtype=DataType.Int)
@@ -454,9 +653,21 @@ def create_transformer_backward(fd: FusionDefinition) -> None:
     T56 = fd.ops.add(T49, T55)
     T57 = fd.ops.cast(T56, dtype=DataType.BFloat16)
     T58 = fd.ops.linear(T57, T14, T13)
-    T59 = fd.ops.slice(T58, start_indices=[0, 0, 0], end_indices=[1, 2048, 12288], strides=[1, 1, 1])
-    T60 = fd.ops.slice(T58, start_indices=[0, 0, 12288], end_indices=[1, 2048, 24576], strides=[1, 1, 1])
-    T61 = fd.ops.slice(T58, start_indices=[0, 0, 24576], end_indices=[1, 2048, 36864], strides=[1, 1, 1])
+    T59 = fd.ops.slice(
+        T58, start_indices=[0, 0, 0], end_indices=[1, 2048, 12288], strides=[1, 1, 1]
+    )
+    T60 = fd.ops.slice(
+        T58,
+        start_indices=[0, 0, 12288],
+        end_indices=[1, 2048, 24576],
+        strides=[1, 1, 1],
+    )
+    T61 = fd.ops.slice(
+        T58,
+        start_indices=[0, 0, 24576],
+        end_indices=[1, 2048, 36864],
+        strides=[1, 1, 1],
+    )
     S62 = fd.define_scalar(1, dtype=DataType.Int)
     S63 = fd.define_scalar(2048, dtype=DataType.Int)
     S64 = fd.define_scalar(96, dtype=DataType.Int)
@@ -523,7 +734,9 @@ def create_transformer_backward(fd: FusionDefinition) -> None:
     S125 = fd.define_scalar(2048, dtype=DataType.Int)
     S126 = fd.define_scalar(2048, dtype=DataType.Int)
     V127 = fd.define_vector([S123, S124, S125, S126], dtype=DataType.Int)
-    T128 = fd.ops.uniform(S121, S122, shape=V127, rng_seed=S0, rng_offset=S1, dtype=DataType.BFloat16)
+    T128 = fd.ops.uniform(
+        S121, S122, shape=V127, rng_seed=S0, rng_offset=S1, dtype=DataType.BFloat16
+    )
     S129 = fd.define_scalar(0.900000, dtype=DataType.Double)
     T130 = fd.ops.lt(T128, S129)
     T131 = fd.ops.cast(T130, dtype=DataType.Float)
@@ -542,7 +755,9 @@ def create_transformer_backward(fd: FusionDefinition) -> None:
     S144 = fd.define_scalar(2048, dtype=DataType.Int)
     S145 = fd.define_scalar(12288, dtype=DataType.Int)
     V146 = fd.define_vector([S143, S144, S145], dtype=DataType.Int)
-    T147 = fd.ops.uniform(S141, S142, shape=V146, rng_seed=S2, rng_offset=S3, dtype=DataType.BFloat16)
+    T147 = fd.ops.uniform(
+        S141, S142, shape=V146, rng_seed=S2, rng_offset=S3, dtype=DataType.BFloat16
+    )
     S148 = fd.define_scalar(0.900000, dtype=DataType.Double)
     T149 = fd.ops.lt(T147, S148)
     T150 = fd.ops.cast(T140, dtype=DataType.Float)
@@ -605,7 +820,9 @@ def create_transformer_backward(fd: FusionDefinition) -> None:
     S207 = fd.define_scalar(2048, dtype=DataType.Int)
     S208 = fd.define_scalar(12288, dtype=DataType.Int)
     V209 = fd.define_vector([S206, S207, S208], dtype=DataType.Int)
-    T210 = fd.ops.uniform(S204, S205, shape=V209, rng_seed=S4, rng_offset=S5, dtype=DataType.BFloat16)
+    T210 = fd.ops.uniform(
+        S204, S205, shape=V209, rng_seed=S4, rng_offset=S5, dtype=DataType.BFloat16
+    )
     S211 = fd.define_scalar(0.900000, dtype=DataType.Double)
     T212 = fd.ops.lt(T210, S211)
     T213 = fd.ops.cast(T212, dtype=DataType.Float)
@@ -955,7 +1172,9 @@ def create_transformer_backward(fd: FusionDefinition) -> None:
     fd.add_output(T544)
 
 
-def test_transformer_backward(benchmark, disable_validation: bool, disable_benchmarking: bool):
+def test_transformer_backward(
+    benchmark, disable_validation: bool, disable_benchmarking: bool
+):
     clear_cuda_cache()
 
     with FusionDefinition() as fd:
@@ -968,29 +1187,63 @@ def test_transformer_backward(benchmark, disable_validation: bool, disable_bench
         30,
         2757501781750758,
         31,
-        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided((1, 2048), (2048, 1)),
-        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided((1, 2048, 1), (2048, 1, 1)),
-        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided((1, 2048, 12288), (25165824, 12288, 1)),
-        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided((1, 2048), (2048, 1)),
+        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided(
+            (1, 2048), (2048, 1)
+        ),
+        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided(
+            (1, 2048, 1), (2048, 1, 1)
+        ),
+        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (1, 2048, 12288), (25165824, 12288, 1)
+        ),
+        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided(
+            (1, 2048), (2048, 1)
+        ),
         torch.randn((402653184,), dtype=torch.bfloat16, device="cuda:0").as_strided(
             (1, 96, 2048, 2048), (402653184, 4194304, 2048, 1)
         ),
-        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided((1, 2048, 1), (2048, 1, 1)),
+        torch.randn((2048,), dtype=torch.float32, device="cuda:0").as_strided(
+            (1, 2048, 1), (2048, 1, 1)
+        ),
         torch.randn((402653184,), dtype=torch.bfloat16, device="cuda:0").as_strided(
             (1, 96, 2048, 2048), (402653184, 4194304, 2048, 1)
         ),
-        torch.randn((36864,), dtype=torch.bfloat16, device="cuda:0").as_strided((36864,), (1,)),
-        torch.randn((452984832,), dtype=torch.bfloat16, device="cuda:0").as_strided((36864, 12288), (12288, 1)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((150994944,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288, 12288), (12288, 1)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288,), (1,)),
-        torch.randn((49152,), dtype=torch.bfloat16, device="cuda:0").as_strided((49152,), (1,)),
-        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided((49152, 12288), (12288, 1)),
-        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided((12288, 49152), (49152, 1)),
-        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided((1, 2048, 12288), (25165824, 12288, 1)),
+        torch.randn((36864,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (36864,), (1,)
+        ),
+        torch.randn((452984832,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (36864, 12288), (12288, 1)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((150994944,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288, 12288), (12288, 1)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((12288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288,), (1,)
+        ),
+        torch.randn((49152,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (49152,), (1,)
+        ),
+        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (49152, 12288), (12288, 1)
+        ),
+        torch.randn((603979776,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (12288, 49152), (49152, 1)
+        ),
+        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (1, 2048, 12288), (25165824, 12288, 1)
+        ),
     ]
 
     if not disable_benchmarking:
