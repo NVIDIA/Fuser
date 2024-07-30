@@ -458,6 +458,14 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     //  mbarrier::wait(mbarriers[stage], mbarrier_tokens[stage]);
     if (mbarrier_wait_ != nullptr && cloned_scopes_.size() == 1) {
       NVF_ERROR(cloned_scopes_.back() == &cloned_top_level_loop_->body());
+
+      // The Mbarrier Wait condition is a single thread and the expected bytes
+      // for TMA operation. Since the total number of threads is unknown, we
+      // use a block sync to prevent race conditions.
+      kir::BlockSync* sync_expr =
+          IrBuilder::create<kir::BlockSync>(/*war_sync=*/true);
+      cloned_top_level_loop_->body().push_back(sync_expr);
+
       cloned_top_level_loop_->body().push_back(mbarrier_wait_);
       mbarrier_wait_ = nullptr;
     }
