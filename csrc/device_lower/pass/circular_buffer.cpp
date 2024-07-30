@@ -888,20 +888,10 @@ ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
 //     }
 //   }
 //
-std::vector<Expr*> createForLoop(
+kir::IfThenElse* createForLoop(
     ForLoop* circular_buffer_loop,
     const std::vector<Expr*>& circular_buffer_load_exprs,
     bool is_pre_prologue) {
-  std::vector<Expr*> new_exprs;
-
-  if (is_pre_prologue) {
-    std::vector<Expr*> smem_allocations = GatherMBarrierAllocations::create(
-        circular_buffer_loop, circular_buffer_load_exprs);
-    new_exprs.reserve(smem_allocations.size());
-    new_exprs.insert(
-        new_exprs.end(), smem_allocations.begin(), smem_allocations.end());
-  }
-
   // Construct predicate to select a single thread.
   kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
@@ -935,8 +925,7 @@ std::vector<Expr*> createForLoop(
   }
 
   if_expr->thenBody().push_back(loop);
-  new_exprs.push_back(if_expr);
-  return new_exprs;
+  return if_expr;
 }
 
 using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
@@ -1141,13 +1130,17 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Pre-prologue loop:
     // - Allocate shared memory for mbarriers and mbarrier tokens
     // - Initialize mbarrier for all stages
-    std::vector<Expr*> pre_prologue_exprs =
-        createForLoop(circular_buffer_loop, loads, /*is_pre_prologue=*/true);
-    if (!pre_prologue_exprs.empty()) {
-      for (Expr* expr : pre_prologue_exprs) {
-        registerInsertBefore(circular_buffer_loop, expr);
-      }
+    std::vector<Expr*> smem_allocations =
+        GatherMBarrierAllocations::create(circular_buffer_loop, loads);
+    for (Expr* expr : smem_allocations) {
+      registerInsertBefore(circular_buffer_loop, expr);
     }
+
+    kir::IfThenElse* pre_prologue_init =
+        createForLoop(circular_buffer_loop, loads, /*is_pre_prologue=*/true);
+    NVF_ERROR(pre_prologue_init != nullptr);
+    registerInsertBefore(circular_buffer_loop, pre_prologue_init);
+
     // Block sync is necessary to finish mbarrier initialization.
     kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
     registerInsertBefore(circular_buffer_loop, sync);
@@ -1183,13 +1176,10 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Post-epilogue loop:
     //  - if selected_thread:
     //  - Invalidated mbarrier for all stages
-    std::vector<Expr*> post_epilogue_exprs =
+    kir::IfThenElse* post_epilogue_inval =
         createForLoop(circular_buffer_loop, loads, /*is_pre_prologue=*/false);
-    if (!post_epilogue_exprs.empty()) {
-      for (Expr* expr : post_epilogue_exprs) {
-        registerInsertAfter(epilogue_loop, expr);
-      }
-    }
+    NVF_ERROR(post_epilogue_inval != nullptr);
+    registerInsertAfter(epilogue_loop, post_epilogue_inval);
   }
 
   void insert(ForLoop* circular_buffer_loop, const std::vector<Expr*>& loads) {
