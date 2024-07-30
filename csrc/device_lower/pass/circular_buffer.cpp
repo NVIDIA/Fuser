@@ -184,8 +184,8 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 
 // TMA operation only a single thread is necessary to launch TMA operations.
 // This function creates kir::IfThenElse with the following predicate:
-// threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
-// TODO Replace with elect.sync ptx
+//   threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
+// TODO Replace with elect_sync ptx
 kir::IfThenElse* createThreadPredicatedIfThenElse() {
   Val* zero_val = IrBuilder::create<Val>(0L, PrimDataType::UInt);
   Val* if_predicate_expr = IrBuilder::logicalAndExpr(
@@ -279,20 +279,28 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
     for_loop_id_stack_.pop_back();
     cloned_scopes_.pop_back();
 
-    // if (elect_sync)
+    // if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
     //   // single arrive for all tma operations
     //   arrive_expect_tx
     //   // nested for-loop structure launching multiple tma operations
-    //   for (...):
+    //   for (...) {
     //     tma_operation
-    //   end for
-    // end if
+    //   }
+    // }
     // // all threads wait for transaction to complete
     // mbarrier_wait()
     //
-    // Prolog - launch only - (arrive_expect_tx and tma_operations)
-    // Main - Launch and wait - (arrive_expect_tx, tma_operations, and
-    // mbarrier_wait) Epilog - wait only - (mbarrier_wait)
+    // Prologue:
+    //  - launch only
+    //  - arrive_expect_tx and tma load operations
+    //
+    // Main loop:
+    //  - Launch and wait
+    //  - arrive_expect_tx, tma load operations, and mbarrier_wait)
+    //
+    // Epilogue loop:
+    //  - wait only
+    //  - mbarrier_wait
 
     // Skip if there is not an active for-loop structure
     if (cloned_scopes_.empty()) {
@@ -309,7 +317,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         // and main loops.
         //
         // Pseudo-code example:
-        // if (elect_sync()) {
+        // if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
         //   mbarrier_tokens[stage] = mbarrier::arriveExpectTx(mbarriers[stage],
         //                                                     expected_tx);
         //   for (...) {
@@ -419,7 +427,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         // with data
         //
         // Replace cpAsyncBulk type LoadStoreOp with:
-        //  if (elect_sync()) {
+        //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
         //    for (int64_t loop_idx : irange(stages-1)) {
         //      token[loop_idx] =
         //        mbarrier::arriveExpectTx(mbarrier[loop_idx])
@@ -532,7 +540,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
         }
 
         // Replace LoadStoreOp with:
-        //  if (elect_sync()) {
+        //  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
         //    token[next_stage] =
         //      mbarrier::arriveExpectTx(mbarrier[next_stage])
         //    cpAsyncBulk(mbarrier[next_stage],...)
@@ -637,7 +645,7 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   // __shared__ __mbarrier_t barriers[num_stages];
   // __shared__ __mbarrier_token_t tokens[num_stages];
   // for(nvfuser_index_t stage = 0; stage < num_stages; ++stage) {
-  //   if (elect_sync()) {
+  //   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
   //     tokens[stage] =
   //        mbarrier::arriveExpectTX(toSmem((&barriers[stage])),
   //        expected_bytes);
@@ -739,7 +747,6 @@ class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
   Val* current_load_stage_ = nullptr;
 };
 
-// TODO Move to CircularBufferLoopCloner
 // Creates pre-prologue section necessary for proper handling async TMA memory
 // operations. It moves the allocation of mbarriers and its tokens outside of
 // the main loop
@@ -766,51 +773,43 @@ class CpAsyncBulkHelper : public kir::IrVisitor {
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& circular_buffer_load_exprs,
       bool is_pre_prologue) {
-    CpAsyncBulkHelper creator(
-        circular_buffer_loop, circular_buffer_load_exprs, is_pre_prologue);
-    creator.create();
+    CpAsyncBulkHelper creator(circular_buffer_loop, circular_buffer_load_exprs);
+    if (is_pre_prologue) {
+      // Add shared mem allocations for tokens and mbarrier objects
+      creator.handle(circular_buffer_loop);
+    }
+    creator.createForLoop(is_pre_prologue);
     return creator.new_exprs_;
   }
 
  private:
   CpAsyncBulkHelper(
       ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& circular_buffer_load_exprs,
-      bool is_pre_prologue)
+      const std::vector<Expr*>& circular_buffer_load_exprs)
       : circular_buffer_loop_(circular_buffer_loop),
-        circular_buffer_load_exprs_(circular_buffer_load_exprs),
-        is_pre_prologue_(is_pre_prologue) {}
+        circular_buffer_load_exprs_(circular_buffer_load_exprs) {}
 
   using kir::IrVisitor::handle;
 
-  void create() {
-    if (is_pre_prologue_) {
-      // Add shared mem allocations for tokens and mbarrier objects
-      handle(circular_buffer_loop_);
-    }
-
+  void createForLoop(bool is_pre_prologue) {
     // Construct predicate to select a single thread.
     kir::IfThenElse* if_expr = createThreadPredicatedIfThenElse();
 
+    // Construct ForLoop
     ForLoop* loop = createStagesForLoop(circular_buffer_loop_);
-    NVF_ERROR(loop->simplifiedStop() == loop->stop());
-
-    // Construct loop body with:
-    // - mBarriers' initializations for each element in smem array for
-    //   each circular buffered tensor
-    // - expected arrival: number of threads in the block
     for (const Expr* ldst : circular_buffer_load_exprs_) {
+      // Short-Circuit: Handle ldst operations associated with mbarrier
       if (GpuLower::current()->ldstMBarrierMap().count(ldst) == 0) {
         continue;
       }
+
       // Get mbarrier for this circular buffer stage.
       TensorView* all_mbarriers =
           GpuLower::current()->ldstMBarrierMap().at(ldst);
       kir::TensorIndex* stage_mbarrier =
           IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
 
-      if (is_pre_prologue_) {
-        // Define how many threads should arrive at the barrier.
+      if (is_pre_prologue) {
         // We expect a single thread to launch transactions and arrive at
         // mbarrier_wait. We will use a block sync to handle the remaining
         // threads.
@@ -819,8 +818,7 @@ class CpAsyncBulkHelper : public kir::IrVisitor {
             stage_mbarrier, /*thread_count=*/one_val);
         loop->body().push_back(mbarrier_init);
       } else {
-        // - mBarriers' invalidation for each element in smem array for
-        //   each circular buffered tensor
+        // Invalidate the mbarrier for each circular buffer stage.
         kir::MBarrierInvalidate* mbarrier_inval =
             IrBuilder::create<kir::MBarrierInvalidate>(stage_mbarrier);
         loop->body().push_back(mbarrier_inval);
@@ -865,8 +863,8 @@ class CpAsyncBulkHelper : public kir::IrVisitor {
     new_exprs_.push_back(expr);
   }
 
-  // This function creates kir::Loop with range based on stage depth. It is used
-  // for mbarrier initialization and invalidation.
+  // This function creates kir::Loop with range based on stage depth. It is
+  // used for mbarrier initialization and invalidation.
   ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
     int64_t stage_depth =
         GpuLower::current()->circularBufferInfo().getStageDepthFor(
@@ -895,8 +893,6 @@ class CpAsyncBulkHelper : public kir::IrVisitor {
   ForLoop* circular_buffer_loop_ = nullptr;
   const std::vector<Expr*>& circular_buffer_load_exprs_;
   std::vector<Expr*> new_exprs_;
-  // If true create pre-prologue loop
-  bool is_pre_prologue_ = false;
 };
 
 using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
@@ -1096,9 +1092,7 @@ class CircularBufferInserter : private kir::ExprMutator {
         registerInsertBefore(circular_buffer_loop, expr);
       }
     }
-
-    // cpAsyncBulk (with TMA) block sync prior to entering main loop to
-    //  make smem with mbarrier objects is initialized.
+    // Block sync is necessary to finish mbarrier initialization.
     kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
     registerInsertBefore(circular_buffer_loop, sync);
 
@@ -1122,10 +1116,10 @@ class CircularBufferInserter : private kir::ExprMutator {
       //     T1 = ...
       //     ...
       //   }
-      // Because trivial loop is not generated, the allocation of T1 will be one
-      // level above in the generated scope. So when we copy epilog, we need to
-      // make sure we don't copy these allocation so that there is no duplicate
-      // allocation.
+      // Because trivial loop is not generated, the allocation of T1 will be
+      // one level above in the generated scope. So when we copy epilog, we
+      // need to make sure we don't copy these allocation so that there is no
+      // duplicate allocation.
       std::unordered_set<Expr*> alloc_in_main;
       getAllocInTrivialLoop(main_loop, alloc_in_main);
       ForLoop* epilogue_loop = TmaCircularBufferLoopCloner::clone(
@@ -1233,8 +1227,8 @@ class CircularBufferInserter : private kir::ExprMutator {
 
       // The main loop will generate some async loads from invalid regions.
       // These populate the current cp.async group and they fill the smem with
-      // zero. Subsequent code might assume an empty cp.async group (for example
-      // an unparallelized batch matmul), or might re-use memory (WAW
+      // zero. Subsequent code might assume an empty cp.async group (for
+      // example an unparallelized batch matmul), or might re-use memory (WAW
       // hazard, see https://github.com/NVIDIA/Fuser/issues/2000). For safety,
       // we drain the group after the loops by waiting on these transfers.
       auto cp_async_wait_all =
@@ -1252,10 +1246,10 @@ class CircularBufferInserter : private kir::ExprMutator {
       //     T1 = ...
       //     ...
       //   }
-      // Because trivial loop is not generated, the allocation of T1 will be one
-      // level above in the generated scope. So when we copy epilog, we need to
-      // make sure we don't copy these allocation so that there is no duplicate
-      // allocation.
+      // Because trivial loop is not generated, the allocation of T1 will be
+      // one level above in the generated scope. So when we copy epilog, we
+      // need to make sure we don't copy these allocation so that there is no
+      // duplicate allocation.
       std::unordered_set<Expr*> alloc_in_main;
       getAllocInTrivialLoop(main_loop, alloc_in_main);
       auto epilogue_loop = CircularBufferLoopCloner::clone(
@@ -1307,9 +1301,9 @@ class CircularBufferInserter : private kir::ExprMutator {
           return expr->isA<kir::BlockSync>();
         });
     if (block_sync_it == rend) {
-      // If there's no sync, i.e. no tensor needs cross thread communication. We
-      // still need a wait but it can just be anywhere after the cp.async.commit
-      // in the loop. Chose to place at the end arbitrarily.
+      // If there's no sync, i.e. no tensor needs cross thread communication.
+      // We still need a wait but it can just be anywhere after the
+      // cp.async.commit in the loop. Chose to place at the end arbitrarily.
       main_loop->body().insert_after(exprs.back(), cp_async_wait);
     } else {
       // If a sync has been inserted, wait needs to be placed before the sync.
