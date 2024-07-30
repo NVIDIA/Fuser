@@ -6,11 +6,13 @@
  */
 // clang-format on
 #include <device_lower/utils.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <val_graph.h>
 
 #include <device_lower/pass/replace_size.h>
 
@@ -35,131 +37,72 @@ namespace {
 // concice there to pull out. May want to consider making this mapping its own
 // class especially as it may be useful during scheduling.
 std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
-  std::list<std::unordered_set<IterDomain*>> disjoint_root_sets;
-  std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>*>
-      id_to_disjoint_root_set;
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  id_model.buildExactGraph();
+  ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  auto map_root_ids = [&disjoint_root_sets, &id_to_disjoint_root_set](
-                          IterDomain* id0, IterDomain* id1) {
-    if (id0->isBroadcast() || id1->isBroadcast()) {
-      return;
-    }
+  std::unordered_map<Val*, Val*> simplification_map;
 
-    if (id0->isGatherScatter() || id1->isGatherScatter()) {
-      return;
-    }
-
-    auto disjoint_set_0_it = id_to_disjoint_root_set.find(id0);
-    auto disjoint_set_1_it = id_to_disjoint_root_set.find(id1);
-    bool set_0_found = disjoint_set_0_it != id_to_disjoint_root_set.end();
-    bool set_1_found = disjoint_set_1_it != id_to_disjoint_root_set.end();
-
-    if (set_0_found && set_1_found) {
-      if (disjoint_set_0_it->second == disjoint_set_1_it->second) {
-        return;
-      }
-      // merge second disjoint set into first
-      auto* set_0 = disjoint_set_0_it->second;
-      auto* set_1 = disjoint_set_1_it->second;
-      for (auto id : *set_1) {
-        set_0->emplace(id);
-        id_to_disjoint_root_set[id] = set_0;
-      }
-      // remove second set from disjoint_root_sets
-      disjoint_root_sets.erase(std::find(
-          disjoint_root_sets.begin(), disjoint_root_sets.end(), *set_1));
-    } else if (set_0_found || set_1_found) {
-      auto existing_set =
-          set_0_found ? disjoint_set_0_it->second : disjoint_set_1_it->second;
-      auto to_add_id = set_0_found ? id1 : id0;
-      existing_set->emplace(to_add_id);
-      id_to_disjoint_root_set[to_add_id] = existing_set;
-      // add entry into existing set
-    } else {
-      // create new set entry
-      disjoint_root_sets.emplace_back();
-      auto* new_set = &disjoint_root_sets.back();
-      new_set->emplace(id0);
-      new_set->emplace(id1);
-      id_to_disjoint_root_set[id0] = new_set;
-      id_to_disjoint_root_set[id1] = new_set;
-    }
-  };
-
-  auto fusion_vals = fusion->usedMathVals();
-  for (auto producer_tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
-    auto consumer_tvs = ir_utils::consumerTvsOf(producer_tv);
-    for (auto consumer_tv : consumer_tvs) {
-      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv);
-      auto c2p_logical_map = pairwise_map.mapConsumerToProducer();
-      for (auto entry : c2p_logical_map) {
-        auto c_id = entry.first;
-        auto p_id = entry.second;
-        map_root_ids(p_id, c_id);
-      }
-    }
-  }
-
-  // Map each set to an input ID (if it exists) that has the smallest ->name()
-  // entry value
-  std::unordered_map<std::unordered_set<IterDomain*>*, IterDomain*>
-      set_to_input_id;
-
-  // Loop over the root domains, of the inputs to the fusion. Pick an input ID
-  // to use as the representative ID of the collected sets. Only consider inputs
-  // as those are the ones that map to values like "T0.size[1]". They are he
-  // ID's that propagated their extents into the problem. We could also check
-  // the outputs as we do have C++ examples of using output dimensions for the
-  // problem size instead of inputs. However, we don't do anything where we can
-  // translate to those kinds of kernels integrated into PyTorch.
-  for (auto input_tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    for (auto id : TensorDomain::noReductions(input_tv->getLogicalDomain())) {
-      auto id_set_it = id_to_disjoint_root_set.find(id);
-      if (id_set_it == id_to_disjoint_root_set.end()) {
+  int i = 0;
+  for (const ValGroup& group : graph.disjointValSets().disjointSets()) {
+    // For each ValGroup, find a single extent to use for all extents of
+    // IterDomains in the group. These are chosen in descending order of
+    // preference:
+    // 1. Constant ints. These might be non-immediate constants
+    // 2. Extents of input TVs.
+    // 3. Extents of non-input TVs.
+    // Within these three classes, we find the IterDomain with the smallest
+    // name().
+    bool group_is_const = false;
+    IterDomain* rep = nullptr;
+    for (Val* v : *group) {
+      auto* id = dynamic_cast<IterDomain*>(v);
+      NVF_ERROR(
+          id != nullptr, "Expected only IterDomains in exact graph ValGroups");
+      if (rep == nullptr) {
+        rep = id;
         continue;
       }
-      auto* id_set = id_set_it->second;
-      if (set_to_input_id.find(id_set) == set_to_input_id.end()) {
-        set_to_input_id[id_set] = id;
+      bool id_is_const = id->isConstInt();
+      if (id_is_const) {
+        if (!group_is_const || id->name() < rep->name()) {
+          rep = id;
+          // This lets us avoid repeating the costly isConstInt check
+          group_is_const = true;
+          continue;
+        }
+      } else if (id->isFusionInput()) {
+        if (group_is_const) {
+          continue;
+        }
+        if (!rep->isFusionInput() || id->name() < rep->name()) {
+          rep = id;
+          continue;
+        }
       } else {
-        auto input_id_of_set = set_to_input_id.at(id_set);
-        // Swap id's if new name is less than previously set
-        bool swap_ids = id->name() < input_id_of_set->name();
-        // If new id is a const scalar but previously was'nt use the const
-        // scalar
-        swap_ids = swap_ids ||
-            (id->extent()->isConstScalar() &&
-             !input_id_of_set->extent()->isConstScalar());
-        // If previous scalar was const and new isn't, don't swap
-        swap_ids = swap_ids &&
-            !(input_id_of_set->extent()->isConstScalar() &&
-              !id->extent()->isConstScalar());
-
-        if (swap_ids) {
-          set_to_input_id[id_set] = id;
+        // id is a non-input TV
+        if (group_is_const || rep->isFusionInput()) {
+          continue;
+        }
+        if (id->name() < rep->name()) {
+          continue;
         }
       }
     }
-  }
-
-  // Finally make map from ID extents to the representitive ID extent.
-  std::unordered_map<Val*, Val*> extent_to_min_input_id_extent;
-  for (auto entry : set_to_input_id) {
-    auto* set = entry.first;
-    auto input_id = entry.second;
-    for (auto id : *set) {
-      auto prev_it = extent_to_min_input_id_extent.find(id->extent());
-      // We loop in an unspecified order, so we might overwrite
-      // extent_to_min_input_id_extent[id->extent()]. For reproducibility's
-      // sake, only do so if it would lower the index of the mapped value.
-      if (prev_it != extent_to_min_input_id_extent.end() &&
-          prev_it->second->name() <= input_id->extent()->name()) {
+    NVF_ERROR(rep != nullptr);
+    Val* rep_ext = rep->extent();
+    for (Val* v : *group) {
+      auto* id = v->as<IterDomain>();
+      if (id->isBroadcast() || id->isGatherScatter()) {
         continue;
       }
-      extent_to_min_input_id_extent[id->extent()] = input_id->extent();
+      Val* ext = id->extent();
+      if (!ext->sameAs(rep_ext)) {
+        simplification_map.emplace(ext, rep_ext);
+      }
     }
   }
-  return extent_to_min_input_id_extent;
+  return simplification_map;
 }
 
 } // namespace
@@ -239,6 +182,8 @@ void replaceSymbolicSizes(Fusion* fusion) {
       } else {
         tensor_dim_map[orig_extent] = simplified_extent;
       }
+    } else {
+      tensor_dim_map[orig_extent] = simplified_extent;
     }
   }
 
