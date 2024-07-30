@@ -4258,26 +4258,11 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
               non_divisible_domain_stop_idx,
               non_divisible_split_to_predicate->in()->extent()));
 
-      // TODO: Consolidating unswitch predicates isn't
-      // working. Currently duplicate predicates are generated.
-      // i0_idx >= 0
-      pred = andExpr(pred, geExpr(logical_id0_start_idx, zero));
-      // i0_idx < i0
-      pred = andExpr(
-          pred, ltExpr(logical_id0_stop_idx, ref_logical_id0->extent()));
-
       // i1_idx >= 0
       pred = andExpr(pred, geExpr(logical_id1_start_idx, zero));
       // i1_idx < i1
       pred = andExpr(
           pred, ltExpr(logical_id1_stop_idx, ref_logical_id1->extent()));
-
-      // TODO: Another duplication
-      pred = andExpr(
-          pred,
-          ltExpr(
-              non_divisible_domain_stop_idx,
-              non_divisible_split_to_predicate->in()->extent()));
 
       return pred;
     }
@@ -4298,6 +4283,51 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
   auto outputs = fe.runFusion(aten_inputs);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = set(tv1);
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  // [i0]
+  tv4->split(0, 16);
+  // [i0/16, 16]
+  tv4->split(0, 8);
+  // [i0/10/8, 8, 16]
+  tv4->split(0, 1);
+  // [i0/10/8/1, 1, 8, 16]
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  inlineAllAt(tv4, 2);
+
+  tv2->setMemoryType(MemoryType::Shared);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(1)->parallelize(ParallelType::Unswitch);
+  tv4->axis(2)->parallelize(ParallelType::TIDy);
+  tv4->axis(3)->parallelize(ParallelType::TIDx);
+
+  tv2->axis(2)->parallelize(ParallelType::TIDy);
+  tv2->axis(3)->parallelize(ParallelType::TIDx);
+
+  tv3->axis(2)->parallelize(ParallelType::TIDx);
+  tv3->axis(3)->parallelize(ParallelType::TIDy);
+
+  fusion.printKernel();
+
 }
 
 } // namespace nvfuser
