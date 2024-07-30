@@ -531,8 +531,8 @@ TEST_P(HopperRS, FullSwizzle) {
                                      data_type_to_aten(dtype)));
   
   using namespace debugging;
-  setAsIdentity(inputs.first);
-  setAsARange(inputs.second);
+  setAsIdentity(inputs.first.squeeze());
+  setAsARange(inputs.second.squeeze());
 
   std::cout << "A:\n" << inputs.first << std::endl << std::endl;
   std::cout << "B:\n" << inputs.second << std::endl << std::endl;
