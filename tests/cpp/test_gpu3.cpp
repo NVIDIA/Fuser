@@ -8390,6 +8390,66 @@ TEST_F(NVFuserTest, MultipleDifferentSizeGridReduction) {
   testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
+// https://github.com/NVIDIA/Fuser/issues/2671
+// reshape(tv1) is using logical size of tv0, avoid using the
+// logical sizes of both tv0 and tv1.
+TEST_F(NVFuserTest, ReplaceSymbolicSizeLogicalDomainSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType dtype = DataType::Half;
+  const std::vector<int64_t> input_shape = {128};
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto S32 = IrBuilder::create<Val>(32L);
+  auto S04 = div(tv0->axis(0)->extent(), S32);
+  auto tv2 = reshape(tv0, {S32, S04});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = segment_set(tv3);
+  auto tv5 = reshape(tv1, {S32, S04});
+  auto tv6 = castOp(DataType::Float, tv5);
+  auto tv7 = mul(tv4, tv6);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, ReplaceSymbolicSizeLogicalDomainMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DataType dtype = DataType::Half;
+  const std::vector<int64_t> input_shape = {16, 4};
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  auto tv1 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto S32 = IrBuilder::create<Val>(32L);
+  auto S01 = mul(tv0->axis(0)->extent(), tv0->axis(1)->extent());
+  auto S04 = div(S01, S32);
+  auto tv2 = reshape(tv0, {S32, S04});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = segment_set(tv3);
+  auto tv5 = reshape(tv1, {S32, S04});
+  auto tv6 = castOp(DataType::Float, tv5);
+  auto tv7 = mul(tv4, tv6);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn(input_shape, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

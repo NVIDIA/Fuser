@@ -202,7 +202,6 @@ void replaceSymbolicSizes(Fusion* fusion) {
   for (TensorView* tv : inputs_and_outputs) {
     // Replace the domain with one based on Ti.size[j]
     const std::vector<IterDomain*>& logical_td = tv->getLogicalDomain();
-
     int64_t dim = 0;
     for (auto id : logical_td) {
       Val* orig_size = id->getMaybeExpandedExtent();
@@ -224,6 +223,32 @@ void replaceSymbolicSizes(Fusion* fusion) {
             dim++);
       } else {
         dim++;
+      }
+    }
+  }
+
+  // extent creased by split and merge should be removed from the map
+  // to avoid conflict with the original extent. See
+  // NVFuserTest.ReplaceSymbolicSize*
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    if (!tv->hasRoot()) {
+      continue;
+    }
+    for (auto expr : StmtSort::getExprsTo(
+             {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
+      if (Split* split = dynamic_cast<Split*>(expr)) {
+        auto extent_o = split->outer()->getMaybeExpandedExtent();
+        auto extent_i = split->inner()->getMaybeExpandedExtent();
+        for (auto extent : {extent_i, extent_o}) {
+          if (tensor_dim_map.find(extent) != tensor_dim_map.end()) {
+            tensor_dim_map.erase(extent);
+          }
+        }
+      } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+        auto extent = merge->out()->getMaybeExpandedExtent();
+        if (tensor_dim_map.find(extent) != tensor_dim_map.end()) {
+          tensor_dim_map.erase(extent);
+        }
       }
     }
   }
