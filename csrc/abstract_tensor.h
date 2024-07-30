@@ -119,14 +119,23 @@ using AbstractId = dynamic_type::DynamicType<
 // Example 8:
 //   IterDomain *id0, *id1, *id2, *id3;
 //   AbstractTensor v({{id0, id1}, {id2, id3}});
-//   auto ub = v.unzip();
-// Then ub will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}
+//   auto uz = v.unzip();
+// Then uz will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}
 //
 // Example 9:
 //   IterDomain *id0, *id1, *id2;
 //   AbstractTensor v({{id0, id1}, id2});
-//   auto ub = v.unzip();
-// Then ub will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id2}}
+//   auto uz = v.unzip();
+// Then uz will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id2}}
+//
+// AbstractId in AbstractTensor can be place holders std::monostate{}. For
+// example:
+//
+// Example 10:
+//   AbstractTensor v({{}, {}}); // [null, null]
+//   v.split(0, 2); // [null, null, null]
+//   v.merge(0); // [null, null]
+//   v.swizzle(SwizzleType::XOR, 0, 1); // [null, null]
 
 struct AbstractTensor {
   std::vector<AbstractId> domain;
@@ -159,6 +168,54 @@ struct AbstractTensor {
 
   decltype(auto) size() const {
     return domain.size();
+  }
+
+  decltype(auto) begin() {
+    return domain.begin();
+  }
+
+  decltype(auto) begin() const {
+    return domain.begin();
+  }
+
+  decltype(auto) end() {
+    return domain.end();
+  }
+
+  decltype(auto) end() const {
+    return domain.end();
+  }
+
+  decltype(auto) rbegin() {
+    return domain.rbegin();
+  }
+
+  decltype(auto) rbegin() const {
+    return domain.rbegin();
+  }
+
+  decltype(auto) rend() {
+    return domain.rend();
+  }
+
+  decltype(auto) rend() const {
+    return domain.rend();
+  }
+
+  decltype(auto) cbegin() const {
+    return domain.cbegin();
+  }
+
+  decltype(auto) cend() const {
+    return domain.cend();
+  }
+
+  decltype(auto) crbegin() const {
+    return domain.crbegin();
+  }
+
+  decltype(auto) crend() const {
+    return domain.crend();
   }
 
   template <typename T>
