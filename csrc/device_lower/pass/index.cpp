@@ -1703,8 +1703,8 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
         IrBuilder::create<Val>(stride_bytes, DataType::UInt),
-        // IrBuilder::create<Val>(0, DataType::UInt),
-        getMatrixBaseOffset(base_addr),
+        IrBuilder::create<Val>(0, DataType::UInt),
+        // getMatrixBaseOffset(base_addr),
         // getMatrixBaseOffset(mma, tv, for_loops_, rotated_loop_, inner_size),
         swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
