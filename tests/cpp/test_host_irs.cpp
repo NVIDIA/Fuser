@@ -518,6 +518,58 @@ TEST_F(StreamTest, HostIrDefaultStream) {
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
 }
 
+TEST_F(StreamTest, ByIndex) {
+  constexpr int64_t kStreamIndex1 = 2;
+  constexpr int64_t kStreamIndex2 = 3;
+  static_assert(kStreamIndex1 != kStreamIndex2);
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  auto stream1 =
+      IrBuilder::create<Stream>(IrBuilder::create<Val>(kStreamIndex1));
+  auto stream1_prime =
+      IrBuilder::create<Stream>(IrBuilder::create<Val>(kStreamIndex1));
+  auto stream2 =
+      IrBuilder::create<Stream>(IrBuilder::create<Val>(kStreamIndex2));
+
+  hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(stream1));
+  hic->pushBackTopLevelExprs(
+      IrBuilder::create<SetCurrentStream>(stream1_prime));
+  hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(stream2));
+
+  HostIrExecutor hie(std::move(hic));
+  hie.runWithInput({});
+
+  const std::unordered_map<
+      std::variant<int64_t, Stream*>,
+      c10::cuda::CUDAStream>& streams = hie.getCudaStreams();
+  // This stream hashtable should contain the default stream and only rwo extra
+  // streams, cached with the integer index "2" and "3" as keys
+  EXPECT_EQ(streams.size(), 3);
+  for (auto it : streams) {
+    auto key = it.first;
+    if (std::holds_alternative<int64_t>(key)) {
+      EXPECT_NE(streams.at(key), c10::cuda::getDefaultCUDAStream(0))
+          << "newly created stream should not coincide with default stream";
+      auto index = std::get<int64_t>(key);
+      if (index == kStreamIndex1) {
+        EXPECT_NE(streams.at(key), c10::cuda::getCurrentCUDAStream(0))
+            << "Stream " << index << " should not be the current active stream";
+      } else if (index == kStreamIndex2) {
+        EXPECT_EQ(streams.at(key), c10::cuda::getCurrentCUDAStream(0))
+            << "Stream " << index << " should be the current active stream";
+      } else {
+        FAIL() << "stream's index " << index << "should be " << kStreamIndex1
+               << " or " << kStreamIndex2;
+      }
+    } else if (std::holds_alternative<Stream*>(key)) {
+      EXPECT_EQ(streams.at(key), c10::cuda::getDefaultCUDAStream(0));
+    } else {
+      FAIL() << "stream key of unsupported type";
+    }
+  }
+}
+
 using StreamHostIrTestParams = std::tuple<bool, int, int>;
 using StreamHostIrTest = NVFuserFixtureParamTest<StreamHostIrTestParams>;
 

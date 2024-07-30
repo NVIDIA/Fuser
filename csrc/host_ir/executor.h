@@ -68,6 +68,10 @@ class HostIrExecutor final : public OptInDispatch {
     return fec_;
   };
 
+  const auto& getCudaStreams() {
+    return streams_;
+  }
+
  private:
   using OptInDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
