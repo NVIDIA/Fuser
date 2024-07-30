@@ -4518,7 +4518,7 @@ class TestNvFuserFrontend(TestCase):
                     torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
                     torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
                 ]
-                # Reset the FusionCache or the fusion would not recompile for the second subtest running failing the test
+                # Reset the FusionCache or the fusion would not recompile for all subtests, failing checks in exec_nvfuser.
                 # TODO: Try to move this to pytest_ops.py. Currently, it does not work since the API between nvFuser and torch differs.
                 FusionCache.reset()
                 nvf_out, _ = self.exec_nvfuser(fusion_func, [*qkv, is_causal, scale])
