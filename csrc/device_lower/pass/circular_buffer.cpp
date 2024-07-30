@@ -182,7 +182,8 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   const std::unordered_set<Expr*>& exclude_;
 };
 
-// Creates kir::IfThenElse with the following predicate:
+// TMA operation only a single thread is necessary to launch TMA operations.
+// This function creates kir::IfThenElse with the following predicate:
 // threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0
 // TODO Replace with elect.sync ptx
 kir::IfThenElse* createThreadPredicatedIfThenElse() {
@@ -202,7 +203,8 @@ kir::IfThenElse* createThreadPredicatedIfThenElse() {
   return if_expr;
 }
 
-// Creates kir::Loop with range based on stage depth
+// This function creates kir::Loop with range based on stage depth. It is used
+// for mbarrier initialization and invalidation.
 ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
   int64_t stage_depth =
       GpuLower::current()->circularBufferInfo().getStageDepthFor(
@@ -227,31 +229,8 @@ ForLoop* createStagesForLoop(ForLoop* circular_buffer_loop) {
   return loop;
 }
 
-// Get expected transaction count for given tma operation.
-Val* getExpectedTransactionCount(LoadStoreOp* ldst) {
-  TensorView* consumer_tv = ldst->out()->as<TensorView>();
-  NVF_ERROR(
-      GpuLower::current()->consumerToTMAInfo().count(consumer_tv),
-      "Unable to find TMA info for consumer_tv: ",
-      consumer_tv->toString());
-  const TMAInfo& tma_info =
-      GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
-  Val* expected_bytes = SimplifyingIrBuilder::maybeCastExpr(
-      DataType::UInt32, tma_info.tileSizeBytes());
-  auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
-      SimplifyingIrBuilder::modExpr(
-          expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
-      expected_bytes->fusion()->zeroVal());
-  GpuLower::current()->validate(
-      is_multiple_of_16B,
-      "The expected bytes must be a multiple of 16 bytes, but ",
-      expected_bytes->toInlineString(),
-      " is not.");
-  return expected_bytes;
-}
-
-// Creates kir::MBarrierArriveExpectTx for given LoadStoreOp and index of
-// loop in scope's which LoadStoreOp is present
+// This function creates kir::MBarrierArriveExpectTx for given LoadStoreOp and
+// circular buffer stage.
 //
 // Example:
 // __shared__ __mbarrier_t barriers[num_stages];
@@ -265,16 +244,23 @@ Val* getExpectedTransactionCount(LoadStoreOp* ldst) {
 kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
     LoadStoreOp* ldst,
     Val* loop_index) {
-  // Get expected bytes for single TMA load operation
-  Val* expected_bytes = getExpectedTransactionCount(ldst);
+  TensorView* consumer_tv = ldst->out()->as<TensorView>();
+  NVF_ERROR(
+      GpuLower::current()->consumerToTMAInfo().count(consumer_tv),
+      "Unable to find TMA info for consumer_tv: ",
+      consumer_tv->toString());
+
+  // Get expected bytes for given TMA load operation.
+  const TMAInfo& tma_info =
+      GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
+  Val* expected_bytes = tma_info.tileSizeBytes();
 
   // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
   // load operations launched for each circular buffer stage. We take the
   // product of all coordinate TMA iterDomains to the right of the circular
   // buffer axis.
-  TensorView* ldst_out_tv = ldst->out()->as<TensorView>();
-  const std::vector<IterDomain*>& leaf_domain = ldst_out_tv->getLoopDomain();
-  for (size_t idx = ldst_out_tv->getComputeAtPosition();
+  const std::vector<IterDomain*>& leaf_domain = consumer_tv->getLoopDomain();
+  for (size_t idx = consumer_tv->getComputeAtPosition();
        idx < leaf_domain.size();
        ++idx) {
     IterDomain* id = leaf_domain.at(idx);
@@ -284,9 +270,9 @@ kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
           SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
     }
   }
-
   expected_bytes =
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
+
   auto is_multiple_of_16B = SimplifyingIrBuilder::eqExpr(
       SimplifyingIrBuilder::modExpr(
           expected_bytes, IrBuilder::create<Val>(16, DataType::Index)),
@@ -297,27 +283,33 @@ kir::MBarrierArriveExpectTx* createMbarrierArriveExpectTx(
       expected_bytes,
       " is not.");
 
+  // Get mbarrier for this circular buffer stage.
+  TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+  kir::TensorIndex* stage_mbarrier =
+      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
+
+  // Get mbarrier_token for this circular buffer stage.
   TensorView* all_mbarrier_tokens =
       GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
   kir::TensorIndex* stage_token =
       IrBuilder::create<kir::TensorIndex>(all_mbarrier_tokens, loop_index);
 
-  TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
-  kir::TensorIndex* stage_mbarrier =
-      IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
-
-  auto mbarrier_arrive_tx = IrBuilder::create<kir::MBarrierArriveExpectTx>(
-      stage_token, stage_mbarrier, expected_bytes);
+  kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
+      IrBuilder::create<kir::MBarrierArriveExpectTx>(
+          stage_token, stage_mbarrier, expected_bytes);
 
   return mbarrier_arrive_tx;
 }
 
-// Creates kir::MBarrierWait for given LoadStoreOp and loop index
+// This function creates kir::MBarrierWait for given LoadStoreOp and circular
+// buffer stage.
 kir::MBarrierWait* createMbarrierWait(LoadStoreOp* ldst, Val* loop_index) {
+  // Get mbarrier_token for this circular buffer stage.
   TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
   kir::TensorIndex* stage_mbarrier =
       IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop_index);
 
+  // Get mbarrier_token for this circular buffer stage.
   TensorView* all_mbarrier_tokens =
       GpuLower::current()->ldstMBarrierTokenMap().at(ldst);
   kir::TensorIndex* stage_token =
@@ -334,32 +326,34 @@ kir::MBarrierWait* createMbarrierWait(LoadStoreOp* ldst, Val* loop_index) {
 // the loads. Main copies everything.
 //
 // Loop Structure:
-// pre-prolog:
-// - smem allocations (mbarriers, tokens)
-// - mbarrier init for all stages
+// Pre-prolog:
+// - Allocate shared memory for mbarriers and mbarrier tokens
+// - Initialize mbarrier for all stages
 //
-// prolog loop:
-// - 0th thread:
-//   - issue cp async bulks for all but last stages
+// Prologue loop:
+// - if selected_thread:
+//   - Issue cp async bulks for all but last stage
 //
-// main loop:
-// - select a single thread:
-//   - issue next cp async bulk
-// - copy body, without
-//   - smem allocations
-//   - mbarrier inits
-//   - mbarrier inval
+// Main loop:
+// - if selected_thread:
+//   - Issue next cp async bulk for available stage
+// - All threads wait until tma operation arrives
+// - Copy body without
+//   - shared memory allocations
+//   - mbarrier_init exprs
+//   - mbarrier_inval exprs
 //
-// epilogue loop:
-// - copy body, without
-//   - smem allocations
-//   - issuing cp async
-//   - mbarrier inits
-//   - mbarrier inval
+// Epilogue loop:
+// - All threads wait until tma operation arrives
+// - Copy body without
+//   - shared memory allocations
+//   - issuing cp async bulk operations
+//   - mbarrier_init exprs
+//   - mbarrier_inval exprs
 //
-// post-epilogue:
-//  - 0th thread:
-//   - loop with mbarriers inval
+// Post-epilogue:
+//  - if selected_thread:
+//   - Invalidated mbarrier for all stages
 class TmaCircularBufferLoopCloner : public CircularBufferLoopCloner {
  public:
   static ForLoop* clone(
@@ -824,19 +818,19 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
     //   each circular buffered tensor
     // - expected arrival: number of threads in the block
     for (const Expr* ldst : circular_buffer_load_exprs_) {
-      if (GpuLower::current()->ldstMBarrierMap().count(ldst) != 0) {
-        TensorView* all_mbarriers =
-            GpuLower::current()->ldstMBarrierMap().at(ldst);
-        kir::TensorIndex* stage_mbarrier =
-            IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
-        kir::MBarrierInit* mbarrier_init =
-            IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, one_val);
-        loop->body().push_back(mbarrier_init);
+      if (GpuLower::current()->ldstMBarrierMap().count(ldst) == 0) {
+        continue;
       }
+      TensorView* all_mbarriers =
+          GpuLower::current()->ldstMBarrierMap().at(ldst);
+      kir::TensorIndex* stage_mbarrier =
+          IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
+      kir::MBarrierInit* mbarrier_init =
+          IrBuilder::create<kir::MBarrierInit>(stage_mbarrier, one_val);
+      loop->body().push_back(mbarrier_init);
     }
 
     if_expr->thenBody().push_back(loop);
-
     pre_prologue_exprs_.push_back(if_expr);
   }
 
@@ -854,12 +848,14 @@ class CpAsyncBulkPrePrologue : public kir::IrVisitor {
       return;
     }
 
+    // Add shared memory allocations for mbarrier and mbarrier tokens
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       if (alloc->memoryType() == MemoryType::Shared) {
-        if (GpuLower::current()->mBarrierTokenSmemAllocSet().count(alloc) !=
+        if (GpuLower::current()->mBarrierTokenSmemAllocSet().count(alloc) ==
             0) {
-          pre_prologue_exprs_.push_back(expr);
+          return;
         }
+        pre_prologue_exprs_.push_back(expr);
       }
     }
   }
@@ -912,19 +908,18 @@ class CpAsyncBulkPostEpilogue {
     // - mBarriers' invalidation for each element in smem array for
     //   each circular buffered tensor
     for (const Expr* ldst : circular_buffer_load_exprs_) {
-      if (GpuLower::current()->ldstMBarrierMap().count(ldst) != 0) {
-        TensorView* all_mbarriers =
-            GpuLower::current()->ldstMBarrierMap()[ldst];
-        kir::TensorIndex* stage_mbarrier =
-            IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
-        kir::MBarrierInvalidate* mbarrier_inval =
-            IrBuilder::create<kir::MBarrierInvalidate>(stage_mbarrier);
-        loop->body().push_back(mbarrier_inval);
+      if (GpuLower::current()->ldstMBarrierMap().count(ldst) == 0) {
+        continue;
       }
+      TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap()[ldst];
+      kir::TensorIndex* stage_mbarrier =
+          IrBuilder::create<kir::TensorIndex>(all_mbarriers, loop->index());
+      kir::MBarrierInvalidate* mbarrier_inval =
+          IrBuilder::create<kir::MBarrierInvalidate>(stage_mbarrier);
+      loop->body().push_back(mbarrier_inval);
     }
 
     if_expr->thenBody().push_back(loop);
-
     post_prologue_exprs_.push_back(if_expr);
   }
 
