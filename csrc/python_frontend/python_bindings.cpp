@@ -2925,23 +2925,23 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         size_t ndims = query.dims;
-        Tensor output = fd->defineTensor(ndims);
-        Tensor log_sumexp = fd->defineTensor(ndims - 1);
-        Tensor query_seq_len = fd->defineTensor(0);
-        Tensor key_seq_len = fd->defineTensor(0);
-        Tensor philox_seed = fd->defineTensor(0);
-        Tensor philox_offset = fd->defineTensor(0);
-        Tensor debug_attn_mask = fd->defineTensor(0);
+        Tensor output = fd->defineTensor(/*dims=*/ndims);
+        Tensor log_sumexp = fd->defineTensor(/*dims=*/ndims - 1);
+        Tensor query_seq_len = fd->defineTensor(/*dims=*/0);
+        Tensor key_seq_len = fd->defineTensor(/*dims=*/0);
+        Tensor philox_seed = fd->defineTensor(/*dims=*/0);
+        Tensor philox_offset = fd->defineTensor(/*dims=*/0);
+        Tensor debug_attn_mask = fd->defineTensor(/*dims=*/0);
 
         auto dropout_p_state = dropout_p.has_value()
             ? fd->recordingState(dropout_p.value()())
-            : State(0, serde::StateType::None);
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
         auto is_causal_state = is_causal.has_value()
             ? fd->recordingState(is_causal.value()())
-            : State(0, serde::StateType::None);
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
         auto scale_state = scale.has_value()
             ? fd->recordingState(scale.value()())
-            : State(0, serde::StateType::None);
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
 
         fd->defineRecord(new SdpaFwdOpRecord(
             {fd->recordingState(query()),
