@@ -1674,7 +1674,9 @@ void IndexLowering::handle(const MmaOp* mma) {
     // smem.
     auto tv = mma->inB()->as<TensorView>();
     auto swizzle = getSwizzleMode(tv);
-    auto base_addr = IrBuilder::baseAddressExpr(tv);
+    auto base_addr = lowerSrcIndex(tv, mma->out(), {}, true)
+                         ->as<kir::TensorIndex>()
+                         ->index();
     int64_t leading_bytes = core_matrix_outer_size *
         getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t inner_size =
@@ -1691,7 +1693,8 @@ void IndexLowering::handle(const MmaOp* mma) {
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
         IrBuilder::create<Val>(stride_bytes, DataType::UInt),
-        getMatrixBaseOffset(mma, tv, for_loops_, rotated_loop_, inner_size),
+        IrBuilder::create<Val>(0, DataType::UInt),
+        // getMatrixBaseOffset(mma, tv, for_loops_, rotated_loop_, inner_size),
         swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
         tv,
