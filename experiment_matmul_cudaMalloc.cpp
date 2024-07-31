@@ -176,7 +176,9 @@ int main(int argc, char* argv[]) {
             break;
           case ComputeMode::Unfused:
             at::mul_out(
-                unreduced_results[i], mat1[i].unsqueeze(-1), mat2[i].unsqueeze(-3));
+                unreduced_results[i],
+                mat1[i].unsqueeze(-1),
+                mat2[i].unsqueeze(-3));
             at::sum_out(results[i], unreduced_results[i], {-2});
             break;
           default:
