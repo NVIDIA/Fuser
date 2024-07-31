@@ -141,7 +141,8 @@ def test_groupnorm_fwd_thunder_benchmark(
     bias = torch.randn(C, device="cuda", dtype=dtype, requires_grad=True)
     num_groups = get_n_goups(C)
     # thunder compiled model
-    groupnorm_fwd_jit = thunder.jit(groupnorm_fwd, nv_enable_bookend=False)
+    from thunder.executors.nvfuserex import nvfuserex
+    groupnorm_fwd_jit = thunder.jit(groupnorm_fwd, nv_enable_bookend=False, executors=[nvfuserex])
     run_benchmark(benchmark, groupnorm_fwd_jit, [x, weight, bias, num_groups])
 
 
