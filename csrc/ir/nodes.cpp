@@ -2296,15 +2296,13 @@ IterDomainBuilder::IterDomainBuilder(const IterDomain* id)
       iter_type_(id->getIterType()),
       is_rfactor_domain_(id->isRFactorProduct()),
       is_padded_dimension_(id->hasPaddingToMultipleOfWarp()),
-      padded_to_size_(id->getMaybeSizeAfterPadding()),
-      is_mma_swizzled_(id->isMmaSwizzled()) {}
+      padded_to_size_(id->getMaybeSizeAfterPadding()) {}
 
 IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
   is_rfactor_domain_ = false;
   is_padded_dimension_ = false;
   padded_to_size_ = std::nullopt;
-  is_mma_swizzled_ = false;
   return *this;
 }
 
@@ -2361,11 +2359,6 @@ IterDomainBuilder& IterDomainBuilder::padded_to_size(
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::is_mma_swizzled(bool _is_mma_swizzled) {
-  is_mma_swizzled_ = _is_mma_swizzled;
-  return *this;
-}
-
 IterDomain* IterDomainBuilder::build() const {
   NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
@@ -2383,8 +2376,7 @@ IterDomain::IterDomain(
     IterType iter_type,
     bool is_rfactor_domain,
     bool is_padded_dimension,
-    std::optional<int64_t> padded_to_size,
-    bool is_mma_swizzled)
+    std::optional<int64_t> padded_to_size)
     : Val(passkey, ValType::IterDomain),
       start_(start),
       extent_(extent),
@@ -2396,8 +2388,7 @@ IterDomain::IterDomain(
       iter_type_(iter_type),
       is_rfactor_domain_(is_rfactor_domain),
       is_padded_dimension_(is_padded_dimension),
-      padded_to_size_(padded_to_size),
-      is_mma_swizzled_(is_mma_swizzled) {
+      padded_to_size_(padded_to_size) {
   // NOTE: We previously asserted !(isRFactorProduct() && isBroadcast()), i.e.
   // that an IterDomain could not be both a broadcast and an logical domain.
   // However, since the introduction of the resize op, we now have a legitimate
@@ -2442,8 +2433,7 @@ IterDomain::IterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args)
           args.iter_type_,
           args.is_rfactor_domain_,
           args.is_padded_dimension_,
-          args.padded_to_size_,
-          args.is_mma_swizzled_) {}
+          args.padded_to_size_) {}
 
 IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
@@ -2457,8 +2447,7 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
       iter_type_(src->iter_type_),
       is_rfactor_domain_(src->is_rfactor_domain_),
       is_padded_dimension_(src->is_padded_dimension_),
-      padded_to_size_(src->padded_to_size_),
-      is_mma_swizzled_(src->is_mma_swizzled_) {}
+      padded_to_size_(src->padded_to_size_) {}
 
 NVFUSER_DEFINE_CLONE(IterDomain)
 
@@ -2483,7 +2472,6 @@ bool IterDomain::sameAs(const Statement* other) const {
   // is_rfactor_domain_
   // is_padded_dimension_
   // padded_to_size_
-  // is_mma_swizzled_
 
   // Do not take is_rfactor_domain_ into account. IterDomain's are
   // considered the same if they are rfactor or not.
@@ -2499,8 +2487,7 @@ bool IterDomain::sameAs(const Statement* other) const {
       getParallelType() == other_id->getParallelType() &&
       getIterType() == other_id->getIterType() &&
       hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
-      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding() &&
-      isMmaSwizzled() == other_id->isMmaSwizzled();
+      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding();
 }
 
 std::string IterDomain::toString(int indent_size) const {
@@ -2893,20 +2880,6 @@ void IterDomain::parallelize(ParallelType t) {
             getIterType() == IterType::GatherScatter,
         "Grouping IterDomain of non Iteration / GatherScatter type is not allowed. ",
         getIterType());
-  }
-
-  if (isMmaSwizzled()) {
-    // Mma swizzled axes represent data representation within a warp
-    //  so only allow updates that keep the parallelization within
-    //  a warp.
-    // Note && TODO: this check is actually used to allow indexing path
-    //  to make copies of the iterdomains. We might eventually just want
-    //  to lock these parallel types and not allowing any changes once
-    //  they are swizzled.
-    NVF_CHECK(
-        t == ParallelType::Vectorize || t == ParallelType::TIDx ||
-            t == ParallelType::Serial || t == ParallelType::Mma,
-        "Parallel type other than serial, tidx, vectorize not allowed for mma swizzled ids");
   }
 
   parallel_type_ = t;
@@ -3361,10 +3334,6 @@ void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
 
   IterDomain* id = this->axis(axis);
 
-  NVF_ERROR(
-      !id->isMmaSwizzled(),
-      "Further transformation on warp mapped id's not allowed.");
-
   auto split_ids = IterDomain::split(id, factor, inner_split);
   loop_domain_.erase(loop_domain_.begin() + axis);
   loop_domain_.insert(loop_domain_.begin() + axis, split_ids.second);
@@ -3384,10 +3353,6 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
 
   IterDomain* first = axis(axis_o);
   IterDomain* second = axis(axis_i);
-
-  NVF_ERROR(
-      !first->isMmaSwizzled() && !second->isMmaSwizzled(),
-      "Further transformation on warp mapped id's not allowed.");
 
   IterDomain* merged_id = IterDomain::merge(first, second);
 

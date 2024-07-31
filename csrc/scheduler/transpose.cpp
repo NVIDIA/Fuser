@@ -1219,10 +1219,12 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // as: [i0 * i1/tile1 * i2/tile2, r1, r2, tile1, tile2]
   int64_t rhs_i = reference1->nDims() - 3;
   for (int64_t lhs_i = reference1->nDims() - 4; lhs_i >= 0; lhs_i--) {
-    if (reference1->axis(lhs_i)->isReduction()) {
+    if (reference1->axis(lhs_i)->isReduction() ||
+        reference1->axis(lhs_i)->isDeviceDim()) {
       continue;
     }
-    if (reference1->axis(rhs_i)->isReduction()) {
+    if (reference1->axis(rhs_i)->isReduction() ||
+        reference1->axis(rhs_i)->isDeviceDim()) {
       rhs_i = lhs_i;
       continue;
     }

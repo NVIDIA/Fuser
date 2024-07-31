@@ -118,43 +118,29 @@ inline void checkConcreteStaticDim(IterDomain* id) {
 //!  for matmul mainloop and epilogue.
 //! The shared mem data layout is always 2D currently, and this utility
 //!  function assumes that the shared_mem_tv has the following structure:
-//!  [tile_row, tile_col, ***skip***] where the parameter `skip` is the number
-//!  of reduction domains to be skipped. The IDs of tile_row and tile_col are
-//!  the ones being swizzled.
-//! If the input tensorview is not stored in shared memory, the function will
-//! skip the actual swizzle. This is used to help the domain mapping between
-//! mma_result and the epilogue tensor.
+//!  [tile_row, tile_col]
 //! Returns the domain with swizzle. For the case of legacy swizzle, this
 //! domain must be set as loop domain. For the case of new swizzle, this domain
 //! must be set as allocation domain.
 template <bool legacy = true>
 AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
-  // Set skip to skip all consecutive reduction domains starting from the
-  //  innermost dimension.
+  NVF_ERROR(shared_mem_tv->getMemoryType() == MemoryType::Shared);
   AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
-  int64_t skip = 0;
-  for (int64_t i = (int64_t)swizzle_domain.size() - 1; i >= 0; --i) {
-    if (swizzle_domain[i]->isReduction()) {
-      skip++;
-    } else {
-      break;
-    }
-  }
 
   // Check that the innermost 2 dimensions are concrete and static
   //  sized so that the swizzle function can be defined.
   NVF_ERROR(
-      (int64_t)swizzle_domain.size() >= 2 + skip,
+      (int64_t)swizzle_domain.size() >= 2,
       "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
-  checkConcreteStaticDim(swizzle_domain[-2 - skip].as<IterDomain*>());
-  checkConcreteStaticDim(swizzle_domain[-1 - skip].as<IterDomain*>());
+  checkConcreteStaticDim(swizzle_domain[-2].as<IterDomain*>());
+  checkConcreteStaticDim(swizzle_domain[-1].as<IterDomain*>());
 
   // Extract the constant sizes of the swizzled tile
   const int64_t tile_size_x =
-      swizzle_domain[-2 - skip]->extent()->evaluate().as<int64_t>();
+      swizzle_domain[-2]->extent()->evaluate().as<int64_t>();
   const int64_t tile_size_y =
-      swizzle_domain[-1 - skip]->extent()->evaluate().as<int64_t>();
+      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
 
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
@@ -438,12 +424,12 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   //   -2   -1
   // [row, col]
   if (repeated_pattern_size > 1) {
-    swizzle_domain.split(-2 - skip, repeated_pattern_size);
+    swizzle_domain.split(-2, repeated_pattern_size);
   }
-  swizzle_domain.split(-1 - skip, n_cols);
+  swizzle_domain.split(-1, n_cols);
   //      -4         -3       -2        -1
   // [gigarow id, gigarow, matrix id, matrix]
-  swizzle_domain.split(-2 - skip, num_gigabanks);
+  swizzle_domain.split(-2, num_gigabanks);
   //      -5        -4        -3        -2         -1
   // [gigarow id, gigarow, y outer, gigabank id, matrix]
   // Note that megabanks inside a gigabank are not contiguous, so the gigabank
@@ -494,7 +480,7 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   //      -5        -4        -3        -2         -1
   // [gigarow id, gigarow, y outer, gigabank id, matrix]
   int axis_of_gigarow_id = repeated_pattern_size > 1 ? -5 : -4;
-  swizzle_domain.split(axis_of_gigarow_id - skip, num_gigabanks);
+  swizzle_domain.split(axis_of_gigarow_id, num_gigabanks);
   //     -6     -5     -4       -3        -2         -1
   // [wave id, wave, gigarow, y outer, gigabank id, matrix]
 
@@ -516,30 +502,24 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   // applying the swizzle, and this check is to detect and handle this
   // specific case. We should remove this special handling when we fix our CA
   // mapping.
-  if (shared_mem_tv->getMemoryType() == MemoryType::Shared) {
-    int axis_of_gigarow_id = repeated_pattern_size > 1 ? -5 : -4;
-    using SwizzleTypeMaybeLegacy =
-        std::conditional_t<legacy, Swizzle2DType, SwizzleType>;
-    if (isPowOf2(num_gigabanks)) {
-      swizzle_domain.swizzle(
-          SwizzleTypeMaybeLegacy::XOR, axis_of_gigarow_id - skip, -2 - skip);
-    } else {
-      swizzle_domain.swizzle(
-          SwizzleTypeMaybeLegacy::CyclicShift,
-          axis_of_gigarow_id - skip,
-          -2 - skip);
-    }
+  using SwizzleTypeMaybeLegacy =
+      std::conditional_t<legacy, Swizzle2DType, SwizzleType>;
+  if (isPowOf2(num_gigabanks)) {
+    swizzle_domain.swizzle(SwizzleTypeMaybeLegacy::XOR, axis_of_gigarow_id, -2);
+  } else {
+    swizzle_domain.swizzle(
+        SwizzleTypeMaybeLegacy::CyclicShift, axis_of_gigarow_id, -2);
   }
 
   if (legacy) {
     if (repeated_pattern_size > 1) {
-      swizzle_domain.merge(-6 - skip);
+      swizzle_domain.merge(-6);
     }
-    swizzle_domain.merge(-5 - skip);
+    swizzle_domain.merge(-5);
 
     // merge back tile_size_y
-    swizzle_domain.merge(-3 - skip);
-    swizzle_domain.merge(-2 - skip);
+    swizzle_domain.merge(-3);
+    swizzle_domain.merge(-2);
   }
 
   return swizzle_domain;
@@ -1027,16 +1007,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
 
-  if (params.use_smem_epilogue) {
-    // TODO: this is no longer needed because we are now using the new swizzle
-    // for the smem epilogue. However, without this, I am seeing some failures
-    // in IdModel. Leaving this as is for now. Will investigate later.
-
-    // Transform mma_result through the epilogue swizzle without actually
-    // swizzling the axes. This is done to enable the domains
-    // are mapped between mma_result and smem_epilogue.
-    auto swizzled_dom = swizzleSharedMemory(mma_result);
-    mma_result->setLoopDomain(swizzled_dom.as<IterDomain*>());
+  if (params.use_smem_epilogue && params.splitk_factor != 1) {
+    // TODO:
+    // This is a workaround for a problem that different dimensions in the loop
+    // domain are mapped in the loop graph of IdModel due to the mapping of
+    // compliment IDs. We should remove forwarding completely, and remove this
+    // workaround.
+    mma_result->split(-2, 1);
+    mma_result->merge(-3);
   }
 
   // Schedule warp tile
@@ -1121,7 +1099,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // After
   //   mma_result  [... iMo iNo (iKf) rKg rKwo iMwo iNwo iMw
   //                              iNw iMino iNino iMin2 iNin2 rKino rKin4 rKin2]
-  mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        mma_result->getLoopDomain());
+    mma_result->setLoopDomain(s.as<IterDomain*>());
+    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
 
   // Set parallelization:
   //   TODO: this section goes to a separate matmul util,
@@ -1132,7 +1115,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     //  -5  -4   -3   -2   -1
     //[8mi, 4k, 2ko, 2mo, 2ki]
     acr->setAllocationDomain(acr->getLoopDomain(), true);
-    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
+    mma_utils::MmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
     ab->merge(-5);
     ab->axis(-4)->parallelize(ParallelType::TIDx);
     propagate_mma_input_schedule_to(acr, nullptr);
@@ -1141,7 +1124,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     //   -5  -4   -3   -2   -1
     // [8ni, 4k, 2ko, 1no, 2ki]
     bcr->setAllocationDomain(bcr->getLoopDomain(), true);
-    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
+    mma_utils::MmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
     bb->merge(-5);
     bb->axis(-4)->parallelize(ParallelType::TIDx);
     propagate_mma_input_schedule_to(nullptr, bcr);
