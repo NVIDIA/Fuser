@@ -229,7 +229,6 @@ struct AbstractTensor {
     return *this;
   }
 
-
   template <typename... Args>
   AbstractTensor& emplaceBack(Args&&... args) {
     domain.emplace_back(std::forward<Args>(args)...);
