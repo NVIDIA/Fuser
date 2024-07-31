@@ -429,6 +429,14 @@ std::vector<ValGroup> canonicalDimOrdering(
     const mma_utils::DimRolesMap& dim_roles,
     const ValGraph& permissive_graph);
 
+//! Returns roles maps which have been merged across individual maps generated
+//! by the provided matmul patterns.
+//!
+//! Returns std::nullopt if two patterns have incompatible roles
+std::optional<std::pair<DimRolesMap, TensorRolesMap>> allPatternRoles(
+    IdModel& id_model,
+    const std::vector<MatmulPattern>& patterns);
+
 //! Set the number_of_dims IDs from the end to swizzled.
 void setWarpMapped(TensorView* tv, int64_t number_of_dims);
 
