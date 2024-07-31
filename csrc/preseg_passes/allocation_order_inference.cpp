@@ -95,7 +95,7 @@ void mapAllocationDomain(
   }
 
   // logic to preserve reduction iter domain in target to WAR #2202
-#if true
+#if false
   // mapping id between ref's allocation domain to target's logical domain,
   // iterating from fast to slow loop
   for (auto* ref_id : ref_alloc_domain) {

@@ -810,6 +810,7 @@ int64_t getVectorizationFactor(
           });
 
   auto& vectorizable_inputs_outputs = vectorizable_inputs_outputs_entry.get();
+    std::cout << "break_point " << break_point << std::endl;
 
   auto vectorize_maps_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::TvToContigInnerSizeMaps>(
@@ -821,6 +822,7 @@ int64_t getVectorizationFactor(
           });
 
   if (vectorizable_inputs_outputs.empty()) {
+    std::cout << "no vectorizable inputs/outputs" << std::endl;
     return 1;
   }
 
@@ -854,6 +856,7 @@ int64_t getVectorizationFactor(
       // TODO: Instead of competely disabling vectorization for all
       // tensors, just disable the problematic tensor and keep the
       // other tensors vectorized
+      std::cout << "don't have info for tensor " << inp_or_out->toString()  << std::endl;
       return 1;
     }
     auto inner_size_opt =
@@ -861,6 +864,7 @@ int64_t getVectorizationFactor(
     NVF_ERROR(
         inner_size_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size.");
+    std::cout << "tensor " << inp_or_out->toString() << ", inner_size_opt= " << inner_size_opt.as<int64_t>() << std::endl;
 
     max_vec_size = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
