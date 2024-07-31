@@ -336,16 +336,17 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto ndims_b = orig_domain_b.size();
   
   // Output has a reduction axis rK if K is not bcast
-  bool k_non_bcast = !tv_a->axis(-1)->isBroadcast();
+  bool k_bcast = tv_a->axis(-1)->isBroadcast();
+  size_t red_dims = k_bcast ? 0 : 1;
 
   // Matmul output size is same as the higher dimensional input size if both A/B
   // > 1D, but with 1 additional IterType::Reduction axis rK if K is not broadcast.
-  auto ndims_out = std::max(ndims_a, ndims_b) + (size_t)k_non_bcast;
+  auto ndims_out = std::max(ndims_a, ndims_b) + red_dims;
   if (std::min(ndims_a, ndims_b) == 1) {
     // If one of the inputs is 1D, the output size is the same as the higher
     // dimensional input size, since we will include a Reduction axis for K in
     // the output. For example: [iM, iK] x [iK] -> [iM, rK]
-    ndims_out = std::max(ndims_a, ndims_b) - 1 + + (size_t)k_non_bcast;
+    ndims_out = std::max(ndims_a, ndims_b) - 1 + red_dims;
   }
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
@@ -355,11 +356,11 @@ static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   const std::vector<IterDomain*>& mapping_b =
       ops::mapMatmulOpIterDomains(orig_domain_b, 1, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out - k_non_bcast)) {
+  for (auto idx : c10::irange(ndims_out - red_dims)) {
     out_domain[idx] =
         ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
   }
-  if (k_non_bcast){
+  if (!k_bcast){
     out_domain[ndims_out - 1] = ops::newOutputIterDomain(
         {mapping_a.back(), mapping_b.back()},
         /*force_iter_type=*/IterType::Reduction);

@@ -190,7 +190,10 @@ std::vector<IterDomain*> mapMatmulOpIterDomains(
 
   // Input A to matmul: {*, M, K}
   // Input B to matmul: {*, K, N}
-  auto kpos = input_position == 0 ? inp_size - 1 : inp_size - 2;
+  auto kpos = inp_size - 1;
+  if (input_position == 1 && inp_size > 1){
+    kpos = inp_size - 2;
+  }
   bool k_bcast = input_domain.at(kpos)->isBroadcast();
   int64_t red_dims = k_bcast ? 0 : 1;
 
