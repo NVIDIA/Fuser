@@ -736,6 +736,9 @@ TEST_F(AbstractTensorTest, PlaceHolder) {
   for (auto i : v) {
     EXPECT_FALSE(i.hasValue());
   }
+
+  v.strip();
+  EXPECT_TRUE(v.empty());
 }
 
 } // namespace nvfuser
