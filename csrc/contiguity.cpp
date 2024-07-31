@@ -335,14 +335,6 @@ void OrderedIdInformation::handle(Resize* resize) {
     return;
   }
 
-  // Find inputs in the active_ids_ vector
-  const auto in_it =
-      std::find(active_ids_.begin(), active_ids_.end(), resize->in());
-
-  if (in_it == active_ids_.end()) {
-    return;
-  }
-
   auto in_pos = getActiveIdPos(resize->in());
 
   const bool in_ordered = isConsistentlyOrdered(resize->in());
