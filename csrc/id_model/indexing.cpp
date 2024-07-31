@@ -1168,7 +1168,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   if (!lower_utils::isReductionInitExpr(expr)) {
     for (const auto& [eg, direction] : index_info.traversal_path) {
       // NOTE: Fundamentally, the problem of non divisiblity should be
-      // checked while traversing the indexng path. Currently, it uses
+      // checked while traversing the indexing path. Currently, it uses
       // the information gathered in a tensor-by-tensor basis. This
       // should be fine currently, but may not work if, e.g., the
       // indexing path involved both backward and forward traversals.
