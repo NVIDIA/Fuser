@@ -53,7 +53,7 @@ inline bool isNonDivisibleSplit(const ExprGroup& expr_group) {
   // may result in duplicate predicates, which should be removed by
   // the expression simplifier.
   //
-  // For example, suppose tv0 as a 1D tensor of size 16:
+  // For example, suppose tv0 is a 1D tensor of size 16:
   //
   // auto tv1 = reshape(tv0, {16}, {2, 8});
   // tv1->split(1, 3);
