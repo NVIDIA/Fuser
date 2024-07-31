@@ -22,6 +22,7 @@
 #include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
 #include <swizzle.h>
+#include <val_graph_visitor.h>
 
 #include <algorithm>
 #include <fstream>

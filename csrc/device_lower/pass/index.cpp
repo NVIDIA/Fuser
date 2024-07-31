@@ -16,7 +16,6 @@
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
-#include <val_graph_visitor.h>
 
 #include <device_lower/pass/index.h>
 
