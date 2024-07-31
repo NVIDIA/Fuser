@@ -130,7 +130,6 @@ inline bool initCoreHeuristics(
 
       params->circular_buffer_options.circular_buffer_smem_write = true;
       params->circular_buffer_options.circular_buffer_smem_read = true;
-      params->circular_buffer_options.circular_buffer_registers_read = true;
       params->circular_buffer_options.smem_circular_buffer_stage = stages;
     }
   }

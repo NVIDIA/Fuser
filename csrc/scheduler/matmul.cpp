@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <abstract_tensor.h>
+#include <device_lower/analysis/circular_buffer.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <multidevice/utils.h>
@@ -1303,10 +1304,22 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
         params.circular_buffer_options.smem_circular_buffer_stage);
   }
 
-  if (params.circular_buffer_options.circular_buffer_smem_read &&
-      params.circular_buffer_options.circular_buffer_registers_read) {
-    acr->circularBuffer(/*number_of_stages=*/2);
-    bcr->circularBuffer(/*number_of_stages=*/2);
+  if (params.circular_buffer_options.circular_buffer_smem_read) {
+    constexpr int64_t number_of_stages = 2;
+
+    IterDomain* acr_axis = getCircularBufferAxis(acr);
+    NVF_ERROR(acr_axis != nullptr);
+    if (acr_axis->extent()->isConstScalar() &&
+        acr_axis->extent()->evaluate() >= number_of_stages) {
+      acr->circularBuffer(number_of_stages);
+    }
+
+    IterDomain* bcr_axis = getCircularBufferAxis(bcr);
+    NVF_ERROR(bcr_axis != nullptr);
+    if (bcr_axis->extent()->isConstScalar() &&
+        bcr_axis->extent()->evaluate() >= number_of_stages) {
+      bcr->circularBuffer(number_of_stages);
+    }
   }
 
   if (params.circular_buffer_options.circular_buffer_smem_read &&

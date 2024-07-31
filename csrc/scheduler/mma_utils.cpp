@@ -112,7 +112,6 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
   MatmulParams::CircularBufferOptions circular_buffer_options{
       /*circular_buffer_smem_write=*/true,
       /*circular_buffer_smem_read=*/true,
-      /*circular_buffer_registers_read=*/false,
       smem_circular_buffer_stage};
 
   const auto [smem_a, smem_b, smem_c] =

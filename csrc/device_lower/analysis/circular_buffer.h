@@ -15,6 +15,8 @@
 
 namespace nvfuser {
 
+IterDomain* getCircularBufferAxis(const TensorView* tv);
+
 void validateCircularBufferedTensor(const TensorView* tv);
 
 class CircularBufferInfo {

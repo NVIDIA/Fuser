@@ -191,8 +191,6 @@ void copyConfigToParams(MatmulParams& params, const KernelConfig* config) {
   }
   params.circular_buffer_options.circular_buffer_smem_read =
       config->circular_buffer_smem_read;
-  params.circular_buffer_options.circular_buffer_registers_read =
-      config->circular_buffer_smem_read;
   params.rotate_ldmatrix_out_of_main_loop =
       config->rotate_ldmatrix_out_of_main_loop;
 
