@@ -83,23 +83,19 @@ namespace {
 TensorView* replicated_dropout(
     TensorView* x,
     const double kProb,
-    Fusion* fusion,
     DeviceMesh mesh) {
-  // Need to modify two things before we can use the existing dropout function
-  // in composite.cpp (1) Sharding propagation breaks at rand_like because it
-  // creates a fresh TV. (2) The philox seed and offset must be set to ensure
-  // the masks are identical across processes.
+  // Sharding propagation breaks at rand_like because it creates a fresh TV.
+  // Explicitly shard rand_vals.
   TensorView* x_float = castOp(DataType::Float, x);
   const double kScale = 1.0 / (1.0 - kProb);
-  Val* philox_seed = fusion->zeroVal();
-  Val* philox_offset = fusion->zeroVal();
-  TensorView* rand_vals = rand_like(x_float, philox_seed, philox_offset);
+  TensorView* rand_vals = rand_like(x_float);
   TensorView* mask = lt(rand_vals, IrBuilder::create<Val>(1.0 - kProb));
   TensorView* apply_mask = mul(x_float, mask);
   TensorView* dropout = mul(apply_mask, IrBuilder::create<Val>(kScale));
   rand_vals->setDeviceMesh(mesh);
   return dropout;
 }
+
 
 void validate(
     std::vector<at::Tensor> expected_out,
@@ -109,7 +105,7 @@ void validate(
     // Note: Scaling tolerance up since the error accumulates across ops
     // BFloat16 error is quite high, but the program has been verified with
     // double precision to be logically correct.
-    double atol = 0.5 * (i + 1);
+    double atol = 0.025 * (i + 1);
     double rtol = 1.6e-2;
     auto all_close = out[i]
                          .to(expected_out[i].dtype())
@@ -119,7 +115,7 @@ void validate(
                              atol,
                              /*equal_nan=*/true);
 
-    if (!all_close) {
+    if (true) {
       auto error = (out[i].to(expected_out[i].dtype()) - expected_out[i]).abs();
       auto max_error = error.max().item().to<double>();
       auto max_relative_error =
@@ -170,7 +166,6 @@ std::vector<at::Tensor> reference_mha(
   // Reassemble heads (B, H, S, E/H) to (B, S, H, E/H) to (B, S, E)
   auto y = sdpa.transpose(1, 2).reshape({B * S, E});
   auto y_proj = at::matmul(y, w1).add(b1);
-  // at::manual_seed(0);
   auto y_dropout = at::dropout(y_proj.to(at::kFloat), kDropoutProb, true);
   return {m, sdpa, y_proj, y_dropout};
 }
@@ -238,7 +233,7 @@ std::vector<TensorView*> mlp(
   TensorView* bcast_bias = broadcast(b1, {true, false});
   TensorView* linear2 = add(matmul2, bcast_bias);
   // Dropout
-  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, fusion, mesh);
+  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, mesh);
 
   // Sharding
   // (TODO) TVs where sharding propagation breaks down:
@@ -305,7 +300,7 @@ std::vector<TensorView*> mha(
   TensorView* b1_bcast = broadcast(b1, {true, false});
   TensorView* linear2 = add(mm2_ar, b1_bcast);
   // Dropout
-  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, fusion, mesh);
+  TensorView* dropout = replicated_dropout(linear2, kDropoutProb, mesh);
 
   for (auto tv : {x, b1, mm2_ar, linear2, dropout}) {
     tv->setDeviceMesh(mesh);
@@ -450,9 +445,9 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
       reference_outs[2],
       reference_outs[3]};
 
-  at::manual_seed(getATenRandomSeed());
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
+  at::manual_seed(getATenRandomSeed());
   auto outputs = runtime.runWithInput(inputs);
   validate(expected_outputs, outputs);
 }
@@ -490,7 +485,8 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
   auto w1 = at::randn({E, E}, options) * kParamScale;
   auto b1 = at::randn({E}, options) * kParamScale;
 
-  at::manual_seed(0);
+
+  at::manual_seed(getATenRandomSeed());
   auto reference_outs = reference_mha(x, w0, b0, w1, b1, at_dtype);
   std::vector<c10::IValue> inputs = {
       x,
@@ -510,7 +506,7 @@ TEST_P(DistributedTransformerTest, Multiheaded_Attention) {
 
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
-  at::manual_seed(0);
+  at::manual_seed(getATenRandomSeed());
   auto out = runtime.runWithInput(inputs);
   validate(expected_outputs, out);
 }
@@ -642,7 +638,7 @@ TEST_P(DistributedTransformerTest, Forward) {
   auto mlp_w1_ = at::randn({4 * E, E}, options) * kParamScale;
   auto mlp_b1_ = at::randn({E}, options) * kParamScale;
 
-  at::manual_seed(0);
+  at::manual_seed(getATenRandomSeed());
   auto at_weight = c10::optional<at::Tensor>();
   auto at_bias = c10::optional<at::Tensor>();
   auto ln_1_ = at::native_layer_norm(x_, norm_shape, at_weight, at_bias, kEps);
@@ -677,9 +673,9 @@ TEST_P(DistributedTransformerTest, Forward) {
   std::vector<at::Tensor> expected_outputs = {
       ln_1_out_, mha_out_, ln_2_out_, mlp_out_, at_out};
 
-  at::manual_seed(0);
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params_);
+  at::manual_seed(getATenRandomSeed());
   auto outputs = runtime.runWithInput(inputs);
   validate(expected_outputs, outputs);
 }
