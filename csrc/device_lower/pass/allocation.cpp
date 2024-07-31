@@ -175,6 +175,19 @@ class AllocationInserter : public kir::ExprMutator {
 
     info.allocation_domains = std::make_unique<std::vector<IterDomain*>>();
 
+    // TODO: Today, we always allocate loop domain, even if the allocation
+    // domain is explicitly set. This is clearly not the right thing to do,
+    // and we should fix this in the future. However, today, we still don't
+    // have a clear design of how to allocate tensors with explicit allocation
+    // domain. This problem is very difficult to solve, and there are many
+    // things to consider. For example, if the allocation domain contains a
+    // subset of inlined loop IDs, we should not allocate the inlined IDs.
+    // But what if the opposite is true? What if the allocation domain
+    // does not contain all inlined IDs? Is this considered an error, or
+    // a valid case that we need to infer which to allocate from the loop
+    // domain? We need to think about this carefully and come up with a
+    // clear design. For now, we just allocate the loop domain for historical
+    // reasons for all cases except for the Hopper MMA output tensor.
     if ((info.buffer->definition()->isA<MmaOp>() &&
          isHopper(info.buffer->definition()->as<MmaOp>()->macro()))) {
       std::unordered_set<IterDomain*> exclude_ca_ids;
