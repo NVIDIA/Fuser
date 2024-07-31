@@ -13,6 +13,8 @@
 
 namespace nvfuser {
 
-NVF_API void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams& params);
+NVF_API void scheduleMultipleMatmuls(
+    Fusion* fusion,
+    const MatmulParams& params);
 
 } // namespace nvfuser
