@@ -116,7 +116,6 @@ bool PostOnStream::sameAs(const Statement* other) const {
   return false;
 }
 
-
 Stream::Stream(IrBuilderPasskey passkey, Val* index)
     : Val(passkey, ValType::Stream), index_(index) {}
 
