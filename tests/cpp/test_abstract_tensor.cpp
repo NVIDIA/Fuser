@@ -712,4 +712,36 @@ TEST_F(AbstractTensorTest, UnzipBroadcasting) {
   EXPECT_EQ(ub[1], expect1);
 }
 
+TEST_F(AbstractTensorTest, Zip) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  const AbstractTensor v0{id0, id2};
+  const AbstractTensor v1{id1, id3};
+  const AbstractTensor v = AbstractTensor::zip({v0, v1});
+  ASSERT_EQ(v.size(), 2);
+  AbstractId expect0{id0, id1};
+  AbstractId expect1{id2, id3};
+  EXPECT_EQ(v[0], expect0);
+  EXPECT_EQ(v[1], expect1);
+}
+
+TEST_F(AbstractTensorTest, Stack) {
+  auto id0 = newID();
+  auto id1 = newID();
+  auto id2 = newID();
+  auto id3 = newID();
+  auto id4 = newID();
+  auto id5 = newID();
+  AbstractTensor v({{id0, id1}, {id2, id3}});
+  AbstractTensor v2({id4, id5});
+  v.stack(v2);
+  ASSERT_EQ(v.size(), 2);
+  AbstractId expect0{id0, id1, id4};
+  AbstractId expect1{id2, id3, id5};
+  EXPECT_EQ(v[0], expect0);
+  EXPECT_EQ(v[1], expect1);
+}
+
 } // namespace nvfuser

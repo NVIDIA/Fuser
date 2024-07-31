@@ -127,6 +127,25 @@ using AbstractId = dynamic_type::DynamicType<
 //   AbstractTensor v({{id0, id1}, id2});
 //   auto ub = v.unzip();
 // Then ub will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id2}}
+//
+// The opposite operation of unzip is zip. For example:
+//
+// Example 10:
+//   IterDomain *id0, *id1, *id2, *id3;
+//   AbstractTensor v0({id0, id2});
+//   AbstractTensor v1({id1, id3});
+//   auto z = AbstractTensor::zip({v0, v1});
+// Then z will be [{id0, id1}, {id2, id3}].
+//
+// Besides, you can stack another AbstractTensor into the current AbstractTensor.
+// For example:
+//
+// Example 11:
+//   IterDomain *id0, *id1, *id2, *id3, *id4, *id5;
+//   AbstractTensor v0({{id0, id1}, {id2, id3}});
+//   AbstractTensor v1({id4, id5});
+//   v0.stack(v1);
+// Then v0 will be [{id0, id1, id4}, {id2, id3, id5}].
 
 struct AbstractTensor {
   std::vector<AbstractId> domain;
@@ -207,6 +226,17 @@ struct AbstractTensor {
   // AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], then the return value
   // will be {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}.
   std::vector<AbstractTensor> unzip() const;
+
+  // Zip multiple AbstractTensors into a single AbstractTensor. For example, if
+  // the input is {AbstractTensor{id0, id2}, AbstractTensor{id1, id3}}, then the
+  // return value will be [dim0={id0, id1}, dim1={id2, id3}].
+  static AbstractTensor zip(std::vector<AbstractTensor> tensors);
+
+  // Stack another AbstractTensor into the current AbstractTensor. For example,
+  // if the current AbstractTensor is [dim0={id0, id1}, dim1={id2, id3}], and
+  // the input AbstractTensor is [dim0=id4, dim1=id5], then the return value
+  // will be [dim0={id0, id1, id4}, dim1={id2, id3, id5}].
+  AbstractTensor& stack(AbstractTensor tensor);
 };
 
 } // namespace nvfuser

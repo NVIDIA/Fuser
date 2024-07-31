@@ -413,4 +413,37 @@ std::vector<AbstractTensor> AbstractTensor::unzip() const {
   return result;
 }
 
+AbstractTensor AbstractTensor::zip(std::vector<AbstractTensor> tensors) {
+  NVF_CHECK(!tensors.empty(), "Can not stack an empty list of AbstractTensor");
+
+  AbstractTensor result;
+  for (const auto& tensor : tensors) {
+    NVF_CHECK(
+        tensor.domain.size() == tensors[0].domain.size(),
+        "Can not stack AbstractTensors with different number of domains.");
+  }
+
+  for (auto i : c10::irange(tensors[0].domain.size())) {
+    std::vector<AbstractId> domain;
+    for (const auto& tensor : tensors) {
+      domain.push_back(std::move(tensor.domain[i]));
+    }
+    result.domain.push_back(std::move(domain));
+  }
+
+  return result;
+}
+
+AbstractTensor& AbstractTensor::stack(AbstractTensor tensor) {
+  NVF_CHECK(
+      domain.size() == tensor.domain.size(),
+      "Can not stack AbstractTensors with different number of domains.");
+
+  for (auto i : c10::irange(domain.size())) {
+    domain[i].as<std::vector>().push_back(std::move(tensor.domain[i]));
+  }
+
+  return *this;
+}
+
 } // namespace nvfuser
