@@ -1536,55 +1536,6 @@ static Val* matrixDescriptorEncode(Val* x) {
   return IrBuilder::rShiftExpr(x_and, shift);
 }
 
-static Val* getMatrixBaseOffset(
-    const MmaOp* mma,
-    TensorView* producer,
-    const std::vector<ForLoop*>& loops,
-    const std::unordered_set<ForLoop*>& rotated_loops,
-    int64_t inner_size) {
-  // TODO:
-  const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
-  ValGraph& id_graph = indexer.traversalGraph();
-
-  // Find the ValGroup to index.
-  // The ValGroup to index is the inner input of swizzle op.
-  auto exprs = ValGraphBFS::getExprsBetween(
-      id_graph,
-      id_graph.toGroups(producer->getLogicalDomain()),
-      id_graph.toGroups(producer->getAllocationDomain()));
-  ExprGroup swizzle = nullptr;
-  Direction dir = Direction::Undefined;
-  for (auto [eg, direction] : exprs) {
-    if (eg->front()->isA<Swizzle>()) {
-      NVF_ERROR(
-          swizzle == nullptr,
-          "Unable to infer matrix base offset for MMA input: ",
-          "expect only one swizzle expression between the logical and allocation domain of MMA input");
-      swizzle = eg;
-      dir = direction;
-    }
-  }
-  if (swizzle == nullptr) {
-    return IrBuilder::create<Val>(0, DataType::UInt);
-  }
-  auto from =
-      (dir == Direction::Forward ? id_graph.inputGroups(swizzle)
-                                 : id_graph.outputGroups(swizzle));
-  auto index_group = from.back();
-
-  // Get index
-  auto indices = indexer.getIndexFor(mma, false, {index_group}, loops);
-  NVF_ERROR(indices.size() == 1);
-  int64_t inner_size_as_multiple_of_16B =
-      inner_size * dataTypeSize(producer->dtype()) / 16;
-  return maybeCastOp(
-      DataType::UInt,
-      SimplifyingIrBuilder::divExpr(
-          indices.front(),
-          IrBuilder::create<Val>(
-              inner_size_as_multiple_of_16B, DataType::Index)));
-}
-
 static Val* constructMatrixDescriptor(
     Val* start_address,
     Val* leading_dim_byte_offset,
@@ -1628,16 +1579,6 @@ static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   NVF_ERROR(swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
   return getSwizzleFromBytes(
       swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
-}
-
-Val* getMatrixBaseOffset(Val* pattern_start_addr) {
-  // See:
-  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
-  pattern_start_addr = maybeCastOp(DataType::UInt, pattern_start_addr);
-  auto shf = IrBuilder::rShiftExpr(
-      pattern_start_addr, IrBuilder::create<Val>(0x7, DataType::UInt));
-  return IrBuilder::bitwiseAndExpr(
-      shf, IrBuilder::create<Val>(0x7, DataType::UInt));
 }
 
 // Reference for smem strides:
@@ -1704,8 +1645,6 @@ void IndexLowering::handle(const MmaOp* mma) {
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
         IrBuilder::create<Val>(stride_bytes, DataType::UInt),
         IrBuilder::create<Val>(0, DataType::UInt),
-        // getMatrixBaseOffset(base_addr),
-        // getMatrixBaseOffset(mma, tv, for_loops_, rotated_loop_, inner_size),
         swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
         tv,
