@@ -4584,25 +4584,21 @@ class TestNvFuserFrontend(TestCase):
                     )
                 torch.testing.assert_close(nvf_out[0], ref_out)
 
-        def test_sdpa_bwd(self):
-        N = 16
-        H = 32
-        L = 64
-        S = 128
-        E = 64
+    def test_sdpa_bwd(self):
+        N, H, L, S, E = 4, 8, 16, 16, 8
 
         grad_output = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
         q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
         k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
         v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
 
-        dropout_p = 0.0
+        dropout_p = 0.2
         is_causal = False
-        output, log_sumexp, cum_seq_q, cum_seq_q, query_seq_len, key_seq_len, philox_seed, philox_offset, _ = torch.ops.aten._scaled_dot_product_flash_attention(
+        output, log_sumexp, cum_seq_q, cum_seq_k, query_seq_len, key_seq_len, philox_seed, philox_offset, _ = torch.ops.aten._scaled_dot_product_flash_attention(
             q, k, v, dropout_p, is_causal, return_debug_mask=False, scale = 1 / E**0.5
         )
 
-        ref_grad = torch.ops.aten._scaled_dot_product_flash_attention(
+        ref_grad = torch.ops.aten._scaled_dot_product_flash_attention_backward(
             q, k, v, dropout_p, is_causal, return_debug_mask=False, scale = 1 / E**0.5
         )
 
@@ -4635,11 +4631,7 @@ class TestNvFuserFrontend(TestCase):
         torch.testing.assert_close(nvf_out[2], ref_grad[2])
 
     def test_sdpa_fwd_bwd(self):
-        N = 16
-        H = 32
-        L = 64
-        S = 128
-        E = 64
+        N, H, L, S, E = 4, 8, 16, 16, 8
 
         inputs = [
             torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0", requires_grad=True),
