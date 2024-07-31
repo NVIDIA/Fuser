@@ -263,28 +263,6 @@ class NVF_API Fusion : public IrContainer {
   //! aliased.
   const AliasInfo& getOutputAlias(const Val* output) const;
 
-  // mark input at index to be permuted by permutation
-  void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
-    permuted_input_map_.insert({index, permutation});
-  }
-
-  // mark output at index to be restored by permutation
-  void setPermutationOnOutput(int index, std::vector<int64_t> permutation) {
-    permuted_output_map_.insert({index, permutation});
-  }
-
-  // return a map of indices to permutation, which indicates all input tensors
-  // that needs to be permuted
-  const PermutationMap& getPermutationInputMap() const {
-    return permuted_input_map_;
-  }
-
-  // return a map of indices to permutation, which indicates all output tensors
-  // that needs to be permuted
-  const PermutationMap& getPermutationOutputMap() const {
-    return permuted_output_map_;
-  }
-
   bool isTVUseInfoValid() {
     return all_tv_uses_valid_;
   }
@@ -494,12 +472,6 @@ class NVF_API Fusion : public IrContainer {
 
   // io alias pointing from output to input
   std::unordered_map<const Val*, AliasInfo> io_alias_;
-
-  // See Note [ Permutation support in nvfuser ]
-  // map from indices of input tensor to permutation
-  PermutationMap permuted_input_map_;
-  // map from indices of output tensor to permutation
-  PermutationMap permuted_output_map_;
 
   // Records if the current use data in the IR nodes are valid
   //  the states are either all valid or all invalid
