@@ -7,6 +7,7 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_cuda_cache
 import torch
 import thunder
+from thunder.executors.nvfuserex import nvfuserex
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
 
@@ -20,6 +21,8 @@ def get_n_goups(C):
     return num_groups
 
 
+# This version is based on requires_grad = False.
+# When requires_grad = True, two additional tensors (T4, T14) are added to outputs.
 def groupnorm_fwd_fusion(
     fd: FusionDefinition,
     dtype: DataType,
@@ -141,8 +144,9 @@ def test_groupnorm_fwd_thunder_benchmark(
     bias = torch.randn(C, device="cuda", dtype=dtype, requires_grad=True)
     num_groups = get_n_goups(C)
     # thunder compiled model
-    from thunder.executors.nvfuserex import nvfuserex
-    groupnorm_fwd_jit = thunder.jit(groupnorm_fwd, nv_enable_bookend=False, executors=[nvfuserex])
+    groupnorm_fwd_jit = thunder.jit(
+        groupnorm_fwd, nv_enable_bookend=False, executors=[nvfuserex]
+    )
     run_benchmark(benchmark, groupnorm_fwd_jit, [x, weight, bias, num_groups])
 
 
