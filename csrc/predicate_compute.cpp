@@ -255,14 +255,54 @@ UnswitchPredicateKey::UnswitchPredicateKey()
 UnswitchPredicateKey::UnswitchPredicateKey(
     IterDomain* predicated_consumer_id,
     TensorView* consumer_tv,
-    IterDomain* predicated_concrete_id)
-    : predicated_concrete_id_(predicated_concrete_id) {
+    IterDomain* predicated_concrete_id,
+    std::unordered_set<IterDomain*> loop_ids)
+    : predicated_concrete_id_(predicated_concrete_id),
+      loop_ids_(std::move(loop_ids)) {
   // Initialize the parallelized domain map
+  // TODO: Add DID
   for (auto pt : kParallelTypeThreads) {
     parallel_concrete_ids_.insert({pt, nullptr});
   }
 
   std::vector<Val*> all_parallelized_consumer_loop_ids;
+
+  // Identify which parallel type is used for which loop domain for
+  // this index. This information is obtained here for the legacy method by
+  // looking at the dependency between the predicated domain and the
+  // loop domains of the tensor. However, in the case of the new
+  // indexer, that information is not readily available since the
+  // indexing graph needs to be traversed. Instead, the loop
+  // dependency information is given to this constructor in the case
+  // of the new indexer.
+  //
+  // TODO: Clean up once the migration to the new indexer is
+  // completed.
+  //
+  // When loop_ids_ is not empty, the correct loop domains are already
+  // given to this class. That's the case when using the new
+  // indexer. When given, use them to figure out which parallel type
+  // is used for which loop domain.
+  if (!loop_ids_.empty()) {
+    for (auto loop_id : loop_ids_) {
+      auto pt = loop_id->getParallelType();
+      // DID is ignored.
+      // TODO: support DID
+      if (isParallelTypeThread(pt)) {
+        // This map is supposed to contain CA conrete IDs but as long
+        // as they are uniquely mapped to some representative domains,
+        // it should work.
+        parallel_concrete_ids_.at(pt) = GpuLower::current()
+                                            ->tensorIndexer()
+                                            .traversalGraph()
+                                            .toGroup(loop_id)
+                                            ->front()
+                                            ->as<IterDomain>();
+      }
+    }
+    return;
+  }
+
   std::copy_if(
       consumer_tv->getLoopDomain().begin(),
       consumer_tv->getLoopDomain().end(),
@@ -521,7 +561,8 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
         continue;
       }
 
-      UnswitchPredicateKey key(root_id, out_tv, concrete_root_id);
+      UnswitchPredicateKey key(
+          root_id, out_tv, concrete_root_id, pred_info.loopDomains());
       auto inserted = predicated_keys_.insert(key).second;
       add_pred = add_pred || inserted;
 
@@ -556,6 +597,11 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
 
       // To look up this MergedPredicates for other predicates
       // generated for the same predicate key
+      // TODO: This seems to assume the merge logic is only necessary
+      // for shift predicates. Now that it's removed, it should be
+      // possible to clean this up.
+      // TODO: This doesn't seem to work if circular buffer predicates
+      // are involved with contig indexing.
       if (root_ids.size() == 1) {
         merged_pred.predicate_key = first_key;
       }

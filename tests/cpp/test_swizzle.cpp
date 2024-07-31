@@ -727,9 +727,9 @@ TEST_F(SwizzleTest, Transpose1) {
   loop.parallelize(2, ParallelType::TIDx);
   // BIDx, 4, TIDx
 
-  auto ub = loop.unzip();
-  tv1->setLoopDomain(ub[0].as<IterDomain*>());
-  tv2->setLoopDomain(ub[1].as<IterDomain*>());
+  auto uz = loop.unzip();
+  tv1->setLoopDomain(uz[0].as<IterDomain*>());
+  tv2->setLoopDomain(uz[1].as<IterDomain*>());
 
   inlineMost();
 

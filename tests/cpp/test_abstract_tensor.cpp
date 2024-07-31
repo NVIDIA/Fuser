@@ -691,12 +691,12 @@ TEST_F(AbstractTensorTest, Unzip) {
   auto id2 = newID();
   auto id3 = newID();
   const AbstractTensor v({{id0, id1}, {id2, id3}});
-  auto ub = v.unzip();
-  ASSERT_EQ(ub.size(), 2);
+  auto uz = v.unzip();
+  ASSERT_EQ(uz.size(), 2);
   AbstractTensor expect0{id0, id2};
   AbstractTensor expect1{id1, id3};
-  EXPECT_EQ(ub[0], expect0);
-  EXPECT_EQ(ub[1], expect1);
+  EXPECT_EQ(uz[0], expect0);
+  EXPECT_EQ(uz[1], expect1);
 }
 
 TEST_F(AbstractTensorTest, UnzipBroadcasting) {
@@ -704,12 +704,41 @@ TEST_F(AbstractTensorTest, UnzipBroadcasting) {
   auto id1 = newID();
   auto id2 = newID();
   const AbstractTensor v({id0, {id1, id2}});
-  auto ub = v.unzip();
-  ASSERT_EQ(ub.size(), 2);
+  auto uz = v.unzip();
+  ASSERT_EQ(uz.size(), 2);
   AbstractTensor expect0{id0, id1};
   AbstractTensor expect1{id0, id2};
-  EXPECT_EQ(ub[0], expect0);
-  EXPECT_EQ(ub[1], expect1);
+  EXPECT_EQ(uz[0], expect0);
+  EXPECT_EQ(uz[1], expect1);
+}
+
+TEST_F(AbstractTensorTest, PlaceHolder) {
+  AbstractTensor v({{}, {}});
+  EXPECT_EQ(v.size(), 2);
+  for (auto i : v) {
+    EXPECT_FALSE(i.hasValue());
+  }
+
+  v.split(0, 2);
+  EXPECT_EQ(v.size(), 3);
+  for (auto i : v) {
+    EXPECT_FALSE(i.hasValue());
+  }
+
+  v.merge(0);
+  EXPECT_EQ(v.size(), 2);
+  for (auto i : v) {
+    EXPECT_FALSE(i.hasValue());
+  }
+
+  v.swizzle(SwizzleType::XOR, 0, 1);
+  EXPECT_EQ(v.size(), 2);
+  for (auto i : v) {
+    EXPECT_FALSE(i.hasValue());
+  }
+
+  v.strip();
+  EXPECT_TRUE(v.empty());
 }
 
 TEST_F(AbstractTensorTest, Parallelize) {
