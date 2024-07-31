@@ -20,7 +20,7 @@ class MultiDeviceTutorial : public MultiDeviceTest {
 
   void SetUp() {
     MultiDeviceTest::SetUp();
-    if (communicator_->is_available() == false) {
+    if (!communicator_->is_available()) {
       GTEST_SKIP()
           << "Distributed setting not available. "
           << "Make sure you are on a node with n>1 GPUs and run "
@@ -38,9 +38,9 @@ bool MultiDeviceTutorial::verbose_ = false;
 //
 // mpirun -np n -x TUTORIAL_VERBOSE=1 tutorial_multidevice
 //
-// We use a SPMD paradigm, where each host process manages one and only device.
-// Therefore, the number of process "n" aboves needs to be less or equal than
-// the number of GPUs in the node.
+// We use a SPMD paradigm, where each host process manages one and only device,
+// and each device executes the same program. Therefore, the number of process
+// "n" aboves needs to be less or equal than the number of GPUs in the node.
 //
 // The first object we need to introduce is the class `Communicator` which is
 // a convenience that is nvFuser's interface to runtime distributed setting
@@ -100,14 +100,13 @@ TEST_F(MultiDeviceTutorial, CommunicatorAndC10d) {
       all_devices.begin(),
       all_devices.end(),
       0); // all_devices = [0,1,..., communicator->size()-1]
-  Team& team = all_devices;
+  const Team& team = all_devices;
   // - (optionally) the backend type, between UCC and NCCL
-  CommunicatorBackend backend_type =
-      CommunicatorBackend::nccl; // or CommunicatorBackend::ucc
+  auto backend_type = CommunicatorBackend::nccl; // or CommunicatorBackend::ucc
   // the backend_type is an optional argument. By default it will choose nccl if
   // available, ucc otherwise. We can check that the requested backend is indeed
   // available
-  if (communicator->isBackendAvailable(backend_type) == false) {
+  if (!communicator->isBackendAvailable(backend_type)) {
     GTEST_SKIP() << "Backend not available";
   }
 
@@ -119,11 +118,11 @@ TEST_F(MultiDeviceTutorial, CommunicatorAndC10d) {
   // internally in nvFuser to execute collectives, but this is typically too low
   // level to be exposed to the user. Let us show for convenience how this torch
   // library is used on a simple example, e.g., "allreduce" a single buffer
-  constexpr int64_t tensor_length = 128;
+  constexpr int64_t kTensorLength = 128;
   // each ranks will allocate a buffer on a different device
   c10::TensorOptions tensor_options =
       at::TensorOptions().device(communicator->device());
-  std::vector<at::Tensor> buffers = {at::ones({tensor_length}, tensor_options)};
+  std::vector<at::Tensor> buffers = {at::ones({kTensorLength}, tensor_options)};
   //  Posting a collective is non-blocking and returns a work handle
   //  `c10d::Work`
   c10::intrusive_ptr<c10d::Work> work_handle = backend->allreduce(
@@ -141,7 +140,7 @@ TEST_F(MultiDeviceTutorial, CommunicatorAndC10d) {
 
   // Let us validate the result:
   at::Tensor expected_result =
-      at::ones({tensor_length}, tensor_options) * communicator->size();
+      at::ones({kTensorLength}, tensor_options) * communicator->size();
   EXPECT_TRUE(buffers.at(0).equal(expected_result));
 }
 
@@ -261,9 +260,9 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
     MultiDeviceExecutor multidevice_executor(
         std::make_unique<Fusion>(fusion), *communicator);
     // here, the compute is done on device 0 only. Other devices don't even read
-    // the input. However, the shape of the input is used to infer subsequent
-    // tensors' shape, therefore, we still need to give each device inputs with
-    // valid shapes.
+    // the input's data. However, the shape of the input is used to infer the
+    // concrete shape of tv0 and subsequent tensors' shape. Therefore, we still
+    // need to give each device inputs with valid shapes.
     at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
 
     // VALIDATION
@@ -282,8 +281,6 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
 // pipeling will require a network communication between the two pipeline
 // Stages.
 TEST_F(MultiDeviceTutorial, SimplePipelining) {
-  Communicator* const communicator = communicator_;
-
   // MODEL DEFINITION
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -312,9 +309,9 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   // More precisely, to produce tv2, we need device 0 to send tv1 to device 1.
 
   MultiDeviceExecutor multidevice_executor(
-      std::make_unique<Fusion>(fusion), *communicator);
-  if (verbose_ && communicator->deviceId() < 2) {
-    std::cout << "Device ID = " << communicator->deviceId() << std::endl;
+      std::make_unique<Fusion>(fusion), *communicator_);
+  if (verbose_ && communicator_->deviceId() < 2) {
+    std::cout << "Device ID = " << communicator_->deviceId() << std::endl;
     multidevice_executor.print();
     // Printing shows that device 0 and device 1 execute different programs.
     // Both devices participate to a "Communication/Wait" which has been added
@@ -364,13 +361,13 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   // RUNTIME
   // Set up the input
   const c10::TensorOptions tensor_options =
-      at::TensorOptions().device(communicator->device()).dtype(at::kFloat);
+      at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // each rank allocates a tensor on a different device
   at::Tensor input = at::ones({tensor_size}, tensor_options);
   at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
 
   // VALIDATION
-  if (communicator->deviceId() == 1) {
+  if (communicator_->deviceId() == 1) {
     at::Tensor ref_output = torch::square(input * 2);
     EXPECT_TRUE(output.equal(ref_output));
   } else {
