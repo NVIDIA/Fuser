@@ -5,12 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/builder.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-
 #include <algorithm>
 #include <limits>
+
+#include <ir/builder.h>
+#include <ir/utils.h>
+#include <ops/arith.h>
+#include <ops/utils.h>
 
 namespace nvfuser {
 namespace ops {
@@ -263,6 +264,22 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
   return mapping;
 }
 
+namespace {
+ParallelType promoteParallelType(ParallelType a, ParallelType b) {
+  if (a == b) {
+    return a;
+  }
+  NVF_ERROR(
+      a == ParallelType::Serial || b == ParallelType::Serial,
+      "Doesn't know how to resolve ",
+      a,
+      " and ",
+      b,
+      " at this moment.");
+  return a == ParallelType::Serial ? b : a;
+}
+} // namespace
+
 // Adding these pragmas since gcc-12.2.1
 // incorrectly reports a warning with the use of evaluate
 #if defined(__GNUC__) && !defined(__clang__)
@@ -282,19 +299,15 @@ IterDomain* newOutputIterDomain(
   Val* extent_val = nullptr;
   bool extent_is_from_symbolic = true;
   Val* expanded_extent_val = nullptr;
+  auto parallel_type = ParallelType::Serial;
   std::optional<IterType> iter_type = std::nullopt;
 
-  std::vector<IterDomain*> ids;
-  ids.reserve(input_ids.size());
+  for (auto id : input_ids) {
+    // Filter out any nullptrs
+    if (id == nullptr) {
+      continue;
+    }
 
-  // Filter out any nullptrs
-  std::copy_if(
-      input_ids.begin(),
-      input_ids.end(),
-      std::back_inserter(ids),
-      [](IterDomain* id) { return id != nullptr; });
-
-  for (auto id : ids) {
     if (id->isBroadcast()) {
       if (id->hasExpandedExtent()) {
         expanded_extent_val =
@@ -302,6 +315,9 @@ IterDomain* newOutputIterDomain(
       }
       continue;
     }
+
+    parallel_type = promoteParallelType(parallel_type, id->getParallelType());
+
     if (extent_is_from_symbolic && !id->isSymbolic()) {
       // We prefer to use extents from non-Symbolic inputs if there are any
       // because they might indicate a broadcast axis that is resolved in this
@@ -347,6 +363,7 @@ IterDomain* newOutputIterDomain(
         IterDomainBuilder(
             IrBuilder::create<Val>(start_offset, DataType::Index), extent_val)
             .stop_offset(IrBuilder::create<Val>(stop_offset, DataType::Index))
+            .parallel_type(parallel_type)
             .iter_type(iter_type.value())
             .build();
   } else {
@@ -354,6 +371,7 @@ IterDomain* newOutputIterDomain(
                      FusionGuard::getCurFusion()->zeroVal(),
                      FusionGuard::getCurFusion()->oneVal())
                      .expanded_extent(expanded_extent_val)
+                     .parallel_type(parallel_type)
                      .iter_type(IterType::Broadcast)
                      .build();
   }
@@ -366,8 +384,8 @@ IterDomain* newOutputIterDomain(
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<TensorView*> tvs;
   for (auto val : vals) {
-    if (val->getValType() == ValType::TensorView) {
-      tvs.push_back(val->as<TensorView>());
+    if (auto* tv = dynamic_cast<TensorView*>(val)) {
+      tvs.push_back(tv);
     }
   }
   NVF_CHECK(
@@ -380,7 +398,7 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   for (const auto dim_i : c10::irange(out_domain.size())) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(tvs.size());
-    for (auto tv : tvs) {
+    for (auto* tv : tvs) {
       auto dom = TensorDomain::noReductions(tv->getLogicalDomain());
       input_ids.emplace_back(dom[dim_i]);
     }
@@ -391,10 +409,31 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
   auto out_domain = newOutputDomain(vals);
-  return IrBuilder::create<TensorView>(
+  auto* new_out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       dtype);
+
+  DeviceMesh new_mesh;
+  for (auto* tv : ir_utils::filterByType<TensorView>(vals)) {
+    const DeviceMesh& mesh = tv->getDeviceMesh();
+    if (mesh.empty()) {
+      continue;
+    }
+    if (new_mesh.empty()) {
+      new_mesh = mesh;
+    } else {
+      NVF_ERROR(
+          new_mesh == mesh,
+          "Inconsistent device mesh among inputs: ",
+          new_mesh,
+          " vs ",
+          mesh);
+    }
+  }
+  new_out->setDeviceMesh(new_mesh);
+
+  return new_out;
 }
 
 std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
@@ -424,9 +463,7 @@ Val* newValLike(Val* val, DataType dtype) {
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
-  const ValType vtype = val->getValType().value();
-
-  if (vtype == ValType::TensorView) {
+  if (val->isA<TensorView>()) {
     return newOutputTV({val}, dtype);
   }
 

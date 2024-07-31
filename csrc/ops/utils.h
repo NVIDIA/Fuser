@@ -84,8 +84,10 @@ IterDomain* newOutputIterDomain(
     const std::vector<IterDomain*>& ids,
     const std::optional<IterType> force_iter_type = std::nullopt);
 
-// Takes a vector of tensorviews and assumes they are all aligned to create the
-// output tensorview. For eg: BinaryOp.
+// Takes a vector of `Val*`s and assumes they are all aligned to create the
+// output tensorview, e.g., for BinaryOp. `vals` can contain scalars, e.g, when
+// creating the output TensorView for `tv0+scalar`. This is for convenience and
+// scalars will be ignored.
 std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals);
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype);

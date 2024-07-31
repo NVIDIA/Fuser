@@ -391,7 +391,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
 }
 
 // Reproduces #2721.
-TEST_F(DistributedMatmulTest, DISABLED_PresegPreservesSharding) {
+TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
@@ -416,7 +416,8 @@ TEST_F(DistributedMatmulTest, DISABLED_PresegPreservesSharding) {
 
   const auto options = at::TensorOptions().device(communicator_->device());
   auto x_tensor = at::randn({12, 48}, options);
-  auto w0_tensor = at::randn({1, 36, 48}, options);
+  auto w_tensor = at::randn({mesh.size(), 36, 48}, options);
+  auto sharded_w_tensor = shardTensor(w_tensor, w);
 
   hir::HostIrExecutorParams executor_params{
       .use_fusion_executor_cache = true,
@@ -424,7 +425,20 @@ TEST_F(DistributedMatmulTest, DISABLED_PresegPreservesSharding) {
       .cache_fusion_executor = false};
   MultiDeviceExecutor runtime(
       std::move(fusion), *communicator_, executor_params);
-  runtime.runWithInput({x_tensor, w0_tensor});
+  std::vector<c10::IValue> inputs({x_tensor, sharded_w_tensor});
+  std::vector<at::Tensor> outputs = runtime.runWithInput(inputs);
+
+  at::Tensor expected_mm_t_tensor =
+      atMatmul(x_tensor, w_tensor.view({mesh.size() * 36, 48}), MmaLayout::TN)
+          .transpose(0, 1)
+          .view({mesh.size(), 36, 12});
+  testValidate(
+      runtime.completeFusion(),
+      outputs,
+      inputs,
+      {shardTensor(expected_mm_t_tensor, mm_t)},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser
