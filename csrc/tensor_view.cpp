@@ -462,8 +462,12 @@ void TensorView::clearComputeWith() {
   NVF_ERROR(compute_with_consumers_.empty());
 }
 
-TensorView* TensorView::broadcast(int64_t axis) {
-  domain()->broadcast(axis);
+TensorView* TensorView::broadcast(int64_t axis, int64_t extent) {
+  return broadcast(axis, IrBuilder::create<Val>(extent, DataType::Index));
+}
+
+TensorView* TensorView::broadcast(int64_t axis, Val* extent) {
+  domain()->broadcast(axis, extent);
   return this;
 }
 
