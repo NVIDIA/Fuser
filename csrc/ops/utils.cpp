@@ -415,20 +415,13 @@ TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
       dtype);
 
   DeviceMesh new_mesh;
+  // Find the first input that has a mesh. This seems arbitrary, but is at this
+  // moment safest because it's consistent with PropagateShardingsPass.
   for (auto* tv : ir_utils::filterByType<TensorView>(vals)) {
     const DeviceMesh& mesh = tv->getDeviceMesh();
-    if (mesh.empty()) {
-      continue;
-    }
-    if (new_mesh.empty()) {
+    if (!mesh.empty()) {
       new_mesh = mesh;
-    } else {
-      NVF_ERROR(
-          new_mesh == mesh,
-          "Inconsistent device mesh among inputs: ",
-          new_mesh,
-          " vs ",
-          mesh);
+      break;
     }
   }
   new_out->setDeviceMesh(new_mesh);
